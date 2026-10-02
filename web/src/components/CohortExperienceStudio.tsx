@@ -37,13 +37,16 @@ export function CohortExperienceStudio({
   cohortsLoading,
   mutationLifecycle,
   onDirtyChange,
+  selectedCohortId,
+  onSelectedCohortIdChange,
 }: {
   cohorts: AdminPersonaAssignableCohort[]
   cohortsLoading: boolean
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
+  selectedCohortId: number | null
+  onSelectedCohortIdChange: (cohortId: number | null) => void
 }) {
-  const [selectedCohortId, setSelectedCohortId] = useState<number | null>(cohorts[0]?.id ?? null)
   const [configuration, setConfiguration] = useState<CohortExperienceConfiguration | null>(null)
   const [draft, setDraft] = useState<CohortExperienceDraft | null>(null)
   const [preview, setPreview] = useState<CohortExperiencePreview | null>(null)
@@ -68,8 +71,8 @@ export function CohortExperienceStudio({
     setError(null)
     setNotice(null)
     setPendingAction(cohortId ? 'load' : null)
-    setSelectedCohortId(cohortId)
-  }, [])
+    onSelectedCohortIdChange(cohortId)
+  }, [onSelectedCohortIdChange])
 
   useEffect(() => {
     if (selectedCohortId && cohorts.some((cohort) => cohort.id === selectedCohortId)) return

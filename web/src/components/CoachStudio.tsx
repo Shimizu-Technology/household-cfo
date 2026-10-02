@@ -41,6 +41,7 @@ import {
 } from '../lib/personaDraft'
 import { Button } from './Button'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
+import { CohortReleaseStudio } from './CohortReleaseStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
 import { PersonaSetupChat } from './PersonaSetupChat'
 import { PersonaReleasePanel, type PersonaPublishEvidence } from './PersonaReleasePanel'
@@ -60,7 +61,7 @@ type GuidedStep = (typeof guidedSteps)[number]['id']
 type EditorMode = 'setup' | 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'draft_restore' | 'assignment' | 'phrase_restore' | null
-type StudioSection = 'assistants' | 'library' | 'participant_tools'
+type StudioSection = 'assistants' | 'library' | 'participant_tools' | 'cohort_releases'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId: activeWorkspaceId, selectCoachWorkspace } = useAuthContext()
@@ -90,6 +91,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [pendingSelectionId, setPendingSelectionId] = useState<number | null>(null)
   const [pendingLibraryReturn, setPendingLibraryReturn] = useState(false)
   const [experienceDirty, setExperienceDirty] = useState(false)
+  const [selectedCohortId, setSelectedCohortId] = useState<number | null>(null)
   const [studioSection, setStudioSection] = useState<StudioSection>('assistants')
   const [libraryDirty, setLibraryDirty] = useState(false)
   const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
@@ -174,6 +176,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       if (requestId !== loadPersonasRequestRef.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       setPersonas(nextPersonas)
       setCohorts(nextCohorts)
+      setSelectedCohortId((current) => current && nextCohorts.some((cohort) => cohort.id === current) ? current : nextCohorts[0]?.id ?? null)
       const candidateId = preferredId
         ?? selectedIdRef.current
         ?? nextPersonas.find((persona) => persona.status !== 'archived')?.id
@@ -262,6 +265,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     selectedIdRef.current = null
     setPersonas([])
     setCohorts([])
+    setSelectedCohortId(null)
     setSelectedPersona(null)
     setDraft(null)
     setPreview(null)
@@ -708,6 +712,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         <button type="button" role="tab" id="coach-studio-tab-participant-tools" aria-controls="coach-studio-panel-participant-tools" aria-selected={studioSection === 'participant_tools'} tabIndex={studioSection === 'participant_tools' ? 0 : -1} data-studio-section="participant_tools" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('participant_tools')}>
           <strong>Participant tools</strong><small>Choose the cohort's optional learning tools</small>
         </button>
+        <button type="button" role="tab" id="coach-studio-tab-cohort-releases" aria-controls="coach-studio-panel-cohort-releases" aria-selected={studioSection === 'cohort_releases'} tabIndex={studioSection === 'cohort_releases' ? 0 : -1} data-studio-section="cohort_releases" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('cohort_releases')}>
+          <strong>Cohort releases</strong><small>Review and seal the assistant and tools together</small>
+        </button>
       </nav>
 
       {studioSection === 'library' ? (
@@ -726,7 +733,11 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         </div>
       ) : studioSection === 'participant_tools' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-participant-tools" aria-labelledby="coach-studio-tab-participant-tools" tabIndex={0}>
-          <CohortExperienceStudio key={activeWorkspaceId ?? 'legacy'} cohorts={cohorts} cohortsLoading={loading} mutationLifecycle={workspaceMutations} onDirtyChange={setExperienceDirty} />
+          <CohortExperienceStudio key={activeWorkspaceId ?? 'legacy'} cohorts={cohorts} cohortsLoading={loading} mutationLifecycle={workspaceMutations} onDirtyChange={setExperienceDirty} selectedCohortId={selectedCohortId} onSelectedCohortIdChange={setSelectedCohortId} />
+        </div>
+      ) : studioSection === 'cohort_releases' ? (
+        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-cohort-releases" aria-labelledby="coach-studio-tab-cohort-releases" tabIndex={0}>
+          <CohortReleaseStudio key={activeWorkspaceId ?? 'legacy'} cohorts={cohorts} cohortsLoading={loading} mutationLifecycle={workspaceMutations} selectedCohortId={selectedCohortId} onSelectedCohortIdChange={setSelectedCohortId} />
         </div>
       ) : <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-assistants" aria-labelledby="coach-studio-tab-assistants" tabIndex={0}>
 

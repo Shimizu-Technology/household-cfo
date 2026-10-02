@@ -1222,6 +1222,95 @@ test.beforeEach(async ({ page }) => {
   }, chatMessages(100))
 })
 
+test('Cohort releases stays truthful, keyboard usable, and responsive', async ({ page }, testInfo) => {
+  let latestReleaseMatch = false
+  let releaseNumber = 4
+  const releaseStudio = () => ({
+    cohort_release_studio: {
+      cohort: { id: 41, name: 'Household CFO pilot', status: 'active' },
+      runtime_truth: { changes_participant_runtime: false, message: 'Release records are audit evidence. They do not change participant runtime.' },
+      permissions: { view: true, seal: true, restore: true },
+      readiness: {
+        ready: true,
+        seal_needed: !latestReleaseMatch,
+        latest_release_match: latestReleaseMatch,
+        expected_latest_release_id: latestReleaseMatch ? 405 : 404,
+        blockers: [], warnings: [],
+        checks: [
+          { key: 'assistant_voice', label: 'Assistant voice', ready: true, detail: 'Version 6 is published.' },
+          { key: 'participant_tools', label: 'Participant tools', ready: true, detail: 'Version 8 is published.' },
+          { key: 'system_controls', label: 'System controls', ready: true, detail: 'Registry version 3 is ready.' },
+          { key: 'participant_cohort', label: 'Participant cohort check', ready: true, detail: 'No ambiguous participants.' },
+        ],
+        candidate: {
+          bundle_digest: 'release-bundle-next', assignment_id: 91,
+          coach_persona_version_id: 6, cohort_experience_version_id: 8,
+          tool_registry_digest: 'tool-registry-v3', tool_registry_version: 3,
+        },
+      },
+      releases: [{
+        id: latestReleaseMatch ? 405 : 404,
+        release_number: releaseNumber,
+        event_type: 'release', released_at: '2026-10-03T01:00:00Z', actor_user_id: 901,
+        bundle_digest: latestReleaseMatch ? 'release-bundle-next' : 'release-bundle-old',
+        coach_persona_version_id: latestReleaseMatch ? 6 : 5,
+        cohort_experience_version_id: latestReleaseMatch ? 8 : 7,
+        tool_registry_digest: latestReleaseMatch ? 'tool-registry-v3' : 'tool-registry-v2',
+        tool_registry_version: latestReleaseMatch ? 3 : 2,
+        source_release_id: null, restore_allowed: !latestReleaseMatch, restore_reason: null,
+      }],
+    },
+  })
+  await page.route('http://api.test/api/v1/admin/cohorts/41/releases', async (route) => {
+    if (route.request().method() === 'POST') {
+      const request = route.request()
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      expect(request.postDataJSON().release).toMatchObject({
+        expected_bundle_digest: 'release-bundle-next',
+        expected_assignment_id: 91,
+        expected_persona_version_id: 6,
+        expected_experience_version_id: 8,
+        expected_tool_registry_digest: 'tool-registry-v3',
+        expected_tool_registry_version: 3,
+        expected_latest_release_id: 404,
+      })
+      latestReleaseMatch = true
+      releaseNumber = 5
+      return route.fulfill({ status: 201, json: { release: { id: 405 } } })
+    }
+    return route.fulfill({ status: 200, json: releaseStudio() })
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  const releaseTab = page.getByRole('tab', { name: /Cohort releases/ })
+  await releaseTab.click()
+  await expect(page.getByRole('heading', { name: 'Review and seal the assistant and tools together' })).toBeVisible()
+  await expect(page.getByText('Release records are audit evidence.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Ready to seal' })).toBeVisible()
+  await expect(page.getByText('Latest sealed record')).toBeVisible()
+
+  const tabs = page.getByRole('tab')
+  expect(await tabs.count()).toBe(4)
+  const tabBoxes = await Promise.all(Array.from({ length: 4 }, (_, index) => tabs.nth(index).boundingBox()))
+  if (testInfo.project.name.includes('mobile')) {
+    expect(tabBoxes[0]?.y).toBeCloseTo(tabBoxes[1]?.y ?? 0, 0)
+    expect(tabBoxes[2]?.y).toBeCloseTo(tabBoxes[3]?.y ?? 0, 0)
+    expect((tabBoxes[2]?.y ?? 0) > (tabBoxes[0]?.y ?? 0)).toBe(true)
+  } else if (testInfo.project.name === 'desktop-chrome') {
+    expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(1)
+  }
+
+  const sealButton = page.getByRole('button', { name: 'Review and seal record' })
+  await sealButton.click()
+  const dialog = page.getByRole('dialog', { name: 'Seal this release record?' })
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await dialog.getByRole('button', { name: 'Seal release record' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Participant runtime did not change.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Latest evidence already sealed' })).toBeDisabled()
+  await expect(page.getByText('The latest sealed record already matches this exact assistant and tool bundle.')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
 test('Mia memory stays explicit, reversible, and usable on mobile and desktop', async ({ page }) => {
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
   await page.goto('/?pilot_e2e_role=participant')
@@ -5475,15 +5564,19 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
   const assistantTab = page.getByRole('tab', { name: /Assistant voice/ })
   const libraryTab = page.getByRole('tab', { name: /Coaching Library/ })
   const participantToolsTab = page.getByRole('tab', { name: /Participant tools/ })
+  const cohortReleasesTab = page.getByRole('tab', { name: /Cohort releases/ })
   await expect(assistantTab).toHaveAttribute('id', 'coach-studio-tab-assistants')
   await expect(assistantTab).toHaveAttribute('aria-controls', 'coach-studio-panel-assistants')
   await expect(assistantTab).toHaveAttribute('tabindex', '0')
   await expect(page.locator('#coach-studio-panel-assistants')).toHaveAttribute('aria-labelledby', 'coach-studio-tab-assistants')
   await assistantTab.focus()
   await assistantTab.press('End')
+  await expect(cohortReleasesTab).toBeFocused()
+  await expect(cohortReleasesTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('#coach-studio-panel-cohort-releases')).toBeVisible()
+  await cohortReleasesTab.press('ArrowLeft')
   await expect(participantToolsTab).toBeFocused()
   await expect(participantToolsTab).toHaveAttribute('aria-selected', 'true')
-  await expect(page.locator('#coach-studio-panel-participant-tools')).toBeVisible()
   await participantToolsTab.press('ArrowLeft')
   await expect(libraryTab).toBeFocused()
   await expect(libraryTab).toHaveAttribute('aria-selected', 'true')

@@ -33,7 +33,7 @@
 
 .coach-studio-section-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
@@ -65,6 +65,339 @@
   display: grid;
   min-width: 0;
   gap: 1rem;
+}
+
+.cohort-release-studio,
+.cohort-release-readiness,
+.cohort-release-history {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+}
+
+.cohort-release-truth {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: start;
+  padding: 1rem 1.15rem;
+  border: 1px solid color-mix(in srgb, var(--mauve) 36%, var(--line));
+  border-left: 5px solid var(--mauve);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--paper) 88%, var(--emerald-soft));
+}
+
+.cohort-release-truth-icon {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--mauve);
+  background: var(--paper);
+}
+
+.cohort-release-truth-icon svg {
+  width: 1.45rem;
+  height: 1.45rem;
+}
+
+.cohort-release-truth p,
+.cohort-release-truth small,
+.cohort-release-picker h3,
+.cohort-release-picker p,
+.cohort-release-readiness h3,
+.cohort-release-history h3,
+.cohort-release-history p,
+.cohort-release-modal h3,
+.cohort-release-modal p {
+  margin: 0;
+}
+
+.cohort-release-truth small,
+.cohort-release-picker p,
+.cohort-release-checklist small,
+.cohort-release-history small,
+.cohort-release-restore-reason,
+.cohort-release-modal-note {
+  color: var(--muted);
+}
+
+.cohort-release-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(14rem, 22rem);
+  gap: 1.25rem;
+  align-items: end;
+}
+
+.cohort-release-picker label {
+  display: grid;
+  gap: 0.4rem;
+  font-weight: 800;
+}
+
+.cohort-release-picker select {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  color: var(--ink);
+  background: var(--paper);
+  font: inherit;
+}
+
+.cohort-release-layout {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+  align-items: start;
+}
+
+.cohort-release-readiness > header,
+.cohort-release-history > header,
+.cohort-release-history li > header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cohort-release-readiness > header > div,
+.cohort-release-history > header > div,
+.cohort-release-history li > header > div {
+  min-width: 0;
+}
+
+.cohort-release-state,
+.cohort-release-history li > header > span {
+  display: inline-flex;
+  min-height: 1.75rem;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--status-yellow) 45%, var(--line));
+  border-radius: 999px;
+  color: var(--status-yellow);
+  background: color-mix(in srgb, var(--paper) 92%, var(--gold));
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.cohort-release-state.is-ready {
+  border-color: color-mix(in srgb, var(--status-green) 45%, var(--line));
+  color: var(--status-green);
+  background: color-mix(in srgb, var(--paper) 90%, var(--status-green));
+}
+
+.cohort-release-checklist,
+.cohort-release-history > ol {
+  display: grid;
+  min-width: 0;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cohort-release-checklist li {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  min-width: 0;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--paper-warm);
+}
+
+.cohort-release-checklist li > span {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--status-yellow);
+  background: color-mix(in srgb, var(--paper) 82%, var(--gold));
+}
+
+.cohort-release-checklist li.is-ready > span {
+  color: var(--status-green);
+  background: color-mix(in srgb, var(--paper) 85%, var(--status-green));
+}
+
+.cohort-release-checklist svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.cohort-release-checklist div {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.cohort-release-checklist strong,
+.cohort-release-checklist small,
+.cohort-release-checklist b,
+.cohort-release-history strong,
+.cohort-release-history small,
+.cohort-release-history dd {
+  overflow-wrap: anywhere;
+}
+
+.cohort-release-checklist b {
+  color: var(--status-yellow);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.cohort-release-checklist .is-ready b {
+  color: var(--status-green);
+}
+
+.cohort-release-blockers,
+.cohort-release-warnings {
+  padding: 0.85rem 1rem;
+  border-radius: 0.8rem;
+  color: var(--status-yellow);
+  background: color-mix(in srgb, var(--paper) 88%, var(--gold));
+}
+
+.cohort-release-blockers ul,
+.cohort-release-warnings ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.cohort-release-evidence,
+.cohort-release-history dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.cohort-release-evidence > div,
+.cohort-release-history dl > div {
+  min-width: 0;
+  padding: 0.65rem;
+  border-radius: 0.65rem;
+  background: var(--paper-warm);
+}
+
+.cohort-release-evidence .is-wide {
+  grid-column: 1 / -1;
+}
+
+.cohort-release-evidence dt,
+.cohort-release-history dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.cohort-release-evidence dd,
+.cohort-release-history dd {
+  margin: 0.2rem 0 0;
+  font-family: inherit;
+}
+
+.cohort-release-evidence .is-wide dd,
+.cohort-release-history dl > div:last-child dd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+}
+
+.cohort-release-actions {
+  display: grid;
+  gap: 0.55rem;
+  align-items: start;
+}
+
+.cohort-release-actions .button {
+  justify-self: start;
+}
+
+.cohort-release-actions p {
+  margin: 0;
+}
+
+.cohort-release-noop {
+  color: var(--status-green);
+}
+
+.cohort-release-history > ol > li {
+  display: grid;
+  min-width: 0;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--paper-warm);
+}
+
+.cohort-release-history li > header small {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.cohort-release-history .button {
+  justify-self: start;
+}
+
+.cohort-release-empty,
+.cohort-release-loading {
+  margin: 0;
+  padding: 1rem;
+  border: 1px dashed var(--line);
+  border-radius: 0.8rem;
+  color: var(--muted);
+}
+
+.cohort-release-modal-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(32 25 28 / 62%);
+}
+
+.cohort-release-modal {
+  display: grid;
+  width: min(100%, 34rem);
+  max-height: min(42rem, calc(100vh - 2rem));
+  gap: 0.9rem;
+  padding: clamp(1rem, 4vw, 1.5rem);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: 0 1.5rem 4rem rgb(32 25 28 / 30%);
+}
+
+.cohort-release-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.cohort-release-modal .coach-studio-alert {
+  margin: 0;
+}
+
+@media (min-width: 900px) {
+  .cohort-release-layout {
+    grid-template-columns: minmax(0, 1.35fr) minmax(20rem, 0.85fr);
+  }
 }
 
 .experience-studio,
@@ -1210,11 +1543,43 @@
 }
 
 @media (max-width: 620px) {
-  .coach-studio-section-tabs,
+  .coach-studio-section-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .experience-cohort-picker,
   .experience-module-grid,
   .experience-preview {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cohort-release-picker,
+  .cohort-release-evidence,
+  .cohort-release-history dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cohort-release-evidence .is-wide {
+    grid-column: auto;
+  }
+
+  .cohort-release-actions .button,
+  .cohort-release-history .button,
+  .cohort-release-modal-actions .button {
+    width: 100%;
+  }
+
+  .cohort-release-modal-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cohort-release-checklist li {
+    grid-template-columns: 2.25rem minmax(0, 1fr);
+  }
+
+  .cohort-release-checklist li > b {
+    grid-column: 2;
   }
 
   .experience-module-group > header,
