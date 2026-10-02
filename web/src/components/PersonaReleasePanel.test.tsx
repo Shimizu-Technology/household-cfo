@@ -63,8 +63,8 @@ const preview: AdminPersonaPreview = {
   sample_prompt: 'Can I spend $100 this weekend?', sample_reply: 'Review the plan first, then choose one amount.', notice: 'Live model response ready.', warnings: [], guardrails_applied: true, generated_at: '2026-10-02T00:00:00Z',
 }
 function lifecycle(): CoachWorkspaceMutationLifecycle { return { pending: false, begin: () => ({ id: 1, workspaceId: 7 }), isCurrent: () => true, finish: () => undefined } }
-function renderPanel(options: { persona?: AdminPersonaDetail; preview?: AdminPersonaPreview | null; dirty?: boolean; onPublish?: (evidence: PersonaPublishEvidence) => void } = {}) {
-  return render(<PersonaReleasePanel persona={options.persona ?? persona} preview={options.preview === undefined ? preview : options.preview} previewEvidence={previewEvidence} samplePrompt="Can I spend $100 this weekend?" dirty={options.dirty ?? false} parentBusy={false} previewPending={false} publishPending={false} mutationLifecycle={lifecycle()} onSamplePromptChange={() => undefined} onPreview={() => undefined} onPublish={options.onPublish ?? vi.fn()} />)
+function renderPanel(options: { persona?: AdminPersonaDetail; preview?: AdminPersonaPreview | null; previewEvidence?: AdminPersonaBehavioralPreviewEvidence | null; dirty?: boolean; onPublish?: (evidence: PersonaPublishEvidence) => void } = {}) {
+  return render(<PersonaReleasePanel persona={options.persona ?? persona} preview={options.preview === undefined ? preview : options.preview} previewEvidence={options.previewEvidence === undefined ? previewEvidence : options.previewEvidence} samplePrompt="Can I spend $100 this weekend?" dirty={options.dirty ?? false} parentBusy={false} previewPending={false} publishPending={false} mutationLifecycle={lifecycle()} onSamplePromptChange={() => undefined} onPreview={() => undefined} onPublish={options.onPublish ?? vi.fn()} />)
 }
 
 describe('PersonaReleasePanel', () => {
@@ -87,6 +87,16 @@ describe('PersonaReleasePanel', () => {
     const publish = screen.getByRole('button', { name: 'Publish first version' }) as HTMLButtonElement
     expect(publish.disabled).toBe(false); await userEvent.click(publish)
     expect(onPublish).toHaveBeenCalledWith({ release_candidate_digest: 'candidate-digest', evaluation_run_digest: 'run-digest', evaluation_approval_digest: 'approval-digest', behavioral_preview_digest: 'behavioral-preview-digest' })
+  })
+
+  it('restores publishability from saved release evidence after a page reload', async () => {
+    const onPublish = vi.fn()
+    renderPanel({ preview: null, previewEvidence: null, onPublish })
+    const publish = await screen.findByRole('button', { name: 'Publish first version' }) as HTMLButtonElement
+    expect(publish.disabled).toBe(false)
+    expect(screen.getByText('Review the plan first, then choose one amount.')).toBeTruthy()
+    await userEvent.click(publish)
+    expect(onPublish).toHaveBeenCalledWith(expect.objectContaining({ behavioral_preview_digest: 'behavioral-preview-digest' }))
   })
 
   it('blocks a stale displayed preview until the latest saved evidence is shown', async () => {

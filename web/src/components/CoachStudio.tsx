@@ -44,6 +44,7 @@ import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
 import { PersonaSetupChat } from './PersonaSetupChat'
 import { PersonaReleasePanel, type PersonaPublishEvidence } from './PersonaReleasePanel'
+import { savedPreviewDigestForCurrentDraft } from './personaReleaseState'
 import { useCoachWorkspaceMutationLifecycle, type CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
 
@@ -419,12 +420,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }
 
   async function handlePublish(evidence: PersonaPublishEvidence) {
-    if (!selectedPersona || !preview || dirty || pendingAction) return
-    if (preview.status !== 'ready') {
-      setError('Run a successful behavioral preview before publishing this draft.')
-      return
-    }
-    if (preview.digest !== selectedPersona.preview?.digest) {
+    if (!selectedPersona || dirty || pendingAction) return
+    const previewDigest = savedPreviewDigestForCurrentDraft(selectedPersona)
+    if (!previewDigest) {
       setError('Run an exact preview of the saved draft before publishing.')
       return
     }
@@ -437,7 +435,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     try {
       const response = await publishAdminPersona(selectedPersona.id, {
         draft_revision: selectedPersona.draft_revision ?? 0,
-        preview_digest: preview.digest,
+        preview_digest: previewDigest,
         expected_published_version_id: selectedPersona.published_version?.id ?? null,
         ...evidence,
       })

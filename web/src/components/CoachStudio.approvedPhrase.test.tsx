@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AdminPersonaDetail, PersonaConfiguration } from '../api'
 import { PhraseEditor } from './CoachStudio'
+import { savedPreviewDigestForCurrentDraft } from './personaReleaseState'
 
 const reviewedPhrase = {
   artifact_id: 'approved-source-31',
@@ -114,5 +115,17 @@ describe('approved source phrases in the manual persona editor', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Move phrase 1 down' }))
     await userEvent.click(screen.getByRole('button', { name: 'Remove phrase 2' }))
     expect(mutate).toHaveBeenCalledTimes(' changed'.length + 2)
+  })
+})
+
+describe('persona publication preview recovery', () => {
+  it('uses the saved exact preview after reload and rejects another draft revision', () => {
+    const persona = {
+      draft_revision: 4,
+      preview: { digest: 'saved-preview-digest', draft_revision: 4, generated_at: '2026-10-03T00:00:00Z' },
+    } as AdminPersonaDetail
+
+    expect(savedPreviewDigestForCurrentDraft(persona)).toBe('saved-preview-digest')
+    expect(savedPreviewDigestForCurrentDraft({ ...persona, draft_revision: 5 })).toBeNull()
   })
 })
