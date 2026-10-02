@@ -189,7 +189,7 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     assert_includes response.parsed_body.fetch("error"), "unsupported assertion type"
   end
 
-  test "run index preserves historical pass integrity while show and readiness use the current suite" do
+  test "run index and show preserve historical pass integrity while readiness uses the current suite" do
     owner = persona_user
     workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
     persona = create_persona(creator: owner, workspace: workspace)
@@ -225,7 +225,7 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     get "/api/v1/admin/personas/#{persona.id}/evaluation_runs/#{first_run.id}", headers: headers
 
     assert_response :success
-    assert_equal false, response.parsed_body.dig("evaluation_run", "passed")
+    assert_equal true, response.parsed_body.dig("evaluation_run", "passed")
 
     get "/api/v1/admin/personas/#{persona.id}/release_readiness", headers: headers
 

@@ -13,7 +13,7 @@ module Api
           runs = CoachPersonaEvaluationRun.joins(:release_candidate)
             .where(coach_persona_release_candidates: { coach_persona_id: persona.id })
             .includes(:release_candidate, :requested_by_user, results: :evaluation_case, approval: :reviewed_by_user)
-            .order(created_at: :desc).limit(50).to_a
+            .order(id: :desc).limit(50).to_a
           latest_run_id = runs.first&.id
           render json: {
             evaluation_runs: runs.map do |run|
@@ -25,7 +25,13 @@ module Api
         def show
           persona = policy.visible_personas.find(params[:persona_id])
           run = runs_for(persona).includes(:release_candidate, :requested_by_user, :approval, results: :evaluation_case).find(params[:id])
-          render json: { evaluation_run: Mia::PersonaRelease::Serializer.run(run, include_results: true) }
+          render json: {
+            evaluation_run: Mia::PersonaRelease::Serializer.run(
+              run,
+              include_results: true,
+              current_suite: run.id == runs_for(persona).maximum(:id)
+            )
+          }
         end
 
         def create
