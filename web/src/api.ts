@@ -933,7 +933,12 @@ export type AdminPersonaVersion = {
   number: number
   digest: string
   content_manifest_digest: string
+  phrase_manifest_digest?: string
   publication_digest: string
+  release_gate_version?: 'gate_v1' | 'gate_v2'
+  release_manifest_digest?: string | null
+  audience_digest?: string | null
+  release_evidence_digest?: string | null
   published_at: string
   published_by: AdminPersonaUser
   config?: PersonaConfiguration
@@ -1190,6 +1195,134 @@ export type AdminPersonaPermissions = {
   restore: boolean
 }
 
+export type AdminPersonaReleasePermissions = {
+  manage_cases: boolean
+  run_evaluation: boolean
+  review_evaluations: boolean
+  review_phrase_audiences: boolean
+  publish: boolean
+  sole_owner_self_review: boolean
+}
+
+export type AdminPersonaReleaseAudience = {
+  schema: string
+  audience: string
+  client_term: string
+  culture: PersonaConfiguration['culture']
+}
+
+export type AdminPersonaEvaluationAssertion = {
+  type: 'includes' | 'excludes' | 'includes_any' | 'excludes_any' | 'max_chars' | 'not_fallback' | 'excludes_configured_phrases' | 'no_unapproved_cultural_language'
+  value?: string | number
+  values?: string[]
+}
+
+export type AdminPersonaEvaluationCase = {
+  id: number | null
+  system_key: string | null
+  name: string
+  kind: 'system' | 'custom'
+  prompt: string
+  assertions: AdminPersonaEvaluationAssertion[]
+  required: boolean
+  active: boolean
+  retired_at: string | null
+  retired_by: AdminPersonaUser | null
+  retirement_digest: string | null
+  retirement_valid: boolean
+  digest: string
+  request_id?: string | null
+  created_at: string | null
+}
+
+export type AdminPersonaEvaluationApproval = {
+  id: number
+  decision: 'approved' | 'rejected'
+  run_digest: string
+  approval_digest: string
+  self_review: boolean
+  reviewer: AdminPersonaUser
+  reviewed_at: string
+}
+
+export type AdminPersonaEvaluationResult = {
+  id: number
+  case: AdminPersonaEvaluationCase
+  status: 'passed' | 'failed'
+  output: string
+  assertion_results: Array<{ type: AdminPersonaEvaluationAssertion['type']; passed: boolean }>
+  adapter_metadata: Record<string, unknown>
+  fallback_only: boolean
+  digest: string
+}
+
+export type AdminPersonaEvaluationRun = {
+  id: number
+  candidate_id: number
+  candidate_digest: string
+  request_id: string
+  status: 'pending' | 'running' | 'passed' | 'failed' | 'error'
+  adapter_kind: string
+  cases_digest: string
+  run_digest: string | null
+  passed: boolean
+  started_at: string | null
+  enqueued_at?: string | null
+  completed_at: string | null
+  requested_by: AdminPersonaUser | null
+  approval: AdminPersonaEvaluationApproval | null
+  results?: AdminPersonaEvaluationResult[]
+}
+
+export type AdminPersonaAudienceReview = {
+  artifact_id: string
+  artifact_fingerprint: string
+  decision: 'approved' | 'rejected' | null
+  reviewed: boolean
+  self_review: boolean
+  reviewer: AdminPersonaUser | null
+  reviewed_at: string | null
+  attestation_digest: string | null
+  phrase: AdminApprovedPhrase
+  provenance: {
+    kind: 'coach_authored' | 'participant_supplied' | 'approved_source'
+    source_user_id: number | null
+    source_role_at_capture: UserRole | null
+  }
+}
+
+export type AdminPersonaAudienceAttestation = {
+  id: number
+  candidate_id: number
+  artifact_id: string
+  artifact_fingerprint: string
+  audience_digest: string
+  decision: 'approved' | 'rejected'
+  self_review: boolean
+  reviewer: AdminPersonaUser | null
+  attestation_digest: string
+  reviewed_at: string
+}
+
+export type AdminPersonaReleaseReadiness = {
+  gate_version: 'gate_v2'
+  ready: boolean
+  candidate: null | {
+    id: number
+    manifest_digest: string
+    audience_digest: string
+    audience_snapshot: AdminPersonaReleaseAudience
+    draft_revision: number
+    sealed_at: string
+  }
+  evaluation_run: null | Pick<AdminPersonaEvaluationRun, 'id' | 'status' | 'adapter_kind' | 'run_digest' | 'passed' | 'completed_at' | 'requested_by'>
+  approval: null | (AdminPersonaEvaluationApproval & { valid: boolean })
+  phrase_audience_reviews: AdminPersonaAudienceReview[]
+  blockers: string[]
+  permissions: AdminPersonaReleasePermissions
+  required_evaluation_cases: AdminPersonaEvaluationCase[]
+}
+
 export type AdminPersonaSummary = {
   id: number
   name: string
@@ -1204,6 +1337,8 @@ export type AdminPersonaSummary = {
   draft_revision?: number
   has_unpublished_changes?: boolean
   preview_required?: boolean
+  release_gate_version?: 'gate_v1' | 'gate_v2'
+  release_readiness?: AdminPersonaReleaseReadiness
 }
 
 export type AdminPersonaPreviewRecord = {
@@ -1361,6 +1496,14 @@ export type AdminPersonaPublishInput = {
   draft_revision: number
   preview_digest: string
   expected_published_version_id: number | null
+  release_candidate_digest: string
+  evaluation_run_digest: string
+  evaluation_approval_digest: string
+}
+
+export type AdminPersonaEvaluationRunResponse = {
+  evaluation_run: AdminPersonaEvaluationRun
+  reconciliation?: { request_id: string; replayed: boolean }
 }
 
 export type AdminPersonaRollbackInput = {
@@ -2341,6 +2484,85 @@ export async function updateAdminPersonaContentPacks(personaId: number, draftRev
 export async function fetchAdminPersona(id: number): Promise<AdminPersonaDetail> {
   const payload = await fetchJson<{ persona: AdminPersonaDetail }>(`/api/v1/admin/personas/${id}`)
   return payload.persona
+}
+
+export async function fetchAdminPersonaReleaseReadiness(personaId: number): Promise<AdminPersonaReleaseReadiness> {
+  const payload = await fetchJson<{ readiness: AdminPersonaReleaseReadiness }>(`/api/v1/admin/personas/${personaId}/release_readiness`)
+  return payload.readiness
+}
+
+export async function fetchAdminPersonaEvaluationCases(personaId: number): Promise<AdminPersonaEvaluationCase[]> {
+  const payload = await fetchJson<{ evaluation_cases: AdminPersonaEvaluationCase[] }>(`/api/v1/admin/personas/${personaId}/evaluation_cases`)
+  return payload.evaluation_cases
+}
+
+export async function createAdminPersonaEvaluationCase(personaId: number, values: {
+  request_id: string
+  name: string
+  prompt: string
+  assertions: AdminPersonaEvaluationAssertion[]
+}): Promise<{ evaluation_case: AdminPersonaEvaluationCase; reconciliation?: { request_id: string; replayed: boolean } }> {
+  return postJson(`/api/v1/admin/personas/${personaId}/evaluation_cases`, { evaluation_case: values }, {
+    timeoutMs: 30_000,
+    timeoutMessage: 'Saving the evaluation case took too long.',
+  })
+}
+
+export async function retireAdminPersonaEvaluationCase(personaId: number, caseId: number): Promise<AdminPersonaEvaluationCase> {
+  const payload = await fetchJson<{ evaluation_case: AdminPersonaEvaluationCase }>(`/api/v1/admin/personas/${personaId}/evaluation_cases/${caseId}`, {
+    method: 'DELETE',
+  }, {
+    timeoutMs: 30_000,
+    timeoutMessage: 'Retiring the evaluation case took too long.',
+  })
+  return payload.evaluation_case
+}
+
+export async function fetchAdminPersonaEvaluationRuns(personaId: number): Promise<AdminPersonaEvaluationRun[]> {
+  const payload = await fetchJson<{ evaluation_runs: AdminPersonaEvaluationRun[] }>(`/api/v1/admin/personas/${personaId}/evaluation_runs`)
+  return payload.evaluation_runs
+}
+
+export async function fetchAdminPersonaEvaluationRun(personaId: number, runId: number): Promise<AdminPersonaEvaluationRun> {
+  const payload = await fetchJson<{ evaluation_run: AdminPersonaEvaluationRun }>(`/api/v1/admin/personas/${personaId}/evaluation_runs/${runId}`)
+  return payload.evaluation_run
+}
+
+export async function runAdminPersonaEvaluation(personaId: number, requestId = clientRequestId()): Promise<AdminPersonaEvaluationRunResponse> {
+  return postJson(`/api/v1/admin/personas/${personaId}/evaluation_runs`, {
+    evaluation_run: { request_id: requestId },
+  }, {
+    timeoutMs: 90_000,
+    timeoutMessage: 'Running the automated guardrail checks took too long.',
+  })
+}
+
+export async function reviewAdminPersonaEvaluation(
+  personaId: number,
+  runId: number,
+  decision: 'approved' | 'rejected',
+  runDigest: string,
+): Promise<AdminPersonaEvaluationApproval> {
+  const payload = await postJson<{ approval: AdminPersonaEvaluationApproval }>(`/api/v1/admin/personas/${personaId}/evaluation_runs/${runId}/approval`, {
+    approval: { decision, run_digest: runDigest },
+  }, {
+    timeoutMs: 30_000,
+    timeoutMessage: 'Saving the evaluation review took too long.',
+  })
+  return payload.approval
+}
+
+export async function reviewAdminPersonaAudience(
+  personaId: number,
+  values: { candidate_digest: string; artifact_id: string; artifact_fingerprint: string; decision: 'approved' | 'rejected' },
+): Promise<AdminPersonaAudienceAttestation> {
+  const payload = await postJson<{ audience_attestation: AdminPersonaAudienceAttestation }>(`/api/v1/admin/personas/${personaId}/audience_attestations`, {
+    audience_attestation: values,
+  }, {
+    timeoutMs: 30_000,
+    timeoutMessage: 'Saving the phrase audience review took too long.',
+  })
+  return payload.audience_attestation
 }
 
 export async function createAdminPersona(values: AdminPersonaCreateInput): Promise<AdminPersonaDetail> {

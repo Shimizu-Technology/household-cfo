@@ -42,6 +42,7 @@ import { Button } from './Button'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
 import { PersonaSetupChat } from './PersonaSetupChat'
+import { PersonaReleasePanel, type PersonaPublishEvidence } from './PersonaReleasePanel'
 import { useCoachWorkspaceMutationLifecycle, type CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
 
@@ -411,7 +412,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     }
   }
 
-  async function handlePublish() {
+  async function handlePublish(evidence: PersonaPublishEvidence) {
     if (!selectedPersona || !preview || dirty || pendingAction) return
     if (preview.status !== 'ready') {
       setError('Run a successful behavioral preview before publishing this draft.')
@@ -432,6 +433,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         draft_revision: selectedPersona.draft_revision ?? 0,
         preview_digest: preview.digest,
         expected_published_version_id: selectedPersona.published_version?.id ?? null,
+        ...evidence,
       })
       if (!mutationIsCurrent(mutation)) return
       setSelectedPersona(response.persona)
@@ -656,8 +658,6 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setError(message)
   }
 
-  const previewMatches = Boolean(preview && selectedPersona?.preview?.digest === preview.digest && !dirty)
-  const canPublish = Boolean(selectedPersona?.permissions.publish && previewMatches && preview?.status === 'ready' && selectedPersona?.preview_required === false)
   const assignmentCohorts = selectedPersona ? cohorts : []
 
   return (
@@ -912,16 +912,25 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 />
               )}
 
-              <LifecyclePanel
+              <PersonaReleasePanel
+                key={`${activeWorkspaceId ?? 'platform'}:${selectedPersona.id}:${selectedPersona.draft_revision ?? 'read-only'}`}
                 persona={selectedPersona}
                 preview={preview}
                 samplePrompt={samplePrompt}
-                dirty={dirty}
-                canPublish={canPublish}
-                pendingAction={pendingAction}
+                dirty={dirty || personaSourcesDirty || setupDirty}
+                parentBusy={pendingAction !== null || workspaceMutations.pending}
+                previewPending={pendingAction === 'preview'}
+                publishPending={pendingAction === 'publish'}
+                mutationLifecycle={workspaceMutations}
                 onSamplePromptChange={setSamplePrompt}
                 onPreview={() => void handlePreview()}
-                onPublish={() => void handlePublish()}
+                onPublish={(evidence) => void handlePublish(evidence)}
+              />
+
+              <LifecyclePanel
+                persona={selectedPersona}
+                dirty={dirty}
+                pendingAction={pendingAction}
                 onRollback={(versionId, number) => void handleRollback(versionId, number)}
                 onArchive={() => void handleArchive()}
                 onRestore={() => void handleRestore()}
@@ -1129,50 +1138,20 @@ function renderEditorSection(
   )
 }
 
-function LifecyclePanel({ persona, preview, samplePrompt, dirty, canPublish, pendingAction, onSamplePromptChange, onPreview, onPublish, onRollback, onArchive, onRestore }: {
+function LifecyclePanel({ persona, dirty, pendingAction, onRollback, onArchive, onRestore }: {
   persona: AdminPersonaDetail
-  preview: AdminPersonaPreview | null
-  samplePrompt: string
   dirty: boolean
-  canPublish: boolean
   pendingAction: PendingAction
-  onSamplePromptChange: (value: string) => void
-  onPreview: () => void
-  onPublish: () => void
   onRollback: (versionId: number, number: number) => void
   onArchive: () => void
   onRestore: () => void
 }) {
-  const savedPreviewNeedsReview = !dirty && !preview && persona.preview_required === false && Boolean(persona.preview)
-  const previewStatus = persona.preview_required
-    ? 'preview required'
-    : canPublish
-      ? 'ready to publish'
-      : savedPreviewNeedsReview
-        ? 'saved preview'
-        : 'preview required'
-
   return (
     <article className="panel coach-lifecycle">
       <header>
-        <div><p className="eyebrow">Preview and publish</p><h3>Check the exact saved revision.</h3></div>
-        <StatusBadge status={previewStatus} />
+        <div><p className="eyebrow">Published history</p><h3>Versions and assistant access.</h3></div>
+        <StatusBadge status={persona.status} />
       </header>
-      <label className="coach-sample-prompt">
-        <span>Behavioral preview question</span>
-        <textarea rows={3} maxLength={2000} value={samplePrompt} onChange={(event) => onSamplePromptChange(event.target.value)} placeholder="Ask the kind of question a participant will bring." />
-        <small>Use fictional details only. Do not paste participant names, messages, or financial information. Your sample question is sent to the configured model; saved household data is not loaded.</small>
-      </label>
-      <div className="coach-lifecycle-actions">
-        <Button variant="secondary" onClick={onPreview} disabled={dirty || !persona.permissions.publish || pendingAction !== null}>{pendingAction === 'preview' ? 'Running exact preview' : 'Run exact preview'}</Button>
-        <Button onClick={onPublish} disabled={!canPublish || pendingAction !== null}>{pendingAction === 'publish' ? 'Publishing' : persona.published_version ? 'Publish next version' : 'Publish first version'}</Button>
-      </div>
-      {dirty && <p className="coach-inline-note">Save this draft before previewing. The preview digest is tied to one exact saved revision.</p>}
-      {!dirty && preview?.status === 'unavailable' && <p className="coach-inline-note">A successful behavioral preview is required before publishing. Try again when the configured model is available.</p>}
-      {!dirty && preview?.status === 'safety_only' && <p className="coach-inline-note">The crisis boundary worked, but it did not exercise this persona. Run a non-crisis question with the configured model before publishing.</p>}
-      {savedPreviewNeedsReview && <p className="coach-inline-note">This exact revision passed preview in another session. Run it again here to review the behavior before publishing.</p>}
-      {persona.assignments.length > 0 && <p className="coach-inline-note">Publishing or restoring a version updates future participant messages in all assigned cohorts immediately. You will confirm this impact before it changes.</p>}
-      {preview && <PreviewResult preview={preview} current={canPublish} />}
 
       <details className="coach-locked-guardrails">
         <summary>Locked system guardrails</summary>
@@ -1201,29 +1180,6 @@ function LifecyclePanel({ persona, preview, samplePrompt, dirty, canPublish, pen
         {!persona.permissions.archive && persona.permissions.edit && persona.status !== 'archived' && <small>Remove this assistant from every draft, enrolling, or active cohort before archiving.</small>}
       </div>
     </article>
-  )
-}
-
-function PreviewResult({ preview, current }: { preview: AdminPersonaPreview; current: boolean }) {
-  const heading = preview.status === 'ready'
-    ? 'Behavioral sample ready'
-    : preview.status === 'safety_only'
-      ? 'Safety response checked'
-      : preview.status === 'unavailable'
-        ? 'Behavioral sample unavailable'
-        : 'Exact draft checked'
-
-  return (
-    <section className={`coach-preview-result is-${preview.status}`} aria-label="Exact draft preview">
-      <header><div><strong>{heading}</strong><small>Draft revision {preview.draft_revision} · {titleize(preview.source)}</small></div><StatusBadge status={current ? 'current preview' : 'not publishable'} /></header>
-      <p>{preview.notice}</p>
-      {preview.sample_prompt && <div><small>Sample question</small><p>{preview.sample_prompt}</p></div>}
-      {preview.sample_reply && <blockquote>{preview.sample_reply}</blockquote>}
-      {!preview.sample_reply && preview.status === 'unavailable' && <p className="coach-inline-note">No generated answer is shown because the model preview was unavailable. Publishing stays locked until a successful behavioral preview checks this exact draft.</p>}
-      {preview.status === 'safety_only' && <p className="coach-inline-note">This safety response is shown for review, but it cannot authorize publication because the coach persona was not exercised.</p>}
-      <details><summary>Compiled instructions for this revision</summary><pre>{preview.rendered_instructions}</pre></details>
-      <small>Guardrails applied: {preview.guardrails_applied ? 'Yes' : 'No'} · Generated {new Date(preview.generated_at).toLocaleString()}</small>
-    </section>
   )
 }
 
