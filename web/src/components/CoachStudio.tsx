@@ -40,6 +40,7 @@ import {
 import { Button } from './Button'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
+import { useCoachWorkspaceMutationLifecycle, type CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
 
 const guidedSteps = [
@@ -55,7 +56,6 @@ type EditorMode = 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'rollback' | 'assignment' | null
 type StudioSection = 'assistants' | 'library' | 'participant_tools'
-type MutationContext = { sequence: number; workspaceId: number | null }
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId: activeWorkspaceId, selectCoachWorkspace } = useAuthContext()
@@ -87,12 +87,12 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [studioSection, setStudioSection] = useState<StudioSection>('assistants')
   const [libraryDirty, setLibraryDirty] = useState(false)
   const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
+  const workspaceMutations = useCoachWorkspaceMutationLifecycle(activeWorkspaceId)
   const selectedIdRef = useRef<number | null>(null)
   const activeWorkspaceIdRef = useRef(activeWorkspaceId)
   activeWorkspaceIdRef.current = activeWorkspaceId
   const loadPersonaRequestRef = useRef(0)
   const loadPersonasRequestRef = useRef(0)
-  const mutationSequenceRef = useRef(0)
   const focusEditorAfterLoadRef = useRef(false)
   const createNameRef = useRef<HTMLInputElement | null>(null)
   const libraryHeadingRef = useRef<HTMLHeadingElement | null>(null)
@@ -240,10 +240,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }
 
   function chooseWorkspace(nextId: number | null) {
-    if (nextId === activeWorkspaceId || pendingAction) return
+    if (nextId === activeWorkspaceId || pendingAction || workspaceMutations.pending) return
     if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch workspaces?')) return
 
-    mutationSequenceRef.current += 1
     selectCoachWorkspace(nextId)
     // Ignore an assistant detail response that began in the workspace we are leaving.
     loadPersonaRequestRef.current += 1
@@ -322,18 +321,17 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     window.requestAnimationFrame(() => libraryHeadingRef.current?.focus())
   }
 
-  function beginMutation(action: Exclude<PendingAction, null>): MutationContext {
-    const context = { sequence: ++mutationSequenceRef.current, workspaceId: activeWorkspaceIdRef.current }
+  function beginMutation(action: Exclude<PendingAction, null>): CoachWorkspaceMutationTicket {
+    const context = workspaceMutations.begin()
     setPendingAction(action)
     return context
   }
 
-  function mutationIsCurrent(context: MutationContext) {
-    return context.sequence === mutationSequenceRef.current && context.workspaceId === activeWorkspaceIdRef.current
-  }
+  const mutationIsCurrent = workspaceMutations.isCurrent
 
-  function finishMutation(context: MutationContext) {
+  function finishMutation(context: CoachWorkspaceMutationTicket) {
     if (mutationIsCurrent(context)) setPendingAction(null)
+    workspaceMutations.finish(context)
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
@@ -561,7 +559,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     }
   }
 
-  async function refreshCohorts(mutation?: MutationContext) {
+  async function refreshCohorts(mutation?: CoachWorkspaceMutationTicket) {
     try {
       const nextCohorts = await fetchAdminPersonaAssignableCohorts()
       if (mutation && !mutationIsCurrent(mutation)) return
@@ -593,7 +591,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const assignmentCohorts = selectedPersona ? cohorts : []
 
   return (
-    <section className="screen-grid coach-studio-screen" aria-busy={loading || detailLoading || pendingAction !== null}>
+    <section className="screen-grid coach-studio-screen" aria-busy={loading || detailLoading || pendingAction !== null || workspaceMutations.pending}>
       <header className="screen-heading coach-studio-heading">
         <div>
           <p className="eyebrow">Coach Studio</p>
@@ -604,7 +602,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
           {workspaceOptions.length > 0 && (
             <label className="coach-workspace-picker">
               <span>Coach workspace</span>
-              <select disabled={pendingAction !== null} value={activeWorkspaceId ?? 'platform'} onChange={(event) => chooseWorkspace(event.target.value === 'platform' ? null : Number(event.target.value))}>
+              <select disabled={pendingAction !== null || workspaceMutations.pending} value={activeWorkspaceId ?? 'platform'} onChange={(event) => chooseWorkspace(event.target.value === 'platform' ? null : Number(event.target.value))}>
                 {currentUser.is_admin && <option value="platform">All workspaces / Platform</option>}
                 {workspaceOptions.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
@@ -638,11 +636,11 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
       {studioSection === 'library' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-library" aria-labelledby="coach-studio-tab-library" tabIndex={0}>
-          <CoachContentLibrary key={activeWorkspaceId ?? 'legacy'} currentUser={currentUser} onDirtyChange={setLibraryDirty} />
+          <CoachContentLibrary key={activeWorkspaceId ?? 'legacy'} currentUser={currentUser} mutationLifecycle={workspaceMutations} onDirtyChange={setLibraryDirty} />
         </div>
       ) : studioSection === 'participant_tools' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-participant-tools" aria-labelledby="coach-studio-tab-participant-tools" tabIndex={0}>
-          <CohortExperienceStudio key={activeWorkspaceId ?? 'legacy'} cohorts={cohorts} cohortsLoading={loading} onDirtyChange={setExperienceDirty} />
+          <CohortExperienceStudio key={activeWorkspaceId ?? 'legacy'} cohorts={cohorts} cohortsLoading={loading} mutationLifecycle={workspaceMutations} onDirtyChange={setExperienceDirty} />
         </div>
       ) : <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-assistants" aria-labelledby="coach-studio-tab-assistants" tabIndex={0}>
 
@@ -798,6 +796,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                   key={selectedPersona.id}
                   persona={selectedPersona}
                   dirty={dirty}
+                  mutationLifecycle={workspaceMutations}
                   onDirtyChange={setPersonaSourcesDirty}
                   onPersonaChange={(persona) => {
                     setPersonaSourcesDirty(false)

@@ -253,6 +253,43 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal "revoked", existing.reload.invitation_status
   end
 
+  test "workspace invitation fails closed when another workspace attaches the user before the locked update" do
+    admin = create_user(email: "shared-race-admin@example.com", role: "admin")
+    first_owner = create_user(email: "shared-race-first@example.com", role: "coach")
+    second_owner = create_user(email: "shared-race-second@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Shared race first", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Shared race second", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    existing = User.create!(
+      clerk_id: "pending_#{SecureRandom.hex(6)}",
+      email: "shared-race-participant@example.com",
+      role: "participant",
+      invitation_status: "pending"
+    )
+    existing.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    invitation_snapshot = existing.attributes.slice(
+      "invited_at", "invited_by_user_id", "invitation_email_status", "invitation_email_provider_id",
+      "invitation_email_error", "last_invite_email_attempted_at", "last_invite_email_sent_at", "last_invite_email_sent_by_user_id"
+    )
+
+    assert_no_difference -> { existing.invitation_email_attempts.count } do
+      with_user_share_after_first_check(second_cohort) do
+        with_user_invite_email_stub(sent: true, status: "sent", provider_message_id: "must_not_send", error: nil) do
+          post "/api/v1/admin/users", params: {
+            user: { email: existing.email, role: "participant", cohort_id: first_cohort.id }
+          }, headers: workspace_auth_headers(admin, first_workspace), as: :json
+        end
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "Switch to All workspaces / Platform because this user is now shared across workspaces", response.parsed_body.fetch("error")
+    existing.reload
+    assert_equal invitation_snapshot, existing.attributes.slice(*invitation_snapshot.keys)
+    assert_equal [ first_cohort.id, second_cohort.id ].sort, existing.cohort_memberships.pluck(:cohort_id).sort
+  end
+
   test "coach cannot assign users to unassigned cohorts" do
     admin = create_user(email: "coach-scope-admin@example.com", role: "admin")
     coach = create_user(email: "coach-scope@example.com", role: "coach")
@@ -969,5 +1006,24 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     yield
   ensure
     UserInviteEmailService.define_singleton_method(:send_invite, original_method)
+  end
+
+  def with_user_share_after_first_check(outside_cohort)
+    controller = Api::V1::Admin::UsersController
+    original_method = controller.instance_method(:user_shared_outside_active_workspace?)
+    first_check = true
+    controller.define_method(:user_shared_outside_active_workspace?) do |user|
+      shared = original_method.bind_call(self, user)
+      if first_check
+        first_check = false
+        user.cohort_memberships.create!(cohort: outside_cohort, role: "participant")
+      end
+      shared
+    end
+    controller.send(:private, :user_shared_outside_active_workspace?)
+    yield
+  ensure
+    controller.define_method(:user_shared_outside_active_workspace?, original_method)
+    controller.send(:private, :user_shared_outside_active_workspace?)
   end
 end

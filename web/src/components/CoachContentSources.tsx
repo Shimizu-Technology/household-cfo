@@ -23,6 +23,7 @@ import type {
   CurrentUser,
 } from '../api'
 import { Button } from './Button'
+import type { CoachWorkspaceMutationLifecycle, CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachContentSources.css'
 
 const kinds: AdminContentItemKind[] = ['guidance', 'script', 'example', 'phrase', 'culture', 'finance_reference']
@@ -35,8 +36,9 @@ const noCollectionPermissions: AdminContentSourceCollectionPermissions = { uploa
 type CandidateDraft = { title: string; kind: AdminContentItemKind; content: string; topics: string }
 type GuardedOpen = { type: 'source'; id: number } | { type: 'candidate'; id: number } | { type: 'delete' } | null
 
-export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted, onReviewItem }: {
+export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyChange, onItemAccepted, onReviewItem }: {
   currentUser: CurrentUser
+  mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
   onItemAccepted: (item: AdminContentItem) => void
   onReviewItem: (itemId: number) => void
@@ -241,8 +243,9 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
     if (!file || !listReady || loading || actionRef.current) return
     listRequestSequence.current += 1
     const preserveEditor = candidateDirty
-    const uploaded = await runAction('upload', async () => {
+    const uploaded = await runAction('upload', async (ticket) => {
       const source = await uploadAdminContentSource(file, currentUser.is_admin ? scope : 'coach')
+      if (!mutationLifecycle.isCurrent(ticket)) return
       setSources((current) => replaceSource(current, source))
       setFile(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -257,8 +260,9 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
 
   async function retrySource() {
     if (!selectedSource) return
-    await runAction(`retry:${selectedSource.id}`, async () => {
+    await runAction(`retry:${selectedSource.id}`, async (ticket) => {
       const source = await reprocessAdminContentSource(selectedSource.id)
+      if (!mutationLifecycle.isCurrent(ticket)) return
       setSelectedSource(source)
       setSources((current) => replaceSource(current, source))
       setNotice('Retry queued. You may keep working while the source is read.')
@@ -267,8 +271,9 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
 
   async function downloadSource() {
     if (!selectedSource?.permissions.download) return
-    await runAction(`download:${selectedSource.id}`, async () => {
+    await runAction(`download:${selectedSource.id}`, async (ticket) => {
       const download = await fetchAdminContentSourceUrl(selectedSource.id)
+      if (!mutationLifecycle.isCurrent(ticket)) return
       const link = document.createElement('a')
       link.href = download.url
       link.download = download.filename
@@ -282,10 +287,11 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
   async function saveCandidate() {
     if (!selectedSource || !selectedCandidate || !draft) return false
     let saved: AdminContentSourceCandidate | null = null
-    const succeeded = await runAction(`save:${selectedCandidate.id}`, async () => {
+    const succeeded = await runAction(`save:${selectedCandidate.id}`, async (ticket) => {
       saved = await updateAdminContentSourceCandidate(selectedSource.id, selectedCandidate, {
         title: normalizeTitle(draft.title), kind: draft.kind, content: draft.content.trim(), topics: parseTopics(draft.topics),
       })
+      if (!mutationLifecycle.isCurrent(ticket)) { saved = null; return }
       updateCandidate(saved!)
       setConflictCandidate(null)
       setNotice('Candidate edits saved. It is still unavailable to Mia.')
@@ -301,8 +307,9 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
       if (!saved) return
       candidate = saved
     }
-    await runAction(`accept:${candidate.id}`, async () => {
+    await runAction(`accept:${candidate.id}`, async (ticket) => {
       const result = await acceptAdminContentSourceCandidate(selectedSource.id, candidate)
+      if (!mutationLifecycle.isCurrent(ticket)) return
       updateCandidate(result.candidate)
       onItemAccepted(result.item)
       setNotice('Content draft created. It is not available to Mia yet. Approve the item, publish a pack, and publish the assistant before Mia can use it.')
@@ -312,8 +319,9 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
 
   async function rejectCandidate() {
     if (!selectedSource || !selectedCandidate) return
-    await runAction(`reject:${selectedCandidate.id}`, async () => {
+    await runAction(`reject:${selectedCandidate.id}`, async (ticket) => {
       const candidate = await rejectAdminContentSourceCandidate(selectedSource.id, selectedCandidate)
+      if (!mutationLifecycle.isCurrent(ticket)) return
       updateCandidate(candidate)
       setConfirmReject(false)
       setNotice('Candidate rejected. It will remain unavailable to Mia.')
@@ -322,8 +330,9 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
 
   async function removeSource() {
     if (!selectedSource) return
-    await runAction(`delete:${selectedSource.id}`, async () => {
+    await runAction(`delete:${selectedSource.id}`, async (ticket) => {
       const source = await deleteAdminContentSource(selectedSource.id)
+      if (!mutationLifecycle.isCurrent(ticket)) return
       setSelectedSource(source)
       setSources((current) => replaceSource(current, source))
       setConfirmDelete(false)
@@ -331,16 +340,18 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
     })
   }
 
-  async function runAction(name: string, callback: () => Promise<void>, fallback = 'That source change could not be saved.') {
+  async function runAction(name: string, callback: (ticket: CoachWorkspaceMutationTicket) => Promise<void>, fallback = 'That source change could not be saved.') {
     if (actionRef.current) return false
+    const ticket = mutationLifecycle.begin()
     actionRef.current = name
     setAction(name)
     setError(null)
     setNotice(null)
     try {
-      await callback()
-      return true
+      await callback(ticket)
+      return mutationLifecycle.isCurrent(ticket)
     } catch (caught) {
+      if (!mutationLifecycle.isCurrent(ticket)) return false
       if (caught instanceof ApiRequestError && caught.status === 409 && isCandidate(caught.payload.candidate)) {
         setConflictCandidate(caught.payload.candidate)
       } else if (caught instanceof ApiRequestError && caught.status === 422 && safetyCodes.has(caught.code ?? '') && isCandidate(caught.payload.candidate)) {
@@ -351,10 +362,11 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
       }
       return false
     } finally {
-      if (actionRef.current === name) {
+      if (mutationLifecycle.isCurrent(ticket) && actionRef.current === name) {
         actionRef.current = null
         setAction(null)
       }
+      mutationLifecycle.finish(ticket)
     }
   }
 
@@ -383,8 +395,9 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
   const showUpload = !listReady || canUpload
 
   async function retryFailedUploadCleanups() {
-    await runAction('cleanup-sweep', async () => {
+    await runAction('cleanup-sweep', async (ticket) => {
       const count = await retryAdminContentSourceCleanups()
+      if (!mutationLifecycle.isCurrent(ticket)) return
       setNotice(`${count} failed private upload cleanup ${count === 1 ? 'was' : 'were'} queued to retry.`)
       await loadSources()
     })

@@ -234,9 +234,12 @@ module Api
             requested_cohort_ids: cohort_ids,
             replace_memberships: was_revoked
           ) do |target_cohort_ids|
-            if workspace_scoped_mode? && user_shared_outside_active_workspace?(user) &&
-                (user.revoked? || global_user_change_requested?(user, attributes, role: role))
-              workspace_guard_error = "Switch to All workspaces / Platform to reactivate or change this shared user"
+            # This is the normal invitation/reactivation path. A user that was
+            # already shared took the attach-only path above. If another
+            # workspace attached the user while this request waited for its
+            # stable locks, fail closed before changing global invite state.
+            if workspace_scoped_mode? && user_shared_outside_active_workspace?(user)
+              workspace_guard_error = "Switch to All workspaces / Platform because this user is now shared across workspaces"
               raise ActiveRecord::Rollback
             end
             user.assign_attributes(

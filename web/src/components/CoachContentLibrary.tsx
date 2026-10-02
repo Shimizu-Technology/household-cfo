@@ -23,13 +23,18 @@ import type {
 import { useAuthContext } from '../contexts/authContextValue'
 import { Button } from './Button'
 import { CoachContentSources } from './CoachContentSources'
+import type { CoachWorkspaceMutationLifecycle, CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachContentLibrary.css'
 
 const itemKinds: AdminContentItemKind[] = ['guidance', 'script', 'example', 'phrase', 'culture', 'finance_reference']
 const packKinds: AdminContentPackKind[] = ['voice_culture', 'coaching_method', 'finance_reference']
 const normalizeSingleLine = (value: string) => value.trim().replace(/\s+/g, ' ')
 
-export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange?: (dirty: boolean) => void }) {
+export function CoachContentLibrary({ currentUser, mutationLifecycle, onDirtyChange }: {
+  currentUser: CurrentUser
+  mutationLifecycle: CoachWorkspaceMutationLifecycle
+  onDirtyChange?: (dirty: boolean) => void
+}) {
   const { activeCoachWorkspaceId } = useAuthContext()
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
   const [items, setItems] = useState<AdminContentItem[]>([])
@@ -82,20 +87,24 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
 
   useEffect(() => { queueMicrotask(() => void load(true)) }, [load])
 
-  async function mutate(action: () => Promise<void>, success: string): Promise<boolean> {
+  async function mutate(action: (ticket: CoachWorkspaceMutationTicket) => Promise<void>, success: string): Promise<boolean> {
+    const ticket = mutationLifecycle.begin()
     setBusy(true)
     setError(null)
     setNotice(null)
     try {
-      await action()
+      await action(ticket)
+      if (!mutationLifecycle.isCurrent(ticket)) return false
       await load()
+      if (!mutationLifecycle.isCurrent(ticket)) return false
       setNotice(success)
       return true
     } catch (caught) {
-      setError(errorMessage(caught, 'That change could not be saved.'))
+      if (mutationLifecycle.isCurrent(ticket)) setError(errorMessage(caught, 'That change could not be saved.'))
       return false
     } finally {
-      setBusy(false)
+      if (mutationLifecycle.isCurrent(ticket)) setBusy(false)
+      mutationLifecycle.finish(ticket)
     }
   }
 
@@ -136,6 +145,7 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
 
       <CoachContentSources
         currentUser={currentUser}
+        mutationLifecycle={mutationLifecycle}
         onDirtyChange={setSourceDirty}
         onItemAccepted={(item) => {
           setItems((current) => [item, ...current.filter((value) => value.id !== item.id)])
@@ -156,7 +166,7 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
           busy={busy}
           onDirtyChange={setItemDirty}
           onSelect={setSelectedItemId}
-          onCreate={(values) => mutate(async () => { const item = await createAdminContentItem(values); setSelectedItemId(item.id) }, 'Content draft created. Approve it when the wording is ready.')}
+          onCreate={(values) => mutate(async (ticket) => { const item = await createAdminContentItem(values); if (mutationLifecycle.isCurrent(ticket)) setSelectedItemId(item.id) }, 'Content draft created. Approve it when the wording is ready.')}
           onSave={(item, values) => mutate(async () => { await updateAdminContentItem(item.id, { ...values, draft_revision: item.draft_revision ?? 0 }) }, 'Content draft saved. Approve the new version when it is ready.')}
           onApprove={(item) => mutate(async () => { await approveAdminContentItem(item.id, item.draft_revision ?? 0, item.draft_digest ?? '') }, `${item.title} is approved as an immutable version.`)}
         />
@@ -169,7 +179,7 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
           busy={busy}
           onDirtyChange={setPackDirty}
           onSelect={setSelectedPackId}
-          onCreate={(values) => mutate(async () => { const pack = await createAdminContentPack(values); setSelectedPackId(pack.id) }, 'Content pack draft created. Publish it when its item versions are correct.')}
+          onCreate={(values) => mutate(async (ticket) => { const pack = await createAdminContentPack(values); if (mutationLifecycle.isCurrent(ticket)) setSelectedPackId(pack.id) }, 'Content pack draft created. Publish it when its item versions are correct.')}
           onSave={(pack, values) => mutate(async () => { await updateAdminContentPack(pack.id, { ...values, draft_revision: pack.draft_revision ?? 0 }) }, 'Pack draft saved. Its published version has not changed.')}
           onPublish={(pack) => mutate(async () => { await publishAdminContentPack(pack.id, { draft_revision: pack.draft_revision ?? 0, draft_manifest_digest: pack.draft_manifest_digest ?? '', expected_published_version_id: pack.current_published_version?.id ?? null }) }, `${pack.name} is published as an immutable version.`)}
         />
@@ -438,9 +448,10 @@ function ContentPacksPanel({ currentUser, platformMode, packs, items, selected, 
   )
 }
 
-export function PersonaContentPacksPanel({ persona, dirty, onDirtyChange, onPersonaChange }: {
+export function PersonaContentPacksPanel({ persona, dirty, mutationLifecycle, onDirtyChange, onPersonaChange }: {
   persona: AdminPersonaDetail
   dirty: boolean
+  mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
   onPersonaChange: (persona: AdminPersonaDetail) => void
 }) {
@@ -482,15 +493,17 @@ export function PersonaContentPacksPanel({ persona, dirty, onDirtyChange, onPers
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   async function save() {
+    const ticket = mutationLifecycle.begin()
     setBusy(true)
     setError(null)
     try {
       const next = await updateAdminPersonaContentPacks(persona.id, persona.draft_revision ?? 0, selectedIds)
-      onPersonaChange(next)
+      if (mutationLifecycle.isCurrent(ticket)) onPersonaChange(next)
     } catch (caught) {
-      setError(errorMessage(caught, 'The content selection could not be saved.'))
+      if (mutationLifecycle.isCurrent(ticket)) setError(errorMessage(caught, 'The content selection could not be saved.'))
     } finally {
-      setBusy(false)
+      if (mutationLifecycle.isCurrent(ticket)) setBusy(false)
+      mutationLifecycle.finish(ticket)
     }
   }
 

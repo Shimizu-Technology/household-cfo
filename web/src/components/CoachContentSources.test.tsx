@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminContentSource, CurrentUser } from '../api'
 import { AuthContext } from '../contexts/authContextValue'
 import { CoachContentSources } from './CoachContentSources'
+import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
 const apiMocks = vi.hoisted(() => ({
   fetchAdminContentSources: vi.fn(),
@@ -26,6 +27,12 @@ vi.mock('../api', async (importOriginal) => ({
 }))
 
 const currentUser = { id: 2, is_admin: false, is_coach: true } as CurrentUser
+const mutationLifecycle: CoachWorkspaceMutationLifecycle = {
+  pending: false,
+  begin: () => ({ id: 1, workspaceId: 1 }),
+  isCurrent: () => true,
+  finish: () => undefined,
+}
 
 function source(permissions: AdminContentSource['permissions']): AdminContentSource {
   return {
@@ -82,7 +89,7 @@ function renderSources(user: CurrentUser = currentUser) {
       refreshCurrentUser: async () => undefined,
       selectCoachWorkspace: () => undefined,
     }}>
-      <CoachContentSources currentUser={user} onDirtyChange={() => undefined} onItemAccepted={() => undefined} onReviewItem={() => undefined} />
+      <CoachContentSources currentUser={user} mutationLifecycle={mutationLifecycle} onDirtyChange={() => undefined} onItemAccepted={() => undefined} onReviewItem={() => undefined} />
     </AuthContext.Provider>,
   )
 }

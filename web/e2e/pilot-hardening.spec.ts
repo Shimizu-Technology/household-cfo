@@ -4373,6 +4373,111 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('Coach Studio locks workspace selection through a delayed Coaching Library mutation', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'workspace mutation lifecycle regression')
+  let releaseCreate!: () => void
+  const createGate = new Promise<void>((resolve) => { releaseCreate = resolve })
+  await page.route('http://api.test/api/v1/admin/content_items', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await createGate
+    return route.fulfill({
+      status: 201,
+      json: {
+        item: {
+          id: 990, title: 'Delayed library draft', scope: 'coach', kind: 'guidance', always_on: false,
+          draft_content: 'Keep the workspace fixed until this save returns.', draft_revision: 1, draft_digest: 'delayed-item',
+          archived: false, editable: true, approvable: false, current_approved_version: null, versions: [],
+          has_unapproved_changes: true, updated_at: '2026-10-02T00:00:00Z',
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByRole('button', { name: 'New item' }).click()
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  await itemPanel.getByLabel('Title').fill('Delayed library draft')
+  await itemPanel.getByLabel('Draft wording').fill('Keep the workspace fixed until this save returns.')
+  await itemPanel.getByRole('button', { name: 'Create draft' }).click()
+
+  const workspace = page.getByLabel('Coach workspace')
+  await expect(workspace).toBeDisabled()
+  releaseCreate()
+  await expect(workspace).toBeEnabled()
+})
+
+test('Coach Studio locks workspace selection across private-source presign and completion', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'workspace mutation lifecycle regression')
+  let releasePresign!: () => void
+  let releaseComplete!: () => void
+  const presignGate = new Promise<void>((resolve) => { releasePresign = resolve })
+  const completeGate = new Promise<void>((resolve) => { releaseComplete = resolve })
+  await page.route('http://api.test/api/v1/admin/content_sources/presign', async (route) => {
+    await presignGate
+    return route.fulfill({ status: 200, json: { upload_url: 'http://storage.test/delayed-source', upload_headers: {}, upload_token: 'delayed-token' } })
+  })
+  await page.route('http://storage.test/delayed-source', (route) => route.fulfill({ status: 200, body: '' }))
+  await page.route('http://api.test/api/v1/admin/content_sources/complete', async (route) => {
+    await completeGate
+    return route.fulfill({
+      status: 201,
+      json: { source: {
+        id: 991, scope: 'coach', filename: 'delayed-source.txt', content_type: 'text/plain', byte_size: 22,
+        checksum_sha256: 'd'.repeat(64), status: 'queued', generation: 0, source_available: true,
+        error: null, error_code: null, source_delete_error_code: null, processing_metadata: {}, processed_at: null,
+        source_deleted_at: null, created_at: '2026-10-02T00:00:00Z', updated_at: '2026-10-02T00:00:00Z',
+        current_attempt: null, permissions: sourceOwnerPermissions, candidates: [],
+      } },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByLabel('Private source file').setInputFiles({ name: 'delayed-source.txt', mimeType: 'text/plain', buffer: Buffer.from('Private coaching text.') })
+  await page.getByRole('button', { name: 'Upload and read' }).click()
+
+  const workspace = page.getByLabel('Coach workspace')
+  await expect(workspace).toBeDisabled()
+  const completionRequest = page.waitForRequest('http://api.test/api/v1/admin/content_sources/complete')
+  releasePresign()
+  await completionRequest
+  await expect(workspace).toBeDisabled()
+  releaseComplete()
+  await expect(page.getByRole('status').filter({ hasText: 'Private upload complete' })).toBeVisible()
+  await expect(workspace).toBeEnabled()
+})
+
+test('Coach Studio locks workspace selection through a delayed Participant Tools mutation', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'workspace mutation lifecycle regression')
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  await page.route('http://api.test/api/v1/admin/cohorts/41/experience_configuration', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback()
+    await saveGate
+    return route.fulfill({
+      status: 200,
+      json: { experience_configuration: {
+        cohort: { id: 41, name: 'Household CFO pilot', status: 'active', participant_count: 1 },
+        draft: route.request().postDataJSON().experience_configuration.draft_config,
+        draft_revision: 2, preview_required: true, preview: null, published_version: null, versions: [],
+        permissions: { edit: true, publish: true, rollback: true },
+      } },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await page.getByRole('tab', { name: /Participant tools/ }).click()
+  await page.getByLabel('Include Optionality').uncheck()
+  await page.getByRole('button', { name: 'Save draft' }).click()
+
+  const workspace = page.getByLabel('Coach workspace')
+  await expect(workspace).toBeDisabled()
+  releaseSave()
+  await expect(page.getByRole('status')).toContainText('draft saved')
+  await expect(workspace).toBeEnabled()
+})
+
 test('Coach Studio keeps private source candidates reviewable and mobile-safe before publication', async ({ page }) => {
   const candidateBase = {
     source_id: 701, status: 'proposed', kind: 'guidance', topics: ['planning'], safety_code: null,
