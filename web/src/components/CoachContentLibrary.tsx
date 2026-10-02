@@ -222,8 +222,9 @@ export function ContentItemsPanel({ currentUser, platformMode, items, selected, 
   const lastSelectedId = useRef<number | null>(null)
   const lastHandledReviewRequest = useRef(0)
   const titleInputRef = useRef<HTMLInputElement>(null)
-  const legacyPhrase = selected?.kind === 'phrase'
-  const itemEditable = Boolean(selected?.editable && !legacyPhrase)
+  const reviewedSourcePhrase = Boolean(selected?.kind === 'phrase' && selected.source_reviewed_phrase)
+  const legacyPhrase = selected?.kind === 'phrase' && !reviewedSourcePhrase
+  const itemEditable = Boolean(selected?.editable && selected.kind !== 'phrase')
   const itemDirty = Boolean(itemEditable && selected && (
     normalizeSingleLine(title) !== selected.title ||
     content.trim() !== (selected.draft_content ?? '') ||
@@ -328,6 +329,7 @@ export function ContentItemsPanel({ currentUser, platformMode, items, selected, 
             {(!selected || itemEditable) && <Button type="submit" disabled={busy || !title.trim() || !content.trim() || Boolean(selected && !itemDirty)}>{selected ? 'Save draft' : 'Create draft'}</Button>}
             {selected?.approvable && !legacyPhrase && <Button type="button" variant="secondary" disabled={busy || itemDirty || !selected.has_unapproved_changes} onClick={() => void onApprove(selected)}>{itemDirty ? 'Save draft before approving' : selected.has_unapproved_changes ? 'Approve new version' : `Approved v${selected.current_approved_version?.version}`}</Button>}
           </div>
+          {reviewedSourcePhrase && <p className="coach-content-note" role="note">This exact wording is locked to its approved coaching workspace source. Review it here, then approve the version before phrase promotion.</p>}
           {legacyPhrase && <p className="coach-content-note" role="note">Legacy phrase items are read-only. Remove them from any legacy pack, then add reviewed wording through a private source or the selected assistant's Phrase editor.</p>}
           {selected && !selected.editable && !legacyPhrase && <p className="coach-content-note">{selected.approvable ? 'This draft is read-only while you review and approve it.' : 'This content is visible for use and read-only for your workspace role.'}</p>}
         </form>

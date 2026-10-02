@@ -46,19 +46,18 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
     end
     assert_equal "phrase_approved_content_not_exact", unapproved_sentence.code
 
-    item = @version.coach_content_item
-    item.update!(draft_content: "Håfa adai\nhåfa adai")
-    expanded_version = item.approve!(
-      actor: @owner,
-      expected_draft_revision: item.draft_revision,
-      expected_draft_digest: item.draft_digest
+    lowercase_source, lowercase_candidate, lowercase_version = approved_phrase_source(
+      owner: @owner,
+      source_text: @source_text,
+      candidate_title: "Reviewed lowercase greeting",
+      candidate_content: "Håfa adai\nhåfa adai"
     )
     source_mismatch = assert_raises(Mia::PhraseProposalWriter::Error) do
       with_source_download(@source_text) do
         writer.create!(
-          source_id: @source.id,
-          candidate_id: @candidate.id,
-          content_item_version_id: expanded_version.id,
+          source_id: lowercase_source.id,
+          candidate_id: lowercase_candidate.id,
+          content_item_version_id: lowercase_version.id,
           phrase_payload: @payload.merge("text" => "håfa adai")
         )
       end
@@ -79,21 +78,45 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
     ).count
   end
 
-  test "identical create replay survives current approved version advancement" do
+  test "editing a draft into an existing sealed proposal returns a stable duplicate error" do
+    rejected = with_source_download(@source_text) { create_proposal }
+    rejected = with_source_download(@source_text) do
+      writer.submit!(proposal_id: rejected.id, expected_revision: rejected.revision, expected_digest: rejected.proposal_digest)
+    end
+    with_source_download(@source_text) do
+      Mia::PhraseAttester.new(actor: @reviewer, workspace: @workspace).call!(
+        proposal_id: rejected.id, decision: "rejected", expected_digest: rejected.proposal_digest
+      )
+    end
+    draft = with_source_download(@source_text) do
+      create_proposal(@payload.merge("caution" => "A distinct draft."))
+    end
+
+    error = assert_raises(Mia::PhraseProposalWriter::Error) do
+      with_source_download(@source_text) do
+        writer.update!(
+          proposal_id: draft.id,
+          expected_revision: draft.revision,
+          expected_digest: draft.proposal_digest,
+          phrase_payload: @payload
+        )
+      end
+    end
+
+    assert_equal "phrase_proposal_duplicate", error.code
+    assert_equal "draft", draft.reload.status
+    assert_equal "A distinct draft.", draft.phrase_payload.fetch("caution")
+  end
+
+  test "reviewed phrase wording cannot advance after acceptance" do
     proposal = with_source_download(@source_text) { create_proposal }
     item = @version.coach_content_item
-    item.update!(draft_content: "Håfa adai. A newer reviewed version.")
-    item.approve!(
-      actor: @owner,
-      expected_draft_revision: item.draft_revision,
-      expected_draft_digest: item.draft_digest
-    )
+    item.assign_attributes(draft_content: "Håfa adai. A newer reviewed version.")
 
-    assert_equal proposal.id, create_proposal.id
-    changed = assert_raises(Mia::PhraseProposalWriter::Error) do
-      create_proposal(@payload.merge("caution" => "This is a different request."))
-    end
-    assert_equal "phrase_source_chain_invalid", changed.code
+    refute item.valid?
+    assert_includes item.errors[:base], "approved source phrase wording is read-only"
+    assert_equal proposal.id, with_source_download(@source_text) { create_proposal }.id
+    assert_equal @version.id, item.reload.current_approved_version_id
   end
 
   test "identical create replay survives source unavailability" do
@@ -139,28 +162,15 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
     ContentSources::UploadValidator.define_singleton_method(:validate_metadata!, original) if defined?(original) && original
   end
 
-  test "rejects stale approved versions and archived phrase items" do
+  test "rejects archived phrase items" do
     item = @version.coach_content_item
-    item.update!(draft_content: "Håfa adai. Updated approved phrase.")
-    current = item.approve!(
-      actor: @owner,
-      expected_draft_revision: item.draft_revision,
-      expected_draft_digest: item.draft_digest
-    )
-    refute_equal @version.id, current.id
-
-    stale = assert_raises(Mia::PhraseProposalWriter::Error) do
-      with_source_download(@source_text) { create_proposal }
-    end
-    assert_equal "phrase_source_chain_invalid", stale.code
-
     item.update!(archived_at: Time.current)
     archived = assert_raises(Mia::PhraseProposalWriter::Error) do
       with_source_download(@source_text) do
         writer.create!(
           source_id: @source.id,
           candidate_id: @candidate.id,
-          content_item_version_id: current.id,
+          content_item_version_id: @version.id,
           phrase_payload: @payload
         )
       end
@@ -577,7 +587,7 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
     [ persona.reload, promotion ]
   end
 
-  def approved_phrase_source(owner:, source_text:)
+  def approved_phrase_source(owner:, source_text:, candidate_title: "Reviewed greeting", candidate_content: "Håfa adai")
     source = CoachContentSource.create!(
       scope: "coach", coach_workspace: @workspace, created_by_user: owner, status: "processing",
       filename: "coach-phrases.txt", content_type: "text/plain", byte_size: source_text.bytesize,
@@ -594,10 +604,10 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
       "excerpt_digest" => Digest::SHA256.hexdigest("Håfa adai".b)
     }
     candidate = source.candidates.create!(
-      coach_content_source_attempt: attempt, position: 0, status: "proposed", title: "Reviewed greeting",
-      kind: "phrase", content: "Håfa adai", topics: [ "greeting" ], evidence_locator: locator,
+      coach_content_source_attempt: attempt, position: 0, status: "proposed", title: candidate_title,
+      kind: "phrase", content: candidate_content, topics: [ "greeting" ], evidence_locator: locator,
       evidence_excerpt: "Håfa adai", content_digest: CoachContentSourceCandidate.digest_for(
-        title: "Reviewed greeting", kind: "phrase", content: "Håfa adai", topics: [ "greeting" ]
+        title: candidate_title, kind: "phrase", content: candidate_content, topics: [ "greeting" ]
       )
     )
     item = candidate.accept!(actor: owner, expected_revision: candidate.revision, expected_digest: candidate.content_digest)

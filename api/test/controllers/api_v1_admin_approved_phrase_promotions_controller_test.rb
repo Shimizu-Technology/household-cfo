@@ -87,22 +87,13 @@ class ApiV1AdminApprovedPhrasePromotionsControllerTest < ActionDispatch::Integra
     refute_includes response.body, @source.filename
   end
 
-  test "source candidate serialization follows the current approved version instead of stale candidate content" do
-    item = @version.coach_content_item
-    item.update!(draft_content: "Håfa adai. Use this revised reviewed wording.")
-    current = item.approve!(
-      actor: @owner,
-      expected_draft_revision: item.draft_revision,
-      expected_draft_digest: item.draft_digest
-    )
-
+  test "source candidate serialization exposes the locked reviewed phrase version" do
     get "/api/v1/admin/content_sources/#{@source.id}", headers: workspace_headers(@editor)
     assert_response :success
     candidate = response.parsed_body.dig("source", "candidates", 0)
-    assert_equal current.id, candidate.fetch("accepted_content_item_version_id")
-    assert_equal current.kind, candidate.fetch("accepted_content_item_version_kind")
-    assert_equal current.content, candidate.fetch("accepted_content_item_version_content")
-    refute_equal candidate.fetch("content"), candidate.fetch("accepted_content_item_version_content")
+    assert_equal @version.id, candidate.fetch("accepted_content_item_version_id")
+    assert_equal "phrase", candidate.fetch("accepted_content_item_version_kind")
+    assert_equal candidate.fetch("content"), candidate.fetch("accepted_content_item_version_content")
   end
 
   test "identical create retry returns the proposal from the lost response" do
@@ -127,6 +118,41 @@ class ApiV1AdminApprovedPhrasePromotionsControllerTest < ActionDispatch::Integra
     assert_response :created
     assert_equal proposal_id, response.parsed_body.dig("phrase_proposal", "id")
     assert_equal 1, CoachPhraseProposal.where(id: proposal_id).count
+  end
+
+  test "malformed phrase collection payloads return a safe validation error" do
+    with_source_download do
+      post "/api/v1/admin/content_sources/#{@source.id}/phrase_proposals", params: {
+        phrase_proposal: {
+          candidate_id: @candidate.id,
+          content_item_version_id: @version.id,
+          phrase: []
+        }
+      }, headers: workspace_headers(@editor), as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_equal "phrase_payload_invalid", response.parsed_body.fetch("code")
+
+    proposal = with_source_download do
+      Mia::PhraseProposalWriter.new(actor: @editor, workspace: @workspace).create!(
+        source_id: @source.id,
+        candidate_id: @candidate.id,
+        content_item_version_id: @version.id,
+        phrase_payload: @phrase
+      )
+    end
+    with_source_download do
+      patch "/api/v1/admin/phrase_proposals/#{proposal.id}", params: {
+        phrase_proposal: {
+          revision: proposal.revision,
+          digest: proposal.proposal_digest,
+          phrase: []
+        }
+      }, headers: workspace_headers(@editor), as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_equal "phrase_payload_invalid", response.parsed_body.fetch("code")
+    assert_equal "draft", proposal.reload.status
   end
 
   test "selected workspace is mandatory and tenant boundaries conceal records" do

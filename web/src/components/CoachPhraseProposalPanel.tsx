@@ -109,9 +109,10 @@ export function CoachPhraseProposalPanel({
     return () => { cancelled = true }
   }, [candidate, loadAttempt, sourceId, versionId])
 
-  if (candidate.accepted_content_item_version_kind !== 'phrase' || candidate.status !== 'accepted') return null
+  if (candidate.status !== 'accepted') return null
 
   if (!versionId) {
+    if (candidate.kind !== 'phrase') return null
     return (
       <section className="coach-phrase-review" aria-label="Approved phrase review">
         <div className="coach-phrase-review-heading">
@@ -122,6 +123,8 @@ export function CoachPhraseProposalPanel({
       </section>
     )
   }
+
+  if (candidate.accepted_content_item_version_kind !== 'phrase') return null
 
   function chooseProposal(proposal: AdminPhraseProposal) {
     if (dirty || blocked) return

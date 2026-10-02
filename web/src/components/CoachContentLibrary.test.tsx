@@ -11,7 +11,7 @@ function version(id: number, itemId: number, title: string, kind: AdminContentIt
   return { id, item_id: itemId, title, kind, content: `${title} content`, always_on: false, version: 1, digest: `digest-${id}`, approved_at: approvedAt }
 }
 function item(id: number, title: string, kind: AdminContentItem['kind'], current: AdminContentItemVersion): AdminContentItem {
-  return { id, title, scope: 'coach', kind, always_on: false, draft_content: current.content, draft_revision: 1, draft_digest: current.digest, archived: false, editable: true, approvable: true, current_approved_version: current, versions: [current], has_unapproved_changes: false, updated_at: approvedAt }
+  return { id, title, scope: 'coach', kind, always_on: false, draft_content: current.content, draft_revision: 1, draft_digest: current.digest, archived: false, editable: true, approvable: true, source_reviewed_phrase: false, current_approved_version: current, versions: [current], has_unapproved_changes: false, updated_at: approvedAt }
 }
 
 const guidance = version(11, 1, 'Decision guide', 'guidance')
@@ -101,5 +101,36 @@ describe('ContentPacksPanel phrase migration', () => {
     expect((screen.getByLabelText('Type') as HTMLSelectElement).disabled).toBe(true)
     expect(screen.getByText(/Legacy phrase items are read-only/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Save draft' })).toBeNull()
+  })
+
+  it('keeps source-reviewed phrase wording locked while allowing version approval', async () => {
+    const draftVersion = version(23, 3, 'Reviewed greeting', 'phrase')
+    const reviewedItem = {
+      ...item(3, 'Reviewed greeting', 'phrase', draftVersion),
+      current_approved_version: null,
+      versions: [],
+      has_unapproved_changes: true,
+      source_reviewed_phrase: true,
+    }
+    const onApprove = vi.fn().mockResolvedValue(true)
+    render(<ContentItemsPanel
+      currentUser={{ id: 2, is_admin: false } as CurrentUser}
+      platformMode={false}
+      items={[reviewedItem]}
+      selected={reviewedItem}
+      reviewRequest={0}
+      focusRequest={0}
+      busy={false}
+      onDirtyChange={() => undefined}
+      onSelect={() => undefined}
+      onCreate={async () => true}
+      onSave={async () => true}
+      onApprove={onApprove}
+    />)
+
+    expect((screen.getByPlaceholderText(/Write the exact teaching/) as HTMLTextAreaElement).disabled).toBe(true)
+    expect(screen.getByText(/exact wording is locked/i)).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Approve new version' }))
+    expect(onApprove).toHaveBeenCalledWith(reviewedItem)
   })
 })

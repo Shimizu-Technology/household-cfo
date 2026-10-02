@@ -26,7 +26,11 @@ module Mia
       @attempt = attempt
       @candidate = candidate
       @content_item_version = content_item_version
-      @phrase_payload = PersonaSchema.normalize(phrase_payload).slice(*CoachPhraseProposal::PAYLOAD_KEYS)
+      normalized_payload = PersonaSchema.normalize(phrase_payload)
+      unless normalized_payload.is_a?(Hash)
+        raise Error.new("Complete every phrase meaning, context, frequency, and caution field.", code: "phrase_payload_invalid")
+      end
+      @phrase_payload = normalized_payload.slice(*CoachPhraseProposal::PAYLOAD_KEYS)
     end
 
     def call

@@ -65,6 +65,7 @@ module Mia
     end
 
     def update!(proposal_id:, expected_revision:, expected_digest:, phrase_payload:)
+      proposal = nil
       ApplicationRecord.transaction do
         authorization = authorize!
         proposal = locked_proposal_with_source!(authorization.workspace, proposal_id)
@@ -78,6 +79,8 @@ module Mia
         proposal.save!
         proposal
       end
+    rescue ActiveRecord::RecordNotUnique
+      raise Error.new("This exact phrase proposal already exists.", code: "phrase_proposal_duplicate")
     rescue ActiveRecord::RecordInvalid => error
       raise Error.new(error.record.errors.full_messages.first, code: "phrase_proposal_invalid")
     rescue PhraseEvidenceVerifier::Error => error
@@ -183,7 +186,11 @@ module Mia
     end
 
     def exact_create_replay(workspace, source_id:, candidate_id:, content_item_version_id:, phrase_payload:)
-      normalized_payload = PersonaSchema.normalize(phrase_payload).slice(*CoachPhraseProposal::PAYLOAD_KEYS)
+      normalized_payload = PersonaSchema.normalize(phrase_payload)
+      unless normalized_payload.is_a?(Hash)
+        raise Error.new("Complete every phrase meaning, context, frequency, and caution field.", code: "phrase_payload_invalid")
+      end
+      normalized_payload = normalized_payload.slice(*CoachPhraseProposal::PAYLOAD_KEYS)
       CoachPhraseProposal.where(
         coach_workspace_id: workspace.id,
         proposed_by_user_id: actor_id,

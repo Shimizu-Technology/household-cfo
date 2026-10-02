@@ -9,7 +9,12 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :not_found
 
         def index
-          render json: { items: policy.visible_items.includes(:current_approved_version, :versions).order(updated_at: :desc).map { |item| serializer.item(item) } }
+          items = policy.visible_items.includes(
+            :current_approved_version,
+            :versions,
+            draft_source_provenance: [ :coach_content_source, :coach_content_source_attempt, :coach_content_source_candidate ]
+          ).order(updated_at: :desc)
+          render json: { items: items.map { |item| serializer.item(item) } }
         end
 
         def create

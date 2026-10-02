@@ -253,8 +253,11 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     workspace = CoachWorkspaces::Resolver.new(user: coach).call
     policy = Mia::ContentLibraryPolicy.new(coach, workspace: workspace)
 
-    loaded_items = policy.visible_items.where(id: items.map(&:id))
-      .includes(:current_approved_version, :versions).to_a
+    loaded_items = policy.visible_items.where(id: items.map(&:id)).includes(
+      :current_approved_version,
+      :versions,
+      draft_source_provenance: [ :coach_content_source, :coach_content_source_attempt, :coach_content_source_candidate ]
+    ).to_a
     loaded_packs = policy.visible_packs.where(id: packs.map(&:id)).includes(
       current_published_version: { entries: { coach_content_item_version: :source_provenance } },
       versions: { entries: { coach_content_item_version: :source_provenance } },

@@ -26,6 +26,7 @@ module Mia
         archived: item.archived?,
         editable: editable && !item.archived?,
         approvable: approvable && !item.archived?,
+        source_reviewed_phrase: source_reviewed_phrase?(item),
         current_approved_version: display_version && item_version(display_version),
         versions: associated_records(item, :versions).sort_by { |version| -version.version_number }.map { |version| item_version(version) },
         has_unapproved_changes: draft_visible && (display_version.nil? || display_version.content_digest != item.draft_digest),
@@ -98,12 +99,23 @@ module Mia
     attr_reader :policy
 
     def preload_item(item)
-      return if item.association(:current_approved_version).loaded? && item.association(:versions).loaded?
+      return if item.association(:current_approved_version).loaded? && item.association(:versions).loaded? &&
+        item.association(:draft_source_provenance).loaded?
 
       ActiveRecord::Associations::Preloader.new(
         records: [ item ],
-        associations: [ :current_approved_version, :versions ]
+        associations: [ :current_approved_version, :versions, {
+          draft_source_provenance: [ :coach_content_source, :coach_content_source_attempt, :coach_content_source_candidate ]
+        } ]
       ).call
+    end
+
+    def source_reviewed_phrase?(item)
+      return false unless item.kind == "phrase"
+
+      provenance = item.draft_source_provenance
+      provenance&.integrity_valid? && provenance.coach_content_source.scope == "coach" &&
+        provenance.coach_content_source_candidate.kind == "phrase"
     end
 
     def preload_pack(pack)

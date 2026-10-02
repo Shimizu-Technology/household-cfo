@@ -100,6 +100,21 @@ describe('CoachPhraseProposalPanel', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(cleanup)
 
+  it('shows the accepted phrase waiting stage before its content version is approved', () => {
+    renderPanel({
+      candidate: {
+        ...candidate,
+        accepted_content_item_version_id: null,
+        accepted_content_item_version_kind: null,
+        accepted_content_item_version_content: null,
+      },
+    })
+
+    expect(screen.getByRole('heading', { name: 'Approve the content draft first' })).toBeTruthy()
+    expect(screen.getByText(/Approve its exact version below/i)).toBeTruthy()
+    expect(apiMocks.fetchAdminContentSourcePhraseProposals).not.toHaveBeenCalled()
+  })
+
   it('lets an editor save and submit exact phrase settings without rendering private evidence', async () => {
     const exactText = '  One  step\nat a time  '
     const exactCandidate = { ...candidate, kind: 'guidance' as const, content: 'stale candidate wording', accepted_content_item_version_content: exactText }

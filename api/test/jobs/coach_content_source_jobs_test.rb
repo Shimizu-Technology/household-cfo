@@ -311,7 +311,7 @@ class CoachContentSourceJobsTest < ActiveSupport::TestCase
 
   def with_processing_stubs(parser, proposer)
     with_singleton_method(ContentSources::Parser, :new, -> { parser }) do
-      with_singleton_method(ContentSources::CandidateProposer, :new, -> { proposer }) do
+      with_singleton_method(ContentSources::CandidateProposer, :new, ->(**) { proposer }) do
         with_singleton_method(S3Service, :download_to_io!, ->(_key, io) { io.write("source"); io.flush; true }) { yield }
       end
     end

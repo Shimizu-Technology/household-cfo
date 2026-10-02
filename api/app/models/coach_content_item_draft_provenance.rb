@@ -122,6 +122,7 @@ class CoachContentItemDraftProvenance < ApplicationRecord
     return false unless source && attempt && candidate && item
 
     item.created_by_user_id == source.created_by_user_id && item.coach_workspace_id == source.coach_workspace_id && item.scope == source.scope &&
+      phrase_content_matches_candidate?(item, candidate) &&
       source_filename == self.class.provenance_filename_for(source.filename) &&
       source_content_type == source.content_type && source_byte_size == source.byte_size && source_checksum_sha256 == source.checksum_sha256 &&
       attempt.coach_content_source_id == source.id && attempt_provider == attempt.provider && attempt_model == attempt.model &&
@@ -151,6 +152,13 @@ class CoachContentItemDraftProvenance < ApplicationRecord
     allowed_owner = coach_content_source.created_by_user_id == coach_content_item.created_by_user_id &&
       coach_content_source.coach_workspace_id == coach_content_item.coach_workspace_id
     errors.add(:base, "content item owner does not match the source") unless allowed_owner && coach_content_source.scope == coach_content_item.scope
+    errors.add(:base, "source phrase wording does not match the reviewed candidate") unless phrase_content_matches_candidate?(coach_content_item, coach_content_source_candidate)
+  end
+
+  def phrase_content_matches_candidate?(item, candidate)
+    candidate.kind != "phrase" || (
+      item.kind == "phrase" && item.title == candidate.title && item.draft_content == candidate.content && item.draft_always_on == false
+    )
   end
 
   def digest_matches_snapshot

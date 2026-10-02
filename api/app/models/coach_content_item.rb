@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class CoachContentItem < ApplicationRecord
-  attr_accessor :creation_authorized_by_user
+  attr_accessor :creation_authorized_by_user, :creation_source_candidate
   class ApprovalConflict < StandardError; end
 
   SCOPES = %w[coach platform].freeze
@@ -30,6 +30,8 @@ class CoachContentItem < ApplicationRecord
   validate :archived_item_is_read_only, on: :update
   validate :draft_content_has_bounded_bytes
   validate :workspace_matches_scope
+  validate :phrase_kind_is_governed
+  validate :phrase_draft_is_immutable, on: :update
 
   before_validation :assign_default_coach_workspace, on: :create
   before_update :advance_draft_revision
@@ -56,6 +58,9 @@ class CoachContentItem < ApplicationRecord
       Mia::ContentSafetyValidator.validate!(title: title, content: draft_content)
       if draft_source_provenance.present? && !draft_source_provenance.integrity_valid?
         raise ArgumentError, "The source provenance failed integrity validation"
+      end
+      if kind == "phrase" && !governed_phrase_provenance?
+        raise ArgumentError, "Phrase content must come from the approved coaching workspace phrase review"
       end
       if current_approved_version&.integrity_valid? && current_approved_version.content_digest == digest
         return current_approved_version
@@ -135,5 +140,34 @@ class CoachContentItem < ApplicationRecord
 
   def draft_content_has_bounded_bytes
     errors.add(:draft_content, "is too large (maximum is 12,000 bytes)") if draft_content.to_s.bytesize > 12_000
+  end
+
+  def phrase_kind_is_governed
+    return unless kind == "phrase"
+
+    valid = if new_record?
+      candidate = creation_source_candidate
+      source = candidate&.coach_content_source
+      candidate.is_a?(CoachContentSourceCandidate) && source&.scope == "coach" &&
+        candidate.kind == "phrase" && candidate.status == "proposed" &&
+        candidate.title == title && candidate.content == draft_content && draft_always_on == false
+    else
+      governed_phrase_provenance?
+    end
+    errors.add(:kind, "phrases must come from the approved coaching workspace phrase review") unless valid
+  end
+
+  def phrase_draft_is_immutable
+    return unless kind == "phrase" || kind_was == "phrase"
+
+    protected_changes = changes_to_save.keys & %w[title kind draft_content draft_always_on]
+    errors.add(:base, "approved source phrase wording is read-only") if protected_changes.any?
+  end
+
+  def governed_phrase_provenance?
+    provenance = draft_source_provenance
+    candidate = provenance&.coach_content_source_candidate
+    source = provenance&.coach_content_source
+    provenance&.integrity_valid? && source&.scope == "coach" && candidate&.kind == "phrase"
   end
 end

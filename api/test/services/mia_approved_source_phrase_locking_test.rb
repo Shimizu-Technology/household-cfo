@@ -8,7 +8,7 @@ class MiaApprovedSourcePhraseLockingTest < ActiveSupport::TestCase
 
   self.use_transactional_tests = false
 
-  test "current phrase item approval waits until proposal evidence is sealed" do
+  test "current phrase item approval replay waits until proposal evidence is sealed" do
     owner = persona_user
     workspace = CoachWorkspaces::Resolver.new(user: owner).call
     editor = persona_user
@@ -16,7 +16,6 @@ class MiaApprovedSourcePhraseLockingTest < ActiveSupport::TestCase
     source_text = "Håfa adai. Keep one practical next step."
     source, candidate, version = approved_phrase_source(owner:, workspace:, source_text:)
     item = version.coach_content_item
-    item.update!(draft_content: "Håfa adai. Revised approved wording.")
     remember_records(owner:, editor:, workspace:, source:, item:)
 
     verifier_entered = Queue.new
@@ -84,7 +83,7 @@ class MiaApprovedSourcePhraseLockingTest < ActiveSupport::TestCase
     assert_kind_of Integer, approved_version_id
     assert_equal version.id, CoachPhraseProposal.find(proposal_id).coach_content_item_version_id
     assert_equal approved_version_id, item.reload.current_approved_version_id
-    refute_equal version.id, approved_version_id
+    assert_equal version.id, approved_version_id
   ensure
     S3Service.define_singleton_method(:download_to_io!, original_download) if defined?(original_download) && original_download
     release_verifier << true if defined?(release_verifier) && release_verifier&.empty?

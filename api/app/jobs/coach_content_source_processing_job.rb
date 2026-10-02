@@ -11,7 +11,9 @@ class CoachContentSourceProcessingJob < ApplicationJob
     return unless source
 
     parser = ContentSources::Parser.new
-    proposer = ContentSources::CandidateProposer.new
+    proposer = ContentSources::CandidateProposer.new(
+      allowed_kinds: source.scope == "coach" ? CoachContentItem::KINDS : CoachContentItem::KINDS.without("phrase")
+    )
     attempt = begin_attempt!(source, proposer, expected_generation: expected_generation)
     return unless attempt
 

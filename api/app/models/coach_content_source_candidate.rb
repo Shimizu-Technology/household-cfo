@@ -32,6 +32,7 @@ class CoachContentSourceCandidate < ApplicationRecord
   validate :content_has_bounded_bytes
   validate :topics_are_bounded_strings
   validate :evidence_locator_is_valid
+  validate :kind_matches_source_scope
   validate :candidate_identity_is_immutable, on: :update
   before_validation :normalize_review_fields
   before_validation :capture_original_proposal_digest, on: :create
@@ -100,7 +101,7 @@ class CoachContentSourceCandidate < ApplicationRecord
         end
 
         unless violation
-          created_item = CoachContentItem.create!(
+          created_item = CoachContentItem.new(
             title: title,
             scope: source.scope,
             kind: kind,
@@ -110,6 +111,8 @@ class CoachContentSourceCandidate < ApplicationRecord
             coach_workspace: source.coach_workspace,
             creation_authorized_by_user: actor
           )
+          created_item.creation_source_candidate = self
+          created_item.save!
           accepted_at = Time.current
           update!(
             status: "accepted",
@@ -217,6 +220,13 @@ class CoachContentSourceCandidate < ApplicationRecord
 
     numeric_keys = %w[page_start page_end paragraph_start paragraph_end line_start line_end cue_start cue_end]
     errors.add(:evidence_locator, "contains an invalid source range") unless numeric_keys.filter_map { |key| locator[key] }.all? { |value| value.is_a?(Integer) && value.positive? && value <= 1_000_000 }
+  end
+
+  def kind_matches_source_scope
+    return if status.in?(%w[rejected superseded])
+    return unless kind == "phrase" && coach_content_source&.scope == "platform"
+
+    errors.add(:kind, "phrases must use a coaching workspace source and the approved phrase review")
   end
 
   def candidate_identity_is_immutable

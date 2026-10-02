@@ -1090,6 +1090,7 @@ export type AdminContentItem = {
   archived: boolean
   editable: boolean
   approvable: boolean
+  source_reviewed_phrase: boolean
   current_approved_version: AdminContentItemVersion | null
   versions: AdminContentItemVersion[]
   has_unapproved_changes: boolean
