@@ -189,6 +189,27 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
     assert_empty CoachContentSourceUrlIntake.all
   end
 
+  test "retrying a failed intake counts against the shared rate window" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    current = terminal_intake(coach: coach, workspace: workspace, status: "failed")
+    (CoachContentSource::MAX_NEW_UPLOADS_PER_WINDOW - 1).times do
+      terminal_intake(coach: coach, workspace: workspace, status: "failed")
+    end
+
+    with_storage_configured do
+      assert_no_enqueued_jobs only: CoachContentSourceUrlIntakeJob do
+        post endpoint, params: {
+          url: ContentSources::UrlCipher.decrypt(current.encrypted_url_payload), request_id: current.request_id
+        }, headers: workspace_auth_headers(coach, workspace), as: :json
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal "upload_rate_limited", response.parsed_body.fetch("code")
+    assert_equal "failed", current.reload.status
+  end
+
   test "only an administrator can retry terminal URL object cleanup" do
     admin = persona_user(role: "admin")
     coach = persona_user

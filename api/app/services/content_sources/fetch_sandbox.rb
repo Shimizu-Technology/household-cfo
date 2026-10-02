@@ -19,6 +19,16 @@ module ContentSources
       end
     end
 
+    def initialize(
+      proc_root: "/proc", page_size: nil, ps_path: "/bin/ps",
+      kernel_address_space_limit: RUBY_PLATFORM.include?("linux")
+    )
+      @proc_root = proc_root.to_s
+      @page_size = page_size || system_page_size
+      @ps_path = ps_path.to_s
+      @kernel_address_space_limit = kernel_address_space_limit
+    end
+
     def call(url)
       output = Tempfile.new([ "content-source-url", ".snapshot" ])
       output.binmode
@@ -43,24 +53,27 @@ module ContentSources
 
     def fork_child(url, output_path, reader, writer)
       Process.fork do
-        reader.close
-        Process.setpgrp
-        ENV.replace(ENV.slice("PATH", "GEM_HOME", "GEM_PATH", "BUNDLE_GEMFILE", "BUNDLE_BIN_PATH", "RUBYOPT", "RUBYLIB", "SSL_CERT_FILE", "SSL_CERT_DIR"))
-        apply_resource_limit
-        payload = begin
-          result = Timeout.timeout(MAX_RUNTIME) { PinnedHttpsFetcher.new.call(url, output_path: output_path) }
-          {
-            ok: true,
-            result: result.to_h.except(:path)
-          }
-        rescue ContentSources::Error => error
-          { ok: false, code: error.code }
-        rescue StandardError
-          { ok: false, code: "url_fetch_failed" }
+        begin
+          reader.close
+          Process.setpgrp
+          ENV.replace(ENV.slice("PATH", "GEM_HOME", "GEM_PATH", "BUNDLE_GEMFILE", "BUNDLE_BIN_PATH", "RUBYOPT", "RUBYLIB", "SSL_CERT_FILE", "SSL_CERT_DIR"))
+          apply_resource_limit
+          payload = begin
+            result = Timeout.timeout(MAX_RUNTIME) { PinnedHttpsFetcher.new.call(url, output_path: output_path) }
+            {
+              ok: true,
+              result: result.to_h.except(:path)
+            }
+          rescue ContentSources::Error => error
+            { ok: false, code: error.code }
+          rescue StandardError, NoMemoryError
+            { ok: false, code: "url_fetch_failed" }
+          end
+          writer.write(JSON.generate(payload))
+        ensure
+          writer.close unless writer.closed?
+          exit! 0
         end
-        writer.write(JSON.generate(payload))
-        writer.close
-        exit! 0
       end
     end
 
@@ -85,18 +98,66 @@ module ContentSources
     end
 
     def apply_resource_limit
-      Process.setrlimit(:AS, MAX_RSS_BYTES, MAX_RSS_BYTES)
+      return unless @kernel_address_space_limit
+
+      limit = current_address_space_bytes
+      return unless limit
+
+      Process.setrlimit(:AS, limit + MAX_RSS_BYTES, limit + MAX_RSS_BYTES)
     rescue ArgumentError, Errno::EINVAL, NotImplementedError
       nil
     end
 
     def resident_bytes(pid)
-      output = IO.popen([ "/bin/ps", "-o", "rss=", "-p", pid.to_s ], err: File::NULL, &:read)
-      return 0 if output.strip.empty?
+      statm_path = File.join(@proc_root, Integer(pid).to_s, "statm")
+      if File.file?(statm_path)
+        resident_pages = Integer(File.read(statm_path, 256).split.fetch(1), 10)
+        return resident_pages * @page_size
+      end
+
+      return 0 unless process_alive?(pid)
+
+      ps_resident_bytes(pid)
+    rescue ArgumentError, IndexError
+      MAX_RSS_BYTES + 1
+    rescue SystemCallError
+      process_alive?(pid) ? ps_resident_bytes(pid) : 0
+    end
+
+    def ps_resident_bytes(pid)
+      output = IO.popen([ @ps_path, "-o", "rss=", "-p", pid.to_s ], err: File::NULL, &:read)
+      return 0 if output.strip.empty? && !process_alive?(pid)
 
       Integer(output.strip, 10) * 1024
+    rescue Errno::ENOENT, Errno::ESRCH
+      0
     rescue ArgumentError, SystemCallError
       MAX_RSS_BYTES + 1
+    end
+
+    def current_address_space_bytes
+      statm_path = File.join(@proc_root, "self", "statm")
+      return nil unless File.file?(statm_path)
+
+      Integer(File.read(statm_path, 256).split.fetch(0), 10) * @page_size
+    rescue ArgumentError, IndexError, SystemCallError
+      nil
+    end
+
+    def process_alive?(pid)
+      Process.kill(0, pid)
+      true
+    rescue Errno::ESRCH
+      false
+    rescue Errno::EPERM
+      true
+    end
+
+    def system_page_size
+      value = Etc.sysconf(Etc::SC_PAGESIZE)
+      value.is_a?(Integer) && value.positive? ? value : 4096
+    rescue StandardError
+      4096
     end
 
     def terminate(pid)

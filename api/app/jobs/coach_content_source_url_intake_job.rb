@@ -122,7 +122,11 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
       raise ContentSources::Error, "url_intake_conflict" unless intake.status == "registering"
       raise ContentSources::Error, "url_intake_unavailable" unless current_permission?(intake, lock: true)
 
-      quota.enforce!(requested_bytes: intake.fetched_byte_size, exclude_intake: intake)
+      quota.enforce!(
+        requested_bytes: intake.fetched_byte_size,
+        exclude_intake: intake,
+        exclude_intake_from_rate: true
+      )
       source = CoachContentSource.create!(
         scope: intake.scope,
         coach_workspace: intake.coach_workspace,

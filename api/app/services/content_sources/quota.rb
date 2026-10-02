@@ -12,7 +12,7 @@ module ContentSources
       scope == "coach" ? "workspace-#{workspace&.id}" : "platform-user-#{user.id}"
     end
 
-    def enforce!(requested_bytes:, exclude_intake: nil)
+    def enforce!(requested_bytes:, exclude_intake: nil, exclude_intake_from_rate: false)
       sources = source_scope.where.not(status: "source_deleted")
       reservations = intake_scope.reserving_quota
       reservations = reservations.where.not(id: exclude_intake.id) if exclude_intake
@@ -30,7 +30,9 @@ module ContentSources
 
       recent_uploads = source_scope.where(ingestion_method: "upload", created_at: CoachContentSource::UPLOAD_WINDOW.ago..).count
       recent_intakes = intake_scope.where(created_at: CoachContentSource::UPLOAD_WINDOW.ago..)
-      recent_intakes = recent_intakes.where.not(id: exclude_intake.id) if exclude_intake
+      if exclude_intake && exclude_intake_from_rate
+        recent_intakes = recent_intakes.where.not(id: exclude_intake.id)
+      end
       recent_url_intakes = recent_intakes.count
       if recent_uploads + recent_url_intakes >= CoachContentSource::MAX_NEW_UPLOADS_PER_WINDOW
         raise Error, "upload_rate_limited"

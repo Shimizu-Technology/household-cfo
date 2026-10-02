@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "fileutils"
 
 class ContentSourcesSecureUrlIntakeTest < ActiveSupport::TestCase
   test "URL cipher uses authenticated encryption and a separate stable identity" do
@@ -138,6 +139,51 @@ class ContentSourcesSecureUrlIntakeTest < ActiveSupport::TestCase
     assert_equal Digest::SHA256.file(result.path).hexdigest, result.checksum_sha256
   ensure
     result&.close!
+  end
+
+  test "fetch sandbox adds headroom to the forked process address space limit" do
+    Dir.mktmpdir("fetch-sandbox-proc") do |root|
+      FileUtils.mkdir_p(File.join(root, "self"))
+      File.write(File.join(root, "self", "statm"), "100 7 2 1 0 0 0\n")
+      sandbox = ContentSources::FetchSandbox.new(proc_root: root, page_size: 4096, kernel_address_space_limit: true)
+      captured = nil
+
+      with_singleton_method(Process, :setrlimit, ->(*args) { captured = args }) do
+        sandbox.send(:apply_resource_limit)
+      end
+
+      expected = (100 * 4096) + ContentSources::FetchSandbox::MAX_RSS_BYTES
+      assert_equal [ :AS, expected, expected ], captured
+    end
+  end
+
+  test "fetch sandbox reads proc RSS without requiring ps" do
+    Dir.mktmpdir("fetch-sandbox-proc") do |root|
+      FileUtils.mkdir_p(File.join(root, "4321"))
+      File.write(File.join(root, "4321", "statm"), "100 7 2 1 0 0 0\n")
+      sandbox = ContentSources::FetchSandbox.new(proc_root: root, page_size: 16_384, ps_path: "/missing/ps")
+
+      assert_equal 7 * 16_384, sandbox.send(:resident_bytes, 4321)
+    end
+  end
+
+  test "fetch sandbox does not treat a missing ps fallback as excess RSS" do
+    sandbox = ContentSources::FetchSandbox.new(proc_root: "/missing/proc", ps_path: "/missing/ps")
+    sandbox.define_singleton_method(:process_alive?) { |_pid| true }
+
+    assert_equal 0, sandbox.send(:resident_bytes, 4321)
+  end
+
+  test "fetch sandbox converts a child memory exhaustion into a safe fetch error" do
+    fetcher = Object.new
+    fetcher.define_singleton_method(:call) { |*_args, **_kwargs| raise NoMemoryError }
+
+    with_singleton_method(ContentSources::PinnedHttpsFetcher, :new, -> { fetcher }) do
+      error = assert_raises(ContentSources::Error) do
+        ContentSources::FetchSandbox.new(kernel_address_space_limit: false).call("https://example.com/guide")
+      end
+      assert_equal "url_fetch_failed", error.code
+    end
   end
 
   private
