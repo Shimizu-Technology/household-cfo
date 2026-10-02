@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_02_160000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_170000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -452,6 +452,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_160000) do
     t.index ["coach_persona_id"], name: "index_coach_persona_draft_content_packs_on_coach_persona_id"
   end
 
+  create_table "coach_persona_phrase_promotions", force: :cascade do |t|
+    t.jsonb "artifact", default: {}, null: false
+    t.string "artifact_fingerprint", null: false
+    t.uuid "artifact_id", null: false
+    t.bigint "coach_persona_id", null: false
+    t.bigint "coach_phrase_attestation_id", null: false
+    t.bigint "coach_phrase_proposal_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "promoted_at", null: false
+    t.bigint "promoted_by_user_id", null: false
+    t.string "promotion_digest", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_persona_id", "artifact_id"], name: "idx_phrase_promotions_persona_artifact", unique: true
+    t.index ["coach_persona_id", "coach_phrase_proposal_id"], name: "idx_phrase_promotions_persona_proposal", unique: true
+    t.index ["coach_persona_id"], name: "index_coach_persona_phrase_promotions_on_coach_persona_id"
+    t.index ["coach_phrase_attestation_id"], name: "idx_on_coach_phrase_attestation_id_e5289c740e"
+    t.index ["coach_phrase_proposal_id"], name: "idx_on_coach_phrase_proposal_id_0e33c03c02"
+    t.index ["promoted_by_user_id"], name: "index_coach_persona_phrase_promotions_on_promoted_by_user_id"
+    t.check_constraint "artifact_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND promotion_digest::text ~ '^[0-9a-f]{64}$'::text", name: "phrase_promotions_digests_sha256"
+    t.check_constraint "jsonb_typeof(artifact) = 'object'::text", name: "phrase_promotions_artifact_object"
+    t.check_constraint "octet_length(artifact::text) <= 4096", name: "phrase_promotions_artifact_size"
+  end
+
   create_table "coach_persona_publication_events", force: :cascade do |t|
     t.bigint "actor_user_id", null: false
     t.bigint "coach_persona_id", null: false
@@ -566,11 +589,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_160000) do
     t.check_constraint "status::text = ANY (ARRAY['processing'::character varying::text, 'ready'::character varying::text, 'failed'::character varying::text, 'stale'::character varying::text])", name: "persona_setup_turns_status_valid"
   end
 
+  create_table "coach_persona_version_phrase_artifacts", force: :cascade do |t|
+    t.string "artifact_fingerprint", null: false
+    t.uuid "artifact_id", null: false
+    t.bigint "coach_persona_phrase_promotion_id", null: false
+    t.bigint "coach_persona_version_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "position", null: false
+    t.string "promotion_digest", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_persona_phrase_promotion_id"], name: "idx_persona_version_phrase_links_promotion"
+    t.index ["coach_persona_version_id", "artifact_id"], name: "idx_persona_version_phrase_links_artifact", unique: true
+    t.index ["coach_persona_version_id", "position"], name: "idx_persona_version_phrase_links_position", unique: true
+    t.index ["coach_persona_version_id"], name: "idx_persona_version_phrase_links_version"
+    t.check_constraint "\"position\" >= 0", name: "persona_version_phrase_links_position_nonnegative"
+    t.check_constraint "artifact_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND promotion_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_version_phrase_links_digests_sha256"
+  end
+
   create_table "coach_persona_versions", force: :cascade do |t|
     t.bigint "coach_persona_id", null: false
     t.jsonb "config", null: false
     t.string "config_digest", null: false
     t.string "content_manifest_digest", default: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", null: false
+    t.string "phrase_manifest_digest", default: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", null: false
     t.datetime "created_at", null: false
     t.bigint "published_by_user_id", null: false
     t.datetime "sealed_at"
@@ -585,6 +626,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_160000) do
     t.check_constraint "NOT (config #> '{response_shape,validate_before_coaching}'::text[]) IS DISTINCT FROM 'true'::jsonb AND NOT (config #> '{response_shape,next_move_required}'::text[]) IS DISTINCT FROM 'true'::jsonb", name: "coach_persona_versions_response_invariants_true"
     t.check_constraint "config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_digest_sha256"
     t.check_constraint "content_manifest_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_content_manifest_sha256"
+    t.check_constraint "phrase_manifest_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_phrase_manifest_sha256"
     t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "coach_persona_versions_config_object"
     t.check_constraint "octet_length(config::text) <= 49152", name: "coach_persona_versions_config_bytes"
     t.check_constraint "version_number > 0", name: "coach_persona_versions_positive_number"
@@ -702,6 +744,66 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_160000) do
     t.index ["coach_persona_version_id"], name: "index_cohort_persona_assignments_on_coach_persona_version_id"
     t.index ["coach_workspace_id"], name: "index_cohort_persona_assignments_on_coach_workspace_id"
     t.index ["cohort_id"], name: "index_cohort_persona_assignments_on_cohort_id", unique: true
+  end
+
+  create_table "coach_phrase_attestations", force: :cascade do |t|
+    t.string "attestation_digest", null: false
+    t.bigint "coach_phrase_proposal_id", null: false
+    t.datetime "created_at", null: false
+    t.string "decision", null: false
+    t.string "evidence_digest", null: false
+    t.string "proposal_digest", null: false
+    t.datetime "reviewed_at", null: false
+    t.bigint "reviewed_by_user_id", null: false
+    t.boolean "self_review", default: false, null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_phrase_proposal_id"], name: "index_coach_phrase_attestations_on_coach_phrase_proposal_id", unique: true
+    t.index ["reviewed_by_user_id"], name: "index_coach_phrase_attestations_on_reviewed_by_user_id"
+    t.check_constraint "decision::text = ANY (ARRAY['approved'::character varying, 'rejected'::character varying]::text[])", name: "phrase_attestations_decision_valid"
+    t.check_constraint "proposal_digest::text ~ '^[0-9a-f]{64}$'::text AND evidence_digest::text ~ '^[0-9a-f]{64}$'::text AND attestation_digest::text ~ '^[0-9a-f]{64}$'::text", name: "phrase_attestations_digests_sha256"
+  end
+
+  create_table "coach_phrase_proposals", force: :cascade do |t|
+    t.string "approved_content_digest", null: false
+    t.bigint "coach_content_item_version_id", null: false
+    t.bigint "coach_content_source_attempt_id", null: false
+    t.bigint "coach_content_source_candidate_id", null: false
+    t.bigint "coach_content_source_id", null: false
+    t.bigint "coach_workspace_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "evidence_end_byte", null: false
+    t.jsonb "evidence_locator", default: {}, null: false
+    t.bigint "evidence_start_byte", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "phrase_digest", null: false
+    t.jsonb "phrase_payload", default: {}, null: false
+    t.string "proposal_digest", null: false
+    t.bigint "proposed_by_user_id", null: false
+    t.integer "revision", default: 1, null: false
+    t.string "source_checksum_sha256", null: false
+    t.string "source_provenance_digest", null: false
+    t.string "source_segment_digest", null: false
+    t.string "status", default: "draft", null: false
+    t.datetime "submitted_at"
+    t.datetime "superseded_at"
+    t.datetime "updated_at", null: false
+    t.index ["coach_content_item_version_id"], name: "index_coach_phrase_proposals_on_coach_content_item_version_id"
+    t.index ["coach_content_source_attempt_id"], name: "idx_on_coach_content_source_attempt_id_c701b59aa7"
+    t.index ["coach_content_source_candidate_id"], name: "idx_on_coach_content_source_candidate_id_566e5765de"
+    t.index ["coach_content_source_id", "status"], name: "idx_phrase_proposals_source_status"
+    t.index ["coach_content_source_id"], name: "index_coach_phrase_proposals_on_coach_content_source_id"
+    t.index ["coach_workspace_id", "proposal_digest"], name: "idx_phrase_proposals_workspace_digest", unique: true
+    t.index ["coach_workspace_id"], name: "index_coach_phrase_proposals_on_coach_workspace_id"
+    t.index ["proposed_by_user_id"], name: "index_coach_phrase_proposals_on_proposed_by_user_id"
+    t.check_constraint "status::text = 'draft'::text AND submitted_at IS NULL OR (status::text = ANY (ARRAY['submitted'::character varying::text, 'rejected'::character varying::text])) AND submitted_at IS NOT NULL OR status::text = 'superseded'::text", name: "phrase_proposals_submission_coherent"
+    t.check_constraint "evidence_start_byte >= 0 AND evidence_end_byte > evidence_start_byte", name: "phrase_proposals_evidence_offsets_valid"
+    t.check_constraint "jsonb_typeof(evidence_locator) = 'object'::text", name: "phrase_proposals_locator_object"
+    t.check_constraint "jsonb_typeof(phrase_payload) = 'object'::text", name: "phrase_proposals_payload_object"
+    t.check_constraint "octet_length(phrase_payload::text) <= 4096 AND octet_length(evidence_locator::text) <= 2048", name: "phrase_proposals_payload_sizes"
+    t.check_constraint "revision > 0", name: "phrase_proposals_revision_positive"
+    t.check_constraint "source_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text AND source_segment_digest::text ~ '^[0-9a-f]{64}$'::text AND phrase_digest::text ~ '^[0-9a-f]{64}$'::text AND approved_content_digest::text ~ '^[0-9a-f]{64}$'::text AND source_provenance_digest::text ~ '^[0-9a-f]{64}$'::text AND proposal_digest::text ~ '^[0-9a-f]{64}$'::text", name: "phrase_proposals_digests_sha256"
+    t.check_constraint "status::text = 'superseded'::text AND superseded_at IS NOT NULL OR status::text <> 'superseded'::text AND superseded_at IS NULL", name: "phrase_proposals_supersession_coherent"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'submitted'::character varying, 'rejected'::character varying, 'superseded'::character varying]::text[])", name: "phrase_proposals_status_valid"
   end
 
   create_table "coach_profiles", force: :cascade do |t|
@@ -1779,4 +1881,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_160000) do
   add_foreign_key "cohort_persona_assignments", "coach_workspaces"
   add_foreign_key "cohort_persona_assignments", "cohorts", column: ["cohort_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_persona_assignment_cohort_workspace"
   add_foreign_key "cohorts", "coach_workspaces"
+  add_foreign_key "coach_persona_phrase_promotions", "coach_personas"
+  add_foreign_key "coach_persona_phrase_promotions", "coach_phrase_attestations"
+  add_foreign_key "coach_persona_phrase_promotions", "coach_phrase_proposals"
+  add_foreign_key "coach_persona_phrase_promotions", "users", column: "promoted_by_user_id"
+  add_foreign_key "coach_persona_version_phrase_artifacts", "coach_persona_phrase_promotions"
+  add_foreign_key "coach_persona_version_phrase_artifacts", "coach_persona_versions"
+  add_foreign_key "coach_phrase_attestations", "coach_phrase_proposals"
+  add_foreign_key "coach_phrase_attestations", "users", column: "reviewed_by_user_id"
+  add_foreign_key "coach_phrase_proposals", "coach_content_item_versions"
+  add_foreign_key "coach_phrase_proposals", "coach_content_source_attempts"
+  add_foreign_key "coach_phrase_proposals", "coach_content_source_candidates"
+  add_foreign_key "coach_phrase_proposals", "coach_content_sources"
+  add_foreign_key "coach_phrase_proposals", "coach_workspaces"
+  add_foreign_key "coach_phrase_proposals", "users", column: "proposed_by_user_id"
 end

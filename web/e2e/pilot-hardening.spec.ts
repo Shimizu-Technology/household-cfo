@@ -286,7 +286,7 @@ function miaAccountActionDraft({ id, title, actionType, accountId, payload }: {
 }
 
 function realWorkspaceData(setupComplete = false) {
-  return {
+  return structuredClone({
     workspace: {
       mode: 'real', household_id: 77, setup_complete: setupComplete,
       setup_status: {
@@ -338,7 +338,7 @@ function realWorkspaceData(setupComplete = false) {
     optionality,
     cfoFilter,
     mia: { messages: chatMessages(), oldest_message_id: 1, older_message_count: 0, has_older_messages: false, quick_prompts: ['Can I buy the purse?'], disclaimer: 'Education only.' },
-  }
+  })
 }
 
 function workspaceWithAccountReview(accounts: Array<Record<string, unknown>>, draft: Record<string, unknown>) {
@@ -4753,7 +4753,7 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await expect(editor.getByLabel('Draft wording')).toHaveValue('Choose one calm, practical next step and review it together.')
   await expect(page.getByRole('button', { name: /One calm next step/ })).toHaveAttribute('aria-current', 'true')
   await page.getByRole('button', { name: /Protect the baseline/ }).click()
-  await expect(page.getByRole('alert')).toContainText('unsaved candidate edits')
+  await expect(page.getByRole('alert')).toContainText('unsaved source review edits')
   await page.getByRole('button', { name: 'Keep editing' }).click()
   await expect(editor.getByLabel('Draft wording')).toHaveValue('Choose one calm, practical next step and review it together.')
 
@@ -4796,6 +4796,151 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await expect(itemPanel.getByLabel('Title')).toHaveValue('Keep this edit through a same-request refresh')
   await expect(itemPanel.getByLabel('Title')).not.toBeFocused()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Coach Studio promotes only an attested source phrase and keeps it locked across responsive layouts', async ({ page }) => {
+  const reviewedPhrase = {
+    text: 'One step at a time', meaning: 'Choose one practical action.', allowed_contexts: ['general'],
+    prohibited_contexts: ['crisis'], frequency: 'rare', caution: 'Avoid during urgent safety needs.',
+  }
+  const candidate = {
+    id: 741, source_id: 740, position: 0, status: 'accepted', title: 'One step phrase', kind: 'phrase',
+    content: reviewedPhrase.text, topics: ['routine'], evidence_locator: { type: 'text', segment: 1 },
+    evidence_excerpt: 'PRIVATE-EVIDENCE-CANARY', revision: 2, digest: 'candidate-digest', safety_code: null,
+    accepted_content_item_id: 940, accepted_content_item_version_id: 941, accepted_content_item_version_kind: 'phrase', accepted_content_item_version_content: reviewedPhrase.text,
+    reviewed_at: '2026-10-02T00:00:00Z', updated_at: '2026-10-02T00:00:00Z',
+  }
+  const source = {
+    id: 740, scope: 'coach', filename: 'private-workshop.txt', content_type: 'text/plain', byte_size: 120,
+    checksum_sha256: 'f'.repeat(64), status: 'needs_review', generation: 1, source_available: true, error: null, error_code: null,
+    source_delete_error_code: null, processing_metadata: {}, processed_at: '2026-10-02T00:00:00Z', source_deleted_at: null,
+    created_at: '2026-10-02T00:00:00Z', updated_at: '2026-10-02T00:00:00Z', current_attempt: null,
+    permissions: sourceOwnerPermissions, candidates: [candidate],
+  }
+  const proposal = {
+    id: 951, source_id: 740, source_label: 'Approved private source', content_item_version_id: 941, status: 'submitted',
+    phrase: reviewedPhrase, revision: 4, digest: 'proposal-digest', submitted_at: '2026-10-02T00:10:00Z', superseded_at: null,
+    proposed_by: { id: 900, full_name: 'Pilot Admin' },
+    attestation: { decision: 'approved', self_review: false, reviewed_at: '2026-10-02T00:15:00Z', reviewed_by: { id: 902, full_name: 'Pilot Reviewer' } },
+    promotion_count: 0, permissions: { edit: false, submit: false, review: false, promote: true },
+  }
+  const guidanceVersion = { id: 961, item_id: 960, title: 'Decision guide', kind: 'guidance', content: 'Choose one next step.', always_on: false, version: 1, digest: 'guide-digest', approved_at: '2026-10-02T00:00:00Z' }
+  const legacyPhraseVersion = { id: 963, item_id: 962, title: 'Legacy phrase', kind: 'phrase', content: 'Old phrase route.', always_on: false, version: 1, digest: 'legacy-digest', approved_at: '2026-10-02T00:00:00Z' }
+  const contentItems = [
+    { id: 960, title: 'Decision guide', scope: 'coach', kind: 'guidance', always_on: false, draft_content: guidanceVersion.content, draft_revision: 1, draft_digest: guidanceVersion.digest, archived: false, editable: true, approvable: true, current_approved_version: guidanceVersion, versions: [guidanceVersion], has_unapproved_changes: false, updated_at: '2026-10-02T00:00:00Z' },
+    { id: 962, title: 'Legacy phrase', scope: 'coach', kind: 'phrase', always_on: false, draft_content: legacyPhraseVersion.content, draft_revision: 1, draft_digest: legacyPhraseVersion.digest, archived: false, editable: true, approvable: true, current_approved_version: legacyPhraseVersion, versions: [legacyPhraseVersion], has_unapproved_changes: false, updated_at: '2026-10-02T00:00:00Z' },
+  ]
+  const legacyPack = { id: 970, name: 'Legacy voice pack', description: '', scope: 'coach', pack_kind: 'voice_culture', draft_revision: 1, draft_manifest_digest: 'pack-digest', archived: false, editable: true, publishable: true, draft_items: [guidanceVersion, legacyPhraseVersion], current_published_version: null, versions: [], has_unpublished_changes: true, item_updates_available: false, update_available: false, updated_at: '2026-10-02T00:00:00Z' }
+  const publishedPackVersion = { id: 972, pack_id: 971, name: 'Approved decision pack', description: 'Reviewed guidance.', scope: 'coach', pack_kind: 'coaching_method', version: 1, digest: 'published-pack-digest', published_at: '2026-10-02T00:00:00Z', items: [guidanceVersion] }
+  const attachPack = { id: 971, name: 'Approved decision pack', description: 'Reviewed guidance.', scope: 'coach', pack_kind: 'coaching_method', draft_revision: 1, draft_manifest_digest: 'attach-pack-digest', archived: false, editable: true, publishable: true, draft_items: [guidanceVersion], current_published_version: publishedPackVersion, versions: [publishedPackVersion], has_unpublished_changes: false, item_updates_available: false, update_available: false, updated_at: '2026-10-02T00:00:00Z' }
+  let studioPersona = structuredClone(personaDetailFixture())
+  let contentPackWriteCount = 0
+  let signalRestoreStarted: (() => void) | undefined
+  let releaseRestore: (() => void) | undefined
+  const restoreStarted = new Promise<void>((resolve) => { signalRestoreStarted = resolve })
+  const restoreGate = new Promise<void>((resolve) => { releaseRestore = resolve })
+
+  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: [source], permissions: sourceCollectionPermissions } }))
+  await page.route('http://api.test/api/v1/admin/content_sources/740', (route) => route.fulfill({ status: 200, json: { source } }))
+  await page.route('http://api.test/api/v1/admin/content_sources/740/phrase_proposals', (route) => route.fulfill({ status: 200, json: { phrase_proposals: [proposal], permissions: { view: true, propose: true, review: true, promote: true } } }))
+  await page.route('http://api.test/api/v1/admin/content_items', (route) => route.fulfill({ status: 200, json: { items: contentItems } }))
+  await page.route('http://api.test/api/v1/admin/content_packs', (route) => route.fulfill({ status: 200, json: { packs: [legacyPack, attachPack] } }))
+  await page.route('http://api.test/api/v1/admin/personas/81', async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 200, json: { persona: studioPersona } })
+    const body = route.request().postDataJSON().persona
+    const promotions = (studioPersona.approved_phrase_promotions ?? []).map((promotion) => ({ ...promotion, active: false, can_restore: true }))
+    studioPersona = {
+      ...studioPersona,
+      name: body.draft_config.identity.assistant_name,
+      description: body.description,
+      draft_revision: (studioPersona.draft_revision ?? 0) + 1,
+      draft: body.draft_config,
+      phrase_artifact_access: { can_add: true, artifacts: [] },
+      approved_phrase_promotions: promotions,
+      preview: null,
+      preview_required: true,
+      has_unpublished_changes: true,
+    }
+    return route.fulfill({ status: 200, json: { persona: studioPersona } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/81/content_packs', (route) => {
+    contentPackWriteCount += 1
+    return route.fulfill({ status: 409, json: { error: 'Content pack mutation must stay locked during restore.' } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/81/phrase_promotions', async (route) => {
+    const body = route.request().postDataJSON().phrase_promotion
+    expect(body).toEqual({ proposal_id: 951, draft_revision: 1 })
+    const promotedPersona = {
+      ...personaDetailFixture(), draft_revision: 2,
+      draft: { ...structuredClone(personaConfiguration), phrases: [{ ...reviewedPhrase, artifact_id: 'approved-source-951', provenance: 'approved_source' }] },
+      phrase_artifact_access: { can_add: true, artifacts: [{ artifact_id: 'approved-source-951', provenance: 'approved_source', source_role_at_capture: null, source_label: 'Approved private source', can_edit: false, can_move: true, can_remove: true, locked: true, locked_reason: 'Approved-source wording is sealed to its review record. Remove it or restore the reviewed artifact.' }] },
+      approved_phrase_promotions: [{ id: 980, artifact_id: 'approved-source-951', phrase: reviewedPhrase, source_label: 'Approved private source', active: true, can_restore: false, promoted_at: '2026-10-02T00:20:00Z' }],
+    }
+    studioPersona = promotedPersona
+    return route.fulfill({ status: 201, json: { persona: promotedPersona, phrase_promotion: { id: 980, persona_id: 81, proposal_id: 951, artifact_id: 'approved-source-951', phrase: reviewedPhrase, source_label: 'Approved private source', promoted_at: '2026-10-02T00:20:00Z', promoted_by: { id: 900, full_name: 'Pilot Admin' } } } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/81/phrase_promotions/980/restore', async (route) => {
+    expect(route.request().postDataJSON().phrase_promotion).toEqual({ draft_revision: 3 })
+    signalRestoreStarted?.()
+    await restoreGate
+    studioPersona = {
+      ...studioPersona,
+      draft_revision: 4,
+      draft: { ...structuredClone(studioPersona.draft!), phrases: [{ ...reviewedPhrase, artifact_id: 'approved-source-951', provenance: 'approved_source' }] },
+      phrase_artifact_access: { can_add: true, artifacts: [{ artifact_id: 'approved-source-951', provenance: 'approved_source', source_role_at_capture: null, source_label: 'Approved private source', can_edit: false, can_move: true, can_remove: true, locked: true, locked_reason: 'Approved-source wording is sealed to its review record. Remove it or restore the reviewed artifact.' }] },
+      approved_phrase_promotions: (studioPersona.approved_phrase_promotions ?? []).map((promotion) => ({ ...promotion, active: true, can_restore: false })),
+    }
+    return route.fulfill({ status: 200, json: { persona: studioPersona, phrase_promotion: { id: 980 } } })
+  })
+  await page.route('http://api.test/api/v1/admin/phrase_proposals/951', (route) => route.fulfill({ status: 200, json: { phrase_proposal: { ...proposal, promotion_count: 1 } } }))
+
+  await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByRole('button', { name: /private-workshop\.txt/ }).click()
+  await expect(page.getByRole('heading', { name: /Review exact wording/i })).toBeVisible()
+  await expect(page.locator('.coach-phrase-review')).not.toContainText('PRIVATE-EVIDENCE-CANARY')
+  await expect(page.getByText('Reviewed and approved')).toBeVisible()
+  await expect(page.getByText(/Selected assistant: Coach Lani/)).toBeVisible()
+  await page.getByRole('button', { name: 'Promote to selected assistant' }).click()
+  await expect(page.getByRole('status')).toContainText('locked reviewed artifact')
+
+  const packPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Publish a reusable collection' }) })
+  await packPanel.getByRole('button', { name: /Legacy voice pack/ }).click()
+  await expect(packPanel.getByRole('checkbox', { name: /Decision guide/ })).toBeVisible()
+  await expect(packPanel.getByRole('checkbox', { name: /Legacy phrase/ })).toHaveCount(0)
+  await expect(packPanel.getByText('Legacy phrase selections must be removed')).toBeVisible()
+
+  await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await page.getByRole('tab', { name: /Community/ }).click()
+  await expect(page.getByText('Approved private source', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Locked phrase')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Phrase', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Remove phrase 1' })).toBeEnabled()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  if ((page.viewportSize()?.width ?? 1_000) <= 390) {
+    expect(await page.getByRole('button', { name: 'Remove phrase 1' }).evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+  }
+
+  await page.getByRole('button', { name: 'Remove phrase 1' }).click()
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Restore reviewed phrase' })).toBeVisible()
+  await page.getByRole('button', { name: 'Restore reviewed phrase' }).click()
+  await restoreStarted
+
+  const setupMode = page.getByRole('button', { name: /Setup chat/ })
+  const packCheckbox = page.getByRole('checkbox', { name: /Approved decision pack/ })
+  await expect(setupMode).toBeDisabled()
+  await expect(packCheckbox).toBeDisabled()
+  await setupMode.evaluate((element) => (element as HTMLButtonElement).click())
+  await packCheckbox.evaluate((element) => (element as HTMLInputElement).click())
+  await expect(setupMode).toHaveAttribute('aria-pressed', 'false')
+  await expect(packCheckbox).not.toBeChecked()
+  expect(contentPackWriteCount).toBe(0)
+
+  releaseRestore?.()
+  await expect(page.getByRole('status')).toContainText('Reviewed phrase restored to the assistant draft')
+  await expect(setupMode).toBeEnabled()
+  await expect(packCheckbox).toBeEnabled()
 })
 
 test('Coach Studio preserves candidate edits through conflicts and server safety rechecks', async ({ page }, testInfo) => {

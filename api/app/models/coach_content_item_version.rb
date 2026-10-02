@@ -10,6 +10,7 @@ class CoachContentItemVersion < ApplicationRecord
   has_many :coach_content_citations, dependent: :restrict_with_exception
   has_one :source_provenance, class_name: "CoachContentItemVersionProvenance", dependent: :restrict_with_exception,
     inverse_of: :coach_content_item_version
+  has_many :phrase_proposals, class_name: "CoachPhraseProposal", dependent: :restrict_with_exception
 
   validates :version_number, numericality: { only_integer: true, greater_than: 0 }, uniqueness: { scope: :coach_content_item_id }
   validates :title, presence: true, length: { maximum: 160 }

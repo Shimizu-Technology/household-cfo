@@ -20,6 +20,11 @@ class CoachPersonaVersion < ApplicationRecord
     dependent: :restrict_with_exception,
     inverse_of: :coach_persona_version
   has_many :content_pack_versions, through: :content_pack_links, source: :coach_content_pack_version
+  has_many :phrase_artifact_links,
+    -> { order(:position) },
+    class_name: "CoachPersonaVersionPhraseArtifact",
+    dependent: :restrict_with_exception,
+    inverse_of: :coach_persona_version
   has_many :publication_events,
     class_name: "CoachPersonaPublicationEvent",
     dependent: :restrict_with_exception,
@@ -28,6 +33,7 @@ class CoachPersonaVersion < ApplicationRecord
   validates :version_number, numericality: { only_integer: true, greater_than: 0 }, uniqueness: { scope: :coach_persona_id }
   validates :config_digest, format: { with: /\A[0-9a-f]{64}\z/ }
   validates :content_manifest_digest, format: { with: /\A[0-9a-f]{64}\z/ }
+  validates :phrase_manifest_digest, format: { with: /\A[0-9a-f]{64}\z/ }
   validate :publisher_is_staff
   validate :config_matches_schema_and_digest
   validate :phrase_artifact_provenance
@@ -56,14 +62,26 @@ class CoachPersonaVersion < ApplicationRecord
     sealed_at.present?
   end
 
-  def seal_content_manifest!
+  def seal_manifests!
     raise ArgumentError, "Published persona version is already sealed" if sealed?
 
-    digest = self.class.content_manifest_digest_for(content_pack_links.includes(:coach_content_pack_version).order(:position).map(&:coach_content_pack_version))
-    update_columns(content_manifest_digest: digest, sealed_at: Time.current, updated_at: Time.current)
-    self.content_manifest_digest = digest
+    content_digest = self.class.content_manifest_digest_for(content_pack_links.includes(:coach_content_pack_version).order(:position).map(&:coach_content_pack_version))
+    phrase_entries = phrase_artifact_links.includes(coach_persona_phrase_promotion: %i[coach_phrase_proposal coach_phrase_attestation]).order(:position).map do |link|
+      Mia::PhraseManifest.entry(link, position: link.position)
+    end
+    phrase_digest = Mia::PhraseManifest.digest_for(phrase_entries)
+    update_columns(
+      content_manifest_digest: content_digest,
+      phrase_manifest_digest: phrase_digest,
+      sealed_at: Time.current,
+      updated_at: Time.current
+    )
+    self.content_manifest_digest = content_digest
+    self.phrase_manifest_digest = phrase_digest
     self
   end
+
+  alias_method :seal_content_manifest!, :seal_manifests!
 
   def content_manifest_valid?
     return false unless sealed?
@@ -82,8 +100,32 @@ class CoachPersonaVersion < ApplicationRecord
     ActiveSupport::SecurityUtils.secure_compare(content_manifest_digest, expected)
   end
 
+  def phrase_manifest_valid?
+    return false unless sealed?
+
+    approved = Array(config.to_h["phrases"]).each_with_index.filter_map do |phrase, position|
+      [ phrase, position ] if phrase.is_a?(Hash) && phrase["provenance"] == "approved_source"
+    end
+    links = phrase_artifact_links.includes(
+      coach_persona_phrase_promotion: %i[coach_phrase_proposal coach_phrase_attestation]
+    ).order(:position).to_a
+    return false unless approved.length == links.length
+
+    valid = approved.zip(links).all? do |(artifact, position), link|
+      link.position == position && link.integrity_valid? &&
+        link.artifact_id.to_s == artifact["artifact_id"].to_s &&
+        link.artifact_fingerprint == artifact["fingerprint"] &&
+        link.coach_persona_phrase_promotion.artifact == artifact
+    end
+    return false unless valid
+
+    expected = Mia::PhraseManifest.digest_for(links.map { |link| Mia::PhraseManifest.entry(link, position: link.position) })
+    phrase_manifest_digest.to_s.bytesize == expected.bytesize &&
+      ActiveSupport::SecurityUtils.secure_compare(phrase_manifest_digest, expected)
+  end
+
   def publication_digest
-    Digest::SHA256.hexdigest(JSON.generate({ config: config_digest, content: content_manifest_digest }).b)
+    Digest::SHA256.hexdigest(JSON.generate({ config: config_digest, content: content_manifest_digest, phrases: phrase_manifest_digest }).b)
   end
 
   private
@@ -115,6 +157,8 @@ class CoachPersonaVersion < ApplicationRecord
         source_user_id.present? && captured_role.in?(%w[admin coach])
       elsif phrase["provenance"] == "participant_supplied"
         source_user_id.present? && captured_role == "participant"
+      elsif phrase["provenance"] == "approved_source"
+        source_user_id.present? && captured_role.in?(%w[admin coach])
       end
       errors.add(:config, "$.phrases[#{index}] has invalid provenance") unless valid
     end

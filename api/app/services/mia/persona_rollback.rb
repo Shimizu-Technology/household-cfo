@@ -23,19 +23,30 @@ module Mia
         raise RollbackError, "Rollback target must belong to this persona" unless target_version.coach_persona_id == persona.id
         ensure_target_is_safe!
         raise RollbackError, "Rollback target content manifest is invalid" unless target_version.content_manifest_valid?
+        raise RollbackError, "Rollback target phrase manifest is invalid" unless target_version.phrase_manifest_valid?
 
         version = persona.versions.create!(
           version_number: persona.versions.maximum(:version_number).to_i + 1,
           config: target_version.config.deep_dup,
           config_digest: target_version.config_digest,
           content_manifest_digest: CoachPersonaVersion.content_manifest_digest_for([]),
+          phrase_manifest_digest: Mia::PhraseManifest.digest_for([]),
           published_by_user: actor,
           source_version: target_version
         )
         target_version.content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
           version.content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
         end
-        version.seal_content_manifest!
+        target_version.phrase_artifact_links.includes(:coach_persona_phrase_promotion).order(:position).each do |link|
+          version.phrase_artifact_links.create!(
+            coach_persona_phrase_promotion: link.coach_persona_phrase_promotion,
+            position: link.position,
+            artifact_id: link.artifact_id,
+            artifact_fingerprint: link.artifact_fingerprint,
+            promotion_digest: link.promotion_digest
+          )
+        end
+        version.seal_manifests!
         persona.draft_content_pack_links.delete_all
         version.content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
           persona.draft_content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)

@@ -80,6 +80,28 @@ class ContentSourcesCandidateProposerTest < ActiveSupport::TestCase
     assert_match(/Immutable contract/, payload.fetch(:messages).last.fetch(:content))
   end
 
+  test "platform proposal contracts exclude coach-only phrases" do
+    proposer = ContentSources::CandidateProposer.new(
+      api_key: "test",
+      allowed_kinds: CoachContentItem::KINDS.without("phrase")
+    )
+    segment = ContentSources::Parser::Segment.new(
+      number: 1,
+      text: "Use one reviewed greeting.",
+      locator: { "type" => "text", "segment" => 1, "line_start" => 1, "line_end" => 1 }
+    )
+
+    schema_kinds = proposer.send(:response_schema).dig(:properties, :candidates, :items, :properties, :kind, :enum)
+    refute_includes schema_kinds, "phrase"
+    error = assert_raises(ContentSources::Error) do
+      proposer.send(:normalize_response, JSON.generate("candidates" => [ {
+        "title" => "Greeting", "kind" => "phrase", "content" => "Use one reviewed greeting.",
+        "topics" => [], "evidence_quote" => "Use one reviewed greeting."
+      } ]), segment)
+    end
+    assert_equal "proposal_invalid", error.code
+  end
+
   private
 
   def assert_proposal_error(code)

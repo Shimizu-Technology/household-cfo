@@ -894,7 +894,7 @@ export type PersonaConfiguration = {
   }
   phrases: Array<{
     artifact_id?: string
-    provenance?: 'coach_authored' | 'participant_supplied'
+    provenance?: 'coach_authored' | 'participant_supplied' | 'approved_source'
     source_user_id?: number
     source_role_at_capture?: UserRole
     fingerprint?: string
@@ -964,6 +964,9 @@ export type AdminContentSourceCandidate = {
   digest: string
   safety_code: string | null
   accepted_content_item_id: number | null
+  accepted_content_item_version_id: number | null
+  accepted_content_item_version_kind: AdminContentItemKind | null
+  accepted_content_item_version_content: string | null
   reviewed_at: string | null
   updated_at: string
 }
@@ -1009,6 +1012,60 @@ export type AdminContentSourceCollectionPermissions = {
   retry_cleanup: boolean
 }
 
+export type AdminApprovedPhrase = {
+  text: string
+  meaning: string
+  allowed_contexts: PersonaPhraseContext[]
+  prohibited_contexts: PersonaPhraseContext[]
+  frequency: PersonaPhraseFrequency
+  caution: string
+}
+
+export type AdminPhraseProposal = {
+  id: number
+  source_id: number
+  source_label: string
+  content_item_version_id: number
+  status: 'draft' | 'submitted' | 'rejected' | 'superseded'
+  phrase: AdminApprovedPhrase
+  revision: number
+  digest: string
+  submitted_at: string | null
+  superseded_at: string | null
+  proposed_by: { id: number; full_name: string }
+  attestation: null | {
+    decision: 'approved' | 'rejected'
+    self_review: boolean
+    reviewed_at: string
+    reviewed_by: { id: number; full_name: string }
+  }
+  promotion_count: number
+  permissions: {
+    edit: boolean
+    submit: boolean
+    review: boolean
+    promote: boolean
+  }
+}
+
+export type AdminPhraseProposalCollectionPermissions = {
+  view: boolean
+  propose: boolean
+  review: boolean
+  promote: boolean
+}
+
+export type AdminPhrasePromotion = {
+  id: number
+  persona_id: number
+  proposal_id: number
+  artifact_id: string
+  phrase: AdminApprovedPhrase
+  source_label: string
+  promoted_at: string
+  promoted_by: { id: number; full_name: string }
+}
+
 export type AdminContentItemVersion = {
   id: number
   item_id: number
@@ -1033,6 +1090,7 @@ export type AdminContentItem = {
   archived: boolean
   editable: boolean
   approvable: boolean
+  source_reviewed_phrase: boolean
   current_approved_version: AdminContentItemVersion | null
   versions: AdminContentItemVersion[]
   has_unapproved_changes: boolean
@@ -1133,8 +1191,8 @@ export type AdminPersonaDetail = AdminPersonaSummary & {
     can_add: boolean
     artifacts: Array<{
       artifact_id: string
-      provenance: 'coach_authored' | 'participant_supplied'
-      source_role_at_capture: UserRole
+      provenance: 'coach_authored' | 'participant_supplied' | 'approved_source'
+      source_role_at_capture: UserRole | null
       source_label: string
       can_edit: boolean
       can_move: boolean
@@ -1143,6 +1201,15 @@ export type AdminPersonaDetail = AdminPersonaSummary & {
       locked_reason: string | null
     }>
   }
+  approved_phrase_promotions?: Array<{
+    id: number
+    artifact_id: string
+    phrase: AdminApprovedPhrase
+    source_label: string
+    active: boolean
+    can_restore: boolean
+    promoted_at: string
+  }>
   preview?: AdminPersonaPreviewRecord | null
   content_packs?: AdminContentPackVersion[]
 }
@@ -2043,6 +2110,68 @@ export async function acceptAdminContentSourceCandidate(sourceId: number, candid
 export async function rejectAdminContentSourceCandidate(sourceId: number, candidate: AdminContentSourceCandidate): Promise<AdminContentSourceCandidate> {
   const payload = await postJson<{ candidate: AdminContentSourceCandidate }>(`/api/v1/admin/content_sources/${sourceId}/candidates/${candidate.id}/reject`, { candidate: { revision: candidate.revision, digest: candidate.digest } })
   return payload.candidate
+}
+
+export async function fetchAdminContentSourcePhraseProposals(sourceId: number): Promise<{
+  phrase_proposals: AdminPhraseProposal[]
+  permissions: AdminPhraseProposalCollectionPermissions
+}> {
+  return fetchJson(`/api/v1/admin/content_sources/${sourceId}/phrase_proposals`)
+}
+
+export async function fetchAdminPhraseProposal(id: number): Promise<AdminPhraseProposal> {
+  const payload = await fetchJson<{ phrase_proposal: AdminPhraseProposal }>(`/api/v1/admin/phrase_proposals/${id}`)
+  return payload.phrase_proposal
+}
+
+export async function createAdminPhraseProposal(sourceId: number, values: {
+  candidate_id: number
+  content_item_version_id: number
+  phrase: AdminApprovedPhrase
+}): Promise<AdminPhraseProposal> {
+  const payload = await postJson<{ phrase_proposal: AdminPhraseProposal }>(`/api/v1/admin/content_sources/${sourceId}/phrase_proposals`, { phrase_proposal: values })
+  return payload.phrase_proposal
+}
+
+export async function updateAdminPhraseProposal(proposal: AdminPhraseProposal, phrase: AdminApprovedPhrase): Promise<AdminPhraseProposal> {
+  const payload = await fetchJson<{ phrase_proposal: AdminPhraseProposal }>(`/api/v1/admin/phrase_proposals/${proposal.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phrase_proposal: { phrase, revision: proposal.revision, digest: proposal.digest } }),
+  })
+  return payload.phrase_proposal
+}
+
+export async function submitAdminPhraseProposal(proposal: AdminPhraseProposal): Promise<AdminPhraseProposal> {
+  const payload = await postJson<{ phrase_proposal: AdminPhraseProposal }>(`/api/v1/admin/phrase_proposals/${proposal.id}/submit`, {
+    phrase_proposal: { revision: proposal.revision, digest: proposal.digest },
+  })
+  return payload.phrase_proposal
+}
+
+export async function attestAdminPhraseProposal(proposal: AdminPhraseProposal, decision: 'approved' | 'rejected'): Promise<AdminPhraseProposal> {
+  const payload = await postJson<{ phrase_proposal: AdminPhraseProposal }>(`/api/v1/admin/phrase_proposals/${proposal.id}/attestation`, {
+    attestation: { decision, proposal_digest: proposal.digest },
+  })
+  return payload.phrase_proposal
+}
+
+export async function promoteAdminPhraseProposal(personaId: number, proposalId: number, draftRevision: number): Promise<{
+  persona: AdminPersonaDetail
+  phrase_promotion: AdminPhrasePromotion
+}> {
+  return postJson(`/api/v1/admin/personas/${personaId}/phrase_promotions`, {
+    phrase_promotion: { proposal_id: proposalId, draft_revision: draftRevision },
+  })
+}
+
+export async function restoreAdminPhrasePromotion(personaId: number, promotionId: number, draftRevision: number): Promise<{
+  persona: AdminPersonaDetail
+  phrase_promotion: AdminPhrasePromotion
+}> {
+  return postJson(`/api/v1/admin/personas/${personaId}/phrase_promotions/${promotionId}/restore`, {
+    phrase_promotion: { draft_revision: draftRevision },
+  })
 }
 
 export async function createAdminContentItem(values: {

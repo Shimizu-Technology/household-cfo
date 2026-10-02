@@ -104,6 +104,9 @@ Rails.application.routes.draw do
       namespace :admin do
         get "plaid_health", to: "plaid_health#index"
         resources :personas, controller: "mia_personas", only: %i[index show create update destroy] do
+          resources :phrase_promotions, controller: "persona_phrase_promotions", only: :create do
+            post :restore, on: :member
+          end
           resources :setup_sessions, controller: "persona_setup_sessions", only: %i[create show destroy] do
             post :rebase, on: :member
             resources :turns, controller: "persona_setup_turns", only: :create
@@ -128,6 +131,7 @@ Rails.application.routes.draw do
           post :publish, on: :member
         end
         resources :content_sources, controller: "coach_content_sources", only: %i[index show] do
+          resources :phrase_proposals, controller: "coach_phrase_proposals", only: %i[index create]
           collection do
             post :presign
             post :complete
@@ -144,6 +148,10 @@ Rails.application.routes.draw do
               post :reject
             end
           end
+        end
+        resources :phrase_proposals, controller: "coach_phrase_proposals", only: %i[show update] do
+          post :submit, on: :member
+          resource :attestation, controller: "coach_phrase_attestations", only: :create
         end
         resources :cohorts, only: %i[index show create update] do
           resource :persona_assignment, controller: "persona_assignments", only: %i[show update destroy]

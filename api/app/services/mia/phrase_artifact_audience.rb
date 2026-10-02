@@ -9,7 +9,7 @@ module Mia
           next unless entry
 
           case entry["provenance"]
-          when "coach_authored"
+          when "coach_authored", "approved_source"
             entry
           when "participant_supplied"
             entry if same_participant?(entry["source_user_id"], participant_id)

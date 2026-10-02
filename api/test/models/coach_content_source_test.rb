@@ -98,6 +98,63 @@ class CoachContentSourceTest < ActiveSupport::TestCase
     assert_nil candidate.reload.safety_code
   end
 
+  test "platform sources cannot create or accept coach-only phrase candidates" do
+    admin = persona_user(role: "admin")
+    source, attempt, candidate = source_candidate(owner: admin)
+    phrase_attributes = {
+      coach_content_source_attempt: attempt,
+      position: 1,
+      status: "proposed",
+      title: "Platform greeting",
+      kind: "phrase",
+      content: "Håfa adai",
+      topics: [ "greeting" ],
+      evidence_locator: {
+        "type" => "text", "segment" => 1, "line_start" => 1, "line_end" => 1,
+        "excerpt_digest" => Digest::SHA256.hexdigest("Håfa adai")
+      },
+      evidence_excerpt: "Håfa adai",
+      content_digest: CoachContentSourceCandidate.digest_for(
+        title: "Platform greeting", kind: "phrase", content: "Håfa adai", topics: [ "greeting" ]
+      )
+    }
+
+    proposed = source.candidates.new(phrase_attributes)
+    refute proposed.valid?
+    assert_includes proposed.errors[:kind], "phrases must use a coaching workspace source and the approved phrase review"
+
+    candidate.update_columns(
+      kind: "phrase",
+      content_digest: CoachContentSourceCandidate.digest_for(
+        title: candidate.title, kind: "phrase", content: candidate.content, topics: candidate.topics
+      )
+    )
+    assert_raises(ActiveRecord::RecordInvalid) do
+      candidate.accept!(actor: admin, expected_revision: candidate.revision, expected_digest: candidate.content_digest)
+    end
+    assert_nil candidate.reload.accepted_content_item
+
+    candidate.reject!(actor: admin, expected_revision: candidate.revision, expected_digest: candidate.content_digest)
+    assert_equal "rejected", candidate.reload.status
+  end
+
+  test "source phrase provenance requires the exact reviewed candidate wording" do
+    coach = persona_user
+    _source, _attempt, candidate = source_candidate(owner: coach, kind: "phrase", content: "Håfa adai")
+    item = candidate.accept!(actor: coach, expected_revision: candidate.revision, expected_digest: candidate.content_digest)
+    version = item.approve!(actor: coach, expected_draft_revision: item.draft_revision, expected_draft_digest: item.draft_digest)
+
+    assert item.draft_source_provenance.integrity_valid?
+    assert version.source_provenance.integrity_valid?
+
+    item.update_column(:draft_content, "Håfa adai, changed")
+    refute item.draft_source_provenance.reload.integrity_valid?
+    item.update_column(:draft_content, candidate.content)
+
+    version.update_column(:content, "Håfa adai, changed")
+    refute version.source_provenance.reload.send(:linked_identity_valid?)
+  end
+
   test "source canary stays outside runtime until the exact persona is published" do
     coach = persona_user
     persona = create_persona(creator: coach, name: "Canary assistant")
@@ -303,7 +360,7 @@ class CoachContentSourceTest < ActiveSupport::TestCase
 
   private
 
-  def source_candidate(owner:, title: "One clear move", content: "Choose one clear coaching move and review it together.")
+  def source_candidate(owner:, title: "One clear move", kind: "guidance", content: "Choose one clear coaching move and review it together.")
     source = CoachContentSource.create!(
       scope: owner.admin? ? "platform" : "coach",
       created_by_user: owner,
@@ -327,13 +384,13 @@ class CoachContentSourceTest < ActiveSupport::TestCase
       completed_at: Time.current
     )
     source.update!(status: "needs_review", current_attempt: attempt, processed_at: Time.current)
-    digest = CoachContentSourceCandidate.digest_for(title: title, kind: "guidance", content: content, topics: [ "planning" ])
+    digest = CoachContentSourceCandidate.digest_for(title: title, kind: kind, content: content, topics: [ "planning" ])
     candidate = source.candidates.create!(
       coach_content_source_attempt: attempt,
       position: 0,
       status: "proposed",
       title: title,
-      kind: "guidance",
+      kind: kind,
       content: content,
       topics: [ "planning" ],
       evidence_locator: {

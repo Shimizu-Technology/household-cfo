@@ -223,6 +223,9 @@ class ApiV1AdminCoachContentSourcesControllerTest < ActionDispatch::IntegrationT
     assert_nil item.current_approved_version
     refute item.draft_always_on
     assert_equal "accepted", response.parsed_body.dig("candidate", "status")
+    assert_nil response.parsed_body.dig("candidate", "accepted_content_item_version_id")
+    assert_nil response.parsed_body.dig("candidate", "accepted_content_item_version_kind")
+    assert_nil response.parsed_body.dig("candidate", "accepted_content_item_version_content")
   end
 
   test "workspace reviewer can inspect and download sources then accept or reject candidates without editor actions" do
@@ -247,6 +250,9 @@ class ApiV1AdminCoachContentSourcesControllerTest < ActionDispatch::IntegrationT
     get "/api/v1/admin/content_sources/#{accepted_source.id}", headers: headers
     assert_response :success
     assert_equal accepted_candidate.id, response.parsed_body.dig("source", "candidates", 0, "id")
+    assert_nil response.parsed_body.dig("source", "candidates", 0, "accepted_content_item_version_id")
+    assert_nil response.parsed_body.dig("source", "candidates", 0, "accepted_content_item_version_kind")
+    assert_nil response.parsed_body.dig("source", "candidates", 0, "accepted_content_item_version_content")
 
     with_singleton_method(S3Service, :presigned_url, ->(*) { "https://private.example/reviewer-download" }) do
       get "/api/v1/admin/content_sources/#{accepted_source.id}/source_url", headers: headers

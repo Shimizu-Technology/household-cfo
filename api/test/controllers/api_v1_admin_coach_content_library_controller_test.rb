@@ -54,6 +54,51 @@ class ApiV1AdminCoachContentLibraryControllerTest < ActionDispatch::IntegrationT
     assert_equal persona.draft_revision + 1, response.parsed_body.dig("persona", "draft_revision")
   end
 
+  test "direct content item APIs cannot mint or convert governed phrases" do
+    coach = persona_user
+    admin = persona_user(role: "admin")
+
+    assert_no_difference -> { CoachContentItem.count } do
+      post "/api/v1/admin/content_items", params: {
+        item: { title: "Manual phrase", scope: "coach", kind: "phrase", draft_content: "Håfa adai" }
+      }, headers: auth_headers(coach), as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("error"), "approved coaching workspace phrase review"
+
+    assert_no_difference -> { CoachContentItem.count } do
+      post "/api/v1/admin/content_items", params: {
+        item: { title: "Platform phrase", scope: "platform", kind: "phrase", draft_content: "Håfa adai" }
+      }, headers: auth_headers(admin), as: :json
+    end
+    assert_response :unprocessable_entity
+
+    item = CoachContentItem.create!(
+      title: "Ordinary guidance", scope: "coach", kind: "guidance",
+      draft_content: "Choose one practical next step.", created_by_user: coach
+    )
+    patch "/api/v1/admin/content_items/#{item.id}", params: {
+      item: { draft_revision: item.draft_revision, kind: "phrase" }
+    }, headers: auth_headers(coach), as: :json
+    assert_response :unprocessable_entity
+    assert_equal "guidance", item.reload.kind
+  end
+
+  test "legacy phrase items can still be archived" do
+    coach = persona_user
+    item = CoachContentItem.create!(
+      title: "Legacy phrase", scope: "coach", kind: "guidance",
+      draft_content: "Old manually entered phrase", created_by_user: coach
+    )
+    item.update_columns(kind: "phrase")
+
+    delete "/api/v1/admin/content_items/#{item.id}", headers: auth_headers(coach), as: :json
+
+    assert_response :success
+    assert_predicate item.reload, :archived?
+    refute item.governed_phrase_provenance?
+  end
+
   test "approval and publication reject stale tabs and mismatched canonical drafts" do
     coach = persona_user
     item = CoachContentItem.create!(title: "CAS item", scope: "coach", kind: "guidance", draft_content: "Original", created_by_user: coach)

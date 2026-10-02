@@ -129,6 +129,11 @@ module Mia
       unless existing_participant == submitted_participant
         raise Error.new("Participant-supplied phrase artifacts cannot be changed by setup chat.", code: "persona_setup_phrase_locked")
       end
+      existing_approved = approved_source_artifacts(persona.draft_config)
+      submitted_approved = approved_source_artifacts(normalized)
+      unless submitted_approved.all? { |artifact_id, artifact| existing_approved[artifact_id] == artifact }
+        raise Error.new("Approved-source phrase artifacts cannot be created or changed by setup chat.", code: "persona_setup_phrase_locked")
+      end
       existing_by_id = Array(PersonaSchema.normalize(persona.draft_config).to_h["phrases"])
         .select { |phrase| phrase.is_a?(Hash) }.index_by { |phrase| phrase["artifact_id"] }
       Array(normalized["phrases"]).each do |phrase|
@@ -148,6 +153,12 @@ module Mia
     def participant_artifacts(configuration)
       Array(PersonaSchema.normalize(configuration).to_h["phrases"])
         .select { |phrase| phrase.is_a?(Hash) && phrase["provenance"] == "participant_supplied" }
+    end
+
+    def approved_source_artifacts(configuration)
+      Array(PersonaSchema.normalize(configuration).to_h["phrases"])
+        .select { |phrase| phrase.is_a?(Hash) && phrase["provenance"] == "approved_source" }
+        .index_by { |phrase| phrase["artifact_id"] }
     end
 
     def stale_other_pending_proposals!

@@ -34,10 +34,13 @@ const mutationLifecycle: CoachWorkspaceMutationLifecycle = {
   finish: () => undefined,
 }
 
-function source(permissions: AdminContentSource['permissions']): AdminContentSource {
+function source(
+  permissions: AdminContentSource['permissions'],
+  overrides: Partial<Pick<AdminContentSource, 'scope'>> & { candidateKind?: AdminContentSource['candidates'][number]['kind'] } = {},
+): AdminContentSource {
   return {
     id: 7,
-    scope: 'coach',
+    scope: overrides.scope ?? 'coach',
     filename: 'coach-source.txt',
     content_type: 'text/plain',
     byte_size: 42,
@@ -61,7 +64,7 @@ function source(permissions: AdminContentSource['permissions']): AdminContentSou
       position: 0,
       status: 'proposed',
       title: 'One practical step',
-      kind: 'guidance',
+      kind: overrides.candidateKind ?? 'guidance',
       content: 'Choose one practical next step.',
       topics: ['planning'],
       evidence_locator: { segment: 1 },
@@ -70,6 +73,9 @@ function source(permissions: AdminContentSource['permissions']): AdminContentSou
       digest: 'candidate-digest',
       safety_code: null,
       accepted_content_item_id: null,
+      accepted_content_item_version_id: null,
+      accepted_content_item_version_kind: null,
+      accepted_content_item_version_content: null,
       reviewed_at: null,
       updated_at: '2026-10-01T00:00:00Z',
     }],
@@ -89,7 +95,7 @@ function renderSources(user: CurrentUser = currentUser) {
       refreshCurrentUser: async () => undefined,
       selectCoachWorkspace: () => undefined,
     }}>
-      <CoachContentSources currentUser={user} mutationLifecycle={mutationLifecycle} onDirtyChange={() => undefined} onItemAccepted={() => undefined} onReviewItem={() => undefined} />
+      <CoachContentSources currentUser={user} selectedPersona={null} refreshRequest={0} mutationLifecycle={mutationLifecycle} onDirtyChange={() => undefined} onItemAccepted={() => undefined} onReviewItem={() => undefined} onPersonaChange={() => undefined} />
     </AuthContext.Provider>,
   )
 }
@@ -147,5 +153,35 @@ describe('CoachContentSources role controls', () => {
     const owner = await screen.findByLabelText('Owner') as HTMLSelectElement
     await waitFor(() => expect(owner.value).toBe('platform'))
     expect(owner.querySelector('option[value="coach"]')).toBeNull()
+  })
+
+  it('requires a legacy platform phrase candidate to move to a supported type', async () => {
+    const platformSource = source(
+      { edit_candidates: true, review_candidates: true, download: true, reprocess: true, delete: true },
+      { scope: 'platform', candidateKind: 'phrase' },
+    )
+    apiMocks.fetchAdminContentSources.mockResolvedValue({
+      sources: [platformSource],
+      permissions: { upload_coach: true, upload_platform: true, retry_cleanup: false },
+    })
+    apiMocks.fetchAdminContentSource.mockResolvedValue(platformSource)
+    renderSources({ id: 1, is_admin: true, is_coach: false } as CurrentUser)
+
+    await userEvent.click(await screen.findByRole('button', { name: /coach-source\.txt/i }))
+    const kind = await screen.findByLabelText('Type') as HTMLSelectElement
+
+    expect(kind.value).toBe('phrase')
+    expect((kind.querySelector('option[value="phrase"]') as HTMLOptionElement | null)?.disabled).toBe(true)
+    expect(screen.getByText(/Approved phrases belong to a coaching workspace/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Save edits' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Create content draft' }) as HTMLButtonElement).disabled).toBe(true)
+
+    apiMocks.rejectAdminContentSourceCandidate.mockResolvedValue({
+      ...platformSource.candidates[0],
+      status: 'rejected',
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Reject' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Yes, reject' }))
+    await waitFor(() => expect(apiMocks.rejectAdminContentSourceCandidate).toHaveBeenCalledWith(7, platformSource.candidates[0]))
   })
 })

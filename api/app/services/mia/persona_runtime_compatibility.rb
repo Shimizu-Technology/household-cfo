@@ -16,6 +16,7 @@ module Mia
         verify_published_version!(version)
         raw_config = PersonaSchema.normalize(version.config)
         verify_published_digest!(version, raw_config)
+        verify_phrase_manifest!(version)
         return raw_config unless compatible_legacy_version?(version, raw_config)
 
         config = normalize_voice(raw_config.deep_dup)
@@ -44,6 +45,12 @@ module Mia
         return if valid
 
         raise PersonaSchema::InvalidConfiguration.new([ "published persona config digest does not match stored configuration" ])
+      end
+
+      def verify_phrase_manifest!(version)
+        return if version.phrase_manifest_valid?
+
+        raise PersonaSchema::InvalidConfiguration.new([ "published persona phrase manifest failed integrity validation" ])
       end
 
       def seal_phrases(config, version:)

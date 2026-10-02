@@ -10,8 +10,9 @@ module Mia
     MAX_BYTES = 40_960
     FREQUENCIES = %w[very_rare rare sparing as_needed].freeze
     PHRASE_CONTEXTS = %w[greeting verified_milestone emotional_support repeated_pattern routine general crisis].freeze
-    PHRASE_PROVENANCE = %w[coach_authored participant_supplied].freeze
+    PHRASE_PROVENANCE = %w[coach_authored participant_supplied approved_source].freeze
     PHRASE_SOURCE_ROLES = %w[admin coach participant].freeze
+    PHRASE_AUTHORING_KEYS = %w[text meaning allowed_contexts prohibited_contexts frequency caution].freeze
     ARTIFACT_ID_PATTERN = /\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i
     TONE_TRAITS = %w[
       warm direct respectful calm encouraging candid patient concise practical reassuring lighthearted formal clear unhurried
@@ -155,10 +156,15 @@ module Mia
                 [ "$.phrases[#{index}] provenance cannot change for an existing phrase artifact" ]
             end
 
-            if existing["provenance"] == "participant_supplied"
+            if existing["provenance"].in?(%w[participant_supplied approved_source])
               unless artifacts_match?(phrase, existing)
+                message = if existing["provenance"] == "participant_supplied"
+                  "$.phrases[#{index}] participant-supplied artifact must be imported by a trusted participant-language workflow"
+                else
+                  "$.phrases[#{index}] approved-source artifact cannot be edited; remove it or use the approved promotion workflow"
+                end
                 raise InvalidConfiguration,
-                  [ "$.phrases[#{index}] participant-supplied artifact must be imported by a trusted participant-language workflow" ]
+                  [ message ]
               end
               next existing
             end
@@ -179,9 +185,14 @@ module Mia
             )
           end
 
-          if phrase["provenance"] == "participant_supplied"
+          if phrase["provenance"].in?(%w[participant_supplied approved_source])
+            message = if phrase["provenance"] == "participant_supplied"
+              "$.phrases[#{index}] participant-supplied artifact must be imported by a trusted participant-language workflow"
+            else
+              "$.phrases[#{index}] approved-source artifact must be imported by the approved promotion workflow"
+            end
             raise InvalidConfiguration,
-              [ "$.phrases[#{index}] participant-supplied artifact must be imported by a trusted participant-language workflow" ]
+              [ message ]
           end
           unless allow_coach_artifact_edits
             raise InvalidConfiguration,
@@ -216,6 +227,47 @@ module Mia
         }
         artifact["fingerprint"] = artifact_fingerprint(artifact)
         artifact
+      end
+
+      def build_approved_source_artifact(attributes, artifact_id:, source_user_id:, source_role_at_capture:)
+        artifact = build_phrase_artifact(
+          attributes,
+          artifact_id: artifact_id,
+          provenance: "approved_source",
+          source_user_id: source_user_id,
+          source_role_at_capture: source_role_at_capture
+        )
+        validate_phrase_payload!(artifact)
+        artifact
+      end
+
+      def validate_phrase_payload!(artifact)
+        config = default_configuration(
+          assistant_name: "Source phrase validation",
+          human_coach_name: "Human coach"
+        )
+        config["phrases"] = [ normalize(artifact) ]
+        validate!(config)
+        artifact
+      end
+
+      def validate_phrase_authoring_payload!(payload)
+        normalized = normalize(payload)
+        errors = []
+        unless normalized.is_a?(Hash)
+          raise InvalidConfiguration, [ "$.phrase must be an object" ]
+        end
+
+        exact_keys(normalized, PHRASE_AUTHORING_KEYS, "$.phrase", errors)
+        validate_phrase_authoring_fields(normalized, "$.phrase", errors)
+        config = default_configuration(assistant_name: "Source phrase validation", human_coach_name: "Human coach")
+        config["phrases"] = [ normalized ]
+        PersonaSafetyPolicy.validate!(config)
+        raise InvalidConfiguration, errors if errors.any?
+
+        normalized
+      rescue PersonaSafetyPolicy::UnsafeConfiguration => error
+        raise InvalidConfiguration, error.errors
       end
 
       def artifact_fingerprint(artifact)
@@ -364,15 +416,10 @@ module Mia
           errors << "#{item_path}.source_role_at_capture is not supported" unless captured_role.in?(PHRASE_SOURCE_ROLES)
           if phrase["provenance"] == "participant_supplied" && captured_role != "participant"
             errors << "#{item_path}.source_role_at_capture must be participant for participant-supplied wording"
-          elsif phrase["provenance"] == "coach_authored" && !captured_role.in?(%w[admin coach])
-            errors << "#{item_path}.source_role_at_capture must be coach or admin for coach-authored wording"
+          elsif phrase["provenance"].in?(%w[coach_authored approved_source]) && !captured_role.in?(%w[admin coach])
+            errors << "#{item_path}.source_role_at_capture must be coach or admin for coach-authored or approved-source wording"
           end
-          bounded_string(phrase["text"], "#{item_path}.text", errors, 100)
-          bounded_string(phrase["meaning"], "#{item_path}.meaning", errors, 300)
-          enum_array(phrase["allowed_contexts"], "#{item_path}.allowed_contexts", errors, range: 1..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
-          enum_array(phrase["prohibited_contexts"], "#{item_path}.prohibited_contexts", errors, range: 0..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
-          errors << "#{item_path}.frequency is not supported" unless phrase["frequency"].in?(FREQUENCIES)
-          optional_bounded_string(phrase["caution"], "#{item_path}.caution", errors, 300)
+          validate_phrase_authoring_fields(phrase, item_path, errors)
           expected_fingerprint = artifact_fingerprint(phrase)
           unless phrase["fingerprint"].to_s.match?(/\A[0-9a-f]{64}\z/) &&
               ActiveSupport::SecurityUtils.secure_compare(phrase["fingerprint"], expected_fingerprint)
@@ -390,6 +437,15 @@ module Mia
         titled_content_array(value["guidance"], "#{path}.guidance", errors)
         scripts_array(value["scripts"], "#{path}.scripts", errors)
         examples_array(value["examples"], "#{path}.examples", errors)
+      end
+
+      def validate_phrase_authoring_fields(phrase, item_path, errors)
+        bounded_string(phrase["text"], "#{item_path}.text", errors, 100)
+        bounded_string(phrase["meaning"], "#{item_path}.meaning", errors, 300)
+        enum_array(phrase["allowed_contexts"], "#{item_path}.allowed_contexts", errors, range: 1..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
+        enum_array(phrase["prohibited_contexts"], "#{item_path}.prohibited_contexts", errors, range: 0..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
+        errors << "#{item_path}.frequency is not supported" unless phrase["frequency"].in?(FREQUENCIES)
+        optional_bounded_string(phrase["caution"], "#{item_path}.caution", errors, 300)
       end
 
       def authoring_configuration(config)

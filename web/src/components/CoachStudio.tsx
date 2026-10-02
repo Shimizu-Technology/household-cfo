@@ -9,6 +9,7 @@ import {
   fetchAdminPersonas,
   previewAdminPersona,
   publishAdminPersona,
+  restoreAdminPhrasePromotion,
   restoreAdminPersona,
   rollbackAdminPersonaVersion,
   updateAdminCohortPersonaAssignment,
@@ -55,7 +56,7 @@ const guidedSteps = [
 type GuidedStep = (typeof guidedSteps)[number]['id']
 type EditorMode = 'setup' | 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
-type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'rollback' | 'assignment' | null
+type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'rollback' | 'assignment' | 'phrase_restore' | null
 type StudioSection = 'assistants' | 'library' | 'participant_tools'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
@@ -230,6 +231,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   function chooseStudioSection(next: StudioSection): boolean {
     if (next === studioSection) return true
+    if (pendingAction || workspaceMutations.pending) return false
     if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch views?')) return false
     if (dirty && selectedPersona) {
       setDraft(selectedPersona.draft ?? null)
@@ -284,12 +286,14 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }
 
   function replaceDraft(next: PersonaConfiguration) {
+    if (pendingAction === 'phrase_restore') return
     setDraft(next)
     setNotice(null)
     setConflict(null)
   }
 
   function mutateDraft(mutator: (current: PersonaConfiguration) => PersonaConfiguration) {
+    if (pendingAction === 'phrase_restore') return
     setDraft((current) => current ? mutator(current) : current)
     setNotice(null)
     setConflict(null)
@@ -583,14 +587,49 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setPersonas((current) => replacePersonaSummary(current, persona))
   }
 
+  async function handleRestorePhrasePromotion(promotionId: number) {
+    if (!selectedPersona || selectedPersona.draft_revision == null || dirty || pendingAction || workspaceMutations.pending) return
+    const requestedPromotion = (selectedPersona.approved_phrase_promotions ?? []).find((promotion) => promotion.id === promotionId)
+    const mutation = beginMutation('phrase_restore')
+    setError(null)
+    setConflict(null)
+    try {
+      const result = await restoreAdminPhrasePromotion(selectedPersona.id, promotionId, selectedPersona.draft_revision)
+      if (!mutationIsCurrent(mutation)) return
+      acceptPersona(result.persona)
+      setNotice('Reviewed phrase restored to the assistant draft. Run a fresh preview before publishing.')
+    } catch (caught) {
+      if (mutationIsCurrent(mutation) && caught instanceof ApiRequestError && caught.code === 'persona_draft_conflict') {
+        try {
+          const latestPersona = await fetchAdminPersona(selectedPersona.id)
+          if (!mutationIsCurrent(mutation)) return
+          acceptPersona(latestPersona)
+          const alreadyActive = requestedPromotion && (latestPersona.approved_phrase_promotions ?? []).some((promotion) => promotion.artifact_id === requestedPromotion.artifact_id && promotion.active)
+          if (alreadyActive) {
+            setNotice('Reviewed phrase is already restored. The latest assistant draft is loaded.')
+          } else {
+            setConflict('The assistant changed while this phrase was being restored. The latest draft is loaded; review it, then choose Restore reviewed phrase again.')
+          }
+        } catch (reloadError) {
+          if (mutationIsCurrent(mutation)) setError(errorMessage(reloadError, 'The assistant changed and its latest draft could not load. Reload Coach Studio before retrying.'))
+        }
+      } else if (mutationIsCurrent(mutation)) {
+        handleMutationError(caught, 'The reviewed phrase could not be restored.')
+      }
+    } finally {
+      finishMutation(mutation)
+    }
+  }
+
   function chooseEditorMode(nextMode: EditorMode) {
-    if (nextMode === mode) return
+    if (nextMode === mode || pendingAction === 'phrase_restore') return
     if (mode === 'setup' && setupDirty && !window.confirm('Discard the message you have not sent and switch editing modes?')) return
     setSetupDirty(false)
     setMode(nextMode)
   }
 
   function reviewProposalInForm(state: { description: string; draft_config: PersonaConfiguration }, firstPath: string | null) {
+    if (pendingAction === 'phrase_restore') return
     setDescription(state.description)
     setDraft(state.draft_config)
     setMode('guided')
@@ -654,20 +693,30 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       </div>
 
       <nav className="coach-studio-section-tabs" role="tablist" aria-label="Coach Studio areas">
-        <button type="button" role="tab" id="coach-studio-tab-assistants" aria-controls="coach-studio-panel-assistants" aria-selected={studioSection === 'assistants'} tabIndex={studioSection === 'assistants' ? 0 : -1} data-studio-section="assistants" onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('assistants')}>
+        <button type="button" role="tab" id="coach-studio-tab-assistants" aria-controls="coach-studio-panel-assistants" aria-selected={studioSection === 'assistants'} tabIndex={studioSection === 'assistants' ? 0 : -1} data-studio-section="assistants" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('assistants')}>
           <strong>Assistant voice</strong><small>Shape how Mia coaches and communicates</small>
         </button>
-        <button type="button" role="tab" id="coach-studio-tab-library" aria-controls="coach-studio-panel-library" aria-selected={studioSection === 'library'} tabIndex={studioSection === 'library' ? 0 : -1} data-studio-section="library" onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('library')}>
+        <button type="button" role="tab" id="coach-studio-tab-library" aria-controls="coach-studio-panel-library" aria-selected={studioSection === 'library'} tabIndex={studioSection === 'library' ? 0 : -1} data-studio-section="library" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('library')}>
           <strong>Coaching Library</strong><small>Approve and publish reusable coaching sources</small>
         </button>
-        <button type="button" role="tab" id="coach-studio-tab-participant-tools" aria-controls="coach-studio-panel-participant-tools" aria-selected={studioSection === 'participant_tools'} tabIndex={studioSection === 'participant_tools' ? 0 : -1} data-studio-section="participant_tools" onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('participant_tools')}>
+        <button type="button" role="tab" id="coach-studio-tab-participant-tools" aria-controls="coach-studio-panel-participant-tools" aria-selected={studioSection === 'participant_tools'} tabIndex={studioSection === 'participant_tools' ? 0 : -1} data-studio-section="participant_tools" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('participant_tools')}>
           <strong>Participant tools</strong><small>Choose the cohort's optional learning tools</small>
         </button>
       </nav>
 
       {studioSection === 'library' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-library" aria-labelledby="coach-studio-tab-library" tabIndex={0}>
-          <CoachContentLibrary key={activeWorkspaceId ?? 'legacy'} currentUser={currentUser} mutationLifecycle={workspaceMutations} onDirtyChange={setLibraryDirty} />
+          <CoachContentLibrary
+            key={activeWorkspaceId ?? 'legacy'}
+            currentUser={currentUser}
+            selectedPersona={selectedPersona}
+            mutationLifecycle={workspaceMutations}
+            onDirtyChange={setLibraryDirty}
+            onPersonaChange={(persona) => {
+              acceptPersona(persona)
+              setNotice('Reviewed phrase added to the selected assistant draft. Run a fresh preview before publishing.')
+            }}
+          />
         </div>
       ) : studioSection === 'participant_tools' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-participant-tools" aria-labelledby="coach-studio-tab-participant-tools" tabIndex={0}>
@@ -785,13 +834,13 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 {draft ? (
                   <>
                     <div className="coach-mode-switch" role="group" aria-label="Editing mode">
-                      <button type="button" aria-pressed={mode === 'setup'} className={mode === 'setup' ? 'is-active' : ''} onClick={() => chooseEditorMode('setup')}>
+                      <button type="button" disabled={pendingAction === 'phrase_restore'} aria-pressed={mode === 'setup'} className={mode === 'setup' ? 'is-active' : ''} onClick={() => chooseEditorMode('setup')}>
                         <strong>Setup chat</strong><small>Describe the coach and review Mia’s proposal</small>
                       </button>
-                      <button type="button" aria-pressed={mode === 'guided'} className={mode === 'guided' ? 'is-active' : ''} onClick={() => chooseEditorMode('guided')}>
+                      <button type="button" disabled={pendingAction === 'phrase_restore'} aria-pressed={mode === 'guided'} className={mode === 'guided' ? 'is-active' : ''} onClick={() => chooseEditorMode('guided')}>
                         <strong>Guided setup</strong><small>Short steps with plain-language prompts</small>
                       </button>
-                      <button type="button" aria-pressed={mode === 'advanced'} className={mode === 'advanced' ? 'is-active' : ''} onClick={() => chooseEditorMode('advanced')}>
+                      <button type="button" disabled={pendingAction === 'phrase_restore'} aria-pressed={mode === 'advanced'} className={mode === 'advanced' ? 'is-active' : ''} onClick={() => chooseEditorMode('advanced')}>
                         <strong>Advanced settings</strong><small>Every structured field in one view</small>
                       </button>
                     </div>
@@ -800,6 +849,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                       <PersonaSetupChat
                         key={selectedPersona.id}
                         persona={selectedPersona}
+                        disabled={pendingAction === 'phrase_restore'}
                         manualDirty={dirty}
                         mutationLifecycle={workspaceMutations}
                         onDirtyChange={setSetupDirty}
@@ -811,17 +861,24 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                         onReviewInForm={reviewProposalInForm}
                       />
                     ) : selectedPersona.permissions.edit ? (
-                      <PersonaEditor
-                        draft={draft}
-                        phraseArtifactAccess={selectedPersona.phrase_artifact_access}
-                        description={description}
-                        mode={mode}
-                        guidedStep={guidedStep}
-                        onStepChange={setGuidedStep}
-                        onDescriptionChange={setDescription}
-                        onChange={replaceDraft}
-                        mutate={mutateDraft}
-                      />
+                      <fieldset className="coach-persona-mutation-lock" disabled={pendingAction === 'phrase_restore'} aria-busy={pendingAction === 'phrase_restore'}>
+                        <legend className="sr-only">Assistant draft fields</legend>
+                        <PersonaEditor
+                          draft={draft}
+                          phraseArtifactAccess={selectedPersona.phrase_artifact_access}
+                          approvedPhrasePromotions={selectedPersona.approved_phrase_promotions ?? []}
+                          phraseRestorePending={pendingAction === 'phrase_restore'}
+                          phraseRestoreDisabled={dirty || pendingAction !== null || workspaceMutations.pending}
+                          onRestorePhrasePromotion={(promotionId) => void handleRestorePhrasePromotion(promotionId)}
+                          description={description}
+                          mode={mode}
+                          guidedStep={guidedStep}
+                          onStepChange={setGuidedStep}
+                          onDescriptionChange={setDescription}
+                          onChange={replaceDraft}
+                          mutate={mutateDraft}
+                        />
+                      </fieldset>
                     ) : (
                       <p className="coach-read-only" role="note">This assistant is read-only for your account or while archived. You can review its published history and assignments below.</p>
                     )}
@@ -844,6 +901,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                   key={selectedPersona.id}
                   persona={selectedPersona}
                   dirty={dirty}
+                  disabled={pendingAction === 'phrase_restore'}
                   mutationLifecycle={workspaceMutations}
                   onDirtyChange={setPersonaSourcesDirty}
                   onPersonaChange={(persona) => {
@@ -900,6 +958,10 @@ function guidedStepForPersonaPath(path: string | null): GuidedStep {
 function PersonaEditor({
   draft,
   phraseArtifactAccess,
+  approvedPhrasePromotions,
+  phraseRestorePending,
+  phraseRestoreDisabled,
+  onRestorePhrasePromotion,
   description,
   mode,
   guidedStep,
@@ -910,6 +972,10 @@ function PersonaEditor({
 }: {
   draft: PersonaConfiguration
   phraseArtifactAccess: AdminPersonaDetail['phrase_artifact_access']
+  approvedPhrasePromotions: NonNullable<AdminPersonaDetail['approved_phrase_promotions']>
+  phraseRestorePending: boolean
+  phraseRestoreDisabled: boolean
+  onRestorePhrasePromotion: (promotionId: number) => void
   description: string
   mode: EditorMode
   guidedStep: GuidedStep
@@ -957,7 +1023,7 @@ function PersonaEditor({
             ))}
           </div>
           <div role="tabpanel" className="coach-step-panel" id={`coach-step-panel-${guidedStep}`} aria-labelledby={`coach-step-tab-${guidedStep}`} data-persona-step={guidedStep} tabIndex={-1}>
-            {renderEditorSection(guidedStep, draft, onChange, mutate, description, onDescriptionChange, phraseArtifactAccess)}
+            {renderEditorSection(guidedStep, draft, onChange, mutate, description, onDescriptionChange, phraseArtifactAccess, approvedPhrasePromotions, phraseRestorePending, phraseRestoreDisabled, onRestorePhrasePromotion)}
           </div>
           <div className="coach-step-actions">
             <Button type="button" variant="secondary" disabled={currentIndex === 0} onClick={() => onStepChange(guidedSteps[currentIndex - 1].id)}>Previous</Button>
@@ -972,7 +1038,7 @@ function PersonaEditor({
           {guidedSteps.map((step) => (
             <details key={step.id} open={step.id === 'identity'}>
               <summary>{step.label}</summary>
-              <div>{renderEditorSection(step.id, draft, onChange, mutate, description, onDescriptionChange, phraseArtifactAccess)}</div>
+              <div>{renderEditorSection(step.id, draft, onChange, mutate, description, onDescriptionChange, phraseArtifactAccess, approvedPhrasePromotions, phraseRestorePending, phraseRestoreDisabled, onRestorePhrasePromotion)}</div>
             </details>
           ))}
         </div>
@@ -989,6 +1055,10 @@ function renderEditorSection(
   description: string,
   onDescriptionChange: (value: string) => void,
   phraseArtifactAccess: AdminPersonaDetail['phrase_artifact_access'],
+  approvedPhrasePromotions: NonNullable<AdminPersonaDetail['approved_phrase_promotions']>,
+  phraseRestorePending: boolean,
+  phraseRestoreDisabled: boolean,
+  onRestorePhrasePromotion: (promotionId: number) => void,
 ) {
   if (step === 'identity') {
     return (
@@ -1036,7 +1106,7 @@ function renderEditorSection(
         <TextArea label="Cultural and community context" personaPath="culture.context" value={draft.culture.context} maxLength={1000} rows={5} onChange={(value) => onChange({ ...draft, culture: { ...draft.culture, context: value } })} />
         <LineList label="Local realities" personaPath="culture.local_realities" values={draft.culture.local_realities} maxItems={16} itemMaxLength={300} help="One verified factual access, cost, calendar, weather, or regulatory reality per line." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, local_realities: values } })} />
         <LineList label="Approved references" personaPath="culture.references" values={draft.culture.references} maxItems={16} itemMaxLength={300} help="Coach authored examples, programs, or community references." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, references: values } })} />
-        <PhraseEditor draft={draft} mutate={mutate} access={phraseArtifactAccess} />
+        <PhraseEditor draft={draft} mutate={mutate} access={phraseArtifactAccess} promotions={approvedPhrasePromotions} restorePending={phraseRestorePending} restoreDisabled={phraseRestoreDisabled} onRestore={onRestorePhrasePromotion} />
       </EditorFieldset>
     )
   }
@@ -1192,9 +1262,19 @@ function AssignmentPanel({ persona, cohorts, pending, dirty, onAssign, onRemove 
   )
 }
 
-function PhraseEditor({ draft, mutate, access }: { draft: PersonaConfiguration; mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void; access: AdminPersonaDetail['phrase_artifact_access'] }) {
+export function PhraseEditor({ draft, mutate, access, promotions, restorePending, restoreDisabled, onRestore }: {
+  draft: PersonaConfiguration
+  mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void
+  access: AdminPersonaDetail['phrase_artifact_access']
+  promotions: NonNullable<AdminPersonaDetail['approved_phrase_promotions']>
+  restorePending: boolean
+  restoreDisabled: boolean
+  onRestore: (promotionId: number) => void
+}) {
   const phrases = draft.phrases
   const capabilities = new Map((access?.artifacts ?? []).map((artifact) => [artifact.artifact_id, artifact]))
+  const promotionsByArtifact = new Map(promotions.map((promotion) => [promotion.artifact_id, promotion]))
+  const inactivePromotions = promotions.filter((promotion) => !promotion.active)
   const canAdd = access?.can_add === true
   return (
     <section className="coach-array-editor" data-persona-path="phrases" tabIndex={-1}>
@@ -1209,9 +1289,11 @@ function PhraseEditor({ draft, mutate, access }: { draft: PersonaConfiguration; 
         const canRemove = isNew ? canAdd : capability?.can_remove === true
         const sourceLabel = isNew ? 'New coach-authored phrase' : capability?.source_label ?? 'Sealed phrase'
         const lockedReason = capability?.locked_reason
+        const promotion = phrase.artifact_id ? promotionsByArtifact.get(phrase.artifact_id) : undefined
+        const approvedSource = phrase.provenance === 'approved_source' || capability?.provenance === 'approved_source'
         return (
-          <article key={phrase.artifact_id ?? `new-${index}`}>
-            <div className="coach-array-row-heading"><div><strong>Phrase {index + 1}</strong><p className="coach-phrase-provenance"><span>{sourceLabel}</span>{!canEdit && <span aria-label="Locked phrase">Locked</span>}</p></div><ArrayActions label={`phrase ${index + 1}`} index={index} count={phrases.length} canMove={canMove} canRemove={canRemove} onMove={(direction) => mutate((current) => ({ ...current, phrases: moveItem(current.phrases, index, direction) }))} onRemove={() => mutate((current) => ({ ...current, phrases: current.phrases.filter((_, itemIndex) => itemIndex !== index) }))} /></div>
+          <article key={phrase.artifact_id ?? `new-${index}`} className={approvedSource ? 'is-approved-source' : undefined}>
+            <div className="coach-array-row-heading"><div><strong>Phrase {index + 1}</strong><p className="coach-phrase-provenance"><span>{sourceLabel}</span>{!canEdit && <span aria-label="Locked phrase">Locked</span>}</p>{approvedSource && <small className="coach-phrase-source-detail">{promotion?.source_label ?? sourceLabel}{promotion?.promoted_at ? ` · Promoted ${formatShortDate(promotion.promoted_at)}` : ''}</small>}</div><ArrayActions label={`phrase ${index + 1}`} index={index} count={phrases.length} canMove={canMove} canRemove={canRemove} onMove={(direction) => mutate((current) => ({ ...current, phrases: moveItem(current.phrases, index, direction) }))} onRemove={() => mutate((current) => ({ ...current, phrases: current.phrases.filter((_, itemIndex) => itemIndex !== index) }))} /></div>
             {lockedReason && <p className="coach-phrase-access-note" role="note">{lockedReason}</p>}
             <TextInput label="Phrase" value={phrase.text} maxLength={100} disabled={!canEdit} onChange={(value) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], text: value }) }))} />
             <TextArea label="Meaning and intent" value={phrase.meaning} maxLength={300} rows={2} disabled={!canEdit} onChange={(value) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], meaning: value }) }))} />
@@ -1222,8 +1304,21 @@ function PhraseEditor({ draft, mutate, access }: { draft: PersonaConfiguration; 
           </article>
         )
       })}
+      {inactivePromotions.length > 0 && <section className="coach-phrase-restore-history" aria-labelledby="coach-phrase-restore-title">
+        <header><div><strong id="coach-phrase-restore-title">Removed reviewed phrases</strong><small>Restore the same locked artifact from its original review record.</small></div></header>
+        {inactivePromotions.map((promotion) => <article key={promotion.id}>
+          <div><strong>“{promotion.phrase.text}”</strong><small>{promotion.source_label} · Promoted {formatShortDate(promotion.promoted_at)}</small><p>{promotion.phrase.meaning}</p></div>
+          <Button type="button" size="compact" variant="secondary" disabled={!promotion.can_restore || restoreDisabled} onClick={() => onRestore(promotion.id)}>{restorePending ? 'Restoring…' : 'Restore reviewed phrase'}</Button>
+        </article>)}
+        {restoreDisabled && !restorePending && <p className="coach-phrase-access-note" role="note">Save or discard other assistant edits before restoring a reviewed phrase.</p>}
+      </section>}
     </section>
   )
+}
+
+function formatShortDate(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
 }
 
 function GuidanceEditor({ draft, mutate }: { draft: PersonaConfiguration; mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void }) {
