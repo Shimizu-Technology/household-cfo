@@ -604,6 +604,9 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       "This explanation is complete so the persona is now live.",
       "I changed my mind but I updated it for you.",
       "I changed my mind yet I updated it for you.",
+      "I updated the proposal for review but I applied the changes.",
+      "I revised the draft for review — Lina is now configured.",
+      "The assistant name is pending review but Lina is now configured.",
       "Removed the phrase.",
       "Your setup is complete.",
       "All set."
@@ -650,9 +653,13 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       "The assistant name is now under review.",
       "The assistant name is now proposed as Lina for review.",
       "The assistant name is now not Lina until approval.",
+      "The assistant name is pending review.",
+      "The assistant name is still under review.",
       "Håfa adai would be added to the persona after approval.",
       "I prepared tone, language style, and accountability changes for review. Nothing has been saved.",
       "I prepared voice and language style changes for review. Nothing has been saved.",
+      "I updated the proposal for review. Nothing has been saved.",
+      "I revised the draft for review. Nothing has been saved.",
       "I prepared an updated name for review. Nothing has been saved.",
       "I'm proposing that change for review. Nothing has been saved."
     ].each do |message|

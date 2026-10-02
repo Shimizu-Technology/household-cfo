@@ -221,7 +221,7 @@ module Mia
         coaching\s+philosophy|
         locale\s+label|
         persona\s+(?:name|voice|tone)
-      )\s+(?:(?:is|are)\s+(?>(?:now\s+)?)(?!not\b|unchanged\b|under\s+review\b|still\s+pending\b|proposed\b)|(?:now\s+)?(?:reads?|shows?)\s+)\S/ix
+      )\s+(?:(?:is|are)\s+(?>(?:now\s+)?)(?!not\b|unchanged\b|under\s+review\b|pending(?:\s+review)?\b|still\s+(?:pending|under\s+review)\b|proposed\b)|(?:now\s+)?(?:reads?|shows?)\s+)\S/ix
       PERSONA_MEMBERSHIP_STATE_CLAIM_PATTERN = /\A\s*[^.!?\n]{1,120}?\s+(?:is|are)\s+(?:now\s+)?(?:in|part\s+of|included\s+in)\s+(?:the|your|this)\s+(?:persona|setup)\b(?:\s+now\b)?/ix
       CONFIGURATION_FRAGMENT_CLAIM_PATTERN = /\A\s*(?:the\s+)?(?:assistant\s+)?(?:name|phrase|persona|setup|changes?|update|everything)\s+(?:just\s+|already\s+|now\s+|successfully\s+)*#{PERSONA_MUTATION_CLAIM_PATTERN}\b/ix
       CLAIM_CLAUSE_START_PATTERN = /(?:
@@ -238,6 +238,7 @@ module Mia
         /\A\s*(?:I|we)\s+changed\s+(?:my|our)\s+mind\b[^.!?]*[.!]?\s*\z/i,
         /\A\s*(?:I|we)\s+changed\s+the\s+tone\s+of\s+(?:this|the|my|our)\s+(?:explanation|message|reply|wording)\b[^.!?]*[.!]?\s*\z/i,
         /\A\s*(?:I|we)\s+(?:updated|edited|revised)\s+(?:this|the|my|our)\s+(?:explanation|message|reply|wording)\b[^.!?]*[.!]?\s*\z/i,
+        /\A\s*(?:I|we)\s+(?:updated|edited|revised)\s+(?:this|the|my|our)\s+(?:proposal|draft|review\s+draft)\b[^.!?]*\bfor\s+review\b[^.!?]*[.!]?\s*\z/i,
         /\A\s*(?:I|we)\s+added\s+(?:some\s+)?(?:context|detail|an\s+explanation)\s+(?:below|here)\b[^.!?]*[.!]?\s*\z/i,
         /\A\s*(?:nothing|no\s+[^.!?]{1,80})(?:\s+(?:has|have|is|are|was|were)|['’]s)\s+(?:been\s+)?#{PERSONA_MUTATION_CLAIM_PATTERN}\b[^.!?]*[.!]?\s*\z/ix,
         /\A\s*(?:the|this|that|your)\s+(?:proposal|proposed\s+change|review\s+draft|(?:persona\s+)?draft)\s+(?:has|have|is|are|was|were)\s+(?:been\s+)?(?:updated|revised|prepared|complete)\b[^.!?]*\bfor\s+review\b[^.!?]*[.!]?\s*\z/i,
