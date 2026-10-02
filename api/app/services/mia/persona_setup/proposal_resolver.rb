@@ -205,9 +205,33 @@ module Mia
         /\b(?:the|your|this)\s+(?:persona|assistant|setup|persona\s+draft)\s+(?:is|are|was|were)\s+(?:now\s+)?(?:ready(?=\s*(?:[.!?]|\z))|ready\s+(?:to|for)\s+(?:use|publish(?:ing)?|assign(?:ment)?|deploy(?:ment)?|activat(?:e|ion)|launch(?:ing)?|go\s+live)|complete|completed|finished|live|active|all\s+set|good\s+to\s+go)\b/i,
         /\A\s*(?:done|all set|completed|finished)[.!]?\s*\z/i
       ].freeze
+      GENERIC_FIRST_PERSON_MUTATION_CLAIM_PATTERN = /\b(?:
+        I|I['’]ve|I\s+have|I['’]m|I\s+am|
+        we|we['’]ve|we\s+have|we['’]re|we\s+are|
+        Mia|Mia\s+has
+      )\s+(?:just\s+|already\s+|now\s+|successfully\s+)*#{PERSONA_MUTATION_CLAIM_PATTERN}\b/ix
+      GENERIC_PASSIVE_MUTATION_CLAIM_PATTERN = /\b(?:
+        it|that|this|the\s+name|the\s+phrase|the\s+changes?
+      )\s+(?:has|have|is|are|was|were)\s+(?:just\s+|already\s+|now\s+|successfully\s+)*(?:been\s+)?#{PERSONA_MUTATION_CLAIM_PATTERN}\b/ix
+      SAFE_NON_WRITE_SENTENCE_PATTERNS = [
+        /\A\s*(?:I|we)\s+changed\s+(?:my|our)\s+mind\b[^.!?]*[.!]?\s*\z/i,
+        /\A\s*(?:I|we)\s+changed\s+the\s+tone\s+of\s+(?:this|the|my|our)\s+(?:explanation|message|reply|wording)\b[^.!?]*[.!]?\s*\z/i,
+        /\A\s*(?:I|we)\s+(?:updated|edited|revised)\s+(?:this|the|my|our)\s+(?:explanation|message|reply|wording)\b[^.!?]*[.!]?\s*\z/i,
+        /\A\s*(?:I|we)\s+added\s+(?:some\s+)?(?:context|detail|an\s+explanation)\s+(?:below|here)\b[^.!?]*[.!]?\s*\z/i
+      ].freeze
 
       def assistant_message_claims_completion?(message)
-        COMPLETION_CLAIM_PATTERNS.any? { |pattern| message.match?(pattern) }
+        COMPLETION_CLAIM_PATTERNS.any? { |pattern| message.match?(pattern) } ||
+          generic_mutation_claim?(message)
+      end
+
+      def generic_mutation_claim?(message)
+        message.split(/(?<=[.!?])\s+/).any? do |sentence|
+          next false if SAFE_NON_WRITE_SENTENCE_PATTERNS.any? { |pattern| sentence.match?(pattern) }
+
+          sentence.match?(GENERIC_FIRST_PERSON_MUTATION_CLAIM_PATTERN) ||
+            sentence.match?(GENERIC_PASSIVE_MUTATION_CLAIM_PATTERN)
+        end
       end
 
       def response_schema

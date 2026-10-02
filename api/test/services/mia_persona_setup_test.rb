@@ -566,6 +566,18 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       "I made the change.",
       "I made the changes.",
       "Your persona is ready.",
+      "I updated the name.",
+      "I updated it for you.",
+      "I changed that for you.",
+      "It has been saved.",
+      "I renamed it Lina.",
+      "I added Håfa adai.",
+      "We successfully modified that.",
+      "This was already applied.",
+      "The name has been updated.",
+      "I set it to Lina.",
+      "I’ve changed it.",
+      "I changed my mind about the order. I updated it for you.",
       "Removed the phrase.",
       "Your setup is complete.",
       "All set."
@@ -587,7 +599,15 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       "Your persona draft is ready for review. Apply it only if it looks right.",
       "I changed my mind about the order of these questions.",
       "I changed the tone of this explanation to make it clearer.",
-      "I added context below to explain this proposal."
+      "I added context below to explain this proposal.",
+      "I edited this explanation for clarity.",
+      "I can update that after you approve the proposal.",
+      "I will propose a name change for review.",
+      "It will be saved only after you apply the proposal.",
+      "It has not been saved.",
+      "That change is proposed for review.",
+      "I prepared an updated name for review. Nothing has been saved.",
+      "I'm proposing that change for review. Nothing has been saved."
     ].each do |message|
       response = provider_response(
         model: "exact/model",
