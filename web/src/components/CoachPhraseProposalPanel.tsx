@@ -4,6 +4,7 @@ import {
   attestAdminPhraseProposal,
   createAdminPhraseProposal,
   fetchAdminContentSourcePhraseProposals,
+  fetchAdminPersona,
   fetchAdminPhraseProposal,
   promoteAdminPhraseProposal,
   submitAdminPhraseProposal,
@@ -57,6 +58,7 @@ export function CoachPhraseProposalPanel({
   const [draft, setDraft] = useState<AdminApprovedPhrase>(() => initialPhrase(candidate))
   const [creating, setCreating] = useState(false)
   const [loading, setLoading] = useState(Boolean(versionId))
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -105,9 +107,9 @@ export function CoachPhraseProposalPanel({
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [candidate, sourceId, versionId])
+  }, [candidate, loadAttempt, sourceId, versionId])
 
-  if (candidate.kind !== 'phrase' || candidate.status !== 'accepted') return null
+  if (candidate.accepted_content_item_version_kind !== 'phrase' || candidate.status !== 'accepted') return null
 
   if (!versionId) {
     return (
@@ -189,15 +191,40 @@ export function CoachPhraseProposalPanel({
   }
 
   async function promote() {
-    if (!selected || selectedPersona?.draft_revision == null) return
-    await runMutation(async () => {
+    if (!selected || !canPromoteToPersona(selectedPersona)) return
+    const ticket = mutationLifecycle.begin()
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
       const result = await promoteAdminPhraseProposal(selectedPersona.id, selected.id, selectedPersona.draft_revision!)
+      if (!mutationLifecycle.isCurrent(ticket)) return
       onPersonaChange(result.persona)
-      const latest = await fetchAdminPhraseProposal(selected.id)
-      replaceProposal(latest)
       setNotice(`Phrase added to ${result.persona.name} as a locked reviewed artifact. Preview and publish that assistant before participants can use it.`)
-      return latest
-    }, 'The approved phrase could not be added to the selected assistant.')
+      try {
+        const latest = await fetchAdminPhraseProposal(selected.id)
+        if (mutationLifecycle.isCurrent(ticket)) replaceProposal(latest)
+      } catch {
+        if (mutationLifecycle.isCurrent(ticket)) setNotice(`Phrase added to ${result.persona.name}. Its review count could not refresh; reload the source review to update that status.`)
+      }
+    } catch (caught) {
+      if (!mutationLifecycle.isCurrent(ticket)) return
+      if (caught instanceof ApiRequestError && caught.code === 'persona_draft_conflict') {
+        try {
+          const latestPersona = await fetchAdminPersona(selectedPersona.id)
+          if (!mutationLifecycle.isCurrent(ticket)) return
+          onPersonaChange(latestPersona)
+          setError(`${latestPersona.name} changed while this phrase was being added. The latest draft is loaded; review it and retry.`)
+        } catch (reloadError) {
+          if (mutationLifecycle.isCurrent(ticket)) setError(messageFor(reloadError, 'The assistant changed and its latest draft could not load. Reload Coach Studio before retrying.'))
+        }
+      } else {
+        setError(messageFor(caught, 'The approved phrase could not be added to the selected assistant.'))
+      }
+    } finally {
+      if (mutationLifecycle.isCurrent(ticket)) setBusy(false)
+      mutationLifecycle.finish(ticket)
+    }
   }
 
   async function reloadProposal() {
@@ -213,6 +240,12 @@ export function CoachPhraseProposalPanel({
     } finally {
       setLoading(false)
     }
+  }
+
+  function retryInitialLoad() {
+    setLoading(true)
+    setError(null)
+    setLoadAttempt((current) => current + 1)
   }
 
   async function runMutation<T>(callback: () => Promise<T>, fallback: string): Promise<T | null> {
@@ -244,7 +277,7 @@ export function CoachPhraseProposalPanel({
       </div>
       <p className="coach-phrase-boundary">This proposal carries only the approved phrase and its safety settings. Private source evidence stays out of assistant setup and participant chat.</p>
 
-      {error && <div className="coach-phrase-message is-error" role="alert" tabIndex={-1} ref={errorRef}><span>{error}</span>{selectedId && <button type="button" onClick={() => void reloadProposal()}>Reload latest review</button>}</div>}
+      {error && <div className="coach-phrase-message is-error" role="alert" tabIndex={-1} ref={errorRef}><span>{error}</span>{selectedId ? <button type="button" onClick={() => void reloadProposal()}>Reload latest review</button> : <button type="button" onClick={retryInitialLoad}>Retry phrase review</button>}</div>}
       {notice && <div className="coach-phrase-message is-success" role="status" tabIndex={-1} ref={noticeRef}>{notice}</div>}
       {loading && <p role="status">Loading phrase review…</p>}
 
@@ -253,7 +286,7 @@ export function CoachPhraseProposalPanel({
       </div>}
 
       {!loading && (creating || selected) && <form className="coach-phrase-form" onSubmit={(event) => { event.preventDefault(); void saveDraft() }}>
-        <label className="is-wide"><span>Exact phrase</span><input required maxLength={100} disabled={!editable || blocked} value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })} /><small>Must match wording in the approved source version exactly.</small></label>
+        <label className="is-wide"><span>Exact phrase</span><textarea required rows={2} maxLength={100} disabled={!editable || blocked} value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })} /><small>Spacing and line breaks stay exactly as approved.</small></label>
         <label className="is-wide"><span>Meaning and intent</span><textarea required rows={2} maxLength={300} disabled={!editable || blocked} value={draft.meaning} onChange={(event) => setDraft({ ...draft, meaning: event.target.value })} /></label>
         <label><span>Frequency</span><select disabled={!editable || blocked} value={draft.frequency} onChange={(event) => setDraft({ ...draft, frequency: event.target.value as PersonaPhraseFrequency })}>{frequencies.map((frequency) => <option value={frequency.value} key={frequency.value}>{frequency.label}</option>)}</select></label>
         <label className="is-wide"><span>Caution</span><textarea rows={2} maxLength={300} disabled={!editable || blocked} value={draft.caution} onChange={(event) => setDraft({ ...draft, caution: event.target.value })} placeholder="When should the assistant avoid or qualify this phrase?" /></label>
@@ -270,8 +303,8 @@ export function CoachPhraseProposalPanel({
       {confirmDecision && <div className="coach-phrase-confirm" role="alert" tabIndex={-1} ref={confirmRef}><p>{confirmDecision === 'approved' ? 'Approve this exact wording, meaning, frequency, and context policy?' : 'Reject this proposal and keep it unavailable to assistants?'}</p><Button size="compact" variant="ghost" disabled={blocked} onClick={() => setConfirmDecision(null)}>Cancel</Button><Button size="compact" variant={confirmDecision === 'rejected' ? 'danger' : 'primary'} disabled={blocked} onClick={() => void attest(confirmDecision)}>{confirmDecision === 'approved' ? 'Yes, approve' : 'Yes, reject'}</Button></div>}
 
       {selected?.permissions.promote && selected.attestation?.decision === 'approved' && <div className="coach-phrase-promote">
-        <div><strong>Add the reviewed phrase to an assistant</strong><p>{selectedPersona ? `Selected assistant: ${selectedPersona.name}. The phrase stays locked to this review record.` : 'Choose an assistant in Assistant voice, then return here.'}</p></div>
-        <Button disabled={blocked || selectedPersona?.draft_revision == null} onClick={() => void promote()}>{selected.promotion_count > 0 ? 'Add to selected assistant' : 'Promote to selected assistant'}</Button>
+        <div><strong>Add the reviewed phrase to an assistant</strong><p>{promotionTargetCopy(selectedPersona)}</p></div>
+        <Button disabled={blocked || !canPromoteToPersona(selectedPersona)} onClick={() => void promote()}>{selected.promotion_count > 0 ? 'Add to selected assistant' : 'Promote to selected assistant'}</Button>
       </div>}
 
       {!loading && !creating && matching.length === 0 && permissions.propose && <Button variant="secondary" disabled={blocked} onClick={startProposal}>Propose reviewed phrase</Button>}
@@ -287,7 +320,7 @@ function ContextField({ label, values, disabled, onChange }: { label: string; va
 
 function initialPhrase(candidate: AdminContentSourceCandidate): AdminApprovedPhrase {
   return {
-    text: candidate.content.trim().slice(0, 100),
+    text: candidate.accepted_content_item_version_content ?? '',
     meaning: '',
     allowed_contexts: ['general'],
     prohibited_contexts: ['crisis'],
@@ -299,7 +332,6 @@ function initialPhrase(candidate: AdminContentSourceCandidate): AdminApprovedPhr
 function normalizedPhrase(phrase: AdminApprovedPhrase): AdminApprovedPhrase {
   return {
     ...phrase,
-    text: phrase.text.trim().replace(/\s+/g, ' '),
     meaning: phrase.meaning.trim(),
     caution: phrase.caution.trim(),
     allowed_contexts: [...new Set(phrase.allowed_contexts)],
@@ -309,7 +341,7 @@ function normalizedPhrase(phrase: AdminApprovedPhrase): AdminApprovedPhrase {
 
 function phraseValid(phrase: AdminApprovedPhrase) {
   const normalized = normalizedPhrase(phrase)
-  return normalized.text.length > 0 && normalized.text.length <= 100 && normalized.meaning.length > 0 &&
+  return normalized.text.trim().length > 0 && normalized.text.length <= 100 && normalized.meaning.length > 0 &&
     normalized.meaning.length <= 300 && normalized.caution.length <= 300 && normalized.allowed_contexts.length > 0 &&
     !hasContextOverlap(normalized)
 }
@@ -338,4 +370,15 @@ function messageFor(caught: unknown, fallback: string) {
 
 function titleize(value: string) {
   return value.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase())
+}
+
+function canPromoteToPersona(persona: AdminPersonaDetail | null): persona is AdminPersonaDetail & { draft_revision: number } {
+  return Boolean(persona && persona.status !== 'archived' && persona.permissions.publish && persona.draft_revision != null)
+}
+
+function promotionTargetCopy(persona: AdminPersonaDetail | null) {
+  if (!persona) return 'Choose an assistant in Assistant voice, then return here.'
+  if (persona.status === 'archived') return `${persona.name} is archived. Restore the assistant before adding reviewed phrases.`
+  if (!persona.permissions.publish || persona.draft_revision == null) return `${persona.name} is read-only for your role. Choose an assistant you can publish.`
+  return `Selected assistant: ${persona.name}. The phrase stays locked to this review record.`
 }

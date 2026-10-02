@@ -965,6 +965,8 @@ export type AdminContentSourceCandidate = {
   safety_code: string | null
   accepted_content_item_id: number | null
   accepted_content_item_version_id: number | null
+  accepted_content_item_version_kind: AdminContentItemKind | null
+  accepted_content_item_version_content: string | null
   reviewed_at: string | null
   updated_at: string
 }

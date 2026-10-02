@@ -557,6 +557,9 @@
   color: var(--status-red);
 }
 
+.coach-persona-mutation-lock { min-width: 0; margin: 0; padding: 0; border: 0; }
+.coach-persona-mutation-lock:disabled { opacity: 0.82; }
+
 .coach-mode-switch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -586,6 +586,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   async function handleRestorePhrasePromotion(promotionId: number) {
     if (!selectedPersona || selectedPersona.draft_revision == null || dirty || pendingAction) return
+    const requestedPromotion = (selectedPersona.approved_phrase_promotions ?? []).find((promotion) => promotion.id === promotionId)
     const mutation = beginMutation('phrase_restore')
     setError(null)
     setConflict(null)
@@ -595,7 +596,23 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       acceptPersona(result.persona)
       setNotice('Reviewed phrase restored to the assistant draft. Run a fresh preview before publishing.')
     } catch (caught) {
-      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The reviewed phrase could not be restored.')
+      if (mutationIsCurrent(mutation) && caught instanceof ApiRequestError && caught.code === 'persona_draft_conflict') {
+        try {
+          const latestPersona = await fetchAdminPersona(selectedPersona.id)
+          if (!mutationIsCurrent(mutation)) return
+          acceptPersona(latestPersona)
+          const alreadyActive = requestedPromotion && (latestPersona.approved_phrase_promotions ?? []).some((promotion) => promotion.artifact_id === requestedPromotion.artifact_id && promotion.active)
+          if (alreadyActive) {
+            setNotice('Reviewed phrase is already restored. The latest assistant draft is loaded.')
+          } else {
+            setConflict('The assistant changed while this phrase was being restored. The latest draft is loaded; review it, then choose Restore reviewed phrase again.')
+          }
+        } catch (reloadError) {
+          if (mutationIsCurrent(mutation)) setError(errorMessage(reloadError, 'The assistant changed and its latest draft could not load. Reload Coach Studio before retrying.'))
+        }
+      } else if (mutationIsCurrent(mutation)) {
+        handleMutationError(caught, 'The reviewed phrase could not be restored.')
+      }
     } finally {
       finishMutation(mutation)
     }
@@ -839,21 +856,24 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                         onReviewInForm={reviewProposalInForm}
                       />
                     ) : selectedPersona.permissions.edit ? (
-                      <PersonaEditor
-                        draft={draft}
-                        phraseArtifactAccess={selectedPersona.phrase_artifact_access}
-                        approvedPhrasePromotions={selectedPersona.approved_phrase_promotions ?? []}
-                        phraseRestorePending={pendingAction === 'phrase_restore'}
-                        phraseRestoreDisabled={dirty || pendingAction !== null}
-                        onRestorePhrasePromotion={(promotionId) => void handleRestorePhrasePromotion(promotionId)}
-                        description={description}
-                        mode={mode}
-                        guidedStep={guidedStep}
-                        onStepChange={setGuidedStep}
-                        onDescriptionChange={setDescription}
-                        onChange={replaceDraft}
-                        mutate={mutateDraft}
-                      />
+                      <fieldset className="coach-persona-mutation-lock" disabled={pendingAction === 'phrase_restore'} aria-busy={pendingAction === 'phrase_restore'}>
+                        <legend className="sr-only">Assistant draft fields</legend>
+                        <PersonaEditor
+                          draft={draft}
+                          phraseArtifactAccess={selectedPersona.phrase_artifact_access}
+                          approvedPhrasePromotions={selectedPersona.approved_phrase_promotions ?? []}
+                          phraseRestorePending={pendingAction === 'phrase_restore'}
+                          phraseRestoreDisabled={dirty || pendingAction !== null}
+                          onRestorePhrasePromotion={(promotionId) => void handleRestorePhrasePromotion(promotionId)}
+                          description={description}
+                          mode={mode}
+                          guidedStep={guidedStep}
+                          onStepChange={setGuidedStep}
+                          onDescriptionChange={setDescription}
+                          onChange={replaceDraft}
+                          mutate={mutateDraft}
+                        />
+                      </fieldset>
                     ) : (
                       <p className="coach-read-only" role="note">This assistant is read-only for your account or while archived. You can review its published history and assignments below.</p>
                     )}

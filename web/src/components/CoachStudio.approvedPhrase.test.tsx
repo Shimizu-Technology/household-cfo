@@ -74,4 +74,45 @@ describe('approved source phrases in the manual persona editor', () => {
     expect((screen.getByRole('button', { name: 'Restore reviewed phrase' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByText(/Save or discard other assistant edits/i)).toBeTruthy()
   })
+
+  it('locks every phrase draft mutation while a restore is pending and resumes afterward', async () => {
+    const mutate = vi.fn()
+    const authoredPhrase = {
+      text: 'Coach wording', meaning: 'A coach-authored phrase.', allowed_contexts: ['general'],
+      prohibited_contexts: ['crisis'], frequency: 'rare', caution: '',
+    }
+    const draft = { phrases: [reviewedPhrase, authoredPhrase] } as unknown as PersonaConfiguration
+    const renderEditor = (pending: boolean) => <fieldset disabled={pending}>
+      <PhraseEditor
+        draft={draft}
+        mutate={mutate}
+        access={access}
+        promotions={promotions}
+        restorePending={pending}
+        restoreDisabled={pending}
+        onRestore={() => undefined}
+      />
+    </fieldset>
+    const view = render(renderEditor(true))
+
+    const authoredInput = screen.getByDisplayValue('Coach wording') as HTMLInputElement
+    const moveButton = screen.getByRole('button', { name: 'Move phrase 1 down' }) as HTMLButtonElement
+    const removeButton = screen.getByRole('button', { name: 'Remove phrase 2' }) as HTMLButtonElement
+    expect(authoredInput.matches(':disabled')).toBe(true)
+    expect(moveButton.matches(':disabled')).toBe(true)
+    expect(removeButton.matches(':disabled')).toBe(true)
+    await userEvent.type(authoredInput, ' changed')
+    await userEvent.click(moveButton)
+    await userEvent.click(removeButton)
+    expect(mutate).not.toHaveBeenCalled()
+
+    view.rerender(renderEditor(false))
+    expect(screen.getByDisplayValue('Coach wording').matches(':disabled')).toBe(false)
+    expect(screen.getByRole('button', { name: 'Move phrase 1 down' }).matches(':disabled')).toBe(false)
+    expect(screen.getByRole('button', { name: 'Remove phrase 2' }).matches(':disabled')).toBe(false)
+    await userEvent.type(screen.getByDisplayValue('Coach wording'), ' changed')
+    await userEvent.click(screen.getByRole('button', { name: 'Move phrase 1 down' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove phrase 2' }))
+    expect(mutate).toHaveBeenCalledTimes(' changed'.length + 2)
+  })
 })

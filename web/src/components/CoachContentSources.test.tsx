@@ -71,6 +71,8 @@ function source(permissions: AdminContentSource['permissions']): AdminContentSou
       safety_code: null,
       accepted_content_item_id: null,
       accepted_content_item_version_id: null,
+      accepted_content_item_version_kind: null,
+      accepted_content_item_version_content: null,
       reviewed_at: null,
       updated_at: '2026-10-01T00:00:00Z',
     }],

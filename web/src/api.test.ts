@@ -417,6 +417,7 @@ describe('governed content source API contract', () => {
       evidence_excerpt: 'Choose one practical next step.', revision: 2, digest: 'candidate-digest', safety_code: null,
       accepted_content_item_id: null, reviewed_at: null, updated_at: '2026-10-01T00:00:00Z',
       accepted_content_item_version_id: null,
+      accepted_content_item_version_kind: null, accepted_content_item_version_content: null,
     }
     const source = { id: 7, status: 'needs_review', candidates: [candidate] }
     const permissions = { upload_coach: true, upload_platform: false, retry_cleanup: false }
@@ -471,6 +472,7 @@ describe('governed content source API contract', () => {
       content: 'Current server wording.', topics: [], evidence_locator: { type: 'text', segment: 1 }, evidence_excerpt: 'Evidence',
       revision: 3, digest: 'server-digest', safety_code: null, accepted_content_item_id: null, reviewed_at: null,
       accepted_content_item_version_id: null,
+      accepted_content_item_version_kind: null, accepted_content_item_version_content: null,
       updated_at: '2026-10-01T00:00:00Z',
     }
     vi.stubGlobal('fetch', vi.fn()

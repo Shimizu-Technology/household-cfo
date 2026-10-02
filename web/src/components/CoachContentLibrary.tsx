@@ -26,7 +26,7 @@ import { CoachContentSources } from './CoachContentSources'
 import type { CoachWorkspaceMutationLifecycle, CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachContentLibrary.css'
 
-const itemKinds: AdminContentItemKind[] = ['guidance', 'script', 'example', 'phrase', 'culture', 'finance_reference']
+const itemKinds: AdminContentItemKind[] = ['guidance', 'script', 'example', 'culture', 'finance_reference']
 const packKinds: AdminContentPackKind[] = ['voice_culture', 'coaching_method', 'finance_reference']
 const normalizeSingleLine = (value: string) => value.trim().replace(/\s+/g, ' ')
 
@@ -198,7 +198,7 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
   )
 }
 
-function ContentItemsPanel({ currentUser, platformMode, items, selected, reviewRequest, focusRequest, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
+export function ContentItemsPanel({ currentUser, platformMode, items, selected, reviewRequest, focusRequest, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
   currentUser: CurrentUser
   platformMode: boolean
   items: AdminContentItem[]
@@ -222,7 +222,9 @@ function ContentItemsPanel({ currentUser, platformMode, items, selected, reviewR
   const lastSelectedId = useRef<number | null>(null)
   const lastHandledReviewRequest = useRef(0)
   const titleInputRef = useRef<HTMLInputElement>(null)
-  const itemDirty = Boolean(selected?.editable && (
+  const legacyPhrase = selected?.kind === 'phrase'
+  const itemEditable = Boolean(selected?.editable && !legacyPhrase)
+  const itemDirty = Boolean(itemEditable && selected && (
     normalizeSingleLine(title) !== selected.title ||
     content.trim() !== (selected.draft_content ?? '') ||
     kind !== selected.kind ||
@@ -288,6 +290,7 @@ function ContentItemsPanel({ currentUser, platformMode, items, selected, reviewR
 
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (selected && !itemEditable) return
     const normalizedTitle = normalizeSingleLine(title)
     const normalizedContent = content.trim()
     const succeeded = selected
@@ -314,18 +317,19 @@ function ContentItemsPanel({ currentUser, platformMode, items, selected, reviewR
       </div>
       {(creating || selected) && (
         <form className="coach-content-form" onSubmit={(event) => void submit(event)}>
-          <label><span>Title</span><input ref={titleInputRef} required disabled={busy || Boolean(selected && !selected.editable)} maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+          <label><span>Title</span><input ref={titleInputRef} required disabled={busy || Boolean(selected && !itemEditable)} maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
           <div className="coach-content-form-row">
-            <label><span>Type</span><select disabled={busy || Boolean(selected && !selected.editable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentItemKind)}>{itemKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
+            <label><span>Type</span><select disabled={busy || Boolean(selected && !itemEditable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentItemKind)}>{legacyPhrase && <option value="phrase">Phrase (legacy, read-only)</option>}{itemKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
             <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin || platformMode} value={effectiveScope} onChange={(event) => setScope(event.target.value as AdminContentScope)}>{(!platformMode || Boolean(selected)) && <option value="coach">My coaching library</option>}{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
           </div>
-          <label><span>Draft wording</span><textarea required disabled={busy || Boolean(selected && !selected.editable)} rows={8} maxLength={10000} value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write the exact teaching, phrase, example, or cultural context Mia may use." /><small>{content.length.toLocaleString()} / 10,000 characters</small></label>
-          <label className="coach-content-always-on"><input type="checkbox" disabled={busy || Boolean(selected && !selected.editable)} checked={alwaysOn} onChange={(event) => setAlwaysOn(event.target.checked)} /><span><strong>Supply for every question</strong><small>Use sparingly for foundational guidance that is relevant in every conversation.</small></span></label>
+          <label><span>Draft wording</span><textarea required disabled={busy || Boolean(selected && !itemEditable)} rows={8} maxLength={10000} value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write the exact teaching, example, or cultural context Mia may use." /><small>{content.length.toLocaleString()} / 10,000 characters</small></label>
+          <label className="coach-content-always-on"><input type="checkbox" disabled={busy || Boolean(selected && !itemEditable)} checked={alwaysOn} onChange={(event) => setAlwaysOn(event.target.checked)} /><span><strong>Supply for every question</strong><small>Use sparingly for foundational guidance that is relevant in every conversation.</small></span></label>
           <div className="coach-content-actions">
-            {(!selected || selected.editable) && <Button type="submit" disabled={busy || !title.trim() || !content.trim() || Boolean(selected && !itemDirty)}>{selected ? 'Save draft' : 'Create draft'}</Button>}
-            {selected?.approvable && <Button type="button" variant="secondary" disabled={busy || itemDirty || !selected.has_unapproved_changes} onClick={() => void onApprove(selected)}>{itemDirty ? 'Save draft before approving' : selected.has_unapproved_changes ? 'Approve new version' : `Approved v${selected.current_approved_version?.version}`}</Button>}
+            {(!selected || itemEditable) && <Button type="submit" disabled={busy || !title.trim() || !content.trim() || Boolean(selected && !itemDirty)}>{selected ? 'Save draft' : 'Create draft'}</Button>}
+            {selected?.approvable && !legacyPhrase && <Button type="button" variant="secondary" disabled={busy || itemDirty || !selected.has_unapproved_changes} onClick={() => void onApprove(selected)}>{itemDirty ? 'Save draft before approving' : selected.has_unapproved_changes ? 'Approve new version' : `Approved v${selected.current_approved_version?.version}`}</Button>}
           </div>
-          {selected && !selected.editable && <p className="coach-content-note">{selected.approvable ? 'This draft is read-only while you review and approve it.' : 'This content is visible for use and read-only for your workspace role.'}</p>}
+          {legacyPhrase && <p className="coach-content-note" role="note">Legacy phrase items are read-only. Remove them from any legacy pack, then add reviewed wording through a private source or the selected assistant's Phrase editor.</p>}
+          {selected && !selected.editable && !legacyPhrase && <p className="coach-content-note">{selected.approvable ? 'This draft is read-only while you review and approve it.' : 'This content is visible for use and read-only for your workspace role.'}</p>}
         </form>
       )}
     </article>
@@ -359,6 +363,7 @@ export function ContentPacksPanel({ currentUser, platformMode, packs, items, sel
     : selectedVersions
   const approvedItems = items.filter((item) => item.kind !== 'phrase' && item.current_approved_version && !item.archived && (effectiveScope === 'coach' || item.scope === 'platform'))
   const legacyPhraseVersions = selected?.draft_items.filter((item) => item.kind === 'phrase' && effectiveSelectedVersions.includes(item.id)) ?? []
+  const savedLegacyPhraseVersions = selected?.draft_items.filter((item) => item.kind === 'phrase') ?? []
   const packDirty = Boolean(selected?.editable && (
     normalizeSingleLine(name) !== selected.name ||
     description.trim() !== selected.description ||
@@ -459,12 +464,13 @@ export function ContentPacksPanel({ currentUser, platformMode, packs, items, sel
             <p>Open a private source, approve its exact content version, review the phrase and safety settings, then promote it directly to the selected assistant. Phrase artifacts are not added through content packs.</p>
           </div>
           {legacyPhraseVersions.length > 0 && <section className="coach-content-legacy-phrases" aria-labelledby="legacy-phrase-title">
-            <div><strong id="legacy-phrase-title">Legacy phrase selections</strong><p>These older pack entries stay selected until you remove them. New reviewed phrases use direct assistant promotion.</p></div>
+            <div><strong id="legacy-phrase-title">Legacy phrase selections must be removed</strong><p>This pack cannot be saved or published while it contains older phrase items. Remove each one explicitly; new reviewed phrases use direct assistant promotion.</p></div>
             {legacyPhraseVersions.map((version) => <div key={version.id}><span><strong>{version.title}</strong><small>Phrase · v{version.version}</small></span>{selected?.editable && <button type="button" disabled={busy} onClick={() => removeLegacyPhrase(version.id)}>Remove legacy phrase</button>}</div>)}
           </section>}
+          {savedLegacyPhraseVersions.length > 0 && legacyPhraseVersions.length === 0 && <p className="coach-content-note" role="status">Legacy phrases are removed from your local selection. {effectiveSelectedVersions.length === 0 ? 'Choose at least one approved item, then save the pack to confirm removal.' : 'Save the pack to confirm removal before publishing.'}</p>}
           <div className="coach-content-actions">
-            {(!selected || selected.editable) && <Button type="submit" disabled={busy || !name.trim() || effectiveSelectedVersions.length === 0 || Boolean(selected && !packDirty)}>{selected ? 'Save pack' : 'Create pack draft'}</Button>}
-            {selected?.publishable && <Button type="button" variant="secondary" disabled={busy || packDirty || !selected.has_unpublished_changes || selected.draft_items.length === 0} onClick={() => void onPublish(selected)}>{packDirty ? 'Save pack before publishing' : selected.has_unpublished_changes ? 'Publish exact version' : `Published v${selected.current_published_version?.version}`}</Button>}
+            {(!selected || selected.editable) && <Button type="submit" disabled={busy || legacyPhraseVersions.length > 0 || !name.trim() || effectiveSelectedVersions.length === 0 || Boolean(selected && !packDirty)}>{legacyPhraseVersions.length > 0 ? 'Remove legacy phrases to save' : selected ? 'Save pack' : 'Create pack draft'}</Button>}
+            {selected?.publishable && <Button type="button" variant="secondary" disabled={busy || savedLegacyPhraseVersions.length > 0 || packDirty || !selected.has_unpublished_changes || selected.draft_items.length === 0} onClick={() => void onPublish(selected)}>{savedLegacyPhraseVersions.length > 0 ? 'Remove and save legacy phrases first' : packDirty ? 'Save pack before publishing' : selected.has_unpublished_changes ? 'Publish exact version' : `Published v${selected.current_published_version?.version}`}</Button>}
           </div>
           <p className="coach-content-note">Publishing creates a fixed snapshot. Later item edits never change a published pack or an assigned assistant automatically.</p>
         </form>

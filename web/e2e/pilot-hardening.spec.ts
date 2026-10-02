@@ -286,7 +286,7 @@ function miaAccountActionDraft({ id, title, actionType, accountId, payload }: {
 }
 
 function realWorkspaceData(setupComplete = false) {
-  return {
+  return structuredClone({
     workspace: {
       mode: 'real', household_id: 77, setup_complete: setupComplete,
       setup_status: {
@@ -338,7 +338,7 @@ function realWorkspaceData(setupComplete = false) {
     optionality,
     cfoFilter,
     mia: { messages: chatMessages(), oldest_message_id: 1, older_message_count: 0, has_older_messages: false, quick_prompts: ['Can I buy the purse?'], disclaimer: 'Education only.' },
-  }
+  })
 }
 
 function workspaceWithAccountReview(accounts: Array<Record<string, unknown>>, draft: Record<string, unknown>) {
@@ -4807,7 +4807,8 @@ test('Coach Studio promotes only an attested source phrase and keeps it locked a
     id: 741, source_id: 740, position: 0, status: 'accepted', title: 'One step phrase', kind: 'phrase',
     content: reviewedPhrase.text, topics: ['routine'], evidence_locator: { type: 'text', segment: 1 },
     evidence_excerpt: 'PRIVATE-EVIDENCE-CANARY', revision: 2, digest: 'candidate-digest', safety_code: null,
-    accepted_content_item_id: 940, accepted_content_item_version_id: 941, reviewed_at: '2026-10-02T00:00:00Z', updated_at: '2026-10-02T00:00:00Z',
+    accepted_content_item_id: 940, accepted_content_item_version_id: 941, accepted_content_item_version_kind: 'phrase', accepted_content_item_version_content: reviewedPhrase.text,
+    reviewed_at: '2026-10-02T00:00:00Z', updated_at: '2026-10-02T00:00:00Z',
   }
   const source = {
     id: 740, scope: 'coach', filename: 'private-workshop.txt', content_type: 'text/plain', byte_size: 120,
@@ -4863,7 +4864,7 @@ test('Coach Studio promotes only an attested source phrase and keeps it locked a
   await packPanel.getByRole('button', { name: /Legacy voice pack/ }).click()
   await expect(packPanel.getByRole('checkbox', { name: /Decision guide/ })).toBeVisible()
   await expect(packPanel.getByRole('checkbox', { name: /Legacy phrase/ })).toHaveCount(0)
-  await expect(packPanel.getByText('Legacy phrase selections')).toBeVisible()
+  await expect(packPanel.getByText('Legacy phrase selections must be removed')).toBeVisible()
 
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Community/ }).click()
