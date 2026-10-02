@@ -32,16 +32,12 @@ class CoachPersonaTest < ActiveSupport::TestCase
     creator = persona_user
     admin = persona_user(role: "admin")
     persona = create_persona(creator: creator)
+    reviewer = persona_user
+    persona.coach_workspace.coach_workspace_memberships.create!(user: reviewer, role: "reviewer")
     creator.update!(role: "participant")
 
     persona.update!(description: "Maintained by an authorized admin after creator demotion.")
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: admin)
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    version = publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    version = publish_persona(persona, actor: admin, reviewer: reviewer)
     persona.archive!
     persona.restore!
 

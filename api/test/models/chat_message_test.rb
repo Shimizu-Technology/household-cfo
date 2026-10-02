@@ -1,6 +1,9 @@
 require "test_helper"
+require_relative "../support/persona_test_helper"
 
 class ChatMessageTest < ActiveSupport::TestCase
+  include PersonaTestHelper
+
   setup do
     user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "chat-length-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Chat length household")
@@ -113,9 +116,7 @@ class ChatMessageTest < ActiveSupport::TestCase
       draft_config: Mia::PersonaSchema.default_configuration(assistant_name: "Kiko", human_coach_name: "Coach Ana"),
       created_by_user: coach
     )
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
-    preview = publisher.preview!(expected_draft_revision: 1)
-    version = publisher.publish!(expected_preview_digest: preview.fetch(:digest), expected_draft_revision: 1, expected_current_version_id: nil)
+    version = publish_persona(persona, actor: coach)
 
     missing_author = @session.chat_messages.new(role: "assistant", content: "Versioned answer", coach_persona_version: version)
     refute missing_author.valid?
@@ -146,9 +147,7 @@ class ChatMessageTest < ActiveSupport::TestCase
       draft_config: Mia::PersonaSchema.default_configuration(assistant_name: "Kiko", human_coach_name: "Coach Ana"),
       created_by_user: coach
     )
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
-    preview = publisher.preview!(expected_draft_revision: 1)
-    version = publisher.publish!(expected_preview_digest: preview.fetch(:digest), expected_draft_revision: 1, expected_current_version_id: nil)
+    version = publish_persona(persona, actor: coach)
     message = @session.chat_messages.create!(
       role: "assistant",
       content: "Versioned answer",

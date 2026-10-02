@@ -1,0 +1,135 @@
+# frozen_string_literal: true
+
+require "digest"
+require "json"
+
+class CoachPersonaEvaluationRun < ApplicationRecord
+  STATUSES = %w[pending running passed failed error].freeze
+
+  belongs_to :release_candidate, class_name: "CoachPersonaReleaseCandidate",
+    foreign_key: :coach_persona_release_candidate_id
+  belongs_to :requested_by_user, class_name: "User"
+  has_many :results, class_name: "CoachPersonaEvaluationResult", dependent: :restrict_with_exception
+  has_one :approval, class_name: "CoachPersonaEvaluationApproval", dependent: :restrict_with_exception
+  has_many :persona_versions, class_name: "CoachPersonaVersion", dependent: :restrict_with_exception
+
+  validates :status, inclusion: { in: STATUSES }
+  validates :adapter_kind, presence: true, length: { maximum: 80 }
+  validates :cases_digest, format: { with: /\A[0-9a-f]{64}\z/ }
+  validates :request_key, presence: true, length: { maximum: 100 }
+  validates :request_fingerprint, format: { with: /\A[0-9a-f]{64}\z/ }
+  validates :execution_attempts, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
+  validates :run_digest, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
+  validate :lifecycle_is_coherent
+  validate :requester_can_edit_persona, on: :create
+  validate :sealed_run_is_immutable, on: :update
+  validate :request_identity_is_immutable, on: :update
+  before_destroy :prevent_destroy
+
+  def self.digest_for(run:, results:)
+    Digest::SHA256.hexdigest(JSON.generate(Mia::PhraseManifest.canonicalize({
+      candidate_digest: run.release_candidate.manifest_digest,
+      requested_by_user_id: run.requested_by_user_id,
+      adapter_kind: run.adapter_kind,
+      cases_digest: run.cases_digest,
+      request_key: run.request_key,
+      request_fingerprint: run.request_fingerprint,
+      status: run.status,
+      started_at: run.started_at&.in_time_zone("UTC")&.iso8601(6),
+      completed_at: run.completed_at&.in_time_zone("UTC")&.iso8601(6),
+      results: results.sort_by(&:coach_persona_evaluation_case_id).map(&:result_digest)
+    })).b)
+  end
+
+  def passed_and_valid?
+    return false unless completed_pass?
+
+    valid_results?(integrity_results)
+  end
+
+  def current_suite_pass?
+    return false unless completed_pass?
+
+    entries = integrity_results
+    return false unless valid_results?(entries)
+
+    evaluated_ids = entries.map(&:coach_persona_evaluation_case_id)
+    active_ids = release_candidate.coach_persona.evaluation_cases.where(active: true).pluck(:id)
+    required_keys = Mia::PersonaRelease::SystemCases::DEFINITIONS.pluck(:system_key)
+    evaluated_keys = entries.filter_map { |entry| entry.evaluation_case.system_key }
+    active_ids.sort == evaluated_ids.sort && (required_keys - evaluated_keys).empty?
+  end
+
+  def terminal?
+    status.in?(%w[passed failed error])
+  end
+
+  def execution_lease_active?
+    lease_token.present? && lease_expires_at.present? && lease_expires_at > Time.current
+  end
+
+  def recoverable?
+    !terminal? && !execution_lease_active?
+  end
+
+  private
+
+  def completed_pass?
+    status == "passed" && run_digest.present? && completed_at.present?
+  end
+
+  def valid_results?(entries)
+    return false if entries.empty? || entries.any? { |result| !result.integrity_valid? || result.status != "passed" || result.fallback_only? }
+    evaluated_cases_digest = Digest::SHA256.hexdigest(JSON.generate(
+      entries.sort_by(&:coach_persona_evaluation_case_id).map { |entry| entry.evaluation_case.case_digest }
+    ).b)
+    return false unless ActiveSupport::SecurityUtils.secure_compare(cases_digest, evaluated_cases_digest)
+    ActiveSupport::SecurityUtils.secure_compare(run_digest, self.class.digest_for(run: self, results: entries))
+  end
+
+  def integrity_results
+    results_association = association(:results)
+    fully_loaded = results_association.loaded? &&
+      results_association.target.all? { |result| result.association(:evaluation_case).loaded? }
+    if fully_loaded
+      results.target
+    else
+      results.includes(:evaluation_case).to_a
+    end
+  end
+
+  def lifecycle_is_coherent
+    terminal = status.in?(%w[passed failed error])
+    errors.add(:completed_at, "must match run status") unless terminal == completed_at.present?
+    errors.add(:run_digest, "must be present only for a completed run") unless terminal == run_digest.present?
+    errors.add(:started_at, "is required after a run starts") if status != "pending" && started_at.blank?
+    if terminal? && [ lease_token, lease_expires_at, heartbeat_at, lease_claimed_at ].any?(&:present?)
+      errors.add(:base, "completed evaluation runs cannot retain an execution lease")
+    end
+  end
+
+  def requester_can_edit_persona
+    workspace = release_candidate&.coach_persona&.coach_workspace
+    return if workspace&.allows?(requested_by_user, :edit)
+
+    errors.add(:requested_by_user, "must be able to edit the persona workspace")
+  end
+
+  def sealed_run_is_immutable
+    return unless status_was.in?(%w[passed failed error])
+
+    errors.add(:base, "completed evaluation runs are immutable") if has_changes_to_save?
+  end
+
+  def request_identity_is_immutable
+    fields = %w[
+      coach_persona_release_candidate_id requested_by_user_id adapter_kind cases_digest request_key request_fingerprint
+    ]
+    errors.add(:base, "evaluation request identity is immutable") if changes_to_save.keys.intersect?(fields)
+  end
+
+  def prevent_destroy
+    errors.add(:base, "evaluation runs cannot be deleted")
+    throw :abort
+  end
+end

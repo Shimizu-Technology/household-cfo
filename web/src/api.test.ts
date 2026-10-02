@@ -7,6 +7,7 @@ import {
   createAdminContentItem,
   createAdminContentPack,
   createAdminPersona,
+  createAdminPersonaEvaluationCase,
   createAdminPersonaSetupTurn,
   createAdminPhraseProposal,
   createBudgetCategory,
@@ -24,6 +25,10 @@ import {
   fetchAdminPersonaAssignableCohorts,
   fetchAdminPersonas,
   fetchAdminPersonaVersion,
+  fetchAdminPersonaReleaseReadiness,
+  fetchAdminPersonaEvaluationCases,
+  fetchAdminPersonaEvaluationRuns,
+  fetchAdminPersonaEvaluationRun,
   fetchAdminContentItems,
   fetchAdminContentPacks,
   fetchAdminContentSource,
@@ -34,6 +39,10 @@ import {
   fetchAdminPhraseProposal,
   previewAdminPersona,
   publishAdminPersona,
+  runAdminPersonaEvaluation,
+  reviewAdminPersonaEvaluation,
+  reviewAdminPersonaAudience,
+  retireAdminPersonaEvaluationCase,
   publishAdminContentPack,
   restoreAdminPersona,
   restoreAdminPhrasePromotion,
@@ -42,7 +51,7 @@ import {
   reprocessAdminContentSource,
   retryAdminContentSourceCleanups,
   retryAdminContentSourceUrlIntakeCleanup,
-  rollbackAdminPersonaVersion,
+  restoreAdminPersonaVersionToDraft,
   sendMiaMessage,
   setActiveCoachWorkspaceId,
   setAuthTokenGetter,
@@ -247,6 +256,75 @@ describe('transaction resolution idempotency contract', () => {
 })
 
 describe('Persona Studio API contract', () => {
+  it('creates and retires immutable custom evaluation cases with typed assertions', async () => {
+    const evaluationCase = { id: 4, kind: 'custom', name: 'Event decision', active: true }
+    const retiredCase = { ...evaluationCase, active: false, retired_at: '2026-10-02T00:00:00Z' }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ evaluation_case: evaluationCase, reconciliation: { request_id: 'case-request', replayed: false } }, 201))
+      .mockResolvedValueOnce(jsonResponse({ evaluation_case: retiredCase }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await createAdminPersonaEvaluationCase(17, {
+      request_id: 'case-request', name: 'Event decision', prompt: 'Can I attend this fictional event?',
+      assertions: [{ type: 'includes_any', values: ['budget', 'tradeoff'] }, { type: 'max_chars', value: 1200 }, { type: 'not_fallback' }],
+    })).toEqual({ evaluation_case: evaluationCase, reconciliation: { request_id: 'case-request', replayed: false } })
+    expect(await retireAdminPersonaEvaluationCase(17, 4)).toEqual(retiredCase)
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/v1/admin/personas/17/evaluation_cases')
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ evaluation_case: {
+      request_id: 'case-request', name: 'Event decision', prompt: 'Can I attend this fictional event?',
+      assertions: [{ type: 'includes_any', values: ['budget', 'tradeoff'] }, { type: 'max_chars', value: 1200 }, { type: 'not_fallback' }],
+    } })
+    expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe('DELETE')
+  })
+
+  it('uses exact release readiness, guardrail, review, and audience envelopes', async () => {
+    const readiness = { ready: false }
+    const evaluationCase = { id: 4, name: 'Identity disclosure' }
+    const run = { id: 9, status: 'pending', run_digest: null }
+    const approval = { id: 12, decision: 'approved' }
+    const audienceAttestation = { id: 15, decision: 'approved' }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ readiness }))
+      .mockResolvedValueOnce(jsonResponse({ evaluation_cases: [evaluationCase] }))
+      .mockResolvedValueOnce(jsonResponse({ evaluation_runs: [run] }))
+      .mockResolvedValueOnce(jsonResponse({ evaluation_run: run }))
+      .mockResolvedValueOnce(jsonResponse({ evaluation_run: run, reconciliation: { request_id: 'run-request', replayed: false, enqueued: true } }, 202))
+      .mockResolvedValueOnce(jsonResponse({ approval }, 201))
+      .mockResolvedValueOnce(jsonResponse({ audience_attestation: audienceAttestation }, 201))
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await fetchAdminPersonaReleaseReadiness(17)).toEqual(readiness)
+    expect(await fetchAdminPersonaEvaluationCases(17)).toEqual([evaluationCase])
+    expect(await fetchAdminPersonaEvaluationRuns(17)).toEqual([run])
+    expect(await fetchAdminPersonaEvaluationRun(17, 9)).toEqual(run)
+    expect(await runAdminPersonaEvaluation(17, 'run-request')).toEqual({ evaluation_run: run, reconciliation: { request_id: 'run-request', replayed: false, enqueued: true } })
+    expect(await reviewAdminPersonaEvaluation(17, 9, 'approved', 'run-digest')).toEqual(approval)
+    expect(await reviewAdminPersonaAudience(17, {
+      candidate_digest: 'candidate-digest',
+      artifact_id: 'phrase-1',
+      artifact_fingerprint: 'phrase-fingerprint',
+      decision: 'approved',
+    })).toEqual(audienceAttestation)
+
+    expect(fetchMock.mock.calls.map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
+      '/api/v1/admin/personas/17/release_readiness',
+      '/api/v1/admin/personas/17/evaluation_cases',
+      '/api/v1/admin/personas/17/evaluation_runs',
+      '/api/v1/admin/personas/17/evaluation_runs/9',
+      '/api/v1/admin/personas/17/evaluation_runs',
+      '/api/v1/admin/personas/17/evaluation_runs/9/approval',
+      '/api/v1/admin/personas/17/audience_attestations',
+    ])
+    expect(JSON.parse(String((fetchMock.mock.calls[4][1] as RequestInit).body))).toEqual({ evaluation_run: { request_id: 'run-request' } })
+    expect(JSON.parse(String((fetchMock.mock.calls[5][1] as RequestInit).body))).toEqual({ approval: { decision: 'approved', run_digest: 'run-digest' } })
+    expect(JSON.parse(String((fetchMock.mock.calls[6][1] as RequestInit).body))).toEqual({
+      audience_attestation: {
+        candidate_digest: 'candidate-digest', artifact_id: 'phrase-1', artifact_fingerprint: 'phrase-fingerprint', decision: 'approved',
+      },
+    })
+  })
+
   it('uses explicit approval, publication, and exact persona source-link envelopes', async () => {
     const item = { id: 4, title: 'One clear question' }
     const pack = { id: 8, name: 'Coach method' }
@@ -298,7 +376,9 @@ describe('Persona Studio API contract', () => {
   it('uses the versioned draft lifecycle endpoints and request envelopes', async () => {
     const persona = { id: 17, name: 'Coach Lani' }
     const preview = { digest: 'preview-digest' }
+    const behavioralPreviewEvidence = { digest: 'behavioral-preview-digest', valid: true }
     const version = { id: 31, number: 1 }
+    const draftRestore = { id: 41, source_version: { id: 31, number: 1 }, previous_draft_revision: 2, restored_draft_revision: 3, digest: 'restore-digest', valid: true }
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ personas: [persona] }))
       .mockResolvedValueOnce(jsonResponse({ persona }))
@@ -306,10 +386,10 @@ describe('Persona Studio API contract', () => {
       .mockResolvedValueOnce(jsonResponse({ persona }))
       .mockResolvedValueOnce(jsonResponse({ persona }))
       .mockResolvedValueOnce(jsonResponse({ persona }))
-      .mockResolvedValueOnce(jsonResponse({ persona, preview }))
+      .mockResolvedValueOnce(jsonResponse({ persona, preview, behavioral_preview_evidence: behavioralPreviewEvidence }))
       .mockResolvedValueOnce(jsonResponse({ persona, published_version: version }))
       .mockResolvedValueOnce(jsonResponse({ persona, version }))
-      .mockResolvedValueOnce(jsonResponse({ persona, published_version: version }))
+      .mockResolvedValueOnce(jsonResponse({ persona, draft_restore: draftRestore }))
     vi.stubGlobal('fetch', fetchMock)
     setAuthTokenGetter(async () => 'staff-token')
 
@@ -319,17 +399,21 @@ describe('Persona Studio API contract', () => {
     expect(await updateAdminPersona(17, { draft_revision: 2, description: 'Clear and kind.' })).toEqual(persona)
     expect(await archiveAdminPersona(17)).toEqual(persona)
     expect(await restoreAdminPersona(17)).toEqual(persona)
-    expect(await previewAdminPersona(17, 2, 'Can I afford this?')).toEqual({ persona, preview })
+    expect(await previewAdminPersona(17, 2, 'Can I afford this?')).toEqual({ persona, preview, behavioral_preview_evidence: behavioralPreviewEvidence })
     expect(await publishAdminPersona(17, {
       draft_revision: 2,
       preview_digest: 'preview-digest',
       expected_published_version_id: 30,
+      release_candidate_digest: 'candidate-digest',
+      evaluation_run_digest: 'run-digest',
+      evaluation_approval_digest: 'approval-digest',
+      behavioral_preview_digest: 'behavioral-preview-digest',
     })).toEqual({ persona, published_version: version })
     expect(await fetchAdminPersonaVersion(17, 31)).toEqual({ persona, version })
-    expect(await rollbackAdminPersonaVersion(17, 31, {
+    expect(await restoreAdminPersonaVersionToDraft(17, 31, {
       draft_revision: 2,
       expected_published_version_id: 32,
-    })).toEqual({ persona, published_version: version })
+    })).toEqual({ persona, draft_restore: draftRestore })
 
     expect(fetchMock).toHaveBeenCalledTimes(10)
     expect(fetchMock.mock.calls.every((call) => (
@@ -361,6 +445,10 @@ describe('Persona Studio API contract', () => {
         draft_revision: 2,
         preview_digest: 'preview-digest',
         expected_published_version_id: 30,
+        release_candidate_digest: 'candidate-digest',
+        evaluation_run_digest: 'run-digest',
+        evaluation_approval_digest: 'approval-digest',
+        behavioral_preview_digest: 'behavioral-preview-digest',
       },
     })
     expect(JSON.parse(String((fetchMock.mock.calls[9][1] as RequestInit).body))).toEqual({

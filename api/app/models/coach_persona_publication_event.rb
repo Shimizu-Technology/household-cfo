@@ -9,9 +9,12 @@ class CoachPersonaPublicationEvent < ApplicationRecord
   belongs_to :source_version, class_name: "CoachPersonaVersion", optional: true
 
   validates :event_type, inclusion: { in: EVENT_TYPES }
+  validates :release_gate_version, inclusion: { in: %w[gate_v1 gate_v2] }
+  validates :release_evidence_digest, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
   validate :actor_is_staff
   validate :versions_belong_to_persona
   validate :source_matches_event_type
+  validate :release_evidence_matches_version
   validate :persisted_event_is_immutable, on: :update
 
   before_destroy :prevent_destroy
@@ -32,6 +35,16 @@ class CoachPersonaPublicationEvent < ApplicationRecord
       errors.add(:source_version, "is required for a rollback")
     elsif event_type == "publish" && source_version.present?
       errors.add(:source_version, "must be blank for a publish")
+    end
+  end
+
+  def release_evidence_matches_version
+    return unless coach_persona_version
+
+    errors.add(:release_gate_version, "must match the published version") unless release_gate_version == coach_persona_version.release_gate_version
+    errors.add(:release_evidence_digest, "must match the published version") unless release_evidence_digest == coach_persona_version.release_evidence_digest
+    unless phrase_audience_attestation_digests == coach_persona_version.phrase_audience_attestation_digests
+      errors.add(:phrase_audience_attestation_digests, "must match the published version")
     end
   end
 

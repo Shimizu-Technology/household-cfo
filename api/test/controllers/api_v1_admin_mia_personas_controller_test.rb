@@ -47,6 +47,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     coach_ids = response.parsed_body.fetch("personas").pluck("id")
     assert_equal [ owned.id, assigned.id, hidden.id ].sort, coach_ids.sort
     assigned_summary = response.parsed_body.fetch("personas").find { |item| item.fetch("id") == assigned.id }
+    refute assigned_summary.key?("release_readiness")
     admin_identity = { "id" => admin.id, "email" => admin.email, "full_name" => "Ari Administrator" }
     assert_equal admin_identity, assigned_summary.fetch("owner")
     assert_equal admin_identity, assigned_summary.dig("published_version", "published_by")
@@ -59,6 +60,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Private future assistant", detail.fetch("name")
     assert detail.key?("draft")
     assert detail.key?("preview")
+    assert detail.key?("release_readiness")
     assert detail.key?("draft_revision")
     assert_equal [ coach_cohort.id, outside_cohort.id ].sort,
       detail.fetch("assignments").map { |item| item.dig("cohort", "id") }.sort
@@ -98,6 +100,79 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_includes admin_ids, owned.id
     assert_includes admin_ids, assigned.id
     assert_includes admin_ids, hidden.id
+  end
+
+  test "reviewer-only workspace members can seal and preview an exact release candidate" do
+    owner = persona_user(role: "coach")
+    reviewer = persona_user(role: "coach")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    workspace.coach_workspace_memberships.create!(user: reviewer, role: "reviewer")
+    persona = create_persona(creator: owner, workspace: workspace)
+    headers = auth_headers(reviewer).merge("X-Coach-Workspace-Id" => workspace.id.to_s)
+
+    with_ready_preview do
+      post "/api/v1/admin/personas/#{persona.id}/preview",
+        params: { preview: { draft_revision: persona.draft_revision, sample_prompt: "Help me plan this month." } },
+        headers: headers,
+        as: :json
+    end
+
+    assert_response :success
+    candidate = persona.release_candidates.sole
+    evidence = candidate.behavioral_preview_evidences.sole
+    assert_equal reviewer, candidate.created_by_user
+    assert_equal reviewer, evidence.generated_by_user
+    assert evidence.integrity_valid?
+  end
+
+  test "invalid drafts mark historical versions unavailable for restore" do
+    owner = persona_user(role: "coach")
+    persona = persona_for(owner, assistant_name: "Invalid draft restore assistant")
+    first = publish_persona(persona, actor: owner)
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
+    second = publish_persona(persona, actor: owner)
+    invalid_draft = persona.draft_config.deep_merge("voice" => { "energy" => "Unsupported voice" })
+    persona.update_column(:draft_config, invalid_draft)
+
+    get "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(owner)
+
+    assert_response :success
+    versions = response.parsed_body.dig("persona", "versions").index_by { |version| version.fetch("id") }
+    assert_equal false, versions.fetch(first.id).fetch("restore_to_draft_allowed")
+    assert_equal "draft_unavailable", versions.fetch(first.id).fetch("restore_blocked_reason")
+    assert_equal false, versions.fetch(second.id).fetch("restore_to_draft_allowed")
+    assert_equal "current_version", versions.fetch(second.id).fetch("restore_blocked_reason")
+  end
+
+  test "version restore eligibility reflects edit access and archived state" do
+    owner = persona_user(role: "coach")
+    viewer = persona_user(role: "coach")
+    persona = persona_for(owner, assistant_name: "Restore eligibility assistant")
+    workspace = persona.coach_workspace
+    workspace.coach_workspace_memberships.create!(user: viewer, role: "viewer")
+    first = publish_persona(persona, actor: owner)
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
+    second = publish_persona(persona, actor: owner)
+
+    get "/api/v1/admin/personas/#{persona.id}",
+      headers: auth_headers(viewer).merge("X-Coach-Workspace-Id" => workspace.id.to_s)
+
+    assert_response :success
+    viewer_versions = response.parsed_body.dig("persona", "versions").index_by { |version| version.fetch("id") }
+    [ first, second ].each do |version|
+      assert_equal false, viewer_versions.fetch(version.id).fetch("restore_to_draft_allowed")
+      assert_equal "edit_permission_required", viewer_versions.fetch(version.id).fetch("restore_blocked_reason")
+    end
+
+    persona.archive!
+    get "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(owner)
+
+    assert_response :success
+    archived_versions = response.parsed_body.dig("persona", "versions").index_by { |version| version.fetch("id") }
+    [ first, second ].each do |version|
+      assert_equal false, archived_versions.fetch(version.id).fetch("restore_to_draft_allowed")
+      assert_equal "persona_archived", archived_versions.fetch(version.id).fetch("restore_blocked_reason")
+    end
   end
 
   test "version not found responses do not expose internal lookup details" do
@@ -146,6 +221,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Auntie Ava", persona.name
     assert_nil persona.archived_at
     assert_nil persona.current_published_version_id
+    assert_equal "gate_v2", persona.release_gate_version
 
     post "/api/v1/admin/personas/#{persona.id}/preview",
       params: { preview: { draft_revision: 1, sample_prompt: "Can I afford this?" } },
@@ -457,6 +533,8 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_equal first_version.config, response.parsed_body.dig("version", "config")
+    assert_equal true, response.parsed_body.dig("version", "restore_to_draft_allowed")
+    assert_nil response.parsed_body.dig("version", "restore_blocked_reason")
 
     post "/api/v1/admin/personas/#{persona.id}/versions/#{first_version.id}/rollback",
       params: {
@@ -469,17 +547,28 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
       as: :json
 
     assert_response :success
-    restored = CoachPersonaVersion.find(response.parsed_body.dig("published_version", "id"))
-    assert_equal 3, restored.version_number
-    assert_equal first_version.config, restored.config
-    assert_equal first_version, restored.source_version
+    restore = response.parsed_body.fetch("draft_restore")
+    assert_equal first_version.id, restore.dig("source_version", "id")
+    assert_equal 2, restore.fetch("previous_draft_revision")
+    assert_equal 3, restore.fetch("restored_draft_revision")
+    assert_equal true, restore.fetch("valid")
+    assert_not response.parsed_body.key?("published_version")
     persona.reload
     assert_equal first_version.config, persona.draft_config
     assert_equal "Versioned assistant", persona.name
     assert_equal 3, persona.draft_revision
     assert_nil persona.preview_digest
-    assert_equal false, response.parsed_body.dig("persona", "has_unpublished_changes")
-    assert_equal %w[publish publish rollback], persona.publication_events.order(:id).pluck(:event_type)
+    assert_equal true, response.parsed_body.dig("persona", "has_unpublished_changes")
+    assert_equal second_version, persona.current_published_version
+    assert_equal %w[publish publish], persona.publication_events.order(:id).pluck(:event_type)
+    assert_equal 2, persona.versions.count
+    assert_equal first_version, persona.draft_restore_events.sole.source_version
+    restored_version_summary = response.parsed_body.dig("persona", "versions").find { |item| item.fetch("id") == first_version.id }
+    assert_equal false, restored_version_summary.fetch("restore_to_draft_allowed")
+    assert_equal "draft_already_matches", restored_version_summary.fetch("restore_blocked_reason")
+    current_version_summary = response.parsed_body.dig("persona", "versions").find { |item| item.fetch("id") == second_version.id }
+    assert_equal false, current_version_summary.fetch("restore_to_draft_allowed")
+    assert_equal "current_version", current_version_summary.fetch("restore_blocked_reason")
 
     post "/api/v1/admin/personas/#{persona.id}/versions/#{first_version.id}/rollback",
       params: {
@@ -493,7 +582,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :conflict
     assert_equal "persona_rollback_conflict", response.parsed_body.fetch("code")
-    assert_equal 3, persona.versions.count
+    assert_equal 2, persona.versions.count
   end
 
   test "unavailable and unrequested behavioral previews cannot authorize publishing" do
@@ -689,7 +778,12 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     original = Mia::PersonaPreviewer.instance_method(:call)
     Mia::PersonaPreviewer.define_method(:call) do
       before_reply&.call
-      { status: "ready", source: "live_model", sample_reply: "Review your confirmed plan first.", notice: "Test model response." }
+      {
+        status: "ready", source: "live_model", sample_prompt: "Help me plan this month.",
+        sample_reply: "Review your confirmed plan first.", model_identifier: "test-model",
+        provider_request_id: "gen-test-persona-controller",
+        context_digest: Mia::PersonaPreviewer.context_digest, notice: "Test model response."
+      }
     end
     yield
   ensure
@@ -716,13 +810,20 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal "ready", response.parsed_body.dig("preview", "status")
     preview_digest = response.parsed_body.dig("preview", "digest")
+    readiness = response.parsed_body.fetch("behavioral_preview_evidence")
+    persona.reload
+    release = persona_release_evidence(persona, actor: user)
 
     post "/api/v1/admin/personas/#{persona.id}/publish",
       params: {
         publish: {
           draft_revision: persona.reload.draft_revision,
           preview_digest: preview_digest,
-          expected_published_version_id: expected_version_id
+          expected_published_version_id: expected_version_id,
+          release_candidate_digest: release.fetch(:expected_release_candidate_digest),
+          evaluation_run_digest: release.fetch(:expected_evaluation_run_digest),
+          evaluation_approval_digest: release.fetch(:expected_evaluation_approval_digest),
+          behavioral_preview_digest: readiness.fetch("digest")
         }
       },
       headers: auth_headers(user),

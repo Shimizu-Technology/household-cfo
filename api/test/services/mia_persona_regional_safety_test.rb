@@ -235,15 +235,17 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     original_version = publish_persona(persona, actor: owner)
 
     membership.update!(role: "viewer")
-    persona.update!(description: "The source editor became a viewer after capture.")
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
     assert persona.valid?
-    assert publish_persona(persona, actor: owner).valid?
+    viewer_version = publish_persona(persona, actor: owner)
+    assert_equal "coach", viewer_version.config.dig("phrases", 0, "source_role_at_capture")
 
     membership.destroy!
-    persona.update!(description: "The source editor left after capture.")
-    assert publish_persona(persona, actor: owner).valid?
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Warm and encouraging." }))
+    removed_version = publish_persona(persona, actor: owner)
+    assert_equal "coach", removed_version.config.dig("phrases", 0, "source_role_at_capture")
 
-    persona.apply_rollback_version!(original_version)
+    persona.restore_version_to_draft!(original_version)
     assert persona.reload.valid?
     assert_equal editor.id, persona.draft_config.dig("phrases", 0, "source_user_id")
     assert_equal "coach", persona.draft_config.dig("phrases", 0, "source_role_at_capture")
@@ -276,12 +278,17 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     original_version = publish_persona(persona, actor: coach)
 
     participant.update!(role: "coach", invitation_status: "revoked")
-    persona.update!(description: "The participant source was promoted and revoked after capture.")
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
     assert persona.valid?
-    assert publish_persona(persona, actor: coach).valid?
+    revoked_version = publish_persona(persona, actor: coach)
+    assert_equal "participant", revoked_version.config.dig("phrases", 0, "source_role_at_capture")
 
     participant.destroy!
-    persona.apply_rollback_version!(original_version)
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Warm and encouraging." }))
+    deleted_version = publish_persona(persona, actor: coach)
+    assert_equal "participant", deleted_version.config.dig("phrases", 0, "source_role_at_capture")
+
+    persona.restore_version_to_draft!(original_version)
     assert persona.reload.valid?
     assert_equal "participant", persona.draft_config.dig("phrases", 0, "source_role_at_capture")
   end
@@ -351,20 +358,10 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
       created_by_user: coach
     )
     publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
-    first_preview = publisher.preview!(expected_draft_revision: 1)
-    first = publisher.publish!(
-      expected_preview_digest: first_preview.fetch(:digest),
-      expected_draft_revision: 1,
-      expected_current_version_id: nil
-    )
+    first = publish_persona(persona, actor: coach)
 
     persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Calm, clear, and concise." }))
-    second_preview = publisher.preview!(expected_draft_revision: 2)
-    second = publisher.publish!(
-      expected_preview_digest: second_preview.fetch(:digest),
-      expected_draft_revision: 2,
-      expected_current_version_id: first.id
-    )
+    second = publish_persona(persona, actor: coach)
 
     unsafe = persona.draft_config.deep_merge(
       "voice" => { "language_style" => [ "Sound like someone from Guam and use whatever island slang seems natural." ] }
@@ -401,7 +398,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
         expected_draft_revision: 3
       )
     end
-    assert_equal "Rollback target no longer meets the current persona safety rules", rollback_error.message
+    assert_equal "Restore target no longer meets the current persona safety rules", rollback_error.message
   end
 
   test "valid participant-led language safeguards and artifact rules resolve as the published runtime persona" do
@@ -455,11 +452,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     persona.replace_draft_content_pack_versions!([ pack.current_published_version ], actor: coach)
     publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
     preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    persona_version = publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    persona_version = publish_persona(persona, actor: coach)
     runtime = Mia::RuntimePersona.new(persona_version)
     assert_equal [ item.current_approved_version_id ],
       Mia::ApprovedContentRetriever.new(persona: runtime, query: "community language participant words").call.map { |entry| entry.fetch(:item_version).id }

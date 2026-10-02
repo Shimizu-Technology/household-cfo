@@ -64,18 +64,30 @@ module Demo
       Do not add generic praise such as "you're doing great," "great job," "I'm proud of you," or "you've got this." Only acknowledge a specific accomplishment supported by approved context.
     PROMPT
 
-    attr_reader :response_source, :supplied_content_context
+    attr_reader :response_source, :supplied_content_context, :provider_request_id
 
-    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL), persona: ::Mia::Persona.default, approved_content: [])
+    def model_identifier
+      @concrete_model_identifier
+    end
+
+    def requested_model_identifier
+      @model
+    end
+
+    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL), persona: ::Mia::Persona.default,
+      approved_content: [], strict_privacy: false)
       @api_key = api_key
       @model = model
       @persona = persona
       @approved_content = Array(approved_content)
+      @strict_privacy = strict_privacy
       @supplied_content_context = []
     end
 
     def call(message, history: [], context: nil, draft_capable: false, conversation_resolution: nil)
       @response_source = "deterministic_fallback"
+      @concrete_model_identifier = nil
+      @provider_request_id = nil
       @supplied_content_context = []
       clean_message = message.to_s.strip
       prompt_context = context.presence || default_context
@@ -126,7 +138,7 @@ module Demo
       request["Content-Type"] = "application/json"
       request["HTTP-Referer"] = "https://github.com/Shimizu-Technology/household-cfo"
       request["X-Title"] = "Household CFO Method powered by VERA"
-      request.body = {
+      payload = {
         model: @model,
         messages: [
           { role: "system", content: @persona.system_prompt },
@@ -139,7 +151,12 @@ module Demo
         ],
         max_tokens: 220,
         temperature: 0.5
-      }.to_json
+      }
+      if @strict_privacy
+        payload[:provider] = { data_collection: "deny", allow_fallbacks: false, require_parameters: true }
+        payload[:tools] = []
+      end
+      request.body = payload.to_json
 
       response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: 20, open_timeout: 5) do |http|
         http.request(request)
@@ -148,6 +165,10 @@ module Demo
       return fallback_response(message, context: context) unless response.is_a?(Net::HTTPSuccess)
 
       parsed = JSON.parse(response.body)
+      concrete_model = parsed["model"].to_s.squish
+      concrete_model_valid = concrete_model.present? && concrete_model.length <= 200
+      return fallback_response(message, context: context) if @strict_privacy && !concrete_model_valid
+
       content = parsed.dig("choices", 0, "message", "content").presence
       return fallback_response(message, context: context) unless content
 
@@ -164,6 +185,9 @@ module Demo
       end
       return fallback_response(message, context: context) if sanitized.blank?
 
+      @concrete_model_identifier = concrete_model if concrete_model_valid
+      request_id = parsed["id"].to_s.squish
+      @provider_request_id = request_id if request_id.present? && request_id.length <= 200
       @response_source = "live_model"
       sanitized
     end

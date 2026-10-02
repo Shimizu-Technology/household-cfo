@@ -11,12 +11,13 @@ import {
   publishAdminPersona,
   restoreAdminPhrasePromotion,
   restoreAdminPersona,
-  rollbackAdminPersonaVersion,
+  restoreAdminPersonaVersionToDraft,
   updateAdminCohortPersonaAssignment,
   updateAdminPersona,
 } from '../api'
 import type {
   AdminPersonaAssignableCohort,
+  AdminPersonaBehavioralPreviewEvidence,
   AdminPersonaDetail,
   AdminPersonaPreview,
   AdminPersonaSummary,
@@ -42,6 +43,8 @@ import { Button } from './Button'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
 import { PersonaSetupChat } from './PersonaSetupChat'
+import { PersonaReleasePanel, type PersonaPublishEvidence } from './PersonaReleasePanel'
+import { savedPreviewDigestForCurrentDraft } from './personaReleaseState'
 import { useCoachWorkspaceMutationLifecycle, type CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
 
@@ -56,7 +59,7 @@ const guidedSteps = [
 type GuidedStep = (typeof guidedSteps)[number]['id']
 type EditorMode = 'setup' | 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
-type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'rollback' | 'assignment' | 'phrase_restore' | null
+type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'draft_restore' | 'assignment' | 'phrase_restore' | null
 type StudioSection = 'assistants' | 'library' | 'participant_tools'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
@@ -69,6 +72,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [description, setDescription] = useState('')
   const [cohorts, setCohorts] = useState<AdminPersonaAssignableCohort[]>([])
   const [preview, setPreview] = useState<AdminPersonaPreview | null>(null)
+  const [previewEvidence, setPreviewEvidence] = useState<AdminPersonaBehavioralPreviewEvidence | null>(null)
   const [samplePrompt, setSamplePrompt] = useState('How should I think about spending $100 this weekend? Give me one clear next step.')
   const [mode, setMode] = useState<EditorMode>('guided')
   const [guidedStep, setGuidedStep] = useState<GuidedStep>('identity')
@@ -108,6 +112,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
   const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty
+  const personaDirty = dirty || personaSourcesDirty || setupDirty
 
   const filteredPersonas = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -133,6 +138,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setDraft(persona.draft ?? null)
       setDescription(persona.description)
       setPreview(null)
+      setPreviewEvidence(null)
       setConflict(null)
       setPendingSelectionId(null)
       setPendingLibraryReturn(false)
@@ -259,6 +265,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setSelectedPersona(null)
     setDraft(null)
     setPreview(null)
+    setPreviewEvidence(null)
     setDescription('')
     setError(null)
     setConflict(null)
@@ -380,6 +387,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setDraft(persona.draft ?? draft)
       setDescription(persona.description)
       setPreview(null)
+      setPreviewEvidence(null)
       setPersonas((current) => replacePersonaSummary(current, persona))
       setNotice('Draft saved. Run an exact preview before publishing.')
       return persona
@@ -392,7 +400,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }
 
   async function handlePreview() {
-    if (!selectedPersona || !draft || dirty || pendingAction) return
+    if (!selectedPersona || !draft || personaDirty || pendingAction) return
     const mutation = beginMutation('preview')
     setError(null)
     setConflict(null)
@@ -402,6 +410,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setSelectedPersona(response.persona)
       setDraft(response.persona.draft ?? draft)
       setPreview(response.preview)
+      setPreviewEvidence(response.behavioral_preview_evidence)
       setPersonas((current) => replacePersonaSummary(current, response.persona))
       setNotice(response.preview.status === 'ready' ? 'Exact draft preview is ready for review.' : 'The exact draft was checked, but a behavioral sample is unavailable right now.')
     } catch (caught) {
@@ -411,13 +420,10 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     }
   }
 
-  async function handlePublish() {
-    if (!selectedPersona || !preview || dirty || pendingAction) return
-    if (preview.status !== 'ready') {
-      setError('Run a successful behavioral preview before publishing this draft.')
-      return
-    }
-    if (preview.digest !== selectedPersona.preview?.digest) {
+  async function handlePublish(evidence: PersonaPublishEvidence) {
+    if (!selectedPersona || personaDirty || pendingAction) return
+    const previewDigest = savedPreviewDigestForCurrentDraft(selectedPersona)
+    if (!previewDigest) {
       setError('Run an exact preview of the saved draft before publishing.')
       return
     }
@@ -430,18 +436,22 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     try {
       const response = await publishAdminPersona(selectedPersona.id, {
         draft_revision: selectedPersona.draft_revision ?? 0,
-        preview_digest: preview.digest,
+        preview_digest: previewDigest,
         expected_published_version_id: selectedPersona.published_version?.id ?? null,
+        ...evidence,
       })
       if (!mutationIsCurrent(mutation)) return
       setSelectedPersona(response.persona)
       setDraft(response.persona.draft ?? draft)
+      setPreview(null)
+      setPreviewEvidence(null)
       setPersonas((current) => replacePersonaSummary(current, response.persona))
       setNotice(`${response.persona.name} version ${response.published_version.number} is published.`)
       await refreshCohorts(mutation)
     } catch (caught) {
       if (mutationIsCurrent(mutation)) {
         setPreview(null)
+        setPreviewEvidence(null)
         handleMutationError(caught, 'The assistant could not be published.')
       }
     } finally {
@@ -451,7 +461,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   async function handleArchive() {
     if (!selectedPersona || pendingAction) return
-    if (dirty) {
+    if (personaDirty) {
       setConflict('Save or discard your unsaved changes before archiving this assistant.')
       return
     }
@@ -486,30 +496,27 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     }
   }
 
-  async function handleRollback(versionId: number, versionNumber: number) {
+  async function handleRestoreVersionToDraft(versionId: number, versionNumber: number) {
     if (!selectedPersona || pendingAction) return
-    if (dirty) {
-      setConflict('Save or discard your unsaved changes before restoring an earlier version.')
+    if (personaDirty) {
+      setConflict('Save or discard your unsaved changes before restoring an earlier version to the draft.')
       return
     }
-    const assignmentImpact = selectedPersona.assignments.length > 0
-      ? ` Future participant messages in ${selectedPersona.assignments.length} assigned cohort${selectedPersona.assignments.length === 1 ? '' : 's'} will use it immediately.`
-      : ''
-    if (!window.confirm(`Publish a new version using the content from version ${versionNumber}? Current history will stay intact.${assignmentImpact}`)) return
-    const mutation = beginMutation('rollback')
+    if (!window.confirm(`Restore version ${versionNumber} into the editable draft? The published assistant stays live. You must preview, run checks, approve, and publish the restored draft before participants see it.`)) return
+    const mutation = beginMutation('draft_restore')
     setError(null)
     try {
-      const response = await rollbackAdminPersonaVersion(selectedPersona.id, versionId, {
+      const response = await restoreAdminPersonaVersionToDraft(selectedPersona.id, versionId, {
         expected_published_version_id: selectedPersona.published_version?.id ?? null,
         draft_revision: selectedPersona.draft_revision ?? 0,
       })
       if (!mutationIsCurrent(mutation)) return
       acceptPersona(response.persona)
       setPreview(null)
-      setNotice(`Version ${response.published_version.number} is now published from version ${versionNumber}.`)
-      await refreshCohorts(mutation)
+      setPreviewEvidence(null)
+      setNotice(`Version ${versionNumber} was restored to draft revision ${response.draft_restore.restored_draft_revision}. Review it, then complete a fresh release before participants can use it.`)
     } catch (caught) {
-      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The version could not be restored.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The version could not be restored to the draft.')
     } finally {
       finishMutation(mutation)
     }
@@ -517,7 +524,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   async function handleAssignment(cohort: AdminPersonaAssignableCohort) {
     if (!selectedPersona?.published_version || pendingAction || !cohort.assignable) return
-    if (dirty) {
+    if (personaDirty) {
       setConflict('Save or discard your unsaved changes before changing cohort assignments.')
       return
     }
@@ -546,7 +553,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   async function handleRemoveAssignment(cohort: AdminPersonaAssignableCohort) {
     const assignedPersonaId = cohort.persona_assignment?.persona.id
     if (!assignedPersonaId || !selectedPersona || pendingAction) return
-    if (dirty) {
+    if (personaDirty) {
       setConflict('Save or discard your unsaved changes before changing cohort assignments.')
       return
     }
@@ -584,11 +591,12 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setDraft(persona.draft ?? null)
     setDescription(persona.description)
     setPreview(null)
+    setPreviewEvidence(null)
     setPersonas((current) => replacePersonaSummary(current, persona))
   }
 
   async function handleRestorePhrasePromotion(promotionId: number) {
-    if (!selectedPersona || selectedPersona.draft_revision == null || dirty || pendingAction || workspaceMutations.pending) return
+    if (!selectedPersona || selectedPersona.draft_revision == null || personaDirty || pendingAction || workspaceMutations.pending) return
     const requestedPromotion = (selectedPersona.approved_phrase_promotions ?? []).find((promotion) => promotion.id === promotionId)
     const mutation = beginMutation('phrase_restore')
     setError(null)
@@ -656,8 +664,6 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setError(message)
   }
 
-  const previewMatches = Boolean(preview && selectedPersona?.preview?.digest === preview.digest && !dirty)
-  const canPublish = Boolean(selectedPersona?.permissions.publish && previewMatches && preview?.status === 'ready' && selectedPersona?.preview_required === false)
   const assignmentCohorts = selectedPersona ? cohorts : []
 
   return (
@@ -868,7 +874,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                           phraseArtifactAccess={selectedPersona.phrase_artifact_access}
                           approvedPhrasePromotions={selectedPersona.approved_phrase_promotions ?? []}
                           phraseRestorePending={pendingAction === 'phrase_restore'}
-                          phraseRestoreDisabled={dirty || pendingAction !== null || workspaceMutations.pending}
+                          phraseRestoreDisabled={personaDirty || pendingAction !== null || workspaceMutations.pending}
                           onRestorePhrasePromotion={(promotionId) => void handleRestorePhrasePromotion(promotionId)}
                           description={description}
                           mode={mode}
@@ -912,17 +918,27 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 />
               )}
 
-              <LifecyclePanel
+              <PersonaReleasePanel
+                key={`${activeWorkspaceId ?? 'platform'}:${selectedPersona.id}:${selectedPersona.draft_revision ?? 'read-only'}:${selectedPersona.published_version?.id ?? 'unpublished'}:${selectedPersona.has_unpublished_changes !== false ? 'changes' : 'current'}:${previewEvidence?.digest ?? 'no-preview-evidence'}`}
                 persona={selectedPersona}
                 preview={preview}
+                previewEvidence={previewEvidence}
                 samplePrompt={samplePrompt}
-                dirty={dirty}
-                canPublish={canPublish}
-                pendingAction={pendingAction}
+                dirty={personaDirty}
+                parentBusy={pendingAction !== null || workspaceMutations.pending}
+                previewPending={pendingAction === 'preview'}
+                publishPending={pendingAction === 'publish'}
+                mutationLifecycle={workspaceMutations}
                 onSamplePromptChange={setSamplePrompt}
                 onPreview={() => void handlePreview()}
-                onPublish={() => void handlePublish()}
-                onRollback={(versionId, number) => void handleRollback(versionId, number)}
+                onPublish={(evidence) => void handlePublish(evidence)}
+              />
+
+              <LifecyclePanel
+                persona={selectedPersona}
+                dirty={personaDirty}
+                pendingAction={pendingAction}
+                onRestoreVersionToDraft={(versionId, number) => void handleRestoreVersionToDraft(versionId, number)}
                 onArchive={() => void handleArchive()}
                 onRestore={() => void handleRestore()}
               />
@@ -931,7 +947,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 persona={selectedPersona}
                 cohorts={assignmentCohorts}
                 pending={pendingAction === 'assignment'}
-                dirty={dirty}
+                dirty={personaDirty}
                 onAssign={(cohort) => void handleAssignment(cohort)}
                 onRemove={(cohort) => void handleRemoveAssignment(cohort)}
               />
@@ -1129,50 +1145,20 @@ function renderEditorSection(
   )
 }
 
-function LifecyclePanel({ persona, preview, samplePrompt, dirty, canPublish, pendingAction, onSamplePromptChange, onPreview, onPublish, onRollback, onArchive, onRestore }: {
+function LifecyclePanel({ persona, dirty, pendingAction, onRestoreVersionToDraft, onArchive, onRestore }: {
   persona: AdminPersonaDetail
-  preview: AdminPersonaPreview | null
-  samplePrompt: string
   dirty: boolean
-  canPublish: boolean
   pendingAction: PendingAction
-  onSamplePromptChange: (value: string) => void
-  onPreview: () => void
-  onPublish: () => void
-  onRollback: (versionId: number, number: number) => void
+  onRestoreVersionToDraft: (versionId: number, number: number) => void
   onArchive: () => void
   onRestore: () => void
 }) {
-  const savedPreviewNeedsReview = !dirty && !preview && persona.preview_required === false && Boolean(persona.preview)
-  const previewStatus = persona.preview_required
-    ? 'preview required'
-    : canPublish
-      ? 'ready to publish'
-      : savedPreviewNeedsReview
-        ? 'saved preview'
-        : 'preview required'
-
   return (
     <article className="panel coach-lifecycle">
       <header>
-        <div><p className="eyebrow">Preview and publish</p><h3>Check the exact saved revision.</h3></div>
-        <StatusBadge status={previewStatus} />
+        <div><p className="eyebrow">Published history</p><h3>Versions and assistant access.</h3></div>
+        <StatusBadge status={persona.status} />
       </header>
-      <label className="coach-sample-prompt">
-        <span>Behavioral preview question</span>
-        <textarea rows={3} maxLength={2000} value={samplePrompt} onChange={(event) => onSamplePromptChange(event.target.value)} placeholder="Ask the kind of question a participant will bring." />
-        <small>Use fictional details only. Do not paste participant names, messages, or financial information. Your sample question is sent to the configured model; saved household data is not loaded.</small>
-      </label>
-      <div className="coach-lifecycle-actions">
-        <Button variant="secondary" onClick={onPreview} disabled={dirty || !persona.permissions.publish || pendingAction !== null}>{pendingAction === 'preview' ? 'Running exact preview' : 'Run exact preview'}</Button>
-        <Button onClick={onPublish} disabled={!canPublish || pendingAction !== null}>{pendingAction === 'publish' ? 'Publishing' : persona.published_version ? 'Publish next version' : 'Publish first version'}</Button>
-      </div>
-      {dirty && <p className="coach-inline-note">Save this draft before previewing. The preview digest is tied to one exact saved revision.</p>}
-      {!dirty && preview?.status === 'unavailable' && <p className="coach-inline-note">A successful behavioral preview is required before publishing. Try again when the configured model is available.</p>}
-      {!dirty && preview?.status === 'safety_only' && <p className="coach-inline-note">The crisis boundary worked, but it did not exercise this persona. Run a non-crisis question with the configured model before publishing.</p>}
-      {savedPreviewNeedsReview && <p className="coach-inline-note">This exact revision passed preview in another session. Run it again here to review the behavior before publishing.</p>}
-      {persona.assignments.length > 0 && <p className="coach-inline-note">Publishing or restoring a version updates future participant messages in all assigned cohorts immediately. You will confirm this impact before it changes.</p>}
-      {preview && <PreviewResult preview={preview} current={canPublish} />}
 
       <details className="coach-locked-guardrails">
         <summary>Locked system guardrails</summary>
@@ -1185,10 +1171,23 @@ function LifecyclePanel({ persona, preview, samplePrompt, dirty, canPublish, pen
       <details className="coach-version-history">
         <summary>Version history ({persona.versions.length})</summary>
         <div className="coach-version-list">
+          {persona.versions.length > 0 && <p className="coach-inline-note">Restore copies a historical version into the editable draft. The current published assistant stays live until the restored draft completes a fresh release.</p>}
           {persona.versions.length === 0 ? <p>No published versions yet.</p> : persona.versions.map((version) => (
             <article key={version.id}>
               <div><strong>Version {version.number}</strong><small>{new Date(version.published_at).toLocaleString()} · {version.published_by?.full_name ?? 'Unknown publisher'}</small>{version.restored_from_version && <small>Restored from version {version.restored_from_version.number}</small>}</div>
-              {version.id === persona.published_version?.id ? <StatusBadge status="current" /> : persona.permissions.publish && <Button size="compact" variant="ghost" disabled={dirty || pendingAction !== null} onClick={() => onRollback(version.id, version.number)}>Restore as new version</Button>}
+              {version.id === persona.published_version?.id || version.restore_blocked_reason === 'current_version'
+                ? <StatusBadge status="current" />
+                : version.restore_blocked_reason === 'draft_already_matches'
+                  ? <StatusBadge status="matches draft" />
+                : version.restore_blocked_reason === 'draft_unavailable'
+                  ? <StatusBadge status="draft unavailable" />
+                : version.restore_blocked_reason === 'persona_archived'
+                  ? <StatusBadge status="archived" />
+                : version.restore_blocked_reason === 'edit_permission_required'
+                  ? <StatusBadge status="read only" />
+                  : version.restore_to_draft_allowed && persona.permissions.edit
+                    ? <Button size="compact" variant="ghost" disabled={dirty || pendingAction !== null} onClick={() => onRestoreVersionToDraft(version.id, version.number)}>{pendingAction === 'draft_restore' ? 'Restoring…' : 'Restore to draft'}</Button>
+                    : null}
             </article>
           ))}
         </div>
@@ -1201,29 +1200,6 @@ function LifecyclePanel({ persona, preview, samplePrompt, dirty, canPublish, pen
         {!persona.permissions.archive && persona.permissions.edit && persona.status !== 'archived' && <small>Remove this assistant from every draft, enrolling, or active cohort before archiving.</small>}
       </div>
     </article>
-  )
-}
-
-function PreviewResult({ preview, current }: { preview: AdminPersonaPreview; current: boolean }) {
-  const heading = preview.status === 'ready'
-    ? 'Behavioral sample ready'
-    : preview.status === 'safety_only'
-      ? 'Safety response checked'
-      : preview.status === 'unavailable'
-        ? 'Behavioral sample unavailable'
-        : 'Exact draft checked'
-
-  return (
-    <section className={`coach-preview-result is-${preview.status}`} aria-label="Exact draft preview">
-      <header><div><strong>{heading}</strong><small>Draft revision {preview.draft_revision} · {titleize(preview.source)}</small></div><StatusBadge status={current ? 'current preview' : 'not publishable'} /></header>
-      <p>{preview.notice}</p>
-      {preview.sample_prompt && <div><small>Sample question</small><p>{preview.sample_prompt}</p></div>}
-      {preview.sample_reply && <blockquote>{preview.sample_reply}</blockquote>}
-      {!preview.sample_reply && preview.status === 'unavailable' && <p className="coach-inline-note">No generated answer is shown because the model preview was unavailable. Publishing stays locked until a successful behavioral preview checks this exact draft.</p>}
-      {preview.status === 'safety_only' && <p className="coach-inline-note">This safety response is shown for review, but it cannot authorize publication because the coach persona was not exercised.</p>}
-      <details><summary>Compiled instructions for this revision</summary><pre>{preview.rendered_instructions}</pre></details>
-      <small>Guardrails applied: {preview.guardrails_applied ? 'Yes' : 'No'} · Generated {new Date(preview.generated_at).toLocaleString()}</small>
-    </section>
   )
 }
 

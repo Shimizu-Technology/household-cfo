@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require_relative "../support/persona_test_helper"
 
 class ApiV1AdminUserPersonaCompatibilityTest < ActionDispatch::IntegrationTest
+  include PersonaTestHelper
+
   test "coach access to participants requires a coach-role cohort membership" do
     admin = create_user(role: "admin")
     coach = create_user(role: "coach")
@@ -162,13 +165,7 @@ class ApiV1AdminUserPersonaCompatibilityTest < ActionDispatch::IntegrationTest
       ),
       created_by_user: user
     )
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: user)
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    publish_persona(persona, actor: user)
     persona.reload
   end
 

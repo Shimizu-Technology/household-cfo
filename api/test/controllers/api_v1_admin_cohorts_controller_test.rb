@@ -1,6 +1,9 @@
 require "test_helper"
+require_relative "../support/persona_test_helper"
 
 class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
+  include PersonaTestHelper
+
   test "cohorts endpoint requires admin access" do
     participant = create_user(email: "participant@example.com", role: "participant")
 
@@ -340,13 +343,7 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
       ),
       created_by_user: user
     )
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: user)
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    publish_persona(persona, actor: user)
     persona.reload
   end
 

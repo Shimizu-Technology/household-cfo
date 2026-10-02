@@ -22,15 +22,15 @@ module Api
         end
 
         def rollback
-          persona = policy.publishable_personas.find(params[:persona_id])
+          persona = policy.editable_personas.find(params[:persona_id])
           version = persona.versions.find(params[:id])
-          restored = Mia::PersonaRollback.new(persona: persona, target_version: version, actor: current_user).call(
+          restore_event = Mia::PersonaRollback.new(persona: persona, target_version: version, actor: current_user).call(
             expected_current_version_id: rollback_params[:expected_published_version_id],
             expected_draft_revision: rollback_params[:draft_revision]
           )
           render json: {
             persona: serializer(persona.reload).detail,
-            published_version: serializer(persona).serialize_version(restored, include_config: true, include_source: true)
+            draft_restore: Mia::PersonaStudioSerializer.serialize_draft_restore_event(restore_event)
           }
         rescue Mia::PersonaRollback::RollbackError => error
           render json: { error: error.message, code: "persona_rollback_conflict" }, status: :conflict

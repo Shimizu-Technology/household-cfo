@@ -24,6 +24,8 @@ class MiaPersonaPreviewerTest < ActiveSupport::TestCase
 
     assert_equal "ready", result.fetch(:status)
     assert_equal "live_model", result.fetch(:source)
+    assert_equal "test-model", result.fetch(:model_identifier)
+    assert_equal "gen-test-123", result.fetch(:provider_request_id)
     assert_equal "Can I afford this purchase?", responder.received_prompt
     assert_includes result.fetch(:notice), "exact draft"
     assert_includes result.fetch(:notice), "Saved participant and household data is not loaded"
@@ -35,6 +37,21 @@ class MiaPersonaPreviewerTest < ActiveSupport::TestCase
     assert_includes context.fetch("data_basis"), "user-supplied facts"
     assert_equal false, responder.received_options.fetch(:draft_capable)
     assert_includes result.fetch(:sample_reply), "household baseline"
+  end
+
+  test "does not authorize publication without concrete provider provenance" do
+    responder = fake_responder(source: "live_model", reply: "Review the confirmed plan.", provider_request_id: nil)
+
+    result = Mia::PersonaPreviewer.new(
+      persona: @persona,
+      sample_prompt: "How would you coach me through this?",
+      responder: responder
+    ).call
+
+    assert_equal "unavailable", result.fetch(:status)
+    assert_equal "invalid_provider_provenance", result.fetch(:source)
+    assert_nil result.fetch(:sample_reply)
+    assert_includes result.fetch(:notice), "provider provenance"
   end
 
   test "does not present a deterministic fallback as the answer to the coach test message" do
@@ -86,9 +103,11 @@ class MiaPersonaPreviewerTest < ActiveSupport::TestCase
 
   private
 
-  def fake_responder(source:, reply:)
+  def fake_responder(source:, reply:, model_identifier: "test-model", provider_request_id: "gen-test-123")
     Object.new.tap do |responder|
       responder.define_singleton_method(:response_source) { source }
+      responder.define_singleton_method(:model_identifier) { model_identifier }
+      responder.define_singleton_method(:provider_request_id) { provider_request_id }
       responder.define_singleton_method(:received_prompt) { @received_prompt }
       responder.define_singleton_method(:received_options) { @received_options }
       responder.define_singleton_method(:call) do |prompt, **options|

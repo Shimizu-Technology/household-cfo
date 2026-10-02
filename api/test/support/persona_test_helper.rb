@@ -48,14 +48,47 @@ module PersonaTestHelper
     Cohort.create!(name: name, status: status, created_by_user: creator)
   end
 
-  def publish_persona(persona, actor:)
+  def publish_persona(persona, actor:, evaluator: actor, reviewer: actor, audience_reviewer: reviewer)
     publisher = Mia::PersonaPublisher.new(persona: persona, actor: actor)
     preview = publisher.preview!(expected_draft_revision: persona.reload.draft_revision)
+    evidence = persona_release_evidence(
+      persona, actor: actor, evaluator: evaluator, reviewer: reviewer, audience_reviewer: audience_reviewer
+    )
     publisher.publish!(
       expected_preview_digest: preview.fetch(:digest),
       expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: persona.current_published_version_id
+      expected_current_version_id: persona.current_published_version_id,
+      **evidence
     )
+  end
+
+  def persona_release_evidence(persona, actor:, evaluator: actor, reviewer: actor, audience_reviewer: reviewer)
+    candidate = Mia::PersonaRelease::CandidateBuilder.new(persona: persona, actor: evaluator).call!
+    behavioral = Mia::PersonaRelease::BehavioralPreviewRecorder.new(persona: persona, actor: actor).call!(
+      candidate: candidate,
+      preview: {
+        status: "ready", source: "live_model", sample_prompt: "Help this fictional household plan.",
+        sample_reply: "Review the confirmed plan and choose one next step.", model_identifier: "test-model",
+        provider_request_id: "gen-test-helper",
+        context_digest: Mia::PersonaPreviewer.context_digest
+      }
+    )
+    run = Mia::PersonaRelease::Runner.new(persona: persona, actor: evaluator).call!
+    approval = Mia::PersonaRelease::RunApprover.new(run: run, actor: reviewer).call!(
+      decision: "approved", expected_run_digest: run.run_digest
+    )
+    Array(candidate.phrase_artifacts_snapshot).each do |artifact|
+      Mia::PersonaRelease::AudienceAttester.new(persona: persona, actor: audience_reviewer).call!(
+        candidate_digest: candidate.manifest_digest, artifact_id: artifact.fetch("artifact_id"),
+        artifact_fingerprint: artifact.fetch("fingerprint"), decision: "approved"
+      )
+    end
+    {
+      expected_release_candidate_digest: candidate.manifest_digest,
+      expected_evaluation_run_digest: run.run_digest,
+      expected_evaluation_approval_digest: approval.approval_digest,
+      expected_behavioral_preview_digest: behavioral.evidence_digest
+    }
   end
 
 

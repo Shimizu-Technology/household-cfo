@@ -77,13 +77,7 @@ class ApiV1AdminPersonaMembershipCompatibilityTest < ActionDispatch::Integration
       draft_config: persona_configuration(assistant_name: assistant_name, coach_name: creator.full_name),
       created_by_user: creator
     )
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: creator)
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    publish_persona(persona, actor: creator)
     persona.reload
   end
 end

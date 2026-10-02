@@ -29,13 +29,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
       draft_config: config,
       created_by_user: coach
     )
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    version = publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    version = publish_persona(persona, actor: coach)
     @runtime = Mia::RuntimePersona.new(version)
   end
 
@@ -198,7 +192,11 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
     captured_requests = []
     response = Net::HTTPOK.new("1.1", "200", "OK")
     response.instance_variable_set(:@read, true)
-    response.body = JSON.generate(choices: [ { message: { content: "Review the confirmed plan first. Then choose one concrete next move." } } ])
+    response.body = JSON.generate(
+      id: "gen-runtime-prompt",
+      model: "anthropic/claude-sonnet-4.5",
+      choices: [ { message: { content: "Review the confirmed plan first. Then choose one concrete next move." } } ]
+    )
     http = Object.new
     http.define_singleton_method(:request) do |request|
       captured_requests << request
@@ -225,7 +223,11 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
   test "responder replaces provider output that violates the custom response shape with a safe fallback" do
     response = Net::HTTPOK.new("1.1", "200", "OK")
     response.instance_variable_set(:@read, true)
-    response.body = JSON.generate(choices: [ { message: { content: "Only one sentence." } } ])
+    response.body = JSON.generate(
+      id: "gen-invalid-shape",
+      model: "anthropic/claude-sonnet-4.5",
+      choices: [ { message: { content: "Only one sentence." } } ]
+    )
     http = Object.new
     http.define_singleton_method(:request) { |_request| response }
     start_stub = lambda do |*_arguments, **_options, &block|
@@ -265,13 +267,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
       draft_config: config,
       created_by_user: coach
     )
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    version = publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    version = publish_persona(persona, actor: coach)
     Mia::RuntimePersona.new(version)
   end
 

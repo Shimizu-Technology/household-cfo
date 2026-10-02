@@ -359,7 +359,7 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
 
   test "publish rollback and runtime bind approved phrases to immutable phrase manifests" do
     persona, promotion = promoted_persona
-    version = publish_persona(persona, actor: @reviewer)
+    version = publish_persona(persona, actor: @reviewer, evaluator: @editor, audience_reviewer: @owner)
 
     assert version.phrase_manifest_valid?
     assert_equal promotion.id, version.phrase_artifact_links.sole.coach_persona_phrase_promotion_id
@@ -383,7 +383,7 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
 
   test "rollback copies phrase links and restores the reviewed draft selection" do
     persona, promotion = promoted_persona
-    source_version = publish_persona(persona, actor: @reviewer)
+    source_version = publish_persona(persona, actor: @reviewer, evaluator: @editor, audience_reviewer: @owner)
     config = persona.draft_config.deep_dup
     config["phrases"] = []
     Mia::PersonaDraftUpdater.new(persona: persona, actor: @editor, workspace: @workspace).call!(
@@ -391,17 +391,18 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
       description: persona.description,
       draft_config: config
     )
-    without_phrase = publish_persona(persona.reload, actor: @reviewer)
+    without_phrase = publish_persona(persona.reload, actor: @reviewer, evaluator: @editor, audience_reviewer: @owner)
 
-    rolled_back = Mia::PersonaRollback.new(persona: persona, target_version: source_version, actor: @reviewer).call(
+    restored = Mia::PersonaRollback.new(persona: persona, target_version: source_version, actor: @editor).call(
       expected_current_version_id: without_phrase.id,
       expected_draft_revision: persona.reload.draft_revision
     )
 
-    assert rolled_back.phrase_manifest_valid?
-    assert_equal promotion.id, rolled_back.phrase_artifact_links.sole.coach_persona_phrase_promotion_id
+    assert restored.integrity_valid?
+    assert_equal source_version, restored.source_version
+    assert_equal promotion.id, Mia::PhraseManifest.promotions_for_config(persona.reload).sole.first.id
     assert_equal promotion.artifact, persona.reload.draft_config.fetch("phrases").sole
-    assert_equal rolled_back.id, persona.current_published_version_id
+    assert_equal without_phrase.id, persona.current_published_version_id
   end
 
   test "source deletion supersedes only unattested proposals and keeps approved audit chains" do
@@ -445,7 +446,7 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
     persona, promotion = promoted_persona
     proposal = promotion.coach_phrase_proposal
     attestation = promotion.coach_phrase_attestation
-    version = publish_persona(persona, actor: @reviewer)
+    version = publish_persona(persona, actor: @reviewer, evaluator: @editor, audience_reviewer: @owner)
     link = version.phrase_artifact_links.sole
 
     assert_not proposal.update(phrase_payload: proposal.phrase_payload.merge("meaning" => "Changed"))
@@ -472,7 +473,7 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
 
   test "direct proposal field tampering invalidates every downstream integrity layer" do
     persona, promotion = promoted_persona
-    version = publish_persona(persona, actor: @reviewer)
+    version = publish_persona(persona, actor: @reviewer, evaluator: @editor, audience_reviewer: @owner)
     proposal = promotion.coach_phrase_proposal
     original_proposer_id = proposal.proposed_by_user_id
 

@@ -83,12 +83,12 @@ class HouseholdFinanceConversationTranscriptBuilderTest < ActiveSupport::TestCas
       draft_config: persona_configuration(assistant_name: "Coach Lila", coach_name: "Coach June"),
       created_by_user: coach
     )
-    first_version = publish_persona(persona, coach)
+    first_version = publish_persona(persona, actor: coach)
     session.chat_messages.create!(role: "assistant", content: "Legacy global answer.")
     session.chat_messages.create!(role: "assistant", content: "Retired persona answer.", assistant_author: "Coach Lila", coach_persona_version: first_version)
     session.chat_messages.create!(role: "user", content: "Keep my question across persona updates.")
     persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
-    current_version = publish_persona(persona, coach)
+    current_version = publish_persona(persona, actor: coach)
     session.chat_messages.create!(role: "assistant", content: "Current persona answer.", assistant_author: "Coach Lila", coach_persona_version: current_version)
 
     transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
@@ -98,17 +98,5 @@ class HouseholdFinanceConversationTranscriptBuilderTest < ActiveSupport::TestCas
 
     assert_equal [ "Keep my question across persona updates.", "Current persona answer." ], transcript.pluck(:content)
     assert_equal [ nil, current_version.id ], transcript.pluck(:coach_persona_version_id)
-  end
-
-  private
-
-  def publish_persona(persona, coach)
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
-    preview = publisher.preview!(expected_draft_revision: persona.reload.draft_revision)
-    publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: persona.current_published_version_id
-    )
   end
 end
