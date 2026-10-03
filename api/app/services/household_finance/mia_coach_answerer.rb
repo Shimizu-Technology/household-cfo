@@ -41,11 +41,24 @@ module HouseholdFinance
     PAYCHECK_PATTERN = /\b(?:before|until|next)\s+(?:my\s+|our\s+)?paycheck\b/i.freeze
     EXTERNAL_FACT_PATTERN = /\b(?:current\s+.*rate|look\s+up|dmv|usually\s+cost|cost\s+usually|typical(?:ly)?\s+cost|average\s+cost|bank statement|overdraft|credit score|tax refund|business taxes?|file married|filing status|payoff amount|real-time|official fee)\b/i.freeze
     AMBIGUOUS_HELP_PATTERN = /\A(?:help|what should i do\??|is this bad\??)\z/i.freeze
-    PROMPT_INJECTION_PATTERN = /\b(?:(?:ignore|disregard|override|bypass)\s+(?:(?:all|any|every|the)\s+)?(?:(?:previous|prior|system|developer|safety|hidden|product|your)\s+){0,2}(?:rules?|instructions?|guardrails?|boundaries|polic(?:y|ies))|(?:bypass|skip|disable)\s+(?:(?:all|any|the)\s+)?(?:reviews?|approvals?|confirmations?)|(?:approve|apply|execute|write|change)\s+(?:(?:financial|household|budget)\s+)?(?:changes?|actions?)\s+(?:automatically|by\s+default|without\s+(?:review|approval|confirmation))|(?:reveal|show|print|repeat|expose)\s+(?:(?:your|the)\s+)?(?:hidden|system|developer|internal)\s+(?:prompts?|instructions?|rules?|messages?|tool calls?)|developer mode|jailbreak|you\s+are\s+now\s+(?:in\s+)?(?:developer\s+mode|jailbroken|unrestricted|uncensored|(?:an?\s+|the\s+)?(?:different|new|developer|system|unrestricted|uncensored)\s+(?:assistant|agent|model|persona|role)))\b/i.freeze
+    PROMPT_INJECTION_PATTERN = /\b(?:(?:ignore|disregard|override|bypass)\s+(?:(?:all|any|every|the)\s+)?(?:(?:previous|prior|system|developer|safety|hidden|product|your)\s+){0,2}(?:rules?|instructions?|guardrails?|boundaries|polic(?:y|ies))|(?:reveal|show|print|repeat|expose)\s+(?:(?:your|the)\s+)?(?:hidden|system|developer|internal)\s+(?:prompts?|instructions?|rules?|messages?|tool calls?)|developer mode|jailbreak|you\s+are\s+now\s+(?:in\s+)?(?:developer\s+mode|jailbroken|unrestricted|uncensored|(?:an?\s+|the\s+)?(?:different|new|developer|system|unrestricted|uncensored)\s+(?:assistant|agent|model|persona|role)))\b/i.freeze
+    UNSAFE_MEMORY_INSTRUCTION_PATTERN = %r{
+      \A(?:from\s+now\s+on[,\s]+)?
+      (?:(?:(?:all|every)\s+responses?\s+should|(?:mia|you|the\s+assistant)\s+(?:should|must|will|always)|i\s+(?:want|need)\s+(?:mia|you|the\s+assistant)\s+to)\s+|please\s+)?
+      (?:
+        auto(?:matically)?[- ]?(?:approve|apply|execute|write)\b|
+        (?:approve|apply|execute|write|change)\b.{0,80}\b(?:automatically|immediately|by\s+default|without\s+(?:asking(?:\s+me)?|review|approval|confirmation))\b|
+        (?:bypass|skip|disable)\s+(?:all\s+|the\s+)?(?:human\s+)?(?:review|approval|confirmation)s?\b
+      )
+    }ix.freeze
     TRANSACTION_DRAFT_FOLLOWUP_PATTERN = /\bfollow-up to previous transaction_draft topic\b|\btopic:\s*reported spending\b/i.freeze
 
     def self.prompt_injection?(value)
       value.to_s.downcase.gsub(/[^a-z0-9\s$.-]/, " ").squish.match?(PROMPT_INJECTION_PATTERN)
+    end
+
+    def self.unsafe_memory_instruction?(value)
+      prompt_injection?(value) || value.to_s.squish.match?(UNSAFE_MEMORY_INSTRUCTION_PATTERN)
     end
 
     def self.prompt_injection_boundary

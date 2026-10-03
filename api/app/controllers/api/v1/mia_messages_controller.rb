@@ -52,9 +52,7 @@ module Api
         return if request_handled
         @active_mia_message_request = message_request
 
-        if attached_imports.empty? &&
-            !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) &&
-            (memory_command = mia_memory_command(content))
+        if attached_imports.empty? && (memory_command = mia_memory_command(content))
           return render_mia_memory_command(
             session,
             content,
@@ -309,6 +307,7 @@ module Api
 
         value = match[1].to_s.squish
         return { type: :invalid } if value.blank? || value.length > HouseholdMemory::MAX_DISPLAY_LENGTH
+        return { type: :unsafe } if HouseholdFinance::MiaCoachAnswerer.unsafe_memory_instruction?(value)
 
         { type: :create, value: value }
       end
@@ -320,6 +319,9 @@ module Api
           user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
         when :invalid
           assistant_content = "Tell me one thing to remember in #{HouseholdMemory::MAX_DISPLAY_LENGTH} characters or fewer. I will show it under My Profile so you can change or forget it anytime."
+          user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
+        when :unsafe
+          assistant_content = "I can’t save an instruction that bypasses review or automatically approves or applies changes. Nothing was approved or applied, and no memory was saved."
           user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
         when :create
           user_message, assistant_message, memory = persist_mia_memory_command(session, content, command.fetch(:value), message_request)
