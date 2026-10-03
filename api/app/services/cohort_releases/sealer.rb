@@ -25,12 +25,14 @@ module CohortReleases
 
     def call!(request_key:, expected_bundle_digest: nil, expected_assignment_id: nil,
       expected_persona_version_id: nil, expected_experience_version_id: nil,
+      expected_brand_version_id: nil,
       event_type: "release", source_release: nil)
       key = normalize_key(request_key)
       validate_reserved_request_key!(key, event_type)
       cohort.with_lock do
         authorize!
         lock_release_personas!(source_release)
+        lock_brand_configuration!
         require_user_preview!(expected_bundle_digest)
         existing = cohort.cohort_releases.find_by(request_key: key)
         replay_digest = expected_bundle_digest.presence || existing&.bundle_digest
@@ -41,7 +43,9 @@ module CohortReleases
           source_release_id: source_release&.id,
           expected_assignment_id: expected_assignment_id,
           expected_persona_version_id: expected_persona_version_id,
-          expected_experience_version_id: expected_experience_version_id
+          expected_experience_version_id: expected_experience_version_id,
+          expected_brand_version_id: expected_brand_version_id,
+          schema: existing&.manifest_schema || Contract::CURRENT_SCHEMA
         )
         return reconcile!(existing, replay_fingerprint) if existing
 
@@ -49,7 +53,7 @@ module CohortReleases
         candidate = candidate_for(event_type, source_release)
         raise Incomplete, candidate.blockers if candidate.blockers.any?
         verify_expectations!(candidate, expected_bundle_digest, expected_assignment_id,
-          expected_persona_version_id, expected_experience_version_id)
+          expected_persona_version_id, expected_experience_version_id, expected_brand_version_id)
         reject_noop!(candidate, event_type, source_release)
 
         fingerprint = request_fingerprint(
@@ -59,11 +63,14 @@ module CohortReleases
           source_release_id: source_release&.id,
           expected_assignment_id: expected_assignment_id,
           expected_persona_version_id: expected_persona_version_id,
-          expected_experience_version_id: expected_experience_version_id
+          expected_experience_version_id: expected_experience_version_id,
+          expected_brand_version_id: expected_brand_version_id,
+          schema: Contract::CURRENT_SCHEMA
         )
         released_at = Time.current
         number = cohort.cohort_releases.maximum(:release_number).to_i + 1
         release_manifest = Contract.manifest(
+          schema: Contract::CURRENT_SCHEMA,
           release_number: number,
           publication_source: publication_source,
           event_type: event_type,
@@ -94,10 +101,14 @@ module CohortReleases
           cohort_experience_version: candidate.experience_version,
           experience_snapshot: candidate.experience_snapshot,
           experience_snapshot_digest: Contract.digest(candidate.experience_snapshot),
+          brand_mode: candidate.brand_snapshot.fetch("mode"),
+          workspace_brand_version: candidate.brand_version,
+          brand_snapshot: candidate.brand_snapshot,
+          brand_snapshot_digest: Contract.digest(candidate.brand_snapshot),
           tool_registry_version: Contract::TOOL_REGISTRY_VERSION,
           tool_registry_snapshot: candidate.tool_registry_snapshot,
           tool_registry_digest: Contract.digest(candidate.tool_registry_snapshot),
-          manifest_schema: Contract::MANIFEST_SCHEMA,
+          manifest_schema: Contract::CURRENT_SCHEMA,
           bundle: candidate.bundle,
           bundle_digest: candidate.bundle_digest,
           manifest: release_manifest,
@@ -118,7 +129,9 @@ module CohortReleases
         source_release_id: source_release&.id,
         expected_assignment_id: expected_assignment_id,
         expected_persona_version_id: expected_persona_version_id,
-        expected_experience_version_id: expected_experience_version_id
+        expected_experience_version_id: expected_experience_version_id,
+        expected_brand_version_id: expected_brand_version_id,
+        schema: existing.manifest_schema
       ))
     end
 
@@ -133,6 +146,12 @@ module CohortReleases
 
       cohort.association(:cohort_persona_assignment).reset
       source_release&.association(:coach_persona)&.reset
+    end
+
+    def lock_brand_configuration!
+      configuration = WorkspaceBrandConfiguration.lock.find_by(coach_workspace_id: cohort.coach_workspace_id)
+      cohort.coach_workspace.association(:workspace_brand_configuration).reset
+      configuration&.association(:current_published_version)&.reset
     end
 
     def authorize!
@@ -157,12 +176,13 @@ module CohortReleases
     end
 
     def verify_expectations!(candidate, expected_bundle_digest, expected_assignment_id,
-      expected_persona_version_id, expected_experience_version_id)
+      expected_persona_version_id, expected_experience_version_id, expected_brand_version_id)
       checks = [
         [ expected_bundle_digest, candidate.bundle_digest ],
         [ normalized_id(expected_assignment_id), candidate.assignment&.id ],
         [ normalized_id(expected_persona_version_id), candidate.persona_version&.id ],
-        [ normalized_id(expected_experience_version_id), candidate.experience_version&.id ]
+        [ normalized_id(expected_experience_version_id), candidate.experience_version&.id ],
+        [ normalized_id(expected_brand_version_id), candidate.brand_version&.id ]
       ]
       mismatch = checks.any? { |expected, actual| !expected.nil? && expected != actual }
       raise Stale, "The cohort release inputs changed; reload before sealing" if mismatch
@@ -179,22 +199,7 @@ module CohortReleases
         raise Incomplete, blockers if blockers.any?
       end
 
-      CandidateBuilder::Candidate.new(
-        cohort: cohort,
-        assignment: nil,
-        persona: source_release.coach_persona,
-        persona_version: source_release.coach_persona_version,
-        experience_configuration: source_release.cohort_experience_configuration,
-        experience_version: source_release.cohort_experience_version,
-        persona_snapshot: source_release.persona_snapshot.deep_dup,
-        experience_snapshot: source_release.experience_snapshot.deep_dup,
-        tool_registry_snapshot: source_release.tool_registry_snapshot.deep_dup,
-        bundle: source_release.bundle.deep_dup,
-        bundle_digest: source_release.bundle_digest,
-        blockers: [],
-        warnings: [],
-        ambiguous_participant_count: 0
-      )
+      RestoreCandidateBuilder.new(cohort: cohort, source_release: source_release).call
     end
 
     def validate_source!(event_type, source_release)
@@ -233,9 +238,9 @@ module CohortReleases
     end
 
     def request_fingerprint(key:, bundle_digest:, event_type:, source_release_id:, expected_assignment_id:,
-      expected_persona_version_id:, expected_experience_version_id:)
-      Contract.digest(
-        "schema" => "cohort_release_request_v1",
+      expected_persona_version_id:, expected_experience_version_id:, expected_brand_version_id:, schema:)
+      payload = {
+        "schema" => schema == Contract::V1_SCHEMA ? "cohort_release_request_v1" : "cohort_release_request_v2",
         "cohort_id" => cohort.id,
         "actor_id" => actor&.id,
         "actor_role_snapshot" => actor_role_snapshot,
@@ -247,7 +252,11 @@ module CohortReleases
         "expected_assignment_id" => normalized_id(expected_assignment_id),
         "expected_persona_version_id" => normalized_id(expected_persona_version_id),
         "expected_experience_version_id" => normalized_id(expected_experience_version_id)
-      )
+      }
+      if schema == Contract::V2_SCHEMA
+        payload["expected_brand_version_id"] = normalized_id(expected_brand_version_id)
+      end
+      Contract.digest(payload)
     end
 
     def normalize_key(value)

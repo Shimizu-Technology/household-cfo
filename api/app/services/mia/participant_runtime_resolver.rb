@@ -102,6 +102,7 @@ module Mia
         release: release,
         persona: persona,
         capabilities: capabilities,
+        brand: Branding::RuntimeResolver.for_release(release),
         source: exposure ? "participant_exposure" : "cohort_active_release",
         exposure: exposure
       )
@@ -121,6 +122,7 @@ module Mia
         release: nil,
         persona: persona,
         capabilities: capabilities,
+        brand: Branding::RuntimeResolver.for_membership(membership),
         source: "legacy_fallback"
       )
     end
@@ -135,6 +137,9 @@ module Mia
           cohort_membership: nil,
           standalone: true
         ),
+        brand: coach_workspace ?
+          Branding::RuntimeResolver.for_workspace(coach_workspace) :
+          Branding::RuntimeResolver.legacy_default,
         source: "standalone_default"
       )
     rescue StandardError
@@ -151,6 +156,7 @@ module Mia
           cohort_membership: membership,
           standalone: standalone
         ),
+        brand: Branding::RuntimeResolver.safe_default,
         source: source
       )
     end

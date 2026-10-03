@@ -22,6 +22,7 @@ type Confirmation = {
 }
 
 const requiredChecks = [
+  { key: 'workspace_brand', label: 'Workspace brand' },
   { key: 'assistant_voice', label: 'Assistant voice' },
   { key: 'participant_tools', label: 'Participant tools' },
   { key: 'system_controls', label: 'System controls' },
@@ -170,6 +171,7 @@ export function CohortReleaseStudio({
           expected_assignment_id: studio.candidate.assignment_id,
           expected_persona_version_id: studio.candidate.persona_version_id,
           expected_experience_version_id: studio.candidate.experience_version_id,
+          expected_brand_version_id: studio.candidate.brand_version_id,
           expected_tool_registry_digest: studio.candidate.registry_digest,
           expected_tool_registry_version: studio.candidate.registry_version,
           expected_latest_release_id: studio.candidate.expected_latest_release_id,
@@ -180,6 +182,7 @@ export function CohortReleaseStudio({
           source_bundle_digest: confirmation.release.bundle_digest,
           source_persona_version_id: confirmation.release.persona_version_id,
           source_experience_version_id: confirmation.release.experience_version_id,
+          source_brand_version_id: confirmation.release.brand_version_id,
         }, confirmation.requestId)
       }
       if (!mutationLifecycle.isCurrent(mutation)) return
@@ -232,15 +235,15 @@ export function CohortReleaseStudio({
         <span className="cohort-release-truth-icon" aria-hidden="true"><EvidenceIcon /></span>
         <div>
           <strong>Release records are audit evidence.</strong>
-          <p>{studio?.runtime_truth.message ?? 'Sealing or restoring a record does not change the assistant or tools participants use.'}</p>
-          <small>Continue to assign the assistant and publish participant tools in their existing areas.</small>
+          <p>{studio?.runtime_truth.message ?? 'Sealing or restoring a record does not change the brand, assistant, or tools participants use.'}</p>
+          <small>Continue to publish the brand, assign the assistant, and publish participant tools in their existing areas.</small>
         </div>
       </div>}
 
       {!embedded && <article className="panel cohort-release-picker">
         <div>
           <p className="eyebrow">Cohort releases</p>
-          <h3>Review and seal the assistant and tools together</h3>
+          <h3>Review and seal the brand, assistant, and tools together</h3>
           <p>Choose a cohort to check the exact published versions and preserve an immutable record.</p>
         </div>
         <label>
@@ -299,6 +302,7 @@ export function CohortReleaseStudio({
 
             {studio.candidate && (
               <dl className="cohort-release-evidence">
+                <div><dt>Brand version</dt><dd>{brandEvidenceLabel(studio.candidate.brand_mode, studio.candidate.brand_version_id)}</dd></div>
                 <div><dt>Assistant version</dt><dd>{studio.candidate.persona_version_id ?? 'Neutral built-in voice'}</dd></div>
                 <div><dt>Participant tools version</dt><dd>{studio.candidate.experience_version_id ?? 'Safe default tools'}</dd></div>
                 <div className="is-wide"><dt>Bundle fingerprint</dt><dd>{shortDigest(studio.candidate.bundle_digest)}</dd></div>
@@ -314,7 +318,7 @@ export function CohortReleaseStudio({
                   {pendingAction === 'seal' ? 'Sealing record' : studio.latest_release_match || !studio.candidate?.seal_needed ? 'Latest evidence already sealed' : 'Review and seal record'}
                 </Button>
               ) : <p className="coach-read-only">You can review release evidence, but this cohort or your role does not allow sealing records.</p>}
-              {(studio.latest_release_match || studio.candidate?.seal_needed === false) && <p className="cohort-release-noop" role="status">The latest sealed record already matches this exact assistant and tool bundle.</p>}
+              {(studio.latest_release_match || studio.candidate?.seal_needed === false) && <p className="cohort-release-noop" role="status">The latest sealed record already matches this exact brand, assistant, and tool bundle.</p>}
             </div>
           </article>
 
@@ -337,6 +341,7 @@ export function CohortReleaseStudio({
                     </header>
                     <dl>
                       <div><dt>Sealed by</dt><dd>{release.actor?.full_name ?? (release.actor_user_id ? `Authorized user #${release.actor_user_id}` : 'System record')}</dd></div>
+                      <div><dt>Brand version</dt><dd>{brandEvidenceLabel(release.brand_mode, release.brand_version_id)}</dd></div>
                       <div><dt>Fingerprint</dt><dd>{shortDigest(release.bundle_digest)}</dd></div>
                     </dl>
                     {release.source_release_id && <p>Restored from release record #{release.source_release_id}.</p>}
@@ -359,6 +364,9 @@ export function CohortReleaseStudio({
         <ReleaseConfirmationDialog
           confirmation={confirmation}
           cohortName={studio.cohort.name}
+          brandLabel={confirmation.kind === 'restore'
+            ? brandEvidenceLabel(confirmation.release?.brand_mode ?? '', confirmation.release?.brand_version_id ?? null)
+            : brandEvidenceLabel(studio.candidate?.brand_mode ?? '', studio.candidate?.brand_version_id ?? null)}
           pending={pendingAction === confirmation.kind}
           error={actionError}
           onCancel={closeConfirmation}
@@ -372,6 +380,7 @@ export function CohortReleaseStudio({
 function ReleaseConfirmationDialog({
   confirmation,
   cohortName,
+  brandLabel,
   pending,
   error,
   onCancel,
@@ -379,6 +388,7 @@ function ReleaseConfirmationDialog({
 }: {
   confirmation: Confirmation
   cohortName: string
+  brandLabel: string | number
   pending: boolean
   error: string | null
   onCancel: () => void
@@ -423,7 +433,11 @@ function ReleaseConfirmationDialog({
       <section ref={dialogRef} className="cohort-release-modal" role="dialog" aria-modal="true" aria-labelledby="cohort-release-modal-title" aria-describedby="cohort-release-modal-copy" onKeyDown={trapFocus}>
         <p className="eyebrow">Final review</p>
         <h3 id="cohort-release-modal-title">{restoring ? `Restore record #${confirmation.release?.release_number}` : 'Seal this release record?'}</h3>
-        <p id="cohort-release-modal-copy">This creates immutable audit evidence for {cohortName}. It does not change the assistant or tools participants use.</p>
+        <p id="cohort-release-modal-copy">This creates immutable audit evidence for {cohortName}. It does not change the brand, assistant, or tools participants use.</p>
+        <dl className="cohort-rollout-confirmation-summary">
+          <div><dt>Cohort</dt><dd>{cohortName}</dd></div>
+          <div><dt>{restoring ? 'Historical brand' : 'Brand version'}</dt><dd>{brandLabel}</dd></div>
+        </dl>
         {restoring && <p className="cohort-release-modal-note">A restore preserves the selected historical bundle as a new record. Existing history remains unchanged.</p>}
         {error && <p className="coach-studio-alert is-error" role="alert">{error}</p>}
         <div className="cohort-release-modal-actions">
@@ -437,11 +451,18 @@ function ReleaseConfirmationDialog({
 
 function normalizeCheckKey(value: string) {
   const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+  if (normalized.includes('brand')) return 'workspace_brand'
   if (normalized.includes('assistant') || normalized.includes('persona') || normalized.includes('voice')) return 'assistant_voice'
   if (normalized.includes('tool') || normalized.includes('experience')) return 'participant_tools'
   if (normalized.includes('system') || normalized.includes('control') || normalized.includes('registry')) return 'system_controls'
   if (normalized.includes('participant') || normalized.includes('cohort') || normalized.includes('member')) return 'participant_cohort'
   return normalized
+}
+
+function brandEvidenceLabel(mode: string, versionId: number | null) {
+  if (versionId !== null) return versionId
+  if (mode === 'legacy_household_cfo_builtin') return 'Household CFO legacy brand'
+  return 'Built-in brand'
 }
 
 function releaseErrorMessage(caught: unknown, fallback: string) {

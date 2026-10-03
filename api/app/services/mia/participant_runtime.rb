@@ -2,14 +2,15 @@
 
 module Mia
   class ParticipantRuntime
-    attr_reader :membership, :cohort, :release, :persona, :capabilities, :source, :exposure
+    attr_reader :membership, :cohort, :release, :persona, :capabilities, :brand, :source, :exposure
 
-    def initialize(membership:, cohort:, release:, persona:, capabilities:, source:, exposure: nil)
+    def initialize(membership:, cohort:, release:, persona:, capabilities:, brand:, source:, exposure: nil)
       @membership = membership
       @cohort = cohort
       @release = release
       @persona = persona
       @capabilities = deep_freeze(capabilities.deep_dup)
+      @brand = deep_freeze(brand.deep_dup)
       @source = source.to_s.freeze
       @exposure = exposure
       freeze

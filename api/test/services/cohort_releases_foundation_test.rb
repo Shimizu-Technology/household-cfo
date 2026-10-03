@@ -201,13 +201,16 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
       copy.experience_snapshot_digest = CohortReleases::Contract.digest(copy.experience_snapshot)
       copy.tool_registry_digest = CohortReleases::Contract.digest(copy.tool_registry_snapshot)
       copy.bundle = CohortReleases::Contract.bundle(
+        schema: copy.manifest_schema,
         cohort: cohort,
         persona_snapshot: copy.persona_snapshot,
         experience_snapshot: copy.experience_snapshot,
+        brand_snapshot: copy.brand_snapshot,
         tool_registry_snapshot: copy.tool_registry_snapshot
       )
       copy.bundle_digest = CohortReleases::Contract.digest(copy.bundle)
       copy.manifest = CohortReleases::Contract.manifest(
+        schema: copy.manifest_schema,
         release_number: copy.release_number,
         publication_source: copy.publication_source,
         event_type: copy.event_type,
@@ -243,6 +246,31 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
       CohortRelease.transaction(requires_new: true) { CohortRelease.insert_all!([ forged ]) }
     end
     assert_equal cohort.coach_workspace_id, release.reload.coach_workspace_id
+  end
+
+  test "database composite keys reject a brand version from another tenant" do
+    owner, cohort, = governed_release_components
+    candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
+    release = CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
+      request_key: "brand-tenant-source",
+      expected_bundle_digest: candidate.bundle_digest
+    )
+    other_owner = persona_user
+    other_workspace = CoachWorkspaces::Provisioner.ensure_for!(other_owner)
+    other_brand_version = other_workspace.workspace_brand_configuration.current_published_version
+    forged = release.attributes.except("id").merge(
+      "release_number" => 2,
+      "request_key" => "cross-tenant-brand",
+      "request_fingerprint" => "f" * 64,
+      "workspace_brand_version_id" => other_brand_version.id,
+      "created_at" => Time.current,
+      "updated_at" => Time.current
+    )
+
+    assert_raises(ActiveRecord::InvalidForeignKey) do
+      CohortRelease.transaction(requires_new: true) { CohortRelease.insert_all!([ forged ]) }
+    end
+    assert_equal release.workspace_brand_version_id, release.reload.workspace_brand_version_id
   end
 
   test "shadow parity detects staged persona or participant-tool drift without exposing private data" do
@@ -546,10 +574,13 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
     release.persona_snapshot_digest = CohortReleases::Contract.digest(release.persona_snapshot)
     release.experience_snapshot_digest = CohortReleases::Contract.digest(release.experience_snapshot)
     release.tool_registry_digest = CohortReleases::Contract.digest(release.tool_registry_snapshot)
+    release.brand_snapshot_digest = CohortReleases::Contract.digest(release.brand_snapshot) if release.brand_snapshot
     release.bundle = CohortReleases::Contract.bundle(
+      schema: release.manifest_schema,
       cohort: release.cohort,
       persona_snapshot: release.persona_snapshot,
       experience_snapshot: release.experience_snapshot,
+      brand_snapshot: release.brand_snapshot,
       tool_registry_snapshot: release.tool_registry_snapshot
     )
     release.bundle_digest = CohortReleases::Contract.digest(release.bundle)
@@ -557,6 +588,7 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
 
   def rebuild_release_manifest!(release)
     release.manifest = CohortReleases::Contract.manifest(
+      schema: release.manifest_schema,
       release_number: release.release_number,
       publication_source: release.publication_source,
       event_type: release.event_type,

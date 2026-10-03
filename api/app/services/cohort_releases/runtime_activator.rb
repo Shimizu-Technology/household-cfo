@@ -81,9 +81,10 @@ module CohortReleases
     end
 
     def compatible_release(candidate)
-      existing = cohort.cohort_releases.where(bundle_digest: candidate.bundle_digest).order(release_number: :desc).find do |release|
+      existing = cohort.cohort_releases.order(release_number: :desc).find do |release|
         report = release.integrity_report
-        report.fetch(:valid) && report.fetch(:runtime_compatible)
+        report.fetch(:valid) && report.fetch(:runtime_compatible) &&
+          SemanticParity.new(candidate: candidate, release: release).equivalent?
       end
       return [ existing, false ] if existing
 
@@ -97,7 +98,8 @@ module CohortReleases
 
     def verify_parity!(candidate, release)
       report = release.integrity_report
-      return if candidate.bundle_digest == release.bundle_digest && report.fetch(:valid) && report.fetch(:runtime_compatible)
+      parity = SemanticParity.new(candidate: candidate, release: release).equivalent?
+      return if parity && report.fetch(:valid) && report.fetch(:runtime_compatible)
 
       raise Drift, "The activation release does not reproduce the legacy participant runtime bundle."
     end

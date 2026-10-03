@@ -14,21 +14,22 @@ module CohortReleases
 
     def call
       errors = []
+      unless Contract::SUPPORTED_SCHEMAS.include?(release.manifest_schema)
+        errors << "Release manifest schema is unsupported"
+        return report(errors)
+      end
+
       compare_digest(errors, release.persona_snapshot, release.persona_snapshot_digest, "Persona snapshot")
       compare_digest(errors, release.experience_snapshot, release.experience_snapshot_digest, "Experience snapshot")
       compare_digest(errors, release.tool_registry_snapshot, release.tool_registry_digest, "Tool registry snapshot")
       compare_digest(errors, release.bundle, release.bundle_digest, "Release bundle")
       compare_digest(errors, release.manifest, release.manifest_digest, "Release manifest")
+      verify_brand(errors)
       errors << "Release bundle fields do not match the sealed record" unless release.bundle == expected_bundle
       errors << "Release manifest fields do not match the sealed record" unless release.manifest == expected_manifest
       verify_persona(errors)
       verify_experience(errors)
-
-      {
-        valid: errors.empty?,
-        errors: errors,
-        runtime_compatible: errors.empty? && current_runtime_compatible?
-      }
+      report(errors)
     rescue StandardError => error
       { valid: false, errors: [ "Release integrity check failed: #{error.class}" ], runtime_compatible: false }
     end
@@ -38,21 +39,32 @@ module CohortReleases
     attr_reader :release, :current_tool_registry_snapshot, :current_persona_snapshot,
       :persona_evidence_valid
 
+    def report(errors)
+      {
+        valid: errors.empty?,
+        errors: errors,
+        runtime_compatible: errors.empty? && current_runtime_compatible?
+      }
+    end
+
     def compare_digest(errors, payload, expected, label)
       errors << "#{label} digest does not match" unless secure_match?(Contract.digest(payload), expected)
     end
 
     def expected_bundle
       Contract.bundle(
+        schema: release.manifest_schema,
         cohort: release.cohort,
         persona_snapshot: release.persona_snapshot,
         experience_snapshot: release.experience_snapshot,
+        brand_snapshot: release.brand_snapshot,
         tool_registry_snapshot: release.tool_registry_snapshot
       )
     end
 
     def expected_manifest
       Contract.manifest(
+        schema: release.manifest_schema,
         release_number: release.release_number,
         publication_source: release.publication_source,
         event_type: release.event_type,
@@ -64,6 +76,35 @@ module CohortReleases
         released_at: release.released_at,
         bundle_digest: release.bundle_digest
       )
+    end
+
+    def verify_brand(errors)
+      if release.manifest_schema == Contract::V1_SCHEMA
+        unless release.brand_mode.nil? && release.workspace_brand_version_id.nil? &&
+            release.brand_snapshot.nil? && release.brand_snapshot_digest.nil?
+          errors << "V1 release contains unexpected brand evidence"
+        end
+        return
+      end
+
+      compare_digest(errors, release.brand_snapshot, release.brand_snapshot_digest, "Brand snapshot")
+      snapshot = release.brand_snapshot
+      if release.brand_mode == "published_version"
+        version = release.workspace_brand_version
+        linked = version && snapshot["mode"] == "published_version" &&
+          snapshot["configuration_id"] == version.workspace_brand_configuration_id &&
+          snapshot["version_id"] == version.id && snapshot["version_number"] == version.version_number &&
+          snapshot["config"] == Branding::Schema.normalize(version.config) &&
+          snapshot["config_digest"] == version.config_digest &&
+          version.coach_workspace_id == release.coach_workspace_id &&
+          Branding::Schema.errors(version.config).empty? &&
+          version.config_digest == Branding::Schema.digest(version.config)
+        errors << "Published brand snapshot does not match its immutable version" unless linked
+      elsif release.brand_mode == "legacy_household_cfo_builtin"
+        errors << "Historical Household CFO brand snapshot is malformed" unless snapshot == Contract.legacy_brand_snapshot
+      else
+        errors << "Brand snapshot mode is unsupported"
+      end
     end
 
     def verify_persona(errors)
@@ -122,9 +163,20 @@ module CohortReleases
         configuration: release.cohort_experience_configuration,
         version: release.cohort_experience_version
       ) == release.experience_snapshot
-      persona_compatible && experience_compatible
+      persona_compatible && experience_compatible && brand_runtime_compatible?
     rescue Mia::PersonaSchema::InvalidConfiguration, ArgumentError, KeyError
       false
+    end
+
+    def brand_runtime_compatible?
+      snapshot = if release.manifest_schema == Contract::V1_SCHEMA
+        Contract.legacy_brand_snapshot
+      else
+        release.brand_snapshot
+      end
+      config = snapshot.fetch("config")
+      Branding::Schema.errors(config).empty? &&
+        snapshot.fetch("config_digest") == Branding::Schema.digest(config)
     end
 
     def secure_match?(left, right)

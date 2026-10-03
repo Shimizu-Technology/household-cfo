@@ -5,6 +5,7 @@ class CohortRelease < ApplicationRecord
   EVENT_TYPES = %w[release restore reconciliation].freeze
   PERSONA_MODES = %w[published_version neutral_builtin].freeze
   EXPERIENCE_MODES = %w[published_version safe_default].freeze
+  BRAND_MODES = %w[published_version legacy_household_cfo_builtin].freeze
   LEGACY_RECONCILIATION_REQUEST_KEY = "legacy-backfill-v1"
   USER_RELEASE_COHORT_STATUSES = %w[draft enrolling active].freeze
 
@@ -16,6 +17,7 @@ class CohortRelease < ApplicationRecord
   belongs_to :coach_persona_version, optional: true
   belongs_to :cohort_experience_configuration
   belongs_to :cohort_experience_version, optional: true
+  belongs_to :workspace_brand_version, optional: true
 
   has_many :derived_releases,
     class_name: "CohortRelease",
@@ -47,16 +49,18 @@ class CohortRelease < ApplicationRecord
   validates :persona_mode, inclusion: { in: PERSONA_MODES }
   validates :experience_mode, inclusion: { in: EXPERIENCE_MODES }
   validates :tool_registry_version, numericality: { only_integer: true, greater_than: 0 }
-  validates :manifest_schema, inclusion: { in: [ "cohort_release_manifest_v1" ] }
+  validates :manifest_schema, inclusion: { in: CohortReleases::Contract::SUPPORTED_SCHEMAS }
   validates :request_key, presence: true, length: { maximum: 100 }, uniqueness: { scope: :cohort_id }
   validates :persona_snapshot_digest, :experience_snapshot_digest, :tool_registry_digest,
     :bundle_digest, :manifest_digest, :request_fingerprint, format: { with: /\A[0-9a-f]{64}\z/ }
+  validates :brand_snapshot_digest, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
   validate :workspace_and_component_boundaries
   validate :source_and_actor_shape
   validate :reserved_request_key_scope
   validate :user_actor_authority, on: :create
   validate :snapshot_and_manifest_integrity
   validate :canonical_release_source, on: :create
+  validate :new_release_uses_current_schema, on: :create
   validate :sealed_record_is_immutable, on: :update
 
   before_destroy :prevent_destroy
@@ -94,6 +98,8 @@ class CohortRelease < ApplicationRecord
         cohort_experience_version.cohort_experience_configuration_id != cohort_experience_configuration_id
       errors.add(:cohort_experience_version, "must belong to the release experience configuration")
     end
+
+    validate_brand_boundary
   end
 
   def source_and_actor_shape
@@ -190,22 +196,45 @@ class CohortRelease < ApplicationRecord
       experience_mode == candidate.experience_snapshot["mode"] &&
       persona_snapshot == candidate.persona_snapshot &&
       experience_snapshot == candidate.experience_snapshot &&
+      workspace_brand_version_id == candidate.brand_version&.id &&
+      brand_mode == candidate.brand_snapshot["mode"] &&
+      brand_snapshot == candidate.brand_snapshot &&
       tool_registry_snapshot == candidate.tool_registry_snapshot &&
       bundle == candidate.bundle && bundle_digest == candidate.bundle_digest
   end
 
   def source_matches?
-    coach_persona_id == source_release.coach_persona_id &&
-      coach_persona_version_id == source_release.coach_persona_version_id &&
-      cohort_experience_configuration_id == source_release.cohort_experience_configuration_id &&
-      cohort_experience_version_id == source_release.cohort_experience_version_id &&
-      persona_mode == source_release.persona_mode &&
-      experience_mode == source_release.experience_mode &&
-      persona_snapshot == source_release.persona_snapshot &&
-      experience_snapshot == source_release.experience_snapshot &&
-      tool_registry_version == source_release.tool_registry_version &&
-      tool_registry_snapshot == source_release.tool_registry_snapshot &&
-      bundle == source_release.bundle && bundle_digest == source_release.bundle_digest
+    candidate = CohortReleases::RestoreCandidateBuilder.new(
+      cohort: cohort,
+      source_release: source_release
+    ).call
+    candidate_matches?(candidate)
+  end
+
+  def validate_brand_boundary
+    if manifest_schema == CohortReleases::Contract::V1_SCHEMA
+      if brand_mode || workspace_brand_version_id || brand_snapshot || brand_snapshot_digest
+        errors.add(:brand_mode, "must be blank for a v1 release")
+      end
+      return
+    end
+
+    errors.add(:brand_mode, "is invalid") unless brand_mode.in?(BRAND_MODES)
+    if brand_mode == "published_version"
+      errors.add(:workspace_brand_version, "is required for a published brand") unless workspace_brand_version
+      if workspace_brand_version && workspace_brand_version.coach_workspace_id != coach_workspace_id
+        errors.add(:workspace_brand_version, "must belong to the release workspace")
+      end
+    elsif workspace_brand_version_id
+      errors.add(:brand_mode, "built-in branding cannot reference a workspace brand version")
+    end
+    errors.add(:brand_snapshot, "is required for a v2 release") unless brand_snapshot.is_a?(Hash)
+  end
+
+  def new_release_uses_current_schema
+    return if manifest_schema == CohortReleases::Contract::CURRENT_SCHEMA
+
+    errors.add(:manifest_schema, "must use the current schema for new releases")
   end
 
   def sealed_record_is_immutable

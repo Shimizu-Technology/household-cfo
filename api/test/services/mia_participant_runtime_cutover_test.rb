@@ -29,6 +29,7 @@ class MiaParticipantRuntimeCutoverTest < ActiveSupport::TestCase
 
     assert_equal target.id, first.release_id
     assert_equal "Coach Target", first.persona.name
+    assert_equal "Target Money Program", first.brand.dig(:config, "product_name")
     assert first.capabilities.fetch(:modules).find { |item| item.fetch(:id) == "optionality" }.fetch(:enabled)
     assert_equal [ "Target coaching rule" ], Mia::ApprovedContentRetriever.new(
       persona: first.persona, query: "target coaching rule"
@@ -36,6 +37,7 @@ class MiaParticipantRuntimeCutoverTest < ActiveSupport::TestCase
 
     assert_equal baseline.id, second.release_id
     assert_equal Mia::Persona::NEUTRAL_ID, second.persona.id
+    assert_equal "Household CFO", second.brand.dig(:config, "product_name")
     refute second.capabilities.fetch(:modules).find { |item| item.fetch(:id) == "optionality" }.fetch(:enabled)
     assert_equal "cohort_release:#{target.id}", first.continuity_id
     assert_equal "cohort_release:#{baseline.id}", second.continuity_id
@@ -138,7 +140,7 @@ class MiaParticipantRuntimeCutoverTest < ActiveSupport::TestCase
       )
     end
 
-    assert_match(/operation_version must be 2/, error.message)
+    assert_equal "operation_version must be 2 for this rollout's runtime mode", error.message
     assert_equal "planned", rollout.reload.status
     assert_equal transition_count, rollout.transitions.count
     assert_equal execution_count, cohort.coach_operation_executions.count
@@ -281,6 +283,9 @@ class MiaParticipantRuntimeCutoverTest < ActiveSupport::TestCase
     assert_nil runtime.release_id
     assert_equal Mia::Persona::NEUTRAL_ID, runtime.persona.id
     assert_equal "safe_default", runtime.capabilities.fetch(:source)
+    assert_equal "safe_default", runtime.brand.fetch(:mode)
+    assert_equal false, runtime.brand.fetch(:available)
+    assert_equal "VERA", runtime.brand.dig(:config, "product_name")
     assert runtime.capabilities.fetch(:modules).reject { |item| item.fetch(:core) }.none? { |item| item.fetch(:enabled) }
   ensure
     release_class&.define_method(:integrity_report, original_integrity_report) if original_integrity_report
@@ -391,6 +396,43 @@ class MiaParticipantRuntimeCutoverTest < ActiveSupport::TestCase
     CohortReleases::RuntimeIntegrityCache.clear!
   end
 
+  test "corrupt published workspace branding fails closed for participants and standalone staff" do
+    owner = persona_user
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    cohort = Cohort.create!(
+      name: "Corrupt brand runtime #{SecureRandom.hex(4)}",
+      status: "active",
+      created_by_user: owner,
+      coach_workspace: workspace
+    )
+    participant = persona_user(role: "participant")
+    membership = cohort.cohort_memberships.create!(user: participant, role: "participant")
+    version = workspace.workspace_brand_configuration.current_published_version
+    version_class = WorkspaceBrandVersion
+    original_config_digest = version_class.instance_method(:config_digest)
+    version_class.define_method(:config_digest) do
+      id == version.id ? "0" * 64 : original_config_digest.bind_call(self)
+    end
+
+    participant_runtime = Mia::ParticipantRuntimeResolver.new(
+      user: participant,
+      cohort_membership: membership
+    ).call
+    staff_runtime = Mia::ParticipantRuntimeResolver.new(
+      user: owner,
+      coach_workspace: workspace
+    ).call
+
+    [ participant_runtime, staff_runtime ].each do |runtime|
+      assert_equal "safe_default", runtime.brand.fetch(:source)
+      assert_equal "safe_default", runtime.brand.fetch(:mode)
+      assert_equal false, runtime.brand.fetch(:available)
+      assert_equal "VERA", runtime.brand.dig(:config, "product_name")
+    end
+  ensure
+    version_class&.define_method(:config_digest, original_config_digest) if original_config_digest
+  end
+
   private
 
   def runtime_components
@@ -408,6 +450,20 @@ class MiaParticipantRuntimeCutoverTest < ActiveSupport::TestCase
       participant
     end
     baseline = seal_current_bundle(cohort, "runtime-baseline")
+
+    brand_configuration = workspace.workspace_brand_configuration
+    next_brand = brand_configuration.draft_config.deep_dup
+    next_brand["product_name"] = "Target Money Program"
+    next_brand["short_name"] = "Target Money"
+    brand_configuration.update!(draft_config: next_brand, last_edited_by_user: owner)
+    brand_publisher = Branding::Publisher.new(configuration: brand_configuration, actor: owner)
+    brand_preview = brand_publisher.preview!(expected_draft_revision: brand_configuration.reload.draft_revision)
+    brand_publisher.publish!(
+      expected_preview_digest: brand_preview,
+      expected_draft_revision: brand_configuration.reload.draft_revision,
+      expected_current_version_id: brand_configuration.current_published_version_id,
+      idempotency_key: "runtime-target-brand-#{SecureRandom.hex(4)}"
+    )
 
     item = approved_content_item(owner: owner, title: "Target coaching rule", content: "Use the target coaching rule.")
     pack = published_content_pack(owner: owner, items: [ item ])

@@ -4,7 +4,7 @@ module CohortRollouts
   class StudioSerializer
     HISTORY_LIMIT = 25
     ROLLBACK_SEARCH_BATCH_SIZE = 25
-    RUNTIME_TRUTH = "Each advanced wave receives the sealed Mia persona and participant tools together. Completing the rollout makes that release the cohort default; rollback restores the captured baseline.".freeze
+    RUNTIME_TRUTH = "Each advanced wave receives the sealed brand, assistant, and participant tools together. Completing the rollout makes that release the cohort default; rollback restores the captured baseline.".freeze
 
     def initialize(cohort:, actor:)
       @cohort = cohort
@@ -267,6 +267,12 @@ module CohortRollouts
       @release_payloads[release.id] = {
         id: release.id,
         release_number: release.release_number,
+        manifest_schema: release.manifest_schema,
+        brand_mode: release.manifest_schema == CohortReleases::Contract::V1_SCHEMA ?
+          "legacy_household_cfo_builtin" : release.brand_mode,
+        workspace_brand_version_id: release.workspace_brand_version_id,
+        brand_snapshot_digest: release.manifest_schema == CohortReleases::Contract::V1_SCHEMA ?
+          CohortReleases::Contract.digest(CohortReleases::Contract.legacy_brand_snapshot) : release.brand_snapshot_digest,
         bundle_digest: release.bundle_digest,
         integrity_valid: integrity.fetch(:valid),
         runtime_compatible: integrity.fetch(:runtime_compatible),

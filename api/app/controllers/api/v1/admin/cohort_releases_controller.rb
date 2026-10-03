@@ -55,9 +55,10 @@ module Api
         end
 
         def run_operation(operation_key:, input:)
+          operation = CoachOperations::Registry::OPERATIONS.fetch(operation_key)
           CoachOperations::Runner.new(cohort: cohort, actor: current_user).call!(
             operation_key: operation_key,
-            operation_version: 1,
+            operation_version: operation::VERSION,
             input: input,
             request_key: request.headers["Idempotency-Key"]
           )
@@ -69,6 +70,7 @@ module Api
             :expected_assignment_id,
             :expected_persona_version_id,
             :expected_experience_version_id,
+            :expected_brand_version_id,
             :expected_latest_release_id,
             :expected_tool_registry_digest,
             :expected_tool_registry_version
@@ -80,7 +82,8 @@ module Api
             :expected_latest_release_id,
             :source_bundle_digest,
             :source_persona_version_id,
-            :source_experience_version_id
+            :source_experience_version_id,
+            :source_brand_version_id
           ).to_h
         end
 

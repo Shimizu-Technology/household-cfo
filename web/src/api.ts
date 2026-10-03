@@ -29,6 +29,34 @@ export type WorkspaceSetupStatus = {
   missing_fields: WorkspaceSetupFieldStatus[]
 }
 
+export type BrandConfig = {
+  schema_version: 1
+  product_name: string
+  short_name: string
+  organization_name: string
+  participant_role_term: string
+  powered_by_name: string | null
+  powered_by_placement: 'hidden' | 'header' | 'footer'
+  tagline: string | null
+  welcome_heading: string | null
+  welcome_description: string | null
+  logo_url: string | null
+  favicon_url: string | null
+  support: { label: string | null; email: string | null; url: string | null }
+  colors: Record<string, string>
+  typography: { display: string; body: string }
+  footer: { text: string | null; privacy_url: string | null; terms_url: string | null }
+}
+
+export type BrandRuntime = {
+  source: string
+  mode: string
+  version_id: number | null
+  digest: string
+  available: boolean
+  config: BrandConfig
+}
+
 export type WorkspaceData = {
   mode: 'demo' | 'real'
   household_id: number | null
@@ -49,6 +77,7 @@ export type WorkspaceData = {
     status: AdminCohortStatus
   }
   capabilities: ExperienceCapabilities
+  brand: BrandRuntime
 }
 
 export type AccountType = 'checking' | 'savings' | 'emergency_fund' | 'retirement' | 'investment' | 'property' | 'other'
@@ -1773,10 +1802,14 @@ export type CohortReleaseReadinessCheck = {
 }
 
 export type CohortReleaseCandidate = {
+  manifest_schema: string
   bundle_digest: string
   assignment_id: number | null
   persona_version_id: number | null
   experience_version_id: number | null
+  brand_mode: string
+  brand_version_id: number | null
+  brand_snapshot_digest: string
   registry_digest: string
   registry_version: number | null
   expected_latest_release_id: number | null
@@ -1791,6 +1824,7 @@ export type CohortReleaseRecord = {
   id: number
   release_number: number
   event_type: 'release' | 'restore' | 'reconciliation' | string
+  manifest_schema: string
   released_at: string
   actor: null | { id: number; full_name: string }
   actor_user_id: number | null
@@ -1798,6 +1832,9 @@ export type CohortReleaseRecord = {
   source_release_id: number | null
   persona_version_id: number | null
   experience_version_id: number | null
+  brand_mode: string
+  brand_version_id: number | null
+  brand_snapshot_digest: string
   registry_digest: string
   registry_version: number | null
   restore_allowed: boolean
@@ -1834,6 +1871,7 @@ export type CohortReleaseMutationInput = {
   expected_assignment_id: number | null
   expected_persona_version_id: number | null
   expected_experience_version_id: number | null
+  expected_brand_version_id: number | null
   expected_tool_registry_digest: string
   expected_tool_registry_version: number | null
   expected_latest_release_id: number | null
@@ -1844,6 +1882,7 @@ export type CohortReleaseRestoreInput = {
   source_bundle_digest: string
   source_persona_version_id: number | null
   source_experience_version_id: number | null
+  source_brand_version_id: number | null
 }
 
 export type CohortRolloutReadiness = 'ready' | 'awaiting_acceptance' | 'revoked' | 'removed' | string
@@ -1852,6 +1891,10 @@ export type CohortRolloutRelease = {
   id: number
   release_number: number
   bundle_digest: string
+  manifest_schema: string
+  brand_mode: string
+  brand_version_id: number | null
+  brand_snapshot_digest: string
   integrity_valid: boolean
   runtime_compatible: boolean
   released_at: string
@@ -3347,6 +3390,39 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
           ['profile', 'My Profile'], ['wealth', 'Wealth'], ['cfo_filter', 'CFO Filter'], ['optionality', 'Optionality'],
         ].map(([id, label]) => ({ id: id as ExperienceModuleId, label, enabled: true, core: !['cfo_filter', 'optionality'].includes(id) })),
       },
+      brand: {
+        source: 'legacy_household_cfo_default',
+        mode: 'legacy_household_cfo_builtin',
+        version_id: null,
+        digest: '35ded27bda2348d56c1db078c087ed681442a4a7bba86d8924c39a9342fa7eb8',
+        available: true,
+        config: {
+          schema_version: 1,
+          product_name: 'Household CFO',
+          short_name: 'Household CFO',
+          organization_name: 'Household CFO Method',
+          participant_role_term: 'household CFO',
+          powered_by_name: 'VERA',
+          powered_by_placement: 'header',
+          tagline: 'Your household finance command center',
+          welcome_heading: 'Your household money, in one clear place',
+          welcome_description: 'Plan the month, understand what changed, and make confident decisions with your coach’s guidance.',
+          logo_url: null,
+          favicon_url: null,
+          support: { label: 'Contact your coach', email: null, url: null },
+          colors: {
+            background: '#f7f2ea', surface: '#fffdf8', surface_muted: '#fbf7ef', text: '#1f2421',
+            text_muted: '#706d66', border: '#e2d9cb', primary: '#7b4a58', primary_hover: '#633944',
+            primary_soft: '#f1e2e3', accent: '#b97352', on_primary: '#ffffff', focus: '#7b4a58',
+          },
+          typography: { display: 'cormorant_garamond', body: 'montserrat' },
+          footer: {
+            text: 'Household CFO provides educational guidance and is not a substitute for individualized legal, tax, investment, or accounting advice.',
+            privacy_url: null,
+            terms_url: null,
+          },
+        },
+      },
     },
     profile,
     dashboard,
@@ -3571,7 +3647,7 @@ function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
     runtime_truth: {
       changes_participant_runtime: false,
       message: releaseString(rawRuntimeTruth.message)
-        || 'Release records are audit evidence in this phase. Sealing or restoring a record does not change the assistant or tools participants use.',
+        || 'Release records are audit evidence in this phase. Sealing or restoring a record does not change the brand, assistant, or tools participants use.',
     },
     permissions: {
       view: releaseBoolean(rawPermissions.view, true),
@@ -3579,10 +3655,14 @@ function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
       restore: releaseBoolean(rawPermissions.restore),
     },
     candidate: rawCandidate ? {
+      manifest_schema: releaseString(rawCandidate.manifest_schema) || 'cohort_release_manifest_v2',
       bundle_digest: releaseString(rawCandidate.bundle_digest),
       assignment_id: releaseNullableInteger(rawCandidate.assignment_id),
       persona_version_id: releaseNullableInteger(rawCandidate.persona_version_id ?? rawCandidate.coach_persona_version_id),
       experience_version_id: releaseNullableInteger(rawCandidate.experience_version_id ?? rawCandidate.cohort_experience_version_id),
+      brand_mode: releaseString(rawCandidate.brand_mode),
+      brand_version_id: releaseNullableInteger(rawCandidate.brand_version_id ?? rawCandidate.workspace_brand_version_id),
+      brand_snapshot_digest: releaseString(rawCandidate.brand_snapshot_digest),
       registry_digest: releaseString(rawCandidate.registry_digest ?? rawCandidate.tool_registry_digest),
       registry_version: releaseNullableInteger(rawCandidate.registry_version ?? rawCandidate.tool_registry_version),
       expected_latest_release_id: releaseNullableInteger(rawCandidate.expected_latest_release_id ?? rawReadiness.expected_latest_release_id ?? rawStudio.latest_release_id),
@@ -3622,6 +3702,7 @@ function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
         id,
         release_number: releaseInteger(release.release_number) ?? id,
         event_type: releaseString(release.event_type) || 'release',
+        manifest_schema: releaseString(release.manifest_schema),
         released_at: releaseString(release.released_at ?? release.created_at),
         actor: actorId && actorName ? { id: actorId, full_name: actorName } : null,
         actor_user_id: actorId,
@@ -3629,6 +3710,9 @@ function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
         source_release_id: releaseNullableInteger(release.source_release_id),
         persona_version_id: releaseNullableInteger(release.persona_version_id ?? release.coach_persona_version_id ?? personaSnapshot.version_id),
         experience_version_id: releaseNullableInteger(release.experience_version_id ?? release.cohort_experience_version_id ?? experienceSnapshot.version_id),
+        brand_mode: releaseString(release.brand_mode),
+        brand_version_id: releaseNullableInteger(release.brand_version_id ?? release.workspace_brand_version_id),
+        brand_snapshot_digest: releaseString(release.brand_snapshot_digest),
         registry_digest: releaseString(release.registry_digest ?? release.tool_registry_digest ?? registrySnapshot.digest),
         registry_version: releaseNullableInteger(release.registry_version ?? release.tool_registry_version ?? registrySnapshot.version),
         restore_allowed: releaseBoolean(release.restore_allowed),
@@ -3788,6 +3872,10 @@ function normalizeRolloutRelease(value: unknown): CohortRolloutRelease | null {
     id,
     release_number: releaseInteger(raw.release_number) ?? id,
     bundle_digest: releaseString(raw.bundle_digest),
+    manifest_schema: releaseString(raw.manifest_schema),
+    brand_mode: releaseString(raw.brand_mode),
+    brand_version_id: releaseNullableInteger(raw.brand_version_id ?? raw.workspace_brand_version_id),
+    brand_snapshot_digest: releaseString(raw.brand_snapshot_digest),
     integrity_valid: releaseBoolean(raw.integrity_valid),
     runtime_compatible: releaseBoolean(raw.runtime_compatible),
     released_at: releaseString(raw.released_at),

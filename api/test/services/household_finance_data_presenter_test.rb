@@ -22,6 +22,8 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal [ "Wait", "Wait", "Wait" ], decisions.values.map { |decision| decision.fetch(:recommendation) }
     assert_equal false, payload.dig(:dashboard, :readiness_path, :yellow, :reached)
     assert_equal false, payload.dig(:dashboard, :readiness_path, :green, :reached)
+    assert_equal "Household CFO", payload.dig(:workspace, :brand, :config, "product_name")
+    assert_equal "legacy_household_cfo_builtin", payload.dig(:workspace, :brand, :mode)
   end
 
   test "incomplete setup replaces readiness and decision guidance with setup guidance" do

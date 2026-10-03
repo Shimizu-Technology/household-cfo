@@ -5,8 +5,69 @@ require "json"
 
 module CohortReleases
   module Contract
-    MANIFEST_SCHEMA = "cohort_release_manifest_v1"
+    V1_SCHEMA = "cohort_release_manifest_v1"
+    V2_SCHEMA = "cohort_release_manifest_v2"
+    CURRENT_SCHEMA = V2_SCHEMA
+    MANIFEST_SCHEMA = CURRENT_SCHEMA
+    SUPPORTED_SCHEMAS = [ V1_SCHEMA, V2_SCHEMA ].freeze
     TOOL_REGISTRY_VERSION = 1
+
+    def self.deep_freeze(value)
+      case value
+      when Hash
+        value.each { |key, entry| deep_freeze(key); deep_freeze(entry) }
+      when Array
+        value.each { |entry| deep_freeze(entry) }
+      end
+      value.freeze
+    end
+
+    # This is the brand participants saw before cohort releases carried explicit brand evidence.
+    # Keep it literal so later edits to Branding::Schema::DEFAULT_CONFIG cannot rewrite v1 history.
+    LEGACY_HOUSEHOLD_CFO_CONFIG_V1 = deep_freeze(
+      {
+        "schema_version" => 1,
+        "product_name" => "Household CFO",
+        "short_name" => "Household CFO",
+        "organization_name" => "Household CFO Method",
+        "participant_role_term" => "household CFO",
+        "powered_by_name" => "VERA",
+        "powered_by_placement" => "header",
+        "tagline" => "Your household finance command center",
+        "welcome_heading" => "Your household money, in one clear place",
+        "welcome_description" => "Plan the month, understand what changed, and make confident decisions with your coach's guidance.",
+        "logo_url" => nil,
+        "favicon_url" => nil,
+        "support" => {
+          "label" => "Contact your coach",
+          "email" => nil,
+          "url" => nil
+        },
+        "colors" => {
+          "background" => "#f7f2ea",
+          "surface" => "#fffdf8",
+          "surface_muted" => "#fbf7ef",
+          "text" => "#1f2421",
+          "text_muted" => "#706d66",
+          "border" => "#e2d9cb",
+          "primary" => "#7b4a58",
+          "primary_hover" => "#633944",
+          "primary_soft" => "#f1e2e3",
+          "accent" => "#b97352",
+          "on_primary" => "#ffffff",
+          "focus" => "#7b4a58"
+        },
+        "typography" => {
+          "display" => "cormorant_garamond",
+          "body" => "montserrat"
+        },
+        "footer" => {
+          "text" => "Household CFO provides educational guidance and is not a substitute for individualized legal, tax, investment, or accounting advice.",
+          "privacy_url" => nil,
+          "terms_url" => nil
+        }
+      }
+    )
 
     module_function
 
@@ -74,6 +135,25 @@ module CohortReleases
       end
     end
 
+    def published_brand_snapshot(version:)
+      canonicalize(
+        "mode" => "published_version",
+        "configuration_id" => version.workspace_brand_configuration_id,
+        "version_id" => version.id,
+        "version_number" => version.version_number,
+        "config" => Branding::Schema.normalize(version.config),
+        "config_digest" => version.config_digest
+      )
+    end
+
+    def legacy_brand_snapshot
+      canonicalize(
+        "mode" => "legacy_household_cfo_builtin",
+        "config" => LEGACY_HOUSEHOLD_CFO_CONFIG_V1,
+        "config_digest" => Branding::Schema.digest(LEGACY_HOUSEHOLD_CFO_CONFIG_V1)
+      )
+    end
+
     def tool_registry_snapshot
       canonicalize(
         "schema_version" => TOOL_REGISTRY_VERSION,
@@ -84,21 +164,36 @@ module CohortReleases
       )
     end
 
-    def bundle(cohort:, persona_snapshot:, experience_snapshot:, tool_registry_snapshot: self.tool_registry_snapshot)
+    def bundle(schema:, cohort:, persona_snapshot:, experience_snapshot:, tool_registry_snapshot: self.tool_registry_snapshot,
+      brand_snapshot: nil)
+      case schema
+      when V1_SCHEMA
+        bundle_v1(
+          cohort: cohort,
+          persona_snapshot: persona_snapshot,
+          experience_snapshot: experience_snapshot,
+          tool_registry_snapshot: tool_registry_snapshot
+        )
+      when V2_SCHEMA
+        bundle_v2(
+          cohort: cohort,
+          persona_snapshot: persona_snapshot,
+          experience_snapshot: experience_snapshot,
+          brand_snapshot: brand_snapshot || raise(ArgumentError, "brand_snapshot is required for v2"),
+          tool_registry_snapshot: tool_registry_snapshot
+        )
+      else
+        raise ArgumentError, "unsupported cohort release schema"
+      end
+    end
+
+    def bundle_v1(cohort:, persona_snapshot:, experience_snapshot:, tool_registry_snapshot: self.tool_registry_snapshot)
       canonicalize(
-        "schema" => MANIFEST_SCHEMA,
+        "schema" => V1_SCHEMA,
         "cohort_id" => cohort.id,
         "coach_workspace_id" => cohort.coach_workspace_id,
-        "persona" => {
-          "mode" => persona_snapshot.fetch("mode"),
-          "snapshot" => persona_snapshot,
-          "snapshot_digest" => digest(persona_snapshot)
-        },
-        "experience" => {
-          "mode" => experience_snapshot.fetch("mode"),
-          "snapshot" => experience_snapshot,
-          "snapshot_digest" => digest(experience_snapshot)
-        },
+        "persona" => component(persona_snapshot),
+        "experience" => component(experience_snapshot),
         "tool_registry" => {
           "version" => TOOL_REGISTRY_VERSION,
           "snapshot" => tool_registry_snapshot,
@@ -107,10 +202,52 @@ module CohortReleases
       )
     end
 
-    def manifest(release_number:, publication_source:, event_type:, released_by_user_id:, actor_role_snapshot:, source_release_id:,
-      request_key:, request_fingerprint:, released_at:, bundle_digest:)
+    def bundle_v2(cohort:, persona_snapshot:, experience_snapshot:, brand_snapshot:,
+      tool_registry_snapshot: self.tool_registry_snapshot)
       canonicalize(
-        "schema" => MANIFEST_SCHEMA,
+        "schema" => V2_SCHEMA,
+        "cohort_id" => cohort.id,
+        "coach_workspace_id" => cohort.coach_workspace_id,
+        "brand" => component(brand_snapshot),
+        "persona" => component(persona_snapshot),
+        "experience" => component(experience_snapshot),
+        "tool_registry" => {
+          "version" => TOOL_REGISTRY_VERSION,
+          "snapshot" => tool_registry_snapshot,
+          "snapshot_digest" => digest(tool_registry_snapshot)
+        }
+      )
+    end
+
+    def manifest(schema:, **attributes)
+      case schema
+      when V1_SCHEMA then manifest_v1(**attributes)
+      when V2_SCHEMA then manifest_v2(**attributes)
+      else raise ArgumentError, "unsupported cohort release schema"
+      end
+    end
+
+    def manifest_v1(**attributes)
+      canonical_manifest(V1_SCHEMA, **attributes)
+    end
+
+    def manifest_v2(**attributes)
+      canonical_manifest(V2_SCHEMA, **attributes)
+    end
+
+    def component(snapshot)
+      {
+        "mode" => snapshot.fetch("mode"),
+        "snapshot" => snapshot,
+        "snapshot_digest" => digest(snapshot)
+      }
+    end
+    private_class_method :component
+
+    def canonical_manifest(schema, release_number:, publication_source:, event_type:, released_by_user_id:,
+      actor_role_snapshot:, source_release_id:, request_key:, request_fingerprint:, released_at:, bundle_digest:)
+      canonicalize(
+        "schema" => schema,
         "release_number" => release_number,
         "publication_source" => publication_source,
         "event_type" => event_type,
@@ -123,5 +260,6 @@ module CohortReleases
         "bundle_digest" => bundle_digest
       )
     end
+    private_class_method :canonical_manifest
   end
 end

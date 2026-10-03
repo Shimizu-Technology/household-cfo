@@ -22,7 +22,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
           outcome = begin
             CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
               operation_key: "cohort.release.seal",
-              operation_version: 1,
+              operation_version: CoachOperations::CohortReleaseSeal::VERSION,
               input: input,
               request_key: request_key
             )
@@ -84,7 +84,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
         outcome = begin
           CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
             operation_key: "cohort.release.seal",
-            operation_version: 1,
+            operation_version: CoachOperations::CohortReleaseSeal::VERSION,
             input: input,
             request_key: "assignment-seal-race"
           )
@@ -154,7 +154,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
         Cohort.connection.execute("SET LOCAL lock_timeout = '250ms'")
         CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
           operation_key: "cohort.release.seal",
-          operation_version: 1,
+          operation_version: CoachOperations::CohortReleaseSeal::VERSION,
           input: input,
           request_key: "persona-publish-lock-race"
         )
@@ -172,9 +172,77 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
     assert_raises(CohortReleases::Sealer::Stale) do
       CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
         operation_key: "cohort.release.seal",
-        operation_version: 1,
+        operation_version: CoachOperations::CohortReleaseSeal::VERSION,
         input: input,
         request_key: "persona-publish-stale-evidence"
+      )
+    end
+    assert_empty cohort.cohort_releases
+  ensure
+    allow_publish << true if defined?(allow_publish) && allow_publish
+    publisher_thread&.join(15)
+    cleanup_governed_operation_records(owner, cohort)
+  end
+
+  test "brand publication cannot advance while stale release evidence is sealing" do
+    owner, cohort, input = governed_operation_components
+    configuration = cohort.coach_workspace.workspace_brand_configuration
+    next_config = configuration.draft_config.deep_dup
+    next_config["product_name"] = "Concurrent Brand #{SecureRandom.hex(3)}"
+    next_config["short_name"] = "Concurrent Brand"
+    configuration.update!(draft_config: next_config, last_edited_by_user: owner)
+    publisher = Branding::Publisher.new(configuration: configuration, actor: owner)
+    preview = publisher.preview!(expected_draft_revision: configuration.reload.draft_revision)
+    publish_input = {
+      expected_preview_digest: preview,
+      expected_draft_revision: configuration.draft_revision,
+      expected_current_version_id: configuration.current_published_version_id,
+      idempotency_key: "brand-publish-race-#{SecureRandom.hex(4)}"
+    }
+    brand_locked = Queue.new
+    allow_publish = Queue.new
+    published = Queue.new
+    publisher_thread = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        WorkspaceBrandConfiguration.transaction do
+          locked_configuration = WorkspaceBrandConfiguration.lock.find(configuration.id)
+          brand_locked << true
+          allow_publish.pop
+          version = Branding::Publisher.new(configuration: locked_configuration, actor: User.find(owner.id)).publish!(**publish_input)
+          published << version.id
+        end
+      rescue StandardError => error
+        published << error
+      end
+    end
+    Timeout.timeout(5) { brand_locked.pop }
+
+    assert_raises(ActiveRecord::LockWaitTimeout) do
+      Cohort.transaction do
+        Cohort.connection.execute("SET LOCAL lock_timeout = '250ms'")
+        CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
+          operation_key: CoachOperations::CohortReleaseSeal::KEY,
+          operation_version: CoachOperations::CohortReleaseSeal::VERSION,
+          input: input,
+          request_key: "brand-publish-lock-race"
+        )
+      end
+    end
+    assert_empty cohort.cohort_releases
+
+    allow_publish << true
+    publisher_thread.join(15)
+    published_result = Timeout.timeout(5) { published.pop }
+    assert_not publisher_thread.alive?
+    assert_kind_of Integer, published_result, published_result.respond_to?(:full_message) ? published_result.full_message : nil
+    assert_equal published_result, configuration.reload.current_published_version_id
+
+    assert_raises(CohortReleases::Sealer::Stale) do
+      CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
+        operation_key: CoachOperations::CohortReleaseSeal::KEY,
+        operation_version: CoachOperations::CohortReleaseSeal::VERSION,
+        input: input,
+        request_key: "brand-publish-stale-evidence"
       )
     end
     assert_empty cohort.cohort_releases
@@ -189,7 +257,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
     first_persona = cohort.cohort_persona_assignment.coach_persona
     first_release = CoachOperations::Runner.new(cohort: cohort, actor: owner).call!(
       operation_key: "cohort.release.seal",
-      operation_version: 1,
+      operation_version: CoachOperations::CohortReleaseSeal::VERSION,
       input: first_input,
       request_key: "restore-archive-source"
     ).release
@@ -219,12 +287,13 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
       expected_experience_version_id: current_candidate.experience_version.id,
       expected_latest_release_id: first_release.id,
       expected_persona_version_id: second_persona_version.id,
+      expected_brand_version_id: current_candidate.brand_version&.id,
       expected_tool_registry_digest: CohortReleases::Contract.digest(current_candidate.tool_registry_snapshot),
       expected_tool_registry_version: CohortReleases::Contract::TOOL_REGISTRY_VERSION
     }
     second_release = CoachOperations::Runner.new(cohort: cohort, actor: owner).call!(
       operation_key: "cohort.release.seal",
-      operation_version: 1,
+      operation_version: CoachOperations::CohortReleaseSeal::VERSION,
       input: second_input,
       request_key: "restore-archive-current"
     ).release
@@ -233,6 +302,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
       source_bundle_digest: first_release.bundle_digest,
       source_experience_version_id: first_release.cohort_experience_version_id,
       source_persona_version_id: first_release.coach_persona_version_id,
+      source_brand_version_id: first_release.workspace_brand_version_id,
       source_release_id: first_release.id
     }
     persona_locked = Queue.new
@@ -258,7 +328,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
         Cohort.connection.execute("SET LOCAL lock_timeout = '250ms'")
         CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
           operation_key: "cohort.release.restore",
-          operation_version: 1,
+          operation_version: CoachOperations::CohortReleaseSeal::VERSION,
           input: restore_input,
           request_key: "restore-archive-lock-race"
         )
@@ -276,7 +346,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
     assert_raises(CohortReleases::Sealer::Incomplete) do
       CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
         operation_key: "cohort.release.restore",
-        operation_version: 1,
+        operation_version: CoachOperations::CohortReleaseSeal::VERSION,
         input: restore_input,
         request_key: "restore-archive-stale-evidence"
       )
@@ -481,6 +551,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
       expected_experience_version_id: experience.id,
       expected_latest_release_id: nil,
       expected_persona_version_id: version.id,
+      expected_brand_version_id: candidate.brand_version&.id,
       expected_tool_registry_digest: CohortReleases::Contract.digest(candidate.tool_registry_snapshot),
       expected_tool_registry_version: CohortReleases::Contract::TOOL_REGISTRY_VERSION
     }

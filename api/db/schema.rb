@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_03_131000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_03_132000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -1086,7 +1086,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_131000) do
     t.datetime "updated_at", null: false
     t.index ["actor_user_id"], name: "index_coach_workspace_domain_events_on_actor_user_id"
     t.index ["coach_workspace_domain_id"], name: "idx_coach_workspace_domain_events_domain"
-    t.check_constraint "event_type::text = ANY (ARRAY['created'::character varying, 'verification_requested'::character varying, 'verified'::character varying, 'activated'::character varying, 'disabled'::character varying]::text[])", name: "coach_workspace_domain_events_type"
+    t.check_constraint "event_type::text = ANY (ARRAY['created'::character varying::text, 'verification_requested'::character varying::text, 'verified'::character varying::text, 'activated'::character varying::text, 'disabled'::character varying::text])", name: "coach_workspace_domain_events_type"
     t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "coach_workspace_domain_events_metadata_object"
     t.check_constraint "octet_length(metadata::text) <= 4096", name: "coach_workspace_domain_events_metadata_bytes"
   end
@@ -1113,14 +1113,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_131000) do
     t.index ["created_by_user_id"], name: "index_coach_workspace_domains_on_created_by_user_id"
     t.index ["id", "coach_workspace_id"], name: "idx_coach_workspace_domains_id_workspace", unique: true
     t.index ["updated_by_user_id"], name: "index_coach_workspace_domains_on_updated_by_user_id"
-    t.check_constraint "(status::text <> ALL (ARRAY['verified'::character varying, 'active'::character varying]::text[])) OR verified_at IS NOT NULL", name: "coach_workspace_domains_verified_evidence"
+    t.check_constraint "(status::text <> ALL (ARRAY['verified'::character varying::text, 'active'::character varying::text])) OR verified_at IS NOT NULL", name: "coach_workspace_domains_verified_evidence"
     t.check_constraint "(status::text = 'disabled'::text) = (disabled_at IS NOT NULL)", name: "coach_workspace_domains_disabled_evidence"
     t.check_constraint "NOT is_primary OR status::text = 'active'::text", name: "coach_workspace_domains_primary_active"
     t.check_constraint "char_length(hostname::text) >= 4 AND char_length(hostname::text) <= 253", name: "coach_workspace_domains_hostname_length"
     t.check_constraint "hostname::text = lower(hostname::text) AND hostname::text ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$'::text", name: "coach_workspace_domains_hostname"
-    t.check_constraint "kind::text = ANY (ARRAY['managed_subdomain'::character varying, 'custom'::character varying]::text[])", name: "coach_workspace_domains_kind"
+    t.check_constraint "kind::text = ANY (ARRAY['managed_subdomain'::character varying::text, 'custom'::character varying::text])", name: "coach_workspace_domains_kind"
     t.check_constraint "status::text <> 'active'::text OR activated_at IS NOT NULL", name: "coach_workspace_domains_active_evidence"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'verified'::character varying, 'active'::character varying, 'disabled'::character varying]::text[])", name: "coach_workspace_domains_status"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'verified'::character varying::text, 'active'::character varying::text, 'disabled'::character varying::text])", name: "coach_workspace_domains_status"
     t.check_constraint "verification_token_digest IS NULL OR verification_token_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_workspace_domains_token_digest"
   end
 
@@ -1299,6 +1299,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_131000) do
 
   create_table "cohort_releases", force: :cascade do |t|
     t.string "actor_role_snapshot"
+    t.string "brand_mode"
+    t.jsonb "brand_snapshot"
+    t.string "brand_snapshot_digest"
     t.jsonb "bundle", default: {}, null: false
     t.string "bundle_digest", null: false
     t.bigint "coach_persona_id"
@@ -1329,6 +1332,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_131000) do
     t.jsonb "tool_registry_snapshot", default: {}, null: false
     t.integer "tool_registry_version", null: false
     t.datetime "updated_at", null: false
+    t.bigint "workspace_brand_version_id"
     t.index ["coach_persona_id"], name: "index_cohort_releases_on_coach_persona_id"
     t.index ["coach_persona_version_id"], name: "index_cohort_releases_on_coach_persona_version_id"
     t.index ["coach_workspace_id"], name: "index_cohort_releases_on_coach_workspace_id"
@@ -1343,13 +1347,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_131000) do
     t.index ["id", "released_by_user_id", "actor_role_snapshot"], name: "idx_cohort_releases_operation_actor", unique: true
     t.index ["released_by_user_id"], name: "index_cohort_releases_on_released_by_user_id"
     t.index ["source_release_id"], name: "index_cohort_releases_on_source_release_id"
+    t.index ["workspace_brand_version_id"], name: "idx_cohort_releases_brand_version"
     t.check_constraint "(experience_mode::text = ANY (ARRAY['published_version'::character varying::text, 'safe_default'::character varying::text])) AND (experience_mode::text = 'published_version'::text AND cohort_experience_version_id IS NOT NULL OR experience_mode::text = 'safe_default'::text AND cohort_experience_version_id IS NULL)", name: "cohort_releases_experience_shape"
     t.check_constraint "(persona_mode::text = ANY (ARRAY['published_version'::character varying::text, 'neutral_builtin'::character varying::text])) AND (persona_mode::text = 'published_version'::text AND coach_persona_id IS NOT NULL AND coach_persona_version_id IS NOT NULL OR persona_mode::text = 'neutral_builtin'::text AND coach_persona_id IS NULL AND coach_persona_version_id IS NULL)", name: "cohort_releases_persona_shape"
+    t.check_constraint "brand_snapshot IS NULL OR jsonb_typeof(brand_snapshot) = 'object'::text", name: "cohort_releases_brand_json_shape"
+    t.check_constraint "brand_snapshot IS NULL OR octet_length(brand_snapshot::text) <= 32768", name: "cohort_releases_brand_json_bounded"
+    t.check_constraint "brand_snapshot_digest IS NULL OR brand_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text", name: "cohort_releases_brand_digest_shape"
     t.check_constraint "char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "cohort_releases_request_key_bounded"
     t.check_constraint "event_type::text = 'restore'::text AND source_release_id IS NOT NULL OR (event_type::text = ANY (ARRAY['release'::character varying::text, 'reconciliation'::character varying::text])) AND source_release_id IS NULL", name: "cohort_releases_source_shape"
     t.check_constraint "event_type::text = ANY (ARRAY['release'::character varying::text, 'restore'::character varying::text, 'reconciliation'::character varying::text])", name: "cohort_releases_event_type_valid"
     t.check_constraint "jsonb_typeof(persona_snapshot) = 'object'::text AND jsonb_typeof(experience_snapshot) = 'object'::text AND jsonb_typeof(tool_registry_snapshot) = 'object'::text AND jsonb_typeof(bundle) = 'object'::text AND jsonb_typeof(manifest) = 'object'::text", name: "cohort_releases_json_shape"
-    t.check_constraint "manifest_schema::text = 'cohort_release_manifest_v1'::text", name: "cohort_releases_manifest_schema_valid"
+    t.check_constraint "manifest_schema::text = 'cohort_release_manifest_v1'::text AND brand_mode IS NULL AND workspace_brand_version_id IS NULL AND brand_snapshot IS NULL AND brand_snapshot_digest IS NULL OR manifest_schema::text = 'cohort_release_manifest_v2'::text AND brand_snapshot IS NOT NULL AND brand_snapshot_digest IS NOT NULL AND (brand_mode::text = 'published_version'::text AND workspace_brand_version_id IS NOT NULL OR brand_mode::text = 'legacy_household_cfo_builtin'::text AND workspace_brand_version_id IS NULL)", name: "cohort_releases_brand_shape"
+    t.check_constraint "manifest_schema::text = ANY (ARRAY['cohort_release_manifest_v1'::character varying, 'cohort_release_manifest_v2'::character varying]::text[])", name: "cohort_releases_manifest_schema_valid"
     t.check_constraint "octet_length(persona_snapshot::text) <= 65536 AND octet_length(experience_snapshot::text) <= 16384 AND octet_length(tool_registry_snapshot::text) <= 65536 AND octet_length(bundle::text) <= 196608 AND octet_length(manifest::text) <= 262144", name: "cohort_releases_json_bounded"
     t.check_constraint "persona_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND experience_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND tool_registry_digest::text ~ '^[0-9a-f]{64}$'::text AND bundle_digest::text ~ '^[0-9a-f]{64}$'::text AND manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND request_fingerprint::text ~ '^[0-9a-f]{64}$'::text", name: "cohort_releases_digest_shape"
     t.check_constraint "publication_source::text = 'user'::text AND released_by_user_id IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text])) OR (publication_source::text = ANY (ARRAY['legacy_backfill'::character varying::text, 'system'::character varying::text])) AND released_by_user_id IS NULL AND actor_role_snapshot IS NULL", name: "cohort_releases_actor_shape"
@@ -2380,7 +2389,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_131000) do
     t.index ["workspace_brand_configuration_id"], name: "idx_workspace_brand_events_configuration"
     t.index ["workspace_brand_version_id"], name: "idx_workspace_brand_events_version"
     t.check_constraint "char_length(idempotency_key::text) >= 1 AND char_length(idempotency_key::text) <= 255", name: "workspace_brand_publication_events_idempotency_length"
-    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "workspace_brand_publication_events_type"
+    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying::text, 'rollback'::character varying::text])", name: "workspace_brand_publication_events_type"
     t.check_constraint "request_fingerprint::text ~ '^[0-9a-f]{64}$'::text", name: "workspace_brand_publication_events_request_fingerprint"
   end
 
@@ -2600,6 +2609,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_131000) do
   add_foreign_key "cohort_releases", "cohorts", column: ["cohort_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_cohort_releases_cohort_workspace", on_delete: :restrict
   add_foreign_key "cohort_releases", "cohorts", on_delete: :restrict
   add_foreign_key "cohort_releases", "users", column: "released_by_user_id", on_delete: :restrict
+  add_foreign_key "cohort_releases", "workspace_brand_versions", column: ["workspace_brand_version_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_cohort_releases_brand_version", on_delete: :restrict
+  add_foreign_key "cohort_releases", "workspace_brand_versions", on_delete: :restrict
   add_foreign_key "cohort_rollout_participants", "coach_workspaces", on_delete: :restrict
   add_foreign_key "cohort_rollout_participants", "cohort_rollout_waves", column: "cohort_rollout_wave_id", on_delete: :restrict
   add_foreign_key "cohort_rollout_participants", "cohort_rollout_waves", column: ["cohort_rollout_wave_id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], name: "fk_rollout_participants_wave", on_delete: :restrict

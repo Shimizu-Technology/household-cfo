@@ -28,6 +28,10 @@ module Api
         @current_experience_capabilities ||= current_participant_runtime.capabilities
       end
 
+      def current_brand
+        @current_brand ||= current_participant_runtime.brand
+      end
+
       def current_participant_runtime
         @current_participant_runtime ||= begin
           brand_workspace = participant_brand_workspace
@@ -168,7 +172,8 @@ module Api
           ensure_plan: ensure_plan,
           persona: current_persona,
           cohort_membership: current_cohort_membership,
-          experience_capabilities: current_experience_capabilities
+          experience_capabilities: current_experience_capabilities,
+          brand: current_brand
         )
       end
     end
