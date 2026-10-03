@@ -63,5 +63,38 @@ module ActiveSupport
       singleton.send(:remove_method, :with_slot) if singleton.method_defined?(:with_slot)
       singleton.define_method(:with_slot, original)
     end
+
+    def delete_workspace_brand_records(workspace_ids)
+      ids = Array(workspace_ids).compact
+      return if ids.empty? || !WorkspaceBrandConfiguration.table_exists?
+
+      triggers = {
+        "workspace_brand_versions" => "workspace_brand_versions_immutable",
+        "workspace_brand_publication_events" => "workspace_brand_publication_events_immutable",
+        "coach_workspace_domain_events" => "coach_workspace_domain_events_immutable"
+      }
+      triggers.each { |table, trigger| ActiveRecord::Base.connection.execute("ALTER TABLE #{table} DISABLE TRIGGER #{trigger}") }
+
+      configuration_ids = WorkspaceBrandConfiguration.where(coach_workspace_id: ids).pluck(:id)
+      domain_ids = CoachWorkspaceDomain.where(coach_workspace_id: ids).pluck(:id)
+      CoachWorkspaceDomainEvent.where(coach_workspace_domain_id: domain_ids).delete_all
+      CoachWorkspaceDomain.where(id: domain_ids).delete_all
+      WorkspaceBrandPublicationEvent.where(workspace_brand_configuration_id: configuration_ids).delete_all
+      WorkspaceBrandConfiguration.where(id: configuration_ids).update_all(current_published_version_id: nil)
+      WorkspaceBrandVersion.where(workspace_brand_configuration_id: configuration_ids).delete_all
+      WorkspaceBrandConfiguration.where(id: configuration_ids).delete_all
+    ensure
+      triggers&.each { |table, trigger| ActiveRecord::Base.connection.execute("ALTER TABLE #{table} ENABLE TRIGGER #{trigger}") }
+    end
+
+    def delete_empty_coach_workspaces_for_users(user_ids)
+      workspace_ids = CoachWorkspace.where(created_by_user_id: Array(user_ids).compact).pluck(:id)
+      return if workspace_ids.empty?
+
+      CoachProfile.where(coach_workspace_id: workspace_ids).delete_all
+      CoachWorkspaceMembership.where(coach_workspace_id: workspace_ids).delete_all
+      delete_workspace_brand_records(workspace_ids)
+      CoachWorkspace.where(id: workspace_ids).delete_all
+    end
   end
 end

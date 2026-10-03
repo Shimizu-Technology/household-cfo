@@ -3,7 +3,10 @@ module Api
     class BaseController < ApplicationController
       include ClerkAuthenticatable
 
+      class InvalidIdempotencyKey < StandardError; end
+
       rescue_from ::Mia::EffectiveCohortResolver::InvalidSelection, with: :render_invalid_cohort_selection
+      rescue_from InvalidIdempotencyKey, with: :render_invalid_idempotency_key
 
       private
 
@@ -27,16 +30,63 @@ module Api
 
       def current_participant_runtime
         @current_participant_runtime ||= begin
+          brand_workspace = participant_brand_workspace
           membership = ::Mia::EffectiveCohortResolver.new(
             user: current_user,
             role: "participant",
-            requested_cohort_id: request&.headers&.[]("X-Cohort-Id")
+            requested_cohort_id: request&.headers&.[]("X-Cohort-Id"),
+            coach_workspace: brand_workspace
           ).call
           ::Mia::ParticipantRuntimeResolver.new(
             user: current_user,
-            cohort_membership: membership
+            cohort_membership: membership,
+            coach_workspace: brand_workspace
           ).call
         end
+      end
+
+      def participant_brand_workspace
+        return @participant_brand_workspace if defined?(@participant_brand_workspace)
+
+        raw_hostname = request&.headers&.[]("X-Brand-Hostname").to_s.strip
+        hostname = Branding::Hostname.normalize(raw_hostname) if raw_hostname.present?
+        reject_unavailable_brand! if raw_hostname.present? && hostname.nil?
+
+        raw_origin = request&.headers&.[]("Origin").to_s.strip
+        origin_hostname = Branding::Hostname.from_origin(raw_origin) if raw_origin.present?
+        reject_unavailable_brand! if raw_origin.present? && origin_hostname.nil?
+
+        if origin_hostname
+          origin_workspace_id = Branding::ActiveDomainRegistry.workspace_id_for(origin_hostname)
+          if origin_workspace_id
+            reject_unavailable_brand! unless hostname == origin_hostname
+            return @participant_brand_workspace = CoachWorkspace.find(origin_workspace_id)
+          end
+
+          if Branding::Hostname::LOCAL.include?(origin_hostname)
+            return @participant_brand_workspace = resolve_header_brand(hostname) if !Rails.env.production? && hostname.present?
+            return @participant_brand_workspace = nil if hostname.blank? || hostname == origin_hostname
+          elsif Branding::Hostname.legacy?(origin_hostname)
+            return @participant_brand_workspace = nil if hostname.blank? || hostname == origin_hostname
+          end
+
+          reject_unavailable_brand! if hostname.present?
+        end
+
+        return @participant_brand_workspace = nil if hostname.blank?
+
+        @participant_brand_workspace = resolve_header_brand(hostname)
+      end
+
+      def resolve_header_brand(hostname)
+        return nil if Branding::Hostname::LOCAL.include?(hostname) || Branding::Hostname.legacy?(hostname)
+
+        workspace_id = Branding::ActiveDomainRegistry.workspace_id_for(hostname)
+        workspace_id ? CoachWorkspace.find(workspace_id) : reject_unavailable_brand!
+      end
+
+      def reject_unavailable_brand!
+        raise ::Mia::EffectiveCohortResolver::InvalidSelection, "This coaching program link is unavailable."
       end
 
       def render_invalid_cohort_selection(error)
@@ -91,7 +141,14 @@ module Api
       end
 
       def request_idempotency_key
-        request.headers["Idempotency-Key"].to_s.strip.presence || SecureRandom.uuid
+        key = request.headers["Idempotency-Key"].to_s.strip.presence || SecureRandom.uuid
+        raise InvalidIdempotencyKey, "Idempotency-Key must be 255 characters or fewer." if key.length > 255
+
+        key
+      end
+
+      def render_invalid_idempotency_key(error)
+        render json: { error: error.message, code: "idempotency_key_invalid" }, status: :unprocessable_entity
       end
 
       def render_operation_error(error)

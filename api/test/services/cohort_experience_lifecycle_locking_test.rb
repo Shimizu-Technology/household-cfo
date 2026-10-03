@@ -72,6 +72,7 @@ class CohortExperienceLifecycleLockingTest < ActiveSupport::TestCase
     CohortExperienceVersion.where(cohort_experience_configuration_id: configuration&.id).delete_all
     CohortExperienceConfiguration.where(id: configuration&.id).delete_all
     Cohort.where(id: cohort&.id).delete_all
+    delete_empty_coach_workspaces_for_users(admin&.id)
     User.where(id: admin&.id).delete_all
   end
 end

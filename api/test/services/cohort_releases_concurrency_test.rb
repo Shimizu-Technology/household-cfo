@@ -335,6 +335,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
     Cohort.where(id: cohort&.id).delete_all
     CoachProfile.where(coach_workspace_id: workspace&.id).delete_all
     CoachWorkspaceMembership.where(coach_workspace_id: workspace&.id).delete_all
+    delete_workspace_brand_records(workspace&.id)
     CoachWorkspace.where(id: workspace&.id).delete_all
     User.where(id: owner&.id).delete_all
   end
@@ -399,6 +400,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
     Cohort.where(id: cohort&.id).delete_all
     CoachProfile.where(coach_workspace_id: workspace&.id).delete_all
     CoachWorkspaceMembership.where(coach_workspace_id: workspace&.id).delete_all
+    delete_workspace_brand_records(workspace&.id)
     CoachWorkspace.where(id: workspace&.id).delete_all
     User.where(id: [ owner&.id, reviewer&.id ].compact).delete_all
   end
@@ -516,6 +518,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
     workspace = CoachWorkspace.find_by(id: cohort.coach_workspace_id)
     CoachProfile.where(coach_workspace_id: workspace&.id).delete_all
     CoachWorkspaceMembership.where(coach_workspace_id: workspace&.id).delete_all
+    delete_workspace_brand_records(workspace&.id)
     workspace&.delete
     owner.delete
   ensure

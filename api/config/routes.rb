@@ -1,5 +1,8 @@
 Rails.application.routes.draw do
   namespace :api do
+    namespace :public do
+      resource :brand, only: :show
+    end
     namespace :v1 do
       get "auth/me", to: "auth#me"
       resource :workspace, only: :show do
@@ -102,6 +105,13 @@ Rails.application.routes.draw do
       end
       resources :pilot_feedback_reports, only: :create
       namespace :admin do
+        resource :brand, controller: "workspace_brand_configurations", only: %i[show update] do
+          post :preview
+          post :publish
+          resources :versions, controller: "workspace_brand_versions", only: :show do
+            post :rollback, on: :member
+          end
+        end
         get "plaid_health", to: "plaid_health#index"
         resources :personas, controller: "mia_personas", only: %i[index show create update destroy] do
           resources :phrase_promotions, controller: "persona_phrase_promotions", only: :create do

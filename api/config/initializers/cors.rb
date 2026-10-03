@@ -38,7 +38,16 @@ frontend_origins = frontend_origins.reject { |origin| local_origin.call(origin) 
 
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
-    origins(*frontend_origins)
+    origins(*frontend_origins) do |source, _environment|
+      uri = URI.parse(source)
+      next false unless uri.is_a?(URI::HTTPS) && uri.host.present? && uri.userinfo.nil? && uri.path.to_s.empty?
+      next false unless uri.port == 443
+
+      hostname = Branding::Hostname.normalize(uri.host)
+      hostname.present? && Branding::ActiveDomainRegistry.active?(hostname)
+    rescue URI::InvalidURIError, ActiveRecord::ActiveRecordError
+      false
+    end
 
     resource "*",
       headers: :any,

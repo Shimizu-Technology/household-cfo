@@ -154,6 +154,7 @@ class MiaApprovedSourcePhraseLockingTest < ActiveSupport::TestCase
     CoachContentItem.where(id: item_id).delete_all
     CoachProfile.where(coach_workspace_id: @record_ids.fetch(:workspace)).delete_all
     CoachWorkspaceMembership.where(coach_workspace_id: @record_ids.fetch(:workspace)).delete_all
+    delete_workspace_brand_records(@record_ids.fetch(:workspace))
     CoachWorkspace.where(id: @record_ids.fetch(:workspace)).delete_all
     User.where(id: @record_ids.fetch(:users)).delete_all
   end

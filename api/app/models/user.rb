@@ -42,6 +42,18 @@ class User < ApplicationRecord
   has_many :edited_cohort_experience_configurations, class_name: "CohortExperienceConfiguration", foreign_key: :last_edited_by_user_id, dependent: :restrict_with_exception, inverse_of: :last_edited_by_user
   has_many :published_cohort_experience_versions, class_name: "CohortExperienceVersion", foreign_key: :published_by_user_id, dependent: :restrict_with_exception, inverse_of: :published_by_user
   has_many :cohort_experience_publication_events, foreign_key: :actor_user_id, dependent: :restrict_with_exception, inverse_of: :actor_user
+  has_many :edited_workspace_brand_configurations, class_name: "WorkspaceBrandConfiguration", foreign_key: :last_edited_by_user_id,
+    dependent: :restrict_with_exception, inverse_of: :last_edited_by_user
+  has_many :published_workspace_brand_versions, class_name: "WorkspaceBrandVersion", foreign_key: :published_by_user_id,
+    dependent: :restrict_with_exception, inverse_of: :published_by_user
+  has_many :workspace_brand_publication_events, foreign_key: :actor_user_id,
+    dependent: :restrict_with_exception, inverse_of: :actor_user
+  has_many :created_workspace_domains, class_name: "CoachWorkspaceDomain", foreign_key: :created_by_user_id,
+    dependent: :restrict_with_exception, inverse_of: :created_by_user
+  has_many :updated_workspace_domains, class_name: "CoachWorkspaceDomain", foreign_key: :updated_by_user_id,
+    dependent: :restrict_with_exception, inverse_of: :updated_by_user
+  has_many :coach_workspace_domain_events, foreign_key: :actor_user_id,
+    dependent: :restrict_with_exception, inverse_of: :actor_user
   has_many :cohort_memberships, dependent: :destroy
   has_many :cohorts, through: :cohort_memberships
   has_many :coach_workspace_memberships, dependent: :restrict_with_exception, inverse_of: :user

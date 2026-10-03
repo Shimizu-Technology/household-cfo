@@ -2,9 +2,10 @@
 
 module Mia
   class ParticipantRuntimeResolver
-    def initialize(user:, cohort_membership: nil)
+    def initialize(user:, cohort_membership: nil, coach_workspace: nil)
       @user = user
       @provided_membership = cohort_membership
+      @coach_workspace = coach_workspace
     end
 
     def call
@@ -28,7 +29,7 @@ module Mia
 
     private
 
-    attr_reader :user, :provided_membership
+    attr_reader :user, :provided_membership, :coach_workspace
 
     def resolve_in_transaction(&block)
       if ApplicationRecord.connection.transaction_open?
@@ -39,10 +40,16 @@ module Mia
     end
 
     def resolved_membership
-      membership = provided_membership || EffectiveCohortResolver.new(user: user, role: "participant").call
+      membership = if coach_workspace
+        provided_membership
+      else
+        provided_membership || EffectiveCohortResolver.new(user: user, role: "participant").call
+      end
       return unless membership
 
-      CohortMembership.includes(cohort: :active_cohort_release).find_by(
+      relation = CohortMembership.includes(cohort: :active_cohort_release)
+      relation = relation.joins(:cohort).where(cohorts: { coach_workspace_id: coach_workspace.id }) if coach_workspace
+      relation.find_by(
         id: membership.id,
         user_id: user.id,
         role: "participant"

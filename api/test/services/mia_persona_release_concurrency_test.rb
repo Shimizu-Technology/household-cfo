@@ -196,6 +196,7 @@ class MiaPersonaReleaseConcurrencyTest < ActiveSupport::TestCase
     CoachPersona.where(id: @record_ids[:persona]).delete_all
     CoachProfile.where(coach_workspace_id: @record_ids[:workspace]).delete_all
     CoachWorkspaceMembership.where(coach_workspace_id: @record_ids[:workspace]).delete_all
+    delete_workspace_brand_records(@record_ids[:workspace])
     CoachWorkspace.where(id: @record_ids[:workspace]).delete_all
     User.where(id: @record_ids[:users]).delete_all
   end
