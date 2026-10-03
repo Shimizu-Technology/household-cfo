@@ -326,8 +326,10 @@ describe('cohort rollout API contract', () => {
     futurePayload.cohort_rollout_studio.rollouts[0].runtime_mode = 'future_mode'
     fetchMock.mockResolvedValueOnce(jsonResponse(futurePayload))
     const failClosedStudio = await fetchCohortRolloutStudio(12)
-    expect(failClosedStudio.open_rollout?.runtime_mode).toBe('legacy_record_only_v1')
-    expect(failClosedStudio.rollouts[0].runtime_mode).toBe('legacy_record_only_v1')
+    expect(failClosedStudio.open_rollout?.runtime_mode).toBe('future_mode')
+    expect(failClosedStudio.rollouts[0].runtime_mode).toBe('future_mode')
+    expect(failClosedStudio.open_rollout?.permissions).toMatchObject({ advance: false, pause: false, resume: false, cancel: false, rollback: false })
+    expect(failClosedStudio.open_rollout?.permissions.advance_blockers).toContain('This app does not recognize the rollout runtime mode. Reload after updating the app.')
   })
 
   it('bounds a stalled mutation and preserves the caller-owned retry key', async () => {

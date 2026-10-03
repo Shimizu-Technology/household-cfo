@@ -221,7 +221,6 @@ describe('CohortRolloutStudio', () => {
   })
 
   it('fails an unknown future runtime mode closed without live-runtime claims or controls', async () => {
-    const user = userEvent.setup()
     const studio = activeRolloutStudio('active')
     const rollout = studio.open_rollout!
     ;(rollout as unknown as { runtime_mode: string }).runtime_mode = 'future_mode'
@@ -229,19 +228,24 @@ describe('CohortRolloutStudio', () => {
     rollout.waves.forEach((wave) => wave.participants.forEach((participant) => { participant.exposed = true }))
     renderStudio(studio)
 
-    expect(await screen.findByText('Pre-cutover rollout · record only')).toBeTruthy()
-    expect(screen.getByText('This legacy rollout cannot activate participant release runtime. Close it before planning a runtime rollout.')).toBeTruthy()
+    expect(await screen.findByText('Update required before rollout changes')).toBeTruthy()
+    expect(screen.getByText(/does not recognize runtime mode “future_mode”/)).toBeTruthy()
     expect(screen.queryByText('Live now')).toBeNull()
     expect(screen.queryByText(/Exposed · Release/)).toBeNull()
     expect(screen.queryByText('Runtime changed')).toBeNull()
-    expect(screen.getByText(/Active · Wave 1 · Legacy record only/)).toBeTruthy()
-    expect(screen.getAllByText(/Legacy record · Using Release/)).toHaveLength(2)
+    expect(screen.getByText(/Active · Wave 1 · Runtime mode unavailable/)).toBeTruthy()
+    expect(screen.getAllByText(/Runtime unavailable · Using Release/)).toHaveLength(2)
+    expect(screen.getByText('Lifecycle changes are blocked until this app understands the returned runtime mode.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Review|rollout/i })).toBeNull()
+  })
 
-    await user.click(screen.getByRole('button', { name: 'Review rollback' }))
-    const dialog = screen.getByRole('dialog', { name: 'Close this pre-cutover rollout?' })
-    expect(within(dialog).getByText('This records a legacy rollback and closes the pre-cutover rollout without changing participant runtime.')).toBeTruthy()
-    expect(within(dialog).getByRole('button', { name: 'Record legacy rollback' })).toBeTruthy()
-    expect(within(dialog).queryByRole('button', { name: 'Roll back participant runtime' })).toBeNull()
+  it.each([
+    { status: 'planned', label: '0 of 2 waves started' },
+    { status: 'active', label: 'Wave 1 of 2 active' },
+    { status: 'paused', label: 'Wave 1 of 2 paused' },
+  ] as const)('announces truthful rollout progress while $status', async ({ status, label }) => {
+    renderStudio(activeRolloutStudio(status))
+    expect(await screen.findByLabelText(label)).toBeTruthy()
   })
 
   it('refreshes stale evidence on a conflict and explains that runtime stays unchanged', async () => {

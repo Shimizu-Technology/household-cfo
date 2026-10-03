@@ -1902,7 +1902,7 @@ export type CohortRolloutTransition = {
 export type CohortRolloutRecord = {
   id: number
   status: string
-  runtime_mode: 'release_runtime_v2' | 'legacy_record_only_v1'
+  runtime_mode: string
   runtime_blocker: string | null
   target_release: CohortRolloutRelease
   baseline_release: CohortRolloutRelease | null
@@ -3701,13 +3701,15 @@ function normalizeRolloutRecord(value: unknown): CohortRolloutRecord | null {
   const targetRelease = normalizeRolloutRelease(raw.target_release)
   if (!summary || !targetRelease) return null
   const permissions = releaseRecord(raw.permissions)
+  const runtimeMode = normalizeRolloutRuntimeMode(raw.runtime_mode)
+  const runtimeModeSupported = runtimeMode === 'release_runtime_v2' || runtimeMode === 'legacy_record_only_v1'
   const rawWaves = Array.isArray(raw.waves) ? raw.waves : []
   const rawTransitions = Array.isArray(raw.transitions) ? raw.transitions : []
 
   return {
     ...summary,
     target_release: targetRelease,
-    runtime_mode: normalizeRolloutRuntimeMode(raw.runtime_mode),
+    runtime_mode: runtimeMode,
     runtime_blocker: releaseNullableString(raw.runtime_blocker),
     baseline_release: normalizeRolloutRelease(raw.baseline_release),
     rollback_candidate: normalizeRolloutRelease(raw.rollback_candidate),
@@ -3715,13 +3717,13 @@ function normalizeRolloutRecord(value: unknown): CohortRolloutRecord | null {
     next_wave_readiness_digest: releaseString(raw.next_wave_readiness_digest),
     next_wave_position: releaseNullableInteger(raw.next_wave_position),
     permissions: {
-      advance: releaseBoolean(permissions.advance),
-      pause: releaseBoolean(permissions.pause),
-      resume: releaseBoolean(permissions.resume),
-      cancel: releaseBoolean(permissions.cancel),
-      rollback: releaseBoolean(permissions.rollback),
-      advance_blockers: releaseStrings(permissions.advance_blockers),
-      rollback_blockers: releaseStrings(permissions.rollback_blockers),
+      advance: runtimeModeSupported && releaseBoolean(permissions.advance),
+      pause: runtimeModeSupported && releaseBoolean(permissions.pause),
+      resume: runtimeModeSupported && releaseBoolean(permissions.resume),
+      cancel: runtimeModeSupported && releaseBoolean(permissions.cancel),
+      rollback: runtimeModeSupported && releaseBoolean(permissions.rollback),
+      advance_blockers: runtimeModeSupported ? releaseStrings(permissions.advance_blockers) : ['This app does not recognize the rollout runtime mode. Reload after updating the app.'],
+      rollback_blockers: runtimeModeSupported ? releaseStrings(permissions.rollback_blockers) : ['This app does not recognize the rollout runtime mode. Reload after updating the app.'],
     },
     waves: rawWaves.map((value) => {
       const wave = releaseRecord(value)
@@ -3793,7 +3795,7 @@ function normalizeRolloutRelease(value: unknown): CohortRolloutRelease | null {
 }
 
 function normalizeRolloutRuntimeMode(value: unknown): CohortRolloutRecord['runtime_mode'] {
-  return releaseString(value) === 'release_runtime_v2' ? 'release_runtime_v2' : 'legacy_record_only_v1'
+  return releaseString(value) || 'unsupported'
 }
 
 function normalizeRolloutParticipant(value: unknown): CohortRolloutParticipant | null {
