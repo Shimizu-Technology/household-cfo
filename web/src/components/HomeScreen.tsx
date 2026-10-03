@@ -7,6 +7,7 @@ import {
 import { budgetPositionsForMonth, budgetPositionTotals } from '../lib/budgetPosition'
 import { Metric } from './Metric'
 import { sumMoney } from '../lib/moneyMath'
+import { useBrand } from '../contexts/brandContextValue'
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 
@@ -27,6 +28,7 @@ type HomeScreenProps = {
 }
 
 export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions }: HomeScreenProps) {
+  const { brand, assistantName } = useBrand()
   const actionCenter = dashboard.action_center
   const currentPlan = budget.annual_plan?.year === actionCenter.current_year ? budget.annual_plan : null
   const currentMonthIndex = Math.max(0, Math.min(11, actionCenter.current_month_index))
@@ -46,14 +48,14 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
         <p>Review what needs your call, see where the month sits inside the annual plan, and make one next move.</p>
       </div>
 
-      <section className="home-action-center" aria-label="Household CFO action center">
+      <section className="home-action-center" aria-label={`${brand.product_name} action center`}>
         <article className={`home-review-card ${actionCenter.total_review_count > 0 ? 'has-reviews' : 'is-clear'}`}>
           <span>What needs review?</span>
           <strong>{actionCenter.total_review_count}</strong>
-          <p>{actionCenter.total_review_count === 0 ? 'You are caught up. New transactions and Mia changes will wait here for your approval.' : 'Pending items do not change actuals or the plan until you approve them.'}</p>
+          <p>{actionCenter.total_review_count === 0 ? `You are caught up. New transactions and ${assistantName} changes will wait here for your approval.` : 'Pending items do not change actuals or the plan until you approve them.'}</p>
           <div className="home-review-actions">
             {actionCenter.transaction_review_count > 0 && <button type="button" onClick={onReviewTransactions}>Review {actionCenter.transaction_review_count} transaction{actionCenter.transaction_review_count === 1 ? '' : 's'}</button>}
-            {actionCenter.mia_action_review_count > 0 && <button type="button" className="subtle" onClick={onReviewMiaActions}>Review {actionCenter.mia_action_review_count} Mia change{actionCenter.mia_action_review_count === 1 ? '' : 's'}</button>}
+            {actionCenter.mia_action_review_count > 0 && <button type="button" className="subtle" onClick={onReviewMiaActions}>Review {actionCenter.mia_action_review_count} {assistantName} change{actionCenter.mia_action_review_count === 1 ? '' : 's'}</button>}
           </div>
         </article>
 
@@ -83,7 +85,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           <p className="eyebrow">One next move</p>
           <h3>{dashboard.coach_read.title}</h3>
           <p>{dashboard.coach_read.body}</p>
-          <button type="button" onClick={onAskMia}>Tell Mia what changed</button>
+          <button type="button" onClick={onAskMia}>Tell {assistantName} what changed</button>
         </article>
         <div className="card-list">
           {dashboard.alerts.map((alert) => (
@@ -161,7 +163,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           </section>
 
           <article className="next-steps">
-            <h3>This week’s household CFO rhythm</h3>
+            <h3>This week’s coaching rhythm</h3>
             <ol>
               {dashboard.next_steps.map((step) => <li key={step}>{step}</li>)}
             </ol>

@@ -57,6 +57,15 @@ export type BrandRuntime = {
   config: BrandConfig
 }
 
+export type PublicBrandResponse = {
+  brand: BrandConfig
+  source: string
+  available: boolean
+  workspace: null | { slug: string }
+  version: null | { number: number; digest: string }
+  primary_domain: string | null
+}
+
 export type WorkspaceData = {
   mode: 'demo' | 'real'
   household_id: number | null
@@ -2163,6 +2172,13 @@ const SAFE_READ_REQUEST_TIMEOUT_MS = 30_000
 const MIA_REQUEST_TIMEOUT_MS = 90_000
 const FILE_UPLOAD_TIMEOUT_MS = 180_000
 const EXTRACTION_REQUEST_TIMEOUT_MS = 300_000
+const BRAND_HEX_COLOR = /^#[0-9a-f]{6}$/
+const BRAND_COLOR_KEYS = [
+  'background', 'surface', 'surface_muted', 'text', 'text_muted', 'border', 'primary', 'primary_hover', 'primary_soft',
+  'accent', 'on_primary', 'focus',
+] as const
+const BRAND_DISPLAY_FONTS = new Set(['cormorant_garamond', 'lora', 'merriweather', 'playfair_display', 'source_serif_4', 'system_serif'])
+const BRAND_BODY_FONTS = new Set(['inter', 'montserrat', 'nunito_sans', 'source_sans_3', 'system_sans'])
 let authTokenGetter: AuthTokenGetter | null = null
 let activeCoachWorkspaceId = readStoredCoachWorkspaceId()
 
@@ -2211,6 +2227,108 @@ function browserHostIsLocal() {
   if (typeof window === 'undefined') return true
 
   return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
+}
+
+export function browserBrandHostname() {
+  if (typeof window === 'undefined') return 'localhost'
+
+  return window.location.hostname.trim().toLowerCase().replace(/^\[(.*)\]$/, '$1')
+}
+
+function optionalString(value: unknown) {
+  return value === null || typeof value === 'string'
+}
+
+function validHttpsUrl(value: unknown) {
+  if (value === null) return true
+  if (typeof value !== 'string' || value.length > 2_048) return false
+
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && Boolean(url.hostname) && !url.username && !url.password && !url.hash
+  } catch {
+    return false
+  }
+}
+
+function isBrandConfig(value: unknown): value is BrandConfig {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const config = value as Record<string, unknown>
+  const support = config.support as Record<string, unknown> | undefined
+  const colors = config.colors as Record<string, unknown> | undefined
+  const typography = config.typography as Record<string, unknown> | undefined
+  const footer = config.footer as Record<string, unknown> | undefined
+
+  return config.schema_version === 1
+    && typeof config.product_name === 'string'
+    && typeof config.short_name === 'string'
+    && typeof config.organization_name === 'string'
+    && typeof config.participant_role_term === 'string'
+    && optionalString(config.powered_by_name)
+    && ['hidden', 'header', 'footer'].includes(String(config.powered_by_placement))
+    && optionalString(config.tagline)
+    && optionalString(config.welcome_heading)
+    && optionalString(config.welcome_description)
+    && validHttpsUrl(config.logo_url)
+    && validHttpsUrl(config.favicon_url)
+    && Boolean(support)
+    && optionalString(support?.label)
+    && optionalString(support?.email)
+    && validHttpsUrl(support?.url)
+    && Boolean(colors)
+    && BRAND_COLOR_KEYS.every((key) => typeof colors?.[key] === 'string' && BRAND_HEX_COLOR.test(String(colors[key])))
+    && Boolean(typography)
+    && BRAND_DISPLAY_FONTS.has(String(typography?.display))
+    && BRAND_BODY_FONTS.has(String(typography?.body))
+    && Boolean(footer)
+    && optionalString(footer?.text)
+    && validHttpsUrl(footer?.privacy_url)
+    && validHttpsUrl(footer?.terms_url)
+}
+
+function parsePublicBrandResponse(value: unknown): PublicBrandResponse {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('The coaching program returned an invalid brand configuration.')
+  const payload = value as Record<string, unknown>
+  if (!isBrandConfig(payload.brand) || typeof payload.available !== 'boolean' || typeof payload.source !== 'string') {
+    throw new Error('The coaching program returned an invalid brand configuration.')
+  }
+
+  return {
+    brand: payload.brand,
+    source: payload.source,
+    available: payload.available,
+    workspace: payload.workspace && typeof payload.workspace === 'object' && typeof (payload.workspace as Record<string, unknown>).slug === 'string'
+      ? { slug: (payload.workspace as { slug: string }).slug }
+      : null,
+    version: payload.version && typeof payload.version === 'object'
+      && Number.isSafeInteger((payload.version as Record<string, unknown>).number)
+      && typeof (payload.version as Record<string, unknown>).digest === 'string'
+      ? { number: (payload.version as { number: number }).number, digest: (payload.version as { digest: string }).digest }
+      : null,
+    primary_domain: typeof payload.primary_domain === 'string' ? payload.primary_domain : null,
+  }
+}
+
+export async function fetchPublicBrand(hostname = browserBrandHostname(), signal?: AbortSignal): Promise<PublicBrandResponse> {
+  const normalizedHostname = hostname.trim().toLowerCase().replace(/^\[(.*)\]$/, '$1')
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}/api/public/brand?hostname=${encodeURIComponent(normalizedHostname)}`, {
+      signal,
+      credentials: 'omit',
+    })
+  } catch (error) {
+    if (signal?.aborted) throw error
+    throw new Error(apiNetworkErrorMessage('Branding could not reach the coaching program'), { cause: error })
+  }
+
+  if (response.status !== 200 && response.status !== 404) throw await apiRequestError(response, 'Branding request failed')
+  try {
+    return parsePublicBrandResponse(await response.json())
+  } catch (error) {
+    if (error instanceof Error && error.message === 'The coaching program returned an invalid brand configuration.') throw error
+    throw new Error('The coaching program returned an invalid brand configuration.', { cause: error })
+  }
 }
 
 function apiNetworkErrorMessage(action: string) {
@@ -2303,10 +2421,17 @@ async function fetchWithDeadline(
 
 async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortSignal) {
   try {
+    const callerHeaders = options.headers instanceof Headers
+      ? Object.fromEntries(options.headers.entries())
+      : Array.isArray(options.headers)
+        ? Object.fromEntries(options.headers)
+        : { ...(options.headers ?? {}) }
+    const safeCallerHeaders = Object.fromEntries(Object.entries(callerHeaders).filter(([name]) => name.toLowerCase() !== 'x-brand-hostname'))
     const headers = {
       ...(await authHeaders()),
       ...(activeCoachWorkspaceId ? { 'X-Coach-Workspace-Id': String(activeCoachWorkspaceId) } : {}),
-      ...(options.headers as Record<string, string> | undefined),
+      ...safeCallerHeaders,
+      'X-Brand-Hostname': browserBrandHostname(),
     }
     return fetch(`${API_BASE}${path}`, {
       ...options,
@@ -2375,13 +2500,13 @@ async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T>
       body: JSON.stringify(body),
     }, {
       timeoutMs: MIA_REQUEST_TIMEOUT_MS,
-      timeoutMessage: 'Mia took too long to finish this request.',
+      timeoutMessage: 'Your assistant took too long to finish this request.',
     })
 
     if (response.status === 202) {
       const payload = response.payload as { code?: string; retry_after_ms?: number }
       if (payload.code !== 'mia_request_processing') {
-        throw new Error('Mia returned an unexpected processing response. Please try again.')
+        throw new Error('Your assistant returned an unexpected processing response. Please try again.')
       }
 
       const retryAfter = Math.max(100, Math.min(payload.retry_after_ms ?? 500, 2_000))
@@ -2392,7 +2517,7 @@ async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T>
     return response.payload as T
   }
 
-  throw new Error('Mia is still working on that exact request. Wait a moment, then try again; your retry will not create a duplicate.')
+  throw new Error('Your assistant is still working on that exact request. Wait a moment, then try again; your retry will not create a duplicate.')
 }
 
 async function responseErrorMessage(response: Response, fallback: string) {
@@ -2462,9 +2587,8 @@ export async function submitPilotFeedback(values: PilotFeedbackInput): Promise<P
 
   let response: Response
   try {
-    response = await fetch(`${API_BASE}/api/v1/pilot_feedback_reports`, {
+    response = await apiFetch('/api/v1/pilot_feedback_reports', {
       method: 'POST',
-      headers: await authHeaders(),
       body: formData,
     })
   } catch (error) {
@@ -3602,7 +3726,7 @@ export async function sendMiaMessage(message: string, history: MiaMessage[] = []
     ? postJsonUntilComplete<MiaMessageResponse>(path, body)
     : postJson<MiaMessageResponse>(path, body, {
         timeoutMs: MIA_REQUEST_TIMEOUT_MS,
-        timeoutMessage: 'Mia took too long to finish this request.',
+        timeoutMessage: 'Your assistant took too long to finish this request.',
       })
 }
 
@@ -4192,9 +4316,8 @@ export async function transcribeMiaVoice(audio: Blob): Promise<string> {
 
   let response: Response
   try {
-    response = await fetch(`${API_BASE}/api/v1/mia/transcriptions`, {
+    response = await apiFetch('/api/v1/mia/transcriptions', {
       method: 'POST',
-      headers: await authHeaders(),
       body: formData,
     })
   } catch (error) {

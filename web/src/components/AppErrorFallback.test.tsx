@@ -1,22 +1,21 @@
-import { Children, isValidElement } from 'react'
-import type { ReactElement, ReactNode } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+// @vitest-environment jsdom
+
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppErrorFallback } from './AppErrorFallback'
 
-describe('AppErrorFallback', () => {
-  it('explains the safe state and wires retry to the error-boundary reset', () => {
-    const resetError = vi.fn()
-    const fallback = AppErrorFallback({ resetError })
-    const markup = renderToStaticMarkup(fallback)
-    const section = Children.only(fallback.props.children) as ReactElement<{ children: ReactNode }>
-    const retry = Children.toArray(section.props.children).find((child) => (
-      isValidElement<{ onClick?: () => void }>(child) && child.type === 'button'
-    )) as ReactElement<{ onClick: () => void }>
+afterEach(() => cleanup())
 
-    expect(markup).toContain('This screen hit an unexpected problem.')
-    expect(markup).toContain('verify any changes you made just before the error')
-    retry.props.onClick()
+describe('AppErrorFallback', () => {
+  it('explains the safe state and wires retry to the error-boundary reset', async () => {
+    const resetError = vi.fn()
+    render(<AppErrorFallback resetError={resetError} />)
+
+    expect(screen.getByText('This screen hit an unexpected problem.')).toBeTruthy()
+    expect(screen.getByText(/verify any changes you made just before the error/)).toBeTruthy()
+    expect(screen.getByText('VERA')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(resetError).toHaveBeenCalledOnce()
   })
 })

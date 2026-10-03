@@ -1,64 +1,37 @@
-export const SITE_NAME = 'Household CFO Method powered by VERA'
-export const DEFAULT_TITLE = `${SITE_NAME} | Run your home like the C-Suite`
-export const DEFAULT_DESCRIPTION = "A private first-cohort money coaching workspace for building an annual household budget rhythm, tracking running totals, and getting Mia's AI coaching on the next CFO call."
-export const DEFAULT_KEYWORDS = 'household CFO method, VERA, Mia, financial coaching, budget coaching, Guam financial education'
-export const THEME_COLOR = '#7b4a58'
+import type { BrandConfig } from '../api'
 
-const sectionSeo: Record<string, { title: string; description: string; robots?: string }> = {
-  Home: {
-    title: DEFAULT_TITLE,
-    description: DEFAULT_DESCRIPTION,
-  },
-  'Ask Mia': {
-    title: `Ask Mia | ${SITE_NAME}`,
-    description: 'Ask Mia private household finance questions with clearly labeled bank-observed activity, confirmed actuals, budget, debt, and runway context.',
-    robots: 'noindex,nofollow',
-  },
-  Review: {
-    title: `Review Transactions | ${SITE_NAME}`,
-    description: 'Review bank-observed activity, categorize transactions, and control which records become official household budget actuals.',
-    robots: 'noindex,nofollow',
-  },
-  'My Profile': {
-    title: `My Profile | ${SITE_NAME}`,
-    description: 'Review and update private household profile, budget, income, debt, assets, and document imports for Mia.',
-    robots: 'noindex,nofollow',
-  },
-  Budget: {
-    title: `Budget | ${SITE_NAME}`,
-    description: 'Review household expense stack, breathing room, and spending pressure in a private Household CFO workspace.',
-    robots: 'noindex,nofollow',
-  },
-  Wealth: {
-    title: `Wealth | ${SITE_NAME}`,
-    description: 'Review household assets, debts, net worth, and financial runway in a private Household CFO workspace.',
-    robots: 'noindex,nofollow',
-  },
-  'CFO Filter': {
-    title: `CFO Filter | ${SITE_NAME}`,
-    description: 'Use Mia’s CFO filter to sort urgent household money decisions from noise.',
-    robots: 'noindex,nofollow',
-  },
-  Optionality: {
-    title: `Optionality | ${SITE_NAME}`,
-    description: 'Model optionality and runway for the next household decision with Mia.',
-    robots: 'noindex,nofollow',
-  },
-  Admin: {
-    title: `Admin | ${SITE_NAME}`,
-    description: 'Secure cohort, user, and invitation management for Household CFO staff.',
-    robots: 'noindex,nofollow',
-  },
-}
+export const SITE_NAME = 'VERA'
+export const DEFAULT_TITLE = 'VERA | Secure coaching workspace'
+export const DEFAULT_DESCRIPTION = 'A secure coaching workspace for reviewing information, planning next steps, and working with your program assistant.'
+export const DEFAULT_KEYWORDS = 'VERA, coaching workspace, planning assistant'
+export const THEME_COLOR = '#536a63'
+
+type SeoRoute = { title: string; description: string; robots?: string }
 
 export function getSiteUrl() {
+  if (typeof window !== 'undefined') return window.location.origin
+
   const envUrl = import.meta.env.VITE_SITE_URL as string | undefined
   if (envUrl) return envUrl.replace(/\/$/, '')
-  if (typeof window !== 'undefined') return window.location.origin
   return 'https://household-cfo.netlify.app'
 }
 
-export function getSectionSeo(section: string) {
+export function getSectionSeo(section: string, brand?: BrandConfig, assistantName = 'your assistant'): SeoRoute {
+  const siteName = brand?.product_name || SITE_NAME
+  const tagline = brand?.tagline?.trim()
+  const homeDescription = brand?.welcome_description?.trim() || tagline || DEFAULT_DESCRIPTION
+  const title = (label: string) => `${label} | ${siteName}`
+  const sectionSeo: Record<string, SeoRoute> = {
+    Home: { title: tagline ? `${siteName} | ${tagline}` : siteName, description: homeDescription },
+    'Ask Mia': { title: title(`Ask ${assistantName}`), description: `Ask ${assistantName} private household finance questions using approved profile, plan, debt, runway, and bank activity context.`, robots: 'noindex,nofollow' },
+    Review: { title: title('Review Transactions'), description: 'Review activity and control which records become official household budget actuals.', robots: 'noindex,nofollow' },
+    'My Profile': { title: title('My Profile'), description: `Review and update the private household information ${assistantName} may use.`, robots: 'noindex,nofollow' },
+    Budget: { title: title('Budget'), description: 'Review household income, expenses, breathing room, and spending pressure.', robots: 'noindex,nofollow' },
+    Wealth: { title: title('Wealth'), description: 'Review household assets, debts, net worth, and financial runway.', robots: 'noindex,nofollow' },
+    'CFO Filter': { title: title('CFO Filter'), description: `Use ${assistantName} to sort urgent household money decisions from noise.`, robots: 'noindex,nofollow' },
+    Optionality: { title: title('Optionality'), description: `Model optionality and runway for the next household decision with ${assistantName}.`, robots: 'noindex,nofollow' },
+    Admin: { title: title('Admin'), description: `Secure cohort, user, and invitation management for ${siteName} staff.`, robots: 'noindex,nofollow' },
+  }
   return sectionSeo[section] || sectionSeo.Home
 }
 
@@ -70,14 +43,16 @@ export function socialImageUrl() {
   return `${getSiteUrl()}/og-image.png`
 }
 
-export function webApplicationStructuredData() {
+export function webApplicationStructuredData(brand?: BrandConfig) {
+  const name = brand?.product_name || SITE_NAME
+  const description = brand?.welcome_description?.trim() || brand?.tagline?.trim() || DEFAULT_DESCRIPTION
   return {
     '@context': 'https://schema.org',
     '@type': 'WebApplication',
-    name: SITE_NAME,
+    name,
     url: canonicalUrl(),
     applicationCategory: 'FinanceApplication',
     operatingSystem: 'Web',
-    description: DEFAULT_DESCRIPTION,
+    description,
   }
 }

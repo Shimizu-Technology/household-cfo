@@ -98,6 +98,7 @@ import type {
   AdminUserMutationResponse,
   AnnualBudgetPlan,
   AppData,
+  BrandConfig,
   BudgetCategoryMonth,
   BudgetCategoryRow,
   BudgetData,
@@ -138,6 +139,9 @@ import type {
 } from './api'
 import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
+import { BrandRuntimeProvider } from './contexts/BrandContext'
+import { useBrand } from './contexts/brandContextValue'
+import { BrandDocument } from './components/BrandDocument'
 import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload, trackPilotWorkflowFailure } from './lib/analytics'
 
 const currency = new Intl.NumberFormat('en-US', {
@@ -297,7 +301,7 @@ const documentUploadCards: Array<{
     label: 'Budget file',
     eyebrow: 'Expense stack',
     accepts: '.xlsx,.xls,.csv,.pdf,.docx',
-    helper: 'Upload an Excel workbook, CSV, PDF, or Word budget. Mia drafts income, expenses, assets, and debts for review.',
+    helper: 'Upload an Excel workbook, CSV, PDF, or Word budget. Your assistant drafts income, expenses, assets, and debts for review.',
     sizeGuidance: 'PDF up to 12 MB · CSV, Excel, and Word up to 20 MB',
   },
   {
@@ -321,7 +325,7 @@ const documentUploadCards: Array<{
     label: 'Receipt or quick evidence',
     eyebrow: 'Quick evidence',
     accepts: '.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
-    helper: 'Upload a receipt, PDF, or photo so Mia can draft a reviewable transaction, including split receipts like groceries plus cigarettes.',
+    helper: 'Upload a receipt, PDF, or photo so your assistant can draft a reviewable transaction, including split receipts like groceries plus cigarettes.',
     sizeGuidance: 'Images and PDFs up to 12 MB',
   },
 ]
@@ -415,8 +419,58 @@ function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSet
   return values
 }
 
+function brandByline(brand: BrandConfig) {
+  if (brand.powered_by_placement === 'header' && brand.powered_by_name) {
+    return `${brand.organization_name} powered by ${brand.powered_by_name}`
+  }
+  return brand.organization_name
+}
+
+function assistantInitial(name: string) {
+  return Array.from(name.trim())[0]?.toUpperCase() ?? 'A'
+}
+
+function BrandLogo({ brand }: { brand: BrandConfig }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  const showLogo = Boolean(brand.logo_url && failedUrl !== brand.logo_url)
+
+  return showLogo ? (
+    <img
+      className="shell-brand-logo"
+      src={brand.logo_url ?? undefined}
+      alt=""
+      referrerPolicy="no-referrer"
+      onError={() => setFailedUrl(brand.logo_url)}
+    />
+  ) : null
+}
+
+function BrandFooter() {
+  const { brand } = useBrand()
+  const supportHref = brand.support.url ?? (brand.support.email ? `mailto:${brand.support.email}` : null)
+  const supportLabel = brand.support.label ?? (brand.support.email ? 'Contact support' : 'Support')
+  const hasLinks = Boolean(supportHref || brand.footer.privacy_url || brand.footer.terms_url)
+  const poweredBy = brand.powered_by_placement === 'footer' ? brand.powered_by_name : null
+  if (!brand.footer.text && !hasLinks && !poweredBy) return null
+
+  return (
+    <footer className="brand-footer">
+      <div>
+        {brand.footer.text && <p>{brand.footer.text}</p>}
+        {poweredBy && <small>Powered by {poweredBy}</small>}
+      </div>
+      {hasLinks && <nav aria-label="Program support and policies">
+        {supportHref && <a href={supportHref} target={brand.support.url ? '_blank' : undefined} rel={brand.support.url ? 'noreferrer' : undefined}>{supportLabel}</a>}
+        {brand.footer.privacy_url && <a href={brand.footer.privacy_url} target="_blank" rel="noreferrer">Privacy</a>}
+        {brand.footer.terms_url && <a href={brand.footer.terms_url} target="_blank" rel="noreferrer">Terms</a>}
+      </nav>}
+    </footer>
+  )
+}
+
 function App() {
   const auth = useAuthContext()
+  const publicBrand = useBrand()
   const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isClerkEnabled || Boolean(auth.currentUser))
   const [data, setData] = useState<AppData | null>(null)
   const [workspaceLoadAttempt, setWorkspaceLoadAttempt] = useState(0)
@@ -521,6 +575,7 @@ function App() {
   const e2eRealWorkspace = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && Boolean(auth.currentUser)
   const shouldUseRealWorkspace = auth.isClerkEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
+  const assistantName = data?.profile.coach.name.trim() || 'your assistant'
   const isFirstSessionSetup = Boolean(isRealWorkspace && !data?.workspace?.setup_complete)
   const canResumePlaidOAuthReturn = Boolean(
     hasPendingPlaidOAuthReturn()
@@ -691,9 +746,9 @@ function App() {
         setOlderServerMessageCount(mia.older_message_count)
       }
     } catch (caught) {
-      if (!quiet) setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be refreshed.')
+      if (!quiet) setMiaError(caught instanceof Error ? caught.message : `${assistantName} chat could not be refreshed.`)
     }
-  }, [chatStorageKey, isRealWorkspace, miaLoading])
+  }, [assistantName, chatStorageKey, isRealWorkspace, miaLoading])
 
   const refreshSpendingReport = useCallback(async ({ startsOn = selectedBudgetMonthStartsOn, endsOn = selectedBudgetMonthEndsOn, quiet = true }: { startsOn?: string | null; endsOn?: string | null; quiet?: boolean } = {}) => {
     if (!isRealWorkspace || !startsOn || !endsOn) {
@@ -751,7 +806,7 @@ function App() {
       })
       .catch((caught) => {
         if (cancelled) return
-        setError(caught instanceof Error ? caught.message : 'Mia’s workspace is offline for a moment. Check your connection and try again.')
+        setError(caught instanceof Error ? caught.message : 'Your workspace is offline for a moment. Check your connection and try again.')
       })
 
     return () => {
@@ -1019,7 +1074,7 @@ function App() {
     if (chunks.length === 0) {
       trackPilotWorkflowFailure('voice', 'no_audio')
       setVoiceNotice(null)
-      setMiaError("I couldn't hear anything in that recording. Try again or type the note for Mia.")
+      setMiaError(`I couldn't hear anything in that recording. Try again or type the note for ${assistantName}.`)
       return
     }
 
@@ -1029,21 +1084,21 @@ function App() {
       const transcript = (await transcribeMiaVoice(new Blob(chunks, { type: mimeType || 'audio/webm' }))).trim()
       if (!transcript) {
         trackPilotWorkflowFailure('voice', 'empty_transcript')
-        setMiaError("I couldn't turn that recording into text. Try again or type the note for Mia.")
+        setMiaError(`I couldn't turn that recording into text. Try again or type the note for ${assistantName}.`)
         return
       }
 
       setQuestion((current) => current.trim() ? `${current.trimEnd()}\n${transcript}` : transcript)
-      setVoiceNotice('Transcript ready — review it before sending. Mia will only stage drafts for you to confirm.')
+      setVoiceNotice(`Transcript ready — review it before sending. ${assistantName} will only stage drafts for you to confirm.`)
       setMiaError(null)
       window.setTimeout(() => composerRef.current?.focus(), 0)
     } catch (error) {
       trackPilotWorkflowFailure('voice', 'transcription')
-      setMiaError(error instanceof Error ? error.message : 'Voice transcription failed. Try again or type your note for Mia.')
+      setMiaError(error instanceof Error ? error.message : `Voice transcription failed. Try again or type your note for ${assistantName}.`)
     } finally {
       setVoiceTranscribing(false)
     }
-  }, [stopVoiceStream])
+  }, [assistantName, stopVoiceStream])
 
   useEffect(() => () => {
     const recorder = mediaRecorderRef.current
@@ -1078,7 +1133,7 @@ function App() {
       return
     }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setMiaError('Voice input is not available in this browser. You can still type your note for Mia.')
+      setMiaError(`Voice input is not available in this browser. You can still type your note for ${assistantName}.`)
       return
     }
 
@@ -1102,7 +1157,7 @@ function App() {
         recorder.onstop = null
         voiceChunksRef.current = []
         mediaRecorderRef.current = null
-        setMiaError('Voice recording stopped unexpectedly. Try again or type your note for Mia.')
+        setMiaError(`Voice recording stopped unexpectedly. Try again or type your note for ${assistantName}.`)
         setVoiceRecording(false)
         setVoiceTranscribing(false)
         setVoiceNotice(null)
@@ -1115,9 +1170,9 @@ function App() {
       trackPilotWorkflowFailure('voice', 'microphone_access')
       stopVoiceStream()
       setVoiceRecording(false)
-      setMiaError(error instanceof Error ? error.message : 'Microphone access was blocked. Allow microphone access or type your note for Mia.')
+      setMiaError(error instanceof Error ? error.message : `Microphone access was blocked. Allow microphone access or type your note for ${assistantName}.`)
     }
-  }, [handleVoiceRecordingComplete, isRealWorkspace, miaLoading, stopVoiceStream, voiceRecording, voiceTranscribing])
+  }, [assistantName, handleVoiceRecordingComplete, isRealWorkspace, miaLoading, stopVoiceStream, voiceRecording, voiceTranscribing])
 
   const switchSection = useCallback((section: string, options: {
     focusHeading?: boolean
@@ -1475,7 +1530,7 @@ function App() {
     const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
     if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading) return
     if (cleanPrompt.length > MIA_MESSAGE_MAX_LENGTH) {
-      setMiaError(`Mia messages must stay under ${MIA_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`)
+      setMiaError(`${assistantName} messages must stay under ${MIA_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`)
       return
     }
     if (attachmentsToSend.length > 0 && !isRealWorkspace) {
@@ -1610,7 +1665,7 @@ function App() {
         miaRetryRequestRef.current = pendingRetryRequest
         if (isRealWorkspace) saveMiaRetryRequest(chatStorageKey, pendingRetryRequest)
       }
-      setMiaError(caught instanceof Error ? caught.message : 'Mia could not send that message. Please try again.')
+      setMiaError(caught instanceof Error ? caught.message : `${assistantName} could not send that message. Please try again.`)
       const retryAttachments = caught instanceof MiaAttachmentError ? caught.attachments : preparedAttachmentsForRetry
       setPendingMiaAttachments((current) => [...retryAttachments, ...current])
     } finally {
@@ -1672,7 +1727,7 @@ function App() {
       })
     } catch (caught) {
       historyExpandedRef.current = historyWasExpanded
-      setMiaError(caught instanceof Error ? caught.message : 'Earlier Mia messages could not be loaded.')
+      setMiaError(caught instanceof Error ? caught.message : `Earlier ${assistantName} messages could not be loaded.`)
     } finally {
       setOlderMessagesLoading(false)
     }
@@ -1698,7 +1753,7 @@ function App() {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
       })
     } catch (caught) {
-      setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be cleared. Please try again.')
+      setMiaError(caught instanceof Error ? caught.message : `${assistantName} chat could not be cleared. Please try again.`)
     } finally {
       setMiaClearing(false)
     }
@@ -2010,7 +2065,7 @@ function App() {
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'mia_budget_action', resolution: 'applied' })
     } catch (caught) {
       trackPilotWorkflowFailure('mia_budget_review', 'apply')
-      const message = caught instanceof Error ? caught.message : 'Mia action draft could not be applied.'
+      const message = caught instanceof Error ? caught.message : `${assistantName} action draft could not be applied.`
       setBudgetError(message)
       setMiaError(message)
     } finally {
@@ -2039,7 +2094,7 @@ function App() {
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'mia_budget_action', resolution: 'canceled' })
     } catch (caught) {
       trackPilotWorkflowFailure('mia_budget_review', 'cancel')
-      const message = caught instanceof Error ? caught.message : 'Mia action draft could not be canceled.'
+      const message = caught instanceof Error ? caught.message : `${assistantName} action draft could not be canceled.`
       setBudgetError(message)
       setMiaError(message)
     } finally {
@@ -2287,7 +2342,7 @@ function App() {
       const documentImport = await uploadDocumentImport(uploadFile, kind, origin)
       setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
       setSelectedImportId(documentImport.id)
-      setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately. Mia is extracting draft values for review.`)
+      setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately. ${assistantName} is extracting draft values for review.`)
       trackDocumentUpload(kind, 'succeeded', uploadFile)
       captureAnalyticsEvent('document_import_created', {
         document_kind: kind,
@@ -2388,7 +2443,7 @@ function App() {
 
     const totalCount = currentAttachments.length
     const deadline = Date.now() + MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS
-    setMiaAttachmentNotice(`Reading all ${totalCount} attachment${totalCount === 1 ? '' : 's'} before Mia summarizes anything.`)
+    setMiaAttachmentNotice(`Reading all ${totalCount} attachment${totalCount === 1 ? '' : 's'} before ${assistantName} summarizes anything.`)
     while (pendingIds.length > 0 && Date.now() < deadline) {
       await sleep(1_800)
       const refreshedImports = await Promise.all(pendingIds.map((id) => fetchDocumentImport(id)))
@@ -2402,13 +2457,13 @@ function App() {
         .map((attachment) => attachment.document_import_id!)
       const completedCount = totalCount - pendingIds.length
       setMiaAttachmentNotice(pendingIds.length > 0
-        ? `Mia finished ${completedCount} of ${totalCount} attachments. Waiting for the rest before reporting findings.`
-        : `Mia finished all ${totalCount} attachments. Preparing the complete review queue.`)
+        ? `${assistantName} finished ${completedCount} of ${totalCount} attachments. Waiting for the rest before reporting findings.`
+        : `${assistantName} finished all ${totalCount} attachments. Preparing the complete review queue.`)
     }
 
     if (pendingIds.length > 0) {
       throw new MiaAttachmentProcessingError(
-        `Mia is still reading ${pendingIds.length} of ${totalCount} attachments. The uploads are saved; send the restored message again after processing finishes so Mia can report the complete result.`,
+        `${assistantName} is still reading ${pendingIds.length} of ${totalCount} attachments. The uploads are saved; send the restored message again after processing finishes so ${assistantName} can report the complete result.`,
         currentAttachments,
       )
     }
@@ -2436,7 +2491,7 @@ function App() {
           setData(refreshed)
           setSetupDraft(refreshed.workspace?.setup_values ? workspaceSetupDraftFromValues(refreshed.workspace.setup_values, refreshed.workspace.setup_status) : setupDraft)
           replaceMiaHistory(refreshed.mia)
-          setDocumentsNotice('Applied value updated. Dashboard and Mia context are refreshed.')
+          setDocumentsNotice(`Applied value updated. Dashboard and ${assistantName} context are refreshed.`)
         } catch {
           setDocumentsNotice('Applied value saved. Refresh the page if the dashboard does not update immediately.')
         }
@@ -2472,7 +2527,7 @@ function App() {
         && response.workspace.workspace?.debt_portfolio?.mode === 'summary'
       setDocumentsNotice(savedDebtInSummaryMode
         ? `${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Individual debt records were saved for review; the approved household summary still drives planning until you switch modes in Debt plan under My Profile.`
-        : `${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and Mia context are refreshed.`)
+        : `${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and ${assistantName} context are refreshed.`)
       captureAnalyticsEvent('document_import_applied', {
         document_kind: documentImport.document_kind,
         applied_count: response.applied_count,
@@ -2499,7 +2554,7 @@ function App() {
     try {
       const reprocessedImport = await reprocessDocumentImport(documentImport.id)
       setDocumentImports((current) => replaceImport(current, reprocessedImport))
-      setDocumentsNotice('Reprocessing started. The review panel will update when Mia finishes reading the document.')
+      setDocumentsNotice(`Reprocessing started. The review panel will update when ${assistantName} finishes reading the document.`)
     } catch (caught) {
       setDocumentsError(caught instanceof Error ? caught.message : 'Document could not be reprocessed.')
     } finally {
@@ -2668,7 +2723,7 @@ function App() {
   }
 
   if (auth.isClerkEnabled && (auth.isLoading || auth.isVerifyingApi)) {
-    return <AuthStatePanel title="Verifying your Household CFO Method access" copy="Mia is checking your secure cohort invitation before opening the workspace." />
+    return <AuthStatePanel title={`Verifying your ${publicBrand.brand.product_name} access`} copy="Checking your secure program invitation before opening the workspace." />
   }
 
   if (auth.isClerkEnabled && !auth.isSignedIn) {
@@ -2680,7 +2735,7 @@ function App() {
   }
 
   if (auth.isClerkEnabled && !auth.currentUser) {
-    return <AuthStatePanel title="Preparing your workspace" copy="Your Clerk session is ready. Household CFO is waiting for the cohort invitation check to finish." />
+    return <AuthStatePanel title="Preparing your workspace" copy={`${publicBrand.brand.product_name} is waiting for the invitation check to finish.`} />
   }
 
   if (!data) {
@@ -2688,9 +2743,9 @@ function App() {
       <main className="app loading-state">
         <SeoManager section="Home" />
         <section className="hero-panel">
-          <p className="eyebrow">Household CFO Method powered by VERA</p>
-          <h1>Loading your first cohort workspace.</h1>
-          <p role={error ? 'alert' : undefined}>{error ?? 'Pulling first cohort preview data...'}</p>
+          <p className="eyebrow">{brandByline(publicBrand.brand)}</p>
+          <h1>Loading your {publicBrand.brand.product_name} workspace.</h1>
+          <p role={error ? 'alert' : undefined}>{error ?? 'Pulling your program data…'}</p>
           {error && (
             <button type="button" className="workspace-retry-button" onClick={() => {
               setError(null)
@@ -2713,15 +2768,20 @@ function App() {
     ?? monthlySurplusAvailable * 12 * 10
   const debtBalanceKnown = data.wealth.summary.debt_balance_known !== false
   const debtMinimumsKnown = data.wealth.summary.debt_minimums_known !== false
+  const runtimeBrand = data.workspace.brand
+  const brand = runtimeBrand.config
 
-  return (
+  const workspace = (
     <main className="app">
       <SeoManager section={activeSection} />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{routeAnnouncement}</p>
       <header className="shell-header">
         <div className="shell-brand">
-          <p className="eyebrow">Household CFO Method powered by VERA</p>
-          <h1>Household CFO</h1>
+          <BrandLogo brand={brand} />
+          <div className="shell-brand-copy">
+            <p className="eyebrow">{brandByline(brand)}</p>
+            <h1>{brand.short_name}</h1>
+          </div>
           {data.workspace?.cohort && <span className="cohort-brand-chip">{data.workspace.cohort.name} cohort</span>}
         </div>
         <div className="shell-actions">
@@ -2736,12 +2796,12 @@ function App() {
             className="shell-mia-button"
             variant="secondary"
             size="compact"
-            aria-label="Open Mia"
+            aria-label={`Open ${assistantName}`}
             aria-current={activeSection === 'Ask Mia' ? 'page' : undefined}
             onClick={() => switchSection('Ask Mia')}
           >
-            <span className="shell-mia-mark" aria-hidden="true"><MiaMark /></span>
-            <span>Open Mia</span>
+            <span className="shell-mia-mark" aria-hidden="true">{assistantInitial(assistantName)}</span>
+            <span>Open {assistantName}</span>
           </Button>
         </div>
       </header>
@@ -2785,9 +2845,9 @@ function App() {
       {activeSection === 'Ask Mia' && (
         <section className="screen-grid mia-screen">
           <ScreenHeading
-            eyebrow="Ask Mia"
-            title="Tell Mia what changed."
-            copy="Update income, savings, debt, goals, or the plan in plain language. Mia prepares a review; you approve before anything changes."
+            eyebrow={`Ask ${assistantName}`}
+            title={`Tell ${assistantName} what changed.`}
+            copy={`Update income, savings, debt, goals, or the plan in plain language. ${assistantName} prepares a review; you approve before anything changes.`}
           />
 
           <div className="mia-layout">
@@ -2796,12 +2856,12 @@ function App() {
                 <span className="spark" aria-hidden="true"><MiaMark /></span>
                 <div>
                   <span>Assistant context</span>
-                  <h3>{isFirstSessionSetup ? 'Build your starting picture with Mia' : 'Approved data loaded'}</h3>
+                  <h3>{isFirstSessionSetup ? `Build your starting picture with ${assistantName}` : 'Approved data loaded'}</h3>
                 </div>
               </div>
               <p>{isFirstSessionSetup
-                ? 'Tell Mia what you know in ordinary language. She will prepare one review card, and your financial picture stays unchanged until you approve it.'
-                : 'Profile, Expense Stack, annual runway, debt pressure, Optionality scenario, and approved document freshness are ready for Mia to use.'}
+                ? `Tell ${assistantName} what you know in ordinary language. Your assistant will prepare one review card, and your financial picture stays unchanged until you approve it.`
+                : `Profile, Expense Stack, annual runway, debt pressure, Optionality scenario, and approved document freshness are ready for ${assistantName} to use.`}
               </p>
               {isRealWorkspace ? (
                 <DocumentContextCard
@@ -2842,9 +2902,9 @@ function App() {
               tabIndex={isChatExpanded ? -1 : undefined}
             >
               <div className="chat-shell-header">
-                <span className="message-avatar" aria-hidden="true">M</span>
+                <span className="message-avatar" aria-hidden="true">{assistantInitial(assistantName)}</span>
                 <div className="chat-shell-copy">
-                  <h3 id="mia-chat-title">Ask Mia</h3>
+                  <h3 id="mia-chat-title">Ask {assistantName}</h3>
                   <p>Talk it through or update the plan while you stay the CFO.</p>
                 </div>
                 <div className="chat-actions">
@@ -2870,9 +2930,9 @@ function App() {
                   <button
                     type="button"
                     className="chat-expand-button"
-                    aria-label={isChatExpanded ? 'Collapse Ask Mia chat' : 'Expand Ask Mia chat'}
+                    aria-label={isChatExpanded ? `Collapse Ask ${assistantName} chat` : `Expand Ask ${assistantName} chat`}
                     aria-pressed={isChatExpanded}
-                    title={isChatExpanded ? 'Collapse Ask Mia chat' : 'Expand Ask Mia chat'}
+                    title={isChatExpanded ? `Collapse Ask ${assistantName} chat` : `Expand Ask ${assistantName} chat`}
                     onClick={() => {
                       setShowMiaSuggestions(false)
                       setIsChatExpanded((expanded) => !expanded)
@@ -2892,14 +2952,14 @@ function App() {
                 />
               )}
 
-              <div id="mia-suggestions-panel" className={`mia-suggestions-panel${showMiaSuggestions ? ' is-open' : ''}`} aria-label="Mia prompts">
+              <div id="mia-suggestions-panel" className={`mia-suggestions-panel${showMiaSuggestions ? ' is-open' : ''}`} aria-label={`${assistantName} prompts`}>
                 <div className="mia-update-guide" aria-labelledby="mia-update-guide-title">
                   <div>
                     <span className="eyebrow">Fastest way to update your plan</span>
                     <strong id="mia-update-guide-title">Say what changed in your own words.</strong>
-                    <small>Mia will show you a review card. Nothing changes until you tap Apply.</small>
+                    <small>{assistantName} will show you a review card. Nothing changes until you tap Apply.</small>
                   </div>
-                  <div className="mia-update-examples" aria-label="Example updates for Mia">
+                  <div className="mia-update-examples" aria-label={`Example updates for ${assistantName}`}>
                     {MIA_UPDATE_EXAMPLES.map((prompt) => (
                       <button type="button" key={prompt} onClick={() => {
                         setShowMiaSuggestions(false)
@@ -2912,7 +2972,7 @@ function App() {
                 </div>
 
                 <div className="chat-prompts-shell">
-                  <div className="quick-prompts chat-prompts" aria-label="Suggested questions for Mia">
+                  <div className="quick-prompts chat-prompts" aria-label={`Suggested questions for ${assistantName}`}>
                     {data.mia.quick_prompts.map((prompt) => (
                       <button type="button" key={prompt} onClick={() => {
                         setShowMiaSuggestions(false)
@@ -3009,7 +3069,7 @@ function App() {
                 />
                 {pendingMiaAttachments.length > 0 && (
                   <div className="composer-attachment-workflow">
-                    <p>Tell Mia what each file is, or describe it in your message. Mia will verify the type and route only draft results for your review.</p>
+                    <p>Tell {assistantName} what each file is, or describe it in your message. Your assistant will verify the type and route only draft results for your review.</p>
                     <p className="attachment-size-guidance">{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</p>
                     <PendingAttachmentTray
                       attachments={pendingMiaAttachments}
@@ -3033,8 +3093,8 @@ function App() {
                   className={`composer-voice${voiceRecording ? ' is-recording' : ''}`}
                   type="button"
                   disabled={!isRealWorkspace || miaLoading || voiceTranscribing}
-                  title={isRealWorkspace ? (voiceRecording ? 'Stop recording and transcribe' : 'Record a voice note for Mia') : 'Sign in to a real workspace before using voice input.'}
-                  aria-label={voiceRecording ? 'Stop voice recording' : 'Record voice note for Mia'}
+                  title={isRealWorkspace ? (voiceRecording ? 'Stop recording and transcribe' : `Record a voice note for ${assistantName}`) : 'Sign in to a real workspace before using voice input.'}
+                  aria-label={voiceRecording ? 'Stop voice recording' : `Record voice note for ${assistantName}`}
                   aria-pressed={voiceRecording}
                   onClick={() => void handleVoiceButtonClick()}
                 >
@@ -3050,9 +3110,9 @@ function App() {
                     }}
                     onKeyDown={handleAskMiaKeyDown}
                     onPaste={handleMiaPaste}
-                    aria-label="Ask Mia"
+                    aria-label={`Ask ${assistantName}`}
                     aria-describedby={`mia-composer-instructions${miaCharactersRemaining <= MIA_MESSAGE_LENGTH_WARNING_AT ? ' mia-composer-count' : ''}`}
-                    placeholder={voiceTranscribing ? 'Transcribing your voice note...' : 'Message Mia…'}
+                    placeholder={voiceTranscribing ? 'Transcribing your voice note...' : `Message ${assistantName}…`}
                     rows={1}
                     maxLength={MIA_MESSAGE_MAX_LENGTH}
                     ref={composerRef}
@@ -3063,12 +3123,12 @@ function App() {
                     </span>
                   )}
                 </div>
-                <span id="mia-composer-instructions" className="sr-only">Press Enter to send. Press Shift and Enter for a new line. Mia will not change approved numbers without a review.</span>
+                <span id="mia-composer-instructions" className="sr-only">Press Enter to send. Press Shift and Enter for a new line. Your assistant will not change approved numbers without a review.</span>
                 <button
                   className="send-button"
                   type="submit"
                   disabled={miaLoading || voiceRecording || voiceTranscribing || (!question.trim() && pendingMiaAttachments.length === 0)}
-                  aria-label={miaLoading ? 'Mia is thinking' : 'Send message to Mia'}
+                  aria-label={miaLoading ? `${assistantName} is thinking` : `Send message to ${assistantName}`}
                 >
                   <span>{miaLoading ? 'Thinking' : 'Send'}</span>
                   <SendIcon />
@@ -3107,7 +3167,7 @@ function App() {
                     queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
                     eyebrow="Household review"
                     title="Review every transaction before it becomes an actual"
-                    description="Mia, manual entries, bank activity, and uploads share this queue. Check the source, merchant, amount, category, and splits before confirming."
+                    description={`${assistantName}, manual entries, bank activity, and uploads share this queue. Check the source, merchant, amount, category, and splits before confirming.`}
                     onUpdate={handleUpdateTransactionDraft}
                     onMatch={handleMatchTransactionDraft}
                     onConfirm={handleConfirmTransactionDraft}
@@ -3154,9 +3214,9 @@ function App() {
       {activeSection === 'My Profile' && (
         <section className={`screen-grid profile-screen${isFocusedFirstSessionSetup ? ' first-session-setup-screen' : ''}`}>
           <ScreenHeading
-            eyebrow={isFirstSessionUpload ? 'Optional pilot check' : isFocusedFirstSessionSetup ? 'Your Mia kickoff' : 'My Profile'}
-            title={isFirstSessionUpload ? 'Test one private file without changing your numbers.' : isFocusedFirstSessionSetup ? 'Give Mia the basics for a useful first answer.' : data.profile.household.name}
-            copy={isFirstSessionUpload ? 'Upload demo-safe evidence, review every extracted draft, and apply only what is right. You can return to the five-field kickoff at any time.' : isFocusedFirstSessionSetup ? 'Best estimates are enough. Add money in, essential spending, flexible spending, and one goal; Mia will help you make sense of the rest.' : data.profile.household.primary_goal}
+            eyebrow={isFirstSessionUpload ? 'Optional pilot check' : isFocusedFirstSessionSetup ? `Your ${assistantName} kickoff` : 'My Profile'}
+            title={isFirstSessionUpload ? 'Test one private file without changing your numbers.' : isFocusedFirstSessionSetup ? `Give ${assistantName} the basics for a useful first answer.` : data.profile.household.name}
+            copy={isFirstSessionUpload ? 'Upload demo-safe evidence, review every extracted draft, and apply only what is right. You can return to the five-field kickoff at any time.' : isFocusedFirstSessionSetup ? `Best estimates are enough. Add money in, essential spending, flexible spending, and one goal; ${assistantName} will help you make sense of the rest.` : data.profile.household.primary_goal}
           />
 
           {isFirstSessionUpload && (
@@ -3172,7 +3232,7 @@ function App() {
                 <strong>{data.profile.completeness}%</strong>
               </div>
               <div className="progress-track"><span style={{ width: `${data.profile.completeness}%` }} /></div>
-              <p>{isRealWorkspace ? 'These are your saved household numbers. Update them anytime and Mia will use the new context.' : 'Manual entry works in the real workspace. Uploads are shown as the next natural path so users do not feel trapped in Excel.'}</p>
+              <p>{isRealWorkspace ? `These are your saved household numbers. Update them anytime and ${assistantName} will use the new context.` : 'Manual entry works in the real workspace. Uploads are shown as the next natural path so users do not feel trapped in Excel.'}</p>
             </article>
           )}
 
@@ -3376,7 +3436,7 @@ function App() {
           ) : (
             <article className="panel coach-panel">
               <h3>Annual budget foundation</h3>
-              <p>Sign in to a real workspace to plan each month, create custom categories, and confirm transactions from Mia chat.</p>
+              <p>Sign in to a real workspace to plan each month, create custom categories, and confirm transactions from {assistantName} chat.</p>
             </article>
           )}
 
@@ -3489,6 +3549,8 @@ function App() {
         <CoachStudio currentUser={auth.currentUser} onDirtyChange={setHasUnsavedCoachChanges} />
       )}
 
+      <BrandFooter />
+
       {confirmClearChat && (
         <ClearChatConfirmDialog
           isClearing={miaClearing}
@@ -3523,6 +3585,23 @@ function App() {
         />
       )}
     </main>
+  )
+
+  return (
+    <BrandRuntimeProvider runtime={runtimeBrand} assistantName={assistantName}>
+      <BrandDocument />
+      {runtimeBrand.available ? workspace : (
+        <main className="brand-bootstrap-state">
+          <section className="brand-bootstrap-panel">
+            <span className="brand-bootstrap-mark" aria-hidden="true">V</span>
+            <p className="eyebrow">VERA</p>
+            <h1>This program is temporarily unavailable.</h1>
+            <p role="alert">The active program release could not be verified. Try again or contact your coach.</p>
+            <button type="button" onClick={() => setWorkspaceLoadAttempt((attempt) => attempt + 1)}>Try again</button>
+          </section>
+        </main>
+      )}
+    </BrandRuntimeProvider>
   )
 }
 
@@ -3565,6 +3644,7 @@ function PendingAttachmentTray({
 }
 
 function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMiaAttachment; onClose: () => void }) {
+  const { assistantName } = useBrand()
   const isImage = pendingAttachmentHasImagePreview(attachment)
   const dialogRef = usePilotDialog(onClose)
 
@@ -3583,7 +3663,7 @@ function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMi
           {isImage ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : (
             <div className="document-preview-state">
               <AttachmentIcon />
-              <p>{attachment.document_import_id ? 'This restored upload has no local preview. You can still send it to Mia.' : 'Preview will be available after upload.'}</p>
+              <p>{attachment.document_import_id ? `This restored upload has no local preview. You can still send it to ${assistantName}.` : 'Preview will be available after upload.'}</p>
             </div>
           )}
         </div>
@@ -3601,16 +3681,17 @@ function ClearChatConfirmDialog({
   onCancel: () => void
   onConfirm: () => void
 }) {
+  const { assistantName } = useBrand()
   const dialogRef = usePilotDialog(onCancel)
 
   return (
     <div className="clear-chat-overlay" role="presentation">
-      <button type="button" className="clear-chat-backdrop" aria-label="Keep Mia chat" onClick={onCancel} />
+      <button type="button" className="clear-chat-backdrop" aria-label={`Keep ${assistantName} chat`} onClick={onCancel} />
       <section ref={dialogRef} className="clear-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-copy" tabIndex={-1}>
-        <p className="eyebrow">Ask Mia</p>
+        <p className="eyebrow">Ask {assistantName}</p>
         <h3 id="clear-chat-title">Clear this chat?</h3>
         <p id="clear-chat-copy">
-          This removes the messages in this conversation and Mia will not be able to pick up this thread later.
+          This removes the messages in this conversation and {assistantName} will not be able to pick up this thread later.
           Your saved budget, profile, and transactions stay unchanged.
         </p>
         <div className="clear-chat-dialog-actions">
@@ -3626,17 +3707,16 @@ function ClearChatConfirmDialog({
   )
 }
 
-function AuthLanding() {
+export function AuthLanding() {
+  const { brand } = useBrand()
   return (
     <main className="app loading-state auth-state">
       <section className="hero-panel auth-panel">
-        <span className="spark" aria-hidden="true"><ShieldIcon /></span>
-        <p className="eyebrow">Secure cohort access</p>
-        <h1>Sign in to open your Household CFO Method workspace.</h1>
-        <p>
-          Household CFO Method now uses Clerk authentication backed by the Rails/PostgreSQL user table.
-          Sign in with the email invited to the first cohort.
-        </p>
+        <BrandLogo brand={brand} />
+        <p className="eyebrow">{brandByline(brand)}</p>
+        <h1>{brand.welcome_heading || `Welcome to ${brand.product_name}.`}</h1>
+        <p>{brand.welcome_description || brand.tagline || 'Your secure coaching workspace is ready.'}</p>
+        <p className="auth-invitation-copy">Sign in with the email your program invited. Your secure seat determines which coaching experience opens.</p>
         <div className="auth-actions">
           <SignInButton mode="modal">
             <button type="button">Sign in</button>
@@ -3646,36 +3726,41 @@ function AuthLanding() {
           </SignUpButton>
         </div>
       </section>
+      <BrandFooter />
     </main>
   )
 }
 
 function AccessDenied({ message, onSignOut }: { message: string; onSignOut?: () => Promise<void> }) {
+  const { brand } = useBrand()
   return (
     <main className="app loading-state auth-state">
       <section className="hero-panel auth-panel">
-        <span className="spark" aria-hidden="true"><ShieldIcon /></span>
-        <p className="eyebrow">Access needs an invitation</p>
-        <h1>Your Clerk session is active, but this app has not linked your cohort seat.</h1>
+        <BrandLogo brand={brand} />
+        <p className="eyebrow">{brandByline(brand)}</p>
+        <h1>Your sign-in is active, but {brand.product_name} has not linked your program seat.</h1>
         <p>{message}</p>
         <div className="auth-actions">
           <button type="button" onClick={() => void onSignOut?.()}>Sign out</button>
           <div className="user-button-wrap"><UserButton afterSignOutUrl="/" /></div>
         </div>
       </section>
+      <BrandFooter />
     </main>
   )
 }
 
 function AuthStatePanel({ title, copy }: { title: string; copy: string }) {
+  const { brand } = useBrand()
   return (
     <main className="app loading-state auth-state">
       <section className="hero-panel auth-panel">
-        <span className="spark" aria-hidden="true"><MiaMark /></span>
-        <p className="eyebrow">Household CFO Method powered by VERA</p>
+        <BrandLogo brand={brand} />
+        <p className="eyebrow">{brandByline(brand)}</p>
         <h1>{title}</h1>
         <p>{copy}</p>
       </section>
+      <BrandFooter />
     </main>
   )
 }
@@ -3703,20 +3788,23 @@ function HomeWelcomePanel({
   onManualSetup: () => void
   readinessLabel: string
 }) {
+  const { brand, assistantName } = useBrand()
+  const defaultHeading = needsSetup ? `Give ${assistantName} a useful starting point.` : 'Your workspace is ready.'
+  const defaultDescription = needsSetup
+    ? 'Start with money in, money out, and one goal; you can refine the rest as real decisions come up.'
+    : 'Review what needs your call, see this month inside the annual plan, and make one clear next move.'
   return (
     <section className="home-welcome-panel" aria-labelledby="home-welcome-title">
       <div className="home-welcome-copy">
-        <p className="eyebrow">Your household command center</p>
+        <p className="eyebrow">{brand.tagline || 'Your coaching workspace'}</p>
         <h2
           id="home-welcome-title"
           data-page-heading={needsSetup ? true : undefined}
           tabIndex={needsSetup ? -1 : undefined}
         >
-          {needsSetup ? 'Give Mia a useful starting point.' : 'Your CFO workspace is ready.'}
+          {brand.welcome_heading || defaultHeading}
         </h2>
-        <p>{needsSetup
-          ? 'Run your home like the C-Suite. Start with money in, money out, and one goal; you can refine the rest as real decisions come up.'
-          : 'Run your home like the C-Suite: review what needs your call, see this month inside the annual plan, and make one clear next move.'}</p>
+        <p>{brand.welcome_description || defaultDescription}</p>
       </div>
       <div className="home-welcome-actions">
         <div className="home-readiness-chip">
@@ -3727,7 +3815,7 @@ function HomeWelcomePanel({
           </div>
         </div>
         <Button onClick={onPrimaryAction}>
-          {needsSetup ? 'Set up with Mia' : 'Tell Mia what changed'}
+          {needsSetup ? `Set up with ${assistantName}` : `Tell ${assistantName} what changed`}
         </Button>
         {needsSetup && <Button variant="ghost" onClick={onManualSetup}>Enter the five fields manually</Button>}
       </div>
@@ -3736,20 +3824,21 @@ function HomeWelcomePanel({
 }
 
 function FirstSessionCard({ onChat, onShareAll, onManual, onUpload, onGuide }: { onChat: () => void; onShareAll: () => void; onManual: () => void; onUpload: () => void; onGuide: () => void }) {
+  const { assistantName } = useBrand()
   return (
     <section className="first-session-card" aria-labelledby="first-session-title">
       <div className="first-session-heading">
         <div>
-          <p className="eyebrow">Your first Mia session</p>
+          <p className="eyebrow">Your first {assistantName} session</p>
           <h2 id="first-session-title">Start with money in, money out.</h2>
-          <p>Give Mia five essentials, then bring her one real money question. You do not need every account, tab, or statement today.</p>
+          <p>Give {assistantName} five essentials, then bring your assistant one real money question. You do not need every account, tab, or statement today.</p>
         </div>
         <Button variant="secondary" onClick={onGuide}>Read the 3-minute guide</Button>
       </div>
       <div className="first-session-paths">
         <article>
           <span>Recommended</span>
-          <h3>Let Mia guide the setup</h3>
+          <h3>Let {assistantName} guide the setup</h3>
           <p>Start a conversation and answer one simple question at a time. You do not need to gather every number before you begin.</p>
           <div className="first-session-path-actions">
             <button type="button" onClick={onChat}>Start one question at a time</button>
@@ -3774,6 +3863,7 @@ function FirstSessionCard({ onChat, onShareAll, onManual, onUpload, onGuide }: {
 }
 
 function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }: { status: WorkspaceSetupStatus; onStartChat: () => void; onShareAll: () => void; onManual: () => void }) {
+  const { assistantName } = useBrand()
   return (
     <section className="first-session-setup-progress" aria-labelledby="first-session-progress-title" aria-live="polite">
       <div className="first-session-progress-heading">
@@ -3793,7 +3883,7 @@ function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }
           </li>
         ))}
       </ul>
-      <p>Answer one simple question at a time, or share everything you know in one message. Mia will ask only for what is missing and show a review before saving.</p>
+      <p>Answer one simple question at a time, or share everything you know in one message. {assistantName} will ask only for what is missing and show a review before saving.</p>
       <div className="first-session-progress-actions">
         <button type="button" onClick={onStartChat}>Ask me one question at a time</button>
         <button type="button" className="secondary-button" onClick={onShareAll}>Share everything at once</button>
@@ -3804,10 +3894,13 @@ function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }
 }
 
 function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => void; onOpenFeedback: () => void }) {
+  const { brand } = useBrand()
+  const supportHref = brand.support.url ?? (brand.support.email ? `mailto:${brand.support.email}` : null)
   return (
     <aside className="pilot-support-bar" aria-label="Pilot help and feedback">
       <span><ShieldIcon /> <span>Private pilot workspace</span></span>
       <div>
+        {supportHref && <a className="button button--ghost button--compact" href={supportHref} target={brand.support.url ? '_blank' : undefined} rel={brand.support.url ? 'noreferrer' : undefined}>{brand.support.label ?? 'Support'}</a>}
         <Button variant="ghost" size="compact" onClick={onOpenGuide}><GuideIcon /> Guide</Button>
         <Button variant="ghost" size="compact" onClick={onOpenFeedback}><FeedbackIcon /> Feedback</Button>
       </div>
@@ -3819,7 +3912,7 @@ const pilotFeedbackOptions: Array<{ value: PilotFeedbackWorkflow; label: string 
   { value: 'sign_in', label: 'Sign in or invitation' },
   { value: 'home', label: 'Home or next action' },
   { value: 'setup', label: 'Household setup' },
-  { value: 'ask_mia', label: 'Ask Mia' },
+  { value: 'ask_mia', label: 'Assistant chat' },
   { value: 'voice', label: 'Voice entry' },
   { value: 'budget', label: 'Budget or annual plan' },
   { value: 'transaction_review', label: 'Transaction review' },
@@ -3906,6 +3999,7 @@ function usePilotDialog(onClose: () => void) {
 }
 
 function PilotGuideDialog({ onClose }: { onClose: () => void }) {
+  const { assistantName } = useBrand()
   const dialogRef = usePilotDialog(onClose)
 
   return (
@@ -3915,18 +4009,18 @@ function PilotGuideDialog({ onClose }: { onClose: () => void }) {
         <header>
           <div>
             <p className="eyebrow">Pilot tester guide</p>
-            <h2 id="pilot-guide-title">A clear first Mia session in three moves.</h2>
+            <h2 id="pilot-guide-title">A clear first {assistantName} session in three moves.</h2>
           </div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
         <ol className="pilot-guide-steps">
-          <li><span>1</span><div><strong>Give Mia the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Enter 0 when an amount does not apply; you can refine everything later.</p></div></li>
-          <li><span>2</span><div><strong>Tell Mia what changed.</strong><p>Use your own words—for example, “My take-home pay is now $6,200” or “My card balance is $3,100.” Mia can also coach from the context you approved.</p></div></li>
-          <li><span>3</span><div><strong>Review before applying.</strong><p>Mia can draft household-number, future-income, and budget-plan changes. Check every before-and-after value; pending drafts change nothing until you explicitly apply them.</p></div></li>
+          <li><span>1</span><div><strong>Give {assistantName} the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Enter 0 when an amount does not apply; you can refine everything later.</p></div></li>
+          <li><span>2</span><div><strong>Tell {assistantName} what changed.</strong><p>Use your own words—for example, “My take-home pay is now $6,200” or “My card balance is $3,100.” Your assistant can also coach from the context you approved.</p></div></li>
+          <li><span>3</span><div><strong>Review before applying.</strong><p>{assistantName} can draft household-number, future-income, and budget-plan changes. Check every before-and-after value; pending drafts change nothing until you explicitly apply them.</p></div></li>
         </ol>
         <div className="pilot-guide-power-path">
           <strong>Optional upload check</strong>
-          <p>If a file would save time, try one demo-safe budget, statement, receipt, or pay stub. Review extracted setup values before applying them and report any failed read from Ask Mia or My Profile.</p>
+          <p>If a file would save time, try one demo-safe budget, statement, receipt, or pay stub. Review extracted setup values before applying them and report any failed read from Ask {assistantName} or My Profile.</p>
         </div>
         <footer>
           <ShieldIcon />
@@ -3946,6 +4040,7 @@ function PilotFeedbackDialog({
   onClose: () => void
   onSubmit: (values: PilotFeedbackInput) => Promise<{ id: number; screenshot_attached: boolean }>
 }) {
+  const { brand, assistantName } = useBrand()
   const dialogRef = usePilotDialog(onClose)
   const [workflow, setWorkflow] = useState<PilotFeedbackWorkflow>(initialWorkflow)
   const [attempted, setAttempted] = useState('')
@@ -3994,11 +4089,11 @@ function PilotFeedbackDialog({
             <FeedbackIcon />
             <strong>Report received.</strong>
             <p>Reference #{receiptId}. Your written details and optional screenshot were not sent to analytics.</p>
-            <button type="button" onClick={onClose}>Return to Household CFO</button>
+            <button type="button" onClick={onClose}>Return to {brand.product_name}</button>
           </div>
         ) : (
           <form onSubmit={handleSubmit}>
-            <p className="pilot-privacy-note"><ShieldIcon /> Do not include account numbers, exact financial values, document contents, passwords, or private Mia messages. Crop screenshots to the problem area.</p>
+            <p className="pilot-privacy-note"><ShieldIcon /> Do not include account numbers, exact financial values, document contents, passwords, or private {assistantName} messages. Crop screenshots to the problem area.</p>
             <label><span>Screen or workflow</span><select value={workflow} onChange={(event) => setWorkflow(event.currentTarget.value as PilotFeedbackWorkflow)}>{pilotFeedbackOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label><span>What did you attempt?</span><textarea rows={3} maxLength={2000} value={attempted} onChange={(event) => setAttempted(event.currentTarget.value)} /></label>
             <label><span>What did you expect?</span><textarea rows={3} maxLength={2000} value={expected} onChange={(event) => setExpected(event.currentTarget.value)} /></label>
@@ -4041,18 +4136,19 @@ function DocumentContextCard({
   onAttach: () => void
   uploading: boolean
 }) {
+  const { assistantName } = useBrand()
   const latestApplied = latestAppliedImport(imports)
 
   return (
     <div className="document-context-card">
-      <div className="document-context-stats" aria-label="Document import context for Mia">
+      <div className="document-context-stats" aria-label={`Document import context for ${assistantName}`}>
         <span><strong>{pendingCount}</strong> waiting review</span>
         <span><strong>{processingCount}</strong> processing</span>
       </div>
       <p>
         {latestApplied
           ? `Latest approved source: ${documentKindLabel(latestApplied.document_kind)} · ${importPeriodLabel(latestApplied)}.`
-          : 'No approved document sources yet. Mia will use manual numbers until you apply extracted values.'}
+          : `No approved document sources yet. ${assistantName} will use manual numbers until you apply extracted values.`}
       </p>
       <div className="upload-strip">
         <button type="button" onClick={onAttach} disabled={uploading}>
@@ -4133,6 +4229,7 @@ function DocumentImportWorkspace({
   onDeleteImport: (documentImport: FinancialDocumentImport) => void
   onOpenSource: (documentImport: FinancialDocumentImport) => void
 }) {
+  const { assistantName } = useBrand()
   const pendingCount = imports.filter((documentImport) => documentImport.status === 'needs_review').length
   const latestApplied = latestAppliedImport(imports)
 
@@ -4167,7 +4264,7 @@ function DocumentImportWorkspace({
         <div>
           <p className="eyebrow">Private document import</p>
           <h3>Upload evidence. Review draft facts. Apply only what is right.</h3>
-          <p>Files go to private S3. Mia extracts draft values server-side, then waits for your approval before changing household numbers.</p>
+          <p>Files go to private S3. {assistantName} extracts draft values server-side, then waits for your approval before changing household numbers.</p>
         </div>
         <span className="document-safe-pill">Private S3 · Review first</span>
       </div>
@@ -4182,7 +4279,7 @@ function DocumentImportWorkspace({
       <div className="document-import-guide">
         <div>
           <strong>Not sure what to upload?</strong>
-          <p>Start with our Excel budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. Mia drafts values only after upload.</p>
+          <p>Start with our Excel budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. {assistantName} drafts values only after upload.</p>
           <small>{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</small>
         </div>
         <a href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
@@ -4468,6 +4565,7 @@ function DocumentReviewPanel({
   onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => void
   uploading: boolean
 }) {
+  const { assistantName } = useBrand()
   if (!documentImport) {
     const inputId = 'document-empty-upload'
 
@@ -4475,7 +4573,7 @@ function DocumentReviewPanel({
       <article className="document-review-panel document-empty-state">
         <AttachmentIcon />
         <h4>Upload a document to begin</h4>
-        <p>Choose one of the upload cards above, or start here with a budget, statement, PDF, Excel file, Word doc, pay stub, or receipt. Mia will never apply extracted numbers until you approve them.</p>
+        <p>Choose one of the upload cards above, or start here with a budget, statement, PDF, Excel file, Word doc, pay stub, or receipt. {assistantName} will never apply extracted numbers until you approve them.</p>
         <input
           id={inputId}
           className="sr-only"
@@ -4498,7 +4596,7 @@ function DocumentReviewPanel({
       <article className="document-review-panel document-empty-state" aria-label={`Loading ${documentImportDisplayName(documentImport)}`}>
         <AttachmentIcon />
         <h4>Loading review details</h4>
-        <p>Mia is opening the extracted values, transaction drafts, split lines, and matches for {documentImportDisplayName(documentImport)}.</p>
+        <p>{assistantName} is opening the extracted values, transaction drafts, split lines, and matches for {documentImportDisplayName(documentImport)}.</p>
       </article>
     )
   }
@@ -4558,7 +4656,7 @@ function DocumentReviewPanel({
       </div>
 
       <div className="document-summary-box">
-        <strong>Mia read</strong>
+        <strong>{assistantName} read</strong>
         <p>{documentImport.extracted_summary || statusExplainer(documentImport)}</p>
         {(documentImport.metadata.extraction_page_count || documentImport.metadata.transaction_draft_count) && (
           <div className="document-extraction-coverage" aria-label="Statement extraction coverage">
@@ -4581,7 +4679,7 @@ function DocumentReviewPanel({
       {processing && (
         <div className="document-processing-state" role="status">
           <span />
-          <p>Mia is extracting draft values and transaction rows. This panel refreshes automatically.</p>
+          <p>{assistantName} is extracting draft values and transaction rows. This panel refreshes automatically.</p>
         </div>
       )}
 
@@ -4640,7 +4738,7 @@ function DocumentReviewPanel({
       <div className={`document-apply-bar ${fullyApplied ? 'applied' : ''}`}>
         <div>
           <strong>{fullyApplied ? 'Saved household numbers' : `${selectedCount} selected`}</strong>
-          <span>{fullyApplied ? (appliedDetailsOpen ? 'Correcting a saved value updates Mia and the dashboard immediately.' : 'This source is already applied. Expand only when you need to correct source-backed details.') : reviewable ? 'Approve only values you recognize.' : 'This import is not currently reviewable.'}</span>
+          <span>{fullyApplied ? (appliedDetailsOpen ? `Correcting a saved value updates ${assistantName} and the dashboard immediately.` : 'This source is already applied. Expand only when you need to correct source-backed details.') : reviewable ? 'Approve only values you recognize.' : 'This import is not currently reviewable.'}</span>
         </div>
         {fullyApplied ? (
           <button type="button" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
@@ -4657,6 +4755,7 @@ function DocumentReviewPanel({
 }
 
 function DocumentRoutingSummary({ documentImport }: { documentImport: FinancialDocumentImport }) {
+  const { assistantName } = useBrand()
   const metadata = documentImport.metadata
   if (!metadata.routing_source) return null
 
@@ -4673,8 +4772,8 @@ function DocumentRoutingSummary({ documentImport }: { documentImport: FinancialD
       </div>
       <p>
         {conflict
-          ? routingConflictExplanation(metadata, resolvedKind)
-          : routingResultExplanation(documentImport, resolvedKind)}
+          ? routingConflictExplanation(metadata, resolvedKind, assistantName)
+          : routingResultExplanation(documentImport, resolvedKind, assistantName)}
       </p>
     </div>
   )
@@ -4701,7 +4800,7 @@ function documentReviewDestination(documentImport: FinancialDocumentImport, reso
   return routingDestinationLabel(documentImport.metadata.routing_destination, resolvedKind)
 }
 
-function routingResultExplanation(documentImport: FinancialDocumentImport, resolvedKind: DocumentImportKind) {
+function routingResultExplanation(documentImport: FinancialDocumentImport, resolvedKind: DocumentImportKind, assistantName: string) {
   const metadata = documentImport.metadata
   const selectedKind = metadata.declared_document_kind
   const selectedCopy = selectedKind ? `You selected ${documentKindLabel(selectedKind).toLowerCase()}. ` : ''
@@ -4714,18 +4813,18 @@ function routingResultExplanation(documentImport: FinancialDocumentImport, resol
   }
 
   if (resultDestination !== plannedDestination) {
-    return `${selectedCopy}Mia checked the contents and sent the reviewable results she actually found to ${resultDestination.toLowerCase()}. Nothing changed until you approve it.`
+    return `${selectedCopy}${assistantName} checked the contents and sent the reviewable results to ${resultDestination.toLowerCase()}. Nothing changed until you approve it.`
   }
 
-  return `${selectedCopy}${routingExplanation(metadata.routing_source)} Nothing changed until you approve it.`
+  return `${selectedCopy}${routingExplanation(metadata.routing_source, assistantName)} Nothing changed until you approve it.`
 }
 
-function routingConflictExplanation(metadata: FinancialDocumentImport['metadata'], resolvedKind: DocumentImportKind) {
+function routingConflictExplanation(metadata: FinancialDocumentImport['metadata'], resolvedKind: DocumentImportKind, assistantName: string) {
   if (metadata.routing_conflict_reason === 'participant_signals') {
-    return `Your message described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but the selected type was ${documentKindLabel(metadata.declared_document_kind ?? 'other').toLowerCase()}. Mia used your message; verify the draft before approving anything.`
+    return `Your message described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but the selected type was ${documentKindLabel(metadata.declared_document_kind ?? 'other').toLowerCase()}. ${assistantName} used your message; verify the draft before approving anything.`
   }
 
-  return `You described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but Mia detected ${documentKindLabel(metadata.routing_detected_kind ?? 'other').toLowerCase()}. Your description was preserved; verify the draft before approving anything.`
+  return `You described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but ${assistantName} detected ${documentKindLabel(metadata.routing_detected_kind ?? 'other').toLowerCase()}. Your description was preserved; verify the draft before approving anything.`
 }
 
 function routingDestinationLabel(destination: FinancialDocumentImport['metadata']['routing_destination'], kind: DocumentImportKind) {
@@ -4737,14 +4836,15 @@ function routingDestinationLabel(destination: FinancialDocumentImport['metadata'
   return 'Private document history'
 }
 
-function routingExplanation(source: FinancialDocumentImport['metadata']['routing_source']) {
-  if (source === 'participant_context') return 'Mia used your message as the strongest routing signal, checked the file, and kept every result pending.'
-  if (source === 'participant_selection') return 'Mia honored the document type you selected, checked the file, and kept every result pending.'
-  if (source === 'mia_detection') return 'Mia recognized the document from its contents and kept every extracted result pending.'
-  return 'Mia routed this from the file type and kept every extracted result pending for review.'
+function routingExplanation(source: FinancialDocumentImport['metadata']['routing_source'], assistantName: string) {
+  if (source === 'participant_context') return `${assistantName} used your message as the strongest routing signal, checked the file, and kept every result pending.`
+  if (source === 'participant_selection') return `${assistantName} honored the document type you selected, checked the file, and kept every result pending.`
+  if (source === 'mia_detection') return `${assistantName} recognized the document from its contents and kept every extracted result pending.`
+  return `${assistantName} routed this from the file type and kept every extracted result pending for review.`
 }
 
 function AppliedImportSummary({ documentImport, onEdit }: { documentImport: FinancialDocumentImport; onEdit: () => void }) {
+  const { assistantName } = useBrand()
   const appliedItems = documentImport.items.filter((item) => item.applied_at)
   const groups = groupedImportItems(appliedItems)
   const groupSummary = groups.map(([targetType, items]) => ({
@@ -4757,7 +4857,7 @@ function AppliedImportSummary({ documentImport, onEdit }: { documentImport: Fina
     <div className="document-applied-summary">
       <div className="document-applied-summary-copy">
         <span className="document-status green">Applied household budget</span>
-        <h5>{appliedItems.length} saved value{appliedItems.length === 1 ? '' : 's'} already feed Mia</h5>
+        <h5>{appliedItems.length} saved value{appliedItems.length === 1 ? '' : 's'} already feed {assistantName}</h5>
         <p>The detailed correction cards are tucked away so the profile stays scannable. Open them only when a source-backed number needs a correction.</p>
       </div>
       <div className="document-applied-summary-grid" aria-label="Applied import value groups">
@@ -5654,8 +5754,8 @@ function replaceImportTransactionDraft(imports: FinancialDocumentImport[], draft
 }
 
 function statusExplainer(documentImport: FinancialDocumentImport) {
-  if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Extraction is in progress. Draft values will appear here when Mia finishes reading the source.'
-  if (documentImport.status === 'failed') return 'Mia could not extract reliable draft values from this upload. You can delete it or reprocess if the source is still available.'
+  if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Extraction is in progress. Draft values will appear here when your assistant finishes reading the source.'
+  if (documentImport.status === 'failed') return 'Your assistant could not extract reliable draft values from this upload. You can delete it or reprocess if the source is still available.'
   if (documentImport.status === 'source_deleted') return 'The private source file has been deleted. Existing extracted metadata remains for audit context.'
   if (documentImport.status === 'applied') return 'All selected values from this document were approved and applied to the household workspace.'
   if (documentImport.status === 'partially_applied') return 'Some values were applied. Unapplied values remain available for review.'
@@ -6734,17 +6834,18 @@ function WorkspaceSetupForm({
   onChange: (key: keyof WorkspaceSetupValues, value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
+  const { assistantName } = useBrand()
   return (
     <form ref={formRef} className={`panel setup-form${firstSession ? ' first-session-setup-form' : ''}`} onSubmit={onSubmit}>
       <div className="row-between setup-form-heading">
         <div>
           <p className="eyebrow">{firstSession ? 'Five quick fields' : 'Household profile'}</p>
           <h3>{firstSession ? 'Start with what you know today.' : editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
-          <p>{firstSession ? 'Use your best monthly estimates. Enter 0 when an amount does not apply, and you can refine everything later.' : editing ? 'Save when the changes are intentional. Mia will use the updated context after you confirm.' : 'Review first. Click Edit profile before changing the numbers Mia uses as context.'}</p>
+          <p>{firstSession ? 'Use your best monthly estimates. Enter 0 when an amount does not apply, and you can refine everything later.' : editing ? `Save when the changes are intentional. ${assistantName} will use the updated context after you confirm.` : `Review first. Click Edit profile before changing the numbers ${assistantName} uses as context.`}</p>
         </div>
         <div className="setup-form-actions">
           {firstSession ? (
-            <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save and talk to Mia'}</button>
+            <button type="submit" disabled={saving}>{saving ? 'Saving' : `Save and talk to ${assistantName}`}</button>
           ) : editing ? (
             <>
               <button type="button" className="secondary-button" disabled={saving} onClick={onCancel}>Cancel</button>
@@ -6760,15 +6861,15 @@ function WorkspaceSetupForm({
         <legend>Essential first-session information</legend>
         <p>Use your best monthly estimate. Saving these five fields is enough to begin; details below can wait.</p>
         <div className="setup-field-grid">
-          <label className="setup-field text-wide" title="The household name Mia should use in this workspace.">
+          <label className="setup-field text-wide" title={`The household name ${assistantName} should use in this workspace.`}>
             <span>Household name</span>
             <input name="household_name" value={values.household_name} required={firstSession} disabled={!editing} onChange={(event) => onChange('household_name', event.target.value)} />
-            <small>The name Mia should use for this household.</small>
+            <small>The name {assistantName} should use for this household.</small>
           </label>
-          <label className="setup-field text-wide" title="The money goal or life decision Mia should keep in mind when coaching you.">
+          <label className="setup-field text-wide" title={`The money goal or life decision ${assistantName} should keep in mind when coaching you.`}>
             <span>Primary goal</span>
             <textarea name="primary_goal" rows={3} value={values.primary_goal} required={firstSession} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
-            <small>Write the goal, worry, or decision Mia should coach around.</small>
+            <small>Write the goal, worry, or decision {assistantName} should coach around.</small>
           </label>
           <MoneyInput disabled={!editing || !firstSession} required={firstSession} name="primary_income" label={firstSession ? 'Primary monthly income' : 'Job income total (calculated)'} value={values.primary_income} help={firstSession ? 'Regular take-home income from jobs or steady paychecks, after taxes if possible.' : 'Edit individual income sources below. The total updates automatically without redistributing money across hidden records.'} onChange={(value) => onChange('primary_income', value)} />
           <MoneyInput disabled={!editing} required={firstSession} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
@@ -6850,8 +6951,8 @@ function debtDraftWithProposal(base: DebtDraft, payload: MiaActionItem['payload'
   }
 }
 
-function debtSourceLabel(source: DebtRecord['source_type']) {
-  return { manual_ui: 'Added manually', mia: 'Prepared by Mia', document_import: 'Approved import', setup: 'Household setup' }[source]
+function debtSourceLabel(source: DebtRecord['source_type'], assistantName: string) {
+  return { manual_ui: 'Added manually', mia: `Prepared by ${assistantName}`, document_import: 'Approved import', setup: 'Household setup' }[source]
 }
 
 function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, onFocusRequestHandled }: {
@@ -6862,6 +6963,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
   focusRequest?: DebtFocusRequest | null
   onFocusRequestHandled?: () => void
 }) {
+  const { brand, assistantName } = useBrand()
   const [editingId, setEditingId] = useState<number | 'new' | null>(null)
   const [draft, setDraft] = useState<DebtDraft>(emptyDebtDraft)
   const [saving, setSaving] = useState(false)
@@ -7027,14 +7129,14 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
         <div>
           <p className="eyebrow">Debt plan</p>
           <h3>Choose the amount of detail that works for your household.</h3>
-          <p>Use one approved summary for a quick starting picture, or track each debt so Mia can compare payoff strategies without guessing.</p>
+          <p>Use one approved summary for a quick starting picture, or track each debt so {assistantName} can compare payoff strategies without guessing.</p>
         </div>
         {editingId === null && <button type="button" onClick={beginCreate}>{portfolio.mode === 'summary' ? 'Add preserved record' : 'Add a debt'}</button>}
       </div>
 
       <form className="debt-tracking" data-debt-action="tracking" tabIndex={-1} onSubmit={saveTrackingMode}>
         <fieldset disabled={saving}>
-          <legend>How should Household CFO track debt?</legend>
+          <legend>How should {brand.product_name} track debt?</legend>
           <label className={modeDraft === 'summary' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="summary" checked={modeDraft === 'summary'} onChange={() => setModeDraft('summary')} /><span><strong>One household summary</strong><small>Best when you know the totals but do not want to enter every lender yet.</small></span></label>
           <label className={modeDraft === 'individual' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="individual" checked={modeDraft === 'individual'} onChange={() => setModeDraft('individual')} /><span><strong>Individual debts</strong><small>Best for APR comparisons, snowball, and avalanche planning.</small></span></label>
         </fieldset>
@@ -7051,12 +7153,12 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
         <span><small>Active debts</small><strong>{portfolio.mode === 'individual' ? portfolio.active_count : 'Summary'}</strong></span>
       </div>
 
-      {portfolio.mode === 'summary' && <div className="debt-empty"><strong>Mia is using the approved household summary.</strong><p>Individual records are preserved below for review and editing, but do not affect totals until you switch to individual tracking.</p></div>}
+      {portfolio.mode === 'summary' && <div className="debt-empty"><strong>{assistantName} is using the approved household summary.</strong><p>Individual records are preserved below for review and editing, but do not affect totals until you switch to individual tracking.</p></div>}
 
       {portfolio.mode === 'individual' && activeDebts.length === 0 && editingId === null && <div className="debt-empty"><strong>No active debts entered yet.</strong><p>Add the first debt, or explicitly confirm that the household has no debt. Blank details stay marked as unknown.</p><button type="button" className="secondary-button" disabled={saving} onClick={() => void confirmNoDebt()}>{saving ? 'Saving' : 'Confirm no debt ($0)'}</button></div>}
       {activeDebts.length > 0 && <><div className="debt-list-heading"><strong>{portfolio.mode === 'summary' ? 'Preserved individual records' : 'Active debts'}</strong>{portfolio.mode === 'summary' && <span>Excluded from the approved summary total</span>}</div><div className="debt-list" aria-label={portfolio.mode === 'summary' ? 'Preserved individual debt records' : 'Active debts'}>
         {activeDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}>
-          <div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type)}</span></div>
+          <div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)}</span></div>
           <div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div>
           <div className="debt-row-actions"><button type="button" data-debt-action="edit" className="secondary-button" disabled={saving} onClick={() => beginEdit(debt)}>Edit</button><button type="button" data-debt-action="archive" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button></div>
         </div>)}
@@ -7065,7 +7167,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
       {editingId !== null && <form className="debt-form" onSubmit={saveDebt}>
         <div className="debt-form-grid">
           <label className="setup-field text-wide"><span>Debt name</span><input ref={debtNameRef} autoFocus required value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="Visa, auto loan, student loan" /><small>Use the name you recognize on a statement.</small></label>
-          <label className="setup-field"><span>Debt type</span><select value={draft.debt_type} onChange={(event) => setDraft((current) => ({ ...current, debt_type: event.target.value as DebtType }))}>{debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}</select><small>This helps Mia explain tradeoffs clearly.</small></label>
+          <label className="setup-field"><span>Debt type</span><select value={draft.debt_type} onChange={(event) => setDraft((current) => ({ ...current, debt_type: event.target.value as DebtType }))}>{debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}</select><small>This helps {assistantName} explain tradeoffs clearly.</small></label>
           <label className="setup-field"><span>Current balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.balance} onChange={(event) => setDraft((current) => ({ ...current, balance: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the latest balance is not confirmed.</small></label>
           <label className="setup-field"><span>Monthly minimum</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.minimum_payment} onChange={(event) => setDraft((current) => ({ ...current, minimum_payment: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the required payment is not confirmed.</small></label>
           <label className="setup-field"><span>APR</span><span className="percent-input-shell"><input type="number" inputMode="decimal" min="0" max="999.99" step="0.01" value={draft.interest_rate_percent} onChange={(event) => setDraft((current) => ({ ...current, interest_rate_percent: event.target.value }))} placeholder="Unknown" /><span aria-hidden="true">%</span></span><small>Find this on the latest lender statement.</small></label>
@@ -7076,7 +7178,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
 
       {archivedDebts.length > 0 && <details className="debt-archive"><summary>Archived debts ({archivedDebts.length})</summary><p>Archived records keep their history and do not affect planning totals.</p><div className="debt-list">{archivedDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}><div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · Archived {debt.archived_at ? new Date(debt.archived_at).toLocaleDateString() : ''}</span></div><div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div><div className="debt-row-actions"><button type="button" data-debt-action="restore" className="secondary-button" disabled={saving} onClick={() => void restoreRecord(debt)}>Restore</button></div></div>)}</div></details>}
       {error && editingId === null && <p className="setup-error" role="alert">{error}</p>}
-      <p className="debt-privacy-note">Household CFO uses the selected tracking mode for planning. It does not move money, contact lenders, or make payments.</p>
+      <p className="debt-privacy-note">{brand.product_name} uses the selected tracking mode for planning. It does not move money, contact lenders, or make payments.</p>
     </article>
   )
 }
@@ -7152,11 +7254,12 @@ function MiaActionDraftReviewStack({
   onCancel: (draft: MiaActionDraft) => void
   onEditManually?: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
 }) {
+  const { assistantName } = useBrand()
   return (
     <div className={`mia-action-draft-stack ${compact ? 'compact' : ''}`}>
       <div>
         <p className="eyebrow">Review before applying</p>
-        <h4>Mia prepared changes for your approval</h4>
+        <h4>{assistantName} prepared changes for your approval</h4>
         {compact && <p>Check the before and after. Nothing changes until you explicitly apply a review card.</p>}
         {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
       </div>
@@ -7193,6 +7296,7 @@ function MiaActionDraftReviewCard({
   onCancel: (draft: MiaActionDraft) => void
   onEditManually?: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
 }) {
+  const { brand } = useBrand()
   const isPending = draft.status === 'pending' || draft.status === 'partially_applied'
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
   const remainingItems = draft.items.filter((item) => !item.applied_at && !item.canceled_at)
@@ -7340,7 +7444,7 @@ function MiaActionDraftReviewCard({
         {draft.draft_type === 'action_plan' && isChoosingChanges && (
           <small className="mia-action-selection-note">Selected changes apply in one transaction. Required earlier steps are selected automatically; removing one also removes changes that depend on it.</small>
         )}
-        <small className="mia-action-safety-copy">You stay the Household CFO. We’ll check the draft against your latest saved data when you apply it, keep an audit record, and leave actual spending untouched.</small>
+        <small className="mia-action-safety-copy">You stay in control. {brand.product_name} checks the draft against your latest saved data when you apply it, keeps an audit record, and leaves actual spending untouched.</small>
       </div>
       {isPending ? (
         <div className="mia-action-draft-actions">
@@ -7549,6 +7653,10 @@ function TransactionDraftReviewStack({
   title?: string
   description?: string
 }) {
+  const { assistantName } = useBrand()
+  const resolvedTitle = title === 'Mia drafted transactions for your approval'
+    ? `${assistantName} drafted transactions for your approval`
+    : title
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(compact ? 5 : 10)
@@ -7604,7 +7712,7 @@ function TransactionDraftReviewStack({
       <div className="transaction-draft-stack-heading">
         <div>
           <p className="eyebrow">{eyebrow}</p>
-          <h4>{title}</h4>
+          <h4>{resolvedTitle}</h4>
           {(compact || description) && <p>{description ?? 'Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.'}</p>}
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
@@ -7762,6 +7870,7 @@ function TransactionDraftReviewCard({
   selected: boolean
   onSelectedChange: (selected: boolean) => void
 }) {
+  const { assistantName } = useBrand()
   const [editing, setEditing] = useState(false)
   const [merchant, setMerchant] = useState(draft.merchant)
   const [occurredOn, setOccurredOn] = useState(draft.occurred_on)
@@ -7784,8 +7893,8 @@ function TransactionDraftReviewCard({
   const needsCategoryReview = splitsNeedingCategory.length > 0
   const categoryWarningId = `transaction-draft-${draft.id}-category-warning`
   const categoryWarningCopy = draft.financial_document_import_id
-    ? 'Mia kept the receipt or document detail but did not guess. Choose where each item belongs before it changes your actuals.'
-    : 'Mia could not confidently match this purchase. Choose where it belongs before it changes your actuals.'
+    ? `${assistantName} kept the receipt or document detail but did not guess. Choose where each item belongs before it changes your actuals.`
+    : `${assistantName} could not confidently match this purchase. Choose where it belongs before it changes your actuals.`
   const firstMissingSplitIndex = splits.findIndex((split) => !split.budget_category_id || placeholderCategoryName(split.category_name))
   const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending
   const impactDraft = editing ? {
@@ -7891,7 +8000,7 @@ function TransactionDraftReviewCard({
         <div className="transaction-draft-title-row">
           <strong>{draft.merchant}</strong>
           <div className="transaction-draft-badges">
-            <span className="transaction-source-badge">{transactionDraftSourceLabel(draft.source_type)}</span>
+            <span className="transaction-source-badge">{transactionDraftSourceLabel(draft.source_type, assistantName)}</span>
             <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
           </div>
         </div>
@@ -7903,7 +8012,7 @@ function TransactionDraftReviewCard({
                 <strong>{split.budget_category_id ? split.category_name : 'Needs category'} · {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</strong>
                 {(split.notes || (!split.budget_category_id && extractedCategoryLabel(split))) && (
                   <span>{[
-                    !split.budget_category_id && extractedCategoryLabel(split) ? `Mia read “${extractedCategoryLabel(split)}”` : null,
+                    !split.budget_category_id && extractedCategoryLabel(split) ? `${assistantName} read “${extractedCategoryLabel(split)}”` : null,
                     split.notes,
                   ].filter(Boolean).join(' · ')}</span>
                 )}
@@ -8078,8 +8187,8 @@ function transactionDraftStatusTone(status: TransactionDraft['status']) {
   return 'green'
 }
 
-function transactionDraftSourceLabel(sourceType?: string) {
-  if (sourceType === 'manual_chat') return 'Mia'
+function transactionDraftSourceLabel(sourceType: string | undefined, assistantName: string) {
+  if (sourceType === 'manual_chat') return assistantName
   if (sourceType === 'manual_ui') return 'Manual'
   if (sourceType === 'plaid') return 'Bank'
   if (sourceType === 'receipt') return 'Receipt'
@@ -8821,6 +8930,7 @@ function AnnualIncomePlanner({
   focusRequest?: BudgetFocusRequest | null
   onFocusRequestHandled?: () => void
 }) {
+  const { assistantName } = useBrand()
   const [draft, setDraft] = useState<IncomeScheduleDraft>(() => blankIncomeScheduleDraft(plan))
   const [editingId, setEditingId] = useState<number | null>(null)
   const [removingId, setRemovingId] = useState<number | null>(null)
@@ -9089,7 +9199,7 @@ function AnnualIncomePlanner({
                   />
                   <span>
                     <strong>This job income will continue after my transition</strong>
-                    <small>Only check this when the reduced salary will actually continue. Otherwise, Mia keeps it out of your transition plan.</small>
+                    <small>Only check this when the reduced salary will actually continue. Otherwise, {assistantName} keeps it out of your transition plan.</small>
                   </span>
                 </label>
               )}
@@ -9222,6 +9332,7 @@ function AnnualBudgetPlanner({
   focusRequest?: BudgetFocusRequest | null
   onFocusRequestHandled?: () => void
 }) {
+  const { assistantName } = useBrand()
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentMonth = plan.months[currentMonthIndex]
   const currentMonthIncome = currentMonth ? plan.monthly_income[currentMonth.id] ?? 0 : 0
@@ -9455,7 +9566,7 @@ function AnnualBudgetPlanner({
         <div>
           <p className="eyebrow">Annual budget · {plan.year}</p>
           <h3>Money in, money out, and what is left.</h3>
-          <p>Use Mia for the fastest update, or open the manual tools when you want exact control.</p>
+          <p>Use {assistantName} for the fastest update, or open the manual tools when you want exact control.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
             <button type="button" className="secondary-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>Previous year</button>
             {!isViewingCurrentYear && (
@@ -9477,7 +9588,7 @@ function AnnualBudgetPlanner({
           <span>{plan.rows.length} categories</span>
           <span>{plan.pending_transaction_drafts.length + (plan.pending_mia_action_drafts ?? []).length} awaiting review</span>
           <div className="budget-primary-actions">
-            <button type="button" onClick={onAskMia}>Ask Mia to update my plan</button>
+            <button type="button" onClick={onAskMia}>Ask {assistantName} to update my plan</button>
             {isRealWorkspace && <button type="button" ref={manualTriggerRef} className="secondary-button" aria-controls="budget-manual-manager" aria-expanded={manualTool !== null} disabled={manualTool !== null} onClick={openManualManager}>{manualTool ? 'Manual tools open' : 'Manage manually'}</button>}
           </div>
         </div>
@@ -9711,7 +9822,7 @@ function AnnualBudgetPlanner({
           drafts={plan.pending_mia_action_drafts ?? []}
           isRealWorkspace={isRealWorkspace}
           action={action}
-          disabledReason={isEditingBudget ? 'Finish saving or canceling annual budget edits before applying Mia action drafts.' : undefined}
+          disabledReason={isEditingBudget ? `Finish saving or canceling annual budget edits before applying ${assistantName} action drafts.` : undefined}
           draftActionsDisabled={isEditingBudget}
           onApply={onApplyMiaActionDraft}
           onCancel={onCancelMiaActionDraft}
@@ -9848,7 +9959,7 @@ function clearMiaRetryRequest(chatStorageKey: string) {
 
 function MiaMark() {
   return (
-    <svg viewBox="0 0 24 24" role="img" aria-label="Mia mark">
+    <svg viewBox="0 0 24 24" role="img" aria-label="Assistant mark">
       <path d="M12 2.75 14.42 9.2l6.83 2.8-6.83 2.8L12 21.25 9.58 14.8 2.75 12l6.83-2.8L12 2.75Z" />
     </svg>
   )

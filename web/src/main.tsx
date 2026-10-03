@@ -5,6 +5,7 @@ import './index.css'
 import Root from './Root'
 import { AppErrorFallback } from './components/AppErrorFallback'
 import { captureAnalyticsEvent } from './lib/analytics'
+import { BrandProvider } from './contexts/BrandContext'
 
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN
 if (sentryDsn) {
@@ -25,9 +26,11 @@ if (sentryDsn) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Sentry.ErrorBoundary fallback={({ resetError }) => <AppErrorFallback resetError={resetError} />}>
-      <Root />
-    </Sentry.ErrorBoundary>
+    <BrandProvider>
+      <Sentry.ErrorBoundary fallback={({ resetError }) => <AppErrorFallback resetError={resetError} />}>
+        <Root />
+      </Sentry.ErrorBoundary>
+    </BrandProvider>
   </StrictMode>,
 )
 

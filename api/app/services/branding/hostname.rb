@@ -29,7 +29,7 @@ module Branding
       uri = URI.parse(raw)
       return nil if uri.userinfo.present? || uri.query.present? || uri.fragment.present? || uri.path.present?
 
-      hostname = normalize(uri.host)
+      hostname = normalize(uri.hostname)
       return nil unless hostname
       return hostname if uri.is_a?(URI::HTTPS) && uri.port == 443
       return hostname if !Rails.env.production? && uri.is_a?(URI::HTTP) && LOCAL.include?(hostname)

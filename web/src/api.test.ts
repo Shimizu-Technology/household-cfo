@@ -39,6 +39,7 @@ import {
   fetchAdminContentSources,
   fetchCohortReleaseStudio,
   fetchCohortRolloutStudio,
+  fetchPublicBrand,
   fetchAdminContentSourcePhraseProposals,
   fetchAdminPhraseProposal,
   previewAdminPersona,
@@ -82,6 +83,7 @@ import {
   archiveIncomeSource,
   attestAdminPhraseProposal,
   bulkConfirmTransactionDrafts,
+  browserBrandHostname,
   confirmTransactionDraft,
   restoreIncomeSource,
   deleteIncomeScheduleEntry,
@@ -93,6 +95,35 @@ import {
   updateTransactionDraft,
 } from './api'
 
+const publicBrandPayload = {
+  brand: {
+    schema_version: 1,
+    product_name: 'Island Money Lab',
+    short_name: 'Island Lab',
+    organization_name: 'Mel Coaching',
+    participant_role_term: 'member',
+    powered_by_name: 'VERA',
+    powered_by_placement: 'footer',
+    tagline: 'Money guidance rooted in community',
+    welcome_heading: 'Håfa adai',
+    welcome_description: 'Your coaching space is ready.',
+    logo_url: null,
+    favicon_url: null,
+    support: { label: 'Ask Mel', email: 'mel@example.com', url: null },
+    colors: {
+      background: '#f7f2ea', surface: '#fffdf8', surface_muted: '#fbf7ef', text: '#1f2421', text_muted: '#706d66', border: '#e2d9cb',
+      primary: '#536a63', primary_hover: '#3f524c', primary_soft: '#e5ece9', accent: '#9a7457', on_primary: '#ffffff', focus: '#536a63',
+    },
+    typography: { display: 'system_serif', body: 'system_sans' },
+    footer: { text: 'Island Money Lab', privacy_url: null, terms_url: null },
+  },
+  source: 'active_domain',
+  available: true,
+  workspace: { slug: 'island-money' },
+  version: { number: 3, digest: 'brand-digest' },
+  primary_domain: 'coach.example.test',
+}
+
 const completedPayload = {
   user_message: { id: 1, role: 'user', author: 'You', content: 'Hello', attachments: [], created_at: null },
   assistant_message: { id: 2, role: 'assistant', author: 'Mia', content: 'Verified reply', attachments: [], created_at: null },
@@ -103,6 +134,30 @@ afterEach(() => {
   vi.unstubAllGlobals()
   setActiveCoachWorkspaceId(null)
   setAuthTokenGetter(null)
+})
+
+describe('public brand bootstrap boundary', () => {
+  it('loads a public brand without credentials or workspace headers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(publicBrandPayload))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchPublicBrand('Coach.Example.Test')
+
+    expect(result.brand.product_name).toBe('Island Money Lab')
+    expect(String(fetchMock.mock.calls[0][0])).toContain('hostname=coach.example.test')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: 'omit' })
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toBeUndefined()
+  })
+
+  it('accepts a neutral 404 contract and rejects corrupt JSON without leaking parser details', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ ...publicBrandPayload, available: false, source: 'safe_default', workspace: null, version: null, primary_domain: null }, 404))
+      .mockResolvedValueOnce(new Response('{broken', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(fetchPublicBrand('unknown.example.test')).resolves.toMatchObject({ available: false, source: 'safe_default' })
+    await expect(fetchPublicBrand('broken.example.test')).rejects.toThrow('The coaching program returned an invalid brand configuration.')
+  })
 })
 
 describe('coach workspace request boundary', () => {
@@ -120,6 +175,7 @@ describe('coach workspace request boundary', () => {
 
     for (const call of fetchMock.mock.calls) {
       expect((call[1] as RequestInit).headers).toMatchObject({ 'X-Coach-Workspace-Id': '42' })
+      expect(((call[1] as RequestInit).headers as Record<string, string>)['X-Brand-Hostname']).toBe(browserBrandHostname())
     }
   })
 })
@@ -1027,7 +1083,7 @@ describe('Mia request idempotency polling', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const firstAttempt = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-timeout-1')
-    const firstResult = expect(firstAttempt).rejects.toThrow('Mia took too long to finish this request. Please try again.')
+    const firstResult = expect(firstAttempt).rejects.toThrow('Your assistant took too long to finish this request. Please try again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await firstResult
 
@@ -1048,7 +1104,7 @@ describe('Mia request idempotency polling', () => {
     setAuthTokenGetter(() => new Promise<string | null>(() => undefined))
 
     const request = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-auth-timeout-1')
-    const result = expect(request).rejects.toThrow('Mia took too long to finish this request. Please try again.')
+    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Please try again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await result
 
@@ -1065,7 +1121,7 @@ describe('Mia request idempotency polling', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const request = sendMiaMessage('Can I afford this?', [], false)
-    const result = expect(request).rejects.toThrow('Mia took too long to finish this request. Please try again.')
+    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Please try again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await result
 

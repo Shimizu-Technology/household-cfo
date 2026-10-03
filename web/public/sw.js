@@ -1,4 +1,4 @@
-const CACHE_NAME = 'household-cfo-shell-v2'
+const CACHE_NAME = 'vera-coaching-shell-v3'
 const APP_SHELL = [
   '/',
   '/index.html',

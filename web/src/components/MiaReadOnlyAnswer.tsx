@@ -1,5 +1,6 @@
 import type { MiaAnswerPresentation } from '../api'
 import { SafeMessageText } from './SafeMessageText'
+import { useBrand } from '../contexts/brandContextValue'
 
 const basisLabels: Record<MiaAnswerPresentation['basis'], string> = {
   saved_household: 'Saved household records',
@@ -8,13 +9,14 @@ const basisLabels: Record<MiaAnswerPresentation['basis'], string> = {
 }
 
 export function MiaReadOnlyAnswer({ presentation, idPrefix }: { presentation: MiaAnswerPresentation; idPrefix: string }) {
+  const { assistantName } = useBrand()
   const scenarioTitleId = `${idPrefix}-scenario-title`
 
   return (
-    <div className="mia-read-only-answer" role="group" aria-label="Mia read-only answer">
+    <div className="mia-read-only-answer" role="group" aria-label={`${assistantName} read-only answer`}>
       <p className="mia-answer-basis"><span>Answer basis</span>{basisLabels[presentation.basis]}</p>
       <p className="mia-answer-lead">{presentation.lead}</p>
-      <ol className="mia-answer-sections" aria-label="Mia answer sections">
+      <ol className="mia-answer-sections" aria-label={`${assistantName} answer sections`}>
         {presentation.sections.map((section, index) => {
           const titleId = `${idPrefix}-section-${section.id}`
           return (
@@ -34,7 +36,7 @@ export function MiaReadOnlyAnswer({ presentation, idPrefix }: { presentation: Mi
         <aside className="mia-answer-scenario" role="note" aria-labelledby={scenarioTitleId}>
           <div>
             <h4 id={scenarioTitleId}>Scenario only · not saved</h4>
-            <p>Mia used these values for this answer. Your saved household records did not change.</p>
+            <p>{assistantName} used these values for this answer. Your saved household records did not change.</p>
           </div>
           <dl>
             {presentation.scenario.values.map((value, index) => (

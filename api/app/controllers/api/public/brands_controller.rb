@@ -4,7 +4,8 @@ module Api
   module Public
     class BrandsController < ApplicationController
       def show
-        result = Branding::PublicResolver.new(hostname: params[:hostname].presence || request.host).call
+        response.headers["Cache-Control"] = "no-store"
+        result = Branding::PublicResolver.new(hostname: requested_hostname).call
         render json: {
           brand: result.config,
           source: result.source,
@@ -18,6 +19,17 @@ module Api
           },
           primary_domain: result.primary_domain
         }, status: result.available ? :ok : :not_found
+      end
+
+      private
+
+      def requested_hostname
+        requested = Branding::Hostname.normalize(params[:hostname].presence || request.host)
+        origin = request.headers["Origin"].presence
+        return requested unless origin
+
+        origin_hostname = Branding::Hostname.from_origin(origin)
+        requested if origin_hostname.present? && origin_hostname == requested
       end
     end
   end

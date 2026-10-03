@@ -3,6 +3,7 @@ import type { CurrentUser } from '../api'
 
 export type AuthContextValue = {
   isClerkEnabled: boolean
+  authIdentityId: string | null
   isSignedIn: boolean
   isLoading: boolean
   isVerifyingApi: boolean
@@ -16,6 +17,7 @@ export type AuthContextValue = {
 
 export const AuthContext = createContext<AuthContextValue>({
   isClerkEnabled: false,
+  authIdentityId: null,
   isSignedIn: false,
   isLoading: false,
   isVerifyingApi: false,

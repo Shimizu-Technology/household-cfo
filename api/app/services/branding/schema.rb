@@ -70,6 +70,21 @@ module Branding
       "welcome_heading" => "This program link is not available",
       "welcome_description" => "Check the address from your coach and try again.",
       "support" => { "label" => nil, "email" => nil, "url" => nil },
+      "colors" => {
+        "background" => "#f7f2ea",
+        "surface" => "#fffdf8",
+        "surface_muted" => "#fbf7ef",
+        "text" => "#1f2421",
+        "text_muted" => "#706d66",
+        "border" => "#e2d9cb",
+        "primary" => "#536a63",
+        "primary_hover" => "#3f524c",
+        "primary_soft" => "#e5ece9",
+        "accent" => "#9a7457",
+        "on_primary" => "#ffffff",
+        "focus" => "#536a63"
+      },
+      "typography" => { "display" => "system_serif", "body" => "system_sans" },
       "footer" => { "text" => nil, "privacy_url" => nil, "terms_url" => nil }
     ).freeze
 
@@ -274,8 +289,13 @@ module Branding
       result << "colors.text must have at least 4.5:1 contrast on colors.background" if contrast_ratio(colors["text"], colors["background"]) < 4.5
       result << "colors.text must have at least 4.5:1 contrast on colors.surface" if contrast_ratio(colors["text"], colors["surface"]) < 4.5
       result << "colors.on_primary must have at least 4.5:1 contrast on colors.primary" if contrast_ratio(colors["on_primary"], colors["primary"]) < 4.5
+      result << "colors.on_primary must have at least 4.5:1 contrast on colors.primary_hover" if contrast_ratio(colors["on_primary"], colors["primary_hover"]) < 4.5
+      result << "colors.primary must have at least 4.5:1 contrast on colors.background" if contrast_ratio(colors["primary"], colors["background"]) < 4.5
+      result << "colors.primary must have at least 4.5:1 contrast on colors.surface" if contrast_ratio(colors["primary"], colors["surface"]) < 4.5
       result << "colors.text_muted must have at least 4.5:1 contrast on colors.background" if contrast_ratio(colors["text_muted"], colors["background"]) < 4.5
+      result << "colors.text_muted must have at least 4.5:1 contrast on colors.surface" if contrast_ratio(colors["text_muted"], colors["surface"]) < 4.5
       result << "colors.focus must have at least 3:1 contrast on colors.background" if contrast_ratio(colors["focus"], colors["background"]) < 3.0
+      result << "colors.focus must have at least 3:1 contrast on colors.surface" if contrast_ratio(colors["focus"], colors["surface"]) < 3.0
     end
     private_class_method :validate_colors
 

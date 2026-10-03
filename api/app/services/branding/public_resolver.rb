@@ -19,7 +19,9 @@ module Branding
 
       configuration = domain.coach_workspace.workspace_brand_configuration
       version = configuration&.current_published_version
-      return unavailable unless version && version.config_digest == Schema.digest(version.config)
+      return unavailable unless version
+      return unavailable unless version.config_digest == Schema.digest(version.config)
+      return unavailable unless Schema.errors(version.config).empty?
 
       Result.new(
         config: version.config,
