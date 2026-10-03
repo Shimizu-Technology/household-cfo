@@ -1861,6 +1861,8 @@ export type CohortRolloutParticipant = {
   user_id: number
   full_name: string
   readiness: CohortRolloutReadiness
+  exposed: boolean | null
+  effective_release: CohortRolloutRelease | null
 }
 
 export type CohortRolloutReadinessCounts = {
@@ -1877,6 +1879,8 @@ export type CohortRolloutWave = {
   active: boolean
   completed: boolean
   participant_count: number
+  exposed_count: number
+  exposure_complete: boolean
   counts: CohortRolloutReadinessCounts
   participants: CohortRolloutParticipant[]
 }
@@ -1892,13 +1896,16 @@ export type CohortRolloutTransition = {
   readiness_digest: string | null
   actor: null | { id: number; full_name: string; role: string | null }
   occurred_at: string
-  participant_runtime_changed: false
+  participant_runtime_changed: boolean
 }
 
 export type CohortRolloutRecord = {
   id: number
   status: string
+  runtime_mode: 'release_runtime_v2' | 'legacy_record_only_v1'
+  runtime_blocker: string | null
   target_release: CohortRolloutRelease
+  baseline_release: CohortRolloutRelease | null
   rollback_release: CohortRolloutRelease | null
   rollback_candidate: CohortRolloutRelease | null
   planned_by: null | { id: number; full_name: string; role: string | null }
@@ -1927,7 +1934,7 @@ export type CohortRolloutRecord = {
   waves: CohortRolloutWave[]
   transition_history: { limit: number; total_count: number; truncated: boolean }
   transitions: CohortRolloutTransition[]
-  participant_runtime_changed: false
+  participant_runtime_changed: boolean
 }
 
 export type CohortRolloutSummary = Omit<CohortRolloutRecord, 'rollback_candidate' | 'readiness_digest' | 'next_wave_readiness_digest' | 'next_wave_position' | 'permissions' | 'waves' | 'transitions'>
@@ -1940,8 +1947,8 @@ export type CohortRolloutStudio = {
     participant_count: number
   }
   runtime_truth: {
-    changes_participant_runtime: false
-    participant_runtime_changed: false
+    changes_participant_runtime: boolean
+    participant_runtime_changed: boolean
     message: string
   }
   permissions: {
@@ -1960,6 +1967,7 @@ export type CohortRolloutStudio = {
     participants: CohortRolloutParticipant[]
   }
   latest_release: CohortRolloutRelease | null
+  active_release: CohortRolloutRelease | null
   release_history: { limit: number; total_count: number; truncated: boolean }
   releases: CohortRolloutRelease[]
   history: { limit: number; total_count: number; truncated: boolean }
@@ -1978,6 +1986,13 @@ export type CohortRolloutTransitionInput = {
   expected_status: string
   expected_current_wave_position: number
   expected_latest_transition_id: number
+}
+
+export type CohortRolloutMutationResponse = {
+  rollout: CohortRolloutRecord
+  transition: CohortRolloutTransition
+  replayed: boolean
+  cohort_rollout_studio: CohortRolloutStudio
 }
 
 export type AdminInviteEmailStatus = 'hidden' | 'not_sent' | 'skipped' | 'sent' | 'failed'
@@ -2539,7 +2554,7 @@ export async function fetchCohortRolloutStudio(cohortId: number, signal?: AbortS
   return normalizeCohortRolloutStudio(payload)
 }
 
-export async function planCohortRollout(cohortId: number, values: CohortRolloutPlanInput, requestId: string): Promise<unknown> {
+export async function planCohortRollout(cohortId: number, values: CohortRolloutPlanInput, requestId: string): Promise<CohortRolloutMutationResponse> {
   return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts`, values, requestId)
 }
 
@@ -2548,19 +2563,19 @@ export async function advanceCohortRollout(
   rolloutId: number,
   values: CohortRolloutTransitionInput & { readiness_digest: string },
   requestId: string,
-): Promise<unknown> {
+): Promise<CohortRolloutMutationResponse> {
   return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts/${rolloutId}/advance`, values, requestId)
 }
 
-export async function pauseCohortRollout(cohortId: number, rolloutId: number, values: CohortRolloutTransitionInput, requestId: string): Promise<unknown> {
+export async function pauseCohortRollout(cohortId: number, rolloutId: number, values: CohortRolloutTransitionInput, requestId: string): Promise<CohortRolloutMutationResponse> {
   return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts/${rolloutId}/pause`, values, requestId)
 }
 
-export async function resumeCohortRollout(cohortId: number, rolloutId: number, values: CohortRolloutTransitionInput, requestId: string): Promise<unknown> {
+export async function resumeCohortRollout(cohortId: number, rolloutId: number, values: CohortRolloutTransitionInput, requestId: string): Promise<CohortRolloutMutationResponse> {
   return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts/${rolloutId}/resume`, values, requestId)
 }
 
-export async function cancelCohortRollout(cohortId: number, rolloutId: number, values: CohortRolloutTransitionInput, requestId: string): Promise<unknown> {
+export async function cancelCohortRollout(cohortId: number, rolloutId: number, values: CohortRolloutTransitionInput, requestId: string): Promise<CohortRolloutMutationResponse> {
   return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts/${rolloutId}/cancel`, values, requestId)
 }
 
@@ -2569,12 +2584,12 @@ export async function rollbackCohortRollout(
   rolloutId: number,
   values: CohortRolloutTransitionInput & { rollback_release_id: number },
   requestId: string,
-): Promise<unknown> {
+): Promise<CohortRolloutMutationResponse> {
   return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts/${rolloutId}/rollback`, values, requestId)
 }
 
-function mutateCohortRollout(path: string, values: CohortRolloutPlanInput | CohortRolloutTransitionInput | (CohortRolloutTransitionInput & { readiness_digest: string }) | (CohortRolloutTransitionInput & { rollback_release_id: number }), requestId: string) {
-  return fetchJson(path, {
+async function mutateCohortRollout(path: string, values: CohortRolloutPlanInput | CohortRolloutTransitionInput | (CohortRolloutTransitionInput & { readiness_digest: string }) | (CohortRolloutTransitionInput & { rollback_release_id: number }), requestId: string) {
+  const payload = await fetchJson<unknown>(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
     body: JSON.stringify({ rollout: values }),
@@ -2582,6 +2597,7 @@ function mutateCohortRollout(path: string, values: CohortRolloutPlanInput | Coho
     timeoutMs: 30_000,
     timeoutMessage: 'The rollout request took too long. Retry this reviewed action; the same request key prevents a duplicate decision.',
   })
+  return normalizeCohortRolloutMutation(payload)
 }
 
 export async function fetchAdminPersonas(): Promise<AdminPersonaSummary[]> {
@@ -3634,6 +3650,7 @@ function normalizeCohortRolloutStudio(payload: unknown): CohortRolloutStudio {
   const rawReleases = Array.isArray(raw.releases) ? raw.releases : []
   const cohortId = releaseInteger(cohort.id)
   const cohortName = releaseString(cohort.name)
+  const changesParticipantRuntime = releaseBoolean(runtimeTruth.changes_participant_runtime)
 
   if (!cohortId || !cohortName) throw new Error('Cohort rollout data was incomplete. Reload Coach Studio and try again.')
   const status = releaseString(cohort.status)
@@ -3647,9 +3664,11 @@ function normalizeCohortRolloutStudio(payload: unknown): CohortRolloutStudio {
       participant_count: releaseInteger(cohort.participant_count) ?? rawParticipants.length,
     },
     runtime_truth: {
-      changes_participant_runtime: false,
-      participant_runtime_changed: false,
-      message: releaseString(runtimeTruth.message) || 'Rollout records coordinate reviewed waves. They do not change participant access, Mia, or participant tools.',
+      changes_participant_runtime: changesParticipantRuntime,
+      participant_runtime_changed: releaseBoolean(runtimeTruth.participant_runtime_changed),
+      message: releaseString(runtimeTruth.message) || (changesParticipantRuntime
+        ? 'Each advanced wave receives the sealed Mia persona and participant tools together. Completing the rollout makes that release the cohort default; rollback restores the captured baseline.'
+        : 'This pre-cutover rollout is record only and cannot change participant runtime.'),
     },
     permissions: {
       view: releaseBoolean(permissions.view, true),
@@ -3667,6 +3686,7 @@ function normalizeCohortRolloutStudio(payload: unknown): CohortRolloutStudio {
       participants: rawParticipants.map(normalizeRolloutParticipant).filter((participant): participant is CohortRolloutParticipant => participant !== null),
     },
     latest_release: normalizeRolloutRelease(raw.latest_release),
+    active_release: normalizeRolloutRelease(raw.active_release),
     release_history: normalizeHistory(raw.release_history, rawReleases.length),
     releases: rawReleases.map(normalizeRolloutRelease).filter((release): release is CohortRolloutRelease => release !== null),
     history: normalizeHistory(raw.history, rawRollouts.length),
@@ -3687,6 +3707,9 @@ function normalizeRolloutRecord(value: unknown): CohortRolloutRecord | null {
   return {
     ...summary,
     target_release: targetRelease,
+    runtime_mode: normalizeRolloutRuntimeMode(raw.runtime_mode),
+    runtime_blocker: releaseNullableString(raw.runtime_blocker),
+    baseline_release: normalizeRolloutRelease(raw.baseline_release),
     rollback_candidate: normalizeRolloutRelease(raw.rollback_candidate),
     readiness_digest: releaseString(raw.readiness_digest),
     next_wave_readiness_digest: releaseString(raw.next_wave_readiness_digest),
@@ -3713,30 +3736,13 @@ function normalizeRolloutRecord(value: unknown): CohortRolloutRecord | null {
         active: releaseBoolean(wave.active),
         completed: releaseBoolean(wave.completed),
         participant_count: releaseInteger(wave.participant_count) ?? rawParticipants.length,
+        exposed_count: releaseInteger(wave.exposed_count) ?? 0,
+        exposure_complete: releaseBoolean(wave.exposure_complete),
         counts: normalizeRolloutCounts(wave.counts),
         participants: rawParticipants.map(normalizeRolloutParticipant).filter((participant): participant is CohortRolloutParticipant => participant !== null),
       }
     }).filter((wave): wave is CohortRolloutWave => wave !== null),
-    transitions: rawTransitions.map((value) => {
-      const transition = releaseRecord(value)
-      const actor = releaseRecord(transition.actor)
-      const id = releaseInteger(transition.id)
-      if (!id) return null
-      const actorId = releaseInteger(actor.id)
-      return {
-        id,
-        event_type: releaseString(transition.event_type),
-        from_status: releaseNullableString(transition.from_status),
-        to_status: releaseString(transition.to_status),
-        from_wave_position: releaseInteger(transition.from_wave_position) ?? 0,
-        to_wave_position: releaseInteger(transition.to_wave_position) ?? 0,
-        rollback_release_id: releaseNullableInteger(transition.rollback_release_id),
-        readiness_digest: releaseNullableString(transition.readiness_digest),
-        actor: actorId ? { id: actorId, full_name: releaseString(actor.full_name) || `Workspace member ${actorId}`, role: releaseNullableString(actor.role) } : null,
-        occurred_at: releaseString(transition.occurred_at),
-        participant_runtime_changed: false as const,
-      }
-    }).filter((transition): transition is CohortRolloutTransition => transition !== null),
+    transitions: rawTransitions.map(normalizeRolloutTransition).filter((transition): transition is CohortRolloutTransition => transition !== null),
   }
 }
 
@@ -3751,7 +3757,10 @@ function normalizeRolloutSummary(value: unknown): CohortRolloutSummary | null {
   return {
     id,
     status: releaseString(raw.status),
+    runtime_mode: normalizeRolloutRuntimeMode(raw.runtime_mode),
+    runtime_blocker: releaseNullableString(raw.runtime_blocker),
     target_release: targetRelease,
+    baseline_release: normalizeRolloutRelease(raw.baseline_release),
     rollback_release: normalizeRolloutRelease(raw.rollback_release),
     planned_by: plannerId ? { id: plannerId, full_name: releaseString(planner.full_name) || `Workspace member ${plannerId}`, role: releaseNullableString(planner.role) } : null,
     planned_at: releaseString(raw.planned_at),
@@ -3765,7 +3774,7 @@ function normalizeRolloutSummary(value: unknown): CohortRolloutSummary | null {
     participant_count: releaseInteger(raw.participant_count) ?? 0,
     latest_transition_id: releaseNullableInteger(raw.latest_transition_id),
     transition_history: transitionHistory,
-    participant_runtime_changed: false,
+    participant_runtime_changed: releaseBoolean(raw.participant_runtime_changed),
   }
 }
 
@@ -3783,6 +3792,10 @@ function normalizeRolloutRelease(value: unknown): CohortRolloutRelease | null {
   }
 }
 
+function normalizeRolloutRuntimeMode(value: unknown): CohortRolloutRecord['runtime_mode'] {
+  return releaseString(value) === 'release_runtime_v2' ? 'release_runtime_v2' : 'legacy_record_only_v1'
+}
+
 function normalizeRolloutParticipant(value: unknown): CohortRolloutParticipant | null {
   const raw = releaseRecord(value)
   const userId = releaseInteger(raw.user_id)
@@ -3791,7 +3804,39 @@ function normalizeRolloutParticipant(value: unknown): CohortRolloutParticipant |
     user_id: userId,
     full_name: releaseString(raw.full_name) || `Participant ${userId}`,
     readiness: releaseString(raw.readiness) || 'awaiting_acceptance',
+    exposed: typeof raw.exposed === 'boolean' ? raw.exposed : null,
+    effective_release: normalizeRolloutRelease(raw.effective_release),
   }
+}
+
+function normalizeRolloutTransition(value: unknown): CohortRolloutTransition | null {
+  const transition = releaseRecord(value)
+  const actor = releaseRecord(transition.actor)
+  const id = releaseInteger(transition.id)
+  if (!id) return null
+  const actorId = releaseInteger(actor.id)
+  return {
+    id,
+    event_type: releaseString(transition.event_type),
+    from_status: releaseNullableString(transition.from_status),
+    to_status: releaseString(transition.to_status),
+    from_wave_position: releaseInteger(transition.from_wave_position) ?? 0,
+    to_wave_position: releaseInteger(transition.to_wave_position) ?? 0,
+    rollback_release_id: releaseNullableInteger(transition.rollback_release_id),
+    readiness_digest: releaseNullableString(transition.readiness_digest),
+    actor: actorId ? { id: actorId, full_name: releaseString(actor.full_name) || `Workspace member ${actorId}`, role: releaseNullableString(actor.role) } : null,
+    occurred_at: releaseString(transition.occurred_at),
+    participant_runtime_changed: releaseBoolean(transition.participant_runtime_changed),
+  }
+}
+
+function normalizeCohortRolloutMutation(payload: unknown): CohortRolloutMutationResponse {
+  const root = releaseRecord(payload)
+  const studio = normalizeCohortRolloutStudio(root)
+  const rollout = normalizeRolloutRecord(root.rollout)
+  const transition = normalizeRolloutTransition(root.transition)
+  if (!rollout || !transition) throw new Error('The rollout action response was incomplete. Reload Coach Studio before continuing.')
+  return { rollout, transition, replayed: releaseBoolean(root.replayed), cohort_rollout_studio: studio }
 }
 
 function normalizeRolloutCounts(value: unknown): CohortRolloutReadinessCounts {

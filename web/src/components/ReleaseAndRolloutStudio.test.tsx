@@ -16,6 +16,12 @@ const cohorts = [
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('ReleaseAndRolloutStudio', () => {
+  it('qualifies runtime behavior and keeps labeled pre-cutover rollouts record only', () => {
+    render(<ReleaseAndRolloutStudio cohorts={cohorts} cohortsLoading={false} mutationLifecycle={{ pending: false, begin: vi.fn(), isCurrent: vi.fn(), finish: vi.fn() }} selectedCohortId={12} onSelectedCohortIdChange={vi.fn()} onDirtyChange={vi.fn()} />)
+    expect(screen.getByText(/In a runtime-enabled rollout, starting and advancing move that wave immediately/)).toBeTruthy()
+    expect(screen.getByText(/A rollout labeled pre-cutover remains record-only until it is closed/)).toBeTruthy()
+  })
+
   it('supports tab keyboard navigation and preserves an in-progress plan between subviews', async () => {
     const user = userEvent.setup()
     render(<ReleaseAndRolloutStudio cohorts={cohorts} cohortsLoading={false} mutationLifecycle={{ pending: false, begin: vi.fn(), isCurrent: vi.fn(), finish: vi.fn() }} selectedCohortId={12} onSelectedCohortIdChange={vi.fn()} onDirtyChange={vi.fn()} />)

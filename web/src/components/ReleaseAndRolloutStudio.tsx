@@ -72,8 +72,8 @@ export function ReleaseAndRolloutStudio({
       <div className="cohort-release-truth" role="note">
         <span className="cohort-release-truth-icon" aria-hidden="true"><EvidenceIcon /></span>
         <div>
-          <strong>Review first. Then roll out in controlled waves.</strong>
-          <p>These records preserve the exact release and rollout decisions. Participant access and Mia do not change until runtime cutover is connected.</p>
+          <strong>Seal first. Then activate in controlled waves.</strong>
+          <p>Sealing or restoring only prepares a release. In a runtime-enabled rollout, starting and advancing move that wave immediately, completion makes the release the cohort default, and rollback restores the captured baseline for still-current exposed enrollments. A rollout labeled pre-cutover remains record-only until it is closed.</p>
           <small>Every action is reviewed, recorded, and safe to retry.</small>
         </div>
       </div>

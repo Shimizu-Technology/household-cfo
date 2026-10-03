@@ -3,7 +3,7 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiRequestError, type CohortRolloutStudio as CohortRolloutStudioData } from '../api'
+import { ApiRequestError, type CohortRolloutMutationResponse, type CohortRolloutStudio as CohortRolloutStudioData } from '../api'
 import { CohortRolloutStudio } from './CohortRolloutStudio'
 
 const apiMocks = vi.hoisted(() => ({
@@ -14,16 +14,18 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock('../api', async (importOriginal) => ({ ...await importOriginal<typeof import('../api')>(), ...apiMocks }))
 
 function studioFixture(): CohortRolloutStudioData {
+  const activeRelease = { id: 43, release_number: 3, bundle_digest: 'baseline', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' }
   return {
     cohort: { id: 12, name: 'Tuesday cohort', status: 'active', participant_count: 2 },
-    runtime_truth: { changes_participant_runtime: false, participant_runtime_changed: false, message: 'Records do not change participant runtime.' },
+    runtime_truth: { changes_participant_runtime: true, participant_runtime_changed: false, message: 'Advanced waves receive the target release immediately.' },
     permissions: { view: true, manage: true, plan: true, actor_role: 'owner', blockers: [], plan_blockers: [] },
     current_roster: {
       digest: 'roster-digest', readiness_digest: 'roster-ready', total_count: 2,
       counts: { ready: 2, awaiting_acceptance: 0, revoked: 0, removed: 0 },
-      participants: [{ user_id: 7, full_name: 'Ana Cruz', readiness: 'ready' }, { user_id: 8, full_name: 'Ben Santos', readiness: 'ready' }],
+      participants: [{ user_id: 7, full_name: 'Ana Cruz', readiness: 'ready', exposed: null, effective_release: activeRelease }, { user_id: 8, full_name: 'Ben Santos', readiness: 'ready', exposed: null, effective_release: activeRelease }],
     },
     latest_release: { id: 44, release_number: 4, bundle_digest: 'bundle', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z' },
+    active_release: activeRelease,
     release_history: { limit: 25, total_count: 4, truncated: false }, releases: [],
     history: { limit: 25, total_count: 0, truncated: false }, open_rollout: null, rollouts: [],
   }
@@ -34,25 +36,60 @@ function activeRolloutStudio(status: 'planned' | 'active' | 'paused' = 'active')
   studio.permissions.plan = false
   studio.permissions.plan_blockers = ['Another rollout is already open for this cohort.']
   studio.open_rollout = {
-    id: 90, status, target_release: studio.latest_release!, rollback_release: null,
+    id: 90, status, runtime_mode: 'release_runtime_v2', runtime_blocker: null, target_release: studio.latest_release!, baseline_release: studio.active_release, rollback_release: null,
     rollback_candidate: { id: 43, release_number: 3, bundle_digest: 'prior', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' },
     planned_by: { id: 5, full_name: 'Coach Mel', role: 'owner' }, planned_at: '2026-10-03T02:00:00Z', activated_at: status === 'planned' ? null : '2026-10-03T03:00:00Z', paused_at: status === 'paused' ? '2026-10-03T04:00:00Z' : null, completed_at: null, cancelled_at: null, rolled_back_at: null,
     current_wave_position: status === 'planned' ? 0 : 1, wave_count: 2, participant_count: 2, latest_transition_id: 101,
     readiness_digest: 'all-ready', next_wave_readiness_digest: 'wave-ready', next_wave_position: status === 'planned' ? 1 : 2,
     permissions: { advance: status !== 'paused', pause: status === 'active', resume: status === 'paused', cancel: status === 'planned', rollback: status !== 'planned', advance_blockers: [], rollback_blockers: status === 'planned' ? ['Only active or paused rollouts can roll back.'] : [] },
     waves: [
-      { id: 91, position: 1, name: 'Pilot', active: status !== 'planned', completed: false, participant_count: 1, counts: { ready: 1, awaiting_acceptance: 0, revoked: 0, removed: 0 }, participants: [{ user_id: 7, full_name: 'Ana Cruz', readiness: 'ready' }] },
-      { id: 92, position: 2, name: 'Everyone else', active: false, completed: false, participant_count: 1, counts: { ready: 1, awaiting_acceptance: 0, revoked: 0, removed: 0 }, participants: [{ user_id: 8, full_name: 'Ben Santos', readiness: 'ready' }] },
+      { id: 91, position: 1, name: 'Pilot', active: status !== 'planned', completed: false, participant_count: 1, exposed_count: status === 'planned' ? 0 : 1, exposure_complete: status !== 'planned', counts: { ready: 1, awaiting_acceptance: 0, revoked: 0, removed: 0 }, participants: [{ user_id: 7, full_name: 'Ana Cruz', readiness: 'ready', exposed: status !== 'planned', effective_release: status === 'planned' ? studio.active_release : studio.latest_release }] },
+      { id: 92, position: 2, name: 'Everyone else', active: false, completed: false, participant_count: 1, exposed_count: 0, exposure_complete: false, counts: { ready: 1, awaiting_acceptance: 0, revoked: 0, removed: 0 }, participants: [{ user_id: 8, full_name: 'Ben Santos', readiness: 'ready', exposed: false, effective_release: studio.active_release }] },
     ],
     transition_history: { limit: 25, total_count: 1, truncated: false },
-    transitions: [{ id: 101, event_type: status === 'planned' ? 'planned' : 'activated', from_status: status === 'planned' ? null : 'planned', to_status: status, from_wave_position: 0, to_wave_position: status === 'planned' ? 0 : 1, rollback_release_id: null, readiness_digest: status === 'planned' ? null : 'wave-ready', actor: { id: 5, full_name: 'Coach Mel', role: 'owner' }, occurred_at: '2026-10-03T02:00:00Z', participant_runtime_changed: false }],
-    participant_runtime_changed: false,
+    transitions: [{ id: 101, event_type: status === 'planned' ? 'planned' : status === 'paused' ? 'paused' : 'activated', from_status: status === 'planned' ? null : status === 'paused' ? 'active' : 'planned', to_status: status, from_wave_position: 0, to_wave_position: status === 'planned' ? 0 : 1, rollback_release_id: null, readiness_digest: status === 'planned' ? null : 'wave-ready', actor: { id: 5, full_name: 'Coach Mel', role: 'owner' }, occurred_at: '2026-10-03T02:00:00Z', participant_runtime_changed: status === 'active' }],
+    participant_runtime_changed: status !== 'planned',
   }
   studio.history = { limit: 25, total_count: 1, truncated: false }
   studio.rollouts = [{
-    id: 90, status, target_release: studio.latest_release!, rollback_release: null, planned_by: { id: 5, full_name: 'Coach Mel', role: 'owner' }, planned_at: '2026-10-03T02:00:00Z', activated_at: null, paused_at: null, completed_at: null, cancelled_at: null, rolled_back_at: null, current_wave_position: 0, wave_count: 2, participant_count: 2, latest_transition_id: 101, transition_history: { limit: 25, total_count: 1, truncated: false }, participant_runtime_changed: false,
+    id: 90, status, runtime_mode: 'release_runtime_v2', runtime_blocker: null, target_release: studio.latest_release!, baseline_release: studio.active_release, rollback_release: null, planned_by: { id: 5, full_name: 'Coach Mel', role: 'owner' }, planned_at: '2026-10-03T02:00:00Z', activated_at: null, paused_at: null, completed_at: null, cancelled_at: null, rolled_back_at: null, current_wave_position: 0, wave_count: 2, participant_count: 2, latest_transition_id: 101, transition_history: { limit: 25, total_count: 1, truncated: false }, participant_runtime_changed: status !== 'planned',
   }]
   return studio
+}
+
+function legacyRolloutStudio(): CohortRolloutStudioData {
+  const studio = activeRolloutStudio('active')
+  const rollout = studio.open_rollout!
+  rollout.runtime_mode = 'legacy_record_only_v1'
+  rollout.runtime_blocker = 'Finish or roll back this pre-cutover rollout before activating participant runtime.'
+  rollout.baseline_release = null
+  rollout.participant_runtime_changed = false
+  rollout.waves.forEach((wave) => {
+    wave.exposed_count = 0
+    wave.exposure_complete = false
+    wave.participants.forEach((participant) => { participant.exposed = null })
+  })
+  studio.rollouts[0] = { ...studio.rollouts[0], runtime_mode: 'legacy_record_only_v1', runtime_blocker: rollout.runtime_blocker, baseline_release: null, participant_runtime_changed: false }
+  return studio
+}
+
+function mutationResponse(eventType: string, participantRuntimeChanged: boolean): CohortRolloutMutationResponse {
+  const studio = activeRolloutStudio(eventType === 'planned' ? 'planned' : 'active')
+  const rollout = studio.open_rollout!
+  const transition = {
+    id: 202,
+    event_type: eventType,
+    from_status: eventType === 'planned' ? null : 'planned',
+    to_status: eventType === 'cancelled' ? 'cancelled' : eventType === 'rolled_back' ? 'rolled_back' : eventType === 'paused' ? 'paused' : 'active',
+    from_wave_position: 0,
+    to_wave_position: eventType === 'planned' || eventType === 'cancelled' ? 0 : 1,
+    rollback_release_id: eventType === 'rolled_back' ? rollout.baseline_release?.id ?? null : null,
+    readiness_digest: eventType === 'activated' || eventType === 'advanced' ? 'wave-ready' : null,
+    actor: { id: 5, full_name: 'Coach Mel', role: 'owner' },
+    occurred_at: '2026-10-03T03:00:00Z',
+    participant_runtime_changed: participantRuntimeChanged,
+  }
+  return { rollout, transition, replayed: false, cohort_rollout_studio: studio }
 }
 
 function renderStudio(studio = studioFixture(), reloadStudio = studio) {
@@ -66,7 +103,12 @@ function renderStudio(studio = studioFixture(), reloadStudio = studio) {
 beforeEach(() => {
   vi.clearAllMocks()
   apiMocks.createCohortRolloutRequestId.mockReturnValue('rollout-request-1')
-  for (const mock of [apiMocks.planCohortRollout, apiMocks.advanceCohortRollout, apiMocks.pauseCohortRollout, apiMocks.resumeCohortRollout, apiMocks.cancelCohortRollout, apiMocks.rollbackCohortRollout]) mock.mockResolvedValue({})
+  apiMocks.planCohortRollout.mockResolvedValue(mutationResponse('planned', false))
+  apiMocks.advanceCohortRollout.mockResolvedValue(mutationResponse('advanced', true))
+  apiMocks.pauseCohortRollout.mockResolvedValue(mutationResponse('paused', false))
+  apiMocks.resumeCohortRollout.mockResolvedValue(mutationResponse('resumed', false))
+  apiMocks.cancelCohortRollout.mockResolvedValue(mutationResponse('cancelled', false))
+  apiMocks.rollbackCohortRollout.mockResolvedValue(mutationResponse('rolled_back', true))
 })
 afterEach(cleanup)
 
@@ -95,7 +137,7 @@ describe('CohortRolloutStudio', () => {
 
   it('focuses and traps the confirmation, then reuses its stable key after an uncertain failure', async () => {
     const user = userEvent.setup()
-    apiMocks.planCohortRollout.mockRejectedValueOnce(new Error('Connection interrupted.')).mockResolvedValueOnce({})
+    apiMocks.planCohortRollout.mockRejectedValueOnce(new Error('Connection interrupted.')).mockResolvedValueOnce(mutationResponse('planned', false))
     renderStudio()
     const review = await screen.findByRole('button', { name: 'Review rollout plan' })
     await user.click(review)
@@ -126,10 +168,80 @@ describe('CohortRolloutStudio', () => {
     apiMocks.fetchCohortRolloutStudio.mockResolvedValue(activeRolloutStudio('active'))
     await screen.findByRole('button', { name: 'Review rollback' })
     await user.click(screen.getByRole('button', { name: 'Review rollback' }))
-    await user.click(screen.getByRole('button', { name: 'Record rollback' }))
+    await user.click(screen.getByRole('button', { name: 'Roll back participant runtime' }))
     await waitFor(() => expect(apiMocks.rollbackCohortRollout).toHaveBeenCalledWith(12, 90, {
       expected_status: 'active', expected_current_wave_position: 1, expected_latest_transition_id: 101, rollback_release_id: 43,
     }, 'rollout-request-1'))
+  })
+
+  it('states the immediate runtime decision before start and reports the returned exposure result', async () => {
+    const user = userEvent.setup()
+    renderStudio(activeRolloutStudio('planned'), activeRolloutStudio('active'))
+    await user.click(await screen.findByRole('button', { name: 'Review and start rollout' }))
+    const dialog = screen.getByRole('dialog', { name: 'Start this rollout?' })
+    expect(within(dialog).getByText('This immediately moves 1 participant in Pilot to release #4.')).toBeTruthy()
+    expect(within(dialog).getByText('This wave changes immediately')).toBeTruthy()
+    await user.click(within(dialog).getByRole('button', { name: 'Start rollout' }))
+    expect(await screen.findByText('Pilot is now using Release #4. 1 participant changed immediately.')).toBeTruthy()
+    expect(screen.getByText(/Ready · Exposed · Release #4/)).toBeTruthy()
+    expect(screen.getByText(/Ready · Not exposed · Using Release #3/)).toBeTruthy()
+  })
+
+  it('explains and completes the cohort-default promotion from returned transition evidence', async () => {
+    const user = userEvent.setup()
+    const initial = activeRolloutStudio('active')
+    initial.open_rollout!.next_wave_position = null
+    const completed = mutationResponse('completed', true)
+    completed.transition.to_status = 'completed'
+    completed.transition.to_wave_position = 2
+    completed.rollout.status = 'completed'
+    apiMocks.advanceCohortRollout.mockResolvedValue(completed)
+    renderStudio(initial, studioFixture())
+
+    await user.click(await screen.findByRole('button', { name: 'Review and complete rollout' }))
+    const dialog = screen.getByRole('dialog', { name: 'Complete this rollout?' })
+    expect(within(dialog).getByText('Completing makes release #4 the cohort default immediately.')).toBeTruthy()
+    expect(within(dialog).getByText('Becomes the cohort default immediately')).toBeTruthy()
+    await user.click(within(dialog).getByRole('button', { name: 'Complete rollout' }))
+    expect(await screen.findByText('Rollout completed. Release #4 is now the cohort default.')).toBeTruthy()
+  })
+
+  it('marks a pre-cutover rollout as record only and never presents exposure as live', async () => {
+    const user = userEvent.setup()
+    renderStudio(legacyRolloutStudio())
+    expect(await screen.findByText('Pre-cutover rollout · record only')).toBeTruthy()
+    expect(screen.getByText('Finish or roll back this pre-cutover rollout before activating participant runtime.')).toBeTruthy()
+    expect(screen.getAllByText(/Legacy record · Using Release/)).toHaveLength(2)
+    expect(screen.queryByText(/Exposed · Release/)).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Review wave 2' }))
+    const dialog = screen.getByRole('dialog', { name: 'Advance to wave 2?' })
+    expect(within(dialog).getByText('This pre-cutover action only advances the legacy record. It does not change participant runtime.')).toBeTruthy()
+    expect(within(dialog).getByText('Legacy record only · no runtime change')).toBeTruthy()
+  })
+
+  it('fails an unknown future runtime mode closed without live-runtime claims or controls', async () => {
+    const user = userEvent.setup()
+    const studio = activeRolloutStudio('active')
+    const rollout = studio.open_rollout!
+    ;(rollout as unknown as { runtime_mode: string }).runtime_mode = 'future_mode'
+    rollout.runtime_blocker = null
+    rollout.waves.forEach((wave) => wave.participants.forEach((participant) => { participant.exposed = true }))
+    renderStudio(studio)
+
+    expect(await screen.findByText('Pre-cutover rollout · record only')).toBeTruthy()
+    expect(screen.getByText('This legacy rollout cannot activate participant release runtime. Close it before planning a runtime rollout.')).toBeTruthy()
+    expect(screen.queryByText('Live now')).toBeNull()
+    expect(screen.queryByText(/Exposed · Release/)).toBeNull()
+    expect(screen.queryByText('Runtime changed')).toBeNull()
+    expect(screen.getByText(/Active · Wave 1 · Legacy record only/)).toBeTruthy()
+    expect(screen.getAllByText(/Legacy record · Using Release/)).toHaveLength(2)
+
+    await user.click(screen.getByRole('button', { name: 'Review rollback' }))
+    const dialog = screen.getByRole('dialog', { name: 'Close this pre-cutover rollout?' })
+    expect(within(dialog).getByText('This records a legacy rollback and closes the pre-cutover rollout without changing participant runtime.')).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: 'Record legacy rollback' })).toBeTruthy()
+    expect(within(dialog).queryByRole('button', { name: 'Roll back participant runtime' })).toBeNull()
   })
 
   it('refreshes stale evidence on a conflict and explains that runtime stays unchanged', async () => {
@@ -139,7 +251,7 @@ describe('CohortRolloutStudio', () => {
     await user.click(await screen.findByRole('button', { name: 'Review pause' }))
     await user.click(screen.getByRole('button', { name: 'Pause rollout' }))
     expect((await screen.findByRole('alert')).textContent).toContain('Rollout evidence changed')
-    expect(screen.getByText('Records do not change participant runtime.')).toBeTruthy()
+    expect(screen.getByText('Advanced waves receive the target release immediately.')).toBeTruthy()
     expect(apiMocks.fetchCohortRolloutStudio).toHaveBeenCalledTimes(2)
   })
 
@@ -164,7 +276,7 @@ describe('CohortRolloutStudio', () => {
   it.each([
     { name: 'plan', initial: studioFixture(), next: activeRolloutStudio('planned'), trigger: 'Review rollout plan', confirm: 'Record rollout plan' },
     { name: 'cancel', initial: activeRolloutStudio('planned'), next: studioFixture(), trigger: 'Review cancellation', confirm: 'Cancel rollout plan' },
-    { name: 'rollback', initial: activeRolloutStudio('active'), next: studioFixture(), trigger: 'Review rollback', confirm: 'Record rollback' },
+    { name: 'rollback', initial: activeRolloutStudio('active'), next: studioFixture(), trigger: 'Review rollback', confirm: 'Roll back participant runtime' },
   ])('moves focus to the stable new state heading after $name', async ({ initial, next, trigger, confirm }) => {
     const user = userEvent.setup()
     renderStudio(initial, next)

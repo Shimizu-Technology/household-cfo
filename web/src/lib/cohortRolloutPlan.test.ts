@@ -8,6 +8,7 @@ import {
 } from './cohortRolloutPlan'
 
 function studioFixture(): CohortRolloutStudio {
+  const activeRelease = { id: 21, release_number: 2, bundle_digest: 'baseline', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' }
   return {
     cohort: { id: 12, name: 'Tuesday cohort', status: 'active', participant_count: 2 },
     runtime_truth: { changes_participant_runtime: false, participant_runtime_changed: false, message: 'Evidence only.' },
@@ -16,11 +17,12 @@ function studioFixture(): CohortRolloutStudio {
       digest: 'roster-digest', readiness_digest: 'readiness-digest', total_count: 2,
       counts: { ready: 2, awaiting_acceptance: 0, revoked: 0, removed: 0 },
       participants: [
-        { user_id: 3, full_name: 'Ana Cruz', readiness: 'ready' },
-        { user_id: 7, full_name: 'Ben Santos', readiness: 'ready' },
+        { user_id: 3, full_name: 'Ana Cruz', readiness: 'ready', exposed: null, effective_release: activeRelease },
+        { user_id: 7, full_name: 'Ben Santos', readiness: 'ready', exposed: null, effective_release: activeRelease },
       ],
     },
     latest_release: { id: 22, release_number: 3, bundle_digest: 'bundle', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z' },
+    active_release: activeRelease,
     release_history: { limit: 25, total_count: 1, truncated: false }, releases: [],
     history: { limit: 25, total_count: 0, truncated: false }, open_rollout: null, rollouts: [],
   }

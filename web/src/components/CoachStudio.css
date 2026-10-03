@@ -226,6 +226,19 @@
 .cohort-rollout-participant-row small,
 .cohort-rollout-action-note { color: var(--muted); }
 
+.cohort-rollout-runtime-summary,
+.cohort-rollout-legacy {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--status-green) 38%, var(--line));
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--paper) 94%, var(--status-green));
+}
+.cohort-rollout-runtime-summary { color: var(--muted); }
+.cohort-rollout-runtime-summary strong { color: var(--ink); }
+.cohort-rollout-legacy { border-color: color-mix(in srgb, var(--status-yellow) 48%, var(--line)); background: color-mix(in srgb, var(--paper) 90%, var(--gold)); }
+.cohort-rollout-legacy p { margin: 0.25rem 0 0; color: var(--muted); }
+
 .cohort-rollout-plan-actions,
 .cohort-rollout-lifecycle-actions {
   display: flex;
@@ -297,7 +310,7 @@
 .cohort-rollout-wave-list ul { display: grid; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
 .cohort-rollout-wave-list li { display: flex; min-width: 0; justify-content: space-between; gap: 0.75rem; padding-top: 0.35rem; border-top: 1px solid var(--line); }
 .cohort-rollout-wave-list li span { overflow-wrap: anywhere; }
-.cohort-rollout-wave-list li small { color: var(--muted); white-space: nowrap; }
+.cohort-rollout-wave-list li small { color: var(--muted); text-align: right; overflow-wrap: anywhere; }
 
 .cohort-rollout-runtime-note {
   padding: 0.75rem;
@@ -1889,6 +1902,9 @@
 
   .cohort-rollout-confirmation-summary > div { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
   .cohort-rollout-confirmation-summary dd { text-align: left; }
+
+  .cohort-rollout-wave-list li { align-items: flex-start; flex-direction: column; gap: 0.15rem; }
+  .cohort-rollout-wave-list li small { text-align: left; }
 
   .cohort-release-checklist li {
     grid-template-columns: 2.25rem minmax(0, 1fr);
