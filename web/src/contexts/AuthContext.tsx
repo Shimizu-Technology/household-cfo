@@ -55,6 +55,9 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
     try {
       const user = await fetchCurrentUser()
       if (requestId !== verificationRequest.current || latestAuthIdentityId.current !== requestedIdentityId) return
+      if (user.clerk_id !== requestedIdentityId) {
+        throw new Error('Unable to verify program access for this account')
+      }
       const workspaceId = user.active_coach_workspace?.id ?? null
       setActiveCoachWorkspaceState(workspaceId)
       setActiveCoachWorkspaceId(workspaceId)
@@ -65,6 +68,8 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
       if (requestId !== verificationRequest.current || latestAuthIdentityId.current !== requestedIdentityId) return
       setApiCurrentUser(null)
       setVerifiedAuthIdentityId(null)
+      setActiveCoachWorkspaceState(null)
+      setActiveCoachWorkspaceId(null)
       setAuthError(error instanceof Error ? error.message : 'Unable to verify program access')
     } finally {
       if (requestId === verificationRequest.current && latestAuthIdentityId.current === requestedIdentityId) {
@@ -97,7 +102,7 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
     && apiCurrentUser,
   )
   const currentUser = hasVerifiedIdentity ? apiCurrentUser : null
-  const isApiIdentityPending = Boolean(isSignedIn) && (!authIdentityId || !hasVerifiedIdentity || isVerifyingApi)
+  const isApiIdentityPending = Boolean(isSignedIn) && !authError && (!authIdentityId || !hasVerifiedIdentity || isVerifyingApi)
 
   const value = useMemo<AuthContextValue>(() => ({
     isClerkEnabled: true,
