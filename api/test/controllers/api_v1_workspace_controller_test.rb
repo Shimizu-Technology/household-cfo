@@ -878,6 +878,53 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes body.fetch("error"), "different content"
   end
 
+  test "mia request replay is bound to the participant cohort release" do
+    user = create_user(email: "mia-release-idempotency@example.com")
+    owner = User.create!(
+      clerk_id: "clerk_#{SecureRandom.hex(6)}",
+      email: "mia-release-idempotency-coach@example.com",
+      role: "coach",
+      invitation_status: "accepted"
+    )
+    cohort = Cohort.create!(name: "Replay release #{SecureRandom.hex(4)}", status: "active", created_by_user: owner)
+    cohort.cohort_memberships.create!(user: user, role: "participant")
+    candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: false).call
+    sealer = CohortReleases::Sealer.new(cohort: cohort, actor: nil, publication_source: "system")
+    baseline = sealer.call!(request_key: "replay-baseline", expected_bundle_digest: candidate.bundle_digest)
+    target = sealer.call!(request_key: "replay-target", expected_bundle_digest: candidate.bundle_digest)
+    cohort.update!(active_cohort_release: baseline)
+    request = { message: "How much is safe to spend?", request_id: "release-bound-request" }
+
+    post "/api/v1/mia/messages", params: request, headers: auth_headers(user), as: :json
+    assert_response :created
+
+    cohort.update!(active_cohort_release: target)
+    post "/api/v1/mia/messages", params: request, headers: auth_headers(user), as: :json
+
+    assert_response :conflict
+    assert_equal "mia_request_conflict", response.parsed_body.fetch("code")
+  end
+
+  test "mia request replay is bound to a legacy cohort even without an active release" do
+    user = create_user(email: "mia-legacy-cohort-idempotency@example.com")
+    owner = create_user(email: "mia-legacy-cohort-coach@example.com", role: "coach")
+    first = Cohort.create!(name: "Legacy replay first #{SecureRandom.hex(4)}", status: "active", created_by_user: owner)
+    second = Cohort.create!(name: "Legacy replay second #{SecureRandom.hex(4)}", status: "active", created_by_user: owner)
+    first.cohort_memberships.create!(user: user, role: "participant")
+    second.cohort_memberships.create!(user: user, role: "participant")
+    request = { message: "How much is safe to spend?", request_id: "legacy-cohort-bound-request" }
+
+    post "/api/v1/mia/messages", params: request,
+      headers: auth_headers(user).merge("X-Cohort-Id" => first.id.to_s), as: :json
+    assert_response :created
+
+    post "/api/v1/mia/messages", params: request,
+      headers: auth_headers(user).merge("X-Cohort-Id" => second.id.to_s), as: :json
+
+    assert_response :conflict
+    assert_equal "mia_request_conflict", response.parsed_body.fetch("code")
+  end
+
   test "mia transaction idempotency keys are scoped to the current user and chat session" do
     controller = Api::V1::MiaMessagesController.new
     controller.request = ActionDispatch::TestRequest.create
@@ -1026,7 +1073,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       role: "assistant",
       content: "Steady steps. My grocery check. Auntie's grocery rule. Review the list.",
       coach_persona_version: version,
-      assistant_author: "Coach Lila"
+      assistant_author: "Coach Lila",
+      cohort: cohort
     )
     captured_contexts = []
     fake_resolver = lambda do |**kwargs|

@@ -8,3 +8,13 @@ namespace :cohort_releases do
     abort "Cohort release reconciliation completed with errors" if counts[:errors].to_i.positive?
   end
 end
+
+namespace :cohort_releases do
+  desc "Activate the immutable release runtime for cohorts after verifying legacy parity"
+  task activate_runtime: :environment do
+    results = CohortReleases::RuntimeActivator.call
+    payload = results.map(&:to_h)
+    puts JSON.generate(payload)
+    abort "Cohort runtime activation completed with errors" if results.any? { |result| result.status == "error" }
+  end
+end

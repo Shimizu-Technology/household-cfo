@@ -3,7 +3,7 @@
 module CoachOperations
   class CohortRolloutAdvance < CohortRolloutOperation
     KEY = "cohort.rollout.advance"
-    VERSION = 1
+    VERSION = 2
     INPUT_KEYS = (COMMON_CAS_KEYS + %w[readiness_digest]).freeze
 
     def normalize_operation_input(input)
@@ -19,7 +19,8 @@ module CoachOperations
       final_wave = !planned && current_position >= rollout.waves.maximum(:position).to_i
       predicted_rollout_snapshot(
         status: final_wave ? "completed" : "active",
-        wave_position: final_wave ? current_position : (planned ? 1 : current_position + 1)
+        wave_position: final_wave ? current_position : (planned ? 1 : current_position + 1),
+        participant_runtime_changed: runtime_cutover?
       )
     end
 

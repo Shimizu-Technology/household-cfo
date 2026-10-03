@@ -22,6 +22,7 @@ module CohortRollouts
         blockers << "Only a planned or active rollout can advance."
         return blockers
       end
+      blockers.concat(membership_epoch_blockers(rollout))
 
       next_wave = rollout.waves.find_by(position: rollout.current_wave_position + 1)
       reviewed_wave = next_wave
@@ -58,6 +59,20 @@ module CohortRollouts
           state: Contract.readiness_state(cohort: cohort, user: user, member_user_ids: member_ids)
         }
       end
+    end
+
+    def membership_epoch_blockers(rollout)
+      return [] unless rollout.baseline_cohort_release_id
+
+      memberships = cohort.cohort_memberships.where(role: "participant").index_by(&:user_id)
+      changed = rollout.participants.any? do |participant|
+        membership = memberships[participant.user_id]
+        membership.nil? || membership.id != participant.cohort_membership_id ||
+          membership.created_at != participant.membership_started_at
+      end
+      return [] unless changed
+
+      [ "A participant enrollment changed after this rollout was planned. Roll back this rollout and create a new plan." ]
     end
 
     private

@@ -30,6 +30,15 @@ class CohortRelease < ApplicationRecord
   has_many :rollback_cohort_rollout_transitions, class_name: "CohortRolloutTransition",
     foreign_key: :rollback_cohort_release_id, dependent: :restrict_with_exception,
     inverse_of: :rollback_cohort_release
+  has_many :active_for_cohorts, class_name: "Cohort", foreign_key: :active_cohort_release_id,
+    dependent: :restrict_with_exception, inverse_of: :active_cohort_release
+  has_many :baseline_cohort_rollouts, class_name: "CohortRollout", foreign_key: :baseline_cohort_release_id,
+    dependent: :restrict_with_exception, inverse_of: :baseline_cohort_release
+  has_many :cohort_release_exposures, dependent: :restrict_with_exception
+  has_many :activation_events_from, class_name: "CohortReleaseActivationEvent",
+    foreign_key: :from_cohort_release_id, dependent: :restrict_with_exception
+  has_many :activation_events_to, class_name: "CohortReleaseActivationEvent",
+    foreign_key: :to_cohort_release_id, dependent: :restrict_with_exception
 
   validates :release_number, numericality: { only_integer: true, greater_than: 0 },
     uniqueness: { scope: :cohort_id }

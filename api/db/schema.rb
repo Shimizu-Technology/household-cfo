@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_03_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -100,6 +100,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
     t.jsonb "attachments", default: [], null: false
     t.bigint "chat_session_id", null: false
     t.bigint "coach_persona_version_id"
+    t.bigint "cohort_id"
+    t.bigint "cohort_release_id"
     t.text "content", null: false
     t.datetime "created_at", null: false
     t.jsonb "presentation", default: {}, null: false
@@ -108,10 +110,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
     t.index ["chat_session_id", "created_at"], name: "index_chat_messages_on_chat_session_id_and_created_at"
     t.index ["chat_session_id"], name: "index_chat_messages_on_chat_session_id"
     t.index ["coach_persona_version_id"], name: "index_chat_messages_on_coach_persona_version_id"
+    t.index ["cohort_id"], name: "index_chat_messages_on_cohort_id"
+    t.index ["cohort_release_id", "cohort_id"], name: "idx_chat_messages_release_cohort"
+    t.index ["cohort_release_id"], name: "index_chat_messages_on_cohort_release_id"
     t.index ["role"], name: "index_chat_messages_on_role"
     t.check_constraint "(assistant_author IS NULL OR role::text = 'assistant'::text) AND (coach_persona_version_id IS NULL OR role::text = 'assistant'::text AND assistant_author IS NOT NULL)", name: "chat_messages_persona_attribution_complete"
     t.check_constraint "(role::text = ANY (ARRAY['user'::character varying::text, 'assistant'::character varying::text])) AND char_length(content) <= 8000", name: "chat_messages_content_length_by_role"
     t.check_constraint "assistant_author IS NULL OR char_length(assistant_author::text) >= 1 AND char_length(assistant_author::text) <= 80", name: "chat_messages_assistant_author_length"
+    t.check_constraint "cohort_release_id IS NULL OR cohort_id IS NOT NULL", name: "chat_messages_release_attribution_complete"
     t.check_constraint "jsonb_typeof(presentation) = 'object'::text", name: "chat_messages_presentation_object"
   end
 
@@ -548,7 +554,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
     t.check_constraint "num_nonnulls(cohort_release_id, cohort_rollout_transition_id) = 1", name: "coach_operations_exactly_one_result"
     t.check_constraint "octet_length(normalized_input::text) <= 16384 AND octet_length(before_snapshot::text) <= 16384 AND octet_length(predicted_after_snapshot::text) <= 16384 AND octet_length(after_snapshot::text) <= 16384", name: "coach_operations_json_bounded"
     t.check_constraint "operation_key::text = ANY (ARRAY['cohort.release.seal'::character varying::text, 'cohort.release.restore'::character varying::text, 'cohort.rollout.plan'::character varying::text, 'cohort.rollout.advance'::character varying::text, 'cohort.rollout.pause'::character varying::text, 'cohort.rollout.resume'::character varying::text, 'cohort.rollout.cancel'::character varying::text, 'cohort.rollout.rollback'::character varying::text])", name: "coach_operations_key_valid"
-    t.check_constraint "operation_version = 1", name: "coach_operations_version_supported"
+    t.check_constraint "operation_version = ANY (ARRAY[1, 2])", name: "coach_operations_version_supported"
     t.check_constraint "source::text = 'api'::text", name: "coach_operations_source_valid"
   end
 
@@ -1181,6 +1187,68 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
     t.index ["cohort_id"], name: "index_cohort_persona_assignments_on_cohort_id", unique: true
   end
 
+  create_table "cohort_release_activation_events", force: :cascade do |t|
+    t.string "actor_role_snapshot"
+    t.bigint "actor_user_id"
+    t.bigint "coach_workspace_id", null: false
+    t.bigint "cohort_id", null: false
+    t.bigint "cohort_rollout_id"
+    t.bigint "cohort_rollout_transition_id"
+    t.datetime "created_at", null: false
+    t.bigint "database_transaction_id", null: false
+    t.string "event_type", null: false
+    t.bigint "from_cohort_release_id"
+    t.datetime "occurred_at", null: false
+    t.string "request_fingerprint", null: false
+    t.string "request_key", null: false
+    t.bigint "to_cohort_release_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id"], name: "index_cohort_release_activation_events_on_actor_user_id"
+    t.index ["coach_workspace_id"], name: "index_cohort_release_activation_events_on_coach_workspace_id"
+    t.index ["cohort_id", "occurred_at", "id"], name: "idx_release_activation_events_history"
+    t.index ["cohort_id", "request_key"], name: "idx_release_activation_events_request", unique: true
+    t.index ["cohort_id"], name: "index_cohort_release_activation_events_on_cohort_id"
+    t.index ["cohort_rollout_id"], name: "index_cohort_release_activation_events_on_cohort_rollout_id"
+    t.index ["cohort_rollout_transition_id"], name: "idx_on_cohort_rollout_transition_id_b1fe68dd2e"
+    t.index ["from_cohort_release_id"], name: "idx_on_from_cohort_release_id_13d9f68065"
+    t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_release_activation_events_scope", unique: true
+    t.index ["to_cohort_release_id"], name: "index_cohort_release_activation_events_on_to_cohort_release_id"
+    t.check_constraint "event_type::text = 'backfill'::text AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NULL AND actor_role_snapshot IS NULL OR event_type::text = 'rollout_completed'::text AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL AND actor_user_id IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[]))", name: "release_activation_events_shape"
+    t.check_constraint "event_type::text = ANY (ARRAY['backfill'::character varying, 'rollout_completed'::character varying]::text[])", name: "release_activation_events_type_valid"
+    t.check_constraint "request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "release_activation_events_request_valid"
+  end
+
+  create_table "cohort_release_exposures", force: :cascade do |t|
+    t.bigint "coach_workspace_id", null: false
+    t.bigint "cohort_id", null: false
+    t.bigint "cohort_membership_id", null: false
+    t.bigint "cohort_release_id", null: false
+    t.bigint "cohort_rollout_id"
+    t.bigint "cohort_rollout_transition_id"
+    t.bigint "cohort_rollout_wave_id"
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.string "exposure_key", null: false
+    t.datetime "membership_started_at", null: false
+    t.datetime "occurred_at", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["coach_workspace_id"], name: "index_cohort_release_exposures_on_coach_workspace_id"
+    t.index ["cohort_id", "exposure_key"], name: "idx_cohort_release_exposures_key", unique: true
+    t.index ["cohort_id", "user_id", "cohort_membership_id", "membership_started_at", "occurred_at", "id"], name: "idx_cohort_release_exposures_runtime"
+    t.index ["cohort_id"], name: "index_cohort_release_exposures_on_cohort_id"
+    t.index ["cohort_release_id"], name: "index_cohort_release_exposures_on_cohort_release_id"
+    t.index ["cohort_rollout_id", "cohort_rollout_transition_id", "user_id"], name: "idx_cohort_release_exposures_transition_user", unique: true, where: "(cohort_rollout_transition_id IS NOT NULL)"
+    t.index ["cohort_rollout_id"], name: "index_cohort_release_exposures_on_cohort_rollout_id"
+    t.index ["cohort_rollout_transition_id"], name: "index_cohort_release_exposures_on_cohort_rollout_transition_id"
+    t.index ["cohort_rollout_wave_id"], name: "index_cohort_release_exposures_on_cohort_rollout_wave_id"
+    t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_cohort_release_exposures_scope", unique: true
+    t.index ["user_id"], name: "index_cohort_release_exposures_on_user_id"
+    t.check_constraint "char_length(exposure_key::text) >= 1 AND char_length(exposure_key::text) <= 160", name: "cohort_release_exposures_key_bounded"
+    t.check_constraint "cohort_rollout_id IS NOT NULL AND cohort_rollout_wave_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL", name: "cohort_release_exposures_rollout_shape"
+    t.check_constraint "event_type::text = ANY (ARRAY['wave'::character varying, 'rollback'::character varying]::text[])", name: "cohort_release_exposures_type_valid"
+  end
+
   create_table "cohort_releases", force: :cascade do |t|
     t.string "actor_role_snapshot"
     t.jsonb "bundle", default: {}, null: false
@@ -1223,6 +1291,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
     t.index ["cohort_id", "request_key"], name: "idx_cohort_releases_request_key", unique: true
     t.index ["cohort_id"], name: "index_cohort_releases_on_cohort_id"
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_cohort_releases_id_cohort_workspace", unique: true
+    t.index ["id", "cohort_id"], name: "idx_cohort_releases_id_cohort", unique: true
     t.index ["id", "released_by_user_id", "actor_role_snapshot"], name: "idx_cohort_releases_operation_actor", unique: true
     t.index ["released_by_user_id"], name: "index_cohort_releases_on_released_by_user_id"
     t.index ["source_release_id"], name: "index_cohort_releases_on_source_release_id"
@@ -1243,19 +1312,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
   create_table "cohort_rollout_participants", force: :cascade do |t|
     t.bigint "coach_workspace_id", null: false
     t.bigint "cohort_id", null: false
+    t.bigint "cohort_membership_id"
     t.bigint "cohort_rollout_id", null: false
     t.bigint "cohort_rollout_wave_id", null: false
     t.datetime "created_at", null: false
+    t.datetime "membership_started_at"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
     t.index ["coach_workspace_id"], name: "index_cohort_rollout_participants_on_coach_workspace_id"
     t.index ["cohort_id"], name: "index_cohort_rollout_participants_on_cohort_id"
+    t.index ["cohort_membership_id", "membership_started_at"], name: "idx_rollout_participants_membership_epoch"
     t.index ["cohort_rollout_id", "cohort_rollout_wave_id"], name: "idx_rollout_participants_wave"
     t.index ["cohort_rollout_id", "user_id"], name: "idx_rollout_participants_user", unique: true
     t.index ["cohort_rollout_id"], name: "index_cohort_rollout_participants_on_cohort_rollout_id"
     t.index ["cohort_rollout_wave_id"], name: "index_cohort_rollout_participants_on_cohort_rollout_wave_id"
     t.index ["id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], name: "idx_rollout_participants_scope", unique: true
     t.index ["user_id"], name: "index_cohort_rollout_participants_on_user_id"
+    t.check_constraint "cohort_membership_id IS NULL AND membership_started_at IS NULL OR cohort_membership_id IS NOT NULL AND membership_started_at IS NOT NULL", name: "cohort_rollout_participants_membership_epoch_complete"
   end
 
   create_table "cohort_rollout_transitions", force: :cascade do |t|
@@ -1283,7 +1356,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
     t.index ["cohort_rollout_id"], name: "index_cohort_rollout_transitions_on_cohort_rollout_id"
     t.index ["id", "actor_user_id", "actor_role_snapshot"], name: "idx_rollout_transitions_actor", unique: true
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_rollout_transitions_scope", unique: true
+    t.index ["id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], name: "idx_rollout_transitions_full_scope", unique: true
     t.index ["rollback_cohort_release_id"], name: "idx_rollout_transitions_rollback_release"
+    t.check_constraint "(event_type::text = ANY (ARRAY['activated'::character varying, 'advanced'::character varying, 'completed'::character varying, 'rolled_back'::character varying]::text[])) OR participant_runtime_changed = false", name: "cohort_rollout_transitions_runtime_changed_shape"
     t.check_constraint "(event_type::text = ANY (ARRAY['activated'::character varying::text, 'advanced'::character varying::text, 'completed'::character varying::text])) AND readiness_digest::text ~ '^[0-9a-f]{64}$'::text OR (event_type::text <> ALL (ARRAY['activated'::character varying::text, 'advanced'::character varying::text, 'completed'::character varying::text])) AND readiness_digest IS NULL", name: "cohort_rollout_transitions_readiness_evidence"
     t.check_constraint "(from_wave_position IS NULL OR from_wave_position >= 0 AND from_wave_position <= 25) AND (to_wave_position IS NULL OR to_wave_position >= 0 AND to_wave_position <= 25)", name: "cohort_rollout_transitions_wave_positions_bounded"
     t.check_constraint "(to_status::text = ANY (ARRAY['planned'::character varying::text, 'active'::character varying::text, 'paused'::character varying::text, 'completed'::character varying::text, 'cancelled'::character varying::text, 'rolled_back'::character varying::text])) AND (from_status IS NULL OR (from_status::text = ANY (ARRAY['planned'::character varying::text, 'active'::character varying::text, 'paused'::character varying::text, 'completed'::character varying::text, 'cancelled'::character varying::text, 'rolled_back'::character varying::text])))", name: "cohort_rollout_transitions_status_valid"
@@ -1291,7 +1366,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
     t.check_constraint "event_type::text = 'planned'::text AND from_status IS NULL AND to_status::text = 'planned'::text AND from_wave_position IS NULL AND to_wave_position = 0 OR event_type::text = 'activated'::text AND from_status::text = 'planned'::text AND to_status::text = 'active'::text AND from_wave_position = 0 AND to_wave_position = 1 OR event_type::text = 'advanced'::text AND from_status::text = 'active'::text AND to_status::text = 'active'::text AND from_wave_position >= 1 AND to_wave_position = (from_wave_position + 1) OR event_type::text = 'completed'::text AND from_status::text = 'active'::text AND to_status::text = 'completed'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position OR event_type::text = 'paused'::text AND from_status::text = 'active'::text AND to_status::text = 'paused'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position OR event_type::text = 'resumed'::text AND from_status::text = 'paused'::text AND to_status::text = 'active'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position OR event_type::text = 'cancelled'::text AND from_status::text = 'planned'::text AND to_status::text = 'cancelled'::text AND from_wave_position = 0 AND to_wave_position = 0 OR event_type::text = 'rolled_back'::text AND (from_status::text = ANY (ARRAY['active'::character varying::text, 'paused'::character varying::text])) AND to_status::text = 'rolled_back'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position", name: "cohort_rollout_transitions_event_shape"
     t.check_constraint "event_type::text = 'rolled_back'::text AND rollback_cohort_release_id IS NOT NULL OR event_type::text <> 'rolled_back'::text AND rollback_cohort_release_id IS NULL", name: "cohort_rollout_transitions_rollback_shape"
     t.check_constraint "event_type::text = ANY (ARRAY['planned'::character varying::text, 'activated'::character varying::text, 'advanced'::character varying::text, 'paused'::character varying::text, 'resumed'::character varying::text, 'completed'::character varying::text, 'cancelled'::character varying::text, 'rolled_back'::character varying::text])", name: "cohort_rollout_transitions_event_valid"
-    t.check_constraint "participant_runtime_changed = false", name: "cohort_rollout_transitions_runtime_unchanged"
   end
 
   create_table "cohort_rollout_waves", force: :cascade do |t|
@@ -1313,6 +1387,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
 
   create_table "cohort_rollouts", force: :cascade do |t|
     t.datetime "activated_at"
+    t.bigint "baseline_cohort_release_id"
     t.datetime "cancelled_at"
     t.bigint "coach_workspace_id", null: false
     t.bigint "cohort_id", null: false
@@ -1329,6 +1404,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
     t.string "status", default: "planned", null: false
     t.bigint "target_cohort_release_id", null: false
     t.datetime "updated_at", null: false
+    t.index ["baseline_cohort_release_id"], name: "index_cohort_rollouts_on_baseline_cohort_release_id"
     t.index ["coach_workspace_id"], name: "index_cohort_rollouts_on_coach_workspace_id"
     t.index ["cohort_id", "created_at", "id"], name: "idx_cohort_rollouts_history"
     t.index ["cohort_id"], name: "idx_cohort_rollouts_one_open", unique: true, where: "((status)::text = ANY (ARRAY[('planned'::character varying)::text, ('active'::character varying)::text, ('paused'::character varying)::text]))"
@@ -1337,6 +1413,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
     t.index ["planned_by_user_id"], name: "index_cohort_rollouts_on_planned_by_user_id"
     t.index ["rollback_cohort_release_id"], name: "idx_cohort_rollouts_rollback_release"
     t.index ["target_cohort_release_id"], name: "idx_cohort_rollouts_target_release"
+    t.check_constraint "baseline_cohort_release_id IS NULL OR baseline_cohort_release_id <> target_cohort_release_id", name: "cohort_rollouts_distinct_runtime_releases"
     t.check_constraint "current_wave_position >= 0 AND current_wave_position <= 25", name: "cohort_rollouts_wave_position_bounded"
     t.check_constraint "planned_by_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text])", name: "cohort_rollouts_actor_role_valid"
     t.check_constraint "status::text = 'planned'::text AND activated_at IS NULL AND paused_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL AND rolled_back_at IS NULL OR status::text = 'active'::text AND activated_at IS NOT NULL AND paused_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL AND rolled_back_at IS NULL OR status::text = 'paused'::text AND activated_at IS NOT NULL AND paused_at IS NOT NULL AND completed_at IS NULL AND cancelled_at IS NULL AND rolled_back_at IS NULL OR status::text = 'completed'::text AND activated_at IS NOT NULL AND paused_at IS NULL AND completed_at IS NOT NULL AND cancelled_at IS NULL AND rolled_back_at IS NULL OR status::text = 'cancelled'::text AND activated_at IS NULL AND paused_at IS NULL AND completed_at IS NULL AND cancelled_at IS NOT NULL AND rolled_back_at IS NULL OR status::text = 'rolled_back'::text AND activated_at IS NOT NULL AND completed_at IS NULL AND cancelled_at IS NULL AND rolled_back_at IS NOT NULL", name: "cohort_rollouts_lifecycle_timestamps"
@@ -1345,6 +1422,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
   end
 
   create_table "cohorts", force: :cascade do |t|
+    t.bigint "active_cohort_release_id"
     t.bigint "coach_workspace_id", null: false
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
@@ -1355,8 +1433,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
     t.string "status", default: "draft", null: false
     t.datetime "updated_at", null: false
     t.index "coach_workspace_id, lower((name)::text)", name: "index_cohorts_on_workspace_and_lower_name", unique: true
+    t.index ["active_cohort_release_id"], name: "index_cohorts_on_active_cohort_release_id"
     t.index ["coach_workspace_id"], name: "index_cohorts_on_coach_workspace_id"
     t.index ["created_by_user_id"], name: "index_cohorts_on_created_by_user_id"
+    t.index ["id", "coach_workspace_id", "active_cohort_release_id"], name: "idx_cohorts_active_release_scope", unique: true
     t.index ["id", "coach_workspace_id"], name: "idx_cohorts_id_workspace", unique: true
     t.index ["status"], name: "index_cohorts_on_status"
     t.check_constraint "status::text = ANY (ARRAY['draft'::character varying::text, 'enrolling'::character varying::text, 'active'::character varying::text, 'completed'::character varying::text, 'archived'::character varying::text])", name: "cohorts_status_valid"
@@ -2221,6 +2301,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
   add_foreign_key "budget_years", "households"
   add_foreign_key "chat_messages", "chat_sessions"
   add_foreign_key "chat_messages", "coach_persona_versions"
+  add_foreign_key "chat_messages", "cohort_releases", column: ["cohort_release_id", "cohort_id"], primary_key: ["id", "cohort_id"], name: "fk_chat_messages_release_cohort", on_delete: :restrict
+  add_foreign_key "chat_messages", "cohort_releases", on_delete: :restrict
+  add_foreign_key "chat_messages", "cohorts", on_delete: :restrict
   add_foreign_key "chat_sessions", "households"
   add_foreign_key "chat_sessions", "users"
   add_foreign_key "coach_content_citations", "chat_messages", on_delete: :cascade
@@ -2360,6 +2443,31 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
   add_foreign_key "cohort_persona_assignments", "cohorts"
   add_foreign_key "cohort_persona_assignments", "cohorts", column: ["cohort_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_persona_assignment_cohort_workspace"
   add_foreign_key "cohort_persona_assignments", "users", column: "assigned_by_user_id"
+  add_foreign_key "cohort_release_activation_events", "coach_workspaces", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "cohort_releases", column: "from_cohort_release_id", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "cohort_releases", column: "to_cohort_release_id", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "cohort_releases", column: ["from_cohort_release_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_release_activation_events_from", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "cohort_releases", column: ["to_cohort_release_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_release_activation_events_to", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "cohort_rollout_transitions", column: ["cohort_rollout_transition_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_release_activation_events_transition", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "cohort_rollout_transitions", column: ["cohort_rollout_transition_id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], name: "fk_release_activation_events_rollout_transition", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "cohort_rollout_transitions", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "cohort_rollouts", column: ["cohort_rollout_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_release_activation_events_rollout", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "cohort_rollouts", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "cohorts", column: ["cohort_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_release_activation_events_cohort", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "cohorts", on_delete: :restrict
+  add_foreign_key "cohort_release_activation_events", "users", column: "actor_user_id", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "coach_workspaces", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "cohort_releases", column: ["cohort_release_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_cohort_release_exposures_release", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "cohort_releases", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "cohort_rollout_transitions", column: ["cohort_rollout_transition_id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], name: "fk_cohort_release_exposures_transition", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "cohort_rollout_transitions", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "cohort_rollout_waves", column: "cohort_rollout_wave_id", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "cohort_rollout_waves", column: ["cohort_rollout_wave_id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], name: "fk_cohort_release_exposures_wave", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "cohort_rollouts", column: ["cohort_rollout_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_cohort_release_exposures_rollout", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "cohort_rollouts", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "cohorts", column: ["cohort_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_cohort_release_exposures_cohort", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "cohorts", on_delete: :restrict
+  add_foreign_key "cohort_release_exposures", "users", on_delete: :restrict
   add_foreign_key "cohort_releases", "coach_persona_versions", column: ["coach_persona_version_id", "coach_persona_id"], primary_key: ["id", "coach_persona_id"], name: "fk_cohort_releases_persona_version", on_delete: :restrict
   add_foreign_key "cohort_releases", "coach_persona_versions", on_delete: :restrict
   add_foreign_key "cohort_releases", "coach_personas", column: ["coach_persona_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_cohort_releases_persona_workspace", on_delete: :restrict
@@ -2393,14 +2501,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_070000) do
   add_foreign_key "cohort_rollout_waves", "cohort_rollouts", on_delete: :restrict
   add_foreign_key "cohort_rollout_waves", "cohorts", on_delete: :restrict
   add_foreign_key "cohort_rollouts", "coach_workspaces", on_delete: :restrict
+  add_foreign_key "cohort_rollouts", "cohort_releases", column: "baseline_cohort_release_id", on_delete: :restrict
   add_foreign_key "cohort_rollouts", "cohort_releases", column: "rollback_cohort_release_id", on_delete: :restrict
   add_foreign_key "cohort_rollouts", "cohort_releases", column: "target_cohort_release_id", on_delete: :restrict
+  add_foreign_key "cohort_rollouts", "cohort_releases", column: ["baseline_cohort_release_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_cohort_rollouts_baseline_release", on_delete: :restrict
   add_foreign_key "cohort_rollouts", "cohort_releases", column: ["rollback_cohort_release_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_cohort_rollouts_rollback_release", on_delete: :restrict
   add_foreign_key "cohort_rollouts", "cohort_releases", column: ["target_cohort_release_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_cohort_rollouts_target_release", on_delete: :restrict
   add_foreign_key "cohort_rollouts", "cohorts", column: ["cohort_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_cohort_rollouts_cohort_workspace", on_delete: :restrict
   add_foreign_key "cohort_rollouts", "cohorts", on_delete: :restrict
   add_foreign_key "cohort_rollouts", "users", column: "planned_by_user_id", on_delete: :restrict
   add_foreign_key "cohorts", "coach_workspaces"
+  add_foreign_key "cohorts", "cohort_releases", column: "active_cohort_release_id", on_delete: :restrict
+  add_foreign_key "cohorts", "cohort_releases", column: ["active_cohort_release_id", "id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_cohorts_active_release_scope", on_delete: :restrict
   add_foreign_key "cohorts", "users", column: "created_by_user_id"
   add_foreign_key "debts", "households"
   add_foreign_key "expense_items", "households"
@@ -2520,10 +2632,10 @@ execute <<~SQL
         USING ERRCODE = 'integrity_constraint_violation';
     END IF;
     IF (OLD.id, OLD.coach_workspace_id, OLD.cohort_id, OLD.target_cohort_release_id,
-        OLD.planned_by_user_id, OLD.planned_by_role_snapshot, OLD.planned_at, OLD.created_at)
+        OLD.baseline_cohort_release_id, OLD.planned_by_user_id, OLD.planned_by_role_snapshot, OLD.planned_at, OLD.created_at)
        IS DISTINCT FROM
        (NEW.id, NEW.coach_workspace_id, NEW.cohort_id, NEW.target_cohort_release_id,
-        NEW.planned_by_user_id, NEW.planned_by_role_snapshot, NEW.planned_at, NEW.created_at) THEN
+        NEW.baseline_cohort_release_id, NEW.planned_by_user_id, NEW.planned_by_role_snapshot, NEW.planned_at, NEW.created_at) THEN
       RAISE EXCEPTION 'cohort rollout plan identity is immutable'
         USING ERRCODE = 'integrity_constraint_violation';
     END IF;
@@ -2758,7 +2870,7 @@ execute <<~SQL
   FOR EACH ROW
   EXECUTE FUNCTION enforce_cohort_rollout_transition_append()
 SQL
-  execute <<~SQL
+  execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.validate_cohort_rollout_plan_integrity(checked_rollout_id bigint)
      RETURNS void
      LANGUAGE plpgsql
@@ -2820,7 +2932,7 @@ SQL
     END;
     $function$
   SQL
-  execute <<~SQL
+  execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.validate_cohort_rollout_transition_integrity(checked_transition_id bigint)
      RETURNS void
      LANGUAGE plpgsql
@@ -2979,7 +3091,239 @@ SQL
         END IF;
       END IF;
 
-      IF transition_record.event_type = 'planned' THEN
+      IF (execution_record.operation_version = 2) IS DISTINCT FROM
+       (rollout_record.baseline_cohort_release_id IS NOT NULL) THEN
+      RAISE EXCEPTION 'rollout operation version must match its runtime mode'
+        USING ERRCODE = 'integrity_constraint_violation';
+    END IF;
+    IF execution_record.operation_version = 2 THEN
+        IF rollout_record.baseline_cohort_release_id IS NULL
+           OR rollout_record.baseline_cohort_release_id = rollout_record.target_cohort_release_id THEN
+          RAISE EXCEPTION 'runtime rollout must capture a distinct baseline release'
+            USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+        IF transition_record.participant_runtime_changed IS DISTINCT FROM
+           (transition_record.event_type IN ('activated', 'advanced', 'completed', 'rolled_back')) THEN
+          RAISE EXCEPTION 'runtime change evidence does not match the v2 rollout event'
+            USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+        IF transition_record.event_type = 'planned' THEN
+          expected_before_snapshot := jsonb_build_object(
+            'schema', 'cohort_rollout_state_v2',
+            'cohort_id', rollout_record.cohort_id,
+            'coach_workspace_id', rollout_record.coach_workspace_id,
+            'rollout_id', NULL,
+            'status', NULL,
+            'current_wave_position', NULL,
+            'latest_transition_id', NULL,
+            'target_release_id', NULL,
+            'rollback_release_id', NULL,
+            'latest_release_id', rollout_record.target_cohort_release_id,
+            'participant_roster_digest', execution_record.normalized_input->>'expected_roster_digest',
+            'participant_runtime_changed', false,
+            'active_release_id', rollout_record.baseline_cohort_release_id,
+            'baseline_release_id', rollout_record.baseline_cohort_release_id
+          );
+          expected_predicted_snapshot := jsonb_build_object(
+            'schema', 'cohort_rollout_state_v2',
+            'cohort_id', rollout_record.cohort_id,
+            'coach_workspace_id', rollout_record.coach_workspace_id,
+            'rollout_id', NULL,
+            'status', transition_record.to_status,
+            'current_wave_position', transition_record.to_wave_position,
+            'latest_transition_id', NULL,
+            'target_release_id', rollout_record.target_cohort_release_id,
+            'rollback_release_id', NULL,
+            'participant_runtime_changed', false,
+            'active_release_id', rollout_record.baseline_cohort_release_id,
+            'baseline_release_id', rollout_record.baseline_cohort_release_id,
+            'latest_transition_id_pending', true,
+            'rollout_id_pending', true
+          );
+        ELSE
+          expected_before_snapshot := jsonb_build_object(
+            'schema', 'cohort_rollout_state_v2',
+            'cohort_id', rollout_record.cohort_id,
+            'coach_workspace_id', rollout_record.coach_workspace_id,
+            'rollout_id', transition_record.cohort_rollout_id,
+            'status', transition_record.from_status,
+            'current_wave_position', transition_record.from_wave_position,
+            'latest_transition_id', previous_transition_id,
+            'target_release_id', rollout_record.target_cohort_release_id,
+            'rollback_release_id', NULL,
+            'participant_runtime_changed', false,
+            'active_release_id', rollout_record.baseline_cohort_release_id,
+            'baseline_release_id', rollout_record.baseline_cohort_release_id
+          );
+          IF transition_record.event_type IN ('activated', 'advanced', 'completed') THEN
+            expected_before_snapshot := expected_before_snapshot ||
+              jsonb_build_object('readiness_digest', transition_record.readiness_digest);
+          END IF;
+          expected_predicted_snapshot := jsonb_build_object(
+            'schema', 'cohort_rollout_state_v2',
+            'cohort_id', rollout_record.cohort_id,
+            'coach_workspace_id', rollout_record.coach_workspace_id,
+            'rollout_id', transition_record.cohort_rollout_id,
+            'status', transition_record.to_status,
+            'current_wave_position', transition_record.to_wave_position,
+            'latest_transition_id', NULL,
+            'target_release_id', rollout_record.target_cohort_release_id,
+            'rollback_release_id', transition_record.rollback_cohort_release_id,
+            'participant_runtime_changed', transition_record.participant_runtime_changed,
+            'active_release_id', CASE WHEN transition_record.to_status = 'completed'
+              THEN rollout_record.target_cohort_release_id ELSE rollout_record.baseline_cohort_release_id END,
+            'baseline_release_id', rollout_record.baseline_cohort_release_id,
+            'latest_transition_id_pending', true
+          );
+        END IF;
+        expected_after_snapshot := jsonb_build_object(
+          'schema', 'cohort_rollout_state_v2',
+          'cohort_id', rollout_record.cohort_id,
+          'coach_workspace_id', rollout_record.coach_workspace_id,
+          'rollout_id', transition_record.cohort_rollout_id,
+          'status', transition_record.to_status,
+          'current_wave_position', transition_record.to_wave_position,
+          'latest_transition_id', transition_record.id,
+          'target_release_id', rollout_record.target_cohort_release_id,
+          'rollback_release_id', transition_record.rollback_cohort_release_id,
+          'participant_runtime_changed', transition_record.participant_runtime_changed,
+          'active_release_id', CASE WHEN transition_record.to_status = 'completed'
+            THEN rollout_record.target_cohort_release_id ELSE rollout_record.baseline_cohort_release_id END,
+          'baseline_release_id', rollout_record.baseline_cohort_release_id
+        );
+        IF execution_record.before_snapshot IS DISTINCT FROM expected_before_snapshot
+           OR execution_record.predicted_after_snapshot IS DISTINCT FROM expected_predicted_snapshot
+           OR execution_record.after_snapshot IS DISTINCT FROM expected_after_snapshot THEN
+          RAISE EXCEPTION 'v2 rollout snapshots do not match runtime evidence'
+            USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+        IF transition_record.event_type = 'planned' THEN
+          IF rollout_record.baseline_cohort_release_id IS DISTINCT FROM (
+            SELECT active_cohort_release_id FROM cohorts WHERE id = rollout_record.cohort_id
+          ) THEN
+            RAISE EXCEPTION 'runtime rollout baseline must match the active cohort release'
+              USING ERRCODE = 'integrity_constraint_violation';
+          END IF;
+        ELSIF transition_record.event_type IN ('activated', 'advanced', 'completed') AND EXISTS (
+          SELECT 1
+          FROM cohort_rollout_participants participant
+          LEFT JOIN cohort_memberships membership
+            ON membership.id = participant.cohort_membership_id
+           AND membership.cohort_id = participant.cohort_id
+           AND membership.user_id = participant.user_id
+           AND membership.role = 'participant'
+           AND membership.created_at = participant.membership_started_at
+          WHERE participant.cohort_rollout_id = rollout_record.id
+            AND membership.id IS NULL
+        ) THEN
+          RAISE EXCEPTION 'runtime rollout participant enrollment changed after planning'
+            USING ERRCODE = 'integrity_constraint_violation';
+        ELSIF transition_record.event_type IN ('activated', 'advanced') THEN
+          IF EXISTS (
+               SELECT 1 FROM cohort_release_exposures exposure
+               LEFT JOIN cohort_rollout_participants participant
+                 ON participant.cohort_rollout_id = rollout_record.id
+                AND participant.user_id = exposure.user_id
+                AND participant.cohort_rollout_wave_id = exposure.cohort_rollout_wave_id
+               LEFT JOIN cohort_rollout_waves wave
+                 ON wave.id = participant.cohort_rollout_wave_id
+                AND wave.cohort_rollout_id = rollout_record.id
+               WHERE exposure.cohort_rollout_transition_id = transition_record.id
+                 AND (exposure.event_type <> 'wave'
+                   OR exposure.cohort_release_id <> rollout_record.target_cohort_release_id
+                   OR participant.id IS NULL
+                   OR wave.position <> transition_record.to_wave_position)
+             ) OR EXISTS (
+               SELECT 1 FROM cohort_rollout_participants participant
+               JOIN cohort_rollout_waves wave ON wave.id = participant.cohort_rollout_wave_id
+               LEFT JOIN cohort_release_exposures exposure
+                 ON exposure.cohort_rollout_transition_id = transition_record.id
+                AND exposure.user_id = participant.user_id
+                AND exposure.cohort_rollout_wave_id = wave.id
+                AND exposure.event_type = 'wave'
+                AND exposure.cohort_release_id = rollout_record.target_cohort_release_id
+               WHERE participant.cohort_rollout_id = rollout_record.id
+                 AND wave.position = transition_record.to_wave_position
+                 AND exposure.id IS NULL
+             ) THEN
+            RAISE EXCEPTION 'runtime rollout wave exposure is incomplete'
+              USING ERRCODE = 'integrity_constraint_violation';
+          END IF;
+        ELSIF transition_record.event_type = 'completed' THEN
+          IF (SELECT active_cohort_release_id FROM cohorts WHERE id = rollout_record.cohort_id)
+               IS DISTINCT FROM rollout_record.target_cohort_release_id
+             OR NOT EXISTS (
+               SELECT 1 FROM cohort_release_activation_events event
+               WHERE event.cohort_rollout_transition_id = transition_record.id
+                 AND event.to_cohort_release_id = rollout_record.target_cohort_release_id
+             ) THEN
+            RAISE EXCEPTION 'completed runtime rollout must activate its target release'
+              USING ERRCODE = 'integrity_constraint_violation';
+          END IF;
+        ELSIF transition_record.event_type = 'rolled_back' THEN
+          IF transition_record.rollback_cohort_release_id IS DISTINCT FROM rollout_record.baseline_cohort_release_id
+             OR EXISTS (
+               SELECT 1 FROM cohort_release_exposures exposure
+               WHERE exposure.cohort_rollout_transition_id = transition_record.id
+                 AND (exposure.event_type <> 'rollback'
+                   OR exposure.cohort_release_id <> rollout_record.baseline_cohort_release_id
+                   OR NOT EXISTS (
+                     SELECT 1
+                     FROM cohort_rollout_participants participant
+                     JOIN cohort_release_exposures prior
+                       ON prior.cohort_rollout_id = rollout_record.id
+                      AND prior.event_type = 'wave'
+                      AND prior.user_id = participant.user_id
+                      AND prior.cohort_rollout_wave_id = participant.cohort_rollout_wave_id
+                      AND prior.cohort_membership_id = participant.cohort_membership_id
+                      AND prior.membership_started_at = participant.membership_started_at
+                     JOIN cohort_memberships membership
+                       ON membership.id = participant.cohort_membership_id
+                      AND membership.cohort_id = participant.cohort_id
+                      AND membership.user_id = participant.user_id
+                      AND membership.role = 'participant'
+                      AND membership.created_at = participant.membership_started_at
+                     WHERE participant.cohort_rollout_id = rollout_record.id
+                       AND participant.user_id = exposure.user_id
+                       AND participant.cohort_rollout_wave_id = exposure.cohort_rollout_wave_id
+                       AND participant.cohort_membership_id = exposure.cohort_membership_id
+                       AND participant.membership_started_at = exposure.membership_started_at
+                   ))
+             ) OR EXISTS (
+               SELECT DISTINCT prior.user_id
+               FROM cohort_release_exposures prior
+               JOIN cohort_rollout_participants participant
+                 ON participant.cohort_rollout_id = rollout_record.id
+                AND participant.user_id = prior.user_id
+                AND participant.cohort_rollout_wave_id = prior.cohort_rollout_wave_id
+                AND participant.cohort_membership_id = prior.cohort_membership_id
+                AND participant.membership_started_at = prior.membership_started_at
+               JOIN cohort_memberships membership
+                 ON membership.id = participant.cohort_membership_id
+                AND membership.cohort_id = participant.cohort_id
+                AND membership.user_id = participant.user_id
+                AND membership.role = 'participant'
+                AND membership.created_at = participant.membership_started_at
+               LEFT JOIN cohort_release_exposures restored
+                 ON restored.cohort_rollout_transition_id = transition_record.id
+                AND restored.user_id = prior.user_id
+                AND restored.cohort_rollout_wave_id = prior.cohort_rollout_wave_id
+                AND restored.cohort_membership_id = prior.cohort_membership_id
+                AND restored.membership_started_at = prior.membership_started_at
+                AND restored.event_type = 'rollback'
+                AND restored.cohort_release_id = rollout_record.baseline_cohort_release_id
+               WHERE prior.cohort_rollout_id = rollout_record.id
+                 AND prior.event_type = 'wave'
+                 AND restored.id IS NULL
+             ) THEN
+            RAISE EXCEPTION 'runtime rollback must restore the captured baseline'
+              USING ERRCODE = 'integrity_constraint_violation';
+          END IF;
+        END IF;
+        RETURN;
+      END IF;
+
+    IF transition_record.event_type = 'planned' THEN
         expected_before_snapshot := jsonb_build_object(
           'schema', 'cohort_rollout_state_v1',
           'cohort_id', rollout_record.cohort_id,
@@ -3061,7 +3405,7 @@ SQL
     END;
     $function$
   SQL
-  execute <<~SQL
+  execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.validate_cohort_rollout_latest_integrity(checked_rollout_id bigint)
      RETURNS void
      LANGUAGE plpgsql
@@ -3134,7 +3478,7 @@ SQL
     END;
     $function$
   SQL
-  execute <<~SQL
+  execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.check_cohort_rollout_row_integrity()
      RETURNS trigger
      LANGUAGE plpgsql
@@ -3148,7 +3492,7 @@ SQL
     END;
     $function$
   SQL
-  execute <<~SQL
+  execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.check_cohort_rollout_transition_integrity()
      RETURNS trigger
      LANGUAGE plpgsql
@@ -3160,7 +3504,7 @@ SQL
     END;
     $function$
   SQL
-  execute <<~SQL
+  execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.check_cohort_rollout_execution_integrity()
      RETURNS trigger
      LANGUAGE plpgsql
@@ -3176,13 +3520,256 @@ SQL
     END;
     $function$
   SQL
-  execute <<~SQL
+  execute <<~'SQL'
     CREATE CONSTRAINT TRIGGER cohort_rollouts_integrity_deferred AFTER INSERT OR DELETE OR UPDATE ON public.cohort_rollouts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_cohort_rollout_row_integrity();
   SQL
-  execute <<~SQL
+  execute <<~'SQL'
     CREATE CONSTRAINT TRIGGER cohort_rollout_transitions_integrity_deferred AFTER INSERT OR DELETE OR UPDATE ON public.cohort_rollout_transitions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_cohort_rollout_transition_integrity();
   SQL
-  execute <<~SQL
+  execute <<~'SQL'
     CREATE CONSTRAINT TRIGGER coach_operation_rollout_integrity_deferred AFTER INSERT OR DELETE OR UPDATE ON public.coach_operation_executions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_cohort_rollout_execution_integrity();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.prevent_cohort_runtime_evidence_mutation()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      RAISE EXCEPTION 'cohort runtime evidence is append-only'
+        USING ERRCODE = 'integrity_constraint_violation';
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.enforce_cohort_runtime_scope()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF NEW.active_cohort_release_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM cohort_releases
+        WHERE id = NEW.active_cohort_release_id
+          AND cohort_id = NEW.id
+          AND coach_workspace_id = NEW.coach_workspace_id
+      ) THEN
+        RAISE EXCEPTION 'active cohort release must belong to the cohort and workspace'
+          USING ERRCODE = 'foreign_key_violation';
+      END IF;
+      RETURN NEW;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.enforce_cohort_release_exposure_membership_epoch()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM cohort_memberships membership
+        WHERE membership.id = NEW.cohort_membership_id
+          AND membership.cohort_id = NEW.cohort_id
+          AND membership.user_id = NEW.user_id
+          AND membership.role = 'participant'
+          AND membership.created_at = NEW.membership_started_at
+      ) THEN
+        RAISE EXCEPTION 'release exposure must reference the current participant membership epoch'
+          USING ERRCODE = 'foreign_key_violation';
+      END IF;
+      RETURN NEW;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.enforce_cohort_rollout_participant_membership_epoch()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE
+      runtime_rollout boolean;
+    BEGIN
+      SELECT baseline_cohort_release_id IS NOT NULL INTO runtime_rollout
+      FROM cohort_rollouts WHERE id = NEW.cohort_rollout_id;
+      IF runtime_rollout AND NOT EXISTS (
+        SELECT 1 FROM cohort_memberships membership
+        WHERE membership.id = NEW.cohort_membership_id
+          AND membership.cohort_id = NEW.cohort_id
+          AND membership.user_id = NEW.user_id
+          AND membership.role = 'participant'
+          AND membership.created_at = NEW.membership_started_at
+      ) THEN
+        RAISE EXCEPTION 'runtime rollout participants must pin the current participant membership epoch'
+          USING ERRCODE = 'foreign_key_violation';
+      ELSIF NOT runtime_rollout AND
+        (NEW.cohort_membership_id IS NOT NULL OR NEW.membership_started_at IS NOT NULL) THEN
+        RAISE EXCEPTION 'legacy rollout participants cannot claim runtime membership evidence'
+          USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+      RETURN NEW;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.mark_cohort_runtime_transition_pending()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE
+      validation_key text;
+    BEGIN
+      IF NEW.cohort_rollout_transition_id IS NOT NULL THEN
+        validation_key := format(
+          'household_cfo.runtime_transition_%s',
+          NEW.cohort_rollout_transition_id
+        );
+        PERFORM set_config(validation_key, 'pending', true);
+      END IF;
+      RETURN NEW;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.prepare_cohort_release_activation_event()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE
+      current_release_id bigint;
+      rollout_record cohort_rollouts%ROWTYPE;
+      transition_record cohort_rollout_transitions%ROWTYPE;
+    BEGIN
+      SELECT active_cohort_release_id INTO current_release_id
+      FROM cohorts
+      WHERE id = NEW.cohort_id AND coach_workspace_id = NEW.coach_workspace_id
+      FOR UPDATE;
+
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'release activation cohort does not exist in the claimed workspace'
+          USING ERRCODE = 'foreign_key_violation';
+      END IF;
+      IF current_release_id IS DISTINCT FROM NEW.from_cohort_release_id THEN
+        RAISE EXCEPTION 'release activation evidence must start from the current cohort release'
+          USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+
+      IF NEW.event_type = 'backfill' THEN
+        IF NEW.from_cohort_release_id IS NOT NULL THEN
+          RAISE EXCEPTION 'runtime backfill may only activate a cohort without an active release'
+            USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+      ELSIF NEW.event_type = 'rollout_completed' THEN
+        SELECT * INTO rollout_record FROM cohort_rollouts WHERE id = NEW.cohort_rollout_id;
+        SELECT * INTO transition_record FROM cohort_rollout_transitions WHERE id = NEW.cohort_rollout_transition_id;
+        IF rollout_record.id IS NULL
+           OR transition_record.id IS NULL
+           OR transition_record.cohort_rollout_id <> rollout_record.id
+           OR transition_record.event_type <> 'completed'
+           OR rollout_record.baseline_cohort_release_id IS DISTINCT FROM NEW.from_cohort_release_id
+           OR rollout_record.target_cohort_release_id IS DISTINCT FROM NEW.to_cohort_release_id
+           OR transition_record.actor_user_id IS DISTINCT FROM NEW.actor_user_id
+           OR transition_record.actor_role_snapshot IS DISTINCT FROM NEW.actor_role_snapshot
+           OR transition_record.occurred_at IS DISTINCT FROM NEW.occurred_at THEN
+          RAISE EXCEPTION 'rollout activation evidence must match its completed transition and release change'
+            USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+      END IF;
+
+      NEW.database_transaction_id := txid_current();
+      RETURN NEW;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.check_cohort_active_release_change_integrity()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE
+      matching_events integer;
+    BEGIN
+      IF OLD.active_cohort_release_id IS NOT DISTINCT FROM NEW.active_cohort_release_id THEN
+        RETURN NULL;
+      END IF;
+
+      SELECT count(*) INTO matching_events
+      FROM cohort_release_activation_events event
+      WHERE event.cohort_id = NEW.id
+        AND event.coach_workspace_id = NEW.coach_workspace_id
+        AND event.from_cohort_release_id IS NOT DISTINCT FROM OLD.active_cohort_release_id
+        AND event.to_cohort_release_id = NEW.active_cohort_release_id
+        AND event.database_transaction_id = txid_current();
+
+      IF matching_events <> 1 THEN
+        RAISE EXCEPTION 'active cohort release changes require exactly one matching activation event in the same transaction'
+          USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+      RETURN NULL;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.check_cohort_runtime_evidence_integrity()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE
+      active_release_id bigint;
+      validation_key text;
+    BEGIN
+      IF TG_TABLE_NAME = 'cohort_release_activation_events' THEN
+        SELECT cohorts.active_cohort_release_id INTO active_release_id
+        FROM cohorts WHERE cohorts.id = NEW.cohort_id;
+        IF active_release_id IS DISTINCT FROM NEW.to_cohort_release_id
+           OR NEW.database_transaction_id <> txid_current() THEN
+          RAISE EXCEPTION 'release activation evidence must match the resulting cohort pointer in the same transaction'
+            USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+      END IF;
+      IF NEW.cohort_rollout_transition_id IS NOT NULL THEN
+        validation_key := format(
+          'household_cfo.runtime_transition_%s',
+          NEW.cohort_rollout_transition_id
+        );
+        IF current_setting(validation_key, true) IS DISTINCT FROM txid_current()::text THEN
+          PERFORM validate_cohort_rollout_transition_integrity(NEW.cohort_rollout_transition_id);
+          PERFORM set_config(validation_key, txid_current()::text, true);
+        END IF;
+      END IF;
+      RETURN NULL;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER cohort_release_exposures_immutable BEFORE DELETE OR UPDATE ON public.cohort_release_exposures FOR EACH ROW EXECUTE FUNCTION prevent_cohort_runtime_evidence_mutation();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER cohort_release_activation_events_immutable BEFORE DELETE OR UPDATE ON public.cohort_release_activation_events FOR EACH ROW EXECUTE FUNCTION prevent_cohort_runtime_evidence_mutation();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER cohort_runtime_scope_guard BEFORE INSERT OR UPDATE OF active_cohort_release_id, coach_workspace_id ON public.cohorts FOR EACH ROW EXECUTE FUNCTION enforce_cohort_runtime_scope();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER cohort_release_exposures_membership_epoch_guard BEFORE INSERT ON public.cohort_release_exposures FOR EACH ROW EXECUTE FUNCTION enforce_cohort_release_exposure_membership_epoch();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER cohort_rollout_participants_membership_epoch_guard BEFORE INSERT ON public.cohort_rollout_participants FOR EACH ROW EXECUTE FUNCTION enforce_cohort_rollout_participant_membership_epoch();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER cohort_release_exposures_transition_pending BEFORE INSERT ON public.cohort_release_exposures FOR EACH ROW EXECUTE FUNCTION mark_cohort_runtime_transition_pending();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER cohort_release_activation_events_transition_pending BEFORE INSERT ON public.cohort_release_activation_events FOR EACH ROW EXECUTE FUNCTION mark_cohort_runtime_transition_pending();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER cohort_release_activation_events_prepare BEFORE INSERT ON public.cohort_release_activation_events FOR EACH ROW EXECUTE FUNCTION prepare_cohort_release_activation_event();
+  SQL
+  execute <<~'SQL'
+    CREATE CONSTRAINT TRIGGER cohort_active_release_change_integrity_deferred AFTER UPDATE OF active_cohort_release_id ON public.cohorts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_cohort_active_release_change_integrity();
+  SQL
+  execute <<~'SQL'
+    CREATE CONSTRAINT TRIGGER cohort_release_exposures_integrity_deferred AFTER INSERT ON public.cohort_release_exposures DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_cohort_runtime_evidence_integrity();
+  SQL
+  execute <<~'SQL'
+    CREATE CONSTRAINT TRIGGER cohort_release_activation_events_integrity_deferred AFTER INSERT ON public.cohort_release_activation_events DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_cohort_runtime_evidence_integrity();
   SQL
 end

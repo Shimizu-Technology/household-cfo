@@ -3,7 +3,7 @@
 module CoachOperations
   class CohortRolloutCancel < CohortRolloutOperation
     KEY = "cohort.rollout.cancel"
-    VERSION = 1
+    VERSION = 2
     INPUT_KEYS = COMMON_CAS_KEYS
 
     def normalize_operation_input(input) = normalize_common_cas(input)

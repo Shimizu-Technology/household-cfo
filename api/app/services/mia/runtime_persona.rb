@@ -39,6 +39,24 @@ module Mia
         runtime
       end
 
+      def for_release(version:, user:, cohort_membership:, release:)
+        persisted_version = CoachPersonaVersion.includes(:coach_persona).find_by(id: version&.id)
+        raise ActiveRecord::RecordNotFound, "release persona version is unavailable" unless persisted_version
+
+        membership = CohortMembership.find_by(
+          id: cohort_membership&.id,
+          user_id: user&.id,
+          cohort_id: release&.cohort_id,
+          role: "participant"
+        )
+        unless membership && release.coach_persona_version_id == persisted_version.id &&
+            release.coach_persona_id == persisted_version.coach_persona_id
+          raise ActiveRecord::RecordNotFound, "release persona does not match the participant runtime"
+        end
+
+        new(persisted_version).tap { |runtime| runtime.instance_variable_set(:@participant_id, user.id) }
+      end
+
       private
 
       def verified_participant_id(version:, user:, cohort_membership:)

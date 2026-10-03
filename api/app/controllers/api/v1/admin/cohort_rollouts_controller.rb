@@ -80,10 +80,16 @@ module Api
           operation_input = input.merge(rollout_id: rollout.id) unless operation_key == "cohort.rollout.plan"
           CoachOperations::Runner.new(cohort: cohort, actor: current_user).call!(
             operation_key: operation_key,
-            operation_version: 1,
+            operation_version: operation_version_for(operation_key),
             input: operation_input,
             request_key: request.headers["Idempotency-Key"]
           )
+        end
+
+        def operation_version_for(operation_key)
+          return 2 if operation_key == "cohort.rollout.plan"
+
+          rollout.baseline_cohort_release_id ? 2 : 1
         end
 
         def plan_params

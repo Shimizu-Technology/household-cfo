@@ -12,6 +12,8 @@ class CohortRolloutTransition < ApplicationRecord
     inverse_of: :rollback_cohort_rollout_transitions
   has_one :coach_operation_execution, dependent: :restrict_with_exception,
     inverse_of: :cohort_rollout_transition
+  has_many :cohort_release_exposures, dependent: :restrict_with_exception
+  has_many :cohort_release_activation_events, dependent: :restrict_with_exception
 
   validates :event_type, inclusion: { in: EVENT_TYPES }
   validates :actor_role_snapshot, inclusion: { in: ACTOR_ROLES }
@@ -24,7 +26,7 @@ class CohortRolloutTransition < ApplicationRecord
       less_than_or_equal_to: CohortRollout::MAX_WAVES
     }, allow_nil: true
   validates :occurred_at, presence: true
-  validates :participant_runtime_changed, inclusion: { in: [ false ] }
+  validates :participant_runtime_changed, inclusion: { in: [ true, false ] }
   validates :readiness_digest, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
   validate :workspace_boundaries
   validate :rollback_shape
@@ -32,6 +34,7 @@ class CohortRolloutTransition < ApplicationRecord
   validate :readiness_evidence_shape
   validate :legal_event_shape
   validate :planned_attribution
+  validate :runtime_change_shape
   validate :immutable_record, on: :update
 
   before_validation :copy_rollout_scope
@@ -115,6 +118,14 @@ class CohortRolloutTransition < ApplicationRecord
     unless actor_role_snapshot == cohort_rollout.planned_by_role_snapshot
       errors.add(:actor_role_snapshot, "must match the rollout planner role")
     end
+  end
+
+  def runtime_change_shape
+    expected = cohort_rollout&.baseline_cohort_release_id.present? &&
+      event_type.in?(%w[activated advanced completed rolled_back])
+    return if participant_runtime_changed == expected
+
+    errors.add(:participant_runtime_changed, "must match whether this rollout event changes participant runtime")
   end
 
   def positive_unchanged_wave?

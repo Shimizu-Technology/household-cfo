@@ -30,7 +30,8 @@ module CoachOperations
         operation = operation_class.new(
           cohort: locked_cohort,
           actor: locked_actor,
-          actor_role_snapshot: actor_role
+          actor_role_snapshot: actor_role,
+          operation_version: operation_version
         )
         prepared = operation.prepare(input)
         invocation_fingerprint = invocation_fingerprint_for(prepared, locked_cohort, locked_actor, actor_role)

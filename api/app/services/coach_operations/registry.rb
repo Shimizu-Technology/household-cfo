@@ -17,7 +17,8 @@ module CoachOperations
 
     def fetch(key, version:)
       operation = OPERATIONS.fetch(key.to_s) { raise KeyError, "Unknown coach operation" }
-      raise KeyError, "Unknown coach operation version" unless operation::VERSION == Integer(version, exception: false)
+      supported = operation.const_defined?(:SUPPORTED_VERSIONS) ? operation::SUPPORTED_VERSIONS : [ operation::VERSION ]
+      raise KeyError, "Unknown coach operation version" unless Integer(version, exception: false).in?(supported)
 
       operation
     end

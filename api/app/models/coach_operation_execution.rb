@@ -16,7 +16,7 @@ class CoachOperationExecution < ApplicationRecord
   belongs_to :cohort_rollout_transition, optional: true, inverse_of: :coach_operation_execution
 
   validates :operation_key, inclusion: { in: OPERATION_KEYS }
-  validates :operation_version, inclusion: { in: [ 1 ] }
+  validates :operation_version, inclusion: { in: [ 1, 2 ] }
   validates :actor_role_snapshot, inclusion: { in: ACTOR_ROLES }
   validates :source, inclusion: { in: [ "api" ] }
   validates :request_key, presence: true, length: { maximum: 100 }, uniqueness: { scope: :cohort_id }
@@ -152,8 +152,9 @@ class CoachOperationExecution < ApplicationRecord
       "rolled_back" => "cohort.rollout.rollback"
     }[transition.event_type]
     errors.add(:operation_key, "does not match the linked rollout event") unless operation_key == expected_key
-    unless transition.participant_runtime_changed == false
-      errors.add(:cohort_rollout_transition, "must preserve participant runtime")
+    expected_runtime_change = operation_version == 2 && transition.event_type.in?(%w[activated advanced completed rolled_back])
+    unless transition.participant_runtime_changed == expected_runtime_change
+      errors.add(:cohort_rollout_transition, "runtime-change evidence does not match the operation version")
     end
 
     validate_rollout_input(transition)

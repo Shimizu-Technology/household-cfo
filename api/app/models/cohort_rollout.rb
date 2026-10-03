@@ -12,6 +12,8 @@ class CohortRollout < ApplicationRecord
   belongs_to :target_cohort_release, class_name: "CohortRelease", inverse_of: :targeted_cohort_rollouts
   belongs_to :rollback_cohort_release, class_name: "CohortRelease", optional: true,
     inverse_of: :rollback_cohort_rollouts
+  belongs_to :baseline_cohort_release, class_name: "CohortRelease", optional: true,
+    inverse_of: :baseline_cohort_rollouts
   belongs_to :planned_by_user, class_name: "User", inverse_of: :planned_cohort_rollouts
 
   has_many :waves, -> { order(:position, :id) }, class_name: "CohortRolloutWave",
@@ -20,6 +22,8 @@ class CohortRollout < ApplicationRecord
     dependent: :restrict_with_exception, inverse_of: :cohort_rollout
   has_many :transitions, -> { order(:id) }, class_name: "CohortRolloutTransition",
     dependent: :restrict_with_exception, inverse_of: :cohort_rollout
+  has_many :cohort_release_exposures, dependent: :restrict_with_exception
+  has_many :cohort_release_activation_events, dependent: :restrict_with_exception
 
   validates :status, inclusion: { in: STATUSES }
   validates :planned_by_role_snapshot, inclusion: { in: ACTOR_ROLES }
@@ -33,6 +37,7 @@ class CohortRollout < ApplicationRecord
   validate :workspace_boundaries
   validate :rollback_shape
   validate :rollback_release_predates_target
+  validate :baseline_release_predates_target
   validate :current_wave_exists
   validate :lifecycle_timestamp_shape
   validate :plan_identity_is_immutable, on: :update
@@ -45,6 +50,7 @@ class CohortRollout < ApplicationRecord
     errors.add(:coach_workspace, "must match the cohort") if cohort && cohort.coach_workspace_id != coach_workspace_id
 
     [ [ :target_cohort_release, target_cohort_release ],
+      [ :baseline_cohort_release, baseline_cohort_release ],
       [ :rollback_cohort_release, rollback_cohort_release ] ].each do |attribute, release|
       next unless release
       next if release.cohort_id == cohort_id && release.coach_workspace_id == coach_workspace_id
@@ -67,6 +73,13 @@ class CohortRollout < ApplicationRecord
     return if rollback_cohort_release.release_number < target_cohort_release.release_number
 
     errors.add(:rollback_cohort_release, "must predate the target release")
+  end
+
+  def baseline_release_predates_target
+    return unless baseline_cohort_release && target_cohort_release
+    return if baseline_cohort_release.release_number < target_cohort_release.release_number
+
+    errors.add(:baseline_cohort_release, "must predate the target release")
   end
 
   def current_wave_exists
@@ -99,7 +112,7 @@ class CohortRollout < ApplicationRecord
 
   def plan_identity_is_immutable
     fields = %w[
-      coach_workspace_id cohort_id target_cohort_release_id planned_by_user_id
+      coach_workspace_id cohort_id target_cohort_release_id baseline_cohort_release_id planned_by_user_id
       planned_by_role_snapshot planned_at created_at
     ]
     errors.add(:base, "cohort rollout plan identity is immutable") if changes_to_save.keys.intersect?(fields)

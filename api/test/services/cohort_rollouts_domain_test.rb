@@ -275,6 +275,8 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
   end
 
   test "studio advertises planning only when a release and participant roster are usable" do
+    CohortReleases::RuntimeActivator.new(cohort: @cohort).call!
+    @release = seal_next_release!(request_key: "studio-runtime-target")
     valid = CohortRollouts::StudioSerializer.new(cohort: @cohort, actor: @owner).call
     assert valid.dig(:permissions, :plan)
     assert_empty valid.dig(:permissions, :plan_blockers)

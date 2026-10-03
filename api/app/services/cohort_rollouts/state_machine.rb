@@ -24,10 +24,11 @@ module CohortRollouts
       end
     end
 
-    def initialize(cohort:, actor:, actor_role_snapshot:)
+    def initialize(cohort:, actor:, actor_role_snapshot:, runtime_cutover: false)
       @cohort = cohort
       @actor = actor
       @actor_role_snapshot = actor_role_snapshot
+      @runtime_cutover = runtime_cutover
     end
 
     def plan!(input)
@@ -44,6 +45,12 @@ module CohortRollouts
         verify_equal!(fetch(input, :expected_roster_digest), current_roster_digest, "The participant roster changed; reload before planning.")
         waves = Array(fetch(input, :waves))
         blockers = eligibility.plan_blockers(target_release: target_release, waves: waves)
+        if runtime_cutover
+          blockers << "Activate the cohort's current release before planning a runtime rollout." unless cohort.active_cohort_release
+          if cohort.active_cohort_release_id == target_release&.id
+            blockers << "Choose a target release that differs from the active release."
+          end
+        end
         raise Ineligible, blockers if blockers.any?
 
         User.where(id: waves.flat_map { |wave| Array(fetch(wave, :user_ids)) }.uniq.sort).order(:id).lock.load
@@ -51,6 +58,7 @@ module CohortRollouts
         rollout = cohort.cohort_rollouts.create!(
           coach_workspace: cohort.coach_workspace,
           target_cohort_release: target_release,
+          baseline_cohort_release: runtime_cutover ? cohort.active_cohort_release : nil,
           planned_by_user: actor,
           planned_by_role_snapshot: actor_role_snapshot,
           status: "planned",
@@ -106,13 +114,19 @@ module CohortRollouts
           event_type = "completed"
           attributes = { status: "completed", completed_at: occurred_at }
         end
-        transition_and_update!(
+        result = transition_and_update!(
           locked_rollout,
           event_type,
           attributes,
           occurred_at,
           readiness_digest: fetch(input, :readiness_digest)
         )
+        if runtime_cutover
+          mutator = runtime_mutator(locked_rollout)
+          next_wave ? mutator.expose_wave!(wave: next_wave, transition: result.transition) :
+            mutator.complete!(transition: result.transition)
+        end
+        result
       end
     end
 
@@ -143,10 +157,13 @@ module CohortRollouts
     def rollback!(rollout:, input:)
       mutate!(rollout, input) do |locked_rollout, occurred_at|
         rollback_release = cohort.cohort_releases.find_by(id: fetch(input, :rollback_release_id))
+        if runtime_cutover && rollback_release&.id != locked_rollout.baseline_cohort_release_id
+          raise Ineligible, [ "Runtime rollback must restore the release captured when the rollout was planned." ]
+        end
         blockers = eligibility.rollback_blockers(locked_rollout, rollback_release)
         raise Ineligible, blockers if blockers.any?
 
-        transition_and_update!(
+        result = transition_and_update!(
           locked_rollout,
           "rolled_back",
           {
@@ -157,12 +174,23 @@ module CohortRollouts
           occurred_at,
           rollback_release: rollback_release
         )
+        runtime_mutator(locked_rollout).rollback!(transition: result.transition) if runtime_cutover
+        result
       end
     end
 
     private
 
-    attr_reader :cohort, :actor, :actor_role_snapshot
+    attr_reader :cohort, :actor, :actor_role_snapshot, :runtime_cutover
+
+    def runtime_mutator(rollout)
+      RuntimeMutator.new(
+        cohort: cohort,
+        rollout: rollout,
+        actor: actor,
+        actor_role_snapshot: actor_role_snapshot
+      )
+    end
 
     def eligibility
       @eligibility ||= Eligibility.new(cohort: cohort)
@@ -222,7 +250,7 @@ module CohortRollouts
         to_wave_position: to_wave_position,
         rollback_cohort_release: rollback_release,
         readiness_digest: readiness_digest,
-        participant_runtime_changed: false,
+        participant_runtime_changed: runtime_cutover && event_type.in?(%w[activated advanced completed rolled_back]),
         occurred_at: occurred_at
       )
     end
@@ -242,14 +270,26 @@ module CohortRollouts
       end
       inserted = CohortRolloutWave.insert_all!(wave_rows, returning: %w[id position])
       wave_ids = inserted.rows.to_h { |id, position| [ position, id ] }
+      memberships = if runtime_cutover
+        cohort.cohort_memberships.where(role: "participant").index_by(&:user_id)
+      else
+        {}
+      end
       participant_rows = waves.each_with_index.flat_map do |wave_input, index|
         Array(fetch(wave_input, :user_ids)).map(&:to_i).sort.map do |user_id|
+          membership = if runtime_cutover
+            memberships.fetch(user_id) do
+              raise Stale, "The participant roster changed; reload before planning."
+            end
+          end
           {
             cohort_rollout_id: rollout.id,
             cohort_rollout_wave_id: wave_ids.fetch(index + 1),
             cohort_id: cohort.id,
             coach_workspace_id: cohort.coach_workspace_id,
             user_id: user_id,
+            cohort_membership_id: membership&.id,
+            membership_started_at: membership&.created_at,
             created_at: timestamp,
             updated_at: timestamp
           }

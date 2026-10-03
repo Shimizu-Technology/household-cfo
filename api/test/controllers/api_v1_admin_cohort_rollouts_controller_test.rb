@@ -119,7 +119,7 @@ class ApiV1AdminCohortRolloutsControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     assert_equal "activated", response.parsed_body.dig("transition", "event_type")
     assert_equal "active", response.parsed_body.dig("rollout", "status")
-    assert_equal false, response.parsed_body.dig("cohort_rollout_studio", "runtime_truth", "changes_participant_runtime")
+    assert_equal true, response.parsed_body.dig("cohort_rollout_studio", "runtime_truth", "changes_participant_runtime")
 
     post "#{endpoint(cohort)}/#{rollout.id}/advance", params: { rollout: ready_payload },
       headers: request_headers, as: :json
@@ -156,8 +156,8 @@ class ApiV1AdminCohortRolloutsControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
-  test "pause resume and rollback endpoints preserve participant runtime" do
-    owner, cohort, participants, earlier_release = rollout_components
+  test "pause resume and rollback endpoints expose and restore participant runtime" do
+    owner, cohort, participants, _release, earlier_release = rollout_components
     candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: false).call
     target_release = CohortReleases::Sealer.new(
       cohort: cohort,
@@ -190,8 +190,8 @@ class ApiV1AdminCohortRolloutsControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     assert_equal "rolled_back", response.parsed_body.dig("transition", "event_type")
     assert_equal earlier_release.id, response.parsed_body.dig("rollout", "rollback_release", "id")
-    assert_equal false, response.parsed_body.dig("transition", "participant_runtime_changed")
-    assert_equal false, response.parsed_body.dig("rollout", "participant_runtime_changed")
+    assert_equal true, response.parsed_body.dig("transition", "participant_runtime_changed")
+    assert_equal true, response.parsed_body.dig("rollout", "participant_runtime_changed")
 
     get "#{endpoint(cohort)}/#{rollout.id}", headers: headers
     assert_response :success
@@ -229,7 +229,15 @@ class ApiV1AdminCohortRolloutsControllerTest < ActionDispatch::IntegrationTest
     cohort.cohort_memberships.create!(user: first, role: "participant")
     cohort.cohort_memberships.create!(user: second, role: "participant")
     CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
-    [ owner, cohort, [ first, second ], cohort.cohort_releases.sole ]
+    baseline = cohort.cohort_releases.sole
+    CohortReleases::RuntimeActivator.new(cohort: cohort).call!
+    candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: false).call
+    target = CohortReleases::Sealer.new(
+      cohort: cohort,
+      actor: nil,
+      publication_source: "system"
+    ).call!(request_key: "rollout-api-target-#{SecureRandom.hex(4)}", expected_bundle_digest: candidate.bundle_digest)
+    [ owner, cohort, [ first, second ], target, baseline ]
   end
 
   def participant(invitation_status: "accepted")

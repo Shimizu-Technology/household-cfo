@@ -1682,6 +1682,37 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal Date.new(occurred_on.year, 7, 1), transaction.budget_period.starts_on
   end
 
+  test "transaction review status messages keep the participant cohort release attribution" do
+    user = create_user(email: "transaction-runtime-attribution@example.com")
+    cohort, release = attach_participant_runtime(user, "transaction-status")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    category = manager.create_category!(name: "Runtime groceries", stack_key: "discretionary", monthly_amount: 400)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: "Runtime Market",
+      total_amount_cents: 2_500,
+      budget_category: category,
+      source_type: "manual_chat",
+      status: "pending",
+      raw_input: "I spent $25 at Runtime Market"
+    )
+    draft.transaction_draft_splits.create!(
+      budget_category: category,
+      category_name: category.name,
+      stack_key: category.stack_key,
+      amount_cents: 2_500
+    )
+
+    post "/api/v1/transaction_drafts/#{draft.id}/confirm", headers: auth_headers(user), as: :json
+
+    assert_response :success
+    status_message = household.chat_sessions.find_by!(user: user).chat_messages.order(:id).last
+    assert_equal "assistant", status_message.role
+    assert_equal cohort.id, status_message.cohort_id
+    assert_equal release.id, status_message.cohort_release_id
+  end
+
   test "confirming a prior year draft returns the prior year annual plan" do
     user = create_user(email: "prior-year-confirm@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -2282,6 +2313,24 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       role: "participant",
       invitation_status: "accepted"
     )
+  end
+
+  def attach_participant_runtime(user, key)
+    owner = User.create!(
+      clerk_id: "clerk_#{SecureRandom.hex(6)}",
+      email: "#{key}-coach-#{SecureRandom.hex(4)}@example.com",
+      role: "coach",
+      invitation_status: "accepted"
+    )
+    cohort = Cohort.create!(name: "#{key} #{SecureRandom.hex(4)}", status: "active", created_by_user: owner)
+    cohort.cohort_memberships.create!(user: user, role: "participant")
+    candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: false).call
+    release = CohortReleases::Sealer.new(cohort: cohort, actor: nil, publication_source: "system").call!(
+      request_key: key,
+      expected_bundle_digest: candidate.bundle_digest
+    )
+    cohort.update!(active_cohort_release: release)
+    [ cohort, release ]
   end
 
   def confirm_setup_for_test(user)

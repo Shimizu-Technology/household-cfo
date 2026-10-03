@@ -64,7 +64,9 @@ module Api
 
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
           session,
-          persona_version_id: current_persona.version_id
+          persona_version_id: current_persona.version_id,
+          cohort_id: current_participant_runtime.cohort_id,
+          cohort_release_id: current_participant_runtime.release_id
         ).call
         transcript = transcript_for_current_persona(transcript)
         transcript = intent_transcript_without_memory_commands(transcript)
@@ -76,7 +78,7 @@ module Api
         conversation_context = HouseholdFinance::ConversationContextBuilder.new(
           session,
           household: current_household,
-          persona_context_id: current_persona.continuity_id
+          persona_context_id: current_participant_runtime.continuity_id
         ).call
         prior_evidence = prior_document_evidence(conversation_context)
         prior_evidence_imports = prior_evidence.fetch(:document_imports)
@@ -209,7 +211,7 @@ module Api
             assistant_message: assistant_message,
             mia_action_draft: mia_action_draft,
             transaction_draft: transaction_draft,
-            persona_context_id: current_persona.continuity_id
+            persona_context_id: current_participant_runtime.continuity_id
           )
         else
           compact_conversation(
@@ -217,7 +219,7 @@ module Api
             user_message,
             assistant_message,
             follow_up: followup.follow_up?,
-            persona_context_id: current_persona.continuity_id
+            persona_context_id: current_participant_runtime.continuity_id
           )
         end
         retire_document_evidence_state(session) if retire_prior_document_evidence
@@ -466,7 +468,7 @@ module Api
         assistant_content = [ evidence_content, boundary ].compact_blank.join(" ")
         user_message, assistant_message = ApplicationRecord.transaction do
           [
-            session.chat_messages.create!(role: "user", content: content, attachments: processed_imports.map { |document_import| serialize_attachment(document_import) }),
+            session.chat_messages.create!(user_message_attributes(content, processed_imports)),
             assistant_message_writer(session).create!(content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"))
           ]
         end
@@ -567,7 +569,7 @@ module Api
           assistant_message: assistant_message,
           mia_action_draft: mia_action_draft,
           transaction_draft: nil,
-          persona_context_id: current_persona.continuity_id
+          persona_context_id: current_participant_runtime.continuity_id
         )
         persist_document_evidence_state(
           session,
@@ -767,7 +769,7 @@ module Api
           assistant_message: assistant_message,
           query_scope: query_scope,
           activate: activate,
-          persona_context_id: current_persona.continuity_id
+          persona_context_id: current_participant_runtime.continuity_id
         ).call
       end
 
@@ -789,7 +791,7 @@ module Api
       def retire_document_evidence_state(session)
         HouseholdFinance::MiaDocumentEvidenceStateUpdater.retire(
           session,
-          persona_context_id: current_persona.continuity_id
+          persona_context_id: current_participant_runtime.continuity_id
         )
       end
 
@@ -863,14 +865,18 @@ module Api
       end
 
       def message_request_fingerprint(content, attached_imports)
-        Digest::SHA256.hexdigest(
-          {
-            message: content,
-            year: budget_year_param,
-            month: budget_month_param,
-            document_import_ids: attached_imports.map(&:id).sort
-          }.to_json
-        )
+        payload = {
+          message: content,
+          year: budget_year_param,
+          month: budget_month_param,
+          document_import_ids: attached_imports.map(&:id).sort
+        }
+        if current_participant_runtime.cohort_id
+          payload[:cohort_id] = current_participant_runtime.cohort_id
+          payload[:cohort_release_id] = current_participant_runtime.release_id
+          payload[:runtime_continuity_id] = current_participant_runtime.continuity_id
+        end
+        Digest::SHA256.hexdigest(payload.to_json)
       end
 
       def complete_message_request(message_request, response_payload)
@@ -918,7 +924,7 @@ module Api
 
       def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})
         ApplicationRecord.transaction do
-          user_message = session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) })
+          user_message = session.chat_messages.create!(user_message_attributes(content, attached_imports))
           assistant_message = assistant_message_writer(session).build(
             content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"),
             presentation: assistant_presentation
@@ -1758,7 +1764,21 @@ module Api
       end
 
       def assistant_message_writer(session)
-        ::Mia::AssistantMessageWriter.new(session: session, persona: current_persona)
+        ::Mia::AssistantMessageWriter.new(
+          session: session,
+          persona: current_persona,
+          participant_runtime: current_participant_runtime
+        )
+      end
+
+      def user_message_attributes(content, attached_imports)
+        {
+          role: "user",
+          content: content,
+          attachments: attached_imports.map { |document_import| serialize_attachment(document_import) },
+          cohort_id: current_participant_runtime.cohort_id,
+          cohort_release_id: current_participant_runtime.release_id
+        }
       end
 
       def drafted_transaction_message(draft, annual_plan)

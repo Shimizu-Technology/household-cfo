@@ -19,6 +19,7 @@ module CohortReleaseSchemaDumper
     dump_cohort_rollout_transition_append_guard(stream) if @connection.table_exists?("cohort_rollout_transitions")
     dump_deferred_cohort_rollout_integrity(stream) if @connection.table_exists?("cohort_rollout_transitions") &&
       @connection.column_exists?("coach_operation_executions", "cohort_rollout_transition_id")
+    dump_cohort_runtime_guards(stream) if @connection.table_exists?("cohort_release_exposures")
     super
   end
 
@@ -81,10 +82,10 @@ module CohortReleaseSchemaDumper
                 USING ERRCODE = 'integrity_constraint_violation';
             END IF;
             IF (OLD.id, OLD.coach_workspace_id, OLD.cohort_id, OLD.target_cohort_release_id,
-                OLD.planned_by_user_id, OLD.planned_by_role_snapshot, OLD.planned_at, OLD.created_at)
+                OLD.baseline_cohort_release_id, OLD.planned_by_user_id, OLD.planned_by_role_snapshot, OLD.planned_at, OLD.created_at)
                IS DISTINCT FROM
                (NEW.id, NEW.coach_workspace_id, NEW.cohort_id, NEW.target_cohort_release_id,
-                NEW.planned_by_user_id, NEW.planned_by_role_snapshot, NEW.planned_at, NEW.created_at) THEN
+                NEW.baseline_cohort_release_id, NEW.planned_by_user_id, NEW.planned_by_role_snapshot, NEW.planned_at, NEW.created_at) THEN
               RAISE EXCEPTION 'cohort rollout plan identity is immutable'
                 USING ERRCODE = 'integrity_constraint_violation';
             END IF;
@@ -377,6 +378,45 @@ module CohortReleaseSchemaDumper
       stream.puts(line.empty? ? "" : "    #{line}")
     end
     stream.puts "  SQL"
+  end
+
+  def dump_cohort_runtime_guards(stream)
+    %w[
+      prevent_cohort_runtime_evidence_mutation()
+      enforce_cohort_runtime_scope()
+      enforce_cohort_release_exposure_membership_epoch()
+      enforce_cohort_rollout_participant_membership_epoch()
+      mark_cohort_runtime_transition_pending()
+      prepare_cohort_release_activation_event()
+      check_cohort_active_release_change_integrity()
+      check_cohort_runtime_evidence_integrity()
+    ].each do |signature|
+      definition = @connection.select_value(<<~SQL.squish)
+        SELECT pg_get_functiondef(to_regprocedure(#{@connection.quote(signature)}))
+      SQL
+      dump_rollout_database_definition(stream, definition) if definition.present?
+    end
+
+    %w[
+      cohort_release_exposures_immutable
+      cohort_release_activation_events_immutable
+      cohort_runtime_scope_guard
+      cohort_release_exposures_membership_epoch_guard
+      cohort_rollout_participants_membership_epoch_guard
+      cohort_release_exposures_transition_pending
+      cohort_release_activation_events_transition_pending
+      cohort_release_activation_events_prepare
+      cohort_active_release_change_integrity_deferred
+      cohort_release_exposures_integrity_deferred
+      cohort_release_activation_events_integrity_deferred
+    ].each do |trigger|
+      definition = @connection.select_value(<<~SQL.squish)
+        SELECT pg_get_triggerdef(oid) || ';'
+        FROM pg_trigger
+        WHERE tgname = #{@connection.quote(trigger)} AND NOT tgisinternal
+      SQL
+      dump_rollout_database_definition(stream, definition) if definition.present?
+    end
   end
 end
 
