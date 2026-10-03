@@ -6,7 +6,9 @@ module HouseholdFinance
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
       /\bis it (?:okay|ok|safe|smart|in the cards)\b.*\b(?:to )?(?:buy|spend|purchase|afford|get|book|order)\b/i,
       /\b(?:i|we)\s+(?:want|need|have)\s+to\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
-      /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:take|go on|book)\b.*\b(?:trip|vacation|staycation)\b/i
+      /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:take|go on|book)\b.*\b(?:trip|vacation|staycation)\b/i,
+      /\b(?:compare|weigh|evaluate|consider|model)\b.{0,100}\b(?:buying|spending|purchasing|booking|ordering|getting|taking)\b/i,
+      /\b(?:tradeoffs?|pros and cons)\b.{0,100}\b(?:buying|spending|purchasing|booking|ordering|getting|taking)\b/i
     ].freeze
     PURCHASE_IMPACT_PATTERN = /\b(?:buy|purchase|spend)\b.*\b(?:runway|safe-to-spend)\b|\b(?:runway|safe-to-spend)\b.*\b(?:buy|purchase|spend)\b/i.freeze
     SAFE_TO_SPEND_FORMULA_PATTERN = /\bhow\b.{0,80}\b(?:calculate|calculated|derive|derived)\b.{0,80}\bsafe-to-spend\b|\bsafe-to-spend\b.{0,80}\b(?:formula|calculated|derived)\b|\bformula\b.{0,80}\bsafe-to-spend\b|\b(?:how much|what(?:\s+(?:is|s)))\b.{0,40}\bsafe(?: |-)?to(?: |-)?spend\b|\bsafe(?: |-)?to(?: |-)?spend\b.{0,40}\b(?:amount|guardrail)\b/i.freeze
@@ -39,8 +41,32 @@ module HouseholdFinance
     PAYCHECK_PATTERN = /\b(?:before|until|next)\s+(?:my\s+|our\s+)?paycheck\b/i.freeze
     EXTERNAL_FACT_PATTERN = /\b(?:current\s+.*rate|look\s+up|dmv|usually\s+cost|cost\s+usually|typical(?:ly)?\s+cost|average\s+cost|bank statement|overdraft|credit score|tax refund|business taxes?|file married|filing status|payoff amount|real-time|official fee)\b/i.freeze
     AMBIGUOUS_HELP_PATTERN = /\A(?:help|what should i do\??|is this bad\??)\z/i.freeze
-    PROMPT_INJECTION_PATTERN = /\b(?:ignore all previous rules|ignore previous instructions|developer mode|jailbreak|you are now)\b/i.freeze
+    PROMPT_INJECTION_PATTERN = /\b(?:(?:ignore|disregard|override|bypass)\s+(?:(?:all|any|every|the)\s+)?(?:(?:previous|prior|system|developer|safety|hidden|product|your)\s+){0,2}(?:rules?|instructions?|guardrails?|boundaries|polic(?:y|ies))|\A(?:please\s+)?forget\s+(?:(?:all|any|every|the)\s+)?(?:(?:previous|prior|system|developer|safety|hidden|product|your)\s+){0,2}(?:rules?|instructions?|guardrails?|boundaries|polic(?:y|ies))|(?:reveal|show|print|repeat|expose)\s+(?:(?:your|the)\s+)?(?:hidden|system|developer|internal)\s+(?:prompts?|instructions?|rules?|messages?|tool calls?)|developer mode|jailbreak|pretend\s+(?:you\s+)?(?:have|are)\s+no\s+(?:rules?|instructions?|constraints?|boundaries)|you\s+are\s+now\s+(?:in\s+)?(?:developer\s+mode|jailbroken|unrestricted|uncensored|(?:an?\s+|the\s+)?(?:different|new|developer|system|unrestricted|uncensored)\s+(?:assistant|agent|model|persona|role)))\b/i.freeze
+    UNSAFE_MEMORY_INSTRUCTION_PATTERN = %r{
+      \A(?:from\s+now\s+on[,\s]+)?
+      (?:(?:(?:all|every)\s+(?:responses?|repl(?:y|ies))\s+(?:should|must|will)|(?:mia|you|the\s+assistant)\s+(?:should|must|will|always)|i\s+(?:want|need)\s+(?:mia|you|the\s+assistant)\s+to)\s+|please\s+)?
+      (?:always\s+)?
+      (?:
+        auto(?:matically)?[- ]?approve\b|
+        auto(?:matically)?[- ]?(?:apply|execute|write|change)\b.{0,40}\b(?:changes?|actions?|drafts?|transactions?|budgets?|records?)\b|
+        approve\b.{0,80}\b(?:automatically|immediately|by\s+default|without\s+(?:asking(?:\s+me)?|review|approval|confirmation))\b|
+        (?:apply|execute|write|change)\b.{0,50}\b(?:changes?|actions?|drafts?|transactions?|budgets?|records?)\b.{0,30}\b(?:automatically|immediately|by\s+default|without\s+(?:asking(?:\s+me)?|review|approval|confirmation))\b|
+        (?:bypass|skip|disable)\s+(?:all\s+|the\s+)?(?:human\s+)?(?:review|approval|confirmation)s?\b
+      )
+    }ix.freeze
     TRANSACTION_DRAFT_FOLLOWUP_PATTERN = /\bfollow-up to previous transaction_draft topic\b|\btopic:\s*reported spending\b/i.freeze
+
+    def self.prompt_injection?(value)
+      value.to_s.downcase.gsub(/[^a-z0-9\s$.-]/, " ").squish.match?(PROMPT_INJECTION_PATTERN)
+    end
+
+    def self.unsafe_memory_instruction?(value)
+      prompt_injection?(value) || value.to_s.squish.match?(UNSAFE_MEMORY_INSTRUCTION_PATTERN)
+    end
+
+    def self.prompt_injection_boundary
+      "I cannot ignore the Household CFO safety and product boundaries, reveal hidden instructions, or claim an action happened when it did not. No budget, transfer, or household record changed."
+    end
 
     def initialize(household, message, annual_budget_manager: nil, annual_plan: nil, reference_month: Date.current.month, conversation_messages: [], ensure_plan: true)
       @household = household
@@ -53,6 +79,7 @@ module HouseholdFinance
     end
 
     def call
+      return injection_boundary_answer if self.class.prompt_injection?(message)
       return nil if transaction_report?
 
       guardrail_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || planned_purchase_detail_answer || purchase_decision_answer
@@ -74,6 +101,10 @@ module HouseholdFinance
       return unless ::Mia::Capabilities.persona_configuration_request?(message)
 
       ::Mia::Capabilities.persona_configuration_answer
+    end
+
+    def injection_boundary_answer
+      prompt_injection_answer
     end
 
     def incomplete_setup_answer
@@ -158,10 +189,9 @@ module HouseholdFinance
     end
 
     def prompt_injection_answer
-      return nil unless normalized_message.match?(PROMPT_INJECTION_PATTERN)
-      return nil if normalized_message.match?(MONEY_MOVEMENT_PATTERN)
+      return nil unless self.class.prompt_injection?(message)
 
-      "I cannot ignore the Household CFO safety and product boundaries. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months, so I will not pretend the household can buy anything or override approval rules. Next CFO move: ask the real money question, and I will answer from confirmed facts, active plan, and pending drafts separately."
+      "#{self.class.prompt_injection_boundary} Ask the real money question, and I will answer from confirmed facts, the active plan, and pending reviews separately."
     end
 
     def investment_boundary_answer

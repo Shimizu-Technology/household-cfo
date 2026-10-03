@@ -34,7 +34,7 @@ module HouseholdFinance
     READ_ONLY_KINDS = %w[coaching budget_question spending_report transaction_lookup pending_drafts scenario].freeze
     SCENARIO_TYPES = %w[none purchase one_time_income essential_expense extra_debt_payment].freeze
     READ_ONLY_INTENTS = %w[budget_question spending_report transaction_lookup pending_drafts coaching recall general].freeze
-    HYPOTHETICAL_PATTERN = /\b(?:what if|suppose|imagine|hypothetical|scenario)\b|\bif (?:i|we)\s+(?:buy|spend|purchase|get|receive|earn|owe|pay|have)\b/i.freeze
+    HYPOTHETICAL_PATTERN = /\b(?:what if|suppose|imagine|hypothetical(?:ly)?|scenario)\b|\bif (?:i|we)\s+(?:buy|spend|purchase|get|receive|earn|owe|pay|have)\b/i.freeze
     PURCHASE_SCENARIO_PATTERN = /\b(?:(?:(?:tell me|show me|check|see)\s+(?:whether|if)\s+(?:i|we)|(?:i|we))\s+(?:can|could|should|would)|(?:can|could|should|would)\s+(?:i|we))\s+(?:(?:safely|comfortably|reasonably|really|actually)\s+)?(?:buy|purchase|get|afford|spend)\b/i.freeze
     DETERMINISTIC_SETUP_READ_ONLY_PATTERN = /\b(?:assuming|supposing|let['’]?s\s+say)\b|\bassume\s+(?:for|that|our|my|the)\b|\b(?:if|given(?:\s+that)?)\s+(?:our|my|the)\b|\bsay\b(?=\s+(?:our\s+|my\s+|the\s+)?(?:monthly\s+)?(?:income|fixed\s+expenses?|flexible\s+spend(?:ing)?|budget|surplus|savings?))/i.freeze
     CORRECTION_PATTERN = /\b(?:actually|correction|change|make that|instead|keep .+ same)\b/i.freeze
@@ -162,6 +162,12 @@ module HouseholdFinance
       end
     end
 
+    def self.deterministic_scenario_result_for(user_message:, context:)
+      resolver = allocate
+      resolver.__send__(:initialize, user_message: user_message, context: context, api_key: nil)
+      resolver.deterministic_scenario_result
+    end
+
     def initialize(user_message:, context:, api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MIA_INTENT_MODEL", ENV.fetch("OPENROUTER_MIA_MODEL", ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL))), transport: nil)
       @raw_user_message = user_message.to_s
       @user_message = @raw_user_message.squish
@@ -188,6 +194,10 @@ module HouseholdFinance
       deterministic_scenario_fallback
     rescue StandardError => e
       Rails.logger.warn("[HouseholdFinance::MiaIntentResolver] intent fallback: #{e.class}: #{e.message}")
+      deterministic_scenario_fallback
+    end
+
+    def deterministic_scenario_result
       deterministic_scenario_fallback
     end
 
@@ -423,7 +433,7 @@ module HouseholdFinance
       return "extra_debt_payment" if text.match?(/\b(?:extra|additional)\b.{0,50}\b(?:debt|credit card|loan|principal|payment)\b|\b(?:debt|credit card|loan)\b.{0,50}\b(?:extra|additional)\b/i)
       return "one_time_income" if text.match?(/\b(?:bonus|refund|windfall|one[- ]time income|receive|received)\b/i)
       return "essential_expense" if text.match?(/\b(?:medical|doctor|dental|essential|repair|bill|expense)\b/i)
-      "purchase" if text.match?(/\b(?:buy|purchase|afford|spend|get)\b/i)
+      "purchase" if text.match?(/\b(?:buy(?:ing)?|purchas(?:e|ing)|afford(?:ing)?|spend(?:ing)?|get(?:ting)?|book(?:ing)?|order(?:ing)?|tak(?:e|ing))\b/i)
     end
 
     def deterministic_scenario_label(scenario_type)

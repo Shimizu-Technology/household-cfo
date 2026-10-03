@@ -109,7 +109,7 @@ module Api
           transcript: transcript,
           selected_month: budget_month_param
         ).call
-        intent_result = setup_guide_intent_result(content)
+        intent_result = prompt_injection_intent_result(content, intent_context: intent_context) || setup_guide_intent_result(content)
         intent_result ||= HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
           context: intent_context
@@ -129,7 +129,7 @@ module Api
         end
 
         if intent_result
-          intent_plan = annual_budget_manager.plan_data unless intent_result.read_only_plan?
+          intent_plan = annual_budget_manager.plan_data unless intent_result.read_only_plan? || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
           routed = route_model_intent(
             intent_result,
             content: content,
@@ -163,6 +163,11 @@ module Api
           direct_answer: intent_direct_answer,
           presentation: assistant_presentation
         )
+        intent_direct_answer, assistant_presentation = apply_prompt_injection_boundary(
+          content,
+          direct_answer: intent_direct_answer,
+          presentation: assistant_presentation
+        )
         conversation_resolution = resolved_conversation_turn(intent_result)
         response_conversation_context = resolved_conversation_context(conversation_context, conversation_resolution)
         response_conversation_context[:personalization_memory] = HouseholdFinance::MiaMemoryContextBuilder.new(
@@ -188,6 +193,7 @@ module Api
           conversation_resolution: conversation_resolution
         )
         assistant_content = append_persona_capability_boundary(content, assistant_content)
+        assistant_content = append_prompt_injection_boundary(content, assistant_content)
         user_message, assistant_message = persist_chat_messages(
           session,
           content,
@@ -229,7 +235,7 @@ module Api
           assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
           mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft, selected_item_ids: action_result&.selected_item_ids) : nil,
-          budget: annual_plan && !intent_result&.read_only_plan? ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
+          budget: annual_plan && !intent_result&.read_only_plan? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
         }
         complete_message_request(message_request, response_payload)
@@ -301,6 +307,7 @@ module Api
 
         value = match[1].to_s.squish
         return { type: :invalid } if value.blank? || value.length > HouseholdMemory::MAX_DISPLAY_LENGTH
+        return { type: :unsafe } if HouseholdFinance::MiaCoachAnswerer.unsafe_memory_instruction?(value)
 
         { type: :create, value: value }
       end
@@ -312,6 +319,9 @@ module Api
           user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
         when :invalid
           assistant_content = "Tell me one thing to remember in #{HouseholdMemory::MAX_DISPLAY_LENGTH} characters or fewer. I will show it under My Profile so you can change or forget it anytime."
+          user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
+        when :unsafe
+          assistant_content = "I can’t save an instruction that bypasses review or automatically approves or applies changes. Nothing was approved or applied, and no memory was saved."
           user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
         when :create
           user_message, assistant_message, memory = persist_mia_memory_command(session, content, command.fetch(:value), message_request)
@@ -423,6 +433,33 @@ module Api
             type: "household_setup",
             title: "Starting household picture",
             subject: label || "Setup complete"
+          },
+          action: { type: "none" },
+          read_only_plan: {},
+          source: "deterministic"
+        )
+      end
+
+      def prompt_injection_intent_result(content, intent_context:)
+        return unless HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+
+        safe_scenario = HouseholdFinance::MiaIntentResolver.deterministic_scenario_result_for(
+          user_message: content,
+          context: intent_context
+        )
+        return safe_scenario if safe_scenario&.read_only_plan?
+
+        HouseholdFinance::MiaIntentResolver::Result.new(
+          intent: "general",
+          confidence: 1.0,
+          continuation: false,
+          resolved_message: content,
+          needs_clarification: false,
+          clarification: "",
+          topic: {
+            type: "coaching",
+            title: "Safety boundary",
+            subject: "Household CFO boundaries"
           },
           action: { type: "none" },
           read_only_plan: {},
@@ -1715,9 +1752,39 @@ module Api
 
       def apply_persona_capability_boundary(content, direct_answer:, presentation:)
         return [ direct_answer, presentation ] unless Mia::Capabilities.persona_configuration_request?(content)
+
+        apply_response_boundary(
+          direct_answer: direct_answer,
+          presentation: presentation,
+          boundary: Mia::Capabilities.persona_configuration_answer
+        )
+      end
+
+      def append_persona_capability_boundary(content, assistant_content)
+        return assistant_content unless Mia::Capabilities.persona_configuration_request?(content)
+
+        append_response_boundary(assistant_content, boundary: Mia::Capabilities.persona_configuration_answer)
+      end
+
+      def apply_prompt_injection_boundary(content, direct_answer:, presentation:)
+        return [ direct_answer, presentation ] unless HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+
+        apply_response_boundary(
+          direct_answer: direct_answer,
+          presentation: presentation,
+          boundary: HouseholdFinance::MiaCoachAnswerer.prompt_injection_boundary
+        )
+      end
+
+      def append_prompt_injection_boundary(content, assistant_content)
+        return assistant_content unless HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+
+        append_response_boundary(assistant_content, boundary: HouseholdFinance::MiaCoachAnswerer.prompt_injection_boundary)
+      end
+
+      def apply_response_boundary(direct_answer:, presentation:, boundary:)
         return [ direct_answer, presentation ] if direct_answer.blank? && presentation.blank?
 
-        boundary = Mia::Capabilities.persona_configuration_answer
         bounded_presentation = presentation.deep_dup
         if bounded_presentation.present?
           lead_key = bounded_presentation.key?(:lead) ? :lead : "lead"
@@ -1729,10 +1796,7 @@ module Api
         [ direct_answer, bounded_presentation ]
       end
 
-      def append_persona_capability_boundary(content, assistant_content)
-        return assistant_content unless Mia::Capabilities.persona_configuration_request?(content)
-
-        boundary = Mia::Capabilities.persona_configuration_answer
+      def append_response_boundary(assistant_content, boundary:)
         return assistant_content if assistant_content.to_s.include?(boundary)
 
         [ assistant_content, boundary ].compact_blank.join(" ")
