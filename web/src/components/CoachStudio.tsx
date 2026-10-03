@@ -41,7 +41,7 @@ import {
 } from '../lib/personaDraft'
 import { Button } from './Button'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
-import { CohortReleaseStudio } from './CohortReleaseStudio'
+import { ReleaseAndRolloutStudio } from './ReleaseAndRolloutStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
 import { PersonaSetupChat } from './PersonaSetupChat'
 import { PersonaReleasePanel, type PersonaPublishEvidence } from './PersonaReleasePanel'
@@ -96,6 +96,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [libraryDirty, setLibraryDirty] = useState(false)
   const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
   const [setupDirty, setSetupDirty] = useState(false)
+  const [rolloutDirty, setRolloutDirty] = useState(false)
   const workspaceMutations = useCoachWorkspaceMutationLifecycle(activeWorkspaceId)
   const selectedIdRef = useRef<number | null>(null)
   const activeWorkspaceIdRef = useRef(activeWorkspaceId)
@@ -113,7 +114,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     if (!selectedPersona?.draft || !draft) return false
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
-  const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty
+  const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty
   const personaDirty = dirty || personaSourcesDirty || setupDirty
 
   const filteredPersonas = useMemo(() => {
@@ -250,6 +251,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setLibraryDirty(false)
     setPersonaSourcesDirty(false)
     setSetupDirty(false)
+    setRolloutDirty(false)
     setStudioSection(next)
     return true
   }
@@ -278,6 +280,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setLibraryDirty(false)
     setPersonaSourcesDirty(false)
     setSetupDirty(false)
+    setRolloutDirty(false)
   }
 
   function handleStudioSectionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -713,7 +716,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
           <strong>Participant tools</strong><small>Choose the cohort's optional learning tools</small>
         </button>
         <button type="button" role="tab" id="coach-studio-tab-cohort-releases" aria-controls="coach-studio-panel-cohort-releases" aria-selected={studioSection === 'cohort_releases'} tabIndex={studioSection === 'cohort_releases' ? 0 : -1} data-studio-section="cohort_releases" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('cohort_releases')}>
-          <strong>Cohort releases</strong><small>Review and seal the assistant and tools together</small>
+          <strong>Release &amp; rollout</strong><small>Seal a release, then plan and manage waves</small>
         </button>
       </nav>
 
@@ -737,7 +740,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         </div>
       ) : studioSection === 'cohort_releases' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-cohort-releases" aria-labelledby="coach-studio-tab-cohort-releases" tabIndex={0}>
-          <CohortReleaseStudio key={activeWorkspaceId ?? 'legacy'} cohorts={cohorts} cohortsLoading={loading} mutationLifecycle={workspaceMutations} selectedCohortId={selectedCohortId} onSelectedCohortIdChange={setSelectedCohortId} />
+          <ReleaseAndRolloutStudio key={activeWorkspaceId ?? 'legacy'} cohorts={cohorts} cohortsLoading={loading} mutationLifecycle={workspaceMutations} selectedCohortId={selectedCohortId} onSelectedCohortIdChange={setSelectedCohortId} onDirtyChange={setRolloutDirty} />
         </div>
       ) : <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-assistants" aria-labelledby="coach-studio-tab-assistants" tabIndex={0}>
 

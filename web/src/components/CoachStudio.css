@@ -67,6 +67,290 @@
   gap: 1rem;
 }
 
+.release-rollout-studio,
+.cohort-rollout-studio,
+.cohort-rollout-plan,
+.cohort-rollout-current,
+.cohort-rollout-transition-history,
+.cohort-rollout-roster-readiness,
+.cohort-rollout-history {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+}
+
+.release-rollout-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(14rem, 22rem);
+  gap: 1.25rem;
+  align-items: end;
+}
+
+.release-rollout-heading h3,
+.release-rollout-heading p,
+.cohort-rollout-plan h3,
+.cohort-rollout-plan p,
+.cohort-rollout-current h3,
+.cohort-rollout-current p,
+.cohort-rollout-transition-history h3,
+.cohort-rollout-roster-readiness h3,
+.cohort-rollout-roster-readiness p,
+.cohort-rollout-history h3,
+.cohort-rollout-history p {
+  margin: 0;
+}
+
+.release-rollout-heading label,
+.cohort-rollout-wave-name label {
+  display: grid;
+  gap: 0.4rem;
+  font-weight: 800;
+}
+
+.release-rollout-heading select,
+.cohort-rollout-wave-name input,
+.cohort-rollout-participant-row select {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  color: var(--ink);
+  background: var(--paper);
+  font: inherit;
+}
+
+.release-rollout-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.release-rollout-tabs button {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  min-height: 4.5rem;
+  gap: 0.1rem 0.65rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  color: var(--ink);
+  background: var(--paper);
+  text-align: left;
+  cursor: pointer;
+}
+
+.release-rollout-tabs button > span {
+  display: grid;
+  grid-row: 1 / 3;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--mauve);
+  background: color-mix(in srgb, var(--paper) 78%, var(--mauve));
+  font-weight: 900;
+}
+
+.release-rollout-tabs button small { color: var(--muted); }
+.release-rollout-tabs button[aria-selected='true'] {
+  border-color: var(--mauve);
+  box-shadow: inset 0 0 0 1px var(--mauve);
+  background: color-mix(in srgb, var(--paper) 88%, var(--mauve));
+}
+.release-rollout-tabs button[aria-selected='true'] > span { color: var(--paper); background: var(--mauve); }
+
+.cohort-rollout-plan-layout,
+.cohort-rollout-active-layout {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+  align-items: start;
+}
+
+.cohort-rollout-plan > header,
+.cohort-rollout-current > header,
+.cohort-rollout-transition-history > header,
+.cohort-rollout-roster-readiness > header,
+.cohort-rollout-history > header,
+.cohort-rollout-roster-editor > header,
+.cohort-rollout-wave-heading,
+.cohort-rollout-wave-list section > header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cohort-rollout-wave-editor,
+.cohort-rollout-roster-editor,
+.cohort-rollout-wave-list {
+  display: grid;
+  min-width: 0;
+  gap: 0.7rem;
+}
+.cohort-rollout-wave-heading > div { display: grid; gap: 0.1rem; }
+.cohort-rollout-wave-heading small { color: var(--muted); }
+
+.cohort-rollout-wave-name,
+.cohort-rollout-participant-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--paper-warm);
+}
+
+.cohort-rollout-wave-name button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--status-red) 35%, var(--line));
+  border-radius: 0.7rem;
+  color: var(--status-red);
+  background: var(--paper);
+  font: inherit;
+  font-weight: 800;
+}
+
+.cohort-rollout-participant-row {
+  grid-template-columns: minmax(0, 1fr) minmax(10rem, 17rem);
+  align-items: center;
+}
+.cohort-rollout-participant-row > div { display: grid; min-width: 0; gap: 0.15rem; }
+.cohort-rollout-participant-row small,
+.cohort-rollout-action-note { color: var(--muted); }
+
+.cohort-rollout-plan-actions,
+.cohort-rollout-lifecycle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.cohort-rollout-roster-readiness dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+.cohort-rollout-roster-readiness dl > div {
+  padding: 0.75rem;
+  border-radius: 0.7rem;
+  background: var(--paper-warm);
+}
+.cohort-rollout-roster-readiness dt { color: var(--muted); font-size: 0.72rem; font-weight: 900; text-transform: uppercase; }
+.cohort-rollout-roster-readiness dd { margin: 0.2rem 0 0; font-size: 1.25rem; font-weight: 900; }
+
+.cohort-rollout-status {
+  display: inline-flex;
+  min-height: 1.75rem;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--status-yellow) 45%, var(--line));
+  border-radius: 999px;
+  color: var(--status-yellow);
+  background: color-mix(in srgb, var(--paper) 92%, var(--gold));
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.cohort-rollout-status.is-active,
+.cohort-rollout-status.is-completed { border-color: color-mix(in srgb, var(--status-green) 45%, var(--line)); color: var(--status-green); background: color-mix(in srgb, var(--paper) 90%, var(--status-green)); }
+.cohort-rollout-status.is-rolled_back,
+.cohort-rollout-status.is-cancelled { border-color: color-mix(in srgb, var(--status-red) 38%, var(--line)); color: var(--status-red); background: color-mix(in srgb, var(--paper) 92%, var(--status-red)); }
+
+.cohort-rollout-progress {
+  display: flex;
+  min-width: 0;
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding: 0.2rem 0 0.35rem;
+}
+.cohort-rollout-progress span { display: inline-flex; min-width: max-content; align-items: center; gap: 0.35rem; color: var(--muted); font-size: 0.76rem; font-weight: 800; }
+.cohort-rollout-progress i { width: 1.15rem; height: 0.35rem; border-radius: 999px; background: var(--line); }
+.cohort-rollout-progress .is-complete i { background: var(--status-green); }
+.cohort-rollout-progress .is-active { color: var(--mauve); }
+.cohort-rollout-progress .is-active i { background: var(--mauve); }
+
+.cohort-rollout-wave-list section {
+  display: grid;
+  min-width: 0;
+  gap: 0.65rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--paper-warm);
+}
+.cohort-rollout-wave-list section.is-active { border-color: var(--mauve); box-shadow: inset 0 0 0 1px var(--mauve); }
+.cohort-rollout-wave-list section.is-complete { border-color: color-mix(in srgb, var(--status-green) 45%, var(--line)); }
+.cohort-rollout-wave-list header div { display: grid; gap: 0.15rem; }
+.cohort-rollout-wave-list header small { color: var(--muted); }
+.cohort-rollout-wave-list header b { color: var(--mauve); font-size: 0.72rem; text-transform: uppercase; }
+.cohort-rollout-wave-list ul { display: grid; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
+.cohort-rollout-wave-list li { display: flex; min-width: 0; justify-content: space-between; gap: 0.75rem; padding-top: 0.35rem; border-top: 1px solid var(--line); }
+.cohort-rollout-wave-list li span { overflow-wrap: anywhere; }
+.cohort-rollout-wave-list li small { color: var(--muted); white-space: nowrap; }
+
+.cohort-rollout-runtime-note {
+  padding: 0.75rem;
+  border-left: 4px solid var(--mauve);
+  color: var(--muted);
+  background: var(--paper-warm);
+}
+
+.cohort-rollout-transition-history ol,
+.cohort-rollout-history ol {
+  display: grid;
+  min-width: 0;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cohort-rollout-transition-history li,
+.cohort-rollout-history li {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--paper-warm);
+}
+.cohort-rollout-transition-history li small,
+.cohort-rollout-history li small { color: var(--muted); }
+.cohort-rollout-transition-history li span { margin-top: 0.25rem; font-size: 0.75rem; font-weight: 800; }
+.cohort-rollout-history li { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.cohort-rollout-history li p { grid-column: 1 / -1; color: var(--muted); }
+
+.cohort-rollout-confirmation-summary {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  background: var(--paper-warm);
+}
+.cohort-rollout-confirmation-summary > div { display: grid; grid-template-columns: minmax(7rem, 0.45fr) minmax(0, 1fr); gap: 0.75rem; padding-bottom: 0.45rem; border-bottom: 1px solid var(--line); }
+.cohort-rollout-confirmation-summary > div:last-child { padding-bottom: 0; border-bottom: 0; }
+.cohort-rollout-confirmation-summary dt { color: var(--muted); }
+.cohort-rollout-confirmation-summary dd { margin: 0; text-align: right; font-weight: 800; overflow-wrap: anywhere; }
+
+@media (min-width: 900px) {
+  .cohort-rollout-plan-layout,
+  .cohort-rollout-active-layout {
+    grid-template-columns: minmax(0, 1.35fr) minmax(19rem, 0.75fr);
+  }
+}
+
 .cohort-release-studio,
 .cohort-release-readiness,
 .cohort-release-history {
@@ -1554,6 +1838,7 @@
   }
 
   .cohort-release-picker,
+  .release-rollout-heading,
   .cohort-release-evidence,
   .cohort-release-history dl {
     grid-template-columns: minmax(0, 1fr);
@@ -1573,6 +1858,37 @@
     align-items: stretch;
     flex-direction: column;
   }
+
+  .release-rollout-tabs button {
+    grid-template-columns: 1.75rem minmax(0, 1fr);
+    padding: 0.7rem;
+  }
+
+  .release-rollout-tabs button > span {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+
+  .cohort-rollout-wave-name,
+  .cohort-rollout-participant-row,
+  .cohort-rollout-roster-readiness dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cohort-rollout-wave-name button,
+  .cohort-rollout-plan-actions .button,
+  .cohort-rollout-lifecycle-actions .button {
+    width: 100%;
+  }
+
+  .cohort-rollout-plan-actions,
+  .cohort-rollout-lifecycle-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cohort-rollout-confirmation-summary > div { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
+  .cohort-rollout-confirmation-summary dd { text-align: left; }
 
   .cohort-release-checklist li {
     grid-template-columns: 2.25rem minmax(0, 1fr);

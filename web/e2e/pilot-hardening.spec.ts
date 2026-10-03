@@ -1222,9 +1222,10 @@ test.beforeEach(async ({ page }) => {
   }, chatMessages(100))
 })
 
-test('Cohort releases stays truthful, keyboard usable, and responsive', async ({ page }, testInfo) => {
+test('Coach Studio release and rollout stays truthful, keyboard usable, and responsive', async ({ page }, testInfo) => {
   let latestReleaseMatch = false
   let releaseNumber = 4
+  let rolloutStatus: 'none' | 'planned' | 'active' = 'none'
   const releaseStudio = () => ({
     cohort_release_studio: {
       cohort: { id: 41, name: 'Household CFO pilot', status: 'active' },
@@ -1280,16 +1281,66 @@ test('Cohort releases stays truthful, keyboard usable, and responsive', async ({
     }
     return route.fulfill({ status: 200, json: releaseStudio() })
   })
+  const rolloutRelease = () => ({
+    id: latestReleaseMatch ? 405 : 404, release_number: releaseNumber,
+    bundle_digest: latestReleaseMatch ? 'release-bundle-next' : 'release-bundle-old',
+    integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z',
+  })
+  const rolloutRecord = () => ({
+    id: 90, status: rolloutStatus, target_release: rolloutRelease(), rollback_release: null, rollback_candidate: null,
+    planned_by: { id: 901, full_name: 'Pilot Admin', role: 'owner' }, planned_at: '2026-10-03T02:00:00Z',
+    activated_at: rolloutStatus === 'active' ? '2026-10-03T02:05:00Z' : null, paused_at: null, completed_at: null, cancelled_at: null, rolled_back_at: null,
+    current_wave_position: rolloutStatus === 'active' ? 1 : 0, wave_count: 2, participant_count: 2,
+    latest_transition_id: rolloutStatus === 'active' ? 502 : 501, readiness_digest: 'rollout-ready', next_wave_readiness_digest: 'next-wave-ready', next_wave_position: rolloutStatus === 'active' ? 2 : 1,
+    permissions: { advance: true, pause: rolloutStatus === 'active', resume: false, cancel: rolloutStatus === 'planned', rollback: false, advance_blockers: [], rollback_blockers: ['No earlier release passed integrity and runtime compatibility checks.'] },
+    waves: [
+      { id: 91, position: 1, name: 'Wave 1', active: rolloutStatus === 'active', completed: false, participant_count: 1, counts: { ready: 1, awaiting_acceptance: 0, revoked: 0, removed: 0 }, participants: [{ user_id: 701, full_name: 'Ana Cruz', readiness: 'ready' }] },
+      { id: 92, position: 2, name: 'Later group', active: false, completed: false, participant_count: 1, counts: { ready: 1, awaiting_acceptance: 0, revoked: 0, removed: 0 }, participants: [{ user_id: 702, full_name: 'Ben Santos', readiness: 'ready' }] },
+    ],
+    transition_history: { limit: 25, total_count: rolloutStatus === 'active' ? 2 : 1, truncated: false },
+    transitions: [{ id: rolloutStatus === 'active' ? 502 : 501, event_type: rolloutStatus === 'active' ? 'activated' : 'planned', from_status: rolloutStatus === 'active' ? 'planned' : null, to_status: rolloutStatus, from_wave_position: 0, to_wave_position: rolloutStatus === 'active' ? 1 : 0, rollback_release_id: null, readiness_digest: rolloutStatus === 'active' ? 'next-wave-ready' : null, actor: { id: 901, full_name: 'Pilot Admin', role: 'owner' }, occurred_at: '2026-10-03T02:00:00Z', participant_runtime_changed: false }],
+    participant_runtime_changed: false,
+  })
+  const rolloutStudio = () => ({ cohort_rollout_studio: {
+    cohort: { id: 41, name: 'Household CFO pilot', status: 'active', participant_count: 2 },
+    runtime_truth: { changes_participant_runtime: false, participant_runtime_changed: false, message: 'Rollout records do not change participant runtime.' },
+    permissions: { view: true, manage: true, plan: rolloutStatus === 'none', actor_role: 'owner', blockers: [], plan_blockers: rolloutStatus === 'none' ? [] : ['Another rollout is already open for this cohort.'] },
+    current_roster: { digest: 'roster-digest', readiness_digest: 'roster-ready', total_count: 2, counts: { ready: 2, awaiting_acceptance: 0, revoked: 0, removed: 0 }, participants: [{ user_id: 701, full_name: 'Ana Cruz', readiness: 'ready' }, { user_id: 702, full_name: 'Ben Santos', readiness: 'ready' }] },
+    latest_release: rolloutRelease(), release_history: { limit: 25, total_count: releaseNumber, truncated: false }, releases: [rolloutRelease()],
+    history: { limit: 25, total_count: rolloutStatus === 'none' ? 0 : 1, truncated: false },
+    open_rollout: rolloutStatus === 'none' ? null : rolloutRecord(),
+    rollouts: rolloutStatus === 'none' ? [] : [{ ...rolloutRecord(), waves: undefined, transitions: undefined, permissions: undefined }],
+  } })
+  await page.route('http://api.test/api/v1/admin/cohorts/41/rollouts', async (route) => {
+    if (route.request().method() === 'POST') {
+      const request = route.request()
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      expect(request.postDataJSON().rollout).toMatchObject({
+        target_release_id: 405, expected_latest_release_id: 405, expected_roster_digest: 'roster-digest',
+        waves: [{ name: 'Wave 1', user_ids: [701] }, { name: 'Later group', user_ids: [702] }],
+      })
+      rolloutStatus = 'planned'
+      return route.fulfill({ status: 201, json: { rollout: rolloutRecord() } })
+    }
+    return route.fulfill({ status: 200, json: rolloutStudio() })
+  })
+  await page.route('http://api.test/api/v1/admin/cohorts/41/rollouts/90/advance', async (route) => {
+    const request = route.request()
+    expect(request.headers()['idempotency-key']).toBeTruthy()
+    expect(request.postDataJSON().rollout).toEqual({ expected_status: 'planned', expected_current_wave_position: 0, expected_latest_transition_id: 501, readiness_digest: 'next-wave-ready' })
+    rolloutStatus = 'active'
+    return route.fulfill({ status: 201, json: { rollout: rolloutRecord() } })
+  })
 
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
-  const releaseTab = page.getByRole('tab', { name: /Cohort releases/ })
+  const releaseTab = page.getByRole('tab', { name: /Release & rollout/ })
   await releaseTab.click()
-  await expect(page.getByRole('heading', { name: 'Review and seal the assistant and tools together' })).toBeVisible()
-  await expect(page.getByText('Release records are audit evidence.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Prepare one cohort from evidence to completion' })).toBeVisible()
+  await expect(page.getByText('Review first. Then roll out in controlled waves.', { exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Ready to seal' })).toBeVisible()
   await expect(page.getByText('Latest sealed record')).toBeVisible()
 
-  const tabs = page.getByRole('tab')
+  const tabs = page.locator('.coach-studio-section-tabs [role="tab"]')
   expect(await tabs.count()).toBe(4)
   const tabBoxes = await Promise.all(Array.from({ length: 4 }, (_, index) => tabs.nth(index).boundingBox()))
   if (testInfo.project.name.includes('mobile')) {
@@ -1306,8 +1357,39 @@ test('Cohort releases stays truthful, keyboard usable, and responsive', async ({
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   await dialog.getByRole('button', { name: 'Seal release record' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Participant runtime did not change.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Ready to seal' })).toBeFocused()
   await expect(page.getByRole('button', { name: 'Latest evidence already sealed' })).toBeDisabled()
   await expect(page.getByText('The latest sealed record already matches this exact assistant and tool bundle.')).toBeVisible()
+
+  const rolloutTab = page.getByRole('tab', { name: /Rollout Plan and manage waves/ })
+  const releaseStepTab = page.getByRole('tab', { name: /Release Verify and seal/ })
+  await releaseStepTab.focus()
+  await releaseStepTab.press('ArrowRight')
+  await expect(rolloutTab).toBeFocused()
+  await expect(rolloutTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { name: 'Release #5' })).toBeVisible()
+  const waveNameFields = page.locator('.cohort-rollout-wave-name input')
+  await expect(waveNameFields.first()).toHaveValue('All participants')
+  await page.getByRole('button', { name: 'Add wave' }).click()
+  await expect(waveNameFields.nth(0)).toHaveValue('Wave 1')
+  await waveNameFields.nth(1).fill('Later group')
+  await page.getByRole('combobox', { name: 'Wave for Ben Santos' }).selectOption('wave-2')
+  await page.getByRole('button', { name: 'Review rollout plan' }).click()
+  const planDialog = page.getByRole('dialog', { name: 'Record this rollout plan?' })
+  await expect(planDialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await expect(planDialog.getByText('Release #5', { exact: true })).toBeVisible()
+  await expect(planDialog.getByText('Wave 1 · 1 participant', { exact: true })).toBeVisible()
+  await expect(planDialog.getByText('Later group · 1 participant', { exact: true })).toBeVisible()
+  await planDialog.getByRole('button', { name: 'Record rollout plan' }).click()
+  await expect(page.getByRole('heading', { name: 'Release #5' })).toBeFocused()
+  await expect(page.getByText('Planned', { exact: true }).first()).toBeVisible()
+  await page.getByRole('button', { name: 'Review and start rollout' }).click()
+  const startDialog = page.getByRole('dialog', { name: 'Start this rollout?' })
+  await expect(startDialog.getByText('1. Wave 1', { exact: true })).toBeVisible()
+  await expect(startDialog.getByText('1', { exact: true }).last()).toBeVisible()
+  await startDialog.getByRole('button', { name: 'Start rollout' }).click()
+  await expect(page.getByText('Active', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Rollout progress recorded. Participant runtime did not change.')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
@@ -5564,7 +5646,7 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
   const assistantTab = page.getByRole('tab', { name: /Assistant voice/ })
   const libraryTab = page.getByRole('tab', { name: /Coaching Library/ })
   const participantToolsTab = page.getByRole('tab', { name: /Participant tools/ })
-  const cohortReleasesTab = page.getByRole('tab', { name: /Cohort releases/ })
+  const cohortReleasesTab = page.getByRole('tab', { name: /Release & rollout/ })
   await expect(assistantTab).toHaveAttribute('id', 'coach-studio-tab-assistants')
   await expect(assistantTab).toHaveAttribute('aria-controls', 'coach-studio-panel-assistants')
   await expect(assistantTab).toHaveAttribute('tabindex', '0')
