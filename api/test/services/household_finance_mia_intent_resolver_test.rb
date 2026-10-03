@@ -1836,6 +1836,23 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "none", result.action.fetch(:type)
   end
 
+  test "falls back to a purchase scenario for hypothetical comparative spending phrasing" do
+    message = "Hypothetically compare spending $300 on a weekend trip versus keeping it for emergency runway."
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) { nil }
+    ).call
+
+    assert result.read_only_plan?
+    assert_equal "deterministic", result.source
+    assert_equal "purchase", result.read_only_plan.dig(:items, 0, :scenario_type)
+    assert_equal "hypothetical", result.read_only_plan.dig(:items, 0, :basis)
+    assert_equal "300", result.read_only_plan.dig(:items, 0, :amount)
+    assert_equal "none", result.action.fetch(:type)
+  end
+
   test "does not turn assumed setup numbers into household writes" do
     [
       "Assuming our monthly income is $5,000, how much can we save?",

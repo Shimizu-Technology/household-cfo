@@ -109,7 +109,7 @@ module Api
           transcript: transcript,
           selected_month: budget_month_param
         ).call
-        intent_result = setup_guide_intent_result(content)
+        intent_result = prompt_injection_intent_result(content, intent_context: intent_context) || setup_guide_intent_result(content)
         intent_result ||= HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
           context: intent_context
@@ -163,6 +163,11 @@ module Api
           direct_answer: intent_direct_answer,
           presentation: assistant_presentation
         )
+        intent_direct_answer, assistant_presentation = apply_prompt_injection_boundary(
+          content,
+          direct_answer: intent_direct_answer,
+          presentation: assistant_presentation
+        )
         conversation_resolution = resolved_conversation_turn(intent_result)
         response_conversation_context = resolved_conversation_context(conversation_context, conversation_resolution)
         response_conversation_context[:personalization_memory] = HouseholdFinance::MiaMemoryContextBuilder.new(
@@ -188,6 +193,7 @@ module Api
           conversation_resolution: conversation_resolution
         )
         assistant_content = append_persona_capability_boundary(content, assistant_content)
+        assistant_content = append_prompt_injection_boundary(content, assistant_content)
         user_message, assistant_message = persist_chat_messages(
           session,
           content,
@@ -423,6 +429,33 @@ module Api
             type: "household_setup",
             title: "Starting household picture",
             subject: label || "Setup complete"
+          },
+          action: { type: "none" },
+          read_only_plan: {},
+          source: "deterministic"
+        )
+      end
+
+      def prompt_injection_intent_result(content, intent_context:)
+        return unless HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+
+        safe_scenario = HouseholdFinance::MiaIntentResolver.deterministic_scenario_result_for(
+          user_message: content,
+          context: intent_context
+        )
+        return safe_scenario if safe_scenario&.read_only_plan?
+
+        HouseholdFinance::MiaIntentResolver::Result.new(
+          intent: "general",
+          confidence: 1.0,
+          continuation: false,
+          resolved_message: content,
+          needs_clarification: false,
+          clarification: "",
+          topic: {
+            type: "coaching",
+            title: "Safety boundary",
+            subject: "Household CFO boundaries"
           },
           action: { type: "none" },
           read_only_plan: {},
@@ -1733,6 +1766,31 @@ module Api
         return assistant_content unless Mia::Capabilities.persona_configuration_request?(content)
 
         boundary = Mia::Capabilities.persona_configuration_answer
+        return assistant_content if assistant_content.to_s.include?(boundary)
+
+        [ assistant_content, boundary ].compact_blank.join(" ")
+      end
+
+      def apply_prompt_injection_boundary(content, direct_answer:, presentation:)
+        return [ direct_answer, presentation ] unless HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+        return [ direct_answer, presentation ] if direct_answer.blank? && presentation.blank?
+
+        boundary = HouseholdFinance::MiaCoachAnswerer.prompt_injection_boundary
+        bounded_presentation = presentation.deep_dup
+        if bounded_presentation.present?
+          lead_key = bounded_presentation.key?(:lead) ? :lead : "lead"
+          existing_lead = bounded_presentation[lead_key].to_s
+          available_lead_length = [ 500 - boundary.length - 1, 0 ].max
+          bounded_lead = existing_lead.truncate(available_lead_length, omission: "…")
+          bounded_presentation[lead_key] = [ bounded_lead, boundary ].compact_blank.join(" ")
+        end
+        [ direct_answer, bounded_presentation ]
+      end
+
+      def append_prompt_injection_boundary(content, assistant_content)
+        return assistant_content unless HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+
+        boundary = HouseholdFinance::MiaCoachAnswerer.prompt_injection_boundary
         return assistant_content if assistant_content.to_s.include?(boundary)
 
         [ assistant_content, boundary ].compact_blank.join(" ")

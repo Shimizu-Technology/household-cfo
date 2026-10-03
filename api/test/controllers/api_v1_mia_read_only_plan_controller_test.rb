@@ -144,8 +144,10 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     presentation = body.dig("assistant_message", "presentation")
     content = body.dig("assistant_message", "content")
     assert_includes presentation.fetch("lead"), "cannot be switched or edited from participant chat"
+    assert_includes presentation.fetch("lead"), "cannot ignore the Household CFO safety and product boundaries"
     assert_includes content, "Purchase scenario"
     assert_includes content, "cannot be switched or edited from participant chat"
+    assert_includes content, "cannot ignore the Household CFO safety and product boundaries"
     assert_nil body.fetch("mia_action_draft")
     assert_nil body.fetch("transaction_draft")
   end
