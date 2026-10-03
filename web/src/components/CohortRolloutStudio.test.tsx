@@ -257,6 +257,24 @@ describe('CohortRolloutStudio', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('Rollout evidence changed')
     expect(screen.getByText('Advanced waves receive the target release immediately.')).toBeTruthy()
     expect(apiMocks.fetchCohortRolloutStudio).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Release #4' })))
+  })
+
+  it('preserves a failed conflict refresh error and focuses its retry control', async () => {
+    const user = userEvent.setup()
+    apiMocks.fetchCohortRolloutStudio.mockReset()
+      .mockResolvedValueOnce(activeRolloutStudio('active'))
+      .mockRejectedValueOnce(new Error('Refresh connection failed.'))
+    apiMocks.pauseCohortRollout.mockRejectedValue(new ApiRequestError('stale', { status: 409, code: 'cohort_rollout_conflict', errors: [], conflicts: [] }))
+    render(<CohortRolloutStudio cohortId={12} mutationLifecycle={{ pending: false, begin: vi.fn(() => ({ id: 1, workspaceId: 2 })), isCurrent: vi.fn(() => true), finish: vi.fn() }} onDirtyChange={vi.fn()} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Review pause' }))
+    await user.click(screen.getByRole('button', { name: 'Pause rollout' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Refresh connection failed.')
+    const retry = screen.getByRole('button', { name: 'Retry' })
+    await waitFor(() => expect(document.activeElement).toBe(retry))
+    expect(screen.queryByText(/Rollout evidence changed before this action completed/)).toBeNull()
   })
 
   it('preserves an edited plan after an ordinary validation rejection', async () => {

@@ -41,6 +41,7 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
   const loadAbortRef = useRef<AbortController | null>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
   const studioRootRef = useRef<HTMLElement | null>(null)
+  const loadFailureRetryRef = useRef<HTMLButtonElement | null>(null)
 
   const loadStudio = useCallback(async (selectedCohortId: number) => {
     const requestId = ++loadRequestRef.current
@@ -51,16 +52,18 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
     setError(null)
     try {
       const next = await fetchCohortRolloutStudio(selectedCohortId, abortController.signal)
-      if (requestId !== loadRequestRef.current || abortController.signal.aborted) return
+      if (requestId !== loadRequestRef.current || abortController.signal.aborted) return false
       if (next.cohort.id !== selectedCohortId) throw new Error('Rollout records returned the wrong cohort. Reload and try again.')
       setStudio(next)
       setDraft(next.open_rollout ? null : defaultCohortRolloutPlan(next))
       setValidationErrors([])
+      return true
     } catch (caught) {
-      if (requestId !== loadRequestRef.current || abortController.signal.aborted) return
+      if (requestId !== loadRequestRef.current || abortController.signal.aborted) return false
       setStudio(null)
       setDraft(null)
       setError(errorMessage(caught, 'Cohort rollout records could not be loaded.'))
+      return false
     } finally {
       if (requestId === loadRequestRef.current) {
         loadAbortRef.current = null
@@ -184,11 +187,15 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
       if (!mutationLifecycle.isCurrent(mutation)) return
       if (caught instanceof ApiRequestError && (caught.status === 409 || caught.status === 403)) {
         setConfirmation(null)
-        await loadStudio(cohortId)
-        setError(caught.status === 409
-          ? 'Rollout evidence changed before this action completed. Review the refreshed state before trying again.'
-          : 'Your rollout permission changed. Review the refreshed state before trying again.')
-        window.requestAnimationFrame(() => restoreFocusRef.current?.focus())
+        const refreshed = await loadStudio(cohortId)
+        if (refreshed) {
+          setError(caught.status === 409
+            ? 'Rollout evidence changed before this action completed. Review the refreshed state before trying again.'
+            : 'Your rollout permission changed. Review the refreshed state before trying again.')
+          focusCurrentState()
+        } else {
+          window.requestAnimationFrame(() => loadFailureRetryRef.current?.focus())
+        }
       } else if (caught instanceof ApiRequestError && caught.status >= 400 && caught.status < 500) {
         setConfirmation(null)
         setError(errorMessage(caught, 'The rollout action was rejected. Review the plan and try again.'))
@@ -204,7 +211,7 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
 
   if (!cohortId) return null
   if (pendingAction === 'load' && !studio) return <article className="panel cohort-release-loading" role="status">Checking rollout evidence and participant readiness…</article>
-  if (error && !studio) return <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><button type="button" onClick={() => void loadStudio(cohortId)}>Retry</button></div>
+  if (error && !studio) return <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><button ref={loadFailureRetryRef} type="button" onClick={() => void loadStudio(cohortId)}>Retry</button></div>
   if (!studio) return null
 
   return (

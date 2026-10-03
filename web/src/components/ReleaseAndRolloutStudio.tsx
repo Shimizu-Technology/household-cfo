@@ -101,7 +101,7 @@ export function ReleaseAndRolloutStudio({
         </button>
       </div>
 
-        <div role="tabpanel" id="release-rollout-panel-release" aria-labelledby="release-rollout-tab-release" hidden={view !== 'release'}>
+        <div role="tabpanel" id="release-rollout-panel-release" aria-labelledby="release-rollout-tab-release" tabIndex={0} hidden={view !== 'release'}>
           <CohortReleaseStudio
             cohorts={cohorts}
             cohortsLoading={cohortsLoading}
@@ -113,7 +113,7 @@ export function ReleaseAndRolloutStudio({
             onReleaseChange={handleReleaseChange}
           />
         </div>
-        <div role="tabpanel" id="release-rollout-panel-rollout" aria-labelledby="release-rollout-tab-rollout" hidden={view !== 'rollout'}>
+        <div role="tabpanel" id="release-rollout-panel-rollout" aria-labelledby="release-rollout-tab-rollout" tabIndex={0} hidden={view !== 'rollout'}>
           <CohortRolloutStudio
             key={`${selectedCohortId ?? 'none'}-${rolloutRefresh}`}
             cohortId={selectedCohortId}

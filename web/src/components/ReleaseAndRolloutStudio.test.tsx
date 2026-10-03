@@ -20,6 +20,7 @@ describe('ReleaseAndRolloutStudio', () => {
     render(<ReleaseAndRolloutStudio cohorts={cohorts} cohortsLoading={false} mutationLifecycle={{ pending: false, begin: vi.fn(), isCurrent: vi.fn(), finish: vi.fn() }} selectedCohortId={12} onSelectedCohortIdChange={vi.fn()} onDirtyChange={vi.fn()} />)
     expect(screen.getByText(/In a runtime-enabled rollout, starting and advancing move that wave immediately/)).toBeTruthy()
     expect(screen.getByText(/A rollout labeled pre-cutover remains record-only until it is closed/)).toBeTruthy()
+    expect(screen.getByRole('tabpanel', { name: /Release Verify and seal/ }).getAttribute('tabindex')).toBe('0')
   })
 
   it('supports tab keyboard navigation and preserves an in-progress plan between subviews', async () => {
@@ -31,6 +32,7 @@ describe('ReleaseAndRolloutStudio', () => {
     await user.keyboard('{ArrowRight}')
     expect(document.activeElement).toBe(rolloutTab)
     expect(rolloutTab.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tabpanel', { name: /Rollout Plan and manage waves/ }).getAttribute('tabindex')).toBe('0')
     await user.type(screen.getByLabelText('Plan note'), 'Pilot first')
     rolloutTab.focus()
     await user.keyboard('{Home}')
