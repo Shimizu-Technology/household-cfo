@@ -3,6 +3,11 @@ class User < ApplicationRecord
     dependent: :restrict_with_exception, inverse_of: :released_by_user
   has_many :coach_operation_executions, foreign_key: :actor_user_id,
     dependent: :restrict_with_exception, inverse_of: :actor_user
+  has_many :planned_cohort_rollouts, class_name: "CohortRollout", foreign_key: :planned_by_user_id,
+    dependent: :restrict_with_exception, inverse_of: :planned_by_user
+  has_many :cohort_rollout_transitions, foreign_key: :actor_user_id,
+    dependent: :restrict_with_exception, inverse_of: :actor_user
+  has_many :cohort_rollout_participants, dependent: :restrict_with_exception, inverse_of: :user
   ROLES = %w[admin coach participant].freeze
   INVITATION_STATUSES = %w[pending accepted revoked].freeze
   INVITATION_EMAIL_STATUSES = %w[not_sent skipped sent failed].freeze

@@ -4,7 +4,13 @@ module CoachOperations
   module Registry
     OPERATIONS = {
       CohortReleaseSeal::KEY => CohortReleaseSeal,
-      CohortReleaseRestore::KEY => CohortReleaseRestore
+      CohortReleaseRestore::KEY => CohortReleaseRestore,
+      CohortRolloutPlan::KEY => CohortRolloutPlan,
+      CohortRolloutAdvance::KEY => CohortRolloutAdvance,
+      CohortRolloutPause::KEY => CohortRolloutPause,
+      CohortRolloutResume::KEY => CohortRolloutResume,
+      CohortRolloutCancel::KEY => CohortRolloutCancel,
+      CohortRolloutRollback::KEY => CohortRolloutRollback
     }.freeze
 
     module_function
