@@ -100,9 +100,9 @@ class CoachOperationsRolloutTest < ActiveSupport::TestCase
     transitions = CohortRolloutTransition.where(cohort: cohort).order(:id)
     assert_equal %w[planned activated paused resumed rolled_back planned cancelled], transitions.pluck(:event_type)
     assert transitions.all? { |transition| transition.participant_runtime_changed == false }
-    assert cohort.coach_operation_executions.all? do |execution|
+    assert cohort.coach_operation_executions.all? { |execution|
       execution.after_snapshot.fetch("participant_runtime_changed") == false
-    end
+    }
     assert_equal runtime_before, participant_runtime_snapshot(cohort, participants)
   end
 

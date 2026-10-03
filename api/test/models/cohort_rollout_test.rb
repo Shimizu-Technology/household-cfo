@@ -105,11 +105,28 @@ class CohortRolloutTest < ActiveSupport::TestCase
   end
 
   test "can cancel a planned rollout when legacy data already closed the cohort" do
-    Cohort.connection.execute("ALTER TABLE cohorts DISABLE TRIGGER cohorts_open_rollout_lifecycle_guard")
-    Cohort.where(id: @cohort.id).update_all(status: "completed")
-  ensure
-    Cohort.connection.execute("ALTER TABLE cohorts ENABLE TRIGGER cohorts_open_rollout_lifecycle_guard")
-    @rollout.update!(status: "cancelled", cancelled_at: Time.current)
+    begin
+      Cohort.connection.execute("ALTER TABLE cohorts DISABLE TRIGGER cohorts_open_rollout_lifecycle_guard")
+      Cohort.where(id: @cohort.id).update_all(status: "completed")
+    ensure
+      Cohort.connection.execute("ALTER TABLE cohorts ENABLE TRIGGER cohorts_open_rollout_lifecycle_guard")
+    end
+
+    create_transition
+    machine = CohortRollouts::StateMachine.new(
+      cohort: @cohort.reload,
+      actor: @owner,
+      actor_role_snapshot: "platform_admin"
+    )
+    machine.cancel!(
+      rollout: @rollout,
+      input: {
+        expected_status: "planned",
+        expected_current_wave_position: 0,
+        expected_latest_transition_id: @rollout.transitions.reorder(id: :desc).pick(:id)
+      }
+    )
+
     assert_equal "cancelled", @rollout.reload.status
   end
 

@@ -371,7 +371,7 @@ module CohortReleaseSchemaDumper
   end
 
   def dump_rollout_database_definition(stream, definition)
-    stream.puts "  execute <<~SQL"
+    stream.puts "  execute <<~'SQL'"
     definition.each_line do |line|
       line = line.rstrip
       stream.puts(line.empty? ? "" : "    #{line}")
