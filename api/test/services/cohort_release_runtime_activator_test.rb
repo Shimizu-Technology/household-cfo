@@ -34,6 +34,41 @@ class CohortReleaseRuntimeActivatorTest < ActiveSupport::TestCase
     assert cohort.active_cohort_release.integrity_valid?
   end
 
+  test "activator skips integrity work for version two releases whose bundle cannot match" do
+    owner = persona_user
+    cohort = Cohort.create!(name: "Bounded activation #{SecureRandom.hex(4)}", status: "active", created_by_user: owner)
+    ineligible = seal_current_bundle(cohort, "activation-old-brand")
+    brand = cohort.coach_workspace.workspace_brand_configuration
+    next_config = brand.draft_config.deep_dup.merge(
+      "product_name" => "Updated Program #{SecureRandom.hex(2)}",
+      "short_name" => "Updated Program"
+    )
+    brand.update!(draft_config: next_config, last_edited_by_user: owner)
+    publisher = Branding::Publisher.new(configuration: brand, actor: owner)
+    preview_digest = publisher.preview!(expected_draft_revision: brand.reload.draft_revision)
+    publisher.publish!(
+      expected_preview_digest: preview_digest,
+      expected_draft_revision: brand.reload.draft_revision,
+      expected_current_version_id: brand.current_published_version_id,
+      idempotency_key: "activation-brand-#{SecureRandom.hex(4)}"
+    )
+    release_class = CohortRelease
+    original_integrity_report = release_class.instance_method(:integrity_report)
+    release_class.define_method(:integrity_report) do
+      raise "ineligible release was inspected" if id == ineligible.id
+
+      original_integrity_report.bind_call(self)
+    end
+
+    result = CohortReleases::RuntimeActivator.new(cohort: cohort).call!
+
+    assert result.sealed
+    refute_equal ineligible.id, result.release_id
+    assert_equal "Updated Program", cohort.reload.active_cohort_release.brand_snapshot.dig("config", "short_name")
+  ensure
+    release_class&.define_method(:integrity_report, original_integrity_report) if original_integrity_report
+  end
+
   test "idempotent replay keeps its original active release after a later equivalent release is sealed" do
     owner = persona_user
     cohort = Cohort.create!(name: "Stable activation #{SecureRandom.hex(4)}", status: "active", created_by_user: owner)

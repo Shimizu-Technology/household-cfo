@@ -81,7 +81,10 @@ module CohortReleases
     end
 
     def compatible_release(candidate)
-      existing = cohort.cohort_releases.order(release_number: :desc).find do |release|
+      releases = cohort.cohort_releases
+      eligible = releases.where(manifest_schema: Contract::V1_SCHEMA)
+        .or(releases.where(bundle_digest: candidate.bundle_digest))
+      existing = eligible.order(release_number: :desc).find do |release|
         report = release.integrity_report
         report.fetch(:valid) && report.fetch(:runtime_compatible) &&
           SemanticParity.new(candidate: candidate, release: release).equivalent?

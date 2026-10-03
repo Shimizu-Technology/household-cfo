@@ -1248,7 +1248,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
           manifest_schema: 'cohort_release_manifest_v2',
           bundle_digest: 'release-bundle-next', assignment_id: 91,
           coach_persona_version_id: 6, cohort_experience_version_id: 8,
-          brand_mode: 'workspace_brand_version', workspace_brand_version_id: 9,
+          brand_mode: 'published_version', workspace_brand_version_id: 9,
           brand_snapshot_digest: 'brand-snapshot-v9',
           tool_registry_digest: 'tool-registry-v3', tool_registry_version: 3,
         },
@@ -1261,7 +1261,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
         bundle_digest: latestReleaseMatch ? 'release-bundle-next' : 'release-bundle-old',
         coach_persona_version_id: latestReleaseMatch ? 6 : 5,
         cohort_experience_version_id: latestReleaseMatch ? 8 : 7,
-        brand_mode: 'workspace_brand_version', workspace_brand_version_id: latestReleaseMatch ? 9 : 8,
+        brand_mode: 'published_version', workspace_brand_version_id: latestReleaseMatch ? 9 : 8,
         brand_snapshot_digest: latestReleaseMatch ? 'brand-snapshot-v9' : 'brand-snapshot-v8',
         tool_registry_digest: latestReleaseMatch ? 'tool-registry-v3' : 'tool-registry-v2',
         tool_registry_version: latestReleaseMatch ? 3 : 2,
@@ -1292,14 +1292,14 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   const rolloutRelease = () => ({
     id: latestReleaseMatch ? 405 : 404, release_number: releaseNumber,
     bundle_digest: latestReleaseMatch ? 'release-bundle-next' : 'release-bundle-old',
-    manifest_schema: 'cohort_release_manifest_v2', brand_mode: 'workspace_brand_version',
+    manifest_schema: 'cohort_release_manifest_v2', brand_mode: 'published_version',
     workspace_brand_version_id: latestReleaseMatch ? 9 : 8,
     brand_snapshot_digest: latestReleaseMatch ? 'brand-snapshot-v9' : 'brand-snapshot-v8',
     integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z',
   })
   const activeRelease = {
     id: 404, release_number: 4, bundle_digest: 'release-bundle-old',
-    manifest_schema: 'cohort_release_manifest_v2', brand_mode: 'workspace_brand_version',
+    manifest_schema: 'cohort_release_manifest_v2', brand_mode: 'published_version',
     workspace_brand_version_id: 8, brand_snapshot_digest: 'brand-snapshot-v8',
     integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z',
   }
