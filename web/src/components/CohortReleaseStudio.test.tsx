@@ -70,7 +70,7 @@ const cohorts = [{
   persona_assignment: null,
 }]
 
-function renderStudio() {
+function renderStudio(beforeReleaseAction?: () => boolean) {
   const mutationLifecycle = {
     pending: false,
     begin: vi.fn(() => ({ id: 1, workspaceId: 2 })),
@@ -84,6 +84,7 @@ function renderStudio() {
       mutationLifecycle={mutationLifecycle}
       selectedCohortId={12}
       onSelectedCohortIdChange={vi.fn()}
+      beforeReleaseAction={beforeReleaseAction}
     />,
   )
   return mutationLifecycle
@@ -148,6 +149,7 @@ describe('CohortReleaseStudio', () => {
     await waitFor(() => expect(apiMocks.sealCohortRelease).toHaveBeenCalledTimes(2))
     expect(apiMocks.sealCohortRelease.mock.calls.map((call) => call[2])).toEqual(['release-request-1', 'release-request-1'])
     expect((await screen.findByRole('status')).textContent).toContain('Participant runtime did not change.')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Ready to seal' })))
   })
 
   it('submits exact historical evidence when restoring a record', async () => {
@@ -164,6 +166,7 @@ describe('CohortReleaseStudio', () => {
       source_persona_version_id: 5,
       source_experience_version_id: 7,
     }, 'release-request-1'))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Ready to seal' })))
   })
 
   it('blocks restore when the server omits the latest-release precondition', async () => {
@@ -192,6 +195,16 @@ describe('CohortReleaseStudio', () => {
     expect(screen.getByText(/does not allow sealing records/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /seal record/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /restore record/i })).toBeNull()
+  })
+
+  it('does not open a release review when an unsaved rollout guard declines', async () => {
+    const user = userEvent.setup()
+    const guard = vi.fn(() => false)
+    renderStudio(guard)
+    await user.click(await screen.findByRole('button', { name: 'Review and seal record' }))
+    expect(guard).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(apiMocks.sealCohortRelease).not.toHaveBeenCalled()
   })
 
   it('reports the full immutable history count when the API returns only the newest records', async () => {

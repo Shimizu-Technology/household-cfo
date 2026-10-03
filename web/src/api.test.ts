@@ -17,6 +17,7 @@ import {
   createAdminContentSourceUrlIntake,
   createAdminContentSourceUrlRequestId,
   createCohortReleaseRequestId,
+  createCohortRolloutRequestId,
   deleteAdminContentSource,
   deleteAdminContentSourceUrlIntake,
   deleteAdminCohortPersonaAssignment,
@@ -37,6 +38,7 @@ import {
   fetchAdminContentSourceUrlIntakes,
   fetchAdminContentSources,
   fetchCohortReleaseStudio,
+  fetchCohortRolloutStudio,
   fetchAdminContentSourcePhraseProposals,
   fetchAdminPhraseProposal,
   previewAdminPersona,
@@ -55,6 +57,12 @@ import {
   retryAdminContentSourceUrlIntakeCleanup,
   restoreAdminPersonaVersionToDraft,
   restoreCohortRelease,
+  advanceCohortRollout,
+  cancelCohortRollout,
+  pauseCohortRollout,
+  planCohortRollout,
+  resumeCohortRollout,
+  rollbackCohortRollout,
   sealCohortRelease,
   sendMiaMessage,
   setActiveCoachWorkspaceId,
@@ -234,6 +242,113 @@ describe('cohort release API contract', () => {
         source_experience_version_id: 7,
       },
     })
+  })
+})
+
+describe('cohort rollout API contract', () => {
+  it('normalizes rollout evidence and sends exact stable-key lifecycle inputs', async () => {
+    const baselineRelease = { id: 43, release_number: 3, bundle_digest: 'baseline-bundle', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' }
+    const targetRelease = { id: 44, release_number: 4, bundle_digest: 'bundle', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z' }
+    const rolloutPayload = {
+      cohort_rollout_studio: {
+        cohort: { id: 12, name: 'Tuesday cohort', status: 'active', participant_count: 2 },
+        runtime_truth: { changes_participant_runtime: true, participant_runtime_changed: false, message: 'Advancing a wave changes participant runtime immediately.' },
+        permissions: { view: true, manage: true, plan: false, actor_role: 'owner', blockers: [], plan_blockers: ['Another rollout is already open.'] },
+        current_roster: {
+          digest: 'roster-digest', readiness_digest: 'roster-ready', total_count: 2,
+          counts: { ready: 2, awaiting_acceptance: 0, revoked: 0, removed: 0 },
+          participants: [{ user_id: 7, full_name: 'Ana Cruz', readiness: 'ready', exposed: false, effective_release: baselineRelease }, { user_id: 8, full_name: 'Ben Santos', readiness: 'ready', exposed: false, effective_release: baselineRelease }],
+        },
+        active_release: baselineRelease,
+        latest_release: targetRelease,
+        release_history: { limit: 25, total_count: 4, truncated: false }, releases: [],
+        history: { limit: 25, total_count: 1, truncated: false },
+        open_rollout: {
+          id: 90, status: 'planned',
+          runtime_mode: 'release_runtime_v2', runtime_blocker: null,
+          target_release: targetRelease, baseline_release: baselineRelease,
+          rollback_release: null, rollback_candidate: null,
+          planned_by: { id: 5, full_name: 'Coach Mel', role: 'owner' }, planned_at: '2026-10-03T02:00:00Z',
+          activated_at: null, paused_at: null, completed_at: null, cancelled_at: null, rolled_back_at: null,
+          current_wave_position: 0, wave_count: 1, participant_count: 2, latest_transition_id: 101,
+          readiness_digest: 'all-ready', next_wave_readiness_digest: 'wave-ready', next_wave_position: 1,
+          permissions: { advance: true, pause: false, resume: false, cancel: true, rollback: false, advance_blockers: [], rollback_blockers: ['Only active rollouts can roll back.'] },
+          waves: [{ id: 91, position: 1, name: 'All participants', active: false, completed: false, participant_count: 2, exposed_count: 0, exposure_complete: false, counts: { ready: 2, awaiting_acceptance: 0, revoked: 0, removed: 0 }, participants: [{ user_id: 7, full_name: 'Ana Cruz', readiness: 'ready', exposed: false, effective_release: baselineRelease }, { user_id: 8, full_name: 'Ben Santos', readiness: 'ready', exposed: false, effective_release: baselineRelease }] }],
+          transition_history: { limit: 25, total_count: 1, truncated: false },
+          transitions: [{ id: 101, event_type: 'planned', from_status: null, to_status: 'planned', from_wave_position: 0, to_wave_position: 0, rollback_release_id: null, readiness_digest: null, actor: { id: 5, full_name: 'Coach Mel', role: 'owner' }, occurred_at: '2026-10-03T02:00:00Z', participant_runtime_changed: false }],
+          participant_runtime_changed: false,
+        },
+        rollouts: [{ id: 90, status: 'planned', runtime_mode: 'release_runtime_v2', runtime_blocker: null, target_release: targetRelease, baseline_release: baselineRelease, rollback_release: null, planned_by: { id: 5, full_name: 'Coach Mel', role: 'owner' }, planned_at: '2026-10-03T02:00:00Z', activated_at: null, paused_at: null, completed_at: null, cancelled_at: null, rolled_back_at: null, current_wave_position: 0, wave_count: 1, participant_count: 2, participant_runtime_changed: false }],
+      },
+    }
+    const mutationPayload = {
+      ...rolloutPayload,
+      rollout: rolloutPayload.cohort_rollout_studio.open_rollout,
+      transition: rolloutPayload.cohort_rollout_studio.open_rollout.transitions[0],
+      replayed: false,
+    }
+    const fetchMock = vi.fn().mockImplementation(async (_input, init?: RequestInit) => jsonResponse(init?.method === 'POST' ? mutationPayload : rolloutPayload))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const studio = await fetchCohortRolloutStudio(12)
+    expect(studio.open_rollout).toMatchObject({
+      id: 90, status: 'planned', latest_transition_id: 101, next_wave_readiness_digest: 'wave-ready',
+      runtime_mode: 'release_runtime_v2', baseline_release: { release_number: 3 },
+      waves: [{ name: 'All participants', exposed_count: 0, exposure_complete: false, participants: [{ full_name: 'Ana Cruz', effective_release: { release_number: 3 } }, { full_name: 'Ben Santos', effective_release: { release_number: 3 } }] }],
+    })
+    expect(studio.active_release?.release_number).toBe(3)
+
+    const compare = { expected_status: 'planned', expected_current_wave_position: 0, expected_latest_transition_id: 101 }
+    const plan = { target_release_id: 44, expected_latest_release_id: 44, expected_roster_digest: 'roster-digest', waves: [{ name: 'All participants', user_ids: [7, 8] }] }
+    expect((await planCohortRollout(12, plan, 'plan-key')).transition.participant_runtime_changed).toBe(false)
+    expect((await advanceCohortRollout(12, 90, { ...compare, readiness_digest: 'wave-ready' }, 'advance-key')).rollout.runtime_mode).toBe('release_runtime_v2')
+    await pauseCohortRollout(12, 90, compare, 'pause-key')
+    await resumeCohortRollout(12, 90, compare, 'resume-key')
+    await cancelCohortRollout(12, 90, compare, 'cancel-key')
+    await rollbackCohortRollout(12, 90, { ...compare, rollback_release_id: 43 }, 'rollback-key')
+
+    expect(createCohortRolloutRequestId()).toBeTruthy()
+    expect(fetchMock.mock.calls.slice(1).map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
+      '/api/v1/admin/cohorts/12/rollouts',
+      '/api/v1/admin/cohorts/12/rollouts/90/advance',
+      '/api/v1/admin/cohorts/12/rollouts/90/pause',
+      '/api/v1/admin/cohorts/12/rollouts/90/resume',
+      '/api/v1/admin/cohorts/12/rollouts/90/cancel',
+      '/api/v1/admin/cohorts/12/rollouts/90/rollback',
+    ])
+    expect(fetchMock.mock.calls.slice(1).map((call) => ((call[1] as RequestInit).headers as Record<string, string>)['Idempotency-Key'])).toEqual([
+      'plan-key', 'advance-key', 'pause-key', 'resume-key', 'cancel-key', 'rollback-key',
+    ])
+    expect(JSON.parse(String((fetchMock.mock.calls[6][1] as RequestInit).body))).toEqual({ rollout: { ...compare, rollback_release_id: 43 } })
+
+    const futurePayload = structuredClone(rolloutPayload)
+    futurePayload.cohort_rollout_studio.open_rollout.runtime_mode = 'future_mode'
+    futurePayload.cohort_rollout_studio.rollouts[0].runtime_mode = 'future_mode'
+    fetchMock.mockResolvedValueOnce(jsonResponse(futurePayload))
+    const failClosedStudio = await fetchCohortRolloutStudio(12)
+    expect(failClosedStudio.open_rollout?.runtime_mode).toBe('future_mode')
+    expect(failClosedStudio.rollouts[0].runtime_mode).toBe('future_mode')
+    expect(failClosedStudio.open_rollout?.permissions).toMatchObject({ advance: false, pause: false, resume: false, cancel: false, rollback: false })
+    expect(failClosedStudio.open_rollout?.permissions.advance_blockers).toContain('This app does not recognize the rollout runtime mode. Reload after updating the app.')
+  })
+
+  it('bounds a stalled mutation and preserves the caller-owned retry key', async () => {
+    vi.useFakeTimers()
+    let requestSignal: AbortSignal | null | undefined
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal
+      return new Promise<Response>(() => undefined)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const compare = { expected_status: 'active', expected_current_wave_position: 1, expected_latest_transition_id: 101 }
+
+    const request = pauseCohortRollout(12, 90, compare, 'stable-pause-key')
+    const result = expect(request).rejects.toThrow('The rollout request took too long. Retry this reviewed action; the same request key prevents a duplicate decision.')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await result
+
+    expect(requestSignal?.aborted).toBe(true)
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'stable-pause-key' })
   })
 })
 

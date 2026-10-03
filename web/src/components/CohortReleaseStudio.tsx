@@ -34,12 +34,18 @@ export function CohortReleaseStudio({
   mutationLifecycle,
   selectedCohortId,
   onSelectedCohortIdChange,
+  embedded = false,
+  onReleaseChange,
+  beforeReleaseAction,
 }: {
   cohorts: AdminPersonaAssignableCohort[]
   cohortsLoading: boolean
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   selectedCohortId: number | null
   onSelectedCohortIdChange: (cohortId: number | null) => void
+  embedded?: boolean
+  onReleaseChange?: () => void
+  beforeReleaseAction?: () => boolean
 }) {
   const [studio, setStudio] = useState<CohortReleaseStudioData | null>(null)
   const [pendingAction, setPendingAction] = useState<PendingAction>(null)
@@ -50,6 +56,7 @@ export function CohortReleaseStudio({
   const loadRequestRef = useRef(0)
   const loadAbortControllerRef = useRef<AbortController | null>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
+  const releaseStateHeadingRef = useRef<HTMLHeadingElement | null>(null)
 
   const loadStudio = useCallback(async (cohortId: number) => {
     const requestId = ++loadRequestRef.current
@@ -131,12 +138,14 @@ export function CohortReleaseStudio({
   }
 
   function requestSeal(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (beforeReleaseAction && !beforeReleaseAction()) return
     restoreFocusRef.current = event.currentTarget
     setActionError(null)
     setConfirmation({ kind: 'seal', release: null, requestId: createCohortReleaseRequestId() })
   }
 
   function requestRestore(event: ReactMouseEvent<HTMLButtonElement>, release: CohortReleaseRecord) {
+    if (beforeReleaseAction && !beforeReleaseAction()) return
     restoreFocusRef.current = event.currentTarget
     setActionError(null)
     setConfirmation({ kind: 'restore', release, requestId: createCohortReleaseRequestId() })
@@ -180,7 +189,8 @@ export function CohortReleaseStudio({
         ? 'Release record sealed. Participant runtime did not change.'
         : 'Restore record sealed. Participant runtime did not change.')
       await loadStudio(cohortId)
-      window.requestAnimationFrame(() => restoreFocusRef.current?.focus())
+      onReleaseChange?.()
+      window.requestAnimationFrame(() => releaseStateHeadingRef.current?.focus())
     } catch (caught) {
       if (!mutationLifecycle.isCurrent(mutation)) return
       if (caught instanceof ApiRequestError && caught.status === 409) {
@@ -218,16 +228,16 @@ export function CohortReleaseStudio({
 
   return (
     <section className="cohort-release-studio" aria-busy={pendingAction !== null || mutationLifecycle.pending}>
-      <div className="cohort-release-truth" role="note">
+      {!embedded && <div className="cohort-release-truth" role="note">
         <span className="cohort-release-truth-icon" aria-hidden="true"><EvidenceIcon /></span>
         <div>
           <strong>Release records are audit evidence.</strong>
           <p>{studio?.runtime_truth.message ?? 'Sealing or restoring a record does not change the assistant or tools participants use.'}</p>
           <small>Continue to assign the assistant and publish participant tools in their existing areas.</small>
         </div>
-      </div>
+      </div>}
 
-      <article className="panel cohort-release-picker">
+      {!embedded && <article className="panel cohort-release-picker">
         <div>
           <p className="eyebrow">Cohort releases</p>
           <h3>Review and seal the assistant and tools together</h3>
@@ -239,7 +249,7 @@ export function CohortReleaseStudio({
             {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name} · {titleize(cohort.status)}</option>)}
           </select>
         </label>
-      </article>
+      </article>}
 
       {error && (
         <div className="coach-studio-alert is-error" role="alert">
@@ -259,7 +269,7 @@ export function CohortReleaseStudio({
             <header>
               <div>
                 <p className="eyebrow">Exact readiness</p>
-                <h3>{studio.candidate?.ready ? 'Ready to seal' : 'Needs attention before sealing'}</h3>
+                <h3 ref={releaseStateHeadingRef} tabIndex={-1}>{studio.candidate?.ready ? 'Ready to seal' : 'Needs attention before sealing'}</h3>
               </div>
               <span className={`cohort-release-state ${studio.candidate?.ready ? 'is-ready' : ''}`}>{studio.candidate?.ready ? 'Ready' : 'Blocked'}</span>
             </header>

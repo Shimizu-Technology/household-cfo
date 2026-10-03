@@ -1846,6 +1846,155 @@ export type CohortReleaseRestoreInput = {
   source_experience_version_id: number | null
 }
 
+export type CohortRolloutReadiness = 'ready' | 'awaiting_acceptance' | 'revoked' | 'removed' | string
+
+export type CohortRolloutRelease = {
+  id: number
+  release_number: number
+  bundle_digest: string
+  integrity_valid: boolean
+  runtime_compatible: boolean
+  released_at: string
+}
+
+export type CohortRolloutParticipant = {
+  user_id: number
+  full_name: string
+  readiness: CohortRolloutReadiness
+  exposed: boolean | null
+  effective_release: CohortRolloutRelease | null
+}
+
+export type CohortRolloutReadinessCounts = {
+  ready: number
+  awaiting_acceptance: number
+  revoked: number
+  removed: number
+}
+
+export type CohortRolloutWave = {
+  id: number
+  position: number
+  name: string
+  active: boolean
+  completed: boolean
+  participant_count: number
+  exposed_count: number
+  exposure_complete: boolean
+  counts: CohortRolloutReadinessCounts
+  participants: CohortRolloutParticipant[]
+}
+
+export type CohortRolloutTransition = {
+  id: number
+  event_type: string
+  from_status: string | null
+  to_status: string
+  from_wave_position: number
+  to_wave_position: number
+  rollback_release_id: number | null
+  readiness_digest: string | null
+  actor: null | { id: number; full_name: string; role: string | null }
+  occurred_at: string
+  participant_runtime_changed: boolean
+}
+
+export type CohortRolloutRecord = {
+  id: number
+  status: string
+  runtime_mode: string
+  runtime_blocker: string | null
+  target_release: CohortRolloutRelease
+  baseline_release: CohortRolloutRelease | null
+  rollback_release: CohortRolloutRelease | null
+  rollback_candidate: CohortRolloutRelease | null
+  planned_by: null | { id: number; full_name: string; role: string | null }
+  planned_at: string
+  activated_at: string | null
+  paused_at: string | null
+  completed_at: string | null
+  cancelled_at: string | null
+  rolled_back_at: string | null
+  current_wave_position: number
+  wave_count: number
+  participant_count: number
+  latest_transition_id: number | null
+  readiness_digest: string
+  next_wave_readiness_digest: string
+  next_wave_position: number | null
+  permissions: {
+    advance: boolean
+    pause: boolean
+    resume: boolean
+    cancel: boolean
+    rollback: boolean
+    advance_blockers: string[]
+    rollback_blockers: string[]
+  }
+  waves: CohortRolloutWave[]
+  transition_history: { limit: number; total_count: number; truncated: boolean }
+  transitions: CohortRolloutTransition[]
+  participant_runtime_changed: boolean
+}
+
+export type CohortRolloutSummary = Omit<CohortRolloutRecord, 'rollback_candidate' | 'readiness_digest' | 'next_wave_readiness_digest' | 'next_wave_position' | 'permissions' | 'waves' | 'transitions'>
+
+export type CohortRolloutStudio = {
+  cohort: {
+    id: number
+    name: string
+    status: AdminCohortStatus
+    participant_count: number
+  }
+  runtime_truth: {
+    changes_participant_runtime: boolean
+    participant_runtime_changed: boolean
+    message: string
+  }
+  permissions: {
+    view: boolean
+    manage: boolean
+    plan: boolean
+    actor_role: string | null
+    blockers: string[]
+    plan_blockers: string[]
+  }
+  current_roster: {
+    digest: string
+    readiness_digest: string
+    total_count: number
+    counts: CohortRolloutReadinessCounts
+    participants: CohortRolloutParticipant[]
+  }
+  latest_release: CohortRolloutRelease | null
+  active_release: CohortRolloutRelease | null
+  release_history: { limit: number; total_count: number; truncated: boolean }
+  releases: CohortRolloutRelease[]
+  history: { limit: number; total_count: number; truncated: boolean }
+  open_rollout: CohortRolloutRecord | null
+  rollouts: CohortRolloutSummary[]
+}
+
+export type CohortRolloutPlanInput = {
+  target_release_id: number
+  expected_latest_release_id: number
+  expected_roster_digest: string
+  waves: Array<{ name: string; user_ids: number[] }>
+}
+
+export type CohortRolloutTransitionInput = {
+  expected_status: string
+  expected_current_wave_position: number
+  expected_latest_transition_id: number
+}
+
+export type CohortRolloutMutationResponse = {
+  rollout: CohortRolloutRecord
+  transition: CohortRolloutTransition
+  replayed: boolean
+  cohort_rollout_studio: CohortRolloutStudio
+}
+
 export type AdminInviteEmailStatus = 'hidden' | 'not_sent' | 'skipped' | 'sent' | 'failed'
 
 export type AdminUser = CurrentUser & {
@@ -2394,6 +2543,61 @@ export async function restoreCohortRelease(
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
     body: JSON.stringify({ release: values }),
   })
+}
+
+export function createCohortRolloutRequestId() {
+  return clientRequestId()
+}
+
+export async function fetchCohortRolloutStudio(cohortId: number, signal?: AbortSignal): Promise<CohortRolloutStudio> {
+  const payload = await fetchJson<unknown>(`/api/v1/admin/cohorts/${cohortId}/rollouts`, { signal })
+  return normalizeCohortRolloutStudio(payload)
+}
+
+export async function planCohortRollout(cohortId: number, values: CohortRolloutPlanInput, requestId: string): Promise<CohortRolloutMutationResponse> {
+  return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts`, values, requestId)
+}
+
+export async function advanceCohortRollout(
+  cohortId: number,
+  rolloutId: number,
+  values: CohortRolloutTransitionInput & { readiness_digest: string },
+  requestId: string,
+): Promise<CohortRolloutMutationResponse> {
+  return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts/${rolloutId}/advance`, values, requestId)
+}
+
+export async function pauseCohortRollout(cohortId: number, rolloutId: number, values: CohortRolloutTransitionInput, requestId: string): Promise<CohortRolloutMutationResponse> {
+  return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts/${rolloutId}/pause`, values, requestId)
+}
+
+export async function resumeCohortRollout(cohortId: number, rolloutId: number, values: CohortRolloutTransitionInput, requestId: string): Promise<CohortRolloutMutationResponse> {
+  return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts/${rolloutId}/resume`, values, requestId)
+}
+
+export async function cancelCohortRollout(cohortId: number, rolloutId: number, values: CohortRolloutTransitionInput, requestId: string): Promise<CohortRolloutMutationResponse> {
+  return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts/${rolloutId}/cancel`, values, requestId)
+}
+
+export async function rollbackCohortRollout(
+  cohortId: number,
+  rolloutId: number,
+  values: CohortRolloutTransitionInput & { rollback_release_id: number },
+  requestId: string,
+): Promise<CohortRolloutMutationResponse> {
+  return mutateCohortRollout(`/api/v1/admin/cohorts/${cohortId}/rollouts/${rolloutId}/rollback`, values, requestId)
+}
+
+async function mutateCohortRollout(path: string, values: CohortRolloutPlanInput | CohortRolloutTransitionInput | (CohortRolloutTransitionInput & { readiness_digest: string }) | (CohortRolloutTransitionInput & { rollback_release_id: number }), requestId: string) {
+  const payload = await fetchJson<unknown>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
+    body: JSON.stringify({ rollout: values }),
+  }, {
+    timeoutMs: 30_000,
+    timeoutMessage: 'The rollout request took too long. Retry this reviewed action; the same request key prevents a duplicate decision.',
+  })
+  return normalizeCohortRolloutMutation(payload)
 }
 
 export async function fetchAdminPersonas(): Promise<AdminPersonaSummary[]> {
@@ -3431,6 +3635,229 @@ function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
         restore_reason: releaseNullableString(release.restore_reason) ?? (restoreBlockers.length > 0 ? restoreBlockers.join(' ') : null),
       } satisfies CohortReleaseRecord
     }).filter((release): release is CohortReleaseRecord => release !== null),
+  }
+}
+
+function normalizeCohortRolloutStudio(payload: unknown): CohortRolloutStudio {
+  const root = releaseRecord(payload)
+  const raw = releaseRecord(root.cohort_rollout_studio ?? root)
+  const cohort = releaseRecord(raw.cohort)
+  const runtimeTruth = releaseRecord(raw.runtime_truth)
+  const permissions = releaseRecord(raw.permissions)
+  const roster = releaseRecord(raw.current_roster)
+  const rawParticipants = Array.isArray(roster.participants) ? roster.participants : []
+  const rawRollouts = Array.isArray(raw.rollouts) ? raw.rollouts : []
+  const rawReleases = Array.isArray(raw.releases) ? raw.releases : []
+  const cohortId = releaseInteger(cohort.id)
+  const cohortName = releaseString(cohort.name)
+  const changesParticipantRuntime = releaseBoolean(runtimeTruth.changes_participant_runtime)
+
+  if (!cohortId || !cohortName) throw new Error('Cohort rollout data was incomplete. Reload Coach Studio and try again.')
+  const status = releaseString(cohort.status)
+  const knownStatuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'completed', 'archived']
+
+  return {
+    cohort: {
+      id: cohortId,
+      name: cohortName,
+      status: knownStatuses.includes(status as AdminCohortStatus) ? status as AdminCohortStatus : 'draft',
+      participant_count: releaseInteger(cohort.participant_count) ?? rawParticipants.length,
+    },
+    runtime_truth: {
+      changes_participant_runtime: changesParticipantRuntime,
+      participant_runtime_changed: releaseBoolean(runtimeTruth.participant_runtime_changed),
+      message: releaseString(runtimeTruth.message) || (changesParticipantRuntime
+        ? 'Each advanced wave receives the sealed Mia persona and participant tools together. Completing the rollout makes that release the cohort default; rollback restores the captured baseline.'
+        : 'This pre-cutover rollout is record only and cannot change participant runtime.'),
+    },
+    permissions: {
+      view: releaseBoolean(permissions.view, true),
+      manage: releaseBoolean(permissions.manage),
+      plan: releaseBoolean(permissions.plan),
+      actor_role: releaseNullableString(permissions.actor_role),
+      blockers: releaseStrings(permissions.blockers),
+      plan_blockers: releaseStrings(permissions.plan_blockers),
+    },
+    current_roster: {
+      digest: releaseString(roster.digest),
+      readiness_digest: releaseString(roster.readiness_digest),
+      total_count: releaseInteger(roster.total_count) ?? rawParticipants.length,
+      counts: normalizeRolloutCounts(roster.counts),
+      participants: rawParticipants.map(normalizeRolloutParticipant).filter((participant): participant is CohortRolloutParticipant => participant !== null),
+    },
+    latest_release: normalizeRolloutRelease(raw.latest_release),
+    active_release: normalizeRolloutRelease(raw.active_release),
+    release_history: normalizeHistory(raw.release_history, rawReleases.length),
+    releases: rawReleases.map(normalizeRolloutRelease).filter((release): release is CohortRolloutRelease => release !== null),
+    history: normalizeHistory(raw.history, rawRollouts.length),
+    open_rollout: raw.open_rollout ? normalizeRolloutRecord(raw.open_rollout) : null,
+    rollouts: rawRollouts.map((value) => normalizeRolloutSummary(value)).filter((rollout): rollout is CohortRolloutSummary => rollout !== null),
+  }
+}
+
+function normalizeRolloutRecord(value: unknown): CohortRolloutRecord | null {
+  const raw = releaseRecord(value)
+  const summary = normalizeRolloutSummary(raw)
+  const targetRelease = normalizeRolloutRelease(raw.target_release)
+  if (!summary || !targetRelease) return null
+  const permissions = releaseRecord(raw.permissions)
+  const runtimeMode = normalizeRolloutRuntimeMode(raw.runtime_mode)
+  const runtimeModeSupported = runtimeMode === 'release_runtime_v2' || runtimeMode === 'legacy_record_only_v1'
+  const rawWaves = Array.isArray(raw.waves) ? raw.waves : []
+  const rawTransitions = Array.isArray(raw.transitions) ? raw.transitions : []
+
+  return {
+    ...summary,
+    target_release: targetRelease,
+    runtime_mode: runtimeMode,
+    runtime_blocker: releaseNullableString(raw.runtime_blocker),
+    baseline_release: normalizeRolloutRelease(raw.baseline_release),
+    rollback_candidate: normalizeRolloutRelease(raw.rollback_candidate),
+    readiness_digest: releaseString(raw.readiness_digest),
+    next_wave_readiness_digest: releaseString(raw.next_wave_readiness_digest),
+    next_wave_position: releaseNullableInteger(raw.next_wave_position),
+    permissions: {
+      advance: runtimeModeSupported && releaseBoolean(permissions.advance),
+      pause: runtimeModeSupported && releaseBoolean(permissions.pause),
+      resume: runtimeModeSupported && releaseBoolean(permissions.resume),
+      cancel: runtimeModeSupported && releaseBoolean(permissions.cancel),
+      rollback: runtimeModeSupported && releaseBoolean(permissions.rollback),
+      advance_blockers: runtimeModeSupported ? releaseStrings(permissions.advance_blockers) : ['This app does not recognize the rollout runtime mode. Reload after updating the app.'],
+      rollback_blockers: runtimeModeSupported ? releaseStrings(permissions.rollback_blockers) : ['This app does not recognize the rollout runtime mode. Reload after updating the app.'],
+    },
+    waves: rawWaves.map((value) => {
+      const wave = releaseRecord(value)
+      const rawParticipants = Array.isArray(wave.participants) ? wave.participants : []
+      const id = releaseInteger(wave.id)
+      const position = releaseInteger(wave.position)
+      if (!id || !position) return null
+      return {
+        id,
+        position,
+        name: releaseString(wave.name) || `Wave ${position}`,
+        active: releaseBoolean(wave.active),
+        completed: releaseBoolean(wave.completed),
+        participant_count: releaseInteger(wave.participant_count) ?? rawParticipants.length,
+        exposed_count: releaseInteger(wave.exposed_count) ?? 0,
+        exposure_complete: releaseBoolean(wave.exposure_complete),
+        counts: normalizeRolloutCounts(wave.counts),
+        participants: rawParticipants.map(normalizeRolloutParticipant).filter((participant): participant is CohortRolloutParticipant => participant !== null),
+      }
+    }).filter((wave): wave is CohortRolloutWave => wave !== null),
+    transitions: rawTransitions.map(normalizeRolloutTransition).filter((transition): transition is CohortRolloutTransition => transition !== null),
+  }
+}
+
+function normalizeRolloutSummary(value: unknown): CohortRolloutSummary | null {
+  const raw = releaseRecord(value)
+  const targetRelease = normalizeRolloutRelease(raw.target_release)
+  const id = releaseInteger(raw.id)
+  if (!id || !targetRelease) return null
+  const planner = releaseRecord(raw.planned_by)
+  const plannerId = releaseInteger(planner.id)
+  const transitionHistory = normalizeHistory(raw.transition_history, 0)
+  return {
+    id,
+    status: releaseString(raw.status),
+    runtime_mode: normalizeRolloutRuntimeMode(raw.runtime_mode),
+    runtime_blocker: releaseNullableString(raw.runtime_blocker),
+    target_release: targetRelease,
+    baseline_release: normalizeRolloutRelease(raw.baseline_release),
+    rollback_release: normalizeRolloutRelease(raw.rollback_release),
+    planned_by: plannerId ? { id: plannerId, full_name: releaseString(planner.full_name) || `Workspace member ${plannerId}`, role: releaseNullableString(planner.role) } : null,
+    planned_at: releaseString(raw.planned_at),
+    activated_at: releaseNullableString(raw.activated_at),
+    paused_at: releaseNullableString(raw.paused_at),
+    completed_at: releaseNullableString(raw.completed_at),
+    cancelled_at: releaseNullableString(raw.cancelled_at),
+    rolled_back_at: releaseNullableString(raw.rolled_back_at),
+    current_wave_position: releaseInteger(raw.current_wave_position) ?? 0,
+    wave_count: releaseInteger(raw.wave_count) ?? 0,
+    participant_count: releaseInteger(raw.participant_count) ?? 0,
+    latest_transition_id: releaseNullableInteger(raw.latest_transition_id),
+    transition_history: transitionHistory,
+    participant_runtime_changed: releaseBoolean(raw.participant_runtime_changed),
+  }
+}
+
+function normalizeRolloutRelease(value: unknown): CohortRolloutRelease | null {
+  const raw = releaseRecord(value)
+  const id = releaseInteger(raw.id)
+  if (!id) return null
+  return {
+    id,
+    release_number: releaseInteger(raw.release_number) ?? id,
+    bundle_digest: releaseString(raw.bundle_digest),
+    integrity_valid: releaseBoolean(raw.integrity_valid),
+    runtime_compatible: releaseBoolean(raw.runtime_compatible),
+    released_at: releaseString(raw.released_at),
+  }
+}
+
+function normalizeRolloutRuntimeMode(value: unknown): CohortRolloutRecord['runtime_mode'] {
+  return releaseString(value) || 'unsupported'
+}
+
+function normalizeRolloutParticipant(value: unknown): CohortRolloutParticipant | null {
+  const raw = releaseRecord(value)
+  const userId = releaseInteger(raw.user_id)
+  if (!userId) return null
+  return {
+    user_id: userId,
+    full_name: releaseString(raw.full_name) || `Participant ${userId}`,
+    readiness: releaseString(raw.readiness) || 'awaiting_acceptance',
+    exposed: typeof raw.exposed === 'boolean' ? raw.exposed : null,
+    effective_release: normalizeRolloutRelease(raw.effective_release),
+  }
+}
+
+function normalizeRolloutTransition(value: unknown): CohortRolloutTransition | null {
+  const transition = releaseRecord(value)
+  const actor = releaseRecord(transition.actor)
+  const id = releaseInteger(transition.id)
+  if (!id) return null
+  const actorId = releaseInteger(actor.id)
+  return {
+    id,
+    event_type: releaseString(transition.event_type),
+    from_status: releaseNullableString(transition.from_status),
+    to_status: releaseString(transition.to_status),
+    from_wave_position: releaseInteger(transition.from_wave_position) ?? 0,
+    to_wave_position: releaseInteger(transition.to_wave_position) ?? 0,
+    rollback_release_id: releaseNullableInteger(transition.rollback_release_id),
+    readiness_digest: releaseNullableString(transition.readiness_digest),
+    actor: actorId ? { id: actorId, full_name: releaseString(actor.full_name) || `Workspace member ${actorId}`, role: releaseNullableString(actor.role) } : null,
+    occurred_at: releaseString(transition.occurred_at),
+    participant_runtime_changed: releaseBoolean(transition.participant_runtime_changed),
+  }
+}
+
+function normalizeCohortRolloutMutation(payload: unknown): CohortRolloutMutationResponse {
+  const root = releaseRecord(payload)
+  const studio = normalizeCohortRolloutStudio(root)
+  const rollout = normalizeRolloutRecord(root.rollout)
+  const transition = normalizeRolloutTransition(root.transition)
+  if (!rollout || !transition) throw new Error('The rollout action response was incomplete. Reload Coach Studio before continuing.')
+  return { rollout, transition, replayed: releaseBoolean(root.replayed), cohort_rollout_studio: studio }
+}
+
+function normalizeRolloutCounts(value: unknown): CohortRolloutReadinessCounts {
+  const raw = releaseRecord(value)
+  return {
+    ready: releaseInteger(raw.ready) ?? 0,
+    awaiting_acceptance: releaseInteger(raw.awaiting_acceptance) ?? 0,
+    revoked: releaseInteger(raw.revoked) ?? 0,
+    removed: releaseInteger(raw.removed) ?? 0,
+  }
+}
+
+function normalizeHistory(value: unknown, fallbackCount: number) {
+  const raw = releaseRecord(value)
+  const total = releaseInteger(raw.total_count) ?? fallbackCount
+  return {
+    limit: releaseInteger(raw.limit) ?? fallbackCount,
+    total_count: total,
+    truncated: releaseBoolean(raw.truncated, total > fallbackCount),
   }
 }
 
