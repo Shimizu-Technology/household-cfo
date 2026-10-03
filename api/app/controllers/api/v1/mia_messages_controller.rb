@@ -1752,34 +1752,39 @@ module Api
 
       def apply_persona_capability_boundary(content, direct_answer:, presentation:)
         return [ direct_answer, presentation ] unless Mia::Capabilities.persona_configuration_request?(content)
-        return [ direct_answer, presentation ] if direct_answer.blank? && presentation.blank?
 
-        boundary = Mia::Capabilities.persona_configuration_answer
-        bounded_presentation = presentation.deep_dup
-        if bounded_presentation.present?
-          lead_key = bounded_presentation.key?(:lead) ? :lead : "lead"
-          existing_lead = bounded_presentation[lead_key].to_s
-          available_lead_length = [ 500 - boundary.length - 1, 0 ].max
-          bounded_lead = existing_lead.truncate(available_lead_length, omission: "…")
-          bounded_presentation[lead_key] = [ bounded_lead, boundary ].compact_blank.join(" ")
-        end
-        [ direct_answer, bounded_presentation ]
+        apply_response_boundary(
+          direct_answer: direct_answer,
+          presentation: presentation,
+          boundary: Mia::Capabilities.persona_configuration_answer
+        )
       end
 
       def append_persona_capability_boundary(content, assistant_content)
         return assistant_content unless Mia::Capabilities.persona_configuration_request?(content)
 
-        boundary = Mia::Capabilities.persona_configuration_answer
-        return assistant_content if assistant_content.to_s.include?(boundary)
-
-        [ assistant_content, boundary ].compact_blank.join(" ")
+        append_response_boundary(assistant_content, boundary: Mia::Capabilities.persona_configuration_answer)
       end
 
       def apply_prompt_injection_boundary(content, direct_answer:, presentation:)
         return [ direct_answer, presentation ] unless HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+
+        apply_response_boundary(
+          direct_answer: direct_answer,
+          presentation: presentation,
+          boundary: HouseholdFinance::MiaCoachAnswerer.prompt_injection_boundary
+        )
+      end
+
+      def append_prompt_injection_boundary(content, assistant_content)
+        return assistant_content unless HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+
+        append_response_boundary(assistant_content, boundary: HouseholdFinance::MiaCoachAnswerer.prompt_injection_boundary)
+      end
+
+      def apply_response_boundary(direct_answer:, presentation:, boundary:)
         return [ direct_answer, presentation ] if direct_answer.blank? && presentation.blank?
 
-        boundary = HouseholdFinance::MiaCoachAnswerer.prompt_injection_boundary
         bounded_presentation = presentation.deep_dup
         if bounded_presentation.present?
           lead_key = bounded_presentation.key?(:lead) ? :lead : "lead"
@@ -1791,10 +1796,7 @@ module Api
         [ direct_answer, bounded_presentation ]
       end
 
-      def append_prompt_injection_boundary(content, assistant_content)
-        return assistant_content unless HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
-
-        boundary = HouseholdFinance::MiaCoachAnswerer.prompt_injection_boundary
+      def append_response_boundary(assistant_content, boundary:)
         return assistant_content if assistant_content.to_s.include?(boundary)
 
         [ assistant_content, boundary ].compact_blank.join(" ")
