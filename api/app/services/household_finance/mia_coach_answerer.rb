@@ -44,11 +44,13 @@ module HouseholdFinance
     PROMPT_INJECTION_PATTERN = /\b(?:(?:ignore|disregard|override|bypass)\s+(?:(?:all|any|every|the)\s+)?(?:(?:previous|prior|system|developer|safety|hidden|product|your)\s+){0,2}(?:rules?|instructions?|guardrails?|boundaries|polic(?:y|ies))|(?:reveal|show|print|repeat|expose)\s+(?:(?:your|the)\s+)?(?:hidden|system|developer|internal)\s+(?:prompts?|instructions?|rules?|messages?|tool calls?)|developer mode|jailbreak|you\s+are\s+now\s+(?:in\s+)?(?:developer\s+mode|jailbroken|unrestricted|uncensored|(?:an?\s+|the\s+)?(?:different|new|developer|system|unrestricted|uncensored)\s+(?:assistant|agent|model|persona|role)))\b/i.freeze
     UNSAFE_MEMORY_INSTRUCTION_PATTERN = %r{
       \A(?:from\s+now\s+on[,\s]+)?
-      (?:(?:(?:all|every)\s+responses?\s+(?:should|must|will)|(?:mia|you|the\s+assistant)\s+(?:should|must|will|always)|i\s+(?:want|need)\s+(?:mia|you|the\s+assistant)\s+to)\s+|please\s+)?
+      (?:(?:(?:all|every)\s+(?:responses?|repl(?:y|ies))\s+(?:should|must|will)|(?:mia|you|the\s+assistant)\s+(?:should|must|will|always)|i\s+(?:want|need)\s+(?:mia|you|the\s+assistant)\s+to)\s+|please\s+)?
       (?:always\s+)?
       (?:
-        auto(?:matically)?[- ]?(?:approve|apply|execute|write)\b|
-        (?:approve|apply|execute|write|change)\b.{0,80}\b(?:automatically|immediately|by\s+default|without\s+(?:asking(?:\s+me)?|review|approval|confirmation))\b|
+        auto(?:matically)?[- ]?approve\b|
+        auto(?:matically)?[- ]?(?:apply|execute|write|change)\b.{0,40}\b(?:changes?|actions?|drafts?|transactions?|budgets?|records?)\b|
+        approve\b.{0,80}\b(?:automatically|immediately|by\s+default|without\s+(?:asking(?:\s+me)?|review|approval|confirmation))\b|
+        (?:apply|execute|write|change)\b.{0,50}\b(?:changes?|actions?|drafts?|transactions?|budgets?|records?)\b.{0,30}\b(?:automatically|immediately|by\s+default|without\s+(?:asking(?:\s+me)?|review|approval|confirmation))\b|
         (?:bypass|skip|disable)\s+(?:all\s+|the\s+)?(?:human\s+)?(?:review|approval|confirmation)s?\b
       )
     }ix.freeze
