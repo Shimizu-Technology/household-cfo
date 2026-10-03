@@ -166,6 +166,15 @@ Rails.application.routes.draw do
           resources :releases, controller: "cohort_releases", only: %i[index create] do
             post :restore, on: :member
           end
+          resources :rollouts, controller: "cohort_rollouts", only: %i[index show create] do
+            member do
+              post :advance
+              post :pause
+              post :resume
+              post :cancel
+              post :rollback
+            end
+          end
           resource :persona_assignment, controller: "persona_assignments", only: %i[show update destroy]
           resource :experience_configuration, controller: "cohort_experience_configurations", only: %i[show update] do
             post :preview

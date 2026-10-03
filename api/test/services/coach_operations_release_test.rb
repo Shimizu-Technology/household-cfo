@@ -8,7 +8,10 @@ class CoachOperationsReleaseTest < ActiveSupport::TestCase
   include ActiveJob::TestHelper
 
   test "registry exposes typed coach operations without adding participant tools" do
-    assert_equal %w[cohort.release.restore cohort.release.seal], CoachOperations::Registry.operations.keys.sort
+    assert_equal %w[
+      cohort.release.restore cohort.release.seal cohort.rollout.advance cohort.rollout.cancel cohort.rollout.pause
+      cohort.rollout.plan cohort.rollout.resume cohort.rollout.rollback
+    ], CoachOperations::Registry.operations.keys.sort
     assert_equal 1, CoachOperations::Registry.fetch("cohort.release.seal", version: 1)::VERSION
 
     participant_keys = HouseholdFinance::Operations::Registry.operations.keys
@@ -314,35 +317,41 @@ class CoachOperationsReleaseTest < ActiveSupport::TestCase
       seal_input(cohort, assignment, persona_version, experience_version),
       request_key: "tenant-bound-operation"
     )
-    other_owner = persona_user
-    other_workspace = CoachWorkspaces::Provisioner.ensure_for!(other_owner)
+    other_owner, other_cohort, other_assignment, other_persona_version, other_experience_version = governed_components
+    direct_input = seal_input(other_cohort, other_assignment, other_persona_version, other_experience_version)
+    direct_release = CohortReleases::Sealer.new(cohort: other_cohort, actor: other_owner).call!(
+      request_key: "unlinked-tenant-bound-release",
+      expected_bundle_digest: direct_input.fetch("expected_bundle_digest"),
+      expected_assignment_id: direct_input.fetch("expected_assignment_id"),
+      expected_persona_version_id: direct_input.fetch("expected_persona_version_id"),
+      expected_experience_version_id: direct_input.fetch("expected_experience_version_id")
+    )
     forged = result.execution.attributes.except("id")
-    forged["coach_workspace_id"] = other_workspace.id
-    begin
-      CoachOperationExecution.connection.execute(
-        "ALTER TABLE coach_operation_executions DISABLE TRIGGER coach_operation_executions_immutable"
-      )
-      CoachOperationExecution.where(id: result.execution.id).delete_all
-      CoachOperationExecution.connection.execute(
-        "ALTER TABLE coach_operation_executions ENABLE TRIGGER coach_operation_executions_immutable"
-      )
-      assert_raises(ActiveRecord::InvalidForeignKey) do
-        CoachOperationExecution.transaction(requires_new: true) do
-          CoachOperationExecution.insert_all!([ forged ])
-        end
-      end
+    forged.merge!(
+      "cohort_id" => other_cohort.id,
+      "cohort_release_id" => direct_release.id,
+      "actor_user_id" => other_owner.id,
+      "actor_role_snapshot" => "owner",
+      "request_key" => "forged-cross-workspace",
+      "coach_workspace_id" => cohort.coach_workspace_id,
+      "completed_at" => direct_release.released_at
+    )
 
-      forged["coach_workspace_id"] = cohort.coach_workspace_id
-      forged["actor_user_id"] = other_owner.id
-      assert_raises(ActiveRecord::InvalidForeignKey) do
-        CoachOperationExecution.transaction(requires_new: true) do
-          CoachOperationExecution.insert_all!([ forged ])
-        end
+    assert_raises(ActiveRecord::InvalidForeignKey) do
+      CoachOperationExecution.transaction(requires_new: true) do
+        CoachOperationExecution.insert_all!([ forged ])
       end
-    ensure
-      CoachOperationExecution.connection.execute(
-        "ALTER TABLE coach_operation_executions ENABLE TRIGGER coach_operation_executions_immutable"
-      )
+    end
+
+    forged.merge!(
+      "coach_workspace_id" => other_cohort.coach_workspace_id,
+      "actor_user_id" => owner.id,
+      "request_key" => "forged-cross-actor"
+    )
+    assert_raises(ActiveRecord::InvalidForeignKey) do
+      CoachOperationExecution.transaction(requires_new: true) do
+        CoachOperationExecution.insert_all!([ forged ])
+      end
     end
   end
 

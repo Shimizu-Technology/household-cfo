@@ -23,6 +23,13 @@ class CohortRelease < ApplicationRecord
     dependent: :restrict_with_exception,
     inverse_of: :source_release
   has_one :coach_operation_execution, dependent: :restrict_with_exception, inverse_of: :cohort_release
+  has_many :targeted_cohort_rollouts, class_name: "CohortRollout", foreign_key: :target_cohort_release_id,
+    dependent: :restrict_with_exception, inverse_of: :target_cohort_release
+  has_many :rollback_cohort_rollouts, class_name: "CohortRollout", foreign_key: :rollback_cohort_release_id,
+    dependent: :restrict_with_exception, inverse_of: :rollback_cohort_release
+  has_many :rollback_cohort_rollout_transitions, class_name: "CohortRolloutTransition",
+    foreign_key: :rollback_cohort_release_id, dependent: :restrict_with_exception,
+    inverse_of: :rollback_cohort_release
 
   validates :release_number, numericality: { only_integer: true, greater_than: 0 },
     uniqueness: { scope: :cohort_id }

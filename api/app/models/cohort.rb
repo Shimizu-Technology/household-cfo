@@ -12,12 +12,14 @@ class Cohort < ApplicationRecord
   has_one :cohort_experience_configuration, dependent: :restrict_with_exception, inverse_of: :cohort
   has_many :cohort_releases, dependent: :restrict_with_exception, inverse_of: :cohort
   has_many :coach_operation_executions, dependent: :restrict_with_exception, inverse_of: :cohort
+  has_many :cohort_rollouts, dependent: :restrict_with_exception, inverse_of: :cohort
 
   validates :name, presence: true, length: { maximum: 120 }, uniqueness: { case_sensitive: false, scope: :coach_workspace_id }
   validates :status, inclusion: { in: STATUSES }
   validates :notes, length: { maximum: 2_000 }, allow_blank: true
   validate :ends_on_not_before_starts_on
   validate :creator_can_edit_workspace, on: :create
+  validate :no_open_rollout_when_closing
 
   before_validation :assign_default_coach_workspace, on: :create
   after_create :ensure_experience_configuration
@@ -46,5 +48,12 @@ class Cohort < ApplicationRecord
     return if starts_on.blank? || ends_on.blank? || ends_on >= starts_on
 
     errors.add(:ends_on, "must be on or after starts on")
+  end
+
+  def no_open_rollout_when_closing
+    return unless will_save_change_to_status? && status.in?(%w[completed archived])
+    return unless cohort_rollouts.where(status: CohortRollout::OPEN_STATUSES).exists?
+
+    errors.add(:status, "cannot be completed or archived while a rollout is planned, active, or paused")
   end
 end

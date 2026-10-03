@@ -3,6 +3,27 @@
 module CohortReleases
   class StudioSerializer
     HISTORY_LIMIT = 25
+    RELEASE_HISTORY_PRELOADS = [
+      :cohort,
+      :released_by_user,
+      :coach_persona,
+      :cohort_experience_configuration,
+      :cohort_experience_version,
+      {
+        coach_persona_version: [
+          { behavioral_preview_evidence: :release_candidate },
+          :coach_persona,
+          { release_candidate: :phrase_audience_attestations },
+          { evaluation_run: [ :release_candidate, { results: :evaluation_case } ] },
+          { evaluation_approval: { evaluation_run: [ :release_candidate, { results: :evaluation_case } ] } },
+          {
+            phrase_artifact_links: {
+              coach_persona_phrase_promotion: %i[coach_phrase_proposal coach_phrase_attestation]
+            }
+          }
+        ]
+      }
+    ].freeze
     RUNTIME_TRUTH = "Sealing or restoring a release record does not change the assistant or tools participants use.".freeze
 
     def initialize(cohort:, actor:)
@@ -150,25 +171,8 @@ module CohortReleases
     attr_reader :cohort, :actor
 
     def release_history
-      cohort.cohort_releases.order(release_number: :desc).limit(HISTORY_LIMIT).preload(
-        :cohort,
-        :released_by_user,
-        :coach_persona,
-        :cohort_experience_configuration,
-        :cohort_experience_version,
-        coach_persona_version: [
-          { behavioral_preview_evidence: :release_candidate },
-          :coach_persona,
-          { release_candidate: :phrase_audience_attestations },
-          { evaluation_run: [ :release_candidate, { results: :evaluation_case } ] },
-          { evaluation_approval: { evaluation_run: [ :release_candidate, { results: :evaluation_case } ] } },
-          {
-            phrase_artifact_links: {
-              coach_persona_phrase_promotion: %i[coach_phrase_proposal coach_phrase_attestation]
-            }
-          }
-        ]
-      ).to_a
+      cohort.cohort_releases.order(release_number: :desc).limit(HISTORY_LIMIT)
+        .preload(*RELEASE_HISTORY_PRELOADS).to_a
     end
 
     def persona_assessment(release, cache)

@@ -2,7 +2,14 @@
 
 module CoachOperations
   class Runner
-    Result = Data.define(:execution, :release, :replayed)
+    ROLLOUT_ROSTER_CONSTRAINT = "cohort_rollout_roster_matches_current_participants"
+    ROLLOUT_LATEST_RELEASE_CONSTRAINT = "cohort_rollout_target_is_latest_release"
+
+    Result = Data.define(:execution, :release, :rollout, :transition, :replayed) do
+      def record
+        release || transition
+      end
+    end
     class Error < StandardError; end
     class NotAuthorized < Error; end
     class IdempotencyConflict < Error; end
@@ -34,8 +41,8 @@ module CoachOperations
         existing = locked_cohort.coach_operation_executions.find_by(request_key: key)
         return replay(existing, request_fingerprint) if existing
 
-        release = operation.execute!(prepared, request_key: key)
-        after_snapshot = operation.after_snapshot(release)
+        operation_result = operation.execute!(prepared, request_key: key)
+        evidence = operation_evidence(operation, prepared, operation_result)
         execution = locked_cohort.coach_operation_executions.create!(
           coach_workspace: locked_cohort.coach_workspace,
           actor_user: locked_actor,
@@ -48,21 +55,33 @@ module CoachOperations
           request_fingerprint: request_fingerprint,
           normalized_input: prepared.normalized_input,
           normalized_input_digest: Contract.digest(prepared.normalized_input),
-          before_snapshot: prepared.before_snapshot,
-          before_snapshot_digest: Contract.digest(prepared.before_snapshot),
-          predicted_after_snapshot: prepared.predicted_after_snapshot,
-          predicted_after_snapshot_digest: Contract.digest(prepared.predicted_after_snapshot),
-          after_snapshot: after_snapshot,
-          after_snapshot_digest: Contract.digest(after_snapshot),
-          cohort_release: release,
-          completed_at: release.released_at
+          before_snapshot: evidence.fetch(:before_snapshot),
+          before_snapshot_digest: Contract.digest(evidence.fetch(:before_snapshot)),
+          predicted_after_snapshot: evidence.fetch(:predicted_after_snapshot),
+          predicted_after_snapshot_digest: Contract.digest(evidence.fetch(:predicted_after_snapshot)),
+          after_snapshot: evidence.fetch(:after_snapshot),
+          after_snapshot_digest: Contract.digest(evidence.fetch(:after_snapshot)),
+          cohort_release: evidence[:release],
+          cohort_rollout_transition: evidence[:transition],
+          completed_at: evidence.fetch(:completed_at)
         )
-        Result.new(execution: execution, release: release, replayed: false)
+        result_for(execution, replayed: false)
       end
     rescue CohortReleases::Authorization::NotAuthorized => error
       raise NotAuthorized, error.message
     rescue KeyError, Base::InvalidInput => error
       raise InvalidRequest, error.message
+    rescue ActiveRecord::StatementInvalid => error
+      case database_constraint_name(error)
+      when ROLLOUT_ROSTER_CONSTRAINT
+        raise CohortRollouts::StateMachine::Stale,
+          "The participant roster changed; reload before planning."
+      when ROLLOUT_LATEST_RELEASE_CONSTRAINT
+        raise CohortRollouts::StateMachine::Stale,
+          "The latest sealed release changed; reload before planning."
+      end
+
+      raise
     end
 
     private
@@ -94,15 +113,55 @@ module CoachOperations
 
     def replay(existing, request_fingerprint)
       if secure_match?(existing.request_fingerprint, request_fingerprint)
-        return Result.new(execution: existing, release: existing.cohort_release, replayed: true)
+        return result_for(existing, replayed: true)
       end
 
       raise IdempotencyConflict, "This Idempotency-Key was already used for a different coach operation"
     end
 
+    def operation_evidence(operation, prepared, result)
+      if result.respond_to?(:transition) && result.transition
+        {
+          release: nil,
+          transition: result.transition,
+          before_snapshot: prepared.before_snapshot,
+          predicted_after_snapshot: prepared.predicted_after_snapshot,
+          after_snapshot: result.after_snapshot,
+          completed_at: result.transition.occurred_at
+        }
+      else
+        {
+          release: result,
+          transition: nil,
+          before_snapshot: prepared.before_snapshot,
+          predicted_after_snapshot: prepared.predicted_after_snapshot,
+          after_snapshot: operation.after_snapshot(result),
+          completed_at: result.released_at
+        }
+      end
+    end
+
+    def result_for(execution, replayed:)
+      transition = execution.cohort_rollout_transition
+      Result.new(
+        execution: execution,
+        release: execution.cohort_release,
+        rollout: transition&.cohort_rollout,
+        transition: transition,
+        replayed: replayed
+      )
+    end
+
     def secure_match?(left, right)
       left.present? && right.present? && left.bytesize == right.bytesize &&
         ActiveSupport::SecurityUtils.secure_compare(left, right)
+    end
+
+    def database_constraint_name(error)
+      result = error.cause&.respond_to?(:result) ? error.cause.result : nil
+      result&.error_field(PG::Result::PG_DIAG_CONSTRAINT_NAME)
+    rescue StandardError
+      nil
     end
   end
 end
