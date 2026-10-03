@@ -9,8 +9,10 @@ module CohortReleases
       :persona_version,
       :experience_configuration,
       :experience_version,
+      :brand_version,
       :persona_snapshot,
       :experience_snapshot,
+      :brand_snapshot,
       :tool_registry_snapshot,
       :bundle,
       :bundle_digest,
@@ -27,11 +29,14 @@ module CohortReleases
     def call
       assignment, persona, persona_version, persona_snapshot, persona_blockers, persona_warnings = persona_component
       configuration, experience_version, experience_snapshot, experience_blockers, experience_warnings = experience_component
+      brand_version, brand_snapshot, brand_blockers, brand_warnings = brand_component
       registry = Contract.tool_registry_snapshot
       release_bundle = Contract.bundle(
+        schema: Contract::CURRENT_SCHEMA,
         cohort: cohort,
         persona_snapshot: persona_snapshot,
         experience_snapshot: experience_snapshot,
+        brand_snapshot: brand_snapshot,
         tool_registry_snapshot: registry
       )
 
@@ -44,13 +49,17 @@ module CohortReleases
         persona_version: persona_version,
         experience_configuration: configuration,
         experience_version: experience_version,
+        brand_version: brand_version,
         persona_snapshot: persona_snapshot,
         experience_snapshot: experience_snapshot,
+        brand_snapshot: brand_snapshot,
         tool_registry_snapshot: registry,
         bundle: release_bundle,
         bundle_digest: Contract.digest(release_bundle),
-        blockers: persona_blockers + experience_blockers + (strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
-        warnings: persona_warnings + experience_warnings + (!strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
+        blockers: persona_blockers + experience_blockers + brand_blockers +
+          (strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
+        warnings: persona_warnings + experience_warnings + brand_warnings +
+          (!strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
         ambiguous_participant_count: ambiguous_count
       )
     end
@@ -106,6 +115,26 @@ module CohortReleases
         Contract.experience_snapshot(configuration: configuration),
         strict ? [ message ] : [],
         strict ? [] : [ "Participant tools currently use the safe default." ]
+      ]
+    end
+
+    def brand_component
+      configuration = cohort.coach_workspace.workspace_brand_configuration
+      version = configuration&.current_published_version
+      valid = version && version.coach_workspace_id == cohort.coach_workspace_id &&
+        version.workspace_brand_configuration_id == configuration.id &&
+        Branding::Schema.errors(version.config).empty? &&
+        version.config_digest == Branding::Schema.digest(version.config)
+      if valid
+        return [ version, Contract.published_brand_snapshot(version: version), [], [] ]
+      end
+
+      message = "Publish the workspace brand before sealing a cohort release."
+      [
+        nil,
+        Contract.legacy_brand_snapshot,
+        strict ? [ message ] : [],
+        strict ? [] : [ "Branding currently uses the historical Household CFO identity." ]
       ]
     end
 

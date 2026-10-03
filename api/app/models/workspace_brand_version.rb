@@ -15,6 +15,7 @@ class WorkspaceBrandVersion < ApplicationRecord
     class_name: "WorkspaceBrandPublicationEvent",
     dependent: :restrict_with_exception,
     inverse_of: :workspace_brand_version
+  has_many :cohort_releases, dependent: :restrict_with_exception
 
   validates :version_number, numericality: { only_integer: true, greater_than: 0 }, uniqueness: { scope: :workspace_brand_configuration_id }
   validates :config_digest, format: { with: /\A[0-9a-f]{64}\z/ }

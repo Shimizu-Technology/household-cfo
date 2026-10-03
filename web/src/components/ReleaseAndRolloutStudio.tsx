@@ -82,7 +82,7 @@ export function ReleaseAndRolloutStudio({
         <div>
           <p className="eyebrow">Release &amp; rollout</p>
           <h3>Prepare one cohort from evidence to completion</h3>
-          <p>Seal the assistant and tools together, then choose how participants move through the rollout.</p>
+          <p>Seal the brand, assistant, and tools together, then choose how participants move through the rollout.</p>
         </div>
         <label>
           <span>Cohort</span>

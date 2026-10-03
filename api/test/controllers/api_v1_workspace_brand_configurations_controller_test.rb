@@ -213,6 +213,21 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     other_participant = create_user("participant")
     first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
     second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    reviewer = create_user("coach")
+    first_workspace.coach_workspace_memberships.create!(user: reviewer, role: "reviewer")
+    brand_configuration = first_workspace.workspace_brand_configuration
+    custom_brand = brand_configuration.draft_config.deep_dup
+    custom_brand["product_name"] = "First Runtime Program"
+    custom_brand["short_name"] = "First Runtime"
+    brand_configuration.update!(draft_config: custom_brand, last_edited_by_user: first_owner)
+    brand_publisher = Branding::Publisher.new(configuration: brand_configuration, actor: first_owner)
+    brand_preview = brand_publisher.preview!(expected_draft_revision: brand_configuration.draft_revision)
+    brand_publisher.publish!(
+      expected_preview_digest: brand_preview,
+      expected_draft_revision: brand_configuration.reload.draft_revision,
+      expected_current_version_id: brand_configuration.current_published_version_id,
+      idempotency_key: "first-runtime-brand"
+    )
     first_cohort = Cohort.create!(name: "First branded runtime", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
     second_cohort = Cohort.create!(name: "Second branded runtime", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
     first_cohort.cohort_memberships.create!(user: participant, role: "participant")
@@ -242,6 +257,15 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     )
     assert_response :success
     assert_nil response.parsed_body.dig("workspace", "cohort")
+    assert_equal "First Runtime Program", response.parsed_body.dig("workspace", "brand", "config", "product_name")
+
+    get "/api/v1/workspace", headers: auth_headers(reviewer).merge(
+      "Origin" => "https://first-runtime.example.com",
+      "X-Brand-Hostname" => "first-runtime.example.com"
+    )
+    assert_response :success
+    assert_nil response.parsed_body.dig("workspace", "cohort")
+    assert_equal "First Runtime Program", response.parsed_body.dig("workspace", "brand", "config", "product_name")
 
     get "/api/v1/workspace", headers: auth_headers(participant).merge("Origin" => "https://first-runtime.example.com")
     assert_response :unprocessable_entity

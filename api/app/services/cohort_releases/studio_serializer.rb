@@ -7,6 +7,7 @@ module CohortReleases
       :cohort,
       :released_by_user,
       :coach_persona,
+      :workspace_brand_version,
       :cohort_experience_configuration,
       :cohort_experience_version,
       {
@@ -24,7 +25,7 @@ module CohortReleases
         ]
       }
     ].freeze
-    RUNTIME_TRUTH = "Sealing or restoring a release record does not change the assistant or tools participants use.".freeze
+    RUNTIME_TRUTH = "Sealing or restoring a release record does not change the brand, assistant, or tools participants use.".freeze
 
     def initialize(cohort:, actor:)
       @cohort = cohort
@@ -40,7 +41,7 @@ module CohortReleases
       latest = releases.first
       authorized, actor_role = release_authority
       mutable = cohort.status.in?(CohortRelease::USER_RELEASE_COHORT_STATUSES)
-      seal_needed = latest.nil? || !secure_match?(candidate.bundle_digest, latest.bundle_digest)
+      seal_needed = latest.nil? || !SemanticParity.new(candidate: candidate, release: latest).equivalent?
       blockers = candidate.blockers.dup
       operational_blockers = []
       operational_blockers << "Completed and archived cohorts are read-only." unless mutable
@@ -142,6 +143,7 @@ module CohortReleases
         release_number: release.release_number,
         publication_source: release.publication_source,
         event_type: release.event_type,
+        manifest_schema: release.manifest_schema,
         source_release_id: release.source_release_id,
         actor_user_id: release.released_by_user_id,
         actor_role_snapshot: release.actor_role_snapshot,
@@ -154,6 +156,9 @@ module CohortReleases
         coach_persona_version_id: release.coach_persona_version_id,
         experience_mode: release.experience_mode,
         cohort_experience_version_id: release.cohort_experience_version_id,
+        brand_mode: effective_brand_mode(release),
+        workspace_brand_version_id: release.workspace_brand_version_id,
+        brand_snapshot_digest: effective_brand_snapshot_digest(release),
         tool_registry_version: release.tool_registry_version,
         tool_registry_digest: release.tool_registry_digest,
         bundle_digest: release.bundle_digest,
@@ -205,6 +210,7 @@ module CohortReleases
 
     def candidate_payload(candidate, latest_release_id:)
       {
+        manifest_schema: Contract::CURRENT_SCHEMA,
         bundle_digest: candidate.bundle_digest,
         assignment_id: candidate.assignment&.id,
         persona_mode: candidate.persona_snapshot.fetch("mode"),
@@ -212,6 +218,9 @@ module CohortReleases
         coach_persona_version_id: candidate.persona_version&.id,
         experience_mode: candidate.experience_snapshot.fetch("mode"),
         cohort_experience_version_id: candidate.experience_version&.id,
+        brand_mode: candidate.brand_snapshot.fetch("mode"),
+        workspace_brand_version_id: candidate.brand_version&.id,
+        brand_snapshot_digest: Contract.digest(candidate.brand_snapshot),
         tool_registry_version: Contract::TOOL_REGISTRY_VERSION,
         persona_snapshot_digest: Contract.digest(candidate.persona_snapshot),
         experience_snapshot_digest: Contract.digest(candidate.experience_snapshot),
@@ -232,6 +241,17 @@ module CohortReleases
 
     def readiness_checks(candidate)
       [
+        {
+          id: "workspace_brand",
+          label: "Workspace brand",
+          ready: candidate.brand_snapshot.fetch("mode") == "published_version" &&
+            candidate.blockers.none? { |value| value.match?(/brand/i) },
+          evidence: {
+            mode: candidate.brand_snapshot.fetch("mode"),
+            brand_version_id: candidate.brand_version&.id,
+            snapshot_digest: Contract.digest(candidate.brand_snapshot)
+          }
+        },
         {
           id: "assistant_voice",
           label: "Assistant voice",
@@ -279,12 +299,13 @@ module CohortReleases
     def restore_blockers(release, latest:, integrity:, ambiguous_participant_count:, persona_governed:)
       blockers = []
       blockers << "The selected release is already the latest sealed record." if release.id == latest&.id
-      if latest && secure_match?(release.bundle_digest, latest.bundle_digest) && release.id != latest.id
-        blockers << "The selected release bundle is already the latest sealed record."
-      end
       blockers << "The selected release failed its immutable evidence check." unless integrity.fetch(:valid)
       blockers << "The selected release is not compatible with the current runtime." unless integrity.fetch(:runtime_compatible)
       if integrity.fetch(:valid)
+        restored_candidate = RestoreCandidateBuilder.new(cohort: cohort, source_release: release).call
+        if latest && secure_match?(restored_candidate.bundle_digest, latest.bundle_digest) && release.id != latest.id
+          blockers << "The selected release bundle is already the latest sealed record."
+        end
         blockers.concat(RestoreGovernance.new(
           cohort: cohort,
           source_release: release,
@@ -293,6 +314,16 @@ module CohortReleases
         ).call)
       end
       blockers.uniq
+    end
+
+    def effective_brand_mode(release)
+      release.manifest_schema == Contract::V1_SCHEMA ? "legacy_household_cfo_builtin" : release.brand_mode
+    end
+
+    def effective_brand_snapshot_digest(release)
+      return release.brand_snapshot_digest if release.manifest_schema == Contract::V2_SCHEMA
+
+      Contract.digest(Contract.legacy_brand_snapshot)
     end
 
     def secure_match?(left, right)

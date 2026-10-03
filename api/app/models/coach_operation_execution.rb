@@ -101,6 +101,10 @@ class CoachOperationExecution < ApplicationRecord
     return unless cohort_release
 
     errors.add(:operation_key, "must be a release operation") unless operation_key.in?(RELEASE_OPERATION_KEYS)
+    expected_schema = operation_version == 1 ? CohortReleases::Contract::V1_SCHEMA : CohortReleases::Contract::V2_SCHEMA
+    unless cohort_release.manifest_schema == expected_schema
+      errors.add(:operation_version, "must match the linked release manifest schema")
+    end
 
     errors.add(:request_key, "must match the linked release") unless request_key == cohort_release.request_key
     errors.add(:actor_user, "must match the linked release") unless actor_user_id == cohort_release.released_by_user_id
@@ -231,17 +235,32 @@ class CoachOperationExecution < ApplicationRecord
       "expected_tool_registry_digest" => cohort_release.tool_registry_digest,
       "expected_tool_registry_version" => cohort_release.tool_registry_version
     }
+    if operation_version == 2
+      expected["expected_brand_version_id"] = cohort_release.workspace_brand_version_id
+    end
     errors.add(:normalized_input, "does not match the sealed release") unless normalized_input == expected
   end
 
   def validate_restore_input
-    expected = {
-      "expected_latest_release_id" => previous_release&.id,
-      "source_bundle_digest" => cohort_release.bundle_digest,
-      "source_experience_version_id" => cohort_release.cohort_experience_version_id,
-      "source_persona_version_id" => cohort_release.coach_persona_version_id,
-      "source_release_id" => cohort_release.source_release_id
-    }
+    expected = if operation_version == 1
+      {
+        "expected_latest_release_id" => previous_release&.id,
+        "source_bundle_digest" => cohort_release.bundle_digest,
+        "source_experience_version_id" => cohort_release.cohort_experience_version_id,
+        "source_persona_version_id" => cohort_release.coach_persona_version_id,
+        "source_release_id" => cohort_release.source_release_id
+      }
+    else
+      source = cohort_release.source_release
+      {
+        "expected_latest_release_id" => previous_release&.id,
+        "source_bundle_digest" => source&.bundle_digest,
+        "source_experience_version_id" => source&.cohort_experience_version_id,
+        "source_persona_version_id" => source&.coach_persona_version_id,
+        "source_release_id" => source&.id,
+        "source_brand_version_id" => source&.workspace_brand_version_id
+      }
+    end
     errors.add(:normalized_input, "does not match the restored release") unless normalized_input == expected
   end
 

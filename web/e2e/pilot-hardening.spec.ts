@@ -1238,24 +1238,31 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
         expected_latest_release_id: latestReleaseMatch ? 405 : 404,
         blockers: [], warnings: [],
         checks: [
+          { key: 'workspace_brand', label: 'Workspace brand', ready: true, detail: 'Version 9 is published.' },
           { key: 'assistant_voice', label: 'Assistant voice', ready: true, detail: 'Version 6 is published.' },
           { key: 'participant_tools', label: 'Participant tools', ready: true, detail: 'Version 8 is published.' },
           { key: 'system_controls', label: 'System controls', ready: true, detail: 'Registry version 3 is ready.' },
           { key: 'participant_cohort', label: 'Participant cohort check', ready: true, detail: 'No ambiguous participants.' },
         ],
         candidate: {
+          manifest_schema: 'cohort_release_manifest_v2',
           bundle_digest: 'release-bundle-next', assignment_id: 91,
           coach_persona_version_id: 6, cohort_experience_version_id: 8,
+          brand_mode: 'published_version', workspace_brand_version_id: 9,
+          brand_snapshot_digest: 'brand-snapshot-v9',
           tool_registry_digest: 'tool-registry-v3', tool_registry_version: 3,
         },
       },
       releases: [{
         id: latestReleaseMatch ? 405 : 404,
         release_number: releaseNumber,
+        manifest_schema: 'cohort_release_manifest_v2',
         event_type: 'release', released_at: '2026-10-03T01:00:00Z', actor_user_id: 901,
         bundle_digest: latestReleaseMatch ? 'release-bundle-next' : 'release-bundle-old',
         coach_persona_version_id: latestReleaseMatch ? 6 : 5,
         cohort_experience_version_id: latestReleaseMatch ? 8 : 7,
+        brand_mode: 'published_version', workspace_brand_version_id: latestReleaseMatch ? 9 : 8,
+        brand_snapshot_digest: latestReleaseMatch ? 'brand-snapshot-v9' : 'brand-snapshot-v8',
         tool_registry_digest: latestReleaseMatch ? 'tool-registry-v3' : 'tool-registry-v2',
         tool_registry_version: latestReleaseMatch ? 3 : 2,
         source_release_id: null, restore_allowed: !latestReleaseMatch, restore_reason: null,
@@ -1271,6 +1278,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
         expected_assignment_id: 91,
         expected_persona_version_id: 6,
         expected_experience_version_id: 8,
+        expected_brand_version_id: 9,
         expected_tool_registry_digest: 'tool-registry-v3',
         expected_tool_registry_version: 3,
         expected_latest_release_id: 404,
@@ -1284,10 +1292,15 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   const rolloutRelease = () => ({
     id: latestReleaseMatch ? 405 : 404, release_number: releaseNumber,
     bundle_digest: latestReleaseMatch ? 'release-bundle-next' : 'release-bundle-old',
+    manifest_schema: 'cohort_release_manifest_v2', brand_mode: 'published_version',
+    workspace_brand_version_id: latestReleaseMatch ? 9 : 8,
+    brand_snapshot_digest: latestReleaseMatch ? 'brand-snapshot-v9' : 'brand-snapshot-v8',
     integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z',
   })
   const activeRelease = {
     id: 404, release_number: 4, bundle_digest: 'release-bundle-old',
+    manifest_schema: 'cohort_release_manifest_v2', brand_mode: 'published_version',
+    workspace_brand_version_id: 8, brand_snapshot_digest: 'brand-snapshot-v8',
     integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z',
   }
   const rolloutRecord = () => ({
@@ -1351,6 +1364,8 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await expect(page.getByText(/A rollout labeled pre-cutover remains record-only until it is closed/)).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Ready to seal' })).toBeVisible()
   await expect(page.getByText('Latest sealed record')).toBeVisible()
+  await expect(page.getByText('Workspace brand', { exact: true })).toBeVisible()
+  await expect(page.locator('.cohort-release-evidence').first().getByText('9', { exact: true })).toBeVisible()
 
   const tabs = page.locator('.coach-studio-section-tabs [role="tab"]')
   expect(await tabs.count()).toBe(4)
@@ -1371,11 +1386,13 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await sealButton.click()
   const dialog = page.getByRole('dialog', { name: 'Seal this release record?' })
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await expect(dialog.getByText('Brand version', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('9', { exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: 'Seal release record' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Participant runtime did not change.' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Ready to seal' })).toBeFocused()
   await expect(page.getByRole('button', { name: 'Latest evidence already sealed' })).toBeDisabled()
-  await expect(page.getByText('The latest sealed record already matches this exact assistant and tool bundle.')).toBeVisible()
+  await expect(page.getByText('The latest sealed record already matches this exact brand, assistant, and tool bundle.')).toBeVisible()
 
   const rolloutTab = page.getByRole('tab', { name: /Rollout Plan and manage waves/ })
   const releaseStepTab = page.getByRole('tab', { name: /Release Verify and seal/ })
@@ -1394,6 +1411,8 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   const planDialog = page.getByRole('dialog', { name: 'Record this rollout plan?' })
   await expect(planDialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   await expect(planDialog.getByText('Release #5', { exact: true })).toBeVisible()
+  await expect(planDialog.getByText('Target brand', { exact: true })).toBeVisible()
+  await expect(planDialog.getByText('Brand version 9', { exact: true })).toBeVisible()
   await expect(planDialog.getByText('Wave 1 · 1 participant', { exact: true })).toBeVisible()
   await expect(planDialog.getByText('Later group · 1 participant', { exact: true })).toBeVisible()
   await expect(planDialog.getByText('None until the first wave starts', { exact: true })).toBeVisible()
@@ -1403,6 +1422,8 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await page.getByRole('button', { name: 'Review and start rollout' }).click()
   const startDialog = page.getByRole('dialog', { name: 'Start this rollout?' })
   await expect(startDialog.getByText('1. Wave 1', { exact: true })).toBeVisible()
+  await expect(startDialog.getByText('Target brand', { exact: true })).toBeVisible()
+  await expect(startDialog.getByText('Brand version 9', { exact: true })).toBeVisible()
   await expect(startDialog.getByText('1', { exact: true }).last()).toBeVisible()
   await expect(startDialog.getByText('This wave changes immediately', { exact: true })).toBeVisible()
   await startDialog.getByRole('button', { name: 'Start rollout' }).click()

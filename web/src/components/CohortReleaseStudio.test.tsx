@@ -23,10 +23,14 @@ const studioFixture: CohortReleaseStudioData = {
   runtime_truth: { changes_participant_runtime: false, message: 'Release records preserve audit evidence without changing participant runtime.' },
   permissions: { view: true, seal: true, restore: true },
   candidate: {
+    manifest_schema: 'cohort_release_manifest_v2',
     bundle_digest: 'bundle-next-1234567890',
     assignment_id: 31,
     persona_version_id: 6,
     experience_version_id: 8,
+    brand_mode: 'published_version',
+    brand_version_id: 9,
+    brand_snapshot_digest: 'brand-v9',
     registry_digest: 'registry-v3',
     registry_version: 3,
     expected_latest_release_id: 44,
@@ -35,6 +39,7 @@ const studioFixture: CohortReleaseStudioData = {
     blockers: [],
     warnings: [],
     checks: [
+      { key: 'workspace_brand', label: 'Workspace brand', ready: true, detail: 'Version 9 is published.' },
       { key: 'assistant_voice', label: 'Assistant voice', ready: true, detail: 'Version 6 is published.' },
       { key: 'participant_tools', label: 'Participant tools', ready: true, detail: 'Version 8 is published.' },
       { key: 'system_controls', label: 'System controls', ready: true, detail: 'Registry version 3 is ready.' },
@@ -47,6 +52,7 @@ const studioFixture: CohortReleaseStudioData = {
     id: 44,
     release_number: 4,
     event_type: 'release',
+    manifest_schema: 'cohort_release_manifest_v2',
     released_at: '2026-10-03T01:00:00Z',
     actor: { id: 7, full_name: 'Coach Mel' },
     actor_user_id: 7,
@@ -54,6 +60,9 @@ const studioFixture: CohortReleaseStudioData = {
     source_release_id: null,
     persona_version_id: 5,
     experience_version_id: 7,
+    brand_mode: 'published_version',
+    brand_version_id: 8,
+    brand_snapshot_digest: 'brand-v8',
     registry_digest: 'registry-v2',
     registry_version: 2,
     restore_allowed: true,
@@ -107,9 +116,11 @@ describe('CohortReleaseStudio', () => {
     expect(await screen.findByRole('heading', { name: 'Ready to seal' })).toBeTruthy()
     expect(screen.getByText('Release records are audit evidence.')).toBeTruthy()
     expect(screen.getByText(/without changing participant runtime/)).toBeTruthy()
-    for (const label of ['Assistant voice', 'Participant tools', 'System controls', 'Participant cohort check']) {
+    for (const label of ['Workspace brand', 'Assistant voice', 'Participant tools', 'System controls', 'Participant cohort check']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
+    expect(screen.getAllByText('Brand version')).toHaveLength(2)
+    expect(screen.getByText('9')).toBeTruthy()
     expect(screen.getByText('Latest sealed record')).toBeTruthy()
     for (const control of screen.getAllByRole('button')) {
       expect(control.textContent).not.toMatch(/\b(Current|Live|Activate|Deploy|Publish)\b/i)
@@ -123,6 +134,8 @@ describe('CohortReleaseStudio', () => {
     await user.click(sealButton)
 
     const dialog = screen.getByRole('dialog', { name: 'Seal this release record?' })
+    expect(within(dialog).getByText('Brand version')).toBeTruthy()
+    expect(within(dialog).getByText('9')).toBeTruthy()
     const cancel = within(dialog).getByRole('button', { name: 'Cancel' })
     const confirm = within(dialog).getByRole('button', { name: 'Seal release record' })
     expect(document.activeElement).toBe(cancel)
@@ -165,8 +178,34 @@ describe('CohortReleaseStudio', () => {
       source_bundle_digest: 'bundle-old',
       source_persona_version_id: 5,
       source_experience_version_id: 7,
+      source_brand_version_id: 8,
     }, 'release-request-1'))
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Ready to seal' })))
+  })
+
+  it('labels historical v1 branding and restores it without a brand version token', async () => {
+    const user = userEvent.setup()
+    apiMocks.fetchCohortReleaseStudio.mockResolvedValue({
+      ...studioFixture,
+      releases: studioFixture.releases.map((release) => ({
+        ...release,
+        manifest_schema: 'cohort_release_manifest_v1',
+        brand_mode: 'legacy_household_cfo_builtin',
+        brand_version_id: null,
+        brand_snapshot_digest: '35ded27bda2348d56c1db078c087ed681442a4a7bba86d8924c39a9342fa7eb8',
+      })),
+    })
+    renderStudio()
+
+    expect(await screen.findByText('Household CFO legacy brand')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Review restore record' }))
+    const dialog = screen.getByRole('dialog', { name: 'Restore record #4' })
+    expect(within(dialog).getByText('Historical brand')).toBeTruthy()
+    expect(within(dialog).getByText('Household CFO legacy brand')).toBeTruthy()
+    await user.click(within(dialog).getByRole('button', { name: 'Seal restore record' }))
+    await waitFor(() => expect(apiMocks.restoreCohortRelease).toHaveBeenCalledWith(12, 44, expect.objectContaining({
+      source_brand_version_id: null,
+    }), 'release-request-1'))
   })
 
   it('blocks restore when the server omits the latest-release precondition', async () => {

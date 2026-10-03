@@ -328,7 +328,7 @@ function ActiveRollout({ rollout, studio, pending, onAction }: {
       ) : legacy ? (
         <div className="cohort-rollout-legacy" role="note"><strong>Pre-cutover rollout · record only</strong><p>{rollout.runtime_blocker ?? 'This legacy rollout cannot activate participant release runtime. Close it before planning a runtime rollout.'}</p></div>
       ) : (
-        <div className="cohort-rollout-runtime-summary" role="status"><strong>Captured baseline:</strong> {releaseLabel(rollout.baseline_release)} <span aria-hidden="true">→</span> <strong>Target:</strong> Release #{rollout.target_release.release_number}</div>
+        <div className="cohort-rollout-runtime-summary" role="status"><strong>Captured baseline:</strong> {releaseLabel(rollout.baseline_release)} · {brandEvidenceLabel(rollout.baseline_release)} <span aria-hidden="true">→</span> <strong>Target:</strong> Release #{rollout.target_release.release_number} · {brandEvidenceLabel(rollout.target_release)}</div>
       )}
       <div className="cohort-rollout-progress" aria-label={rolloutProgressLabel(rollout)}>
         {rollout.waves.map((wave) => <span key={wave.id} className={wave.completed ? 'is-complete' : wave.active ? 'is-active' : ''}><i />Wave {wave.position}</span>)}
@@ -450,6 +450,7 @@ function confirmationDetails(action: Action, rollout: CohortRolloutRecord | null
   if (action === 'plan' && plan) {
     return [
       { label: 'Target release', value: `Release #${studio.latest_release?.release_number ?? 'unavailable'}` },
+      { label: 'Target brand', value: brandEvidenceLabel(studio.latest_release) },
       { label: 'Wave count', value: `${plan.waves.length}` },
       ...plan.waves.map((wave, index) => ({
         label: `Wave ${index + 1}`,
@@ -465,21 +466,25 @@ function confirmationDetails(action: Action, rollout: CohortRolloutRecord | null
       { label: rollout.status === 'planned' ? 'Starting wave' : 'Advancing to', value: `${wave.position}. ${wave.name}` },
       { label: 'Participants', value: `${wave.participant_count}` },
       { label: 'Target release', value: `Release #${rollout.target_release.release_number}` },
+      { label: 'Target brand', value: brandEvidenceLabel(rollout.target_release) },
       { label: 'Runtime effect', value: rollout.runtime_mode === 'release_runtime_v2' ? 'This wave changes immediately' : 'Legacy record only · no runtime change' },
     ] : [
       { label: 'Decision', value: 'Complete rollout' },
       { label: 'Completed waves', value: `${rollout.wave_count}` },
       { label: 'Target release', value: `Release #${rollout.target_release.release_number}` },
+      { label: 'Target brand', value: brandEvidenceLabel(rollout.target_release) },
       { label: 'Runtime effect', value: rollout.runtime_mode === 'release_runtime_v2' ? 'Becomes the cohort default immediately' : 'Legacy record only · no runtime change' },
     ]
   }
   if (action === 'rollback') return [
     { label: 'Rollback to', value: `Release #${rollout.rollback_candidate?.release_number ?? 'unavailable'}` },
+    { label: 'Rollback brand', value: brandEvidenceLabel(rollout.rollback_candidate) },
     { label: 'Current target', value: `Release #${rollout.target_release.release_number}` },
     { label: 'Runtime effect', value: rollout.runtime_mode === 'release_runtime_v2' ? 'Still-current exposed enrollments return to baseline' : 'Legacy record only · no runtime change' },
   ]
   if (action === 'cancel') return [
     { label: 'Target release', value: `Release #${rollout.target_release.release_number}` },
+    { label: 'Target brand', value: brandEvidenceLabel(rollout.target_release) },
     { label: 'Plan size', value: `${rollout.wave_count} wave${rollout.wave_count === 1 ? '' : 's'} · ${rollout.participant_count} participant${rollout.participant_count === 1 ? '' : 's'}` },
     { label: 'Runtime effect', value: 'No change' },
   ]
@@ -488,8 +493,16 @@ function confirmationDetails(action: Action, rollout: CohortRolloutRecord | null
     { label: 'Decision', value: titleize(action) },
     ...(currentWave ? [{ label: 'Current wave', value: `${currentWave.position}. ${currentWave.name} · ${currentWave.participant_count} participant${currentWave.participant_count === 1 ? '' : 's'}` }] : []),
     { label: 'Target release', value: `Release #${rollout.target_release.release_number}` },
+    { label: 'Target brand', value: brandEvidenceLabel(rollout.target_release) },
     { label: 'Runtime effect', value: 'No change' },
   ]
+}
+
+function brandEvidenceLabel(release: CohortRolloutRelease | null | undefined) {
+  if (!release) return 'Unavailable'
+  if (release.brand_version_id !== null) return `Brand version ${release.brand_version_id}`
+  if (release.brand_mode === 'legacy_household_cfo_builtin') return 'Household CFO legacy brand'
+  return 'Built-in brand'
 }
 
 function successMessage(action: Action, result: CohortRolloutMutationResponse, previousRollout: CohortRolloutRecord | null) {

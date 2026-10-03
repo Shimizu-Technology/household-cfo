@@ -22,25 +22,48 @@ module CoachOperations
 
     def call!(operation_key:, operation_version:, input:, request_key:)
       key = normalize_request_key(request_key)
-      operation_class = Registry.fetch(operation_key, version: operation_version)
 
       Cohort.transaction do
         locked_cohort = Cohort.lock.find(cohort.id)
         locked_actor, actor_role = authorize!(locked_cohort)
-        operation = operation_class.new(
-          cohort: locked_cohort,
-          actor: locked_actor,
-          actor_role_snapshot: actor_role,
+        existing = locked_cohort.coach_operation_executions.find_by(request_key: key)
+        if existing
+          unless existing.operation_key == operation_key.to_s
+            raise IdempotencyConflict, "This Idempotency-Key was already used for a different coach operation"
+          end
+
+          operation_class = Registry.fetch(existing.operation_key, version: existing.operation_version)
+          operation = build_operation(
+            operation_class,
+            locked_cohort,
+            locked_actor,
+            actor_role,
+            operation_version: existing.operation_version
+          )
+          prepared = operation.prepare(input)
+          request_fingerprint = request_fingerprint_for(prepared, key, locked_cohort, locked_actor, actor_role)
+          return replay(existing, request_fingerprint)
+        end
+
+        operation_class = Registry.fetch(operation_key, version: operation_version)
+        replay_only_versions = if operation_class.const_defined?(:REPLAY_ONLY_VERSIONS, false)
+          operation_class::REPLAY_ONLY_VERSIONS
+        else
+          []
+        end
+        if Integer(operation_version, exception: false).in?(replay_only_versions)
+          raise InvalidRequest, "New coach operations must use version #{operation_class::VERSION}"
+        end
+        operation = build_operation(
+          operation_class,
+          locked_cohort,
+          locked_actor,
+          actor_role,
           operation_version: operation_version
         )
         prepared = operation.prepare(input)
         invocation_fingerprint = invocation_fingerprint_for(prepared, locked_cohort, locked_actor, actor_role)
-        request_fingerprint = Contract.request_fingerprint(
-          request_key: key,
-          invocation_fingerprint: invocation_fingerprint
-        )
-        existing = locked_cohort.coach_operation_executions.find_by(request_key: key)
-        return replay(existing, request_fingerprint) if existing
+        request_fingerprint = Contract.request_fingerprint(request_key: key, invocation_fingerprint: invocation_fingerprint)
 
         operation_result = operation.execute!(prepared, request_key: key)
         evidence = operation_evidence(operation, prepared, operation_result)
@@ -109,6 +132,22 @@ module CoachOperations
         operation_key: prepared.operation_key,
         operation_version: prepared.operation_version,
         normalized_input: prepared.normalized_input
+      )
+    end
+
+    def request_fingerprint_for(prepared, key, locked_cohort, locked_actor, actor_role)
+      Contract.request_fingerprint(
+        request_key: key,
+        invocation_fingerprint: invocation_fingerprint_for(prepared, locked_cohort, locked_actor, actor_role)
+      )
+    end
+
+    def build_operation(operation_class, locked_cohort, locked_actor, actor_role, operation_version:)
+      operation_class.new(
+        cohort: locked_cohort,
+        actor: locked_actor,
+        actor_role_snapshot: actor_role,
+        operation_version: operation_version
       )
     end
 

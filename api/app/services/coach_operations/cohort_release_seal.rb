@@ -3,15 +3,18 @@
 module CoachOperations
   class CohortReleaseSeal < Base
     KEY = "cohort.release.seal"
-    VERSION = 1
-    INPUT_KEYS = %w[
+    VERSION = 2
+    SUPPORTED_VERSIONS = [ 1, 2 ].freeze
+    REPLAY_ONLY_VERSIONS = [ 1 ].freeze
+    V1_INPUT_KEYS = %w[
       expected_assignment_id expected_bundle_digest expected_experience_version_id expected_latest_release_id
       expected_persona_version_id expected_tool_registry_digest expected_tool_registry_version
     ].freeze
+    V2_INPUT_KEYS = (V1_INPUT_KEYS + %w[expected_brand_version_id]).freeze
 
     def normalized_input(raw_input)
-      input = canonical_input(raw_input, allowed_keys: INPUT_KEYS)
-      {
+      input = canonical_input(raw_input, allowed_keys: operation_version == 1 ? V1_INPUT_KEYS : V2_INPUT_KEYS)
+      normalized = {
         "expected_assignment_id" => optional_id(input["expected_assignment_id"], "expected_assignment_id"),
         "expected_bundle_digest" => required_digest(input["expected_bundle_digest"], "expected_bundle_digest"),
         "expected_experience_version_id" => optional_id(
@@ -28,6 +31,12 @@ module CoachOperations
           input["expected_tool_registry_version"], "expected_tool_registry_version"
         )
       }
+      if operation_version == 2
+        normalized["expected_brand_version_id"] = optional_id(
+          input["expected_brand_version_id"], "expected_brand_version_id"
+        )
+      end
+      normalized
     end
 
     def predicted_after_snapshot(input)
@@ -48,7 +57,8 @@ module CoachOperations
         expected_bundle_digest: input.fetch("expected_bundle_digest"),
         expected_assignment_id: input.fetch("expected_assignment_id"),
         expected_persona_version_id: input.fetch("expected_persona_version_id"),
-        expected_experience_version_id: input.fetch("expected_experience_version_id")
+        expected_experience_version_id: input.fetch("expected_experience_version_id"),
+        expected_brand_version_id: input["expected_brand_version_id"]
       )
     end
 
@@ -75,6 +85,9 @@ module CoachOperations
       components_match = input.fetch("expected_assignment_id") == candidate.assignment&.id &&
         input.fetch("expected_persona_version_id") == candidate.persona_version&.id &&
         input.fetch("expected_experience_version_id") == candidate.experience_version&.id
+      if operation_version == 2
+        components_match &&= input.fetch("expected_brand_version_id") == candidate.brand_version&.id
+      end
       raise CohortReleases::Sealer::Stale, "The cohort release inputs changed; reload before sealing" unless components_match
     end
   end

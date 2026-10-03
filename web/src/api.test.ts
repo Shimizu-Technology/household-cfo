@@ -162,10 +162,14 @@ describe('cohort release API contract', () => {
           warnings: ['Review the roster.'],
           checks: [{ key: 'persona', label: 'Assistant voice', ready: true, detail: 'Version 6' }],
           candidate: {
+            manifest_schema: 'cohort_release_manifest_v2',
             bundle_digest: 'bundle-next',
             assignment_id: 31,
             coach_persona_version_id: 6,
             cohort_experience_version_id: 8,
+            brand_mode: 'published_version',
+            workspace_brand_version_id: 9,
+            brand_snapshot_digest: 'brand-v9',
             tool_registry_digest: 'registry-v3',
             tool_registry_version: 3,
           },
@@ -177,9 +181,13 @@ describe('cohort release API contract', () => {
           event_type: 'release',
           released_at: '2026-10-03T01:00:00Z',
           actor_user_id: 7,
+          manifest_schema: 'cohort_release_manifest_v1',
           bundle_digest: 'bundle-old',
           coach_persona_version_id: 5,
           cohort_experience_version_id: 7,
+          brand_mode: 'legacy_household_cfo_builtin',
+          workspace_brand_version_id: null,
+          brand_snapshot_digest: '35ded27bda2348d56c1db078c087ed681442a4a7bba86d8924c39a9342fa7eb8',
           tool_registry_digest: 'registry-v2',
           tool_registry_version: 2,
           restore_allowed: false,
@@ -198,6 +206,9 @@ describe('cohort release API contract', () => {
       bundle_digest: 'bundle-next',
       persona_version_id: 6,
       experience_version_id: 8,
+      brand_mode: 'published_version',
+      brand_version_id: 9,
+      brand_snapshot_digest: 'brand-v9',
       registry_digest: 'registry-v3',
       registry_version: 3,
       expected_latest_release_id: 44,
@@ -206,6 +217,9 @@ describe('cohort release API contract', () => {
     })
     expect(studio.releases[0]).toMatchObject({
       actor_user_id: 7,
+      manifest_schema: 'cohort_release_manifest_v1',
+      brand_mode: 'legacy_household_cfo_builtin',
+      brand_version_id: null,
       restore_reason: 'The assistant is archived. Choose another record.',
     })
     expect(studio.history).toEqual({ limit: 25, total_count: 100, truncated: true })
@@ -215,6 +229,7 @@ describe('cohort release API contract', () => {
       expected_assignment_id: 31,
       expected_persona_version_id: 6,
       expected_experience_version_id: 8,
+      expected_brand_version_id: 9,
       expected_tool_registry_digest: 'registry-v3',
       expected_tool_registry_version: 3,
       expected_latest_release_id: 44,
@@ -224,6 +239,7 @@ describe('cohort release API contract', () => {
       source_bundle_digest: 'bundle-old',
       source_persona_version_id: 5,
       source_experience_version_id: 7,
+      source_brand_version_id: null,
     }, 'restore-attempt')
 
     expect(createCohortReleaseRequestId()).toBeTruthy()
@@ -240,6 +256,7 @@ describe('cohort release API contract', () => {
         source_bundle_digest: 'bundle-old',
         source_persona_version_id: 5,
         source_experience_version_id: 7,
+        source_brand_version_id: null,
       },
     })
   })
@@ -247,8 +264,8 @@ describe('cohort release API contract', () => {
 
 describe('cohort rollout API contract', () => {
   it('normalizes rollout evidence and sends exact stable-key lifecycle inputs', async () => {
-    const baselineRelease = { id: 43, release_number: 3, bundle_digest: 'baseline-bundle', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' }
-    const targetRelease = { id: 44, release_number: 4, bundle_digest: 'bundle', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z' }
+    const baselineRelease = { id: 43, release_number: 3, bundle_digest: 'baseline-bundle', manifest_schema: 'cohort_release_manifest_v2', brand_mode: 'published_version', workspace_brand_version_id: 8, brand_snapshot_digest: 'brand-v8', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' }
+    const targetRelease = { id: 44, release_number: 4, bundle_digest: 'bundle', manifest_schema: 'cohort_release_manifest_v2', brand_mode: 'published_version', workspace_brand_version_id: 9, brand_snapshot_digest: 'brand-v9', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z' }
     const rolloutPayload = {
       cohort_rollout_studio: {
         cohort: { id: 12, name: 'Tuesday cohort', status: 'active', participant_count: 2 },

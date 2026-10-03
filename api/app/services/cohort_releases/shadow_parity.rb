@@ -14,7 +14,7 @@ module CohortReleases
       return payload("corrupt", release: release, integrity: report) unless report.fetch(:valid)
 
       candidate = CandidateBuilder.new(cohort: cohort, strict: false).call
-      state = secure_match?(candidate.bundle_digest, release.bundle_digest) ? "in_sync" : "drifted"
+      state = SemanticParity.new(candidate: candidate, release: release).equivalent? ? "in_sync" : "drifted"
       payload(state, release: release, integrity: report, candidate: candidate)
     rescue StandardError => error
       Rails.logger.error("[CohortReleases::ShadowParity] cohort_id=#{cohort.id} error=#{error.class}")
@@ -37,11 +37,6 @@ module CohortReleases
         runtime_compatible: integrity&.fetch(:runtime_compatible, false),
         warning_count: candidate&.warnings&.length.to_i
       }
-    end
-
-    def secure_match?(left, right)
-      left.present? && right.present? && left.bytesize == right.bytesize &&
-        ActiveSupport::SecurityUtils.secure_compare(left, right)
     end
   end
 end

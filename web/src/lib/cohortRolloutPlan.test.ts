@@ -7,8 +7,15 @@ import {
   serializeCohortRolloutPlan,
 } from './cohortRolloutPlan'
 
+const releaseBrandEvidence = {
+  manifest_schema: 'cohort_release_manifest_v2',
+  brand_mode: 'published_version',
+  brand_version_id: 9,
+  brand_snapshot_digest: 'brand-v9',
+}
+
 function studioFixture(): CohortRolloutStudio {
-  const activeRelease = { id: 21, release_number: 2, bundle_digest: 'baseline', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' }
+  const activeRelease = { ...releaseBrandEvidence, id: 21, release_number: 2, bundle_digest: 'baseline', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' }
   return {
     cohort: { id: 12, name: 'Tuesday cohort', status: 'active', participant_count: 2 },
     runtime_truth: { changes_participant_runtime: false, participant_runtime_changed: false, message: 'Evidence only.' },
@@ -21,7 +28,7 @@ function studioFixture(): CohortRolloutStudio {
         { user_id: 7, full_name: 'Ben Santos', readiness: 'ready', exposed: null, effective_release: activeRelease },
       ],
     },
-    latest_release: { id: 22, release_number: 3, bundle_digest: 'bundle', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z' },
+    latest_release: { ...releaseBrandEvidence, id: 22, release_number: 3, bundle_digest: 'bundle', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z' },
     active_release: activeRelease,
     release_history: { limit: 25, total_count: 1, truncated: false }, releases: [],
     history: { limit: 25, total_count: 0, truncated: false }, open_rollout: null, rollouts: [],

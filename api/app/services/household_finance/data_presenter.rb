@@ -2,7 +2,8 @@ module HouseholdFinance
   class DataPresenter
     UNRESOLVED_COHORT = Object.new.freeze
 
-    def initialize(household, user: nil, annual_plan: nil, persona: nil, cohort_membership: UNRESOLVED_COHORT, experience_capabilities: nil, ensure_plan: true)
+    def initialize(household, user: nil, annual_plan: nil, persona: nil, cohort_membership: UNRESOLVED_COHORT,
+      experience_capabilities: nil, brand: nil, ensure_plan: true)
       @household = household
       @user = user
       @annual_plan = annual_plan
@@ -17,6 +18,7 @@ module HouseholdFinance
       @experience_capabilities = experience_capabilities || CohortExperience::EffectiveCapabilitiesResolver.new(
         cohort_membership: @cohort_membership
       ).call
+      @brand = brand || Branding::RuntimeResolver.for_membership(@cohort_membership)
     end
 
     def app_data
@@ -49,7 +51,8 @@ module HouseholdFinance
         goals: goal_records,
         goal_portfolio: GoalPortfolio.new(household).as_json,
         cohort: cohort_context,
-        capabilities: experience_capabilities
+        capabilities: experience_capabilities,
+        brand: brand
       }
     end
 
@@ -304,7 +307,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :experience_capabilities
+    attr_reader :experience_capabilities, :brand
 
     def module_enabled?(id)
       experience_capabilities.fetch(:modules).any? { |item| item.fetch(:id) == id && item.fetch(:enabled) }

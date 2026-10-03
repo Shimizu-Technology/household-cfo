@@ -12,11 +12,30 @@ class CoachOperationsReleaseTest < ActiveSupport::TestCase
       cohort.release.restore cohort.release.seal cohort.rollout.advance cohort.rollout.cancel cohort.rollout.pause
       cohort.rollout.plan cohort.rollout.resume cohort.rollout.rollback
     ], CoachOperations::Registry.operations.keys.sort
-    assert_equal 1, CoachOperations::Registry.fetch("cohort.release.seal", version: 1)::VERSION
+    assert_equal 2, CoachOperations::Registry.fetch("cohort.release.seal", version: 1)::VERSION
+    assert_equal [ 1, 2 ], CoachOperations::CohortReleaseSeal::SUPPORTED_VERSIONS
 
     participant_keys = HouseholdFinance::Operations::Registry.operations.keys
     refute_includes participant_keys, "cohort.release.seal"
     refute_includes participant_keys, "cohort.release.restore"
+  end
+
+  test "runner reserves retired release versions for exact historical retries" do
+    owner, cohort, assignment, persona_version, experience_version = governed_components
+    input = seal_input(cohort, assignment, persona_version, experience_version).except("expected_brand_version_id")
+
+    error = assert_raises(CoachOperations::Runner::InvalidRequest) do
+      CoachOperations::Runner.new(cohort: cohort, actor: owner).call!(
+        operation_key: CoachOperations::CohortReleaseSeal::KEY,
+        operation_version: 1,
+        input: input,
+        request_key: "fresh-retired-v1"
+      )
+    end
+
+    assert_equal "New coach operations must use version 2", error.message
+    assert_empty cohort.cohort_releases
+    assert_empty cohort.coach_operation_executions
   end
 
   test "runner seals exact reviewed evidence and replays the same request" do
@@ -97,11 +116,13 @@ class CoachOperationsReleaseTest < ActiveSupport::TestCase
     normalized = operation.normalized_input(input.merge(
       "expected_assignment_id" => nil,
       "expected_persona_version_id" => nil,
-      "expected_experience_version_id" => nil
+      "expected_experience_version_id" => nil,
+      "expected_brand_version_id" => nil
     ))
     assert_nil normalized.fetch("expected_assignment_id")
     assert_nil normalized.fetch("expected_persona_version_id")
     assert_nil normalized.fetch("expected_experience_version_id")
+    assert_nil normalized.fetch("expected_brand_version_id")
 
     assert_raises(CohortReleases::Sealer::Stale) do
       run_seal(cohort, owner, normalized, request_key: "nullable-is-not-a-wildcard")
@@ -117,6 +138,7 @@ class CoachOperationsReleaseTest < ActiveSupport::TestCase
       "source_bundle_digest" => "a" * 64,
       "source_experience_version_id" => nil,
       "source_persona_version_id" => nil,
+      "source_brand_version_id" => nil,
       "source_release_id" => 1
     )
     assert_nil restore.fetch("source_persona_version_id")
@@ -139,6 +161,7 @@ class CoachOperationsReleaseTest < ActiveSupport::TestCase
       "expected_experience_version_id" => nil,
       "expected_latest_release_id" => nil,
       "expected_persona_version_id" => nil,
+      "expected_brand_version_id" => nil,
       "expected_tool_registry_digest" => CohortReleases::Contract.digest(candidate.tool_registry_snapshot),
       "expected_tool_registry_version" => CohortReleases::Contract::TOOL_REGISTRY_VERSION
     }
@@ -398,6 +421,7 @@ class CoachOperationsReleaseTest < ActiveSupport::TestCase
       "expected_experience_version_id" => experience_version.id,
       "expected_latest_release_id" => cohort.cohort_releases.order(release_number: :desc).pick(:id),
       "expected_persona_version_id" => persona_version.id,
+      "expected_brand_version_id" => candidate.brand_version&.id,
       "expected_tool_registry_digest" => CohortReleases::Contract.digest(candidate.tool_registry_snapshot),
       "expected_tool_registry_version" => CohortReleases::Contract::TOOL_REGISTRY_VERSION
     }
@@ -406,7 +430,7 @@ class CoachOperationsReleaseTest < ActiveSupport::TestCase
   def run_seal(cohort, owner, input, request_key:)
     CoachOperations::Runner.new(cohort: cohort, actor: owner).call!(
       operation_key: "cohort.release.seal",
-      operation_version: 1,
+      operation_version: CoachOperations::CohortReleaseSeal::VERSION,
       input: input,
       request_key: request_key
     )

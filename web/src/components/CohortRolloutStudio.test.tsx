@@ -13,8 +13,22 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('../api', async (importOriginal) => ({ ...await importOriginal<typeof import('../api')>(), ...apiMocks }))
 
+const targetBrandEvidence = {
+  manifest_schema: 'cohort_release_manifest_v2',
+  brand_mode: 'published_version',
+  brand_version_id: 9,
+  brand_snapshot_digest: 'brand-v9',
+}
+
+const baselineBrandEvidence = {
+  manifest_schema: 'cohort_release_manifest_v2',
+  brand_mode: 'published_version',
+  brand_version_id: 8,
+  brand_snapshot_digest: 'brand-v8',
+}
+
 function studioFixture(): CohortRolloutStudioData {
-  const activeRelease = { id: 43, release_number: 3, bundle_digest: 'baseline', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' }
+  const activeRelease = { ...baselineBrandEvidence, id: 43, release_number: 3, bundle_digest: 'baseline', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' }
   return {
     cohort: { id: 12, name: 'Tuesday cohort', status: 'active', participant_count: 2 },
     runtime_truth: { changes_participant_runtime: true, participant_runtime_changed: false, message: 'Advanced waves receive the target release immediately.' },
@@ -24,7 +38,7 @@ function studioFixture(): CohortRolloutStudioData {
       counts: { ready: 2, awaiting_acceptance: 0, revoked: 0, removed: 0 },
       participants: [{ user_id: 7, full_name: 'Ana Cruz', readiness: 'ready', exposed: null, effective_release: activeRelease }, { user_id: 8, full_name: 'Ben Santos', readiness: 'ready', exposed: null, effective_release: activeRelease }],
     },
-    latest_release: { id: 44, release_number: 4, bundle_digest: 'bundle', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z' },
+    latest_release: { ...targetBrandEvidence, id: 44, release_number: 4, bundle_digest: 'bundle', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-03T01:00:00Z' },
     active_release: activeRelease,
     release_history: { limit: 25, total_count: 4, truncated: false }, releases: [],
     history: { limit: 25, total_count: 0, truncated: false }, open_rollout: null, rollouts: [],
@@ -37,7 +51,7 @@ function activeRolloutStudio(status: 'planned' | 'active' | 'paused' = 'active')
   studio.permissions.plan_blockers = ['Another rollout is already open for this cohort.']
   studio.open_rollout = {
     id: 90, status, runtime_mode: 'release_runtime_v2', runtime_blocker: null, target_release: studio.latest_release!, baseline_release: studio.active_release, rollback_release: null,
-    rollback_candidate: { id: 43, release_number: 3, bundle_digest: 'prior', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' },
+    rollback_candidate: { ...baselineBrandEvidence, id: 43, release_number: 3, bundle_digest: 'prior', integrity_valid: true, runtime_compatible: true, released_at: '2026-10-02T01:00:00Z' },
     planned_by: { id: 5, full_name: 'Coach Mel', role: 'owner' }, planned_at: '2026-10-03T02:00:00Z', activated_at: status === 'planned' ? null : '2026-10-03T03:00:00Z', paused_at: status === 'paused' ? '2026-10-03T04:00:00Z' : null, completed_at: null, cancelled_at: null, rolled_back_at: null,
     current_wave_position: status === 'planned' ? 0 : 1, wave_count: 2, participant_count: 2, latest_transition_id: 101,
     readiness_digest: 'all-ready', next_wave_readiness_digest: 'wave-ready', next_wave_position: status === 'planned' ? 1 : 2,
@@ -62,6 +76,13 @@ function legacyRolloutStudio(): CohortRolloutStudioData {
   const rollout = studio.open_rollout!
   rollout.runtime_mode = 'legacy_record_only_v1'
   rollout.runtime_blocker = 'Finish or roll back this pre-cutover rollout before activating participant runtime.'
+  rollout.target_release = {
+    ...rollout.target_release,
+    manifest_schema: 'cohort_release_manifest_v1',
+    brand_mode: 'legacy_household_cfo_builtin',
+    brand_version_id: null,
+    brand_snapshot_digest: '',
+  }
   rollout.baseline_release = null
   rollout.participant_runtime_changed = false
   rollout.waves.forEach((wave) => {
@@ -69,7 +90,7 @@ function legacyRolloutStudio(): CohortRolloutStudioData {
     wave.exposure_complete = false
     wave.participants.forEach((participant) => { participant.exposed = null })
   })
-  studio.rollouts[0] = { ...studio.rollouts[0], runtime_mode: 'legacy_record_only_v1', runtime_blocker: rollout.runtime_blocker, baseline_release: null, participant_runtime_changed: false }
+  studio.rollouts[0] = { ...studio.rollouts[0], runtime_mode: 'legacy_record_only_v1', runtime_blocker: rollout.runtime_blocker, target_release: rollout.target_release, baseline_release: null, participant_runtime_changed: false }
   return studio
 }
 
@@ -126,6 +147,7 @@ describe('CohortRolloutStudio', () => {
     await user.click(screen.getByRole('button', { name: 'Review rollout plan' }))
     const dialog = screen.getByRole('dialog', { name: 'Record this rollout plan?' })
     expect(within(dialog).getByText('Release #4')).toBeTruthy()
+    expect(within(dialog).getByText('Brand version 9')).toBeTruthy()
     expect(within(dialog).getByText('Wave 1 · 1 participant')).toBeTruthy()
     expect(within(dialog).getByText('Later group · 1 participant')).toBeTruthy()
     await user.click(within(dialog).getByRole('button', { name: 'Record rollout plan' }))
@@ -160,6 +182,7 @@ describe('CohortRolloutStudio', () => {
     const advanceDialog = screen.getByRole('dialog', { name: 'Advance to wave 2?' })
     expect(within(advanceDialog).getByText('2. Everyone else')).toBeTruthy()
     expect(within(advanceDialog).getByText('1', { selector: 'dd' })).toBeTruthy()
+    expect(within(advanceDialog).getByText('Brand version 9')).toBeTruthy()
     await user.click(within(advanceDialog).getByRole('button', { name: 'Advance to wave 2' }))
     await waitFor(() => expect(apiMocks.advanceCohortRollout).toHaveBeenCalledWith(12, 90, {
       expected_status: 'active', expected_current_wave_position: 1, expected_latest_transition_id: 101, readiness_digest: 'wave-ready',
@@ -168,6 +191,7 @@ describe('CohortRolloutStudio', () => {
     apiMocks.fetchCohortRolloutStudio.mockResolvedValue(activeRolloutStudio('active'))
     await screen.findByRole('button', { name: 'Review rollback' })
     await user.click(screen.getByRole('button', { name: 'Review rollback' }))
+    expect(within(screen.getByRole('dialog', { name: 'Roll back to release #3?' })).getByText('Brand version 8')).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Roll back participant runtime' }))
     await waitFor(() => expect(apiMocks.rollbackCohortRollout).toHaveBeenCalledWith(12, 90, {
       expected_status: 'active', expected_current_wave_position: 1, expected_latest_transition_id: 101, rollback_release_id: 43,
@@ -216,6 +240,7 @@ describe('CohortRolloutStudio', () => {
 
     await user.click(screen.getByRole('button', { name: 'Review wave 2' }))
     const dialog = screen.getByRole('dialog', { name: 'Advance to wave 2?' })
+    expect(within(dialog).getByText('Household CFO legacy brand')).toBeTruthy()
     expect(within(dialog).getByText('This pre-cutover action only advances the legacy record. It does not change participant runtime.')).toBeTruthy()
     expect(within(dialog).getByText('Legacy record only · no runtime change')).toBeTruthy()
   })
