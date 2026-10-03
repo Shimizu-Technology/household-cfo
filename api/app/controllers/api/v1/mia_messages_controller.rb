@@ -52,7 +52,9 @@ module Api
         return if request_handled
         @active_mia_message_request = message_request
 
-        if attached_imports.empty? && (memory_command = mia_memory_command(content))
+        if attached_imports.empty? &&
+            !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) &&
+            (memory_command = mia_memory_command(content))
           return render_mia_memory_command(
             session,
             content,
@@ -129,7 +131,7 @@ module Api
         end
 
         if intent_result
-          intent_plan = annual_budget_manager.plan_data unless intent_result.read_only_plan?
+          intent_plan = annual_budget_manager.plan_data unless intent_result.read_only_plan? || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
           routed = route_model_intent(
             intent_result,
             content: content,
@@ -235,7 +237,7 @@ module Api
           assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
           mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft, selected_item_ids: action_result&.selected_item_ids) : nil,
-          budget: annual_plan && !intent_result&.read_only_plan? ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
+          budget: annual_plan && !intent_result&.read_only_plan? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
         }
         complete_message_request(message_request, response_payload)

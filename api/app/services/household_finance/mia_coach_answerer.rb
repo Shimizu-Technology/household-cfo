@@ -41,7 +41,7 @@ module HouseholdFinance
     PAYCHECK_PATTERN = /\b(?:before|until|next)\s+(?:my\s+|our\s+)?paycheck\b/i.freeze
     EXTERNAL_FACT_PATTERN = /\b(?:current\s+.*rate|look\s+up|dmv|usually\s+cost|cost\s+usually|typical(?:ly)?\s+cost|average\s+cost|bank statement|overdraft|credit score|tax refund|business taxes?|file married|filing status|payoff amount|real-time|official fee)\b/i.freeze
     AMBIGUOUS_HELP_PATTERN = /\A(?:help|what should i do\??|is this bad\??)\z/i.freeze
-    PROMPT_INJECTION_PATTERN = /\b(?:(?:ignore|disregard|override|bypass)\s+(?:(?:all|any|every|the)\s+)?(?:(?:previous|prior|system|developer|safety|hidden|product|your)\s+){0,2}(?:rules?|instructions?|guardrails?|boundaries|polic(?:y|ies))|(?:reveal|show|print|repeat|expose)\s+(?:(?:your|the)\s+)?(?:hidden|system|developer|internal)\s+(?:prompts?|instructions?|rules?|messages?|tool calls?)|developer mode|jailbreak|you are now)\b/i.freeze
+    PROMPT_INJECTION_PATTERN = /\b(?:(?:ignore|disregard|override|bypass)\s+(?:(?:all|any|every|the)\s+)?(?:(?:previous|prior|system|developer|safety|hidden|product|your)\s+){0,2}(?:rules?|instructions?|guardrails?|boundaries|polic(?:y|ies))|(?:reveal|show|print|repeat|expose)\s+(?:(?:your|the)\s+)?(?:hidden|system|developer|internal)\s+(?:prompts?|instructions?|rules?|messages?|tool calls?)|developer mode|jailbreak|you\s+are\s+now\s+(?:in\s+)?(?:developer\s+mode|jailbroken|unrestricted|uncensored|(?:an?\s+|the\s+)?(?:different|new|developer|system|unrestricted|uncensored)\s+(?:assistant|agent|model|persona|role)))\b/i.freeze
     TRANSACTION_DRAFT_FOLLOWUP_PATTERN = /\bfollow-up to previous transaction_draft topic\b|\btopic:\s*reported spending\b/i.freeze
 
     def self.prompt_injection?(value)
@@ -88,7 +88,7 @@ module HouseholdFinance
     end
 
     def injection_boundary_answer
-      incomplete_setup_answer || incomplete_debt_minimums_answer || incomplete_liquid_balances_answer || prompt_injection_answer
+      prompt_injection_answer
     end
 
     def incomplete_setup_answer
@@ -175,7 +175,7 @@ module HouseholdFinance
     def prompt_injection_answer
       return nil unless self.class.prompt_injection?(message)
 
-      "#{self.class.prompt_injection_boundary} Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months. Next CFO move: ask the real money question, and I will answer from confirmed facts, active plan, and pending drafts separately."
+      "#{self.class.prompt_injection_boundary} Ask the real money question, and I will answer from confirmed facts, the active plan, and pending reviews separately."
     end
 
     def investment_boundary_answer
