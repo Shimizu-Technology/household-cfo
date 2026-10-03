@@ -80,6 +80,7 @@ class ApiV1AdminUsersInvitationConcurrencyTest < ActiveSupport::TestCase
     CohortMembership.where(user_id: participant&.id).delete_all
     CohortExperienceConfiguration.where(cohort_id: cohorts&.map(&:id)).delete_all if defined?(cohorts)
     Cohort.where(id: cohorts&.map(&:id)).delete_all if defined?(cohorts)
+    delete_empty_coach_workspaces_for_users([ admin&.id ])
     User.where(id: [ participant&.id, admin&.id ].compact).delete_all
   end
 end

@@ -20,6 +20,7 @@ module CohortReleaseSchemaDumper
     dump_deferred_cohort_rollout_integrity(stream) if @connection.table_exists?("cohort_rollout_transitions") &&
       @connection.column_exists?("coach_operation_executions", "cohort_rollout_transition_id")
     dump_cohort_runtime_guards(stream) if @connection.table_exists?("cohort_release_exposures")
+    dump_workspace_brand_evidence_guards(stream) if @connection.table_exists?("workspace_brand_versions")
     super
   end
 
@@ -409,6 +410,32 @@ module CohortReleaseSchemaDumper
       cohort_active_release_change_integrity_deferred
       cohort_release_exposures_integrity_deferred
       cohort_release_activation_events_integrity_deferred
+    ].each do |trigger|
+      definition = @connection.select_value(<<~SQL.squish)
+        SELECT pg_get_triggerdef(oid) || ';'
+        FROM pg_trigger
+        WHERE tgname = #{@connection.quote(trigger)} AND NOT tgisinternal
+      SQL
+      dump_rollout_database_definition(stream, definition) if definition.present?
+    end
+  end
+
+  def dump_workspace_brand_evidence_guards(stream)
+    %w[
+      prevent_workspace_brand_evidence_mutation()
+      prevent_verified_workspace_domain_identity_change()
+    ].each do |function|
+      definition = @connection.select_value(<<~SQL.squish)
+        SELECT pg_get_functiondef(to_regprocedure(#{@connection.quote(function)}))
+      SQL
+      dump_rollout_database_definition(stream, definition) if definition.present?
+    end
+
+    %w[
+      workspace_brand_versions_immutable
+      workspace_brand_publication_events_immutable
+      coach_workspace_domain_events_immutable
+      coach_workspace_domains_verified_identity
     ].each do |trigger|
       definition = @connection.select_value(<<~SQL.squish)
         SELECT pg_get_triggerdef(oid) || ';'

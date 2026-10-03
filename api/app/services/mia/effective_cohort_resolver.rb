@@ -4,23 +4,29 @@ module Mia
   class EffectiveCohortResolver
     class InvalidSelection < StandardError; end
 
-    def initialize(user:, role: nil, requested_cohort_id: nil)
+    def initialize(user:, role: nil, requested_cohort_id: nil, coach_workspace: nil)
       @user = user
       @role = role
       @requested_cohort_id = requested_cohort_id.to_s.strip.presence
+      @coach_workspace = coach_workspace
     end
 
     def call
       return unless user
 
-      return requested_membership if requested_cohort_id
+      membership = if requested_cohort_id
+        requested_membership
+      else
+        membership_for_status("active") || membership_for_status("enrolling") || latest_membership
+      end
+      return membership if membership || coach_workspace.nil? || user.staff?
 
-      membership_for_status("active") || membership_for_status("enrolling") || latest_membership
+      raise InvalidSelection, "This coaching program link is unavailable."
     end
 
     private
 
-    attr_reader :user, :role, :requested_cohort_id
+    attr_reader :user, :role, :requested_cohort_id, :coach_workspace
 
     def requested_membership
       id = Integer(requested_cohort_id, 10)
@@ -34,7 +40,9 @@ module Mia
 
     def memberships
       relation = user.cohort_memberships.includes(:cohort)
-      role ? relation.where(role: role) : relation
+      relation = relation.where(role: role) if role
+      relation = relation.joins(:cohort).where(cohorts: { coach_workspace_id: coach_workspace.id }) if coach_workspace
+      relation
     end
 
     def membership_for_status(status)

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_03_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_03_131000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -1076,6 +1076,54 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_120000) do
     t.check_constraint "char_length(title::text) >= 1 AND char_length(title::text) <= 160", name: "coach_profiles_title_length"
   end
 
+  create_table "coach_workspace_domain_events", force: :cascade do |t|
+    t.bigint "actor_user_id", null: false
+    t.bigint "coach_workspace_domain_id", null: false
+    t.bigint "coach_workspace_id", null: false
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id"], name: "index_coach_workspace_domain_events_on_actor_user_id"
+    t.index ["coach_workspace_domain_id"], name: "idx_coach_workspace_domain_events_domain"
+    t.check_constraint "event_type::text = ANY (ARRAY['created'::character varying, 'verification_requested'::character varying, 'verified'::character varying, 'activated'::character varying, 'disabled'::character varying]::text[])", name: "coach_workspace_domain_events_type"
+    t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "coach_workspace_domain_events_metadata_object"
+    t.check_constraint "octet_length(metadata::text) <= 4096", name: "coach_workspace_domain_events_metadata_bytes"
+  end
+
+  create_table "coach_workspace_domains", force: :cascade do |t|
+    t.datetime "activated_at"
+    t.bigint "coach_workspace_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.datetime "disabled_at"
+    t.string "hostname", null: false
+    t.boolean "is_primary", default: false, null: false
+    t.string "kind", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "updated_by_user_id", null: false
+    t.datetime "verification_requested_at"
+    t.string "verification_token_digest"
+    t.datetime "verified_at"
+    t.index "lower((hostname)::text)", name: "idx_coach_workspace_domains_lower_hostname", unique: true
+    t.index ["coach_workspace_id"], name: "idx_coach_workspace_domains_one_primary", unique: true, where: "is_primary"
+    t.index ["coach_workspace_id"], name: "index_coach_workspace_domains_on_coach_workspace_id"
+    t.index ["created_by_user_id"], name: "index_coach_workspace_domains_on_created_by_user_id"
+    t.index ["id", "coach_workspace_id"], name: "idx_coach_workspace_domains_id_workspace", unique: true
+    t.index ["updated_by_user_id"], name: "index_coach_workspace_domains_on_updated_by_user_id"
+    t.check_constraint "(status::text <> ALL (ARRAY['verified'::character varying, 'active'::character varying]::text[])) OR verified_at IS NOT NULL", name: "coach_workspace_domains_verified_evidence"
+    t.check_constraint "(status::text = 'disabled'::text) = (disabled_at IS NOT NULL)", name: "coach_workspace_domains_disabled_evidence"
+    t.check_constraint "NOT is_primary OR status::text = 'active'::text", name: "coach_workspace_domains_primary_active"
+    t.check_constraint "char_length(hostname::text) >= 4 AND char_length(hostname::text) <= 253", name: "coach_workspace_domains_hostname_length"
+    t.check_constraint "hostname::text = lower(hostname::text) AND hostname::text ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$'::text", name: "coach_workspace_domains_hostname"
+    t.check_constraint "kind::text = ANY (ARRAY['managed_subdomain'::character varying, 'custom'::character varying]::text[])", name: "coach_workspace_domains_kind"
+    t.check_constraint "status::text <> 'active'::text OR activated_at IS NOT NULL", name: "coach_workspace_domains_active_evidence"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'verified'::character varying, 'active'::character varying, 'disabled'::character varying]::text[])", name: "coach_workspace_domains_status"
+    t.check_constraint "verification_token_digest IS NULL OR verification_token_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_workspace_domains_token_digest"
+  end
+
   create_table "coach_workspace_memberships", force: :cascade do |t|
     t.bigint "coach_workspace_id", null: false
     t.boolean "cohort_managed", default: false, null: false
@@ -1213,8 +1261,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_120000) do
     t.index ["from_cohort_release_id"], name: "idx_on_from_cohort_release_id_13d9f68065"
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_release_activation_events_scope", unique: true
     t.index ["to_cohort_release_id"], name: "index_cohort_release_activation_events_on_to_cohort_release_id"
-    t.check_constraint "event_type::text = 'backfill'::text AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NULL AND actor_role_snapshot IS NULL OR event_type::text = 'rollout_completed'::text AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL AND actor_user_id IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[]))", name: "release_activation_events_shape"
-    t.check_constraint "event_type::text = ANY (ARRAY['backfill'::character varying, 'rollout_completed'::character varying]::text[])", name: "release_activation_events_type_valid"
+    t.check_constraint "event_type::text = 'backfill'::text AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NULL AND actor_role_snapshot IS NULL OR event_type::text = 'rollout_completed'::text AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL AND actor_user_id IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text]))", name: "release_activation_events_shape"
+    t.check_constraint "event_type::text = ANY (ARRAY['backfill'::character varying::text, 'rollout_completed'::character varying::text])", name: "release_activation_events_type_valid"
     t.check_constraint "request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "release_activation_events_request_valid"
   end
 
@@ -1246,7 +1294,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_120000) do
     t.index ["user_id"], name: "index_cohort_release_exposures_on_user_id"
     t.check_constraint "char_length(exposure_key::text) >= 1 AND char_length(exposure_key::text) <= 160", name: "cohort_release_exposures_key_bounded"
     t.check_constraint "cohort_rollout_id IS NOT NULL AND cohort_rollout_wave_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL", name: "cohort_release_exposures_rollout_shape"
-    t.check_constraint "event_type::text = ANY (ARRAY['wave'::character varying, 'rollback'::character varying]::text[])", name: "cohort_release_exposures_type_valid"
+    t.check_constraint "event_type::text = ANY (ARRAY['wave'::character varying::text, 'rollback'::character varying::text])", name: "cohort_release_exposures_type_valid"
   end
 
   create_table "cohort_releases", force: :cascade do |t|
@@ -1358,7 +1406,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_120000) do
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_rollout_transitions_scope", unique: true
     t.index ["id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], name: "idx_rollout_transitions_full_scope", unique: true
     t.index ["rollback_cohort_release_id"], name: "idx_rollout_transitions_rollback_release"
-    t.check_constraint "(event_type::text = ANY (ARRAY['activated'::character varying, 'advanced'::character varying, 'completed'::character varying, 'rolled_back'::character varying]::text[])) OR participant_runtime_changed = false", name: "cohort_rollout_transitions_runtime_changed_shape"
+    t.check_constraint "(event_type::text = ANY (ARRAY['activated'::character varying::text, 'advanced'::character varying::text, 'completed'::character varying::text, 'rolled_back'::character varying::text])) OR participant_runtime_changed = false", name: "cohort_rollout_transitions_runtime_changed_shape"
     t.check_constraint "(event_type::text = ANY (ARRAY['activated'::character varying::text, 'advanced'::character varying::text, 'completed'::character varying::text])) AND readiness_digest::text ~ '^[0-9a-f]{64}$'::text OR (event_type::text <> ALL (ARRAY['activated'::character varying::text, 'advanced'::character varying::text, 'completed'::character varying::text])) AND readiness_digest IS NULL", name: "cohort_rollout_transitions_readiness_evidence"
     t.check_constraint "(from_wave_position IS NULL OR from_wave_position >= 0 AND from_wave_position <= 25) AND (to_wave_position IS NULL OR to_wave_position >= 0 AND to_wave_position <= 25)", name: "cohort_rollout_transitions_wave_positions_bounded"
     t.check_constraint "(to_status::text = ANY (ARRAY['planned'::character varying::text, 'active'::character varying::text, 'paused'::character varying::text, 'completed'::character varying::text, 'cancelled'::character varying::text, 'rolled_back'::character varying::text])) AND (from_status IS NULL OR (from_status::text = ANY (ARRAY['planned'::character varying::text, 'active'::character varying::text, 'paused'::character varying::text, 'completed'::character varying::text, 'cancelled'::character varying::text, 'rolled_back'::character varying::text])))", name: "cohort_rollout_transitions_status_valid"
@@ -2292,6 +2340,71 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_120000) do
     t.check_constraint "invitation_email_status::text = ANY (ARRAY['not_sent'::character varying::text, 'skipped'::character varying::text, 'sent'::character varying::text, 'failed'::character varying::text])", name: "users_invitation_email_status_valid"
   end
 
+  create_table "workspace_brand_configurations", force: :cascade do |t|
+    t.bigint "coach_workspace_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "current_published_version_id"
+    t.jsonb "draft_config", default: {}, null: false
+    t.integer "draft_revision", default: 1, null: false
+    t.bigint "last_edited_by_user_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "preview_digest"
+    t.datetime "previewed_at"
+    t.integer "previewed_draft_revision"
+    t.datetime "updated_at", null: false
+    t.index ["coach_workspace_id"], name: "index_workspace_brand_configurations_on_coach_workspace_id", unique: true
+    t.index ["current_published_version_id"], name: "idx_on_current_published_version_id_6bd2a0be79"
+    t.index ["id", "coach_workspace_id"], name: "idx_workspace_brand_configs_id_workspace", unique: true
+    t.index ["last_edited_by_user_id"], name: "index_workspace_brand_configurations_on_last_edited_by_user_id"
+    t.check_constraint "draft_revision > 0", name: "workspace_brand_configurations_positive_revision"
+    t.check_constraint "jsonb_typeof(draft_config) = 'object'::text", name: "workspace_brand_configurations_draft_object"
+    t.check_constraint "octet_length(draft_config::text) <= 16384", name: "workspace_brand_configurations_draft_bytes"
+    t.check_constraint "preview_digest IS NULL AND previewed_draft_revision IS NULL AND previewed_at IS NULL OR preview_digest IS NOT NULL AND previewed_draft_revision IS NOT NULL AND previewed_at IS NOT NULL", name: "workspace_brand_configurations_preview_complete"
+    t.check_constraint "preview_digest IS NULL OR preview_digest::text ~ '^[0-9a-f]{64}$'::text", name: "workspace_brand_configurations_preview_digest"
+  end
+
+  create_table "workspace_brand_publication_events", force: :cascade do |t|
+    t.bigint "actor_user_id", null: false
+    t.bigint "coach_workspace_id", null: false
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.string "idempotency_key", null: false
+    t.string "request_fingerprint", null: false
+    t.bigint "source_version_id"
+    t.datetime "updated_at", null: false
+    t.bigint "workspace_brand_configuration_id", null: false
+    t.bigint "workspace_brand_version_id", null: false
+    t.index ["actor_user_id"], name: "index_workspace_brand_publication_events_on_actor_user_id"
+    t.index ["source_version_id"], name: "index_workspace_brand_publication_events_on_source_version_id"
+    t.index ["workspace_brand_configuration_id", "idempotency_key"], name: "idx_workspace_brand_events_idempotency", unique: true
+    t.index ["workspace_brand_configuration_id"], name: "idx_workspace_brand_events_configuration"
+    t.index ["workspace_brand_version_id"], name: "idx_workspace_brand_events_version"
+    t.check_constraint "char_length(idempotency_key::text) >= 1 AND char_length(idempotency_key::text) <= 255", name: "workspace_brand_publication_events_idempotency_length"
+    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "workspace_brand_publication_events_type"
+    t.check_constraint "request_fingerprint::text ~ '^[0-9a-f]{64}$'::text", name: "workspace_brand_publication_events_request_fingerprint"
+  end
+
+  create_table "workspace_brand_versions", force: :cascade do |t|
+    t.bigint "coach_workspace_id", null: false
+    t.jsonb "config", null: false
+    t.string "config_digest", null: false
+    t.datetime "created_at", null: false
+    t.bigint "published_by_user_id", null: false
+    t.bigint "source_version_id"
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.bigint "workspace_brand_configuration_id", null: false
+    t.index ["id", "coach_workspace_id"], name: "idx_workspace_brand_versions_id_workspace", unique: true
+    t.index ["id", "workspace_brand_configuration_id"], name: "idx_workspace_brand_versions_id_config", unique: true
+    t.index ["published_by_user_id"], name: "index_workspace_brand_versions_on_published_by_user_id"
+    t.index ["source_version_id"], name: "index_workspace_brand_versions_on_source_version_id"
+    t.index ["workspace_brand_configuration_id", "version_number"], name: "idx_workspace_brand_versions_config_number", unique: true
+    t.check_constraint "config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "workspace_brand_versions_digest"
+    t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "workspace_brand_versions_config_object"
+    t.check_constraint "octet_length(config::text) <= 16384", name: "workspace_brand_versions_config_bytes"
+    t.check_constraint "version_number > 0", name: "workspace_brand_versions_positive_number"
+  end
+
   add_foreign_key "accounts", "households"
   add_foreign_key "accounts", "plaid_accounts", on_delete: :nullify
   add_foreign_key "budget_allocations", "budget_categories"
@@ -2418,6 +2531,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_120000) do
   add_foreign_key "coach_phrase_proposals", "users", column: "proposed_by_user_id"
   add_foreign_key "coach_profiles", "coach_workspaces", on_delete: :cascade
   add_foreign_key "coach_profiles", "users", column: "last_edited_by_user_id", on_delete: :nullify
+  add_foreign_key "coach_workspace_domain_events", "coach_workspace_domains", column: ["coach_workspace_domain_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_workspace_domain_events_domain", on_delete: :restrict
+  add_foreign_key "coach_workspace_domain_events", "users", column: "actor_user_id"
+  add_foreign_key "coach_workspace_domains", "coach_workspaces"
+  add_foreign_key "coach_workspace_domains", "users", column: "created_by_user_id"
+  add_foreign_key "coach_workspace_domains", "users", column: "updated_by_user_id"
   add_foreign_key "coach_workspace_memberships", "coach_workspaces", on_delete: :cascade
   add_foreign_key "coach_workspace_memberships", "users", on_delete: :cascade
   add_foreign_key "coach_workspaces", "users", column: "created_by_user_id", on_delete: :cascade
@@ -2585,6 +2703,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_120000) do
   add_foreign_key "transaction_splits", "household_transactions"
   add_foreign_key "users", "users", column: "invited_by_user_id"
   add_foreign_key "users", "users", column: "last_invite_email_sent_by_user_id"
+  add_foreign_key "workspace_brand_configurations", "coach_workspaces"
+  add_foreign_key "workspace_brand_configurations", "users", column: "last_edited_by_user_id"
+  add_foreign_key "workspace_brand_configurations", "workspace_brand_versions", column: ["current_published_version_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_workspace_brand_current_version", on_delete: :restrict
+  add_foreign_key "workspace_brand_publication_events", "users", column: "actor_user_id"
+  add_foreign_key "workspace_brand_publication_events", "workspace_brand_configurations", column: ["workspace_brand_configuration_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_workspace_brand_events_configuration", on_delete: :restrict
+  add_foreign_key "workspace_brand_publication_events", "workspace_brand_versions", column: "source_version_id"
+  add_foreign_key "workspace_brand_publication_events", "workspace_brand_versions", column: ["source_version_id", "workspace_brand_configuration_id"], primary_key: ["id", "workspace_brand_configuration_id"], name: "fk_workspace_brand_events_source", on_delete: :restrict
+  add_foreign_key "workspace_brand_publication_events", "workspace_brand_versions", column: ["workspace_brand_version_id", "workspace_brand_configuration_id"], primary_key: ["id", "workspace_brand_configuration_id"], name: "fk_workspace_brand_events_version", on_delete: :restrict
+  add_foreign_key "workspace_brand_versions", "users", column: "published_by_user_id"
+  add_foreign_key "workspace_brand_versions", "workspace_brand_configurations", column: ["workspace_brand_configuration_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_workspace_brand_versions_configuration", on_delete: :restrict
+  add_foreign_key "workspace_brand_versions", "workspace_brand_versions", column: "source_version_id"
+  add_foreign_key "workspace_brand_versions", "workspace_brand_versions", column: ["source_version_id", "workspace_brand_configuration_id"], primary_key: ["id", "workspace_brand_configuration_id"], name: "fk_workspace_brand_versions_source", on_delete: :restrict
 execute <<~SQL
   CREATE OR REPLACE FUNCTION prevent_cohort_release_mutation()
   RETURNS trigger
@@ -3771,5 +3901,47 @@ SQL
   SQL
   execute <<~'SQL'
     CREATE CONSTRAINT TRIGGER cohort_release_activation_events_integrity_deferred AFTER INSERT ON public.cohort_release_activation_events DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_cohort_runtime_evidence_integrity();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.prevent_workspace_brand_evidence_mutation()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      RAISE EXCEPTION 'workspace brand evidence is immutable';
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.prevent_verified_workspace_domain_identity_change()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF (NEW.hostname IS DISTINCT FROM OLD.hostname OR NEW.kind IS DISTINCT FROM OLD.kind)
+        AND (
+          OLD.verification_requested_at IS NOT NULL
+          OR OLD.verified_at IS NOT NULL
+          OR OLD.activated_at IS NOT NULL
+          OR OLD.status <> 'pending'
+        )
+      THEN
+        RAISE EXCEPTION 'verified workspace domain identity cannot change';
+      END IF;
+      RETURN NEW;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER workspace_brand_versions_immutable BEFORE DELETE OR UPDATE ON public.workspace_brand_versions FOR EACH ROW EXECUTE FUNCTION prevent_workspace_brand_evidence_mutation();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER workspace_brand_publication_events_immutable BEFORE DELETE OR UPDATE ON public.workspace_brand_publication_events FOR EACH ROW EXECUTE FUNCTION prevent_workspace_brand_evidence_mutation();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER coach_workspace_domain_events_immutable BEFORE DELETE OR UPDATE ON public.coach_workspace_domain_events FOR EACH ROW EXECUTE FUNCTION prevent_workspace_brand_evidence_mutation();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER coach_workspace_domains_verified_identity BEFORE UPDATE ON public.coach_workspace_domains FOR EACH ROW EXECUTE FUNCTION prevent_verified_workspace_domain_identity_change();
   SQL
 end

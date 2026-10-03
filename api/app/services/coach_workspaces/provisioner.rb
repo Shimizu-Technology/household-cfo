@@ -29,6 +29,7 @@ module CoachWorkspaces
           title: "Financial coach",
           last_edited_by_user: user
         )
+        Branding::Provisioner.ensure_for!(workspace: workspace, actor: user)
         workspace
       end
     end

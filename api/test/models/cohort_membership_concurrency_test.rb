@@ -63,6 +63,7 @@ class CohortMembershipConcurrencyTest < ActiveSupport::TestCase
     Cohort.where(id: cohorts&.map(&:id)).delete_all if defined?(cohorts)
     CoachProfile.where(coach_workspace_id: workspace&.id).delete_all
     CoachWorkspaceMembership.where(coach_workspace_id: workspace&.id).delete_all
+    delete_workspace_brand_records(workspace&.id)
     CoachWorkspace.where(id: workspace&.id).delete_all
     User.where(id: [ staff&.id, owner&.id ].compact).delete_all
   end
@@ -104,6 +105,7 @@ class CohortMembershipConcurrencyTest < ActiveSupport::TestCase
     workspace_ids = [ first_workspace&.id, second_workspace&.id ].compact
     CoachProfile.where(coach_workspace_id: workspace_ids).delete_all
     CoachWorkspaceMembership.where(coach_workspace_id: workspace_ids).delete_all
+    delete_workspace_brand_records(workspace_ids)
     CoachWorkspace.where(id: workspace_ids).delete_all
     User.where(id: [ first_staff&.id, second_staff&.id, first_owner&.id, second_owner&.id ].compact).delete_all
   end

@@ -220,6 +220,7 @@ class CohortRolloutLifecycleConcurrencyTest < ActiveSupport::TestCase
     Cohort.where(id: cohort.id).delete_all
     CoachProfile.where(coach_workspace_id: workspace&.id).delete_all
     CoachWorkspaceMembership.where(coach_workspace_id: workspace&.id).delete_all
+    delete_workspace_brand_records(workspace&.id)
     CoachWorkspace.where(id: workspace&.id).delete_all
   ensure
     CohortRelease.connection.execute("ALTER TABLE cohort_releases ENABLE TRIGGER cohort_releases_immutable")

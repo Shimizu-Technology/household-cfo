@@ -76,6 +76,7 @@ class CoachPersonaContentPackConcurrencyTest < ActiveSupport::TestCase
     CoachContentItem.where(id: @record_ids[:item]).update_all(current_approved_version_id: nil)
     CoachContentItemVersion.where(coach_content_item_id: @record_ids[:item]).delete_all
     CoachContentItem.where(id: @record_ids[:item]).delete_all
+    delete_empty_coach_workspaces_for_users(@record_ids[:coach])
     User.where(id: @record_ids[:coach]).delete_all
   end
 end

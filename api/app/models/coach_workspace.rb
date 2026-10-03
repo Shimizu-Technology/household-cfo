@@ -10,6 +10,8 @@ class CoachWorkspace < ApplicationRecord
 
   belongs_to :created_by_user, class_name: "User"
   has_one :coach_profile, dependent: :destroy, inverse_of: :coach_workspace
+  has_one :workspace_brand_configuration, dependent: :restrict_with_exception, inverse_of: :coach_workspace
+  has_many :coach_workspace_domains, dependent: :restrict_with_exception, inverse_of: :coach_workspace
   has_many :coach_workspace_memberships, dependent: :destroy, inverse_of: :coach_workspace
   has_many :members, through: :coach_workspace_memberships, source: :user
   has_many :cohorts, dependent: :restrict_with_exception
