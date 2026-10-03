@@ -21,6 +21,26 @@ class WorkspaceBrandingTest < ActiveSupport::TestCase
     assert_includes errors, "colors.text must have at least 4.5:1 contrast on colors.background"
   end
 
+  test "schema keeps primary text and primary controls readable in every interactive state" do
+    light_primary = Branding::Schema::DEFAULT_CONFIG.deep_dup
+    light_primary["colors"]["primary"] = "#fffdf8"
+    light_primary_errors = Branding::Schema.errors(light_primary)
+    assert_includes light_primary_errors, "colors.on_primary must have at least 4.5:1 contrast on colors.primary"
+    assert_includes light_primary_errors, "colors.primary must have at least 4.5:1 contrast on colors.background"
+    assert_includes light_primary_errors, "colors.primary must have at least 4.5:1 contrast on colors.surface"
+
+    light_hover = Branding::Schema::DEFAULT_CONFIG.deep_dup
+    light_hover["colors"]["primary_hover"] = "#fffdf8"
+    assert_includes Branding::Schema.errors(light_hover), "colors.on_primary must have at least 4.5:1 contrast on colors.primary_hover"
+
+    low_surface_contrast = Branding::Schema::DEFAULT_CONFIG.deep_dup
+    low_surface_contrast["colors"]["text_muted"] = low_surface_contrast["colors"]["surface"]
+    low_surface_contrast["colors"]["focus"] = low_surface_contrast["colors"]["surface"]
+    surface_errors = Branding::Schema.errors(low_surface_contrast)
+    assert_includes surface_errors, "colors.text_muted must have at least 4.5:1 contrast on colors.surface"
+    assert_includes surface_errors, "colors.focus must have at least 3:1 contrast on colors.surface"
+  end
+
   test "workspace provisioning creates one published default brand with immutable versions" do
     owner = create_staff
     workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
@@ -90,6 +110,28 @@ class WorkspaceBrandingTest < ActiveSupport::TestCase
       refute result.available, hostname
       assert_equal Branding::Schema::SAFE_DEFAULT_CONFIG, result.config
     end
+
+    invalid_config = Branding::Schema::DEFAULT_CONFIG.deep_dup
+    invalid_config["colors"]["primary_hover"] = invalid_config["colors"]["on_primary"]
+    WorkspaceBrandVersion.insert!({
+      workspace_brand_configuration_id: workspace.workspace_brand_configuration.id,
+      coach_workspace_id: workspace.id,
+      version_number: 2,
+      config: invalid_config,
+      config_digest: Branding::Schema.digest(invalid_config),
+      published_by_user_id: owner.id,
+      created_at: Time.current,
+      updated_at: Time.current
+    })
+    invalid_version_id = WorkspaceBrandVersion.where(
+      workspace_brand_configuration_id: workspace.workspace_brand_configuration.id,
+      version_number: 2
+    ).pick(:id)
+    workspace.workspace_brand_configuration.update_columns(current_published_version_id: invalid_version_id, updated_at: Time.current)
+
+    invalid_result = Branding::PublicResolver.new(hostname: domain.hostname).call
+    refute invalid_result.available
+    assert_equal Branding::Schema::SAFE_DEFAULT_CONFIG, invalid_result.config
   end
 
   test "unverified disabled and duplicate primary domains cannot become participant entry points" do

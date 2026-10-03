@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useAuth, useUser } from '@clerk/clerk-react'
 import { fetchCurrentUser, setActiveCoachWorkspaceId, setAuthTokenGetter } from '../api'
@@ -9,10 +9,18 @@ import type { AuthContextValue } from './authContextValue'
 function ClerkAuthBridge({ children }: { children: ReactNode }) {
   const { getToken, isLoaded, isSignedIn, signOut } = useAuth()
   const { user: clerkUser } = useUser()
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const authIdentityId = clerkUser?.id ?? null
+  const latestAuthIdentityId = useRef(authIdentityId)
+  const verificationRequest = useRef(0)
+  const [apiCurrentUser, setApiCurrentUser] = useState<CurrentUser | null>(null)
+  const [verifiedAuthIdentityId, setVerifiedAuthIdentityId] = useState<string | null>(null)
   const [activeCoachWorkspaceId, setActiveCoachWorkspaceState] = useState<number | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
   const [isVerifyingApi, setIsVerifyingApi] = useState(false)
+
+  useLayoutEffect(() => {
+    latestAuthIdentityId.current = authIdentityId
+  }, [authIdentityId])
 
   useEffect(() => {
     setAuthTokenGetter(async () => {
@@ -30,8 +38,11 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
   const refreshCurrentUser = useCallback(async () => {
     if (!isLoaded) return
 
-    if (!isSignedIn) {
-      setCurrentUser(null)
+    const requestId = ++verificationRequest.current
+    const requestedIdentityId = authIdentityId
+    if (!isSignedIn || !requestedIdentityId) {
+      setApiCurrentUser(null)
+      setVerifiedAuthIdentityId(null)
       setActiveCoachWorkspaceState(null)
       setActiveCoachWorkspaceId(null)
       setAuthError(null)
@@ -40,20 +51,32 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
     }
 
     setIsVerifyingApi(true)
+    setAuthError(null)
     try {
       const user = await fetchCurrentUser()
+      if (requestId !== verificationRequest.current || latestAuthIdentityId.current !== requestedIdentityId) return
+      if (user.clerk_id !== requestedIdentityId) {
+        throw new Error('Unable to verify program access for this account')
+      }
       const workspaceId = user.active_coach_workspace?.id ?? null
       setActiveCoachWorkspaceState(workspaceId)
       setActiveCoachWorkspaceId(workspaceId)
-      setCurrentUser(user)
+      setApiCurrentUser(user)
+      setVerifiedAuthIdentityId(requestedIdentityId)
       setAuthError(null)
     } catch (error) {
-      setCurrentUser(null)
-      setAuthError(error instanceof Error ? error.message : 'Unable to verify Household CFO access')
+      if (requestId !== verificationRequest.current || latestAuthIdentityId.current !== requestedIdentityId) return
+      setApiCurrentUser(null)
+      setVerifiedAuthIdentityId(null)
+      setActiveCoachWorkspaceState(null)
+      setActiveCoachWorkspaceId(null)
+      setAuthError(error instanceof Error ? error.message : 'Unable to verify program access')
     } finally {
-      setIsVerifyingApi(false)
+      if (requestId === verificationRequest.current && latestAuthIdentityId.current === requestedIdentityId) {
+        setIsVerifyingApi(false)
+      }
     }
-  }, [isLoaded, isSignedIn])
+  }, [authIdentityId, isLoaded, isSignedIn])
 
   const selectCoachWorkspace = useCallback((workspaceId: number | null) => {
     setActiveCoachWorkspaceState(workspaceId)
@@ -70,20 +93,30 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [refreshCurrentUser, clerkUser?.id])
+  }, [refreshCurrentUser])
+
+  const hasVerifiedIdentity = Boolean(
+    isSignedIn
+    && authIdentityId
+    && verifiedAuthIdentityId === authIdentityId
+    && apiCurrentUser,
+  )
+  const currentUser = hasVerifiedIdentity ? apiCurrentUser : null
+  const isApiIdentityPending = Boolean(isSignedIn) && !authError && (!authIdentityId || !hasVerifiedIdentity || isVerifyingApi)
 
   const value = useMemo<AuthContextValue>(() => ({
     isClerkEnabled: true,
+    authIdentityId,
     isSignedIn: Boolean(isSignedIn),
     isLoading: !isLoaded,
-    isVerifyingApi,
+    isVerifyingApi: isApiIdentityPending,
     currentUser,
-    activeCoachWorkspaceId,
+    activeCoachWorkspaceId: hasVerifiedIdentity ? activeCoachWorkspaceId : null,
     authError,
     refreshCurrentUser,
     selectCoachWorkspace,
     signOut: () => signOut(),
-  }), [activeCoachWorkspaceId, authError, currentUser, isLoaded, isSignedIn, isVerifyingApi, refreshCurrentUser, selectCoachWorkspace, signOut])
+  }), [activeCoachWorkspaceId, authError, authIdentityId, currentUser, hasVerifiedIdentity, isApiIdentityPending, isLoaded, isSignedIn, refreshCurrentUser, selectCoachWorkspace, signOut])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
@@ -131,6 +164,7 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthContextValue>(() => ({
     isClerkEnabled: false,
+    authIdentityId: currentUser?.clerk_id ?? null,
     isSignedIn: Boolean(currentUser),
     isLoading: false,
     isVerifyingApi: Boolean(pilotE2EToken && !isTokenReady),
@@ -154,6 +188,7 @@ function DelayedParticipantE2EAuthBridge({ children }: { children: ReactNode }) 
 
   const value = useMemo<AuthContextValue>(() => ({
     isClerkEnabled: !currentUser,
+    authIdentityId: currentUser?.clerk_id ?? null,
     isSignedIn: true,
     isLoading: false,
     isVerifyingApi: !currentUser,

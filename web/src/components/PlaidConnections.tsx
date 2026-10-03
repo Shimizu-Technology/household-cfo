@@ -25,6 +25,7 @@ import {
   savePlaidOAuthSession,
 } from '../lib/plaidOAuthSession'
 import { plaidSyncOutcome } from '../lib/plaidSyncWatch'
+import { useBrand } from '../contexts/brandContextValue'
 import './PlaidConnections.css'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
@@ -113,6 +114,7 @@ const trustLabels: Record<PlaidTransaction['trust_state'], string> = {
 }
 
 export function PlaidConnections({ userId, onDraftsCreated, variant = 'connections', refreshKey = '', reviewYear = new Date().getFullYear(), onOpenBudget }: Props) {
+  const { brand, assistantName } = useBrand()
   const onDraftsCreatedRef = useRef(onDraftsCreated)
   const [oauthSession] = useState(() => readPlaidOAuthSession(userId))
   const oauthReturn = isPlaidOAuthReturn(window.location.href)
@@ -224,7 +226,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
           await Promise.all([refresh(), onDraftsCreatedRef.current()])
           if (cancelled) return
           setSyncWatch(null)
-          setNotice('Sync complete. Posted expenses are ready for household review, and Mia can read the updated bank activity now.')
+          setNotice(`Sync complete. Posted expenses are ready for household review, and ${assistantName} can read the updated bank activity now.`)
           return
         }
 
@@ -239,7 +241,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
           await Promise.all([refresh(), onDraftsCreatedRef.current()])
           if (cancelled) return
           setSyncWatch(null)
-          setNotice('The bank accepted the sync request, but the final update is taking longer than expected. You can keep using Household CFO and retry Sync now if the feed does not update.')
+          setNotice(`The bank accepted the sync request, but the final update is taking longer than expected. You can keep using ${brand.product_name} and retry Sync now if the feed does not update.`)
           return
         }
 
@@ -269,7 +271,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
       stop()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [refresh, syncWatchBaselineLastSyncedAt, syncWatchItemId])
+  }, [assistantName, brand.product_name, refresh, syncWatchBaselineLastSyncedAt, syncWatchItemId])
 
   useEffect(() => {
     let cancelled = false
@@ -468,7 +470,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
           <div>
             <span className="eyebrow">{overview && !overview.configured ? 'Manual-first pilot' : 'Bank connections'}</span>
             <h2 id="bank-connections-heading">{overview && !overview.configured ? 'Your workspace works without a bank connection.' : 'Connect the source. Keep control of the truth.'}</h2>
-            <p>{overview && !overview.configured ? 'Keep planning, coaching with Mia, uploading documents, and reviewing manual entries as usual.' : 'Mia can read authorized bank activity immediately. Only confirmed transactions become categorized budget actuals.'}</p>
+            <p>{overview && !overview.configured ? `Keep planning, coaching with ${assistantName}, uploading documents, and reviewing manual entries as usual.` : `${assistantName} can read authorized bank activity immediately. Only confirmed transactions become categorized budget actuals.`}</p>
           </div>
           {overview?.environment && <span className="plaid-environment">{overview.environment}</span>}
         </div>
@@ -477,17 +479,17 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
         {notice && <p className="form-notice" role="status">{notice}</p>}
 
         {!overview ? (
-          <div className="plaid-empty"><strong>{busy === 'loading' ? 'Checking bank connection availability…' : 'Bank connection status is temporarily unavailable.'}</strong><p>Your profile, budget, Mia coaching, document uploads, and manual reviews remain available.</p></div>
+          <div className="plaid-empty"><strong>{busy === 'loading' ? 'Checking bank connection availability…' : 'Bank connection status is temporarily unavailable.'}</strong><p>Your profile, budget, {assistantName} coaching, document uploads, and manual reviews remain available.</p></div>
         ) : !overview.configured ? (
-          <div className="plaid-empty"><strong>Bank connection is not part of this pilot yet.</strong><p>Nothing is missing from your setup. Your profile, budget, Mia coaching, document uploads, and manual reviews all work without it.</p></div>
+          <div className="plaid-empty"><strong>Bank connection is not part of this pilot yet.</strong><p>Nothing is missing from your setup. Your profile, budget, {assistantName} coaching, document uploads, and manual reviews all work without it.</p></div>
         ) : (
           <>
             <div className="plaid-consent">
               <label>
                 <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-                <span>I authorize Household CFO Method to retrieve read-only balances and transactions through Plaid and use limited transaction summaries to answer my Mia questions. I can disconnect at any time.</span>
+                <span>I authorize {brand.organization_name} to retrieve read-only balances and transactions through Plaid and use limited transaction summaries to answer my {assistantName} questions. I can disconnect at any time.</span>
               </label>
-              <a href="/privacy.html" target="_blank" rel="noreferrer">Privacy and bank-data notice</a>
+              <a href={brand.footer.privacy_url ?? '/privacy.html'} target="_blank" rel="noreferrer">Privacy and bank-data notice</a>
               <button type="button" className="primary-button" disabled={!consent || Boolean(busy)} onClick={() => void connect()}>Connect a bank</button>
             </div>
 
@@ -497,7 +499,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
                   <div>
                     <strong>{item.institution_name}</strong>
                     <span className={`plaid-status is-${item.status}`}>{item.status.replace('_', ' ')}</span>
-                    <p>{syncWatch?.itemId === item.id ? 'Preparing transaction history now. You can keep using Household CFO while this finishes.' : item.last_synced_at ? `Last synced ${new Date(item.last_synced_at).toLocaleString()}` : 'Initial history is still being prepared.'}</p>
+                    <p>{syncWatch?.itemId === item.id ? `Preparing transaction history now. You can keep using ${brand.product_name} while this finishes.` : item.last_synced_at ? `Last synced ${new Date(item.last_synced_at).toLocaleString()}` : 'Initial history is still being prepared.'}</p>
                   </div>
                   <div className="plaid-item-actions">
                     {item.status === 'update_required' && <button type="button" onClick={() => void repair(item)} disabled={Boolean(busy)}>Reconnect</button>}
@@ -534,7 +536,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
         <div>
           <span className="eyebrow">{overview && !overview.configured ? 'Manual activity' : 'Transaction activity'}</span>
           <h2 id="bank-activity-heading">{overview && !overview.configured ? 'Keep your record current without a bank feed.' : 'One feed. Every state made explicit.'}</h2>
-          <p>{overview && !overview.configured ? 'Report expenses to Mia or add them during budget review. Nothing changes your official actuals until you confirm it.' : 'Bank-observed activity is available to Mia. Confirmation controls category truth and official budget actuals.'}</p>
+          <p>{overview && !overview.configured ? `Report expenses to ${assistantName} or add them during budget review. Nothing changes your official actuals until you confirm it.` : `Bank-observed activity is available to ${assistantName}. Confirmation controls category truth and official budget actuals.`}</p>
         </div>
         {overview?.environment && <span className="plaid-environment">{overview.environment}</span>}
       </div>
@@ -543,12 +545,12 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
       {notice && <p className="form-notice" role="status">{notice}</p>}
 
       {!overview ? (
-        <div className="plaid-empty"><strong>{busy === 'loading' ? 'Checking activity availability…' : 'Activity status is temporarily unavailable.'}</strong><p>Use Budget and Mia for manual expense review while this status recovers.</p></div>
+        <div className="plaid-empty"><strong>{busy === 'loading' ? 'Checking activity availability…' : 'Activity status is temporarily unavailable.'}</strong><p>Use Budget and {assistantName} for manual expense review while this status recovers.</p></div>
       ) : activeItems.length === 0 ? (
         overview.configured ? (
-          <div className="plaid-empty"><strong>No bank activity yet.</strong><p>Connect an account from My Profile. Once authorized, Mia can describe the feed while budget actuals remain under your control.</p></div>
+          <div className="plaid-empty"><strong>No bank activity yet.</strong><p>Connect an account from My Profile. Once authorized, {assistantName} can describe the feed while budget actuals remain under your control.</p></div>
         ) : (
-          <div className="plaid-empty"><strong>Manual activity is ready.</strong><p>Tell Mia about an expense, then review it in Budget before it becomes an official actual. Bank connection is optional and is not needed for this pilot.</p></div>
+          <div className="plaid-empty"><strong>Manual activity is ready.</strong><p>Tell {assistantName} about an expense, then review it in Budget before it becomes an official actual. Bank connection is optional and is not needed for this pilot.</p></div>
         )
       ) : (
         <>

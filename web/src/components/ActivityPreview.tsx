@@ -2,6 +2,7 @@ import type { AnnualBudgetPlan } from '../api'
 import { budgetPositionTotals, budgetPositionsForMonth } from '../lib/budgetPosition'
 import { addMoney, subtractMoney } from '../lib/moneyMath'
 import { CategoryPressureList, MonthPlanSummary } from './BudgetVisuals'
+import { useBrand } from '../contexts/brandContextValue'
 
 type ActivityPreviewProps = {
   plan: AnnualBudgetPlan
@@ -11,6 +12,7 @@ type ActivityPreviewProps = {
 }
 
 export function ActivityPreview({ plan, monthIndex, onOpenBudget, onAskMia }: ActivityPreviewProps) {
+  const { assistantName } = useBrand()
   const safeMonthIndex = Math.max(0, Math.min(plan.months.length - 1, monthIndex))
   const month = plan.months[safeMonthIndex]
   const positions = budgetPositionsForMonth(plan, safeMonthIndex)
@@ -49,7 +51,7 @@ export function ActivityPreview({ plan, monthIndex, onOpenBudget, onAskMia }: Ac
 
       <div className="activity-preview-actions">
         <button type="button" onClick={onOpenBudget}>Open the monthly plan</button>
-        <button type="button" className="secondary-button" onClick={onAskMia}>Ask Mia about a spending decision</button>
+        <button type="button" className="secondary-button" onClick={onAskMia}>Ask {assistantName} about a spending decision</button>
       </div>
     </article>
   )

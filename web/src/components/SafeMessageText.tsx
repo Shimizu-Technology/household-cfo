@@ -4,10 +4,14 @@ type SafeMessageTextProps = {
   content: string
   allowFormatting?: boolean
   stripMiaPrefix?: boolean
+  stripAuthorPrefix?: string
 }
 
-export function SafeMessageText({ content, allowFormatting = false, stripMiaPrefix = false }: SafeMessageTextProps) {
-  const normalizedContent = stripMiaPrefix ? content.replace(/^Mia:\s*/i, '') : content
+export function SafeMessageText({ content, allowFormatting = false, stripMiaPrefix = false, stripAuthorPrefix }: SafeMessageTextProps) {
+  const authorPrefix = stripAuthorPrefix ?? (stripMiaPrefix ? 'Mia' : null)
+  const normalizedContent = authorPrefix && content.slice(0, authorPrefix.length + 1).toLowerCase() === `${authorPrefix}:`.toLowerCase()
+    ? content.slice(authorPrefix.length + 1).trimStart()
+    : content
   const blocks: Array<{ type: 'paragraph' | 'list'; lines: string[] }> = []
   let startsNewParagraph = false
 

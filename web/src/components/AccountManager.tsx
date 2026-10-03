@@ -8,6 +8,7 @@ import { OperationIdempotencyKeys } from '../lib/operationIdempotency'
 import { guamTodayIso } from '../lib/householdDate'
 import { proposedChoice, proposedMoney, proposedText, type MiaManualPayload } from '../lib/miaManualPrefill'
 import { accountSummaryText } from './accountSummary'
+import { useBrand } from '../contexts/brandContextValue'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const accountTypes: AccountType[] = ['checking', 'savings', 'emergency_fund', 'retirement', 'investment', 'property', 'other']
@@ -39,6 +40,7 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
   focusRequest?: AccountFocusRequest | null
   onFocusRequestHandled?: () => void
 }) {
+  const { assistantName } = useBrand()
   const [editing, setEditing] = useState<number | 'new' | null>(null)
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [plaidItems, setPlaidItems] = useState<PlaidItem[]>([])
@@ -178,7 +180,7 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
     <div className="row-between account-manager-heading"><div><p className="eyebrow">Accounts & assets</p><h3>Keep one approved balance for each household asset.</h3><p>Blank means unknown. An entered $0 is a confirmed zero. Bank balances stay observations until you accept them.</p></div>{editing === null && <button ref={addButtonRef} type="button" onClick={(event) => beginCreate(undefined, event.currentTarget)}>Add an account</button>}</div>
     <div className="account-summary" aria-label="Asset totals"><span><small>Liquid</small><strong>{accountSummaryText(portfolio.liquid_balance, portfolio.liquid_balance_known, portfolio.liquid_known_count, liquidCount)}</strong></span><span><small>Other assets</small><strong>{accountSummaryText(portfolio.nonliquid_balance, portfolio.nonliquid_balance_known, portfolio.nonliquid_known_count, nonliquidCount)}</strong></span><span><small>Total assets</small><strong>{accountSummaryText(portfolio.total_balance, portfolio.total_balance_known, portfolio.total_known_count, active.length)}</strong></span></div>
 
-    {active.length === 0 && editing === null && <div className="account-empty"><strong>No active accounts yet.</strong><p>Add checking, savings, emergency funds, investments, property, or another asset. Mia waits for known liquid balances before giving cash guidance.</p></div>}
+    {active.length === 0 && editing === null && <div className="account-empty"><strong>No active accounts yet.</strong><p>Add checking, savings, emergency funds, investments, property, or another asset. {assistantName} waits for known liquid balances before giving cash guidance.</p></div>}
     {active.length > 0 && <div className="account-list">{active.map((account) => <div className="account-row" data-account-id={account.id} key={account.id}>
       <div><strong>{account.label}</strong><span>{titleize(account.account_type)} · {account.balance_as_of_on ? `As of ${new Date(`${account.balance_as_of_on}T00:00:00`).toLocaleDateString()}` : account.balance === null ? 'Balance not entered' : 'Date not entered'}</span></div>
       <div><strong>{amount(account.balance)}</strong>{account.plaid_link ? <span>{account.plaid_link.institution_name}{account.plaid_link.mask ? ` ••${account.plaid_link.mask}` : ''}</span> : <span>Not matched to a bank</span>}</div>

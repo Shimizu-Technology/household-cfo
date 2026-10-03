@@ -7,6 +7,25 @@ const currentYear = new Date().getFullYear()
 const sourceCollectionPermissions = { upload_coach: true, upload_platform: false, retry_cleanup: false, url_intake_enabled: true }
 const sourceOwnerPermissions = { edit_candidates: true, review_candidates: true, download: true, reprocess: true, delete: true }
 
+const legacyBrandConfig = {
+  schema_version: 1 as const,
+  product_name: 'Household CFO', short_name: 'Household CFO', organization_name: 'Household CFO Method', participant_role_term: 'participant',
+  powered_by_name: 'VERA', powered_by_placement: 'header' as const, tagline: 'Run your home like the C-Suite',
+  welcome_heading: 'Your household command center', welcome_description: 'Review what needs your call and make one clear next move.',
+  logo_url: null, favicon_url: null,
+  support: { label: 'Pilot support', email: 'shimizutechnology@gmail.com', url: null },
+  colors: {
+    background: '#f7f2ea', surface: '#fffdf8', surface_muted: '#fbf7ef', text: '#1f2421', text_muted: '#706d66', border: '#e2d9cb',
+    primary: '#7b4a58', primary_hover: '#683d49', primary_soft: '#f1e2e3', accent: '#b97352', on_primary: '#ffffff', focus: '#7b4a58',
+  },
+  typography: { display: 'cormorant_garamond', body: 'montserrat' },
+  footer: { text: null, privacy_url: null, terms_url: null },
+}
+
+function brandRuntime(config = legacyBrandConfig) {
+  return { source: 'cohort_release', mode: 'versioned', version_id: 12, digest: 'brand-digest', available: true, config }
+}
+
 async function openSection(page: Page, name: string) {
   const section = page.getByRole('link', { name, exact: true })
   const tools = page.getByRole('button', { name: 'Tools', exact: true })
@@ -338,6 +357,7 @@ function realWorkspaceData(setupComplete = false) {
       goal_portfolio: { active_count: 0, archived_count: 0, target_total: 0, progress_total: 0, target_known_count: 0, progress_known_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] },
       cohort: { id: 41, name: 'BOG', role: 'participant', status: 'active' },
       capabilities: experienceCapabilities(),
+      brand: brandRuntime(),
       setup_values: {
         household_name: 'Test Participant Household', primary_goal: 'Build a calm monthly plan.',
         primary_income: setupComplete ? 5_000 : 0, business_income: 0, fixed_expenses: setupComplete ? 2_500 : 0,
@@ -771,6 +791,9 @@ async function mockDemoApi(page: Page) {
   await page.route('http://api.test/**', async (route) => {
     const url = new URL(route.request().url())
     const path = url.pathname
+    if (path === '/api/public/brand' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: { brand: legacyBrandConfig, source: 'legacy_household_cfo_default', available: true, workspace: null, version: null, primary_domain: '127.0.0.1' } })
+    }
     if (path === '/api/v1/household_memories' && route.request().method() === 'GET') {
       return route.fulfill({ status: 200, json: memoryPayload() })
     }
@@ -1220,6 +1243,98 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript((messages) => {
     window.localStorage.setItem('household-cfo:mia-chat:v1:preview', JSON.stringify(messages))
   }, chatMessages(100))
+})
+
+test('release-pinned participant branding replaces the public hostname brand without mobile overflow', async ({ page }) => {
+  const publicConfig = {
+    ...legacyBrandConfig,
+    product_name: 'Public Program Door', short_name: 'Public Door', organization_name: 'Public Coach Network',
+    powered_by_placement: 'hidden' as const, welcome_heading: 'Opening the public program', welcome_description: 'Checking your program seat.',
+    colors: { ...legacyBrandConfig.colors, primary: '#315c73', primary_hover: '#244554', primary_soft: '#dceaf0', focus: '#315c73' },
+  }
+  const sealedConfig = {
+    ...legacyBrandConfig,
+    product_name: 'Mrs. Mel’s Island Money Community', short_name: 'Island Money Community', organization_name: 'Mel Mendiola Coaching',
+    powered_by_placement: 'footer' as const, welcome_heading: 'Håfa adai, let’s make one clear money move.',
+    welcome_description: 'Your island-rooted coaching workspace is ready.',
+    support: { label: 'AskTheMelCoachingTeamForHelpWithYourProgramSeatOrWorkspaceQuestionsAnytimeNow', email: 'mel@example.test', url: null },
+    footer: { text: 'Built for the Island Money Community.', privacy_url: 'https://example.test/privacy', terms_url: 'https://example.test/terms' },
+    colors: { ...legacyBrandConfig.colors, primary: '#0d6759', primary_hover: '#084b42', primary_soft: '#d7eee8', accent: '#c26945', focus: '#0d6759' },
+    typography: { display: 'lora', body: 'nunito_sans' },
+  }
+  const workspace = realWorkspaceData(true)
+  workspace.profile.coach.name = 'Auntie Mel, Your Island Money Guide'
+  workspace.workspace.brand = brandRuntime(sealedConfig)
+
+  await page.route('http://api.test/api/public/brand**', (route) => route.fulfill({
+    status: 200,
+    json: { brand: publicConfig, source: 'active_domain', available: true, workspace: { slug: 'public-door' }, version: { number: 1, digest: 'public' }, primary_domain: '127.0.0.1' },
+  }))
+  await page.route('http://api.test/api/v1/workspace', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 350))
+    await route.fulfill({ status: 200, json: workspace })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await expect(page.getByRole('heading', { name: 'Loading your Public Program Door workspace.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Island Money Community', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open Auntie Mel, Your Island Money Guide' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Håfa adai, let’s make one clear money move.' })).toBeVisible()
+  await expect(page.locator('.brand-footer')).toContainText('Powered by VERA')
+  await expect(page.locator('.brand-footer')).toContainText('AskTheMelCoachingTeamForHelpWithYourProgramSeatOrWorkspaceQuestionsAnytimeNow')
+  await expect(page).toHaveTitle(/Mrs. Mel’s Island Money Community/)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('unknown program domains stay on the neutral VERA boundary before workspace data loads', async ({ page }) => {
+  let workspaceRequests = 0
+  await page.route('http://api.test/api/public/brand**', (route) => route.fulfill({
+    status: 404,
+    json: {
+      brand: { ...legacyBrandConfig, product_name: 'VERA', short_name: 'VERA', organization_name: 'VERA', powered_by_name: null, powered_by_placement: 'hidden', tagline: 'A secure coaching experience', welcome_heading: 'This program link is not available', welcome_description: 'Check the address from your coach and try again.' },
+      source: 'safe_default', available: false, workspace: null, version: null, primary_domain: null,
+    },
+  }))
+  await page.route('http://api.test/api/v1/workspace', (route) => {
+    workspaceRequests += 1
+    return route.fulfill({ status: 500, json: { error: 'Workspace should remain sealed.' } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await expect(page.getByRole('heading', { name: 'This program link is not available' })).toBeVisible()
+  await expect(page.getByText('Check the address from your coach and try again.')).toBeVisible()
+  expect(workspaceRequests).toBe(0)
+})
+
+test('an unavailable sealed workspace brand fails closed to neutral VERA and retries cleanly', async ({ page }) => {
+  const leakedBrand = {
+    ...legacyBrandConfig,
+    product_name: 'Brand That Must Not Render',
+    short_name: 'Leaked Brand',
+    organization_name: 'Leaked Coach',
+    colors: { ...legacyBrandConfig.colors, primary: '#4f2c6d', primary_hover: '#3b2051', primary_soft: '#ede3f4', focus: '#4f2c6d' },
+  }
+  const unavailableWorkspace = realWorkspaceData(true)
+  unavailableWorkspace.workspace.brand = { ...brandRuntime(leakedBrand), available: false, source: 'safe_default' }
+  const recoveredWorkspace = realWorkspaceData(true)
+  let workspaceRequests = 0
+
+  await page.route('http://api.test/api/v1/workspace', (route) => {
+    workspaceRequests += 1
+    return route.fulfill({ status: 200, json: workspaceRequests === 1 ? unavailableWorkspace : recoveredWorkspace })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await expect(page.getByRole('heading', { name: 'This program is temporarily unavailable.' })).toBeVisible()
+  await expect(page.getByText('VERA', { exact: true })).toBeVisible()
+  await expect(page.locator('.shell-header')).toHaveCount(0)
+  await expect(page.getByText('Brand That Must Not Render')).toHaveCount(0)
+  await expect(page).toHaveTitle(/VERA/)
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--emerald').trim())).toBe('#536a63')
+
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await expect.poll(() => workspaceRequests).toBe(2)
+  await expect(page.getByRole('heading', { name: 'Household CFO', exact: true })).toBeVisible()
 })
 
 test('Coach Studio release and rollout stays truthful, keyboard usable, and responsive', async ({ page }, testInfo) => {
@@ -2072,7 +2187,7 @@ test('chat-first Mia preserves legacy reviews without structured before and afte
   await expect(incomeCard).toContainText('Income timeline')
   await expect(incomeCard).toContainText(`October ${currentYear}`)
   await expect(budgetCard).toContainText('Budget plan')
-  await expect(budgetCard).toContainText('leave actual spending untouched')
+  await expect(budgetCard).toContainText(/leaves? actual spending untouched/i)
 
   for (const card of [householdCard, incomeCard, budgetCard]) {
     await expect(card.locator('.mia-action-before-after')).toHaveCount(0)
@@ -3566,7 +3681,7 @@ test('query-only Plaid returns preserve callback state while the workspace loads
 
   await page.goto('/?pilot_e2e_role=participant&oauth_state_id=delayed')
   await expect(page).toHaveURL(/oauth_state_id=delayed#My%20Profile$/)
-  await expect(page.getByRole('heading', { name: 'Loading your first cohort workspace.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Loading your Household CFO workspace.' })).toBeVisible()
 
   releaseWorkspace()
   await expect(page).toHaveURL(/oauth_state_id=delayed#My%20Profile$/)
@@ -3596,7 +3711,7 @@ test('participant history canonicalizes unauthorized Admin routes to Home', asyn
 
   await page.goto('/?pilot_e2e_role=participant#Admin')
   await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Home$/)
-  const incompleteHomeHeading = page.getByRole('heading', { name: 'Give Mia a useful starting point.' })
+  const incompleteHomeHeading = page.getByRole('heading', { name: 'Your household command center' })
   await expect(incompleteHomeHeading).toBeVisible()
 
   await page.goBack()
@@ -3614,7 +3729,7 @@ test('Clerk-enabled route recovery waits for participant authorization before ca
 
   await expect(page).toHaveURL(/#Admin$/)
   await expect(page).toHaveURL(/#Home$/)
-  await expect(page.getByRole('heading', { name: 'Give Mia a useful starting point.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your household command center' })).toBeVisible()
 
   await page.goto('/?pilot_e2e_role=delayed_participant#Not%20A%20Screen')
   await expect(page).toHaveURL(/#Home$/)
@@ -3938,7 +4053,7 @@ test('incomplete participants get a short first session, private feedback, and a
     const firstSessionColumns = await page.locator('.first-session-heading').evaluate((element) => getComputedStyle(element).gridTemplateColumns)
     expect(firstSessionColumns.split(' ')).toHaveLength(1)
   }
-  await expect(page.getByRole('heading', { name: 'Give Mia a useful starting point.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your household command center' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Guide', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Feedback', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Memory', exact: true })).toHaveCount(0)
@@ -4308,7 +4423,7 @@ test('import review copy follows extracted results when a selected receipt produ
   await expect(result).toContainText('Review result')
   await expect(result).toContainText('1 household value → Household setup review')
   await expect(result).toContainText('You selected receipt/photo.')
-  await expect(result).toContainText('sent the reviewable results she actually found to household setup review')
+  await expect(result).toContainText('sent the reviewable results to household setup review')
   await expect(result).toContainText('Nothing changed until you approve it.')
   await expect(result).not.toContainText('Mia honored the document type')
 
@@ -6109,7 +6224,7 @@ test('Coach Studio stays private from participant navigation and direct URLs', a
   await page.goto('/?pilot_e2e_role=participant#Coach%20Studio')
 
   await expect(page).toHaveURL(/#Home$/)
-  await expect(page.getByRole('heading', { name: 'Give Mia a useful starting point.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your household command center' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Coach Studio', exact: true })).toHaveCount(0)
 })
 
@@ -6229,7 +6344,7 @@ test('real review controls keep transaction and Mia changes behind explicit part
   const miaCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
   await expect(miaCard.getByRole('button', { name: 'Apply reviewed change' })).toBeEnabled()
   await expect(miaCard.getByRole('button', { name: 'Cancel draft' })).toBeEnabled()
-  await expect(miaCard).toContainText('leave actual spending untouched')
+  await expect(miaCard).toContainText('leaves actual spending untouched')
   const cancelRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia_action_drafts/71/cancel') && request.method() === 'POST')
   await miaCard.getByRole('button', { name: 'Cancel draft' }).click()
   expect((await cancelRequest).headers()['idempotency-key']).toBeTruthy()

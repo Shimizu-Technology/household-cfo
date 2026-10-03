@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { useBrand } from '../contexts/brandContextValue'
 
 type ParticipantTabsProps = {
   sections: string[]
@@ -19,7 +20,6 @@ const sectionDescriptions: Record<string, string> = {
 }
 
 const compactLabels: Record<string, string> = {
-  'Ask Mia': 'Mia',
   'My Profile': 'Profile',
   Budget: 'Plan',
 }
@@ -45,6 +45,7 @@ function sectionHref(section: string) {
 }
 
 export function ParticipantTabs({ sections, activeSection, onChange }: ParticipantTabsProps) {
+  const { assistantName, brand } = useBrand()
   const [moreOpen, setMoreOpen] = useState(false)
   const [toolsPosition, setToolsPosition] = useState({ top: 0, right: 16 })
   const shellRef = useRef<HTMLDivElement | null>(null)
@@ -140,20 +141,25 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
     setMoreOpen(true)
   }
 
+  const sectionLabel = (section: string, compact = false) => {
+    if (section === 'Ask Mia') return compact ? assistantName : `Ask ${assistantName}`
+    return compact ? compactLabels[section] ?? section : section
+  }
+
   return (
     <div className={`tabs-shell${moreOpen ? ' is-tools-open' : ''}`} ref={shellRef}>
-      <nav className="tabs" aria-label="Household CFO participant sections">
+      <nav className="tabs" aria-label={`${brand.short_name} participant sections`}>
         {primary.map((section) => (
           <a
             key={section}
             href={sectionHref(section)}
             className={activeSection === section ? 'active' : ''}
-            aria-label={section}
+            aria-label={sectionLabel(section)}
             aria-current={activeSection === section ? 'page' : undefined}
             onClick={(event) => chooseSection(event, section)}
           >
-            <span className="tabs-label-full">{section}</span>
-            <span className="tabs-label-short" aria-hidden="true">{compactLabels[section] ?? section}</span>
+            <span className="tabs-label-full">{sectionLabel(section)}</span>
+            <span className="tabs-label-short" aria-hidden="true">{sectionLabel(section, true)}</span>
           </a>
         ))}
         {secondary.length > 0 && (
@@ -193,7 +199,7 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
           >
             <header>
               <div>
-                <span>Household tools</span>
+                <span>{brand.participant_role_term} tools</span>
                 <strong id="participant-tools-title">Go deeper when you need to.</strong>
               </div>
               <button
@@ -217,7 +223,7 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
                 >
                   <span>
                     <strong>{section}</strong>
-                    <small>{sectionDescriptions[section] ?? 'Open this Household CFO workspace.'}</small>
+                    <small>{sectionDescriptions[section] ?? `Open this ${brand.short_name} workspace.`}</small>
                   </span>
                   <ArrowIcon />
                 </a>

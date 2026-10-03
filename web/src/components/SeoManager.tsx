@@ -1,13 +1,12 @@
 import { useEffect } from 'react'
 import {
   DEFAULT_KEYWORDS,
-  SITE_NAME,
-  THEME_COLOR,
   canonicalUrl,
   getSectionSeo,
   socialImageUrl,
   webApplicationStructuredData,
 } from '../lib/seo'
+import { useBrand } from '../contexts/brandContextValue'
 
 function upsertMeta(selector: string, attributes: Record<string, string>) {
   let element = document.head.querySelector<HTMLMetaElement>(selector)
@@ -45,20 +44,22 @@ function upsertStructuredData(id: string, payload: Record<string, unknown>) {
 }
 
 export function SeoManager({ section }: { section: string }) {
+  const { brand, assistantName } = useBrand()
   useEffect(() => {
-    const route = getSectionSeo(section)
+    const route = getSectionSeo(section, brand, assistantName)
     const canonical = canonicalUrl()
     const image = socialImageUrl()
     const robots = route.robots || 'index,follow'
+    const keywords = [brand.product_name, brand.organization_name, assistantName, DEFAULT_KEYWORDS].filter(Boolean).join(', ')
 
     document.title = route.title
 
     upsertMeta('meta[name="title"]', { name: 'title', content: route.title })
     upsertMeta('meta[name="description"]', { name: 'description', content: route.description })
-    upsertMeta('meta[name="keywords"]', { name: 'keywords', content: DEFAULT_KEYWORDS })
-    upsertMeta('meta[name="author"]', { name: 'author', content: SITE_NAME })
+    upsertMeta('meta[name="keywords"]', { name: 'keywords', content: keywords })
+    upsertMeta('meta[name="author"]', { name: 'author', content: brand.organization_name })
     upsertMeta('meta[name="robots"]', { name: 'robots', content: robots })
-    upsertMeta('meta[name="theme-color"]', { name: 'theme-color', content: THEME_COLOR })
+    upsertMeta('meta[name="theme-color"]', { name: 'theme-color', content: brand.colors.primary })
 
     upsertLink('link[rel="canonical"]', { rel: 'canonical', href: canonical })
 
@@ -69,7 +70,7 @@ export function SeoManager({ section }: { section: string }) {
     upsertMeta('meta[property="og:image"]', { property: 'og:image', content: image })
     upsertMeta('meta[property="og:image:width"]', { property: 'og:image:width', content: '1200' })
     upsertMeta('meta[property="og:image:height"]', { property: 'og:image:height', content: '630' })
-    upsertMeta('meta[property="og:site_name"]', { property: 'og:site_name', content: SITE_NAME })
+    upsertMeta('meta[property="og:site_name"]', { property: 'og:site_name', content: brand.product_name })
 
     upsertMeta('meta[name="twitter:card"]', { name: 'twitter:card', content: 'summary_large_image' })
     upsertMeta('meta[name="twitter:url"]', { name: 'twitter:url', content: canonical })
@@ -77,8 +78,8 @@ export function SeoManager({ section }: { section: string }) {
     upsertMeta('meta[name="twitter:description"]', { name: 'twitter:description', content: route.description })
     upsertMeta('meta[name="twitter:image"]', { name: 'twitter:image', content: image })
 
-    upsertStructuredData('household-cfo-web-application-schema', webApplicationStructuredData())
-  }, [section])
+    upsertStructuredData('vera-web-application-schema', webApplicationStructuredData(brand))
+  }, [assistantName, brand, section])
 
   return null
 }

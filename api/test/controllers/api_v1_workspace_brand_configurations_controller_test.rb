@@ -182,7 +182,7 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     owner = create_user("coach")
     workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
     now = Time.current
-    workspace.coach_workspace_domains.create!(
+    domain = workspace.coach_workspace_domains.create!(
       hostname: "morgan-money.example.com",
       kind: "custom",
       status: "active",
@@ -195,6 +195,7 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
 
     get "/api/public/brand", params: { hostname: "morgan-money.example.com" }
     assert_response :success
+    assert_equal "no-store", response.headers["Cache-Control"]
     assert_equal "Household CFO", response.parsed_body.dig("brand", "product_name")
     assert_equal workspace.slug, response.parsed_body.dig("workspace", "slug")
     refute response.body.include?(owner.email)
@@ -204,6 +205,68 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     assert_equal false, response.parsed_body.fetch("available")
     assert_equal "VERA", response.parsed_body.dig("brand", "product_name")
     assert_nil response.parsed_body.fetch("workspace")
+    assert_equal "no-store", response.headers["Cache-Control"]
+
+    get "/api/public/brand", params: { hostname: "unknown.example.com" }, headers: {
+      "Origin" => "https://unknown.example.com"
+    }
+    assert_response :not_found
+    assert_equal "https://unknown.example.com", response.headers["Access-Control-Allow-Origin"]
+    assert_equal "VERA", response.parsed_body.dig("brand", "product_name")
+
+    get "/api/public/brand", params: { hostname: "morgan-money.example.com" }, headers: {
+      "Origin" => "https://morgan-money.example.com"
+    }
+    assert_response :success
+    assert_equal "https://morgan-money.example.com", response.headers["Access-Control-Allow-Origin"]
+    assert_equal workspace.slug, response.parsed_body.dig("workspace", "slug")
+
+    other_owner = create_user("coach")
+    other_workspace = CoachWorkspaces::Provisioner.ensure_for!(other_owner)
+    other_workspace.coach_workspace_domains.create!(
+      hostname: "other-money.example.com",
+      kind: "custom",
+      status: "active",
+      is_primary: true,
+      verified_at: now,
+      activated_at: now,
+      created_by_user: other_owner,
+      updated_by_user: other_owner
+    )
+
+    get "/api/public/brand", params: { hostname: "other-money.example.com" }, headers: {
+      "Origin" => "https://morgan-money.example.com"
+    }
+    assert_response :not_found
+    assert_equal false, response.parsed_body.fetch("available")
+    assert_equal "VERA", response.parsed_body.dig("brand", "product_name")
+    assert_nil response.parsed_body.fetch("workspace")
+
+    get "/api/public/brand", params: { hostname: "morgan-money.example.com" }, headers: {
+      "Origin" => "https://morgan-money.example.com/path"
+    }
+    assert_response :not_found
+    assert_equal false, response.parsed_body.fetch("available")
+
+    domain.update!(status: "disabled", is_primary: false, disabled_at: Time.current, updated_by_user: owner)
+    get "/api/public/brand", params: { hostname: "morgan-money.example.com" }
+    assert_response :not_found
+    assert_equal false, response.parsed_body.fetch("available")
+    assert_equal "no-store", response.headers["Cache-Control"]
+  end
+
+  test "public brand endpoint binds local origins to their exact normalized host" do
+    get "/api/public/brand", params: { hostname: "localhost" }, headers: { "Origin" => "http://localhost" }
+    assert_response :success
+    assert_equal "legacy_household_cfo_default", response.parsed_body.fetch("source")
+
+    get "/api/public/brand", params: { hostname: "127.0.0.1" }, headers: { "Origin" => "http://localhost" }
+    assert_response :not_found
+    assert_equal "safe_default", response.parsed_body.fetch("source")
+
+    get "/api/public/brand", params: { hostname: "::1" }, headers: { "Origin" => "http://[::1]" }
+    assert_response :success
+    assert_equal "legacy_household_cfo_default", response.parsed_body.fetch("source")
   end
 
   test "authenticated participant runtime is constrained by the exact brand hostname" do
@@ -295,7 +358,7 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     assert_equal "This coaching program link is unavailable.", response.parsed_body.fetch("error")
   end
 
-  test "CORS admits only exact active HTTPS workspace domains" do
+  test "CORS keeps authenticated APIs on active domains while public bootstrap can return a neutral boundary" do
     owner = create_user("coach")
     workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
     now = Time.current
@@ -312,6 +375,13 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     assert_equal "https://cors-brand.example.com", response.headers["Access-Control-Allow-Origin"]
 
     options "/api/public/brand", headers: {
+      "Origin" => "https://evil-cors-brand.example.com",
+      "Access-Control-Request-Method" => "GET"
+    }
+    assert_response :success
+    assert_equal "https://evil-cors-brand.example.com", response.headers["Access-Control-Allow-Origin"]
+
+    options "/api/v1/workspace", headers: {
       "Origin" => "https://evil-cors-brand.example.com",
       "Access-Control-Request-Method" => "GET"
     }

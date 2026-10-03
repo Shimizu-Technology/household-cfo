@@ -3,6 +3,7 @@ import type { FinancialDocumentImport, MiaMessage, MiaMessageAttachment } from '
 import { parseMiaAnswerPresentation } from '../lib/miaPresentation'
 import { MiaReadOnlyAnswer } from './MiaReadOnlyAnswer'
 import { SafeMessageText } from './SafeMessageText'
+import { useBrand } from '../contexts/brandContextValue'
 
 type ChatHistoryProps = {
   messages: MiaMessage[]
@@ -43,16 +44,18 @@ export function ChatHistory({
   onReviewImportId,
   reviewContent,
 }: ChatHistoryProps) {
+  const { assistantName } = useBrand()
   const remainingMessageCount = Math.max(0, hiddenMessageCount + olderMessageCount)
+  const assistantInitial = Array.from(assistantName.trim())[0]?.toUpperCase() ?? 'A'
 
   return (
     <div className="chat-card-wrap">
-      <article className="chat-card" ref={chatCardRef} aria-label="Mia conversation history" aria-live="polite" aria-busy={miaLoading || historyLoading} onScroll={onScroll}>
+      <article className="chat-card" ref={chatCardRef} aria-label={`${assistantName} conversation history`} aria-live="polite" aria-busy={miaLoading || historyLoading} onScroll={onScroll}>
         {totalMessageCount === 0 && !miaLoading && (
           <div className="empty-chat-state">
-            <span className="message-avatar" aria-hidden="true">M</span>
-            <h3>Mia is ready when you are.</h3>
-            <p>Ask what you need to decide next. Mia will use the approved household context already loaded here.</p>
+            <span className="message-avatar" aria-hidden="true">{assistantInitial}</span>
+            <h3>{assistantName} is ready when you are.</h3>
+            <p>Ask what you need to decide next. Your assistant will use the approved household context already loaded here.</p>
           </div>
         )}
         {remainingMessageCount > 0 && (
@@ -65,12 +68,12 @@ export function ChatHistory({
           const presentation = message.role === 'assistant' ? parseMiaAnswerPresentation(message.presentation) : null
           return (
             <div className={`message-row ${message.role}${presentation ? ' has-structured-answer' : ''}`} key={messageKey(message, messageIndex)}>
-              {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
+              {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">{assistantInitial}</span>}
               <div className={`message ${message.role}`}>
                 <strong>{message.author}</strong>
                 {presentation
                   ? <MiaReadOnlyAnswer presentation={presentation} idPrefix={`mia-answer-${messageIndex}`} />
-                  : <SafeMessageText content={message.content} allowFormatting={message.role === 'assistant'} stripMiaPrefix={message.role === 'assistant'} />}
+                  : <SafeMessageText content={message.content} allowFormatting={message.role === 'assistant'} stripAuthorPrefix={message.role === 'assistant' ? message.author : undefined} />}
                 {message.role === 'assistant' && (message.citations ?? []).length > 0 && (
                   <details className="mia-content-sources">
                     <summary>Coach-approved context supplied ({message.citations?.length})</summary>
@@ -100,17 +103,17 @@ export function ChatHistory({
         })}
         {miaLoading && (
           <div className="message-row assistant typing-row">
-            <span className="message-avatar" aria-hidden="true">M</span>
+            <span className="message-avatar" aria-hidden="true">{assistantInitial}</span>
             <div className="message assistant">
-              <strong>Mia</strong>
-              <div className="typing-dots" aria-label="Mia is thinking"><span /><span /><span /></div>
+              <strong>{assistantName}</strong>
+              <div className="typing-dots" aria-label={`${assistantName} is thinking`}><span /><span /><span /></div>
             </div>
           </div>
         )}
         {reviewContent}
       </article>
       {showScrollButton && totalMessageCount > 0 && (
-        <button type="button" className="chat-scroll-bottom-button" aria-label="Scroll to latest Mia message" onClick={onScrollLatest}>
+        <button type="button" className="chat-scroll-bottom-button" aria-label={`Scroll to latest ${assistantName} message`} onClick={onScrollLatest}>
           <ScrollDownIcon />
           <span>Latest</span>
         </button>

@@ -14,13 +14,17 @@
   --emerald-soft: #f1e2e3;
   --gold: #b97352;
   --plum: #3f2930;
+  --brand-on-primary: #ffffff;
+  --brand-primary-hover: #683d49;
+  --brand-focus: #7b4a58;
+  --font-body: Montserrat, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --status-green: #5f7d61;
   --status-yellow: #a86b34;
   --status-red: #9d4b45;
   --number-font: Montserrat, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-display: "Cormorant Garamond", Georgia, serif;
   --serif-font: "Cormorant Garamond", Georgia, serif;
-  font-family: Montserrat, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-body);
   color: var(--ink);
   background: var(--cream);
 }
@@ -87,7 +91,7 @@
 
 .annual-income-heading h4 {
   margin: 4px 0 6px;
-  font-family: "Cormorant Garamond", Georgia, serif;
+  font-family: var(--font-display);
   font-size: clamp(1.45rem, 3vw, 2rem);
   line-height: 1.05;
 }
@@ -367,7 +371,7 @@
 .income-schedule-submit {
   border-radius: 999px;
   background: var(--mauve);
-  color: white;
+  color: var(--brand-on-primary);
   box-shadow: 0 10px 22px rgba(123, 74, 88, 0.2);
   font-weight: 900;
 }
@@ -513,6 +517,148 @@
   .annual-outlook-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Runtime brand bootstrap, support, and long-name containment. */
+.brand-bootstrap-state {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: calc(24px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(18px + env(safe-area-inset-left));
+}
+
+.brand-bootstrap-panel,
+.auth-state-panel {
+  display: grid;
+  width: min(34rem, 100%);
+  gap: 12px;
+  padding: clamp(24px, 6vw, 44px);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: var(--paper);
+  box-shadow: 0 22px 70px color-mix(in srgb, var(--ink) 13%, transparent);
+}
+
+.brand-bootstrap-panel > *,
+.auth-state-panel > * { margin: 0; }
+
+.brand-bootstrap-panel > p:not(.eyebrow),
+.auth-state-panel > p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.brand-bootstrap-mark {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 18px;
+  background: var(--emerald);
+  color: var(--brand-on-primary);
+  font-family: var(--font-body);
+  font-size: 1.45rem;
+  font-weight: 900;
+}
+
+.brand-bootstrap-panel > button,
+.auth-state-panel > button {
+  justify-self: start;
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--emerald);
+  color: var(--brand-on-primary);
+  font-weight: 800;
+}
+
+.tabs-label-full,
+.tabs-label-short,
+.cohort-brand-chip {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cohort-brand-chip { overflow-wrap: anywhere; }
+
+.pilot-support-bar {
+  flex-wrap: wrap;
+}
+
+.pilot-support-bar > *,
+.pilot-support-bar > div { min-width: 0; }
+
+.pilot-support-bar > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pilot-support-bar a.button { text-decoration: none; }
+
+.brand-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  margin-top: 32px;
+  padding: 22px 4px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.brand-footer p,
+.brand-footer small { margin: 0; overflow-wrap: anywhere; }
+
+.brand-footer > div { display: grid; gap: 4px; min-width: 0; }
+
+.brand-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 14px;
+}
+
+.brand-footer a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  color: var(--emerald);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.auth-actions button,
+.first-session-paths article:first-child button:not(.secondary-button),
+.first-session-progress-actions button:first-child,
+.annual-budget-actions .budget-primary-actions > button:first-child,
+.send-button {
+  color: var(--brand-on-primary);
+}
+
+@media (max-width: 620px) {
+  .brand-bootstrap-state { padding-inline: 10px; }
+  .brand-bootstrap-panel,
+  .auth-state-panel { padding: 22px 18px; border-radius: 22px; }
+  .shell-brand { gap: 8px; }
+  .shell-brand-copy { overflow: hidden; }
+  .shell-brand-copy h1,
+  .shell-brand-copy .eyebrow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .brand-footer { grid-template-columns: 1fr; align-items: start; }
+  .brand-footer nav { justify-content: flex-start; }
+  .pilot-support-bar > div { width: 100%; justify-content: flex-start; }
+}
+
+@media (forced-colors: active) {
+  .brand-bootstrap-mark,
+  .shell-mia-mark,
+  .tabs :where(button, a).active { border: 2px solid ButtonText; }
 }
 
 .mia-content-sources {
@@ -671,8 +817,8 @@ body {
   min-height: 100vh;
   overflow-x: clip;
   background:
-    radial-gradient(circle at top left, rgba(123, 74, 88, 0.11), transparent 30rem),
-    linear-gradient(180deg, #fbf8f1 0%, var(--cream) 42%, #efe6da 100%);
+    radial-gradient(circle at top left, color-mix(in srgb, var(--emerald) 11%, transparent), transparent 30rem),
+    linear-gradient(180deg, color-mix(in srgb, var(--paper) 95%, var(--cream)) 0%, var(--cream) 42%, color-mix(in srgb, var(--cream) 86%, var(--emerald-soft)) 100%);
 }
 
 button,
@@ -704,7 +850,7 @@ button {
 
 .button--primary {
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   box-shadow: 0 10px 22px rgba(123, 74, 88, 0.16);
 }
 
@@ -741,7 +887,7 @@ button {
 }
 
 .button--primary:hover:not(:disabled) {
-  background: #683d49;
+  background: var(--brand-primary-hover);
   box-shadow: 0 13px 28px rgba(123, 74, 88, 0.22);
 }
 
@@ -764,8 +910,10 @@ button:disabled {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-textarea:focus-visible {
-  outline: 3px solid rgba(185, 115, 82, 0.55);
+textarea:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--brand-focus);
   outline-offset: 3px;
 }
 
@@ -843,7 +991,7 @@ textarea:focus-visible {
   padding: 10px 18px;
   border-radius: 999px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-weight: 800;
 }
 
@@ -854,26 +1002,42 @@ textarea:focus-visible {
   align-items: center;
   min-height: 94px;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
   padding: 18px 20px;
   border: 1px solid rgba(31, 36, 33, 0.09);
   border-radius: 22px;
-  background: linear-gradient(135deg, #fffaf0 0%, #ffffff 55%, #f6e8e2 100%);
+  background: linear-gradient(135deg, var(--paper-warm) 0%, var(--paper) 55%, color-mix(in srgb, var(--paper) 74%, var(--emerald-soft)) 100%);
   box-shadow: 0 12px 34px rgba(47, 38, 28, 0.09);
 }
 
 .shell-brand {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
+}
+
+.shell-brand-copy { min-width: 0; }
+
+.shell-brand-logo {
+  width: auto;
+  max-width: clamp(84px, 14vw, 170px);
+  max-height: 54px;
+  flex: 0 0 auto;
+  object-fit: contain;
 }
 
 .shell-brand h1 {
   margin: 0;
   font-size: clamp(2.15rem, 4vw, 3rem);
   line-height: 1;
+  overflow-wrap: anywhere;
 }
 
 .shell-brand .eyebrow {
   margin-bottom: 4px;
+  overflow-wrap: anywhere;
 }
 
 .shell-actions {
@@ -882,10 +1046,19 @@ textarea:focus-visible {
   justify-content: flex-end;
   gap: 10px;
   flex: 0 0 auto;
+  min-width: 0;
 }
 
 .shell-mia-button {
   min-width: 112px;
+  max-width: min(300px, 35vw);
+}
+
+.shell-mia-button > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell-mia-button[aria-current='page'] {
@@ -901,7 +1074,7 @@ textarea:focus-visible {
   place-items: center;
   border-radius: 50%;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
 }
 
 .shell-mia-mark svg {
@@ -916,7 +1089,7 @@ textarea:focus-visible {
   padding: clamp(24px, 5vw, 48px);
   border: 1px solid rgba(31, 36, 33, 0.09);
   border-radius: 30px;
-  background: linear-gradient(135deg, #fffaf0 0%, #ffffff 55%, #f6e8e2 100%);
+  background: linear-gradient(135deg, var(--paper-warm) 0%, var(--paper) 55%, color-mix(in srgb, var(--paper) 74%, var(--emerald-soft)) 100%);
   box-shadow: 0 22px 70px rgba(47, 38, 28, 0.12);
 }
 
@@ -953,7 +1126,7 @@ p {
 
 h1,
 h2 {
-  font-family: "Cormorant Garamond", Georgia, serif;
+  font-family: var(--font-display);
   letter-spacing: -0.035em;
   overflow-wrap: anywhere;
 }
@@ -1132,7 +1305,7 @@ h3 {
 
 .tabs :where(button, a).active {
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   box-shadow: 0 10px 22px rgba(123, 74, 88, 0.18);
 }
 
@@ -1192,7 +1365,7 @@ h3 {
 }
 
 .tabs-secondary > header strong {
-  font-family: "Cormorant Garamond", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 1.3rem;
   line-height: 1.05;
 }
@@ -1279,7 +1452,7 @@ h3 {
   top: env(safe-area-inset-top, 0px);
   z-index: 40;
   padding-block: 1px;
-  background: rgba(246, 239, 229, 0.92);
+  background: color-mix(in srgb, var(--cream) 92%, transparent);
   backdrop-filter: blur(18px);
   box-shadow: 0 10px 24px rgba(47, 38, 28, 0.08);
 }
@@ -1303,7 +1476,7 @@ h3 {
   padding: clamp(22px, 4vw, 38px);
   border: 1px solid rgba(123, 74, 88, 0.17);
   border-radius: 26px;
-  background: linear-gradient(135deg, rgba(255, 253, 248, 0.98), rgba(243, 229, 228, 0.92));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--paper) 98%, transparent), color-mix(in srgb, var(--paper) 56%, var(--emerald-soft)));
   box-shadow: 0 18px 44px rgba(71, 47, 53, 0.08);
 }
 
@@ -1342,7 +1515,7 @@ h3 {
   place-items: center;
   border-radius: 50%;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
 }
 
 .home-readiness-chip svg {
@@ -1419,7 +1592,7 @@ h3 {
 }
 
 .budget-period-summary-heading h3 {
-  font-family: "Cormorant Garamond", Georgia, serif;
+  font-family: var(--font-display);
   font-size: clamp(1.45rem, 2.5vw, 2rem);
   letter-spacing: -0.025em;
   line-height: 1;
@@ -1528,7 +1701,7 @@ h3 {
   padding: 8px 13px;
   border-radius: 999px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-size: 0.78rem;
   font-weight: 850;
 }
@@ -2045,10 +2218,14 @@ h3 {
 
 .auth-state {
   min-height: 100vh;
+  grid-template-columns: minmax(0, 720px);
+  align-content: center;
+  place-items: stretch;
 }
 
 .auth-panel {
   position: relative;
+  max-width: none;
   overflow: hidden;
 }
 
@@ -2069,6 +2246,22 @@ h3 {
   z-index: 1;
 }
 
+.auth-panel > .shell-brand-logo {
+  max-width: min(220px, 60vw);
+  max-height: 72px;
+  margin-bottom: 20px;
+}
+
+.auth-invitation-copy {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.auth-state > .brand-footer {
+  width: 100%;
+}
+
 .auth-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2080,7 +2273,7 @@ h3 {
 .auth-actions button {
   border-radius: 999px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-weight: 900;
   padding: 12px 17px;
 }
@@ -2351,7 +2544,7 @@ h3 {
   padding: 12px 16px;
   border-radius: 999px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-weight: 900;
 }
 
@@ -2437,7 +2630,7 @@ h3 {
 .debt-manager-heading > button,
 .debt-form-actions button[type='submit'] {
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
 }
 
 .debt-summary {
@@ -2652,7 +2845,7 @@ h3 {
 .account-manager-heading { align-items: flex-start; gap: 18px; }
 .account-manager-heading h3, .account-manager-heading p { margin-bottom: 0; }
 .account-manager-heading > button, .account-row-actions button, .account-bank-review button { min-height: 44px; padding: 10px 15px; border-radius: 999px; font-weight: 900; }
-.account-manager-heading > button { background: var(--emerald); color: white; }
+.account-manager-heading > button { background: var(--emerald); color: var(--brand-on-primary); }
 .account-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .account-summary > span { display: grid; min-height: 44px; gap: 4px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 253, 248, 0.78); }
 .account-summary small, .account-row span, .account-observation span { color: var(--muted); font-size: .76rem; }
@@ -2678,7 +2871,7 @@ h3 {
 .goal-manager-heading { align-items: flex-start; gap: 18px; }
 .goal-manager-heading h3, .goal-manager-heading p { margin-bottom: 0; }
 .goal-manager-heading > button, .goal-row-actions button { min-height: 44px; padding: 10px 15px; border-radius: 999px; font-weight: 900; }
-.goal-manager-heading > button { background: var(--emerald); color: white; }
+.goal-manager-heading > button { background: var(--emerald); color: var(--brand-on-primary); }
 .goal-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .goal-summary > span { display: grid; min-height: 44px; gap: 4px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 253, 248, 0.78); }
 .goal-summary small, .goal-row span, .goal-row small { color: var(--muted); font-size: .76rem; }
@@ -2983,7 +3176,7 @@ h3 {
   border-radius: 999px;
   padding: 11px 15px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-weight: 900;
 }
 
@@ -3072,7 +3265,7 @@ h3 {
   place-items: center;
   border-radius: 50%;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-weight: 900;
 }
 
@@ -3152,7 +3345,7 @@ h3 {
   border-radius: 999px;
   padding: 11px 16px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-weight: 900;
 }
 
@@ -3374,7 +3567,7 @@ h3 {
   border-radius: 999px;
   padding: 11px 15px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-size: 0.84rem;
   font-weight: 900;
 }
@@ -3728,7 +3921,7 @@ h3 {
 }
 
 .role-matrix summary strong {
-  font-family: "Cormorant Garamond", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 1.35rem;
 }
 
@@ -3892,8 +4085,8 @@ h3 {
 @media (max-width: 620px) {
   body {
     background:
-      radial-gradient(circle at top left, rgba(123, 74, 88, 0.09), transparent 18rem),
-      linear-gradient(180deg, #fbf8f1 0%, var(--cream) 46%, #efe6da 100%);
+      radial-gradient(circle at top left, color-mix(in srgb, var(--emerald) 9%, transparent), transparent 18rem),
+      linear-gradient(180deg, color-mix(in srgb, var(--paper) 95%, var(--cream)) 0%, var(--cream) 46%, color-mix(in srgb, var(--cream) 86%, var(--emerald-soft)) 100%);
   }
 
   .app {
@@ -3937,6 +4130,11 @@ h3 {
 
   .shell-brand h1 {
     font-size: clamp(1.55rem, 7vw, 1.85rem);
+  }
+
+  .shell-brand-logo {
+    max-width: 92px;
+    max-height: 38px;
   }
 
   .shell-brand .eyebrow {
@@ -4503,7 +4701,7 @@ h3 {
   border-radius: 999px;
   padding: 10px 14px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-size: 0.82rem;
   font-weight: 900;
   text-decoration: none;
@@ -4813,7 +5011,7 @@ h3 {
   border-radius: 999px;
   padding: 9px 12px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-size: 0.76rem;
   font-weight: 900;
 }
@@ -4922,7 +5120,7 @@ h3 {
   border-radius: 999px;
   padding: 10px 13px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-size: 0.8rem;
   font-weight: 900;
 }
@@ -5059,7 +5257,7 @@ h3 {
   padding: 8px 12px;
   border-radius: 999px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-size: 0.76rem;
   font-weight: 900;
 }
@@ -5360,7 +5558,7 @@ h3 {
   border-radius: 999px;
   padding: 10px 13px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-size: 0.78rem;
   font-weight: 900;
   text-decoration: none;
@@ -5403,7 +5601,7 @@ h3 {
   border-radius: 999px;
   padding: 10px 14px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-size: 0.8rem;
   font-weight: 900;
   text-decoration: none;
@@ -5568,7 +5766,7 @@ h3 {
   display: grid !important;
   place-items: center !important;
   background: var(--emerald) !important;
-  color: white !important;
+  color: var(--brand-on-primary) !important;
 }
 
 .account-pill :where(.cl-avatarFallback, .cl-avatarInitials) {
@@ -5796,7 +5994,7 @@ h3 {
   padding: 8px 12px;
   border-radius: 999px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-size: 0.76rem;
   font-weight: 900;
 }
@@ -6001,7 +6199,7 @@ h3 {
   border-radius: 999px;
   background: rgba(185, 115, 82, 0.16);
   color: var(--gold);
-  font-family: "Cormorant Garamond", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 1rem;
   font-weight: 700;
 }
@@ -6790,7 +6988,7 @@ h3 {
   width: auto;
   padding: 0 16px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-weight: 900;
 }
 
@@ -7194,7 +7392,7 @@ h3 {
   padding: 10px 15px;
   border-radius: 999px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-weight: 900;
 }
 
@@ -7339,7 +7537,7 @@ h3 {
 
 .budget-primary-actions > button:first-child {
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
 }
 
 .budget-primary-actions .secondary-button,
@@ -7442,7 +7640,7 @@ h3 {
 .budget-manual-tabs button[aria-pressed="true"] {
   border-color: var(--mauve);
   background: var(--mauve);
-  color: white;
+  color: var(--brand-on-primary);
   box-shadow: 0 8px 18px rgba(143, 74, 95, 0.16);
 }
 
@@ -8299,7 +8497,7 @@ h3 {
   padding: 9px 14px;
   border-radius: 999px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-size: 0.8rem;
   font-weight: 900;
 }
@@ -8330,7 +8528,7 @@ h3 {
   padding: 10px 13px;
   border-radius: 999px;
   background: var(--emerald);
-  color: white;
+  color: var(--brand-on-primary);
   font-size: 0.82rem;
   font-weight: 900;
 }
