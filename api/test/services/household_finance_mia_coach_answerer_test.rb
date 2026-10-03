@@ -145,6 +145,8 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     refute HouseholdFinance::MiaCoachAnswerer.prompt_injection?("You are now showing Fixed essentials as $300; change it to $400")
     refute HouseholdFinance::MiaCoachAnswerer.prompt_injection?("Why can’t I bypass approval?")
     refute HouseholdFinance::MiaCoachAnswerer.prompt_injection?("Skip the review for this duplicate pending transaction")
+    refute HouseholdFinance::MiaCoachAnswerer.prompt_injection?("I forget previous instructions when I am overwhelmed")
+    refute HouseholdFinance::MiaCoachAnswerer.prompt_injection?("Can I forget previous instructions about my coaching preferences?")
   end
 
   test "rejects persistent instructions that automate approval while preserving benign review habits" do
