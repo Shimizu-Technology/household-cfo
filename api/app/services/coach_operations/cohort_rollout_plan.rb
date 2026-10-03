@@ -3,7 +3,7 @@
 module CoachOperations
   class CohortRolloutPlan < CohortRolloutOperation
     KEY = "cohort.rollout.plan"
-    VERSION = 1
+    VERSION = 2
     INPUT_KEYS = %w[expected_latest_release_id expected_roster_digest target_release_id waves].freeze
     MAX_WAVES = 25
     MAX_PARTICIPANTS = 500
@@ -16,7 +16,7 @@ module CoachOperations
       )
       PreparedOperation.new(
         operation_key: self.class::KEY,
-        operation_version: self.class::VERSION,
+        operation_version: operation_version,
         normalized_input: input,
         before_snapshot: before_snapshot,
         predicted_after_snapshot: predicted_after_snapshot(input)

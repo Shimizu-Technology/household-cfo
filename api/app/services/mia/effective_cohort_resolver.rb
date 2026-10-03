@@ -2,20 +2,35 @@
 
 module Mia
   class EffectiveCohortResolver
-    def initialize(user:, role: nil)
+    class InvalidSelection < StandardError; end
+
+    def initialize(user:, role: nil, requested_cohort_id: nil)
       @user = user
       @role = role
+      @requested_cohort_id = requested_cohort_id.to_s.strip.presence
     end
 
     def call
       return unless user
+
+      return requested_membership if requested_cohort_id
 
       membership_for_status("active") || membership_for_status("enrolling") || latest_membership
     end
 
     private
 
-    attr_reader :user, :role
+    attr_reader :user, :role, :requested_cohort_id
+
+    def requested_membership
+      id = Integer(requested_cohort_id, 10)
+      membership = memberships.find_by(cohort_id: id)
+      return membership if membership
+
+      raise InvalidSelection, "The selected cohort is unavailable for this participant."
+    rescue ArgumentError
+      raise InvalidSelection, "The selected cohort is invalid."
+    end
 
     def memberships
       relation = user.cohort_memberships.includes(:cohort)

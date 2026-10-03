@@ -4,17 +4,18 @@ module CoachOperations
   class Base
     class InvalidInput < ArgumentError; end
 
-    def initialize(cohort:, actor:, actor_role_snapshot:)
+    def initialize(cohort:, actor:, actor_role_snapshot:, operation_version: self.class::VERSION)
       @cohort = cohort
       @actor = actor
       @actor_role_snapshot = actor_role_snapshot
+      @operation_version = operation_version
     end
 
     def prepare(raw_input)
       input = normalized_input(raw_input)
       PreparedOperation.new(
         operation_key: self.class::KEY,
-        operation_version: self.class::VERSION,
+        operation_version: operation_version,
         normalized_input: input,
         before_snapshot: state_snapshot,
         predicted_after_snapshot: predicted_after_snapshot(input)
@@ -27,7 +28,7 @@ module CoachOperations
 
     private
 
-    attr_reader :cohort, :actor, :actor_role_snapshot
+    attr_reader :cohort, :actor, :actor_role_snapshot, :operation_version
 
     def canonical_input(value, allowed_keys:)
       raise InvalidInput, "Operation input must be an object" unless value.respond_to?(:to_h)

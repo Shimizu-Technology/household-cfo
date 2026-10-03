@@ -3,6 +3,8 @@ class Cohort < ApplicationRecord
 
   belongs_to :created_by_user, class_name: "User"
   belongs_to :coach_workspace
+  belongs_to :active_cohort_release, class_name: "CohortRelease", optional: true,
+    inverse_of: :active_for_cohorts
 
   has_many :cohort_memberships, dependent: :destroy
   has_many :users, through: :cohort_memberships
@@ -13,6 +15,8 @@ class Cohort < ApplicationRecord
   has_many :cohort_releases, dependent: :restrict_with_exception, inverse_of: :cohort
   has_many :coach_operation_executions, dependent: :restrict_with_exception, inverse_of: :cohort
   has_many :cohort_rollouts, dependent: :restrict_with_exception, inverse_of: :cohort
+  has_many :cohort_release_exposures, dependent: :restrict_with_exception
+  has_many :cohort_release_activation_events, dependent: :restrict_with_exception
 
   validates :name, presence: true, length: { maximum: 120 }, uniqueness: { case_sensitive: false, scope: :coach_workspace_id }
   validates :status, inclusion: { in: STATUSES }
@@ -20,11 +24,19 @@ class Cohort < ApplicationRecord
   validate :ends_on_not_before_starts_on
   validate :creator_can_edit_workspace, on: :create
   validate :no_open_rollout_when_closing
+  validate :active_release_boundary
 
   before_validation :assign_default_coach_workspace, on: :create
   after_create :ensure_experience_configuration
 
   private
+
+  def active_release_boundary
+    return unless active_cohort_release
+    return if active_cohort_release.cohort_id == id && active_cohort_release.coach_workspace_id == coach_workspace_id
+
+    errors.add(:active_cohort_release, "must belong to this cohort and workspace")
+  end
 
   def ensure_experience_configuration
     cohort_experience_configuration || create_cohort_experience_configuration!(

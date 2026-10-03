@@ -221,7 +221,11 @@ module Api
       end
 
       def append_chat_status_message(content)
-        ::Mia::AssistantMessageWriter.new(session: current_chat_session, persona: current_persona).create!(content: content)
+        ::Mia::AssistantMessageWriter.new(
+          session: current_chat_session,
+          persona: current_persona,
+          participant_runtime: current_participant_runtime
+        ).create!(content: content)
       rescue StandardError => e
         Rails.logger.warn("Transaction draft status message was not saved draft_id=#{@draft&.id}: #{e.class}: #{e.message}")
         false

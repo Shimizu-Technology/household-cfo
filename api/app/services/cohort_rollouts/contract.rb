@@ -5,6 +5,7 @@ require "digest"
 module CohortRollouts
   module Contract
     STATE_SCHEMA = "cohort_rollout_state_v1"
+    RUNTIME_STATE_SCHEMA = "cohort_rollout_state_v2"
     ROSTER_SCHEMA = "cohort_rollout_roster_v1"
     READINESS_SCHEMA = "cohort_rollout_readiness_v1"
     PLAN_SCHEMA = "cohort_rollout_plan_v1"
@@ -120,9 +121,9 @@ module CohortRollouts
       }
     end
 
-    def state_snapshot(cohort:, rollout: nil)
+    def state_snapshot(cohort:, rollout: nil, runtime_cutover: rollout&.baseline_cohort_release_id.present?)
       payload = {
-        "schema" => STATE_SCHEMA,
+        "schema" => runtime_cutover ? RUNTIME_STATE_SCHEMA : STATE_SCHEMA,
         "cohort_id" => cohort.id,
         "coach_workspace_id" => cohort.coach_workspace_id,
         "rollout_id" => rollout&.id,
@@ -133,6 +134,10 @@ module CohortRollouts
         "rollback_release_id" => rollout&.rollback_cohort_release_id,
         "participant_runtime_changed" => false
       }
+      if runtime_cutover
+        payload["active_release_id"] = cohort.active_cohort_release_id
+        payload["baseline_release_id"] = rollout&.baseline_cohort_release_id || cohort.active_cohort_release_id
+      end
       return payload unless rollout
 
       latest_transition = rollout.transitions.reorder(id: :desc).first
@@ -172,7 +177,7 @@ module CohortRollouts
       if transition.event_type == "planned"
         participant_ids = rollout.participants.order(:user_id).pluck(:user_id)
         return {
-          "schema" => STATE_SCHEMA,
+          "schema" => rollout.baseline_cohort_release_id ? RUNTIME_STATE_SCHEMA : STATE_SCHEMA,
           "cohort_id" => rollout.cohort_id,
           "coach_workspace_id" => rollout.coach_workspace_id,
           "rollout_id" => nil,
@@ -186,7 +191,12 @@ module CohortRollouts
             roster_snapshot_for_ids(cohort_id: rollout.cohort_id, user_ids: participant_ids)
           ),
           "participant_runtime_changed" => false
-        }
+        }.tap do |payload|
+          if rollout.baseline_cohort_release_id
+            payload["active_release_id"] = rollout.baseline_cohort_release_id
+            payload["baseline_release_id"] = rollout.baseline_cohort_release_id
+          end
+        end
       end
 
       previous_transition_id = rollout.transitions.where("id < ?", transition.id).reorder(id: :desc).pick(:id)
@@ -222,13 +232,16 @@ module CohortRollouts
         status: transition.to_status,
         wave_position: transition.to_wave_position,
         latest_transition_id: transition.id,
-        rollback_release_id: transition.rollback_cohort_release_id || rollout.rollback_cohort_release_id
+        rollback_release_id: transition.rollback_cohort_release_id || rollout.rollback_cohort_release_id,
+        participant_runtime_changed: transition.participant_runtime_changed
       )
     end
 
-    def transition_snapshot(rollout:, status:, wave_position:, latest_transition_id:, rollback_release_id:)
+    def transition_snapshot(rollout:, status:, wave_position:, latest_transition_id:, rollback_release_id:,
+      participant_runtime_changed: false)
+      runtime_cutover = rollout.baseline_cohort_release_id.present?
       {
-        "schema" => STATE_SCHEMA,
+        "schema" => runtime_cutover ? RUNTIME_STATE_SCHEMA : STATE_SCHEMA,
         "cohort_id" => rollout.cohort_id,
         "coach_workspace_id" => rollout.coach_workspace_id,
         "rollout_id" => rollout.id,
@@ -237,8 +250,13 @@ module CohortRollouts
         "latest_transition_id" => latest_transition_id,
         "target_release_id" => rollout.target_cohort_release_id,
         "rollback_release_id" => rollback_release_id,
-        "participant_runtime_changed" => false
-      }
+        "participant_runtime_changed" => participant_runtime_changed
+      }.tap do |payload|
+        if runtime_cutover
+          payload["baseline_release_id"] = rollout.baseline_cohort_release_id
+          payload["active_release_id"] = status == "completed" ? rollout.target_cohort_release_id : rollout.baseline_cohort_release_id
+        end
+      end
     end
 
     def value(hash, key)

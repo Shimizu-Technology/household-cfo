@@ -2,25 +2,64 @@
 
 module CohortExperience
   class EffectiveCapabilitiesResolver
+    class << self
+      def for_release(release:, cohort_membership:)
+        snapshot = release.experience_snapshot.deep_stringify_keys
+        raise ArgumentError, "release experience snapshot is invalid" unless snapshot["configuration_id"] ==
+          release.cohort_experience_configuration_id
+
+        config = CohortExperience::Schema.normalize(snapshot.fetch("config"))
+        source = snapshot.fetch("mode") == "published_version" ? "cohort_release" : "safe_default_release"
+        payload_for(
+          config: config,
+          source: source,
+          cohort_membership: cohort_membership,
+          version: release.cohort_experience_version,
+          release: release
+        )
+      end
+
+      def safe_default_payload(cohort_membership:, standalone: false)
+        config = standalone ? Schema::LEGACY_CONFIG : Schema::DEFAULT_CONFIG
+        payload_for(
+          config: config,
+          source: standalone ? "standalone_default" : "safe_default",
+          cohort_membership: cohort_membership,
+          version: nil,
+          release: nil
+        )
+      end
+
+      def payload_for(config:, source:, cohort_membership:, version:, release: nil)
+        enabled = config.fetch("optional_modules")
+        {
+          schema_version: 1,
+          source: source,
+          cohort_id: cohort_membership&.cohort_id,
+          cohort_release: release && { id: release.id, number: release.release_number },
+          experience_version: version && { id: version.id, number: version.version_number },
+          modules: ModuleRegistry::MODULES.map do |item|
+            module_enabled = item.fetch(:core) || enabled.fetch(item.fetch(:id), false)
+            item.merge(enabled: module_enabled).tap do |payload|
+              payload.delete(:unavailable_message) if module_enabled
+            end
+          end
+        }
+      end
+    end
+
     def initialize(cohort_membership:)
       @cohort_membership = cohort_membership
     end
 
     def call
       config, source, version = effective_config
-      enabled = config.fetch("optional_modules")
-      {
-        schema_version: 1,
+      self.class.payload_for(
+        config: config,
         source: source,
-        cohort_id: cohort_membership&.cohort_id,
-        experience_version: version && { id: version.id, number: version.version_number },
-        modules: ModuleRegistry::MODULES.map do |item|
-          module_enabled = item.fetch(:core) || enabled.fetch(item.fetch(:id), false)
-          item.merge(enabled: module_enabled).tap do |payload|
-            payload.delete(:unavailable_message) if module_enabled
-          end
-        end
-      }
+        cohort_membership: cohort_membership,
+        version: version
+      )
     rescue StandardError => error
       Rails.logger.error("[CohortExperience] safe default error=#{error.class} cohort_id=#{cohort_membership&.cohort_id}")
       payload_for_safe_default
@@ -44,16 +83,7 @@ module CohortExperience
     end
 
     def payload_for_safe_default
-      {
-        schema_version: 1,
-        source: "safe_default",
-        cohort_id: cohort_membership&.cohort_id,
-        experience_version: nil,
-        modules: ModuleRegistry::MODULES.map do |item|
-          enabled = item.fetch(:core)
-          item.merge(enabled: enabled).tap { |payload| payload.delete(:unavailable_message) if enabled }
-        end
-      }
+      self.class.safe_default_payload(cohort_membership: cohort_membership)
     end
   end
 end

@@ -3,6 +3,8 @@ module Api
     class BaseController < ApplicationController
       include ClerkAuthenticatable
 
+      rescue_from ::Mia::EffectiveCohortResolver::InvalidSelection, with: :render_invalid_cohort_selection
+
       private
 
       def current_household
@@ -10,27 +12,35 @@ module Api
       end
 
       def current_cohort_membership
-        return @current_cohort_membership if defined?(@current_cohort_membership)
-
-        @current_cohort_membership = ::Mia::EffectiveCohortResolver.new(
-          user: current_user,
-          role: "participant"
-        ).call
+        current_participant_runtime.membership
       end
 
       def current_persona
         return @current_persona if defined?(@current_persona)
 
-        @current_persona = ::Mia::PersonaResolver.new(
-          user: current_user,
-          cohort_membership: current_cohort_membership
-        ).call
+        @current_persona = current_participant_runtime.persona
       end
 
       def current_experience_capabilities
-        @current_experience_capabilities ||= CohortExperience::EffectiveCapabilitiesResolver.new(
-          cohort_membership: current_cohort_membership
-        ).call
+        @current_experience_capabilities ||= current_participant_runtime.capabilities
+      end
+
+      def current_participant_runtime
+        @current_participant_runtime ||= begin
+          membership = ::Mia::EffectiveCohortResolver.new(
+            user: current_user,
+            role: "participant",
+            requested_cohort_id: request&.headers&.[]("X-Cohort-Id")
+          ).call
+          ::Mia::ParticipantRuntimeResolver.new(
+            user: current_user,
+            cohort_membership: membership
+          ).call
+        end
+      end
+
+      def render_invalid_cohort_selection(error)
+        render json: { error: error.message, code: "cohort_selection_invalid" }, status: :unprocessable_entity
       end
 
       def current_coach_workspace

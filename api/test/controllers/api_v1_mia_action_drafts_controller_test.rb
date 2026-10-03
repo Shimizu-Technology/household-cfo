@@ -1449,6 +1449,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
 
   test "mia drafts and applies multiple category amounts together" do
     user = create_user(email: "mia-action-compound@example.com")
+    cohort, release = attach_participant_runtime(user, "action-status")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     manager = HouseholdFinance::AnnualBudgetManager.new(household)
     groceries = manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
@@ -1470,6 +1471,10 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal 65_000, planned_amount_for_month(groceries, 8)
     assert_equal 27_500, planned_amount_for_month(dining, 8)
+    status_message = household.chat_sessions.find_by!(user: user).chat_messages.order(:id).last
+    assert_equal "assistant", status_message.role
+    assert_equal cohort.id, status_message.cohort_id
+    assert_equal release.id, status_message.cohort_release_id
   end
 
   test "mia never creates a partial review when a third requested category cannot be matched" do
@@ -1632,6 +1637,24 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
       role: "participant",
       invitation_status: "accepted"
     )
+  end
+
+  def attach_participant_runtime(user, key)
+    owner = User.create!(
+      clerk_id: "clerk_#{SecureRandom.hex(6)}",
+      email: "#{key}-coach-#{SecureRandom.hex(4)}@example.com",
+      role: "coach",
+      invitation_status: "accepted"
+    )
+    cohort = Cohort.create!(name: "#{key} #{SecureRandom.hex(4)}", status: "active", created_by_user: owner)
+    cohort.cohort_memberships.create!(user: user, role: "participant")
+    candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: false).call
+    release = CohortReleases::Sealer.new(cohort: cohort, actor: nil, publication_source: "system").call!(
+      request_key: key,
+      expected_bundle_digest: candidate.bundle_digest
+    )
+    cohort.update!(active_cohort_release: release)
+    [ cohort, release ]
   end
 
   def auth_headers(user)

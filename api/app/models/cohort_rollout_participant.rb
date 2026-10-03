@@ -9,6 +9,7 @@ class CohortRolloutParticipant < ApplicationRecord
 
   validates :user_id, uniqueness: { scope: :cohort_rollout_id }
   validate :workspace_and_wave_boundaries
+  validate :membership_epoch_boundary
   validate :participant_limit, on: :create
   validate :plan_still_building, on: :create
   validate :immutable_record, on: :update
@@ -43,6 +44,18 @@ class CohortRolloutParticipant < ApplicationRecord
     return if cohort_rollout.participants.where.not(id: id).count < CohortRollout::MAX_PARTICIPANTS
 
     errors.add(:base, "cohort rollout plans support at most #{CohortRollout::MAX_PARTICIPANTS} participants")
+  end
+
+  def membership_epoch_boundary
+    runtime_rollout = cohort_rollout&.baseline_cohort_release_id.present?
+    if runtime_rollout
+      membership = cohort&.cohort_memberships&.find_by(id: cohort_membership_id, user_id: user_id, role: "participant")
+      unless membership && membership.created_at == membership_started_at
+        errors.add(:cohort_membership_id, "must pin the current participant membership epoch")
+      end
+    elsif cohort_membership_id.present? || membership_started_at.present?
+      errors.add(:cohort_membership_id, "is available only for runtime rollouts")
+    end
   end
 
   def plan_still_building

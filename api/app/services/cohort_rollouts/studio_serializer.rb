@@ -4,7 +4,7 @@ module CohortRollouts
   class StudioSerializer
     HISTORY_LIMIT = 25
     ROLLBACK_SEARCH_BATCH_SIZE = 25
-    RUNTIME_TRUTH = "Rollout records coordinate reviewed waves. They do not change participant access, Mia, or participant tools.".freeze
+    RUNTIME_TRUTH = "Each advanced wave receives the sealed Mia persona and participant tools together. Completing the rollout makes that release the cohort default; rollback restores the captured baseline.".freeze
 
     def initialize(cohort:, actor:)
       @cohort = cohort
@@ -32,8 +32,8 @@ module CohortRollouts
           participant_count: current_participants.length
         },
         runtime_truth: {
-          changes_participant_runtime: false,
-          participant_runtime_changed: false,
+          changes_participant_runtime: true,
+          participant_runtime_changed: current&.cohort_release_exposures&.exists? || false,
           message: RUNTIME_TRUTH
         },
         permissions: {
@@ -52,6 +52,7 @@ module CohortRollouts
           participants: current_participants
         },
         latest_release: release_payload(latest_release),
+        active_release: release_payload(cohort.active_cohort_release),
         release_history: {
           limit: HISTORY_LIMIT,
           total_count: release_total_count,
@@ -82,6 +83,7 @@ module CohortRollouts
       @rollout_history ||= cohort.cohort_rollouts.order(id: :desc).limit(HISTORY_LIMIT).preload(
         :planned_by_user,
         :target_cohort_release,
+        :baseline_cohort_release,
         :rollback_cohort_release
       ).to_a
     end
@@ -91,7 +93,9 @@ module CohortRollouts
       @detailed_rollouts[id] ||= cohort.cohort_rollouts.where(id: id).preload(
         :planned_by_user,
         :target_cohort_release,
+        :baseline_cohort_release,
         :rollback_cohort_release,
+        { cohort_release_exposures: :cohort_release },
         waves: { participants: :user }
       ).sole
     end
@@ -112,7 +116,10 @@ module CohortRollouts
       {
         id: rollout.id,
         status: rollout.status,
+        runtime_mode: rollout.baseline_cohort_release_id ? "release_runtime_v2" : "legacy_record_only_v1",
+        runtime_blocker: legacy_rollout_blocker(rollout),
         target_release: release_payload(rollout.target_cohort_release),
+        baseline_release: release_payload(rollout.baseline_cohort_release),
         rollback_release: release_payload(rollout.rollback_cohort_release),
         rollback_candidate: release_payload(rollback_candidate),
         planned_by: actor_payload(rollout.planned_by_user, rollout.planned_by_role_snapshot),
@@ -145,7 +152,7 @@ module CohortRollouts
           truncated: transition_total_count > transitions.length
         },
         transitions: transitions.map { |transition| transition_payload(transition) },
-        participant_runtime_changed: false
+        participant_runtime_changed: rollout.cohort_release_exposures.exists?
       }
     end
 
@@ -154,7 +161,10 @@ module CohortRollouts
       {
         id: rollout.id,
         status: rollout.status,
+        runtime_mode: rollout.baseline_cohort_release_id ? "release_runtime_v2" : "legacy_record_only_v1",
+        runtime_blocker: legacy_rollout_blocker(rollout),
         target_release: release_payload(rollout.target_cohort_release),
+        baseline_release: release_payload(rollout.baseline_cohort_release),
         rollback_release: release_payload(rollout.rollback_cohort_release),
         planned_by: actor_payload(rollout.planned_by_user, rollout.planned_by_role_snapshot),
         planned_at: rollout.planned_at,
@@ -172,7 +182,7 @@ module CohortRollouts
           total_count: transition_total_count,
           truncated: transition_total_count > HISTORY_LIMIT
         },
-        participant_runtime_changed: false
+        participant_runtime_changed: rollout_exposure_counts.fetch(rollout.id, 0).positive?
       }
     end
 
@@ -180,10 +190,21 @@ module CohortRollouts
       member_ids = current_participant_ids
       participants = wave.participants.sort_by(&:user_id).map do |participant|
         user = participant.user
+        membership = current_participant_memberships[user.id]
+        exposure = runtime_exposures_by_user[user.id]
+        current_planned_epoch = membership && participant.cohort_membership_id == membership.id &&
+          participant.membership_started_at == membership.created_at
+        wave_exposed = current_planned_epoch && rollout.cohort_release_exposures.any? do |candidate|
+          candidate.user_id == user.id && candidate.cohort_rollout_wave_id == wave.id &&
+            candidate.cohort_membership_id == membership.id && candidate.membership_started_at == membership.created_at &&
+            candidate.event_type == "wave" && candidate.cohort_release_id == rollout.target_cohort_release_id
+        end
         {
           user_id: user.id,
           full_name: participant_display_name(user),
-          readiness: Contract.readiness_state(cohort: cohort, user: user, member_user_ids: member_ids)
+          readiness: Contract.readiness_state(cohort: cohort, user: user, member_user_ids: member_ids),
+          exposed: wave_exposed,
+          effective_release: release_payload(exposure&.cohort_release || cohort.active_cohort_release)
         }
       end
       {
@@ -193,6 +214,8 @@ module CohortRollouts
         active: rollout.status.in?(%w[active paused]) && rollout.current_wave_position == wave.position,
         completed: rollout.current_wave_position > wave.position || rollout.status == "completed",
         participant_count: participants.length,
+        exposed_count: participants.count { |participant| participant.fetch(:exposed) },
+        exposure_complete: participants.all? { |participant| participant.fetch(:exposed) },
         counts: readiness_counts(participants),
         participants: participants
       }
@@ -202,10 +225,12 @@ module CohortRollouts
       users = current_participant_users
       member_ids = users.map(&:id)
       users.map do |user|
+        exposure = runtime_exposures_by_user[user.id]
         {
           user_id: user.id,
           full_name: participant_display_name(user),
-          readiness: Contract.readiness_state(cohort: cohort, user: user, member_user_ids: member_ids)
+          readiness: Contract.readiness_state(cohort: cohort, user: user, member_user_ids: member_ids),
+          effective_release: release_payload(exposure&.cohort_release || cohort.active_cohort_release)
         }
       end
     end
@@ -228,7 +253,7 @@ module CohortRollouts
         readiness_digest: transition.readiness_digest,
         actor: actor_payload(transition.actor_user, transition.actor_role_snapshot),
         occurred_at: transition.occurred_at,
-        participant_runtime_changed: false
+        participant_runtime_changed: transition.participant_runtime_changed
       }
     end
 
@@ -264,6 +289,13 @@ module CohortRollouts
     def eligible_rollback_release(rollout)
       @eligible_rollback_releases ||= {}
       return @eligible_rollback_releases[rollout.id] if @eligible_rollback_releases.key?(rollout.id)
+
+      if rollout.baseline_cohort_release
+        integrity = release_integrity(rollout.baseline_cohort_release)
+        return @eligible_rollback_releases[rollout.id] = rollout.baseline_cohort_release if
+          integrity.fetch(:valid) && integrity.fetch(:runtime_compatible)
+        return @eligible_rollback_releases[rollout.id] = nil
+      end
 
       cursor = rollout.target_cohort_release.release_number
       loop do
@@ -335,8 +367,28 @@ module CohortRollouts
     end
 
     def current_participant_users
-      @current_participant_users ||= cohort.cohort_memberships.where(role: "participant").includes(:user)
-        .map(&:user).sort_by(&:id)
+      @current_participant_users ||= current_participant_memberships.values.map(&:user).sort_by(&:id)
+    end
+
+    def current_participant_memberships
+      @current_participant_memberships ||= cohort.cohort_memberships.where(role: "participant").includes(:user)
+        .index_by(&:user_id)
+    end
+
+    def runtime_exposures_by_user
+      @runtime_exposures_by_user ||= begin
+        memberships = current_participant_memberships
+        CohortReleaseExposure.where(
+          cohort_id: cohort.id,
+          cohort_membership_id: memberships.values.map(&:id)
+        ).includes(:cohort_release).order(id: :desc).each_with_object({}) do |exposure, result|
+          membership = memberships[exposure.user_id]
+          next unless membership && membership.id == exposure.cohort_membership_id &&
+            membership.created_at == exposure.membership_started_at
+
+          result[exposure.user_id] ||= exposure
+        end
+      end
     end
 
     def current_participant_ids
@@ -410,6 +462,11 @@ module CohortRollouts
         .group(:cohort_rollout_id).maximum(:id)
     end
 
+    def rollout_exposure_counts
+      @rollout_exposure_counts ||= CohortReleaseExposure.where(cohort_rollout_id: rollout_ids)
+        .group(:cohort_rollout_id).count
+    end
+
     def permission_blockers(authorized, cleanup_available:)
       blockers = []
       blockers << "Only a workspace owner or reviewer can manage rollout records." unless authorized
@@ -437,8 +494,26 @@ module CohortRollouts
           blockers << "The latest sealed release is not compatible with the current runtime."
         end
       end
+      if cohort.active_cohort_release.nil?
+        blockers << "Activate the cohort's current release before planning a runtime rollout."
+      elsif release && cohort.active_cohort_release_id == release.id
+        blockers << "Seal a new release before planning a rollout; the latest release is already active."
+      end
       blockers << "Add at least one participant before planning a rollout." if current_participant_ids.empty?
+      if current && current.baseline_cohort_release_id.nil?
+        blockers << "Finish or cancel the pre-cutover rollout before activating release runtime."
+      end
       blockers
+    end
+
+    def legacy_rollout_blocker(rollout)
+      return unless rollout.baseline_cohort_release_id.nil?
+
+      if rollout.status == "planned"
+        "This rollout predates participant runtime activation. Cancel it before activating release runtime."
+      elsif rollout.status.in?(%w[active paused])
+        "This rollout predates participant runtime activation. Resume if needed and finish it or roll it back before activating release runtime."
+      end
     end
   end
 end

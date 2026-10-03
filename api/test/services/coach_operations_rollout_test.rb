@@ -31,6 +31,35 @@ class CoachOperationsRolloutTest < ActiveSupport::TestCase
     assert_equal 1, cohort.coach_operation_executions.count
   end
 
+  test "version two cannot mutate a legacy rollout" do
+    owner, cohort, _first_release, target_release, participants = rollout_components
+    rollout = run_operation(
+      cohort,
+      owner,
+      "cohort.rollout.plan",
+      plan_input(cohort, target_release, participants),
+      "legacy-version-pair-plan"
+    ).rollout
+    transition_count = rollout.transitions.count
+    execution_count = cohort.coach_operation_executions.count
+
+    error = assert_raises(CoachOperations::Runner::InvalidRequest) do
+      CoachOperations::Runner.new(cohort: cohort, actor: owner).call!(
+        operation_key: "cohort.rollout.advance",
+        operation_version: 2,
+        input: transition_input(rollout).merge(
+          "readiness_digest" => CohortRollouts::Contract.readiness_digest_for_advance(rollout)
+        ),
+        request_key: "legacy-version-pair-advance"
+      )
+    end
+
+    assert_match(/operation_version must be 1/, error.message)
+    assert_equal "planned", rollout.reload.status
+    assert_equal transition_count, rollout.transitions.count
+    assert_equal execution_count, cohort.coach_operation_executions.count
+  end
+
   test "six typed rollout operations preserve CAS evidence and never change participant runtime" do
     owner, cohort, first_release, target_release, participants = rollout_components
     runtime_before = participant_runtime_snapshot(cohort, participants)

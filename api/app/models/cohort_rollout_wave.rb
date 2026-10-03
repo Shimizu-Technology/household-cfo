@@ -7,6 +7,7 @@ class CohortRolloutWave < ApplicationRecord
 
   has_many :participants, class_name: "CohortRolloutParticipant",
     dependent: :restrict_with_exception, inverse_of: :cohort_rollout_wave
+  has_many :cohort_release_exposures, dependent: :restrict_with_exception
 
   normalizes :name, with: ->(value) { value.to_s.squish }
 

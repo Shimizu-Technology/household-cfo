@@ -9,7 +9,7 @@ A cohort release is an immutable snapshot of the participant experience that was
 - the exact module and reviewed-operation registry available in that release;
 - tenant, cohort, actor, source, time, and idempotency evidence.
 
-This foundation does not change participant runtime. Persona assignments and participant-tools publication remain the live sources until the atomic activation and runtime-cutover work lands. That avoids two competing definitions of the active participant experience.
+An activated release is the cohort's default participant runtime. Rollout exposure records can pin individual participants to another release while a version 2 rollout is in progress. The resolver always derives persona, approved content, and participant tools from one validated release.
 
 ## Evidence and safety rules
 
@@ -29,7 +29,7 @@ Run the idempotent task after deployment:
 bin/rails cohort_releases:reconcile_legacy
 ```
 
-The task seals shadow releases and reports counts. It does not activate them. `CohortReleases::ShadowParity` reports `unreconciled`, `in_sync`, `drifted`, `corrupt`, or `error` using IDs, modes, and counts only.
+The reconciliation task still seals shadow releases without activating them. `CohortReleases::ShadowParity` reports `unreconciled`, `in_sync`, `drifted`, `corrupt`, or `error` using IDs, modes, and counts only. Run `bin/rails cohort_releases:activate_runtime` after closing any pre-cutover open rollout to reuse or seal a matching release, verify legacy parity, activate it, and record an append-only activation event.
 
 ## Coach release operations
 
@@ -48,8 +48,10 @@ The release Studio API is available at:
 - `POST /api/v1/admin/cohorts/:cohort_id/releases`
 - `POST /api/v1/admin/cohorts/:cohort_id/releases/:id/restore`
 
-Readiness is evidence state and remains visible to read-only workspace members. Mutation permissions and closed-cohort restrictions are reported separately. All responses state that release records do not change participant runtime.
+Readiness is evidence state and remains visible to read-only workspace members. Mutation permissions and closed-cohort restrictions are reported separately. Release records remain inert until activation or rollout exposure. Studio responses identify the active release, each participant's effective release, open-rollout baseline, exposure completeness, and pre-cutover blockers.
 
-## Planned cutover
+## Runtime activation
 
-The later activation change must load one release once per request and derive both persona and tools from that row. The same change will add release-scoped conversation continuity, explicit handling for participants in multiple cohorts, activation audit events, and a compare-and-swap cohort pointer. Mutable rollout waves and participant exposure records will reference immutable releases rather than changing release evidence.
+Activation is atomic and auditable. The database requires the pointer change and its matching from/to event in the same transaction. Replaying the activation task checks the existing event and active pointer before considering newer equivalent releases, so sealing another release with the same bundle does not invalidate prior activation evidence.
+
+The participant resolver keeps a deployment-safe legacy fallback for cohorts that have not been activated. Once a release is selected, it validates and loads the release as one unit. Corrupt release data falls back to the neutral persona and safe participant tools together.

@@ -3,7 +3,7 @@
 module CoachOperations
   class CohortRolloutRollback < CohortRolloutOperation
     KEY = "cohort.rollout.rollback"
-    VERSION = 1
+    VERSION = 2
     INPUT_KEYS = (COMMON_CAS_KEYS + %w[rollback_release_id]).freeze
 
     def normalize_operation_input(input)
@@ -16,7 +16,8 @@ module CoachOperations
       predicted_rollout_snapshot(
         status: "rolled_back",
         wave_position: input.fetch("expected_current_wave_position"),
-        rollback_release_id: input.fetch("rollback_release_id")
+        rollback_release_id: input.fetch("rollback_release_id"),
+        participant_runtime_changed: runtime_cutover?
       )
     end
 

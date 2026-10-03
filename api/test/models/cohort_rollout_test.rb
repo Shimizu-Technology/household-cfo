@@ -175,7 +175,8 @@ class CohortRolloutTest < ActiveSupport::TestCase
     assert_not transition.participant_runtime_changed
     transition.participant_runtime_changed = true
     assert_not transition.valid?
-    assert_includes transition.errors[:participant_runtime_changed], "is not included in the list"
+    assert_includes transition.errors[:participant_runtime_changed],
+      "must match whether this rollout event changes participant runtime"
   end
 
   test "rejects illegal event-specific transition shapes before persistence" do

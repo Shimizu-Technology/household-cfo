@@ -6,6 +6,8 @@ class ChatMessage < ApplicationRecord
 
   belongs_to :chat_session
   belongs_to :coach_persona_version, optional: true, inverse_of: :chat_messages
+  belongs_to :cohort, optional: true
+  belongs_to :cohort_release, optional: true
   has_many :coach_content_citations, -> { order(:rank) }, dependent: :delete_all
 
   normalizes :assistant_author, with: ->(value) { value.to_s.strip.presence }
@@ -17,6 +19,7 @@ class ChatMessage < ApplicationRecord
   validate :presentation_is_safe_metadata
   validate :persona_attribution_is_complete
   validate :persona_attribution_is_immutable, on: :update
+  validate :release_attribution_is_complete
 
   before_validation :set_global_assistant_author, on: :create
 
@@ -45,7 +48,9 @@ class ChatMessage < ApplicationRecord
           reason: citation.reason
         }
       end,
-      created_at: created_at&.iso8601
+      created_at: created_at&.iso8601,
+      cohort_id: cohort_id,
+      cohort_release_id: cohort_release_id
     }
   end
 
@@ -77,9 +82,23 @@ class ChatMessage < ApplicationRecord
   end
 
   def persona_attribution_is_immutable
-    return unless will_save_change_to_role? || will_save_change_to_assistant_author? || will_save_change_to_coach_persona_version_id?
+    return unless will_save_change_to_role? || will_save_change_to_assistant_author? ||
+      will_save_change_to_coach_persona_version_id? || will_save_change_to_cohort_id? ||
+      will_save_change_to_cohort_release_id?
 
     errors.add(:base, "message role and assistant attribution are immutable")
+  end
+
+  def release_attribution_is_complete
+    return if cohort_id.blank? && cohort_release_id.blank?
+    if cohort_id.blank?
+      errors.add(:cohort, "is required when a release is attributed")
+      return
+    end
+    return if cohort_release_id.blank?
+    return if cohort_release&.cohort_id == cohort_id
+
+    errors.add(:cohort_release, "must belong to the attributed cohort")
   end
 
   def set_global_assistant_author
