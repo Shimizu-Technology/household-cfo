@@ -44,7 +44,7 @@ Rails.application.config.middleware.insert_before 0, Rack::Cors do
       next false unless uri.port == 443
 
       hostname = Branding::Hostname.normalize(uri.host)
-      hostname.present? && CoachWorkspaceDomain.active.exists?(hostname: hostname)
+      hostname.present? && Branding::ActiveDomainRegistry.active?(hostname)
     rescue URI::InvalidURIError, ActiveRecord::ActiveRecordError
       false
     end

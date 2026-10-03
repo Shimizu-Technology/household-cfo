@@ -12,6 +12,9 @@ module Branding
     end
 
     def call
+      existing = workspace.workspace_brand_configuration
+      return existing if existing
+
       workspace.with_lock do
         existing = workspace.workspace_brand_configuration
         return existing if existing

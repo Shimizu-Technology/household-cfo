@@ -21,8 +21,9 @@ class CoachWorkspaceDomain < ApplicationRecord
   validate :updater_can_edit_workspace
   validate :verified_identity_is_immutable, on: :update
   validate :lifecycle_fields_are_consistent
+  after_commit :invalidate_active_domain_registry
 
-  scope :active, -> { where(status: "active").where.not(verified_at: nil, activated_at: nil) }
+  scope :active, -> { where(status: "active").where.not(verified_at: nil).where.not(activated_at: nil) }
 
   private
 
@@ -57,5 +58,9 @@ class CoachWorkspaceDomain < ApplicationRecord
     if status != "disabled" && disabled_at.present?
       errors.add(:disabled_at, "must be blank unless the domain is disabled")
     end
+  end
+
+  def invalidate_active_domain_registry
+    Branding::ActiveDomainRegistry.invalidate!
   end
 end

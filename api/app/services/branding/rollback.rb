@@ -22,10 +22,10 @@ module Branding
       }))
 
       configuration.with_lock do
+        ensure_publish_permission!
         replay = replay_for(idempotency_key, fingerprint)
         return replay if replay
 
-        ensure_publish_permission!
         unless Integer(expected_draft_revision, exception: false) == configuration.draft_revision
           raise RollbackError, "The brand draft changed; reload before restoring"
         end

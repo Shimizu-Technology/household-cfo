@@ -36,10 +36,10 @@ module Branding
       )
 
       configuration.with_lock do
+        ensure_publish_permission!
         replay = replay_for(idempotency_key, fingerprint)
         return replay if replay
 
-        ensure_publish_permission!
         validate_revision!(expected_draft_revision)
         unless normalized_id(expected_current_version_id) == configuration.current_published_version_id
           raise PublicationError, "The published brand changed; reload before publishing"

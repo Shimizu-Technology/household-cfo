@@ -23,7 +23,10 @@ module Branding
           generated_at: configuration.previewed_at
         },
         published_version: serialize_version(configuration.current_published_version),
-        versions: configuration.versions.order(version_number: :desc).map { |version| serialize_version(version, include_source: true) },
+        versions: configuration.versions
+          .reorder(version_number: :desc)
+          .includes(:published_by_user, :source_version)
+          .map { |version| serialize_version(version, include_source: true) },
         permissions: {
           edit: policy.edit?,
           preview: policy.preview?,

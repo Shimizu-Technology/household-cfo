@@ -30,15 +30,17 @@ module Api
 
       def current_participant_runtime
         @current_participant_runtime ||= begin
+          brand_workspace = participant_brand_workspace
           membership = ::Mia::EffectiveCohortResolver.new(
             user: current_user,
             role: "participant",
             requested_cohort_id: request&.headers&.[]("X-Cohort-Id"),
-            coach_workspace: participant_brand_workspace
+            coach_workspace: brand_workspace
           ).call
           ::Mia::ParticipantRuntimeResolver.new(
             user: current_user,
-            cohort_membership: membership
+            cohort_membership: membership,
+            coach_workspace: brand_workspace
           ).call
         end
       end
@@ -55,10 +57,10 @@ module Api
         reject_unavailable_brand! if raw_origin.present? && origin_hostname.nil?
 
         if origin_hostname
-          origin_domain = CoachWorkspaceDomain.active.includes(:coach_workspace).find_by(hostname: origin_hostname)
-          if origin_domain
+          origin_workspace_id = Branding::ActiveDomainRegistry.workspace_id_for(origin_hostname)
+          if origin_workspace_id
             reject_unavailable_brand! unless hostname == origin_hostname
-            return @participant_brand_workspace = origin_domain.coach_workspace
+            return @participant_brand_workspace = CoachWorkspace.find(origin_workspace_id)
           end
 
           if Branding::Hostname::LOCAL.include?(origin_hostname)
@@ -79,7 +81,8 @@ module Api
       def resolve_header_brand(hostname)
         return nil if Branding::Hostname::LOCAL.include?(hostname) || Branding::Hostname.legacy?(hostname)
 
-        CoachWorkspaceDomain.active.includes(:coach_workspace).find_by(hostname: hostname)&.coach_workspace || reject_unavailable_brand!
+        workspace_id = Branding::ActiveDomainRegistry.workspace_id_for(hostname)
+        workspace_id ? CoachWorkspace.find(workspace_id) : reject_unavailable_brand!
       end
 
       def reject_unavailable_brand!

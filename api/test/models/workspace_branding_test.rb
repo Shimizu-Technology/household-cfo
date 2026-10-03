@@ -171,6 +171,20 @@ class WorkspaceBrandingTest < ActiveSupport::TestCase
     assert_equal successor, domain.updated_by_user
   end
 
+  test "active domain registry invalidates after a domain is disabled" do
+    owner = create_staff
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    now = Time.current
+    domain = workspace.coach_workspace_domains.create!(
+      hostname: "cached.example.com", kind: "custom", status: "active", is_primary: true,
+      verified_at: now, activated_at: now, created_by_user: owner, updated_by_user: owner
+    )
+
+    assert_equal workspace.id, Branding::ActiveDomainRegistry.workspace_id_for(domain.hostname)
+    domain.update!(status: "disabled", is_primary: false, disabled_at: Time.current, updated_by_user: owner)
+    assert_nil Branding::ActiveDomainRegistry.workspace_id_for(domain.hostname)
+  end
+
   private
 
   def create_staff

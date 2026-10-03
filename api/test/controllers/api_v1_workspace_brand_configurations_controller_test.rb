@@ -105,6 +105,7 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     restored = response.parsed_body.fetch("published_version")
     assert_equal "Household CFO", restored.dig("config", "product_name")
     assert_equal initial_version.id, restored.dig("restored_from_version", "id")
+    assert_equal [ 3, 2, 1 ], response.parsed_body.dig("brand_configuration", "versions").pluck("number")
     assert_equal 3, configuration.versions.count
   end
 
@@ -217,6 +218,7 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     first_cohort.cohort_memberships.create!(user: participant, role: "participant")
     second_cohort.cohort_memberships.create!(user: participant, role: "participant")
     second_cohort.cohort_memberships.create!(user: other_participant, role: "participant")
+    second_cohort.cohort_memberships.create!(user: first_owner, role: "participant")
     now = Time.current
     first_workspace.coach_workspace_domains.create!(
       hostname: "first-runtime.example.com", kind: "custom", status: "active", is_primary: true,

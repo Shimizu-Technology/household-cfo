@@ -12,7 +12,7 @@ class MiaBrandWorkspaceResolutionTest < ActiveSupport::TestCase
     first_cohort = Cohort.create!(name: "First branded cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
     second_cohort = Cohort.create!(name: "Second branded cohort", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
     first_membership = first_cohort.cohort_memberships.create!(user: participant, role: "participant")
-    second_cohort.cohort_memberships.create!(user: participant, role: "participant")
+    second_membership = second_cohort.cohort_memberships.create!(user: participant, role: "participant")
 
     resolved = Mia::EffectiveCohortResolver.new(
       user: participant,
@@ -30,6 +30,13 @@ class MiaBrandWorkspaceResolutionTest < ActiveSupport::TestCase
       ).call
     end
     assert_equal "The selected cohort is unavailable for this participant.", error.message
+
+    runtime = Mia::ParticipantRuntimeResolver.new(
+      user: participant,
+      cohort_membership: second_membership,
+      coach_workspace: first_workspace
+    ).call
+    assert_nil runtime.membership
   end
 
   test "brand workspace leaves staff without a participant membership in the standalone runtime" do
