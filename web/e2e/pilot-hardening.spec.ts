@@ -8068,18 +8068,44 @@ test('BOG UI desktop and tablet help collapse without shrinking history', async 
   await page.keyboard.press('Escape')
 })
 
+function budgetFixtureForYear(year: number) {
+  const future = structuredClone(realWorkspaceData(true).budget)
+  future.annual_plan.year = year
+  for (const period of future.annual_plan.months) {
+    period.starts_on = period.starts_on.replace(String(currentYear), String(year))
+    period.ends_on = period.ends_on.replace(String(currentYear), String(year))
+  }
+  for (const period of [...future.annual_plan.annual_outlook.months, ...future.annual_plan.annual_outlook.upcoming_spikes, future.annual_plan.annual_outlook.next_irregular_month]) period.starts_on = period.starts_on.replace(String(currentYear), String(year))
+  for (const source of future.annual_plan.income_sources) for (const entry of source.schedule_entries) entry.effective_on = entry.effective_on.replace(String(currentYear), String(year))
+  future.annual_plan.pending_transaction_drafts = []
+  future.annual_plan.pending_transaction_drafts_meta = { total_count: 0, returned_count: 0, limit: 500, truncated: false }
+  future.annual_plan.pending_mia_action_drafts = []
+  future.annual_plan.rows.forEach((row) => { row.actual_total = 0; row.months.forEach((month) => { month.actual = 0; month.remaining = month.planned }) })
+  return future
+}
+
+async function trackBudgetReportPeriods(page: Page) {
+  const periods: Array<{ start: string | null; end: string | null }> = []
+  await page.route('http://api.test/api/v1/spending_report**', (route) => {
+    const query = new URL(route.request().url()).searchParams
+    const start = query.get('start_on'); const end = query.get('end_on')
+    periods.push({ start, end })
+    return route.fulfill({ json: { spending_report: { start_on: start, end_on: end, period_label: 'Fictional period', totals: { planned: 5300, actual: 0, pending: 0, remaining: 5300 }, categories: [], transactions: [], pending_transaction_drafts: [] } } })
+  })
+  return periods
+}
+
 test('BOG UI Home and current review survive a future Budget year', async ({ page }) => {
   const current = realWorkspaceData(true)
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: current }))
-  const future = structuredClone(current.budget)
-  future.annual_plan.year = currentYear + 1
-  future.annual_plan.pending_transaction_drafts = []
-  future.annual_plan.pending_mia_action_drafts = []
-  future.annual_plan.rows.forEach((row) => row.months.forEach((month) => { month.actual = 0; month.planned = 0 }))
+  const future = budgetFixtureForYear(currentYear + 1)
+  const periods = await trackBudgetReportPeriods(page)
   await page.route('http://api.test/api/v1/budget?**', (route) => route.fulfill({ json: future }))
   await page.goto('/?pilot_e2e_role=participant#Budget')
   await page.getByRole('button', { name: 'Next year', exact: true }).click()
   await expect(page.getByText(`Annual budget · ${currentYear + 1}`, { exact: true })).toBeVisible()
+  const selectedPeriod = future.annual_plan.months[new Date().getMonth()]
+  await expect.poll(() => periods.some((period) => period.start === selectedPeriod.starts_on && period.end === selectedPeriod.ends_on)).toBe(true)
   await openSection(page, 'Ask Mia')
   await expect(page.locator('.chat-period-context')).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear + 1}`)
   await openSection(page, 'Home')
@@ -8159,4 +8185,80 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await openSection(page, 'Ask Mia')
   await page.getByRole('button', { name: 'Review imports', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'QA-partial.pdf', exact: true })).toBeVisible()
+})
+
+
+test('BOG UI delayed budget year keeps the approved period and pauses editing and Mia Send', async ({ page }) => {
+  const current = realWorkspaceData(true)
+  const future = budgetFixtureForYear(currentYear + 1)
+  const periods = await trackBudgetReportPeriods(page)
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: current }))
+  await page.route('http://api.test/api/v1/budget?**', async (route) => { await gate; return route.fulfill({ json: future }) })
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  await expect(page.getByText(`Annual budget · ${currentYear}`, { exact: true })).toBeVisible()
+  await expect(page.getByText(`Annual budget · ${currentYear + 1}`, { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Manage manually' })).toBeDisabled()
+  await expect(page.getByRole('combobox', { name: 'Report month', exact: true })).toBeDisabled()
+  await openSection(page, 'Ask Mia')
+  await expect(page.locator('.chat-period-context').first()).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear}`)
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Review my selected period.')
+  await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeDisabled()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).press('Enter')
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue('Review my selected period.')
+  release()
+  await expect(page.locator('.chat-period-context').first()).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear + 1}`)
+  await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
+  const period = future.annual_plan.months[new Date().getMonth()]
+  await expect.poll(() => periods.some((entry) => entry.start === period.starts_on && entry.end === period.ends_on)).toBe(true)
+  await page.goBack()
+  await expect(page.getByText(`Annual budget · ${currentYear + 1}`, { exact: true })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Report month', exact: true })).toBeEnabled()
+})
+
+test('BOG UI failed budget year preserves previous rows and context across browser history', async ({ page }) => {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/budget?**', async (route) => { await gate; return route.fulfill({ status: 503, json: { error: 'Fictional year request failed.' } }) })
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  await openSection(page, 'Ask Mia')
+  release()
+  await expect(page.getByRole('alert').filter({ hasText: 'Fictional year request failed.' })).toBeVisible()
+  await expect(page.locator('.chat-period-context').first()).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear}`)
+  await page.goBack()
+  await expect(page.getByText(`Annual budget · ${currentYear}`, { exact: true })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Report month', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Manage manually' })).toBeEnabled()
+})
+
+test('BOG UI budget year response cannot cross a coach workspace switch or replace its newer request', async ({ page }) => {
+  let releaseOld!: () => void
+  const oldGate = new Promise<void>((resolve) => { releaseOld = resolve })
+  let firstRequest = true
+  const fresh = budgetFixtureForYear(currentYear + 1)
+  fresh.intro = 'Fresh budget after workspace switch.'
+  const stale = structuredClone(fresh)
+  stale.intro = 'Stale budget from previous workspace.'
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/budget?**', async (route) => {
+    if (firstRequest) { firstRequest = false; await oldGate; return route.fulfill({ json: stale }) }
+    return route.fulfill({ json: fresh })
+  })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Budget')
+  await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  await openSection(page, 'Coach Studio')
+  await page.getByLabel('Coach workspace').selectOption('2')
+  await openSection(page, 'Budget')
+  await expect(page.getByRole('button', { name: 'Next year', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  await expect(page.getByText('Fresh budget after workspace switch.', { exact: true })).toBeVisible()
+  const oldResponse = page.waitForResponse((response) => response.url().includes('/api/v1/budget?') && response.status() === 200)
+  releaseOld()
+  await oldResponse
+  await expect(page.getByText('Fresh budget after workspace switch.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Stale budget from previous workspace.', { exact: true })).toHaveCount(0)
 })
