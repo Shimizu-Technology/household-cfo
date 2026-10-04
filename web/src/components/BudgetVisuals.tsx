@@ -330,8 +330,8 @@ export function AnnualCashFlowChart({
                   onMouseEnter={(event) => {
                     // Focusing a month can scroll another bar beneath a stationary
                     // pointer. Keep the keyboard user's detail on the focused month.
-                    const focusedMonth = event.currentTarget.closest('.annual-cash-flow-chart')?.querySelector('.cash-flow-month-trigger:focus')
-                    if (!focusedMonth && (pinnedPeriodId === null || !pinnedPeriodExists)) previewPeriod(month.period_id)
+                    const keyboardFocusedMonth = event.currentTarget.closest('.annual-cash-flow-chart')?.querySelector('.cash-flow-month-trigger:focus-visible')
+                    if (!keyboardFocusedMonth && (pinnedPeriodId === null || !pinnedPeriodExists)) previewPeriod(month.period_id)
                   }}
                   onFocus={() => previewPeriod(month.period_id)}
                   onClick={() => togglePinnedPeriod(month.period_id)}

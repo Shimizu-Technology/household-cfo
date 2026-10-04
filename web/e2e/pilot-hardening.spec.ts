@@ -1849,7 +1849,7 @@ test('initial Plaid sync refreshes the workspace when transaction history is rea
   await expect.poll(() => workspaceRequests).toBeGreaterThan(1)
 })
 
-test('Home centers review work and keeps Red guidance internally consistent', async ({ page }) => {
+test('Home centers review work and keeps Red guidance internally consistent', async ({ page, browserName }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
   await expect(page.getByText('What needs review?')).toBeVisible()
@@ -1875,7 +1875,11 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   expect(pressureRows[0]).toContain('$100.00 over if approved')
   await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
   const januaryChartButton = page.getByRole('button', { name: new RegExp(`Jan ${currentYear}:`) }).first()
-  await januaryChartButton.focus()
+  // WebKit's default keyboard navigation includes buttons with Option-Tab.
+  const nextControlKey = browserName === 'webkit' ? 'Alt+Tab' : 'Tab'
+  await page.getByRole('region', { name: `${currentYear} monthly income and planned outflow chart` }).focus()
+  await page.keyboard.press(nextControlKey)
+  await expect(januaryChartButton).toBeFocused()
   const chartDetail = page.locator('.home-financial-visuals .cash-flow-detail-panel')
   await expect(chartDetail).toContainText(`Jan ${currentYear}`)
   await expect(chartDetail).toContainText('$14,200.00')
@@ -1886,7 +1890,8 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   await expect(januaryChartButton).toBeFocused()
   await expect(chartDetail).toContainText(`Jan ${currentYear}`)
   const decemberChartButton = page.getByRole('button', { name: new RegExp(`Dec ${currentYear}:`) }).first()
-  await decemberChartButton.focus()
+  for (let index = 0; index < 11; index += 1) await page.keyboard.press(nextControlKey)
+  await expect(decemberChartButton).toBeFocused()
   await expect(chartDetail).toContainText(`Dec ${currentYear}`)
   await expect(chartDetail).toContainText('Expected irregular plan included in outflow')
   await expect(chartDetail).toContainText('Holiday travel')
@@ -1904,6 +1909,27 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   await expect(page).toHaveURL(/#Review$/)
   await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeFocused()
+})
+
+test('cash-flow chart resumes pointer previews after pinning and unpinning a month', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'pointer hover interaction')
+  await page.goto('/')
+  await page.getByText('Explore the plan behind this snapshot').click()
+  await page.evaluate(() => document.fonts.ready)
+
+  const january = page.getByRole('button', { name: new RegExp(`Jan ${currentYear}:`) }).first()
+  const february = page.getByRole('button', { name: new RegExp(`Feb ${currentYear}:`) }).first()
+  const detail = page.locator('.home-financial-visuals .cash-flow-detail-panel')
+  await january.click()
+  await expect(january).toHaveAttribute('aria-pressed', 'true')
+  await february.hover()
+  await expect(detail).toContainText(`Jan ${currentYear}`)
+  await january.click()
+  await expect(january).toHaveAttribute('aria-pressed', 'false')
+  await expect(january).toBeFocused()
+  await february.hover()
+  await expect(january).toBeFocused()
+  await expect(detail).toContainText(`Feb ${currentYear}`)
 })
 
 test('penny-level plans never show a false over-budget warning', async ({ page }) => {
@@ -4918,10 +4944,30 @@ for (const role of ['editor', 'reviewer', 'viewer'] as const) {
       published_version: currentVersion, versions: [currentVersion, oldVersion], permissions,
     }
     let previewRequests = 0
-    await page.route('**/api/v1/admin/cohorts/41/experience_configuration', (route) => route.fulfill({ status: 200, json: { experience_configuration: configuration } }))
+    const mutationRequests: { method: string; path: string; body: unknown }[] = []
+    await page.route('**/api/v1/admin/cohorts/41/experience_configuration', (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = route.request().postDataJSON()
+        mutationRequests.push({ method: 'PATCH', path: new URL(route.request().url()).pathname, body })
+        configuration.draft = body.experience_configuration.draft_config
+        configuration.draft_revision += 1
+        configuration.preview = null
+      }
+      return route.fulfill({ status: 200, json: { experience_configuration: configuration } })
+    })
+    for (const action of ['publish', 'versions/100/rollback']) {
+      await page.route(`**/api/v1/admin/cohorts/41/experience_configuration/${action}`, (route) => {
+        mutationRequests.push({ method: route.request().method(), path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() })
+        const version = { ...oldVersion, id: 100 + configuration.versions.length, number: configuration.versions.length + 1 }
+        configuration.published_version = version
+        configuration.versions = [version, ...configuration.versions]
+        configuration.preview = null
+        return route.fulfill({ status: 200, json: { experience_configuration: configuration, published_version: version } })
+      })
+    }
     await page.route('**/api/v1/admin/cohorts/41/experience_configuration/preview', (route) => {
       previewRequests += 1
-      configuration.preview = { digest: 'role-preview', draft_revision: 1, generated_at: '2026-10-01T00:00:00Z' }
+      configuration.preview = { digest: 'role-preview', draft_revision: configuration.draft_revision, generated_at: '2026-10-01T00:00:00Z' }
       return route.fulfill({ status: 200, json: { experience_configuration: configuration, preview: { ...configuration.preview, modules: [] } } })
     })
     await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
@@ -4929,6 +4975,15 @@ for (const role of ['editor', 'reviewer', 'viewer'] as const) {
     await expect(page.getByLabel('Include CFO Filter')).toBeVisible()
     if (permissions.edit) await expect(page.getByLabel('Include CFO Filter')).toBeEnabled()
     else await expect(page.getByLabel('Include CFO Filter')).toBeDisabled()
+    if (permissions.edit) {
+      await page.getByLabel('Include CFO Filter').uncheck()
+      await page.getByRole('button', { name: 'Save draft' }).click()
+      await expect(page.getByRole('status')).toContainText('draft saved')
+      expect(mutationRequests).toEqual([{
+        method: 'PATCH', path: '/api/v1/admin/cohorts/41/experience_configuration',
+        body: { experience_configuration: { draft_revision: 1, draft_config: { schema_version: 1, optional_modules: { cfo_filter: false, optionality: true } } } },
+      }])
+    } else await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled()
     const preview = page.getByRole('button', { name: 'Preview navigation' })
     if (permissions.review) {
       await expect(preview).toBeEnabled()
@@ -4939,11 +4994,31 @@ for (const role of ['editor', 'reviewer', 'viewer'] as const) {
       await expect(preview).toBeDisabled()
       await expect(page.getByText('Your workspace role can view these tools but cannot change or publish them.')).toBeVisible()
     }
-    if (permissions.publish) await expect(page.getByRole('button', { name: 'Publish to cohort' })).toBeEnabled()
+    if (permissions.publish) {
+      await expect(page.getByRole('button', { name: 'Publish to cohort' })).toBeEnabled()
+      page.once('dialog', (dialog) => dialog.accept())
+      await page.getByRole('button', { name: 'Publish to cohort' }).click()
+      await expect(page.getByRole('status')).toContainText('version 3 is published')
+      expect(mutationRequests).toEqual([{
+        method: 'POST', path: '/api/v1/admin/cohorts/41/experience_configuration/publish',
+        body: { experience_configuration: { draft_revision: 1, preview_digest: 'role-preview', expected_published_version_id: 101 } },
+      }])
+    }
     else await expect(page.getByRole('button', { name: 'Publish to cohort' })).toBeDisabled()
-    await page.getByText('Version history (2)').click()
-    if (permissions.rollback) await expect(page.getByRole('button', { name: 'Restore as new version' })).toBeEnabled()
+    await page.getByText(`Version history (${permissions.publish ? 3 : 2})`).click()
+    if (permissions.rollback) {
+      const versionOne = page.locator('.coach-version-list article').filter({ hasText: 'Version 1' })
+      await expect(versionOne.getByRole('button', { name: 'Restore as new version' })).toBeEnabled()
+      page.once('dialog', (dialog) => dialog.accept())
+      await versionOne.getByRole('button', { name: 'Restore as new version' }).click()
+      await expect(page.getByRole('status')).toContainText('Version 1 was restored as version 4')
+      expect(mutationRequests[1]).toEqual({
+        method: 'POST', path: '/api/v1/admin/cohorts/41/experience_configuration/versions/100/rollback',
+        body: { experience_configuration: { draft_revision: 1, expected_published_version_id: 102 } },
+      })
+    }
     else await expect(page.getByRole('button', { name: 'Restore as new version' })).toBeDisabled()
+    expect(mutationRequests).toHaveLength(role === 'reviewer' ? 2 : role === 'editor' ? 1 : 0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   })
 }
