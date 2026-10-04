@@ -327,7 +327,12 @@ export function AnnualCashFlowChart({
                   aria-pressed={pinnedPeriodId === month.period_id}
                   aria-current={month.period_id === reportPeriodId ? 'date' : undefined}
                   aria-label={`${month.label} ${plan.year}: ${currency.format(month.income)} income, ${currency.format(month.planned_outflow)} planned outflow, and ${currency.format(Math.abs(month.baseline_surplus))} ${month.baseline_surplus < 0 ? 'baseline shortfall' : 'baseline surplus'}`}
-                  onMouseEnter={() => { if (pinnedPeriodId === null || !pinnedPeriodExists) previewPeriod(month.period_id) }}
+                  onMouseEnter={(event) => {
+                    // Focusing a month can scroll another bar beneath a stationary
+                    // pointer. Keep the keyboard user's detail on the focused month.
+                    const focusedMonth = event.currentTarget.closest('.annual-cash-flow-chart')?.querySelector('.cash-flow-month-trigger:focus')
+                    if (!focusedMonth && (pinnedPeriodId === null || !pinnedPeriodExists)) previewPeriod(month.period_id)
+                  }}
                   onFocus={() => previewPeriod(month.period_id)}
                   onClick={() => togglePinnedPeriod(month.period_id)}
                 >
