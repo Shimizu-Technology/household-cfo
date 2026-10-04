@@ -288,7 +288,13 @@ module HouseholdFinance
     def complete_setup_statement?
       # The shortcut must account for the whole message, including bare numbers.
       # Unrecognized clauses belong to the validated planner, not a partial draft.
-      remainder = normalized_user_message.dup
+      text = normalized_user_message
+      text_patterns = DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS + [ DETERMINISTIC_PRIMARY_GOAL_PATTERN ]
+      text_spans = text_patterns.flat_map { |pattern| text.to_enum(:scan, pattern).map { Regexp.last_match.begin(0)...Regexp.last_match.end(0) } }
+      money_spans = DETERMINISTIC_SETUP_MONEY_PATTERNS.values.flat_map { |pattern| text.to_enum(:scan, pattern).map { Regexp.last_match.begin(0)...Regexp.last_match.end(0) } }
+      return false if text_spans.any? { |span| money_spans.any? { |money| span.begin < money.end && money.begin < span.end } }
+
+      remainder = text.dup
       remainder.sub!(/\A(?:here is everything i know so far(?: for the starting household picture)?|for (?:our )?(?:starting picture|setup))[.:,]\s*/i, "")
       remainder.sub!(/\APlease keep these as proposed values for review because I want to verify every number before anything changes\.\s*/i, "")
       patterns = DETERMINISTIC_SETUP_MONEY_PATTERNS.values +
