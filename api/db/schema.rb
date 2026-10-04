@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_04_190000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_04_200000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -1136,6 +1136,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_190000) do
     t.index ["actor_user_id"], name: "index_coach_workspace_membership_events_on_actor_user_id"
     t.index ["coach_workspace_id"], name: "index_coach_workspace_membership_events_on_coach_workspace_id"
     t.index ["subject_user_id"], name: "index_coach_workspace_membership_events_on_subject_user_id"
+    t.check_constraint "after_role IS NULL OR (after_role::text = ANY (ARRAY['owner'::character varying, 'editor'::character varying, 'reviewer'::character varying, 'viewer'::character varying]::text[]))", name: "workspace_membership_event_after_role"
+    t.check_constraint "before_role IS NULL OR (before_role::text = ANY (ARRAY['owner'::character varying, 'editor'::character varying, 'reviewer'::character varying, 'viewer'::character varying]::text[]))", name: "workspace_membership_event_before_role"
     t.check_constraint "event_type::text = ANY (ARRAY['added'::character varying, 'role_changed'::character varying, 'removed'::character varying]::text[])", name: "workspace_membership_event_type"
   end
 
@@ -3975,5 +3977,19 @@ SQL
   SQL
   execute <<~'SQL'
     CREATE TRIGGER coach_workspace_domains_verified_identity BEFORE UPDATE ON public.coach_workspace_domains FOR EACH ROW EXECUTE FUNCTION prevent_verified_workspace_domain_identity_change();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.prevent_workspace_membership_event_mutation()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      RAISE EXCEPTION 'collaborator access history cannot be changed or deleted'
+        USING ERRCODE = 'integrity_constraint_violation';
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER workspace_membership_events_immutable BEFORE DELETE OR UPDATE ON public.coach_workspace_membership_events FOR EACH ROW EXECUTE FUNCTION prevent_workspace_membership_event_mutation();
   SQL
 end

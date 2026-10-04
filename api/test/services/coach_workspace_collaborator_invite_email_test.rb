@@ -5,6 +5,8 @@ class CoachWorkspaceCollaboratorInviteEmailTest < ActiveSupport::TestCase
     owner = User.create!(email: "owner-#{SecureRandom.hex(4)}@example.test", clerk_id: "owner_#{SecureRandom.hex(4)}", role: "coach", invitation_status: "accepted")
     workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
     invitee = User.create!(email: "invitee-#{SecureRandom.hex(4)}@example.test", clerk_id: "pending_#{SecureRandom.hex(4)}", role: "coach")
+    original_environment = %w[RESEND_API_KEY RESEND_FROM_EMAIL MAILER_FROM_EMAIL].to_h { |key| [ key, ENV[key] ] }
+    ENV.delete("RESEND_FROM_EMAIL")
     ENV["RESEND_API_KEY"] = "test-key"
     ENV["MAILER_FROM_EMAIL"] = "coaching@example.test"
     original = Resend::Emails.method(:send)
@@ -23,7 +25,6 @@ class CoachWorkspaceCollaboratorInviteEmailTest < ActiveSupport::TestCase
     assert_equal "failed", invitee.invitation_email_attempts.last.status
   ensure
     Resend::Emails.define_singleton_method(:send, original) if original
-    ENV.delete("RESEND_API_KEY")
-    ENV.delete("MAILER_FROM_EMAIL")
+    original_environment&.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
   end
 end

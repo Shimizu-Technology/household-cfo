@@ -95,29 +95,51 @@ class ApiV1CoachGroupsTest < ActionDispatch::IntegrationTest
     refute response.parsed_body.fetch("removed")
   end
 
-  test "owner exact email attachment keeps other workspace account and membership private and unchanged" do
+  test "owner cannot enroll an outside-only participant by guessing their exact email" do
     other_owner = user("attach-other-owner", "coach")
     other_workspace = CoachWorkspaces::Provisioner.ensure_for!(other_owner)
     other = Cohort.create!(name: "Private other group", status: "active", created_by_user: other_owner, coach_workspace: other_workspace)
     shared = user("attach-shared", "participant")
     shared.update!(first_name: "Original", invitation_email_status: "failed", invitation_email_error: "Private error")
     shared.cohort_memberships.create!(cohort: other, role: "participant")
+    assert_no_difference [ "CohortMembership.count", "InvitationEmailAttempt.count" ] do
+      post "/api/v1/admin/users", params: { user: { email: shared.email, role: "participant", cohort_id: @cohort.id, send_invitation_email: true } }, headers: auth(@owner, @workspace), as: :json
+    end
+    assert_response :forbidden
+    assert_nil response.parsed_body["user"]
+    refute_includes response.body, other.name
+    refute_includes response.body, "Private error"
+    refute_includes response.body, "progress"
+    assert_equal [ other.id ], shared.cohort_memberships.pluck(:cohort_id)
+    assert_equal "Original", shared.reload.first_name
+    assert_equal "accepted", shared.invitation_status
+  end
+
+  test "owner can add an already visible shared participant to another group without changing their account" do
+    other_owner = user("attach-other-owner", "coach")
+    other_workspace = CoachWorkspaces::Provisioner.ensure_for!(other_owner)
+    other = Cohort.create!(name: "Private other group", status: "active", created_by_user: other_owner, coach_workspace: other_workspace)
+    shared = user("attach-shared", "participant")
+    shared.update!(first_name: "Original", invitation_email_status: "failed", invitation_email_error: "Private error")
+    shared.cohort_memberships.create!(cohort: other, role: "participant")
+    local = Cohort.create!(name: "Existing local group", status: "active", created_by_user: @owner, coach_workspace: @workspace)
+    shared.cohort_memberships.create!(cohort: local, role: "participant")
     assert_no_difference -> { shared.invitation_email_attempts.count } do
       post "/api/v1/admin/users", params: { user: { email: shared.email, role: "participant", cohort_id: @cohort.id, send_invitation_email: true } }, headers: auth(@owner, @workspace), as: :json
     end
     assert_response :success
     refute response.parsed_body.fetch("invitation_sent")
     assert_equal "skipped", response.parsed_body.fetch("invitation_status")
-    assert_equal [ @cohort.id ], response.parsed_body.dig("user", "cohorts").map { |item| item.dig("cohort", "id") }
+    assert_equal [ @cohort.id, local.id ].sort, response.parsed_body.dig("user", "cohorts").map { |item| item.dig("cohort", "id") }.sort
     refute_includes response.body, other.name
     refute_includes response.body, "Private error"
     refute response.parsed_body.dig("user", "can_resend_invitation")
-    assert_equal [ @cohort.id, other.id ].sort, shared.cohort_memberships.pluck(:cohort_id).sort
+    assert_equal [ @cohort.id, local.id, other.id ].sort, shared.cohort_memberships.pluck(:cohort_id).sort
     assert_equal "Original", shared.reload.first_name
     assert_equal "accepted", shared.invitation_status
     delete "/api/v1/admin/cohorts/#{@cohort.id}/participants/#{shared.id}", params: { expected_membership_id: shared.cohort_memberships.find_by!(cohort: @cohort).id }, headers: auth(@owner, @workspace), as: :json
     assert_response :success
-    assert_equal [ other.id ], shared.cohort_memberships.pluck(:cohort_id)
+    assert_equal [ local.id, other.id ].sort, shared.cohort_memberships.pluck(:cohort_id).sort
   end
 
   test "owner cannot attach revoked staff or overwrite existing global names" do

@@ -40,9 +40,11 @@ module CohortReleases
         "candidate_bundle_digest" => candidate.bundle_digest,
         "memberships" => members.map { |id, user_id, started_at| [ id, user_id, started_at.iso8601(6) ] }
       )
-      membership = cohort.coach_workspace.membership_for(actor)
+      persisted_actor = User.find_by(id: actor&.id)
+      membership = cohort.coach_workspace.coach_workspace_memberships.find_by(user_id: persisted_actor&.id)
       permissions = CoachWorkspace::PERMISSIONS.fetch(membership&.role, [])
-      authorized = actor&.admin? || (permissions.include?(:publish) && permissions.include?(:assign))
+      authorized = persisted_actor&.staff? && !persisted_actor.revoked? &&
+        (persisted_actor.admin? || (permissions.include?(:publish) && permissions.include?(:assign)))
       {
         cohort: { id: cohort.id, name: cohort.name, participant_count: members.length },
         active_release_id: cohort.active_cohort_release_id,

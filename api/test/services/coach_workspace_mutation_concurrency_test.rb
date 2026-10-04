@@ -66,7 +66,7 @@ class CoachWorkspaceMutationConcurrencyTest < ActiveSupport::TestCase
   ensure
     continue_release << true if defined?(continue_release) && continue_release
     [ releasing, demoting ].compact.each { |thread| thread.join(10) }
-    CoachWorkspaceMembershipEvent.where(coach_workspace_id: workspace&.id).delete_all
+    delete_workspace_membership_events(workspace&.id)
     CohortExperienceConfiguration.where(cohort_id: cohort&.id).delete_all
     Cohort.where(id: cohort&.id).delete_all
     CoachProfile.where(coach_workspace_id: workspace&.id).delete_all
@@ -133,7 +133,7 @@ class CoachWorkspaceMutationConcurrencyTest < ActiveSupport::TestCase
   ensure
     reconcile << true if defined?(reconcile) && reconcile
     [ reconciling, removing ].compact.each { |thread| thread.join(10) }
-    CoachWorkspaceMembershipEvent.where(coach_workspace_id: workspace&.id).delete_all
+    delete_workspace_membership_events(workspace&.id)
     CohortMembership.where(cohort_id: cohort&.id).delete_all
     CohortExperienceConfiguration.where(cohort_id: cohort&.id).delete_all
     Cohort.where(id: cohort&.id).delete_all

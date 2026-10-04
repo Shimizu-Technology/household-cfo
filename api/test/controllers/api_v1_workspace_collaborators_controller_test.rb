@@ -42,10 +42,22 @@ class ApiV1WorkspaceCollaboratorsControllerTest < ActionDispatch::IntegrationTes
     assert_equal "added", CoachWorkspaceMembershipEvent.last.event_type
     assert_equal "skipped", invited.invitation_email_attempts.last.status
 
+    provider_environment = %w[RESEND_API_KEY RESEND_FROM_EMAIL MAILER_FROM_EMAIL].to_h { |key| [ key, ENV[key] ] }
+    provider_environment.each_key { |key| ENV.delete(key) }
+    original_send = Resend::Emails.method(:send)
+    provider_called = false
+    Resend::Emails.define_singleton_method(:send) do |_payload|
+      provider_called = true
+      raise "Unavailable email delivery must not contact Resend"
+    end
     post @endpoint, params: { collaborator: { email: "another@example.test", role: "viewer", send_email: true } }, headers: headers(@owner), as: :json
     assert_response :created
     assert_equal "failed", response.parsed_body.dig("delivery", "status")
+    refute provider_called, "Unavailable email delivery contacted Resend"
     assert @workspace.coach_workspace_memberships.joins(:user).exists?(users: { email: "another@example.test" })
+  ensure
+    Resend::Emails.define_singleton_method(:send, original_send) if original_send
+    provider_environment&.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
   end
 
   test "adding an existing coach preserves global identity and other workspace permissions" do
@@ -65,6 +77,22 @@ class ApiV1WorkspaceCollaboratorsControllerTest < ActionDispatch::IntegrationTes
     assert_response :success
     assert_equal false, response.parsed_body["added"]
     assert_nil response.parsed_body["delivery"]
+  end
+
+  test "legacy mixed case email reuses the locked coach account without changing identity" do
+    coach = user
+    other = CoachWorkspaces::Provisioner.ensure_for!(coach)
+    legacy_email = "Legacy.Coach-#{SecureRandom.hex(5)}@Example.test"
+    connection = ActiveRecord::Base.connection
+    connection.execute("UPDATE users SET email = #{connection.quote(legacy_email)} WHERE id = #{coach.id}")
+    assert_no_difference "User.count" do
+      post @endpoint, params: { collaborator: { email: legacy_email.downcase, role: "reviewer", send_email: false } }, headers: headers(@owner), as: :json
+    end
+    assert_response :created
+    assert_equal false, response.parsed_body["new_user"]
+    assert_equal legacy_email, coach.reload.email
+    assert_equal "reviewer", @workspace.coach_workspace_memberships.find_by!(user: coach).role
+    assert_equal "owner", other.coach_workspace_memberships.find_by!(user: coach).role
   end
 
   test "collaborator invite never upgrades participants or reactivates a revoked account" do

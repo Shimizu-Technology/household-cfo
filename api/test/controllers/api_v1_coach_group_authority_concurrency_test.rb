@@ -61,7 +61,7 @@ class ApiV1CoachGroupAuthorityConcurrencyTest < ActionDispatch::IntegrationTest
         controller.define_method(:require_group_management!, original)
         controller.send(:private, :require_group_management!)
       end
-      CoachWorkspaceMembershipEvent.where(coach_workspace_id: workspace&.id).delete_all
+      delete_workspace_membership_events(workspace&.id)
       CohortExperienceConfiguration.where(cohort_id: cohort&.id).delete_all
       Cohort.where(id: cohort&.id).delete_all
       CoachProfile.where(coach_workspace_id: workspace&.id).delete_all

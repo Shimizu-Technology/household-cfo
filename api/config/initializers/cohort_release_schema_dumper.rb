@@ -21,6 +21,7 @@ module CohortReleaseSchemaDumper
       @connection.column_exists?("coach_operation_executions", "cohort_rollout_transition_id")
     dump_cohort_runtime_guards(stream) if @connection.table_exists?("cohort_release_exposures")
     dump_workspace_brand_evidence_guards(stream) if @connection.table_exists?("workspace_brand_versions")
+    dump_workspace_membership_event_guards(stream) if @connection.table_exists?("coach_workspace_membership_events")
     super
   end
 
@@ -418,6 +419,16 @@ module CohortReleaseSchemaDumper
       SQL
       dump_rollout_database_definition(stream, definition) if definition.present?
     end
+  end
+
+  def dump_workspace_membership_event_guards(stream)
+    definition = @connection.select_value("SELECT pg_get_functiondef(to_regprocedure('prevent_workspace_membership_event_mutation()'))")
+    dump_rollout_database_definition(stream, definition) if definition.present?
+    definition = @connection.select_value(<<~SQL.squish)
+      SELECT pg_get_triggerdef(oid) || ';' FROM pg_trigger
+      WHERE tgname = 'workspace_membership_events_immutable' AND NOT tgisinternal
+    SQL
+    dump_rollout_database_definition(stream, definition) if definition.present?
   end
 
   def dump_workspace_brand_evidence_guards(stream)

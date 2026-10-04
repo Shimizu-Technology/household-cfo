@@ -39,6 +39,27 @@ class ApiV1AdminCohortReleaseLaunchesControllerTest < ActionDispatch::Integratio
     assert_raises(ActiveRecord::StatementInvalid) { event.update_columns(occurred_at: 1.day.ago) }
   end
 
+  test "preview reflects persisted staff and revocation even when actor and membership were cached" do
+    owner, cohort, _release = launch_setup
+    launcher = CohortReleases::InitialLauncher.new(cohort: cohort, actor: owner)
+    cohort.coach_workspace.membership_for(owner)
+    assert launcher.preview.fetch(:can_launch)
+    User.where(id: owner.id).update_all(role: "participant")
+    refute launcher.preview.fetch(:can_launch)
+    User.where(id: owner.id).update_all(role: "coach", invitation_status: "revoked")
+    refute launcher.preview.fetch(:can_launch)
+    User.where(id: owner.id).update_all(role: "coach", invitation_status: "accepted")
+    cohort.coach_workspace.coach_workspace_memberships.where(user_id: owner.id).update_all(role: "viewer")
+    refute launcher.preview.fetch(:can_launch)
+    admin = persona_user(role: "admin")
+    admin_launcher = CohortReleases::InitialLauncher.new(cohort: cohort, actor: admin)
+    assert admin_launcher.preview.fetch(:can_launch)
+    User.where(id: admin.id).update_all(invitation_status: "revoked")
+    refute admin_launcher.preview.fetch(:can_launch)
+    assert_nil cohort.reload.active_cohort_release_id
+    assert_empty cohort.cohort_release_activation_events
+  end
+
   test "reviewer can launch but editor and viewer cannot even replay after demotion" do
     _owner, cohort, release = launch_setup
     reviewer = persona_user

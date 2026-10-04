@@ -27,8 +27,8 @@ module CoachWorkspaces
         raise Invalid, "Enter a valid collaborator email address."
       end
 
-      with_authorized_workspace(subject_ids: -> { User.where(email: normalized_email).pluck(:id) }) do |users|
-        user = users.values.find { |account| account.email == normalized_email }
+      with_authorized_workspace(subject_ids: -> { User.where("LOWER(email) = ?", normalized_email).pluck(:id) }) do |users|
+        user = users.values.find { |account| account.email.to_s.downcase == normalized_email }
         raise Invalid, "This account cannot be added as a collaborator. Ask a platform administrator for help." if user && (!user.staff? || user.revoked?)
         new_user = user.nil?
         user ||= User.create!(email: normalized_email, clerk_id: "pending_#{SecureRandom.uuid}", role: "coach",

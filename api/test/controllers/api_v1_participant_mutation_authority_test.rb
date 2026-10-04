@@ -45,6 +45,24 @@ class ApiV1ParticipantMutationAuthorityTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "attachment rechecks current enrollment visibility after the initial email lookup" do
+    outsider = account("coach")
+    other_workspace = CoachWorkspaces::Provisioner.ensure_for!(outsider)
+    other = Cohort.create!(name: "Private enrollment", created_by_user: outsider, coach_workspace: other_workspace)
+    @unattached.cohort_memberships.create!(cohort: @cohort, role: "participant")
+    @unattached.cohort_memberships.create!(cohort: other, role: "participant")
+    intercept_mutation(:attach_existing_participant) do
+      @unattached.cohort_memberships.find_by!(cohort: @cohort).destroy!
+    end
+    before_attempts = InvitationEmailAttempt.count
+    submit_mutation("attach", @owner)
+    assert_response :forbidden
+    assert_equal [ other.id ], @unattached.cohort_memberships.reload.pluck(:cohort_id)
+    assert_equal before_attempts, InvitationEmailAttempt.count
+    assert_nil response.parsed_body["user"]
+    refute_includes response.body, other.name
+  end
+
   teardown do
     if @intercepted_method
       controller = Api::V1::Admin::UsersController

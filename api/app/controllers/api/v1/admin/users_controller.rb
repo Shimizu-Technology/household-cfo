@@ -169,7 +169,6 @@ module Api
           return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, user.role)
 
           guard_error = nil
-          result = nil
           with_stable_invitation_membership_locks(user, requested_cohort_ids: [], replace_memberships: false) do
             raise ParticipantMutationNotAuthorized unless user_update_permitted_by_current_user?(user, user.role)
             guard_error = if workspace_scoped_mode? && user_shared_outside_active_workspace?(user)
@@ -179,17 +178,16 @@ module Api
             elsif user.revoked?
               "Reactivate this user before resending an invitation"
             end
-            if guard_error
-              raise ActiveRecord::Rollback
-            else
-              result = send_invitation_email(user)
-            end
+            raise ActiveRecord::Rollback if guard_error
           end
           if guard_error
             return render_forbidden(guard_error) if guard_error.start_with?("Switch")
 
             return render json: { errors: [ guard_error ] }, status: :unprocessable_entity
           end
+          # Provider latency must not hold the roster's cohort, workspace, and
+          # actor locks. All invitation guards above are checked under those locks.
+          result = send_invitation_email(user)
           render json: invite_response_payload(user.reload, result)
         rescue ActiveRecord::RecordInvalid => e
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
@@ -203,7 +201,10 @@ module Api
           guard_error = nil
           with_stable_invitation_membership_locks(user, requested_cohort_ids: cohort_ids, replace_memberships: false) do |target_cohort_ids|
             validate_locked_invitation!(role: role, cohort_ids: cohort_ids)
-            unless role == "participant" && user.participant? && !user.revoked? && !global_user_change_requested?(user, attributes, role: role)
+            enrollment_scope = CohortMembership.where(user_id: user.id)
+            visible_or_unenrolled = !enrollment_scope.exists? || enrollment_scope.where(cohort_id: coach_cohort_ids).exists?
+            unless role == "participant" && user.participant? && !user.revoked? && visible_or_unenrolled &&
+                !global_user_change_requested?(user, attributes, role: role)
               guard_error = "This participant could not be added. Ask a platform administrator to check their account."
               raise ActiveRecord::Rollback
             end
