@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type Ref } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type Ref } from 'react'
 import {
   archiveAccount, createAccount, fetchPlaidOverview, linkPlaidAccount, reconcilePlaidAccount,
   restoreAccount, unlinkPlaidAccount, updateAccount,
@@ -54,6 +54,8 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
   const labelInputRef = useRef<HTMLInputElement | null>(null)
   const balanceInputRef = useRef<HTMLInputElement | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
+  const [returnFocusRequest, setReturnFocusRequest] = useState<{ key: number; selector?: string } | null>(null)
+  const handledReturnFocusKeyRef = useRef<number | null>(null)
   const handledFocusKeyRef = useRef<number | null>(null)
   const active = accounts.filter((account) => account.active)
   const archived = accounts.filter((account) => !account.active)
@@ -104,13 +106,26 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
 
   function rememberFocus(element?: HTMLElement | null) { returnFocusRef.current = element ?? document.activeElement as HTMLElement | null }
   function focusLater(selector?: string) {
-    window.requestAnimationFrame(() => {
-      const target = selector ? document.querySelector<HTMLElement>(selector) : null
-      const fallback = returnFocusRef.current?.isConnected ? returnFocusRef.current : addButtonRef.current
-      const focusTarget = target ?? fallback
-      if (focusTarget) revealAndFocus(focusTarget)
-    })
+    setReturnFocusRequest((current) => ({ key: (current?.key ?? 0) + 1, selector }))
   }
+  useLayoutEffect(() => {
+    if (!returnFocusRequest || handledReturnFocusKeyRef.current === returnFocusRequest.key || saving || editing !== null) return
+    const activeElement = document.activeElement
+    if (activeElement && activeElement !== document.body && activeElement !== returnFocusRef.current) {
+      // A deliberate focus move while the refreshed list is pending takes priority.
+      handledReturnFocusKeyRef.current = returnFocusRequest.key
+      return
+    }
+    const target = returnFocusRequest.selector ? document.querySelector<HTMLElement>(returnFocusRequest.selector) : null
+    // The refresh Promise may resolve before its parent commits the updated list.
+    // Keep an exact destination pending until that control exists in committed DOM.
+    if (returnFocusRequest.selector && !target) return
+    const fallback = returnFocusRef.current?.isConnected ? returnFocusRef.current : addButtonRef.current
+    const focusTarget = target ?? fallback
+    if (!focusTarget) return
+    handledReturnFocusKeyRef.current = returnFocusRequest.key
+    revealAndFocus(focusTarget)
+  }, [accounts, editing, returnFocusRequest, saving])
   function beginCreate(observation?: PlaidAccount, trigger?: HTMLElement | null) {
     rememberFocus(trigger)
     setDraft(observation ? {
@@ -133,10 +148,11 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
     try {
       await onChanged()
       setError(null)
+      focusLater(focusSelector)
     } catch {
+      focusLater()
       setError('The account change was saved, but the latest account list could not reload. Reload this page before making another change.')
     }
-    focusLater(focusSelector)
   }
 
   async function save(event: FormEvent) {

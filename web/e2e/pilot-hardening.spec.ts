@@ -2359,6 +2359,46 @@ test('tracked goals stay intuitive and overflow-free while preserving unknown va
   expect((await addButton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
 })
 
+test('tracked goal manager opens the archive and returns focus after archive and restore', async ({ page }) => {
+  let isArchived = false
+  const activeGoal = {
+    id: 31, label: 'Family trip', goal_type: 'travel', target_amount: 5000, current_amount: 500,
+    target_on: null, priority: 1, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {},
+  }
+  const currentGoal = () => ({ ...activeGoal, active: !isArchived, archived_at: isArchived ? '2026-10-02T00:00:00Z' : null })
+  await page.route('http://api.test/api/v1/workspace', (route) => {
+    const base = realWorkspaceData(true)
+    return route.fulfill({ status: 200, json: { ...base, workspace: {
+      ...base.workspace, goals: [currentGoal()], goal_portfolio: {
+        active_count: isArchived ? 0 : 1, archived_count: isArchived ? 1 : 0,
+        target_total: isArchived ? 0 : 5000, progress_total: isArchived ? 0 : 500,
+        target_known_count: isArchived ? 0 : 1, progress_known_count: isArchived ? 0 : 1,
+        unknown_target_goal_ids: [], unknown_progress_goal_ids: [],
+      },
+    } } })
+  })
+  await page.route('http://api.test/api/v1/goals/31', (route) => {
+    isArchived = true
+    return route.fulfill({ status: 200, json: { goal: currentGoal() } })
+  })
+  await page.route('http://api.test/api/v1/goals/31/restore', (route) => {
+    isArchived = false
+    return route.fulfill({ status: 200, json: { goal: currentGoal() } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  const manager = page.locator('.goal-manager')
+  await manager.getByRole('button', { name: 'Archive', exact: true }).click()
+  await manager.getByRole('button', { name: 'Confirm archive' }).click()
+  const archive = manager.locator('details.debt-archive')
+  await expect(archive).toHaveAttribute('open', '')
+  const restore = archive.getByRole('button', { name: 'Restore' })
+  await expect(restore).toBeFocused()
+  await restore.click()
+  await expect(manager.getByRole('button', { name: 'Edit', exact: true })).toBeFocused()
+  await expect(archive).toHaveCount(0)
+})
+
 test('tracked goal Mia reviews route to the exact manual editor', async ({ page }) => {
   const base = realWorkspaceData(true)
   const goal = { id: 31, label: 'Family trip', goal_type: 'travel', target_amount: 5000, current_amount: 500, target_on: '2027-06-01', priority: 1, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {} }
@@ -2441,6 +2481,11 @@ test('account manager opens the archive and focuses Restore after archiving', as
     return route.fulfill({ status: 200, json: { account: currentAccount() } })
   })
 
+  await page.route('http://api.test/api/v1/accounts/22/restore', (route) => {
+    isArchived = false
+    return route.fulfill({ status: 200, json: { account: currentAccount() } })
+  })
+
   await page.goto('/?pilot_e2e_role=participant#My%20Profile')
   const manager = page.locator('.account-manager')
   await manager.getByRole('button', { name: 'Archive' }).click()
@@ -2448,7 +2493,11 @@ test('account manager opens the archive and focuses Restore after archiving', as
 
   const archive = manager.locator('details.debt-archive')
   await expect(archive).toHaveAttribute('open', '')
-  await expect(archive.getByRole('button', { name: 'Restore' })).toBeFocused()
+  const restore = archive.getByRole('button', { name: 'Restore' })
+  await expect(restore).toBeFocused()
+  await restore.click()
+  await expect(manager.getByRole('button', { name: 'Edit', exact: true })).toBeFocused()
+  await expect(archive).toHaveCount(0)
 })
 
 test('account manager keeps a link review pending until Plaid observations load', async ({ page }) => {

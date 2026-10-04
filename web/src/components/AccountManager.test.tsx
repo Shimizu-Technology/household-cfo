@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -136,6 +136,7 @@ describe('AccountManager', () => {
     expect(await screen.findByText(/change was saved, but the latest account list could not reload/)).toBeTruthy()
     expect(screen.queryByText(/could not be saved/)).toBeNull()
     expect(apiMocks.createAccount).toHaveBeenCalledOnce()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add an account' })))
   })
 
   it('opens the exact account editor requested by a Mia review item', async () => {
@@ -232,6 +233,59 @@ describe('AccountManager', () => {
     await user.click(await screen.findByRole('button', { name: 'Review and add' }))
 
     expect((screen.getByLabelText('Balance date') as HTMLInputElement).value).toBe('2026-10-02')
+  })
+
+  it('preserves focus deliberately moved to another field while the updated list is pending', async () => {
+    const user = userEvent.setup()
+    const original = account()
+    const archived = { ...original, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    apiMocks.archiveAccount.mockResolvedValue(archived)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<><input aria-label="Household note" /><AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} /></>)
+    await user.click(screen.getByRole('button', { name: 'Archive' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    const note = screen.getByRole('textbox', { name: 'Household note' })
+    await user.click(note)
+    await user.type(note, 'Continue planning')
+
+    view.rerender(<><input aria-label="Household note" /><AccountManager accounts={[archived]} portfolio={{ ...portfolio, active_count: 0, archived_count: 1 }} onChanged={onChanged} /></>)
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(document.activeElement).toBe(note)
+    expect((view.container.querySelector('details.debt-archive') as HTMLDetailsElement).open).toBe(false)
+    expect(apiMocks.archiveAccount).toHaveBeenCalledOnce()
+  })
+
+  it('waits for archived and restored account lists to commit before returning focus', async () => {
+    const user = userEvent.setup()
+    const original = account({ balance: 125, balance_as_of_on: '2026-10-01' })
+    const archived = { ...original, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    apiMocks.archiveAccount.mockResolvedValue(archived)
+    apiMocks.restoreAccount.mockResolvedValue(original)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
+
+    await user.click(screen.getByRole('button', { name: 'Archive' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    // The refresh Promise can resolve before React commits its parent update.
+    // Let the original one-shot focus frame run against the previous account DOM.
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+
+    view.rerender(<AccountManager accounts={[archived]} portfolio={{ ...portfolio, active_count: 0, archived_count: 1 }} onChanged={onChanged} />)
+    const restore = await screen.findByRole('button', { name: 'Restore' })
+    await waitFor(() => expect(document.activeElement).toBe(restore))
+    expect(restore.closest('details')?.open).toBe(true)
+    await user.click(restore)
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2))
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    view.rerender(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })))
+    expect(apiMocks.archiveAccount).toHaveBeenCalledOnce()
+    expect(apiMocks.restoreAccount).toHaveBeenCalledOnce()
   })
 
   it('restores focus across save, archive, and restore rerenders', async () => {

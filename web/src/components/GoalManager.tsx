@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type Ref } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type Ref } from 'react'
 import {
   archiveGoal, createGoal, restoreGoal, updateGoal,
   type GoalInput, type GoalPortfolio, type GoalRecord, type GoalType,
@@ -46,6 +46,8 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
   const targetInputRef = useRef<HTMLInputElement | null>(null)
   const progressInputRef = useRef<HTMLInputElement | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
+  const [returnFocusRequest, setReturnFocusRequest] = useState<{ key: number; selector?: string } | null>(null)
+  const handledReturnFocusKeyRef = useRef<number | null>(null)
   const handledFocusKeyRef = useRef<number | null>(null)
   const active = goals.filter((goal) => goal.active)
   const archived = goals.filter((goal) => !goal.active)
@@ -80,12 +82,26 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
 
   function rememberFocus(element?: HTMLElement | null) { returnFocusRef.current = element ?? document.activeElement as HTMLElement | null }
   function focusLater(selector?: string) {
-    requestAnimationFrame(() => {
-      const target = selector ? document.querySelector<HTMLElement>(selector) : null
-      const fallback = returnFocusRef.current?.isConnected ? returnFocusRef.current : addButtonRef.current
-      if (target ?? fallback) revealAndFocus((target ?? fallback) as HTMLElement)
-    })
+    setReturnFocusRequest((current) => ({ key: (current?.key ?? 0) + 1, selector }))
   }
+  useLayoutEffect(() => {
+    if (!returnFocusRequest || handledReturnFocusKeyRef.current === returnFocusRequest.key || saving || editing !== null) return
+    const activeElement = document.activeElement
+    if (activeElement && activeElement !== document.body && activeElement !== returnFocusRef.current) {
+      // A deliberate focus move while the refreshed list is pending takes priority.
+      handledReturnFocusKeyRef.current = returnFocusRequest.key
+      return
+    }
+    const target = returnFocusRequest.selector ? document.querySelector<HTMLElement>(returnFocusRequest.selector) : null
+    // The refresh Promise may resolve before its parent commits the updated list.
+    // Keep an exact destination pending until that control exists in committed DOM.
+    if (returnFocusRequest.selector && !target) return
+    const fallback = returnFocusRef.current?.isConnected ? returnFocusRef.current : addButtonRef.current
+    const focusTarget = target ?? fallback
+    if (!focusTarget) return
+    handledReturnFocusKeyRef.current = returnFocusRequest.key
+    revealAndFocus(focusTarget)
+  }, [goals, editing, returnFocusRequest, saving])
   function beginCreate(trigger?: HTMLElement | null) {
     rememberFocus(trigger); setDraft(emptyDraft); setEditing('new'); setArchiveId(null); setError(null)
     requestAnimationFrame(() => labelInputRef.current?.focus())
@@ -98,9 +114,8 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
   }
   function cancel() { setEditing(null); setArchiveId(null); setError(null); focusLater() }
   async function refreshAfterCommit(selector?: string) {
-    try { await onChanged(); setError(null) }
-    catch { setError('The goal change was saved, but the latest goal list could not reload. Reload before making another change.') }
-    focusLater(selector)
+    try { await onChanged(); setError(null); focusLater(selector) }
+    catch { setError('The goal change was saved, but the latest goal list could not reload. Reload before making another change.'); focusLater() }
   }
   async function save(event: FormEvent) {
     event.preventDefault()
