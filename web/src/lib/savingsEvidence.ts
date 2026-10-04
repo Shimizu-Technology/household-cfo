@@ -11,8 +11,16 @@ export type EvidenceCandidates = EvidenceActor & { records: EvidenceCandidate[];
 export type EvidenceAction = 'attach' | 'revoke'
 export type EvidenceInput = { entry_version_id: number; expected_evidence_version_id: number | null; expected_head_lock_version: number; accepted: true; reason: string; participant_ownership_accepted?: true; new_money_reservation_accepted?: true; proofs?: EvidenceProofInput[] }
 export type EvidenceMutation = EvidenceActor & { record: EvidenceVersion; replayed: boolean }
-export type EvidenceStatus = EvidenceActor & ({ state: 'committed'; record: EvidenceVersion; replayed: true } | { state: 'unknown'; can_retry: true } | { state: 'in_flight' })
+export type EvidenceStatus = (EvidenceActor & ({ state: 'committed'; record: EvidenceVersion; replayed: true } | { state: 'unknown'; can_retry: true })) | { state: 'in_flight'; actor_scope: BaselineScope; enrollment_id: number | null }
 export function evidenceScopeMatches(result: EvidenceActor, scope: EvidenceScope) { return result.actor_scope.user_id === scope.user_id && result.actor_scope.household_id === scope.household_id && result.enrollment_id === scope.enrollment_id }
+// Lock contention can return actor metadata before the enrollment has been resolved.
+// That response may keep recovery pending, but cannot acknowledge a financial payload.
+export function evidenceRecoveryScopeMatches(result: EvidenceMutation | EvidenceStatus, scope: EvidenceScope) {
+ return result.actor_scope.user_id === scope.user_id && result.actor_scope.household_id === scope.household_id && (
+  result.enrollment_id === scope.enrollment_id ||
+  ('state' in result && result.state === 'in_flight' && result.enrollment_id === null && !('record' in result))
+ )
+}
 export function evidenceProof(candidate: EvidenceCandidate, amount_cents: number): EvidenceProofInput { return { source_review_version_id: candidate.source_review_version_id, expected_source_digest: candidate.expected_source_digest, expected_account_identity_digest: candidate.expected_account_identity_digest, economic_group_version_id: candidate.economic_group_version_id, expected_group_digest: candidate.expected_group_digest, amount_cents } }
 export function validateEvidenceSelections(selections: Array<{candidate:EvidenceCandidate;amount_cents:number}>, contribution: number) {
  if(selections.length<1||selections.length>20)throw new Error('Select between one and twenty reviewed movements.')
