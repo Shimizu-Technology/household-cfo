@@ -69,7 +69,10 @@ type StudioSection = 'settings' | 'groups' | 'assistants' | 'library' | 'partici
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId: activeWorkspaceId, selectCoachWorkspace } = useAuthContext()
   const workspaceOptions = currentUser.coach_workspaces ?? []
-  const workspaceCreateDisabled = currentUser.is_admin && activeWorkspaceId === null
+  const workspaceRole = workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role
+  const workspaceCreationNeedsSelection = currentUser.is_admin && activeWorkspaceId === null
+  const workspaceCreationNeedsEditor = workspaceRole === 'reviewer' || workspaceRole === 'viewer'
+  const workspaceCreateDisabled = workspaceCreationNeedsSelection || workspaceCreationNeedsEditor
   const [personas, setPersonas] = useState<AdminPersonaSummary[]>([])
   const [selectedPersona, setSelectedPersona] = useState<AdminPersonaDetail | null>(null)
   const [draft, setDraft] = useState<PersonaConfiguration | null>(null)
@@ -373,7 +376,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!createName.trim() || pendingAction) return
+    if (!createName.trim() || pendingAction || workspaceCreateDisabled) return
     const mutation = beginMutation('create')
     setError(null)
     try {
@@ -805,7 +808,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
             <Button size="compact" disabled={workspaceCreateDisabled} onClick={() => setCreateOpen(true)}>Create</Button>
           </div>
 
-          {workspaceCreateDisabled && <p className="coach-content-note">Choose a coach workspace before creating an assistant. Platform mode can review all workspaces without assigning a hidden owner.</p>}
+          {workspaceCreationNeedsSelection && <p className="coach-content-note">Choose a coach workspace before creating an assistant. Platform mode can review all workspaces without assigning a hidden owner.</p>}
+          {workspaceCreationNeedsEditor && <p className="coach-content-note">Your collaborator role can view assistants but cannot create drafts. Ask a workspace owner or editor to create one.</p>}
 
           {createOpen && (
             <form className="coach-create-form" onSubmit={handleCreate}>
@@ -838,8 +842,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
             <p className="coach-empty" role="status">Loading coaching assistants…</p>
           ) : filteredPersonas.length === 0 ? (
             <div className="coach-empty">
-              <strong>{personas.length === 0 ? 'Create the first coaching assistant.' : 'No assistants match this view.'}</strong>
-              <p>{personas.length === 0 ? 'The server starts every assistant with a safe, neutral configuration you can shape.' : 'Change the search or status filter.'}</p>
+              <strong>{personas.length === 0 ? workspaceCreationNeedsEditor ? 'No coaching assistants yet.' : 'Create the first coaching assistant.' : 'No assistants match this view.'}</strong>
+              <p>{personas.length === 0 ? workspaceCreationNeedsEditor ? 'An owner or editor can prepare an assistant for review.' : 'The server starts every assistant with a safe, neutral configuration you can shape.' : 'Change the search or status filter.'}</p>
             </div>
           ) : (
             <div className="coach-library-list">

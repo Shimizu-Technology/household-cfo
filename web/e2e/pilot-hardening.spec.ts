@@ -7725,6 +7725,10 @@ test('Coach Studio program reviewer cannot edit identity or access participants 
   await expect(page.getByText(/Your collaborator role does not include roster access/)).toBeVisible()
   expect(rosterRequests).toBe(0)
   expect(writes).toEqual([])
+  await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await page.getByRole('button', { name: '← All assistants' }).click()
+  await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
+  await expect(page.getByText('Your collaborator role can view assistants but cannot create drafts. Ask a workspace owner or editor to create one.')).toBeVisible()
   await assertProgramFits(page)
 })
 
