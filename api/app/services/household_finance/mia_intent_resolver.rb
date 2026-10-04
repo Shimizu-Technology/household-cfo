@@ -217,7 +217,7 @@ module HouseholdFinance
     attr_reader :raw_user_message, :user_message, :context, :api_key, :model, :transport
 
     def explicit_read_only_result
-      Result.new(
+      deterministic_scenario_fallback || Result.new(
         intent: "coaching", confidence: 1.0, continuation: false,
         resolved_message: user_message, needs_clarification: false, clarification: "",
         topic: { type: "coaching", title: "Read-only household question", subject: "Household picture" },

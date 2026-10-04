@@ -315,9 +315,12 @@ module Demo
     def unsupported_scenario_conclusion?(content)
       content.to_s.to_enum(:scan, UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN).any? do
         match = Regexp.last_match
-        # "Choose a time that works" discusses a review habit, not affordability.
+        # A review habit is safe only when the same clause does not claim that
+        # a purchase or spending decision works.
+        following_clause = content.to_s[match.end(0)..].to_s.split(/[.!?\n]/, 2).first.to_s
         scheduling_reference = match[0].match?(/\A(?:it|that)\s+(?:works|fits)\z/i) &&
-          content.to_s[0...match.begin(0)].match?(/\b(?:day|time|schedule|routine|habit|cadence)\s+\z/i)
+          content.to_s[0...match.begin(0)].match?(/\b(?:day|time|schedule|routine|habit|cadence)\s+\z/i) &&
+          !following_clause.match?(/\b(?:purchas(?:e|ing)|buy(?:ing)?|afford(?:ability|ing)?|spend(?:ing)?)\b/i)
         !scheduling_reference
       end
     end
