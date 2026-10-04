@@ -21,8 +21,10 @@ module Api
         end
 
         def create
-          cohort = Cohort.create!(cohort_params.merge(created_by_user: current_user, coach_workspace: current_coach_workspace))
-          render json: { cohort: serialize_cohort(cohort) }, status: :created
+          CoachWorkspaces::MutationAuthority.new(workspace: current_coach_workspace, actor: current_user, permissions: :manage_members).call do |actor|
+            cohort = Cohort.create!(cohort_params.merge(created_by_user: actor, coach_workspace: current_coach_workspace))
+            render json: { cohort: serialize_cohort(cohort) }, status: :created
+          end
         rescue ActiveRecord::RecordInvalid => e
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
         end
@@ -31,19 +33,21 @@ module Api
           cohort = workspace_cohorts.find(params[:id])
           Cohort.transaction do
             cohort.lock!
-            if params.dig(:cohort, :expected_updated_at).present? && params.dig(:cohort, :expected_updated_at).to_s != cohort.updated_at.iso8601(6)
-              return render json: { error: "This group changed. Reload it before saving.", code: "group_conflict" }, status: :conflict
+            CoachWorkspaces::MutationAuthority.new(workspace: cohort.coach_workspace, actor: current_user, permissions: :manage_members).call do |actor|
+              if params.dig(:cohort, :expected_updated_at).present? && params.dig(:cohort, :expected_updated_at).to_s != cohort.updated_at.iso8601(6)
+                return render json: { error: "This group changed. Reload it before saving.", code: "group_conflict" }, status: :conflict
+              end
+              if !actor.admin? && params.dig(:cohort, :expected_updated_at).blank?
+                return render json: { error: "Reload this group before saving.", code: "group_conflict" }, status: :conflict
+              end
+              if activating_persona_assignment?(cohort)
+                participant_ids = Mia::PersonaAssignmentCompatibility.participant_ids_for(cohort: cohort)
+                Mia::PersonaAssignmentCompatibility.lock_participants!(user_ids: participant_ids)
+                assignment = cohort.cohort_persona_assignment
+                Mia::PersonaAssignmentCompatibility.ensure_cohort_can_use!(cohort: cohort, persona: assignment.coach_persona) if assignment
+              end
+              cohort.update!(cohort_params)
             end
-            if !current_user.admin? && params.dig(:cohort, :expected_updated_at).blank?
-              return render json: { error: "Reload this group before saving.", code: "group_conflict" }, status: :conflict
-            end
-            if activating_persona_assignment?(cohort)
-              participant_ids = Mia::PersonaAssignmentCompatibility.participant_ids_for(cohort: cohort)
-              Mia::PersonaAssignmentCompatibility.lock_participants!(user_ids: participant_ids)
-              assignment = cohort.cohort_persona_assignment
-              Mia::PersonaAssignmentCompatibility.ensure_cohort_can_use!(cohort: cohort, persona: assignment.coach_persona) if assignment
-            end
-            cohort.update!(cohort_params)
           end
           render json: { cohort: serialize_cohort(find_cohort(cohort.id), include_members: true) }
         rescue ActiveRecord::RecordInvalid => e
@@ -58,16 +62,20 @@ module Api
           Cohort.transaction do
             cohort.lock!
             membership = cohort.cohort_memberships.find_by(user_id: params[:user_id], role: "participant")
-            # An already absent enrollment is a safe replay. Do not inspect an
-            # unrelated account or disclose whether that global user exists.
-            next unless membership
-            user = User.lock.find(membership.user_id)
-            raise ActiveRecord::RecordNotFound unless user.participant?
-            if membership.id.to_s != params[:expected_membership_id].to_s
-              return render json: { error: "This enrollment changed. Reload the roster before removing it.", code: "enrollment_conflict" }, status: :conflict
+            authority = CoachWorkspaces::MutationAuthority.new(workspace: cohort.coach_workspace, actor: current_user,
+              permissions: :manage_members, subject_ids: -> { [ membership&.user_id ] })
+            authority.call do |_actor, users|
+              # An already absent enrollment is a safe replay. Recheck authority
+              # first, without disclosing whether the unrelated user exists.
+              next unless membership
+              user = users.fetch(membership.user_id)
+              raise ActiveRecord::RecordNotFound unless user.participant?
+              if membership.id.to_s != params[:expected_membership_id].to_s
+                return render json: { error: "This enrollment changed. Reload the roster before removing it.", code: "enrollment_conflict" }, status: :conflict
+              end
+              membership.destroy!
+              removed = true
             end
-            membership.destroy!
-            removed = true
           end
           render json: { removed: removed, cohort_id: cohort.id }
         end

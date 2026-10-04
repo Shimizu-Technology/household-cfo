@@ -135,7 +135,62 @@ class ApiV1CoachGroupsTest < ActionDispatch::IntegrationTest
     end
   end
 
+  %w[create update remove].each do |action|
+    test "owner demotion after initial authority check cannot #{action} group data" do
+      with_late_authority_change do
+        @workspace.membership_for(@owner).update!(role: "editor")
+      end
+      original_name = @cohort.name
+      original_count = Cohort.count
+      submit_group_action(action, @owner)
+      assert_response :not_found
+      assert_equal original_count, Cohort.count
+      assert_equal original_name, @cohort.reload.name
+      assert @membership.reload.persisted?
+    end
+
+    test "admin revocation after initial authority check cannot #{action} group data" do
+      admin = user("group-revoked-admin-#{action}", "admin")
+      with_late_authority_change { User.find(admin.id).update!(invitation_status: "revoked") }
+      original_name = @cohort.name
+      original_count = Cohort.count
+      submit_group_action(action, admin)
+      assert_response :not_found
+      assert_equal original_count, Cohort.count
+      assert_equal original_name, @cohort.reload.name
+      assert @membership.reload.persisted?
+    end
+  end
+
+  teardown do
+    if @original_group_management
+      Api::V1::Admin::CohortsController.define_method(:require_group_management!, @original_group_management)
+      Api::V1::Admin::CohortsController.send(:private, :require_group_management!)
+    end
+  end
+
   private
+
+  def with_late_authority_change(&change)
+    controller = Api::V1::Admin::CohortsController
+    @original_group_management = controller.instance_method(:require_group_management!)
+    original = @original_group_management
+    controller.define_method(:require_group_management!) do
+      original.bind_call(self)
+      change.call unless performed?
+    end
+  end
+
+  def submit_group_action(action, actor)
+    case action
+    when "create"
+      post "/api/v1/admin/cohorts", params: { cohort: { name: "Unauthorized group", status: "enrolling" } }, headers: auth(actor, @workspace), as: :json
+    when "update"
+      patch "/api/v1/admin/cohorts/#{@cohort.id}", params: { cohort: { name: "Unauthorized rename", expected_updated_at: @cohort.updated_at.iso8601(6) } }, headers: auth(actor, @workspace), as: :json
+    when "remove"
+      delete enrollment_url, params: { expected_membership_id: @membership.id }, headers: auth(actor, @workspace), as: :json
+    end
+  end
 
   def enrollment_url
     "/api/v1/admin/cohorts/#{@cohort.id}/participants/#{@participant.id}"
