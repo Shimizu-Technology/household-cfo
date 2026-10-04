@@ -1,5 +1,6 @@
 require "test_helper"
 require "timeout"
+require_relative "../support/owned_test_database"
 require_relative "../support/savings_daily_test_support"
 
 class SavingsDailyConcurrencyTest < ActiveSupport::TestCase
@@ -119,8 +120,7 @@ class SavingsDailyConcurrencyTest < ActiveSupport::TestCase
 
   def clear_owned_daily_fixture
     connection = ActiveRecord::Base.connection
-    configured = ENV.fetch("DATABASE_TEST_NAME", "household_cfo_api_test")
-    raise "Synthetic cleanup requires the configured test DB" unless Rails.env.test? && connection.select_value("SELECT current_database()") == configured
+    OwnedTestDatabase.assert!(connection: connection)
     daily_tables = %w[savings_daily_ledgers savings_daily_purchases savings_daily_purchase_drafts savings_daily_purchase_versions savings_daily_reflections savings_daily_reflection_versions savings_daily_check_ins savings_daily_check_in_versions savings_checkpoints savings_checkpoint_drafts savings_checkpoint_versions]
     savings_tables = %w[savings_enrollments savings_entries savings_entry_versions savings_plan_versions savings_zero_attestations savings_entry_drafts savings_plan_drafts]
     release_tables = %w[cohorts cohort_release_activation_events cohort_releases cohort_experience_versions cohort_experience_publication_events]

@@ -1,5 +1,6 @@
 require "test_helper"
 require "timeout"
+require_relative "../support/owned_test_database"
 require_relative "../support/savings_debt_test_support"
 
 class SavingsDebtConcurrencyTest < ActiveSupport::TestCase
@@ -108,7 +109,7 @@ class SavingsDebtConcurrencyTest < ActiveSupport::TestCase
   def cleanup_owned_debt_fixture
     @savings_user = @evidence_original_user if @evidence_original_user
     connection = ApplicationRecord.connection
-    raise "Cleanup requires the owned disposable DB" unless Rails.env.test? && connection.select_value("SELECT current_database()") == ENV.fetch("DATABASE_TEST_NAME")
+    OwnedTestDatabase.assert!(connection: connection)
     hh = @savings_household.id
     enrollment_ids = SavingsEnrollment.where(household_id: hh).pluck(:id)
     evidence_ids = SavingsEvidenceVersion.where(savings_enrollment_id: enrollment_ids).pluck(:id)
