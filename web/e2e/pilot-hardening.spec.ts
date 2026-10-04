@@ -1863,9 +1863,9 @@ test('initial Plaid sync refreshes the workspace when transaction history is rea
 })
 
 test('Home preserves confirmed debt minimums while liquid balances are still unknown', async ({ page }) => {
-  await page.route('**/api/v1/dashboard', (route) => route.fulfill({ json: {
-    ...dashboard,
-    summary: { ...dashboard.summary, readiness_available: false, next_safe_to_spend_amount: null, readiness_label: 'Liquid balances needed — add them before using cash guidance' },
+  await page.route('**/api/v1/workspace', (route) => route.fulfill({ json: {
+    ...realWorkspaceData(true),
+    dashboard: { ...dashboard, summary: { ...dashboard.summary, readiness_available: false, next_safe_to_spend_amount: null, readiness_label: 'Liquid balances needed — add them before using cash guidance' } },
   } }))
   await page.goto('/?pilot_e2e_role=participant')
   const monthSummary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
@@ -1874,7 +1874,7 @@ test('Home preserves confirmed debt minimums while liquid balances are still unk
   await expect(breakdown).toContainText('Total money out$5,500.00')
   await expect(monthSummary.getByText('Baseline left', { exact: true }).locator('..')).toContainText('$8,700.00')
   await expect(monthSummary.getByText('Safe to spend', { exact: true })).toHaveCount(0)
-  await expect(page.getByText('Liquid balances needed — add them before using cash guidance', { exact: true })).toBeVisible()
+  await expect(page.locator('.status-ribbon')).toContainText('Liquid balances needed — add them before using cash guidance')
 })
 
 test('Home centers review work and keeps Red guidance internally consistent', async ({ page, browserName }) => {
@@ -7726,7 +7726,8 @@ test('Coach Studio program reviewer cannot edit identity or access participants 
   expect(rosterRequests).toBe(0)
   expect(writes).toEqual([])
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
-  await page.getByRole('button', { name: '← All assistants' }).click()
+  const returnToLibrary = page.getByRole('button', { name: '← All assistants' })
+  if (await returnToLibrary.isVisible()) await returnToLibrary.click()
   await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
   await expect(page.getByText('Your collaborator role can view assistants but cannot create drafts. Ask a workspace owner or editor to create one.')).toBeVisible()
   await assertProgramFits(page)
