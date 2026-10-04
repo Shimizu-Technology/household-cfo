@@ -31,6 +31,8 @@ class ApiV1AdminUsersInvitationConcurrencyTest < ActiveSupport::TestCase
         ActiveRecord::Base.connection_pool.with_connection do
           concurrent_user = User.find(participant.id)
           controller = Api::V1::Admin::UsersController.new
+          controller.instance_variable_set(:@current_user, User.find(admin.id))
+          controller.set_request!(ActionDispatch::TestRequest.create)
           original_target_ids = controller.method(:invitation_target_cohort_ids)
           first_snapshot = true
           controller.define_singleton_method(:invitation_target_cohort_ids) do |user, **options|

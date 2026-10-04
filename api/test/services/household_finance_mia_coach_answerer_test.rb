@@ -1,6 +1,33 @@
 require "test_helper"
 
 class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
+  test "an explicitly read only amount edit is not interpreted as a purchase" do
+    household = create_yellow_household
+    [
+      "Set Groceries to $650 for July. No changes, please.",
+      "Please update Groceries to $650. Do not change anything.",
+      "Could you reduce Dining Out by $100? Explain only."
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+      assert_includes answer, "kept this read-only", prompt
+      assert_includes answer, "did not create a review card", prompt
+      refute_match(/purchase|need or a want|safe-to-spend|remaining discretionary plan/i, answer, prompt)
+    end
+  end
+
+  test "review regression missing-picture contractions retain approved figures without a verdict" do
+    household = create_yellow_household
+    household.accounts.destroy_all
+    [ "Explain my readiness and what's missing. Do not change anything.", "Explain my readiness and what’s missing. Do not change anything." ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+      assert_includes answer, "From approved records, monthly income is $8,500", prompt
+      assert_includes answer, "planned fixed essentials are $6,925", prompt
+      assert_includes answer, "monthly debt minimums are $920", prompt
+      assert_includes answer, "liquid account picture is incomplete", prompt
+      assert_includes answer, "No financial decision was made and no numbers changed", prompt
+    end
+  end
+
   test "states the real persona capability instead of claiming a saved regional voice" do
     user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",

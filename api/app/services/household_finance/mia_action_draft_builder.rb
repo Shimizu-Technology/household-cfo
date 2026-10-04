@@ -114,6 +114,7 @@ module HouseholdFinance
     end
 
     def call
+      return nil if ::Mia::FinancialReadOnlyRequest.matches?(raw_input)
       return nil unless command.present? || action_text.match?(ACTION_TERMS)
 
       annual_budget_manager.ensure_plan!

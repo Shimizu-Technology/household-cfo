@@ -5,6 +5,7 @@ module Mia
     MARKDOWN_BLOCK_PATTERN = /(?:\A|\n)[ \t]{0,3}(?:\#{1,6}[ \t]+|[-+*][ \t]+|\d+\.[ \t]+)/.freeze
     MARKDOWN_INLINE_PATTERN = /[*_~`]{2}|\[[^\]]+\]\([^)]+\)/.freeze
     SENTENCE_BOUNDARY = /(?<=[.!?])(?:["”’']*)\s+/.freeze
+    HONORIFIC_BEFORE_NAME = /\b(?:Mr|Mrs|Ms|Mx|Dr|Prof)\.(?=\s+\p{Lu})/.freeze
 
     class << self
       def valid?(content, persona:)
@@ -40,7 +41,9 @@ module Mia
     end
 
     def sentence_count
-      content.split(SENTENCE_BOUNDARY).count(&:present?)
+      # A coach title such as "Mrs. Mel" is part of the same sentence.
+      content.gsub(HONORIFIC_BEFORE_NAME) { |title| title.delete_suffix(".") }
+        .split(SENTENCE_BOUNDARY).count(&:present?)
     end
 
     def markdown?

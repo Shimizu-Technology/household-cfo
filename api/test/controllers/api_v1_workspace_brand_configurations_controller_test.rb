@@ -388,6 +388,29 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     assert_nil response.headers["Access-Control-Allow-Origin"]
   end
 
+  test "editor removal while a brand save waits denies the save" do
+    owner = create_user("coach")
+    editor = create_user("coach")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    membership = workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
+    configuration = workspace.workspace_brand_configuration
+    original_config = configuration.draft_config.deep_dup
+    original = CoachWorkspace.instance_method(:with_lock)
+    removed = false
+    CoachWorkspace.define_method(:with_lock) do |*args, &block|
+      unless removed || id != workspace.id
+        removed = true
+        membership.destroy!
+      end
+      original.bind_call(self, *args, &block)
+    end
+    patch endpoint, params: brand_update(configuration, "Denied late save"), headers: workspace_headers(editor, workspace), as: :json
+    assert_response :not_found
+    assert_equal original_config, configuration.reload.draft_config
+  ensure
+    CoachWorkspace.define_method(:with_lock, original) if original
+  end
+
   private
 
   def endpoint

@@ -65,10 +65,10 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           planned={currentPlan ? currentTotals.planned : monthPlanned}
           actual={currentPlan ? currentTotals.actual : monthActual}
           pending={currentTotals.pending}
-          safeToSpend={dashboard.summary.next_safe_to_spend_amount}
+          safeToSpend={dashboard.summary.readiness_available ? dashboard.summary.next_safe_to_spend_amount : null}
           baselineSurplus={budget.baseline_surplus}
           debtMinimums={currentPlan?.monthly_debt_minimums ?? dashboard.summary.debt_payments}
-          debtMinimumsKnown={currentPlan?.monthly_debt_minimums_known !== false && dashboard.summary.readiness_available}
+          debtMinimumsKnown={currentPlan ? currentPlan.monthly_debt_minimums_known !== false : dashboard.summary.readiness_available}
         />
       </section>
 

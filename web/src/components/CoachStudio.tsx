@@ -40,6 +40,9 @@ import {
   replaceListItem as replaceAt,
 } from '../lib/personaDraft'
 import { Button } from './Button'
+import { CoachProgramSettings } from './CoachProgramSettings'
+import { WorkspaceCollaborators } from './WorkspaceCollaborators'
+import { CoachGroupsParticipants } from './CoachGroupsParticipants'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { ReleaseAndRolloutStudio } from './ReleaseAndRolloutStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
@@ -61,12 +64,15 @@ type GuidedStep = (typeof guidedSteps)[number]['id']
 type EditorMode = 'setup' | 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'draft_restore' | 'assignment' | 'phrase_restore' | null
-type StudioSection = 'assistants' | 'library' | 'participant_tools' | 'cohort_releases'
+type StudioSection = 'settings' | 'groups' | 'assistants' | 'library' | 'participant_tools' | 'cohort_releases'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId: activeWorkspaceId, selectCoachWorkspace } = useAuthContext()
   const workspaceOptions = currentUser.coach_workspaces ?? []
-  const workspaceCreateDisabled = currentUser.is_admin && activeWorkspaceId === null
+  const workspaceRole = workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role
+  const workspaceCreationNeedsSelection = currentUser.is_admin && activeWorkspaceId === null
+  const workspaceCreationNeedsEditor = workspaceRole === 'reviewer' || workspaceRole === 'viewer'
+  const workspaceCreateDisabled = workspaceCreationNeedsSelection || workspaceCreationNeedsEditor
   const [personas, setPersonas] = useState<AdminPersonaSummary[]>([])
   const [selectedPersona, setSelectedPersona] = useState<AdminPersonaDetail | null>(null)
   const [draft, setDraft] = useState<PersonaConfiguration | null>(null)
@@ -93,16 +99,20 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [experienceDirty, setExperienceDirty] = useState(false)
   const [selectedCohortId, setSelectedCohortId] = useState<number | null>(null)
   const [studioSection, setStudioSection] = useState<StudioSection>('assistants')
+  const [groupsDirty, setGroupsDirty] = useState(false)
   const [libraryDirty, setLibraryDirty] = useState(false)
   const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
   const [setupDirty, setSetupDirty] = useState(false)
   const [rolloutDirty, setRolloutDirty] = useState(false)
+  const [settingsDirty, setSettingsDirty] = useState(false)
+  const [collaboratorsDirty, setCollaboratorsDirty] = useState(false)
   const workspaceMutations = useCoachWorkspaceMutationLifecycle(activeWorkspaceId)
   const selectedIdRef = useRef<number | null>(null)
   const activeWorkspaceIdRef = useRef(activeWorkspaceId)
   activeWorkspaceIdRef.current = activeWorkspaceId
   const loadPersonaRequestRef = useRef(0)
   const loadPersonasRequestRef = useRef(0)
+  const loadAssignableGroupsRequestRef = useRef(0)
   const focusEditorAfterLoadRef = useRef(false)
   const createNameRef = useRef<HTMLInputElement | null>(null)
   const libraryHeadingRef = useRef<HTMLHeadingElement | null>(null)
@@ -114,7 +124,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     if (!selectedPersona?.draft || !draft) return false
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
-  const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty
+  const studioDirty = groupsDirty || dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty || settingsDirty || collaboratorsDirty
   const personaDirty = dirty || personaSourcesDirty || setupDirty
   const createDisabled = workspaceCreateDisabled || loading || detailLoading || pendingAction !== null || workspaceMutations.pending
 
@@ -253,6 +263,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setPersonaSourcesDirty(false)
     setSetupDirty(false)
     setRolloutDirty(false)
+    setSettingsDirty(false)
+    setCollaboratorsDirty(false)
+    setGroupsDirty(false)
     setStudioSection(next)
     return true
   }
@@ -265,6 +278,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     // Ignore an assistant detail response that began in the workspace we are leaving.
     loadPersonaRequestRef.current += 1
     loadPersonasRequestRef.current += 1
+    loadAssignableGroupsRequestRef.current += 1
     selectedIdRef.current = null
     setPersonas([])
     setCohorts([])
@@ -282,6 +296,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setPersonaSourcesDirty(false)
     setSetupDirty(false)
     setRolloutDirty(false)
+    setSettingsDirty(false)
+    setCollaboratorsDirty(false)
+    setGroupsDirty(false)
   }
 
   function handleStudioSectionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -712,8 +729,14 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       </div>
 
       <nav className="coach-studio-section-tabs" role="tablist" aria-label="Coach Studio areas">
+        <button type="button" role="tab" id="coach-studio-tab-settings" aria-controls="coach-studio-panel-settings" aria-selected={studioSection === 'settings'} tabIndex={studioSection === 'settings' ? 0 : -1} data-studio-section="settings" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('settings')}>
+          <strong>Program settings</strong><small>Name, coach identity, and participant branding</small>
+        </button>
         <button type="button" role="tab" id="coach-studio-tab-assistants" aria-controls="coach-studio-panel-assistants" aria-selected={studioSection === 'assistants'} tabIndex={studioSection === 'assistants' ? 0 : -1} data-studio-section="assistants" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('assistants')}>
           <strong>Assistant voice</strong><small>Shape how Mia coaches and communicates</small>
+        </button>
+        <button type="button" role="tab" id="coach-studio-tab-groups" aria-controls="coach-studio-panel-groups" aria-selected={studioSection === 'groups'} tabIndex={studioSection === 'groups' ? 0 : -1} data-studio-section="groups" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('groups')}>
+          <strong>Groups & participants</strong><small>Invite participants and organize your program</small>
         </button>
         <button type="button" role="tab" id="coach-studio-tab-library" aria-controls="coach-studio-panel-library" aria-selected={studioSection === 'library'} tabIndex={studioSection === 'library' ? 0 : -1} data-studio-section="library" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('library')}>
           <strong>Coaching Library</strong><small>Approve and publish reusable coaching sources</small>
@@ -726,7 +749,24 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         </button>
       </nav>
 
-      {studioSection === 'library' ? (
+      {studioSection === 'settings' ? (
+        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-settings" aria-labelledby="coach-studio-tab-settings" tabIndex={0}>
+          <CoachProgramSettings key={activeWorkspaceId ?? 'platform'} workspaceId={activeWorkspaceId} currentUser={currentUser} mutationLifecycle={workspaceMutations} onDirtyChange={setSettingsDirty} />
+          {activeWorkspaceId !== null && <WorkspaceCollaborators workspaceId={activeWorkspaceId} mutationLifecycle={workspaceMutations} onDirtyChange={setCollaboratorsDirty} />}
+        </div>
+      ) : studioSection === 'groups' ? (
+        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-groups" aria-labelledby="coach-studio-tab-groups" tabIndex={0}>
+          <CoachGroupsParticipants key={activeWorkspaceId ?? 'platform'} currentUser={currentUser} workspaceId={activeWorkspaceId} mutationLifecycle={workspaceMutations} onDirtyChange={setGroupsDirty} onGroupsChanged={() => {
+            const workspaceId = activeWorkspaceId
+            const requestId = ++loadAssignableGroupsRequestRef.current
+            void fetchAdminPersonaAssignableCohorts().then((nextCohorts) => {
+              if (workspaceId !== activeWorkspaceIdRef.current || requestId !== loadAssignableGroupsRequestRef.current) return
+              setCohorts(nextCohorts)
+              setSelectedCohortId((id) => nextCohorts.some((cohort) => cohort.id === id) ? id : nextCohorts[0]?.id ?? null)
+            }).catch(() => { /* The group save is complete; existing release views can retry their own load. */ })
+          }} />
+        </div>
+      ) : studioSection === 'library' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-library" aria-labelledby="coach-studio-tab-library" tabIndex={0}>
           <CoachContentLibrary
             key={activeWorkspaceId ?? 'legacy'}
@@ -774,7 +814,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
             <Button size="compact" disabled={createDisabled} onClick={openCreateForm}>Create</Button>
           </div>
 
-          {workspaceCreateDisabled && <p className="coach-content-note">Choose a coach workspace before creating an assistant. Platform mode can review all workspaces without assigning a hidden owner.</p>}
+          {workspaceCreationNeedsSelection && <p className="coach-content-note">Choose a coach workspace before creating an assistant. Platform mode can review all workspaces without assigning a hidden owner.</p>}
+          {workspaceCreationNeedsEditor && <p className="coach-content-note">Your collaborator role can view assistants but cannot create drafts. Ask a workspace owner or editor to create one.</p>}
 
           {createOpen && (
             <form className="coach-create-form" onSubmit={handleCreate}>
@@ -807,8 +848,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
             <p className="coach-empty" role="status">Loading coaching assistants…</p>
           ) : filteredPersonas.length === 0 ? (
             <div className="coach-empty">
-              <strong>{personas.length === 0 ? 'Create the first coaching assistant.' : 'No assistants match this view.'}</strong>
-              <p>{personas.length === 0 ? 'The server starts every assistant with a safe, neutral configuration you can shape.' : 'Change the search or status filter.'}</p>
+              <strong>{personas.length === 0 ? workspaceCreationNeedsEditor ? 'No coaching assistants yet.' : 'Create the first coaching assistant.' : 'No assistants match this view.'}</strong>
+              <p>{personas.length === 0 ? workspaceCreationNeedsEditor ? 'An owner or editor can prepare an assistant for review.' : 'The server starts every assistant with a safe, neutral configuration you can shape.' : 'Change the search or status filter.'}</p>
             </div>
           ) : (
             <div className="coach-library-list">

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useState } from 'react'
@@ -53,6 +53,19 @@ describe('GoalManager', () => {
     expect(apiMocks.createGoal).not.toHaveBeenCalled()
   })
 
+  it('keeps a committed goal write clear and returns to Add when the list reload fails', async () => {
+    const user = userEvent.setup()
+    apiMocks.createGoal.mockResolvedValue(goal({ id: 42, label: 'Tuition' }))
+    render(<GoalManager goals={[]} portfolio={{ ...portfolio, active_count: 0 }} onChanged={vi.fn().mockRejectedValue(new Error('refresh failed'))} />)
+    await user.click(screen.getByRole('button', { name: 'Add a goal' }))
+    await user.type(screen.getByLabelText('Goal name'), 'Tuition')
+    await user.click(screen.getByRole('button', { name: 'Add goal' }))
+    expect(await screen.findByText(/goal change was saved, but the latest goal list could not reload/)).toBeTruthy()
+    expect(screen.queryByText(/could not be saved/)).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add a goal' })))
+    expect(apiMocks.createGoal).toHaveBeenCalledOnce()
+  })
+
   it('opens the exact goal editor requested by a Mia review', async () => {
     const handled = vi.fn()
     render(<GoalManager goals={[goal(), goal({ id: 2, label: 'Tuition', goal_type: 'education' })]} portfolio={{ ...portfolio, active_count: 2 }} onChanged={vi.fn()} focusRequest={{ key: 1, actionType: 'update_goal', goalId: 2, payload: {} }} onFocusRequestHandled={handled} />)
@@ -94,6 +107,92 @@ describe('GoalManager', () => {
     expect((await screen.findByRole('alert')).textContent).toMatch(/no longer available to edit/i)
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add a goal' })))
     expect(handled).toHaveBeenCalledOnce()
+  })
+
+  it('preserves focus deliberately moved to another field while the updated list is pending', async () => {
+    const user = userEvent.setup()
+    const original = goal()
+    const archived = { ...original, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    apiMocks.archiveGoal.mockResolvedValue(archived)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<><input aria-label="Household note" /><GoalManager goals={[original]} portfolio={portfolio} onChanged={onChanged} /></>)
+    await user.click(screen.getByRole('button', { name: 'Archive' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    const note = screen.getByRole('textbox', { name: 'Household note' })
+    await user.click(note)
+    await user.type(note, 'Continue planning')
+
+    view.rerender(<><input aria-label="Household note" /><GoalManager goals={[archived]} portfolio={{ ...portfolio, active_count: 0, archived_count: 1 }} onChanged={onChanged} /></>)
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(document.activeElement).toBe(note)
+    expect((view.container.querySelector('details.debt-archive') as HTMLDetailsElement).open).toBe(false)
+    expect(apiMocks.archiveGoal).toHaveBeenCalledOnce()
+  })
+
+  it('preserves a second row archive confirmation while the first archive list is pending', async () => {
+    const user = userEvent.setup()
+    const first = goal({ id: 1, label: 'First record' })
+    const second = goal({ id: 2, label: 'Second record' })
+    const firstArchived = { ...first, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    const secondArchived = { ...second, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    apiMocks.archiveGoal.mockResolvedValueOnce(firstArchived).mockResolvedValueOnce(secondArchived)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<GoalManager goals={[first, second]} portfolio={{ ...portfolio, active_count: 2 }} onChanged={onChanged} />)
+    await user.click(view.container.querySelector<HTMLButtonElement>('[data-goal-id="1"] [data-goal-action="archive"]')!)
+    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+
+    // Starting another confirmation remembers a new trigger, but must not change
+    // the earlier pending action's permission to move focus.
+    await user.click(view.container.querySelector<HTMLButtonElement>('[data-goal-id="2"] [data-goal-action="archive"]')!)
+    const secondConfirmation = screen.getByRole('button', { name: 'Confirm archive' })
+    expect(document.activeElement).toBe(secondConfirmation)
+    view.rerender(<GoalManager goals={[firstArchived, second]} portfolio={{ ...portfolio, active_count: 1, archived_count: 1 }} onChanged={onChanged} />)
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(document.activeElement).toBe(secondConfirmation)
+    expect((view.container.querySelector('details.debt-archive') as HTMLDetailsElement).open).toBe(false)
+    expect(apiMocks.archiveGoal).toHaveBeenCalledOnce()
+
+    // The newly confirmed action still receives its own return-focus request.
+    await user.click(secondConfirmation)
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2))
+    view.rerender(<GoalManager goals={[firstArchived, secondArchived]} portfolio={{ ...portfolio, active_count: 0, archived_count: 2 }} onChanged={onChanged} />)
+    await waitFor(() => expect(document.activeElement).toBe(view.container.querySelector('[data-goal-id="2"] [data-goal-action="restore"]')))
+    expect(apiMocks.archiveGoal).toHaveBeenCalledTimes(2)
+  })
+
+  it('waits for archived and restored goal lists to commit before returning focus', async () => {
+    const user = userEvent.setup()
+    const original = goal({ target_amount: 5_000, current_amount: 500 })
+    const archived = { ...original, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    apiMocks.archiveGoal.mockResolvedValue(archived)
+    apiMocks.restoreGoal.mockResolvedValue(original)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<GoalManager goals={[original]} portfolio={portfolio} onChanged={onChanged} />)
+
+    await user.click(screen.getByRole('button', { name: 'Archive' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    // A resolved refresh does not mean the parent has committed its updated list.
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+
+    view.rerender(<GoalManager goals={[archived]} portfolio={{ ...portfolio, active_count: 0, archived_count: 1 }} onChanged={onChanged} />)
+    const restore = await screen.findByRole('button', { name: 'Restore' })
+    await waitFor(() => expect(document.activeElement).toBe(restore))
+    expect(restore.closest('details')?.open).toBe(true)
+
+    await user.click(restore)
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2))
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    view.rerender(<GoalManager goals={[original]} portfolio={portfolio} onChanged={onChanged} />)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })))
+    expect(apiMocks.archiveGoal).toHaveBeenCalledOnce()
+    expect(apiMocks.restoreGoal).toHaveBeenCalledOnce()
   })
 
   it('restores focus across save archive and restore rerenders', async () => {

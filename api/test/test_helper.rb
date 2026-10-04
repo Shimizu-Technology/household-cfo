@@ -64,6 +64,17 @@ module ActiveSupport
       singleton.define_method(:with_slot, original)
     end
 
+    def delete_workspace_membership_events(workspace_ids)
+      ids = Array(workspace_ids).compact
+      return if ids.empty?
+
+      connection = ActiveRecord::Base.connection
+      connection.execute("ALTER TABLE coach_workspace_membership_events DISABLE TRIGGER workspace_membership_events_immutable")
+      CoachWorkspaceMembershipEvent.where(coach_workspace_id: ids).delete_all
+    ensure
+      connection&.execute("ALTER TABLE coach_workspace_membership_events ENABLE TRIGGER workspace_membership_events_immutable")
+    end
+
     def delete_workspace_brand_records(workspace_ids)
       ids = Array(workspace_ids).compact
       return if ids.empty? || !WorkspaceBrandConfiguration.table_exists?
@@ -93,6 +104,7 @@ module ActiveSupport
 
       CoachProfile.where(coach_workspace_id: workspace_ids).delete_all
       CoachWorkspaceMembership.where(coach_workspace_id: workspace_ids).delete_all
+      delete_workspace_membership_events(workspace_ids)
       delete_workspace_brand_records(workspace_ids)
       CoachWorkspace.where(id: workspace_ids).delete_all
     end

@@ -38,4 +38,10 @@ class MiaResponseShapePolicyTest < ActiveSupport::TestCase
 
     assert Mia::ResponseShapePolicy.valid?("One sentence.", persona: global_persona)
   end
+
+  test "coach honorifics do not create false sentence boundaries" do
+    assert Mia::ResponseShapePolicy.valid?("Mrs. Mel asks you to review the plan. Choose one next move.", persona: @persona)
+    refute Mia::ResponseShapePolicy.valid?("Mrs. Mel guides the plan.", persona: @persona)
+    refute Mia::ResponseShapePolicy.valid?("Mrs. Mel guides you. Review the plan. Compare actuals. Choose one move.", persona: @persona)
+  end
 end

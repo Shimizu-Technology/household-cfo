@@ -14,8 +14,7 @@ module Branding
     end
 
     def preview!(expected_draft_revision:)
-      configuration.with_lock do
-        ensure_preview_permission!
+      with_authority(%i[edit review]) do
         validate_revision!(expected_draft_revision)
         digest = preview_digest
         configuration.update!(
@@ -35,8 +34,7 @@ module Branding
         current_version_id: expected_current_version_id
       )
 
-      configuration.with_lock do
-        ensure_publish_permission!
+      with_authority(:publish) do
         replay = replay_for(idempotency_key, fingerprint)
         return replay if replay
 
@@ -71,24 +69,23 @@ module Branding
         version
       end
     rescue ActiveRecord::RecordNotUnique
-      configuration.reload
-      replay_for(idempotency_key, fingerprint) || raise
+      with_authority(:publish) do
+        replay_for(idempotency_key, fingerprint) || raise
+      end
     end
 
     private
 
     attr_reader :configuration, :actor
 
-    def ensure_preview_permission!
-      return if Policy.new(actor, workspace: configuration.coach_workspace).preview?
-
-      raise PublicationError, "Only a workspace owner, editor, or reviewer can preview branding"
-    end
-
-    def ensure_publish_permission!
-      return if Policy.new(actor, workspace: configuration.coach_workspace).publish?
-
-      raise PublicationError, "Only a workspace owner or reviewer can publish branding"
+    def with_authority(permissions)
+      CoachWorkspaces::MutationAuthority.new(workspace: configuration.coach_workspace, actor: actor, permissions: permissions).call do |persisted_actor|
+        @actor = persisted_actor
+        configuration.lock!
+        yield
+      end
+    rescue ActiveRecord::RecordNotFound
+      raise PublicationError, "Your access changed; reload before changing branding"
     end
 
     def validate_revision!(value)

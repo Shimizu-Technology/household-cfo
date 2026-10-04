@@ -44,7 +44,11 @@ class WorkspaceBrandConfiguration < ApplicationRecord
   private
 
   def normalize_draft
-    @draft_schema_errors = Branding::Schema.errors(draft_config)
+    @draft_schema_errors = if (new_record? || will_save_change_to_draft_config?) && !@allow_publisher_as_editor
+      Branding::Schema.authoring_errors(draft_config)
+    else
+      Branding::Schema.errors(draft_config)
+    end
     self.draft_config = Branding::Schema.normalize(draft_config) if @draft_schema_errors.empty?
   end
 

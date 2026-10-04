@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type Ref } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type Ref } from 'react'
 import {
   archiveAccount, createAccount, fetchPlaidOverview, linkPlaidAccount, reconcilePlaidAccount,
   restoreAccount, unlinkPlaidAccount, updateAccount,
@@ -54,6 +54,8 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
   const labelInputRef = useRef<HTMLInputElement | null>(null)
   const balanceInputRef = useRef<HTMLInputElement | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
+  const [returnFocusRequest, setReturnFocusRequest] = useState<{ key: number; selector?: string; origin: HTMLElement | null } | null>(null)
+  const handledReturnFocusKeyRef = useRef<number | null>(null)
   const handledFocusKeyRef = useRef<number | null>(null)
   const active = accounts.filter((account) => account.active)
   const archived = accounts.filter((account) => !account.active)
@@ -104,13 +106,27 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
 
   function rememberFocus(element?: HTMLElement | null) { returnFocusRef.current = element ?? document.activeElement as HTMLElement | null }
   function focusLater(selector?: string) {
-    window.requestAnimationFrame(() => {
-      const target = selector ? document.querySelector<HTMLElement>(selector) : null
-      const fallback = returnFocusRef.current?.isConnected ? returnFocusRef.current : addButtonRef.current
-      const focusTarget = target ?? fallback
-      if (focusTarget) revealAndFocus(focusTarget)
-    })
+    const origin = returnFocusRef.current
+    setReturnFocusRequest((current) => ({ key: (current?.key ?? 0) + 1, selector, origin }))
   }
+  useLayoutEffect(() => {
+    if (!returnFocusRequest || handledReturnFocusKeyRef.current === returnFocusRequest.key || saving || editing !== null) return
+    const activeElement = document.activeElement
+    if (activeElement && activeElement !== document.body && activeElement !== returnFocusRequest.origin) {
+      // A deliberate focus move while the refreshed list is pending takes priority.
+      handledReturnFocusKeyRef.current = returnFocusRequest.key
+      return
+    }
+    const target = returnFocusRequest.selector ? document.querySelector<HTMLElement>(returnFocusRequest.selector) : null
+    // The refresh Promise may resolve before its parent commits the updated list.
+    // Keep an exact destination pending until that control exists in committed DOM.
+    if (returnFocusRequest.selector && !target) return
+    const fallback = returnFocusRequest.origin?.isConnected ? returnFocusRequest.origin : addButtonRef.current
+    const focusTarget = target ?? fallback
+    if (!focusTarget) return
+    handledReturnFocusKeyRef.current = returnFocusRequest.key
+    revealAndFocus(focusTarget)
+  }, [accounts, editing, returnFocusRequest, saving, unlinked])
   function beginCreate(observation?: PlaidAccount, trigger?: HTMLElement | null) {
     rememberFocus(trigger)
     setDraft(observation ? {
@@ -133,10 +149,11 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
     try {
       await onChanged()
       setError(null)
+      focusLater(focusSelector)
     } catch {
+      focusLater()
       setError('The account change was saved, but the latest account list could not reload. Reload this page before making another change.')
     }
-    focusLater(focusSelector)
   }
 
   async function save(event: FormEvent) {
@@ -185,8 +202,8 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
       <div><strong>{account.label}</strong><span>{titleize(account.account_type)} · {account.balance_as_of_on ? `As of ${new Date(`${account.balance_as_of_on}T00:00:00`).toLocaleDateString()}` : account.balance === null ? 'Balance not entered' : 'Date not entered'}</span></div>
       <div><strong>{amount(account.balance)}</strong>{account.plaid_link ? <span>{account.plaid_link.institution_name}{account.plaid_link.mask ? ` ••${account.plaid_link.mask}` : ''}</span> : <span>Not matched to a bank</span>}</div>
       <div className="account-row-actions"><button type="button" data-account-action="edit" className="secondary-button" disabled={saving} onClick={(event) => beginEdit(account, event.currentTarget)}>Edit</button><button type="button" data-account-action="archive" className={archiveId === account.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={(event) => { rememberFocus(event.currentTarget); if (archiveId === account.id) void mutate(`archive:${account.id}`, (key) => archiveAccount(account.id, key), `[data-account-id="${account.id}"] [data-account-action="restore"]`); else setArchiveId(account.id) }}>{archiveId === account.id ? 'Confirm archive' : 'Archive'}</button></div>
-      {account.plaid_link && <div className={`account-bank-review${account.plaid_link.active ? '' : ' is-inactive'}`}><span>{account.plaid_link.active ? <>Bank observed: <strong>{amount(account.plaid_link.current_balance)}</strong>{account.plaid_link.observed_at ? ` · ${new Date(account.plaid_link.observed_at).toLocaleString()}` : ''}{account.plaid_link.observation_newer_than_saved ? ' · Review available' : ' · Reviewed'}</> : <>Bank observation unavailable. Reconnect or sync this institution under Bank connections before reconciling.</>}</span><div>{account.plaid_link.active && account.plaid_link.observation_newer_than_saved && <><button type="button" data-account-action="reconcile-accept" className="secondary-button" disabled={saving || account.plaid_link.current_balance === null} onClick={() => void mutate(`reconcile:${account.id}:accept`, (key) => reconcilePlaidAccount(account.id, 'accept_observed', key), `[data-account-id="${account.id}"] [data-account-action="edit"]`)}>Accept bank balance</button><button type="button" data-account-action="reconcile-keep" className="quiet-button" disabled={saving} onClick={() => void mutate(`reconcile:${account.id}:keep`, (key) => reconcilePlaidAccount(account.id, 'keep_saved', key), `[data-account-id="${account.id}"] [data-account-action="edit"]`)}>Keep saved</button></>}{!account.plaid_link.active && <button type="button" data-account-action="reconcile-accept" className="secondary-button" disabled>Accept bank balance</button>}<button type="button" data-account-action="unlink" className="quiet-button" disabled={saving} onClick={() => void mutate(`unlink:${account.id}`, (key) => unlinkPlaidAccount(account.id, key), `[data-account-id="${account.id}"] [data-account-action="link"]`)}>Unmatch</button></div></div>}
-      {!account.plaid_link && unlinked.length > 0 && <label className="account-match"><span>Match a bank observation</span><select data-account-action="link" defaultValue="" disabled={saving} onChange={(event) => { const id = Number(event.target.value); if (id) void mutate(`link:${account.id}:${id}`, (key) => linkPlaidAccount(account.id, id, key), `[data-account-id="${account.id}"] [data-account-action="unlink"]`) }}><option value="">Choose an account</option>{unlinked.filter(({ account: item }) => item.allowed_account_types.includes(account.account_type)).map(({ item, account: observed }) => <option key={observed.id} value={observed.id}>{item.institution_name} · {observed.name}{observed.mask ? ` ••${observed.mask}` : ''}</option>)}</select></label>}
+      {account.plaid_link && <div className={`account-bank-review${account.plaid_link.active ? '' : ' is-inactive'}`}><span>{account.plaid_link.active ? <>Bank observed: <strong>{amount(account.plaid_link.current_balance)}</strong>{account.plaid_link.observed_at ? ` · ${new Date(account.plaid_link.observed_at).toLocaleString()}` : ''}{account.plaid_link.observation_newer_than_saved ? ' · Review available' : ' · Reviewed'}</> : <>Bank observation unavailable. Reconnect or sync this institution under Bank connections before reconciling.</>}</span><div>{account.plaid_link.active && account.plaid_link.observation_newer_than_saved && <><button type="button" data-account-action="reconcile-accept" className="secondary-button" disabled={saving || account.plaid_link.current_balance === null} onClick={(event) => { rememberFocus(event.currentTarget); void mutate(`reconcile:${account.id}:accept`, (key) => reconcilePlaidAccount(account.id, 'accept_observed', key), `[data-account-id="${account.id}"] [data-account-action="edit"]`) }}>Accept bank balance</button><button type="button" data-account-action="reconcile-keep" className="quiet-button" disabled={saving} onClick={(event) => { rememberFocus(event.currentTarget); void mutate(`reconcile:${account.id}:keep`, (key) => reconcilePlaidAccount(account.id, 'keep_saved', key), `[data-account-id="${account.id}"] [data-account-action="edit"]`) }}>Keep saved</button></>}{!account.plaid_link.active && <button type="button" data-account-action="reconcile-accept" className="secondary-button" disabled>Accept bank balance</button>}<button type="button" data-account-action="unlink" className="quiet-button" disabled={saving} onClick={(event) => { rememberFocus(event.currentTarget); void mutate(`unlink:${account.id}`, (key) => unlinkPlaidAccount(account.id, key), `[data-account-id="${account.id}"] [data-account-action="link"]`) }}>Unmatch</button></div></div>}
+      {!account.plaid_link && unlinked.length > 0 && <label className="account-match"><span>Match a bank observation</span><select data-account-action="link" defaultValue="" disabled={saving} onChange={(event) => { const id = Number(event.target.value); if (id) { rememberFocus(event.currentTarget); void mutate(`link:${account.id}:${id}`, (key) => linkPlaidAccount(account.id, id, key), `[data-account-id="${account.id}"] [data-account-action="unlink"]`) } }}><option value="">Choose an account</option>{unlinked.filter(({ account: item }) => item.allowed_account_types.includes(account.account_type)).map(({ item, account: observed }) => <option key={observed.id} value={observed.id}>{item.institution_name} · {observed.name}{observed.mask ? ` ••${observed.mask}` : ''}</option>)}</select></label>}
     </div>)}</div>}
 
     {editing !== null && <form className="account-form" onSubmit={save}><div className="account-form-grid">

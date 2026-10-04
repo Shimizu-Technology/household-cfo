@@ -152,6 +152,27 @@ module Branding
       Digest::SHA256.hexdigest(JSON.generate({ "config" => normalize(value), "draft_revision" => draft_revision.to_i }))
     end
 
+    # Authoring checks cover extra application surfaces without retroactively
+    # invalidating already sealed brand snapshots during runtime resolution.
+    def authoring_errors(value)
+      result = errors(value)
+      return result unless result.empty?
+
+      colors = value.to_h.deep_stringify_keys.fetch("colors")
+      %w[text primary focus].each do |foreground|
+        %w[surface_muted primary_soft].each do |background|
+          minimum = foreground == "focus" ? 3.0 : 4.5
+          if contrast_ratio(colors[foreground], colors[background]) < minimum
+            result << "colors.#{foreground} must have at least #{minimum}:1 contrast on colors.#{background}"
+          end
+        end
+      end
+      if contrast_ratio(colors["text_muted"], colors["surface_muted"]) < 4.5
+        result << "colors.text_muted must have at least 4.5:1 contrast on colors.surface_muted"
+      end
+      result
+    end
+
     def contrast_ratio(foreground, background)
       lighter, darker = [ relative_luminance(foreground), relative_luminance(background) ].sort.reverse
       (lighter + 0.05) / (darker + 0.05)

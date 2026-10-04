@@ -2050,6 +2050,7 @@ export type CohortRolloutMutationResponse = {
 export type AdminInviteEmailStatus = 'hidden' | 'not_sent' | 'skipped' | 'sent' | 'failed'
 
 export type AdminUser = CurrentUser & {
+  can_resend_invitation?: boolean
   invited_by: null | {
     id: number
     email: string
@@ -2101,6 +2102,7 @@ export type AdminCohortInput = {
   starts_on?: string
   ends_on?: string
   notes?: string
+  expected_updated_at?: string
 }
 
 export type AdminUserMutationResponse = {
@@ -4492,4 +4494,161 @@ function demoWorkspaceSetupValues(profile: ProfileData, dashboard: DashboardData
     debt_payment: dashboard.summary.debt_payments,
     target_runway_months: 6,
   }
+}
+
+export type CoachWorkspaceSettings = CoachWorkspaceSummary & {
+  revision: number
+  permissions: { manage: boolean }
+}
+export type CoachWorkspaceSettingsInput = {
+  name: string
+  revision?: number
+  coach_profile: { display_name: string; title: string; bio: string }
+}
+export type WorkspaceBrandVersion = {
+  id: number
+  number: number
+  digest: string
+  published_at: string
+  published_by: { id: number; full_name: string }
+  restored_from_version?: { id: number; number: number } | null
+  config?: BrandConfig
+}
+export type WorkspaceBrandConfiguration = {
+  workspace: { id: number; name: string; slug: string }
+  draft: BrandConfig
+  draft_revision: number
+  preview_required: boolean
+  preview: { digest: string; draft_revision: number; generated_at: string } | null
+  published_version: WorkspaceBrandVersion | null
+  versions: WorkspaceBrandVersion[]
+  permissions: { edit: boolean; preview: boolean; publish: boolean; rollback: boolean }
+}
+export type WorkspaceBrandPreview = {
+  digest: string
+  draft_revision: number
+  generated_at: string
+  brand: BrandConfig
+}
+export async function fetchCoachWorkspaceSettings(id: number): Promise<CoachWorkspaceSettings> {
+  const result = await fetchJson<{ coach_workspace: CoachWorkspaceSettings }>(`/api/v1/admin/coach_workspaces/${id}`)
+  return result.coach_workspace
+}
+export async function createCoachWorkspace(values: CoachWorkspaceSettingsInput, idempotencyKey: string): Promise<CoachWorkspaceSettings> {
+  const result = await fetchJson<{ coach_workspace: CoachWorkspaceSettings }>('/api/v1/admin/coach_workspaces', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ coach_workspace: values }),
+  })
+  return result.coach_workspace
+}
+export async function updateCoachWorkspaceSettings(id: number, values: CoachWorkspaceSettingsInput): Promise<CoachWorkspaceSettings> {
+  const result = await fetchJson<{ coach_workspace: CoachWorkspaceSettings }>(`/api/v1/admin/coach_workspaces/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coach_workspace: values }),
+  })
+  return result.coach_workspace
+}
+export async function fetchWorkspaceBrand(): Promise<WorkspaceBrandConfiguration> {
+  const result = await fetchJson<{ brand_configuration: WorkspaceBrandConfiguration }>('/api/v1/admin/brand')
+  return result.brand_configuration
+}
+export async function saveWorkspaceBrand(draft: BrandConfig, revision: number): Promise<WorkspaceBrandConfiguration> {
+  const result = await fetchJson<{ brand_configuration: WorkspaceBrandConfiguration }>('/api/v1/admin/brand', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ brand_configuration: { draft_config: draft, draft_revision: revision } }),
+  })
+  return result.brand_configuration
+}
+export function previewWorkspaceBrand(revision: number): Promise<{ brand_configuration: WorkspaceBrandConfiguration; preview: WorkspaceBrandPreview }> {
+  return postJson('/api/v1/admin/brand/preview', { brand_configuration: { draft_revision: revision } })
+}
+export function publishWorkspaceBrand(values: { draft_revision: number; preview_digest: string; expected_published_version_id: number | null }, idempotencyKey: string): Promise<{ brand_configuration: WorkspaceBrandConfiguration; published_version: WorkspaceBrandVersion }> {
+  return fetchJson('/api/v1/admin/brand/publish', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ brand_configuration: values }),
+  })
+}
+export function restoreWorkspaceBrandVersion(id: number, values: { draft_revision: number; expected_published_version_id: number | null }, idempotencyKey: string): Promise<{ brand_configuration: WorkspaceBrandConfiguration; published_version: WorkspaceBrandVersion }> {
+  return fetchJson(`/api/v1/admin/brand/versions/${id}/rollback`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ brand_configuration: values }),
+  })
+}
+
+export type WorkspaceCollaboratorRole = 'owner' | 'editor' | 'reviewer' | 'viewer'
+export type WorkspaceCollaborator = {
+  id: number; user_id: number; email: string; full_name: string; role: WorkspaceCollaboratorRole
+  status: 'pending' | 'accepted' | 'revoked'; platform_admin: boolean; is_self: boolean; cohort_managed: boolean
+}
+export type WorkspaceCollaboratorsPayload = {
+  workspace_id: number; permissions: { manage: boolean }; members: WorkspaceCollaborator[]; sign_in_url: string | null
+}
+export type CollaboratorDelivery = { sent: boolean; status: 'sent' | 'skipped' | 'failed'; provider_message_id: string | null }
+
+export async function fetchWorkspaceCollaborators(workspaceId: number, signal?: AbortSignal): Promise<WorkspaceCollaboratorsPayload> {
+  return fetchJson('/api/v1/admin/collaborators', { headers: { 'X-Coach-Workspace-Id': String(workspaceId) }, signal })
+}
+
+export async function addWorkspaceCollaborator(workspaceId: number, email: string, role: WorkspaceCollaboratorRole, sendEmail: boolean): Promise<{
+  member: WorkspaceCollaborator; added: boolean; new_user: boolean; delivery: CollaboratorDelivery | null; sign_in_url: string | null
+}> {
+  return fetchJson('/api/v1/admin/collaborators', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Coach-Workspace-Id': String(workspaceId) },
+    body: JSON.stringify({ collaborator: { email, role, send_email: sendEmail } }),
+  })
+}
+
+export async function changeWorkspaceCollaborator(workspaceId: number, member: WorkspaceCollaborator, role: WorkspaceCollaboratorRole): Promise<{ member: WorkspaceCollaborator }> {
+  return fetchJson(`/api/v1/admin/collaborators/${member.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Coach-Workspace-Id': String(workspaceId) },
+    body: JSON.stringify({ collaborator: { role, expected_role: member.role } }),
+  })
+}
+
+export async function removeWorkspaceCollaborator(workspaceId: number, member: WorkspaceCollaborator): Promise<{ removed: boolean; platform_admin: boolean }> {
+  return fetchJson(`/api/v1/admin/collaborators/${member.id}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-Coach-Workspace-Id': String(workspaceId) },
+    body: JSON.stringify({ collaborator: { expected_role: member.role } }),
+  })
+}
+
+export async function sendWorkspaceCollaboratorEmail(workspaceId: number, memberId: number): Promise<{ delivery: CollaboratorDelivery; sign_in_url: string | null }> {
+  return fetchJson(`/api/v1/admin/collaborators/${memberId}/send_invitation`, {
+    method: 'POST', headers: { 'X-Coach-Workspace-Id': String(workspaceId) },
+  })
+}
+
+export type CohortInitialLaunch = {
+  cohort: { id: number; name: string; participant_count: number }
+  active_release_id: number | null
+  release: { id: number; release_number: number } | null
+  can_launch: boolean
+  blockers: string[]
+  preview_digest: string
+  message: string
+}
+
+export async function fetchCohortInitialLaunch(cohortId: number, signal?: AbortSignal): Promise<CohortInitialLaunch> {
+  const result = await fetchJson<{ launch: CohortInitialLaunch }>(`/api/v1/admin/cohorts/${cohortId}/launch`, { signal })
+  return result.launch
+}
+
+export async function launchCohortRelease(
+  cohortId: number,
+  values: { release_id: number; preview_digest: string },
+  requestId: string,
+): Promise<{ launch: CohortInitialLaunch; replayed: boolean }> {
+  return fetchJson(`/api/v1/admin/cohorts/${cohortId}/launch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
+    body: JSON.stringify({ launch: values }),
+  })
+}
+
+/** Withdraw one program enrollment, preserving the participant's global account. */
+export async function removeCoachGroupParticipant(cohortId: number, userId: number, membershipId: number): Promise<{ removed: boolean; cohort_id: number }> {
+  return fetchJson(`/api/v1/admin/cohorts/${cohortId}/participants/${userId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expected_membership_id: membershipId }),
+  })
 }

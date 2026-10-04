@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ReleaseAndRolloutStudio } from './ReleaseAndRolloutStudio'
 
 vi.mock('./CohortReleaseStudio', () => ({ CohortReleaseStudio: ({ beforeReleaseAction, onReleaseChange }: { beforeReleaseAction?: () => boolean; onReleaseChange?: () => void }) => <div>Release content<button type="button" onClick={() => { if (beforeReleaseAction?.() !== false) onReleaseChange?.() }}>Simulate sealed release</button></div> }))
+vi.mock('./InitialCohortLaunch', () => ({ InitialCohortLaunch: () => <div>First launch review</div> }))
 vi.mock('./CohortRolloutStudio', () => ({ CohortRolloutStudio: ({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) => <label>Plan note<input aria-label="Plan note" onChange={(event) => onDirtyChange(Boolean(event.target.value))} /></label> }))
 
 const cohorts = [
@@ -18,7 +19,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks() })
 describe('ReleaseAndRolloutStudio', () => {
   it('qualifies runtime behavior and keeps labeled pre-cutover rollouts record only', () => {
     render(<ReleaseAndRolloutStudio cohorts={cohorts} cohortsLoading={false} mutationLifecycle={{ pending: false, begin: vi.fn(), isCurrent: vi.fn(), finish: vi.fn() }} selectedCohortId={12} onSelectedCohortIdChange={vi.fn()} onDirtyChange={vi.fn()} />)
-    expect(screen.getByText(/In a runtime-enabled rollout, starting and advancing move that wave immediately/)).toBeTruthy()
+    expect(screen.getByText(/after launch, starting and advancing move that wave immediately/)).toBeTruthy()
     expect(screen.getByText(/A rollout labeled pre-cutover remains record-only until it is closed/)).toBeTruthy()
     expect(screen.getByRole('tabpanel', { name: /Release Verify and seal/ }).getAttribute('tabindex')).toBe('0')
   })

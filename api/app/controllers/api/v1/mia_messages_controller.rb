@@ -86,6 +86,7 @@ module Api
 
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
         intent_plan = annual_budget_manager.read_only_plan_data
+        global_read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(content)
         conversation_context = HouseholdFinance::ConversationContextBuilder.new(
           session,
           household: current_household,
@@ -125,6 +126,13 @@ module Api
           user_message: content,
           context: intent_context
         ).call
+        if intent_result.nil? && global_read_only_request
+          intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
+            intent: "coaching", confidence: 1.0, continuation: false,
+            resolved_message: content, needs_clarification: false, clarification: "",
+            topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic"
+          )
+        end
         if attached_imports.any?
           return render_attached_document_response(
             session,
@@ -140,7 +148,7 @@ module Api
         end
 
         if intent_result
-          intent_plan = annual_budget_manager.plan_data unless intent_result.read_only_plan? || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+          intent_plan = annual_budget_manager.plan_data unless global_read_only_request || intent_result.read_only_plan? || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
           routed = route_model_intent(
             intent_result,
             content: content,
@@ -246,7 +254,7 @@ module Api
           assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
           mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft, selected_item_ids: action_result&.selected_item_ids) : nil,
-          budget: annual_plan && !intent_result&.read_only_plan? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
+          budget: annual_plan && !global_read_only_request && !intent_result&.read_only_plan? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
         }
         complete_message_request(message_request, response_payload)
@@ -1269,10 +1277,11 @@ module Api
           content,
           conversation_context: conversation_context
         ).call
-        read_only_result = if intent_result.read_only_plan?
+        read_only_plan = read_only_answer_plan(intent_result, content)
+        read_only_result = if read_only_plan
           HouseholdFinance::MiaReadOnlyPlanAnswerer.new(
             current_household,
-            plan: intent_result.read_only_plan,
+            plan: read_only_plan,
             annual_budget_manager: annual_budget_manager,
             annual_plan: annual_plan,
             reference_month: budget_month_param,
@@ -1441,6 +1450,22 @@ module Api
           budget_answer: budget_answer,
           transaction_draft: transaction_draft,
           transaction_draft_answer: transaction_draft_answer
+        }
+      end
+
+      def read_only_answer_plan(intent_result, content)
+        return intent_result.read_only_plan if intent_result.read_only_plan?
+        return unless ::Mia::FinancialReadOnlyRequest.matches?(content)
+
+        kind = intent_result.intent.in?(HouseholdFinance::MiaIntentResolver::READ_ONLY_KINDS) ? intent_result.intent : "coaching"
+        question = intent_result.resolved_message.presence || content
+        question = content if content.match?(HouseholdFinance::MiaCoachAnswerer::READ_ONLY_AMOUNT_EDIT_PATTERN)
+        {
+          title: "Read-only household question",
+          items: [ {
+            kind: kind, source_text: content, resolved_question: question,
+            basis: "approved", scenario_type: "none", scenario_label: "", amount: "", effective_on: ""
+          } ]
         }
       end
 

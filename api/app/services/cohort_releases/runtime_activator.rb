@@ -18,7 +18,7 @@ module CohortReleases
     def call!
       cohort.with_lock do
         reject_pre_cutover_rollout!
-        existing_event = cohort.cohort_release_activation_events.find_by(request_key: REQUEST_KEY)
+        existing_event = cohort.cohort_release_activation_events.where(event_type: %w[backfill initial_launch]).order(:id).first
         if existing_event
           release = verify_activation_chain!(existing_event)
           return Result.new(cohort_id: cohort.id, release_id: release.id, status: "replayed", sealed: false, message: nil)

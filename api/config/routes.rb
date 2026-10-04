@@ -105,6 +105,10 @@ Rails.application.routes.draw do
       end
       resources :pilot_feedback_reports, only: :create
       namespace :admin do
+        resources :coach_workspaces, only: %i[show create update]
+        resources :collaborators, controller: "workspace_collaborators", only: %i[index create update destroy] do
+          post :send_invitation, on: :member
+        end
         resource :brand, controller: "workspace_brand_configurations", only: %i[show update] do
           post :preview
           post :publish
@@ -173,6 +177,8 @@ Rails.application.routes.draw do
           resource :attestation, controller: "coach_phrase_attestations", only: :create
         end
         resources :cohorts, only: %i[index show create update] do
+          resource :launch, controller: "cohort_release_launches", only: %i[show create]
+          delete "participants/:user_id", action: :remove_participant, on: :member
           resources :releases, controller: "cohort_releases", only: %i[index create] do
             post :restore, on: :member
           end

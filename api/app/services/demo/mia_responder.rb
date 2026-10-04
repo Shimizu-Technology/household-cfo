@@ -301,7 +301,7 @@ module Demo
 
     def ungrounded_generic_financial_claim?(content, context:, user_message: nil)
       payload = parsed_context(context)
-      return true if content.to_s.match?(UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN)
+      return true if unsupported_scenario_conclusion?(content)
       return true if unsupported_debt_detail_claim?(content, payload: payload)
       return true unless financial_values_grounded?(content, payload: payload, user_message: user_message)
 
@@ -310,6 +310,19 @@ module Demo
 
       approved_readiness = payload.dig("metrics", "readiness").to_s[/\b(red|yellow|green)\b/i, 1].to_s.downcase
       approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
+    end
+
+    def unsupported_scenario_conclusion?(content)
+      content.to_s.to_enum(:scan, UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN).any? do
+        match = Regexp.last_match
+        # A review habit is safe only when the same clause does not claim that
+        # a purchase or spending decision works.
+        following_clause = content.to_s[match.end(0)..].to_s.split(/[.!?\n]/, 2).first.to_s
+        scheduling_reference = match[0].match?(/\A(?:it|that)\s+(?:works|fits)\z/i) &&
+          content.to_s[0...match.begin(0)].match?(/\b(?:day|time|schedule|routine|habit|cadence)\s+\z/i) &&
+          !following_clause.match?(/\b(?:purchas(?:e|ing)|buy(?:ing)?|afford(?:ability|ing)?|spend(?:ing)?)\b/i)
+        !scheduling_reference
+      end
     end
 
     def unsupported_debt_detail_claim?(content, payload:)

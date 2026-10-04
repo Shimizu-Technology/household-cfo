@@ -1,6 +1,23 @@
 require "test_helper"
 
 class DemoMiaResponderTest < ActiveSupport::TestCase
+  test "review scheduling references do not assert purchase affordability" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = JSON.generate(Mia::PersonaPreviewer::PREVIEW_CONTEXT)
+    refute responder.send(:ungrounded_generic_financial_claim?, "Choose a day and time that works best for your weekly review.", context: context)
+    assert responder.send(:ungrounded_generic_financial_claim?, "That works for your purchase.", context: context)
+    assert responder.send(:ungrounded_generic_financial_claim?, "Choose a time that works. You can afford the trip.", context: context)
+    assert responder.send(:ungrounded_generic_financial_claim?, "Your budget that fits the purchase is ready.", context: context)
+  end
+  test "review regression scheduling exemptions reject purchase and affordability tails" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = JSON.generate(Mia::PersonaPreviewer::PREVIEW_CONTEXT)
+    [ "Choose a time that works for your purchase.", "Choose a schedule that fits your purchase.", "Choose a time that works for buying the laptop." ].each do |content|
+      assert responder.send(:ungrounded_generic_financial_claim?, content, context: context), content
+    end
+    refute responder.send(:ungrounded_generic_financial_claim?, "Choose a time that works best for your monthly budget review.", context: context)
+  end
+
   test "uses the deterministic local response when provider capacity is full" do
     with_mia_provider_capacity_rejected do
       responder = Demo::MiaResponder.new(api_key: "test-key")

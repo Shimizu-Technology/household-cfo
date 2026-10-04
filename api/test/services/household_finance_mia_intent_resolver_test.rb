@@ -1,6 +1,79 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  test "review regression read only purchase fallback remains useful without a provider" do
+    [ nil, ->(_) { nil }, ->(_) { raise Net::ReadTimeout }, ->(_) { JSON.generate(intent: nil) } ].each do |transport|
+      result = HouseholdFinance::MiaIntentResolver.new(
+        user_message: "What if I buy a $900 laptop? Do not change anything.",
+        context: intent_context, api_key: nil, transport: transport
+      ).call
+      assert result.read_only_plan?, result.to_h.inspect
+      refute result.actionable?
+      assert_equal "none", result.action.fetch(:type)
+      assert_equal "purchase", result.read_only_plan.dig(:items, 0, :scenario_type)
+      assert_equal "hypothetical", result.read_only_plan.dig(:items, 0, :basis)
+      assert_equal "900", result.read_only_plan.dig(:items, 0, :amount)
+    end
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "What if I buy a $900 laptop or a $600 phone? Do not change anything.",
+      context: intent_context, api_key: nil
+    ).call
+    assert_equal "coaching", result.intent
+    refute result.read_only_plan?
+    refute result.actionable?
+  end
+
+  test "review regression standalone no changes blocks an otherwise grounded provider write" do
+    transport = ->(_) do
+      resolution_json(intent: "budget_action", continuation: false, resolved_message: "Set Fixed essentials to $650 for July 2026",
+        topic: { type: "budget_edit", title: "Fixed essentials", subject: "Fixed essentials" },
+        action: default_action.merge(type: "set_allocation", category_id: 42, category_name: "Fixed essentials", amount: "650", months: [ 7 ], year: 2026))
+    end
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Set Fixed essentials to $650 for July 2026", context: intent_context, api_key: "test-key", transport: transport
+    ).call
+    assert result.actionable?
+    [ "No changes, please,", "No changes please.", "Please, no changes.", "NO CHANGES!" ].each do |instruction|
+      result = HouseholdFinance::MiaIntentResolver.new(
+        user_message: "Set Fixed essentials to $650 for July 2026. #{instruction}",
+        context: intent_context, api_key: "test-key", transport: transport
+      ).call
+      refute result.actionable?, instruction
+      assert_equal "none", result.action.fetch(:type), instruction
+    end
+    refute Mia::FinancialReadOnlyRequest.matches?("No changes to income, but set Groceries to $650")
+    refute Mia::FinancialReadOnlyRequest.matches?("There were no changes in my income. Set Groceries to $650")
+  end
+
+  test "global read only request prevents provider write classification without blocking safe report routing" do
+    prompt = "Set Fixed essentials to $650 for July 2026. Do not change anything. Explain only."
+    transport = ->(_) do
+      resolution_json(intent: "budget_action", continuation: false, resolved_message: "Set Fixed essentials to $650 for July 2026",
+        topic: { type: "budget_edit", title: "Fixed essentials", subject: "Fixed essentials" },
+        action: default_action.merge(type: "set_allocation", category_id: 42, category_name: "Fixed essentials", amount: "650", months: [ 7 ], year: 2026))
+    end
+    positive_result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Set Fixed essentials to $650 for July 2026", context: intent_context, api_key: "test-key", transport: transport
+    ).call
+    assert positive_result.actionable?, positive_result.to_h.inspect
+    write_result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: prompt, context: intent_context, api_key: "test-key",
+      transport: transport
+    ).call
+    assert_equal "coaching", write_result.intent
+    refute write_result.actionable?
+    assert_equal "none", write_result.action.fetch(:type)
+
+    report_result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Show my spending this month. Do not change anything.", context: intent_context, api_key: "test-key",
+      transport: ->(_) { resolution_json(intent: "spending_report", continuation: false, resolved_message: "Show my spending this month", topic: { type: "spending_report", title: "Current spending", subject: "Spending" }, action: default_action) }
+    ).call
+    assert_equal "spending_report", report_result.intent
+    refute report_result.actionable?
+    refute Mia::FinancialReadOnlyRequest.matches?("Do not change income, but set Groceries to $650")
+    refute Mia::FinancialReadOnlyRequest.matches?("Read only approved records, then set Groceries to $650")
+  end
+
   test "resolves named pending action-plan steps from authoritative item ids after conversation context expires" do
     context = intent_context.deep_merge(
       conversation: { active_thread: nil, open_threads: [], older_summary: nil, recent_messages: [] },

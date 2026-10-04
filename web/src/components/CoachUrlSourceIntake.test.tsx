@@ -61,6 +61,12 @@ function renderIntake(overrides: Partial<ComponentProps<typeof CoachUrlSourceInt
   />)
 }
 
+async function readyAddressInput() {
+  const input = await screen.findByLabelText('HTTPS address') as HTMLInputElement
+  await waitFor(() => expect(input.disabled).toBe(false))
+  return input
+}
+
 describe('CoachUrlSourceIntake', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -75,7 +81,7 @@ describe('CoachUrlSourceIntake', () => {
       .mockResolvedValueOnce({ intake: failed, url_intake: { enabled: true, available: true } })
     renderIntake()
 
-    const input = await screen.findByLabelText('HTTPS address')
+    const input = await readyAddressInput()
     await userEvent.type(input, 'http://example.com/private?token=secret')
     await userEvent.click(screen.getByRole('button', { name: 'Import private snapshot' }))
     expect((await screen.findByRole('alert')).textContent).toContain('Enter a complete HTTPS address')
@@ -158,7 +164,7 @@ describe('CoachUrlSourceIntake', () => {
     }))
     const rendered = renderIntake()
 
-    await userEvent.type(await screen.findByLabelText('HTTPS address'), 'https://example.com/private')
+    await userEvent.type(await readyAddressInput(), 'https://example.com/private')
     await userEvent.click(screen.getByRole('button', { name: 'Import private snapshot' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Remove saved address' }))
     await userEvent.click(screen.getByRole('button', { name: 'Remove address' }))
@@ -230,7 +236,7 @@ describe('CoachUrlSourceIntake', () => {
     apiMocks.createAdminContentSourceUrlIntake.mockResolvedValue({ intake: failed, url_intake: { enabled: true } })
     renderIntake()
 
-    await userEvent.type(await screen.findByLabelText('HTTPS address'), 'https://example.com/lesson?private=1')
+    await userEvent.type(await readyAddressInput(), 'https://example.com/lesson?private=1')
     await userEvent.click(screen.getByRole('button', { name: 'Import private snapshot' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Retry secure import' }))
 

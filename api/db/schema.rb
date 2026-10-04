@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_03_132000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_04_200000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -1124,6 +1124,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_132000) do
     t.check_constraint "verification_token_digest IS NULL OR verification_token_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_workspace_domains_token_digest"
   end
 
+  create_table "coach_workspace_membership_events", force: :cascade do |t|
+    t.bigint "actor_user_id", null: false
+    t.string "after_role"
+    t.string "before_role"
+    t.bigint "coach_workspace_id", null: false
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.bigint "subject_user_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id"], name: "index_coach_workspace_membership_events_on_actor_user_id"
+    t.index ["coach_workspace_id"], name: "index_coach_workspace_membership_events_on_coach_workspace_id"
+    t.index ["subject_user_id"], name: "index_coach_workspace_membership_events_on_subject_user_id"
+    t.check_constraint "after_role IS NULL OR (after_role::text = ANY (ARRAY['owner'::character varying, 'editor'::character varying, 'reviewer'::character varying, 'viewer'::character varying]::text[]))", name: "workspace_membership_event_after_role"
+    t.check_constraint "before_role IS NULL OR (before_role::text = ANY (ARRAY['owner'::character varying, 'editor'::character varying, 'reviewer'::character varying, 'viewer'::character varying]::text[]))", name: "workspace_membership_event_before_role"
+    t.check_constraint "event_type::text = ANY (ARRAY['added'::character varying, 'role_changed'::character varying, 'removed'::character varying]::text[])", name: "workspace_membership_event_type"
+  end
+
   create_table "coach_workspace_memberships", force: :cascade do |t|
     t.bigint "coach_workspace_id", null: false
     t.boolean "cohort_managed", default: false, null: false
@@ -1140,11 +1157,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_132000) do
   create_table "coach_workspaces", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
+    t.string "creation_request_fingerprint"
+    t.string "creation_request_key"
     t.integer "lock_version", default: 0, null: false
     t.string "name", null: false
     t.string "slug", null: false
     t.datetime "updated_at", null: false
     t.index "lower((slug)::text)", name: "index_coach_workspaces_on_lower_slug", unique: true
+    t.index ["created_by_user_id", "creation_request_key"], name: "idx_coach_workspaces_creation_request", unique: true, where: "(creation_request_key IS NOT NULL)"
     t.index ["created_by_user_id"], name: "index_coach_workspaces_on_created_by_user_id"
   end
 
@@ -1261,8 +1281,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_132000) do
     t.index ["from_cohort_release_id"], name: "idx_on_from_cohort_release_id_13d9f68065"
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_release_activation_events_scope", unique: true
     t.index ["to_cohort_release_id"], name: "index_cohort_release_activation_events_on_to_cohort_release_id"
-    t.check_constraint "event_type::text = 'backfill'::text AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NULL AND actor_role_snapshot IS NULL OR event_type::text = 'rollout_completed'::text AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL AND actor_user_id IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text]))", name: "release_activation_events_shape"
-    t.check_constraint "event_type::text = ANY (ARRAY['backfill'::character varying::text, 'rollout_completed'::character varying::text])", name: "release_activation_events_type_valid"
+    t.check_constraint "event_type::text = 'backfill'::text AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NULL AND actor_role_snapshot IS NULL OR event_type::text = 'initial_launch'::text AND from_cohort_release_id IS NULL AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[])) OR event_type::text = 'rollout_completed'::text AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[]))", name: "release_activation_events_shape"
+    t.check_constraint "event_type::text = ANY (ARRAY['backfill'::character varying, 'initial_launch'::character varying, 'rollout_completed'::character varying]::text[])", name: "release_activation_events_type_valid"
     t.check_constraint "request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "release_activation_events_request_valid"
   end
 
@@ -2545,6 +2565,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_132000) do
   add_foreign_key "coach_workspace_domains", "coach_workspaces"
   add_foreign_key "coach_workspace_domains", "users", column: "created_by_user_id"
   add_foreign_key "coach_workspace_domains", "users", column: "updated_by_user_id"
+  add_foreign_key "coach_workspace_membership_events", "coach_workspaces"
+  add_foreign_key "coach_workspace_membership_events", "users", column: "actor_user_id"
+  add_foreign_key "coach_workspace_membership_events", "users", column: "subject_user_id"
   add_foreign_key "coach_workspace_memberships", "coach_workspaces", on_delete: :cascade
   add_foreign_key "coach_workspace_memberships", "users", on_delete: :cascade
   add_foreign_key "coach_workspaces", "users", column: "created_by_user_id", on_delete: :cascade
@@ -3793,9 +3816,9 @@ SQL
           USING ERRCODE = 'integrity_constraint_violation';
       END IF;
 
-      IF NEW.event_type = 'backfill' THEN
+      IF NEW.event_type IN ('backfill', 'initial_launch') THEN
         IF NEW.from_cohort_release_id IS NOT NULL THEN
-          RAISE EXCEPTION 'runtime backfill may only activate a cohort without an active release'
+          RAISE EXCEPTION 'initial activation requires a cohort without an active release'
             USING ERRCODE = 'integrity_constraint_violation';
         END IF;
       ELSIF NEW.event_type = 'rollout_completed' THEN
@@ -3954,5 +3977,19 @@ SQL
   SQL
   execute <<~'SQL'
     CREATE TRIGGER coach_workspace_domains_verified_identity BEFORE UPDATE ON public.coach_workspace_domains FOR EACH ROW EXECUTE FUNCTION prevent_verified_workspace_domain_identity_change();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.prevent_workspace_membership_event_mutation()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      RAISE EXCEPTION 'collaborator access history cannot be changed or deleted'
+        USING ERRCODE = 'integrity_constraint_violation';
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER workspace_membership_events_immutable BEFORE DELETE OR UPDATE ON public.coach_workspace_membership_events FOR EACH ROW EXECUTE FUNCTION prevent_workspace_membership_event_mutation();
   SQL
 end

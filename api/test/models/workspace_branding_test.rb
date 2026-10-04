@@ -3,6 +3,17 @@
 require "test_helper"
 
 class WorkspaceBrandingTest < ActiveSupport::TestCase
+  test "brand authoring blocks unreadable muted and soft surfaces without invalidating sealed history" do
+    config = Branding::Schema::DEFAULT_CONFIG.deep_dup
+    config["colors"]["surface_muted"] = config["colors"]["text"]
+    config["colors"]["primary_soft"] = config["colors"]["text"]
+    assert_empty Branding::Schema.errors(config)
+    authoring = Branding::Schema.authoring_errors(config)
+    assert_includes authoring, "colors.text must have at least 4.5:1 contrast on colors.surface_muted"
+    assert_includes authoring, "colors.text must have at least 4.5:1 contrast on colors.primary_soft"
+    assert_empty Branding::Schema.authoring_errors(Branding::Schema::DEFAULT_CONFIG)
+  end
+
   test "default and neutral fallback brands satisfy the controlled schema" do
     assert_empty Branding::Schema.errors(Branding::Schema::DEFAULT_CONFIG)
     assert_empty Branding::Schema.errors(Branding::Schema::SAFE_DEFAULT_CONFIG)

@@ -184,21 +184,27 @@ module HouseholdFinance
 
     def call
       return nil if user_message.blank?
+      read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(user_message)
 
-      setup_result = deterministic_debt_result || deterministic_setup_result || guided_setup_reply_result
+      setup_result = deterministic_debt_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
       return setup_result if setup_result
-      return nil if api_key.blank? && transport.nil?
+      return read_only_request ? explicit_read_only_result : nil if api_key.blank? && transport.nil?
 
       parsed = JSON.parse(response_content.to_s).deep_symbolize_keys
       result = build_result(parsed)
+      if read_only_request && (!result.intent.in?(READ_ONLY_INTENTS) || result.actionable? || result.clarification?)
+        return explicit_read_only_result
+      end
       provider_supplied_plan = Array(parsed.dig(:read_only_plan, :items)).any?
       preserve_provider_result = result.read_only_plan? || provider_supplied_plan || result.actionable? || result.clarification?
       preserve_provider_result ? result : deterministic_scenario_fallback || result
     rescue JSON::ParserError, KeyError, TypeError, ArgumentError => e
       Rails.logger.warn("[HouseholdFinance::MiaIntentResolver] invalid intent response: #{e.class}: #{e.message}")
+      return explicit_read_only_result if read_only_request
       deterministic_scenario_fallback
     rescue StandardError => e
       Rails.logger.warn("[HouseholdFinance::MiaIntentResolver] intent fallback: #{e.class}: #{e.message}")
+      return explicit_read_only_result if read_only_request
       deterministic_scenario_fallback
     end
 
@@ -209,6 +215,15 @@ module HouseholdFinance
     private
 
     attr_reader :raw_user_message, :user_message, :context, :api_key, :model, :transport
+
+    def explicit_read_only_result
+      deterministic_scenario_fallback || Result.new(
+        intent: "coaching", confidence: 1.0, continuation: false,
+        resolved_message: user_message, needs_clarification: false, clarification: "",
+        topic: { type: "coaching", title: "Read-only household question", subject: "Household picture" },
+        action: { type: "none" }, read_only_plan: {}, source: "deterministic"
+      )
+    end
 
     # This deliberately accepts a complete current fact, not arbitrary debt prose.
     # More complex changes still use the validated provider schema.

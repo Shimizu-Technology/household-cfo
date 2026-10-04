@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -136,6 +136,7 @@ describe('AccountManager', () => {
     expect(await screen.findByText(/change was saved, but the latest account list could not reload/)).toBeTruthy()
     expect(screen.queryByText(/could not be saved/)).toBeNull()
     expect(apiMocks.createAccount).toHaveBeenCalledOnce()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add an account' })))
   })
 
   it('opens the exact account editor requested by a Mia review item', async () => {
@@ -232,6 +233,156 @@ describe('AccountManager', () => {
     await user.click(await screen.findByRole('button', { name: 'Review and add' }))
 
     expect((screen.getByLabelText('Balance date') as HTMLInputElement).value).toBe('2026-10-02')
+  })
+
+  it.each(['accept_observed', 'keep_saved'] as const)('returns focus after %s when bank reconciliation renders later', async (decision) => {
+    const user = userEvent.setup()
+    const original = account({ balance: 100, plaid_link: {
+      plaid_account_id: 8, institution_name: 'Island Bank', name: 'Checking', mask: '1234',
+      current_balance: 120, available_balance: 110, observed_at: '2026-10-01T00:00:00Z',
+      active: true, observation_newer_than_saved: true,
+    } })
+    const reconciled = { ...original, plaid_link: { ...original.plaid_link!, observation_newer_than_saved: false } }
+    apiMocks.reconcilePlaidAccount.mockResolvedValue(reconciled)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
+    await user.click(screen.getByRole('button', { name: decision === 'accept_observed' ? 'Accept bank balance' : 'Keep saved' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })))
+    view.rerender(<AccountManager accounts={[reconciled]} portfolio={portfolio} onChanged={onChanged} />)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' }))
+    expect(apiMocks.reconcilePlaidAccount).toHaveBeenCalledWith(1, decision, expect.any(String))
+  })
+
+  it('waits for the committed bank match before focusing its unmatch control', async () => {
+    const user = userEvent.setup()
+    apiMocks.fetchPlaidOverview.mockResolvedValue({ items: [{ id: 9, institution_name: 'Island Bank', accounts: [{
+      id: 8, name: 'Checking', active: true, eligible_for_asset_tracking: true,
+      canonical_account_id: null, allowed_account_types: ['checking'], mask: '1234', current_balance_cents: 120_00,
+    }] }] })
+    const original = account({ balance: 100 })
+    const linked = { ...original, plaid_link: {
+      plaid_account_id: 8, institution_name: 'Island Bank', name: 'Checking', mask: '1234',
+      current_balance: 120, available_balance: 110, observed_at: '2026-10-01T00:00:00Z',
+      active: true, observation_newer_than_saved: true,
+    } }
+    apiMocks.linkPlaidAccount.mockResolvedValue(linked)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
+    const selector = await screen.findByRole('combobox', { name: 'Match a bank observation' })
+    await user.selectOptions(selector, '8')
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    view.rerender(<AccountManager accounts={[linked]} portfolio={portfolio} onChanged={onChanged} />)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Unmatch' })))
+    expect(apiMocks.linkPlaidAccount).toHaveBeenCalledWith(1, 8, expect.any(String))
+  })
+
+  it('waits for the committed bank unmatch before focusing the match selector', async () => {
+    const user = userEvent.setup()
+    apiMocks.fetchPlaidOverview.mockResolvedValue({ items: [{ id: 9, institution_name: 'Island Bank', accounts: [{
+      id: 8, name: 'Checking', active: true, eligible_for_asset_tracking: true,
+      canonical_account_id: null, allowed_account_types: ['checking'], mask: '1234', current_balance_cents: 120_00,
+    }] }] })
+    const original = account({ balance: 100, plaid_link: {
+      plaid_account_id: 8, institution_name: 'Island Bank', name: 'Checking', mask: '1234',
+      current_balance: 120, available_balance: 110, observed_at: '2026-10-01T00:00:00Z',
+      active: true, observation_newer_than_saved: false,
+    } })
+    const unlinked = { ...original, plaid_link: null }
+    apiMocks.unlinkPlaidAccount.mockResolvedValue(unlinked)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
+    await user.click(screen.getByRole('button', { name: 'Unmatch' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    view.rerender(<AccountManager accounts={[unlinked]} portfolio={portfolio} onChanged={onChanged} />)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Match a bank observation' })))
+    expect(apiMocks.unlinkPlaidAccount).toHaveBeenCalledWith(1, expect.any(String))
+  })
+
+  it('preserves focus deliberately moved to another field while the updated list is pending', async () => {
+    const user = userEvent.setup()
+    const original = account()
+    const archived = { ...original, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    apiMocks.archiveAccount.mockResolvedValue(archived)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<><input aria-label="Household note" /><AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} /></>)
+    await user.click(screen.getByRole('button', { name: 'Archive' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    const note = screen.getByRole('textbox', { name: 'Household note' })
+    await user.click(note)
+    await user.type(note, 'Continue planning')
+
+    view.rerender(<><input aria-label="Household note" /><AccountManager accounts={[archived]} portfolio={{ ...portfolio, active_count: 0, archived_count: 1 }} onChanged={onChanged} /></>)
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(document.activeElement).toBe(note)
+    expect((view.container.querySelector('details.debt-archive') as HTMLDetailsElement).open).toBe(false)
+    expect(apiMocks.archiveAccount).toHaveBeenCalledOnce()
+  })
+
+  it('preserves a second row archive confirmation while the first archive list is pending', async () => {
+    const user = userEvent.setup()
+    const first = account({ id: 1, label: 'First record' })
+    const second = account({ id: 2, label: 'Second record' })
+    const firstArchived = { ...first, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    const secondArchived = { ...second, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    apiMocks.archiveAccount.mockResolvedValueOnce(firstArchived).mockResolvedValueOnce(secondArchived)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<AccountManager accounts={[first, second]} portfolio={{ ...portfolio, active_count: 2 }} onChanged={onChanged} />)
+    await user.click(view.container.querySelector<HTMLButtonElement>('[data-account-id="1"] [data-account-action="archive"]')!)
+    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+
+    // Starting another confirmation remembers a new trigger, but must not change
+    // the earlier pending action's permission to move focus.
+    await user.click(view.container.querySelector<HTMLButtonElement>('[data-account-id="2"] [data-account-action="archive"]')!)
+    const secondConfirmation = screen.getByRole('button', { name: 'Confirm archive' })
+    expect(document.activeElement).toBe(secondConfirmation)
+    view.rerender(<AccountManager accounts={[firstArchived, second]} portfolio={{ ...portfolio, active_count: 1, archived_count: 1 }} onChanged={onChanged} />)
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(document.activeElement).toBe(secondConfirmation)
+    expect((view.container.querySelector('details.debt-archive') as HTMLDetailsElement).open).toBe(false)
+    expect(apiMocks.archiveAccount).toHaveBeenCalledOnce()
+
+    // The newly confirmed action still receives its own return-focus request.
+    await user.click(secondConfirmation)
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2))
+    view.rerender(<AccountManager accounts={[firstArchived, secondArchived]} portfolio={{ ...portfolio, active_count: 0, archived_count: 2 }} onChanged={onChanged} />)
+    await waitFor(() => expect(document.activeElement).toBe(view.container.querySelector('[data-account-id="2"] [data-account-action="restore"]')))
+    expect(apiMocks.archiveAccount).toHaveBeenCalledTimes(2)
+  })
+
+  it('waits for archived and restored account lists to commit before returning focus', async () => {
+    const user = userEvent.setup()
+    const original = account({ balance: 125, balance_as_of_on: '2026-10-01' })
+    const archived = { ...original, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    apiMocks.archiveAccount.mockResolvedValue(archived)
+    apiMocks.restoreAccount.mockResolvedValue(original)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
+
+    await user.click(screen.getByRole('button', { name: 'Archive' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    // The refresh Promise can resolve before React commits its parent update.
+    // Let the original one-shot focus frame run against the previous account DOM.
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+
+    view.rerender(<AccountManager accounts={[archived]} portfolio={{ ...portfolio, active_count: 0, archived_count: 1 }} onChanged={onChanged} />)
+    const restore = await screen.findByRole('button', { name: 'Restore' })
+    await waitFor(() => expect(document.activeElement).toBe(restore))
+    expect(restore.closest('details')?.open).toBe(true)
+    await user.click(restore)
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2))
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    view.rerender(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })))
+    expect(apiMocks.archiveAccount).toHaveBeenCalledOnce()
+    expect(apiMocks.restoreAccount).toHaveBeenCalledOnce()
   })
 
   it('restores focus across save, archive, and restore rerenders', async () => {
