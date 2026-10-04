@@ -34,7 +34,7 @@ module CohortReleases
 
     def call
       candidate = CandidateBuilder.new(cohort: cohort, strict: true).call
-      registry_snapshot = candidate.tool_registry_snapshot
+      registry_snapshot = Contract.runtime_tool_registry_snapshot
       releases = release_history
       history_total_count = cohort.cohort_releases.count
       persona_assessment_cache = {}
@@ -114,7 +114,7 @@ module CohortReleases
         mutable: cohort.status.in?(CohortRelease::USER_RELEASE_COHORT_STATUSES),
         latest: cohort.cohort_releases.order(release_number: :desc).first,
         ambiguous_participant_count: candidate.ambiguous_participant_count,
-        registry_snapshot: candidate.tool_registry_snapshot,
+        registry_snapshot: Contract.runtime_tool_registry_snapshot,
         current_persona_snapshot: assessment.fetch(:runtime_snapshot),
         persona_evidence_valid: assessment.fetch(:evidence_valid),
         persona_governed: assessment.fetch(:governed)
@@ -221,7 +221,7 @@ module CohortReleases
         brand_mode: candidate.brand_snapshot.fetch("mode"),
         workspace_brand_version_id: candidate.brand_version&.id,
         brand_snapshot_digest: Contract.digest(candidate.brand_snapshot),
-        tool_registry_version: Contract::TOOL_REGISTRY_VERSION,
+        tool_registry_version: candidate.tool_registry_snapshot.fetch("schema_version"),
         persona_snapshot_digest: Contract.digest(candidate.persona_snapshot),
         experience_snapshot_digest: Contract.digest(candidate.experience_snapshot),
         tool_registry_digest: Contract.digest(candidate.tool_registry_snapshot),
@@ -277,9 +277,9 @@ module CohortReleases
         {
           id: "system_controls",
           label: "System controls",
-          ready: true,
+          ready: candidate.blockers.none? { |value| value.match?(/tool contract/i) },
           evidence: {
-            registry_version: Contract::TOOL_REGISTRY_VERSION,
+            registry_version: candidate.tool_registry_snapshot.fetch("schema_version"),
             registry_digest: Contract.digest(candidate.tool_registry_snapshot),
             operation_count: candidate.tool_registry_snapshot.fetch("operations").length
           }
