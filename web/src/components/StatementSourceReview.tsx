@@ -51,7 +51,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, render
           <dl className="source-coverage-facts">
             <div><dt>PDF pages</dt><dd>{pages?.processed?.length ?? 0} processed / {pages?.expected ?? 'unknown'} expected · {pages?.all_processed === true ? 'All expected pages processed' : pages?.all_processed === false ? 'Incomplete page coverage' : 'Page completeness unknown'}</dd></div>
             <div><dt>Row census</dt><dd>{census?.represented ?? 'Unknown'} represented / {census?.reported ?? 'unknown'} reported · {census?.matches_reported === true ? 'Counts match' : census?.matches_reported === false ? 'Counts differ' : 'Printed row total unknown'}</dd></div>
-            <div><dt>Sheets</dt><dd>{accounting?.sheet_coverage?.processed.length ?? 0} processed / {accounting?.sheet_coverage?.expected ?? 'unknown'} expected</dd></div>
+            <div><dt>Sheets</dt><dd>{accounting?.sheet_coverage?.processed?.length ?? 0} processed / {accounting?.sheet_coverage?.expected ?? 'unknown'} expected</dd></div>
           </dl>
           {data.accounts.length === 0 && <p>No account header was identified. Account basis and balances are unknown.</p>}
           {data.accounts.map((account) => {

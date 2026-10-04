@@ -34,8 +34,8 @@ export type SourceReview = {
     reconciliation: {
       status: string; participant_approved: boolean
       row_census: { represented: number; reported: number | null; matches_reported: boolean | null; by_kind: Partial<Record<SourceEvent['row_kind'], number>> }
-      page_coverage: { expected: number | null; processed: number[]; all_processed: boolean | null }
-      sheet_coverage?: { expected: number | null; processed: number[] }
+      page_coverage: { expected: number | null; processed: number[] | null; all_processed: boolean | null }
+      sheet_coverage?: { expected: number | null; processed: number[] | null }
       accounts: SourceAccountReconciliation[]; limitations: string[]
     }
   }

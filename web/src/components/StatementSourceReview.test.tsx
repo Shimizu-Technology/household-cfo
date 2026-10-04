@@ -12,6 +12,16 @@ afterEach(() => cleanup())
 beforeEach(() => { fetchReview.mockReset(); fetchReview.mockImplementation(async (_id, _revision, page, filter) => sourceReviewFixture(page, filter)) })
 
 describe('bounded source accounting review', () => {
+  it('renders PDF coverage when spreadsheet details are unknown', async () => {
+    const data = sourceReviewFixture()
+    data.revision.reconciliation.sheet_coverage = { processed: null, expected: null }
+    fetchReview.mockResolvedValueOnce(data)
+    mount()
+    await screen.findByText(/137 source rows/)
+    fireEvent.click(screen.getByText('Account balances, period & extraction coverage'))
+    expect(screen.getByText(/0 processed \/ unknown expected/)).toBeTruthy()
+  })
+
   it('shows server-wide coverage independently of the bounded row page and filter', async () => {
     mount()
     await screen.findByText(/137 source rows/)

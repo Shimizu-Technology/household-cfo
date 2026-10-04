@@ -85,6 +85,35 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal 3, @document_import.metadata.fetch("extraction_batch_count")
   end
 
+  test "native success records parser provenance without claiming a model request" do
+    accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+      accounts: [ { account_key: "synthetic", account_basis: "asset", period_start_on: "2026-06-01", period_end_on: "2026-06-30", opening_balance_cents: 100, closing_balance_cents: 100, printed_debit_cents: 0, printed_credit_cents: 0 } ],
+      events: [ { account_key: "synthetic", row_kind: "informational", event_type: "unknown", signed_amount_cents: nil, posted_on: nil, locator: { page: 1, row: 1 } } ] }, coverage: { expected_page_count: 1, processed_pages: [ 1 ] })
+    @document_import.update!(metadata: { "extraction_model" => "previous/provider", "extraction_template" => "old", "routing_source" => "old" })
+    extractor = fake_extractor(FinancialDocuments::Extractor::Result.new(success: true, data: { document_kind: "statement", document_date: nil,
+      period_start_on: "2026-06-01", period_end_on: "2026-06-30", confidence: "high", warnings: [], items: [], transaction_drafts: [], source_accounting: accounting }, error: nil,
+      metadata: { extraction_mode: "native_statement", parser_version: FinancialDocuments::NativeStatementParser::VERSION, template: "wells_fargo_checking", page_count: 1,
+        financial_row_count: 0, informational_row_count: 1, printed_arithmetic_verified: true }))
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+    document = @document_import.reload
+    assert_equal "needs_review", document.status
+    attempt = document.attempts.last
+    assert_equal "native_pdf", attempt.provider
+    assert_equal FinancialDocuments::NativeStatementParser::VERSION, attempt.model
+    assert_equal FinancialDocuments::NativeStatementParser::VERSION, attempt.prompt_version
+    assert_not document.metadata.key?("extraction_model")
+    assert_equal FinancialDocuments::NativeStatementParser::VERSION, document.metadata["extraction_parser_version"]
+    assert_equal "wells_fargo_checking", document.metadata["extraction_template"]
+    assert_equal true, document.metadata["extraction_printed_arithmetic_verified"]
+    assert_equal 0, document.metadata["extraction_financial_row_count"]
+    assert_equal 1, document.metadata["extraction_informational_row_count"]
+    assert_not document.metadata.key?("no_reviewable_transactions")
+    assert_equal true, document.metadata["source_accounting_review_pending"]
+    assert_equal "native_statement", attempt.metadata["extraction_mode"]
+    assert_equal true, attempt.metadata["printed_arithmetic_verified"]
+    assert_not attempt.metadata.key?("usage")
+  end
+
   test "successful extraction preserves participant routing when detection conflicts" do
     @document_import.update!(
       document_kind: "pay_stub",

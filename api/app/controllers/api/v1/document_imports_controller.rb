@@ -27,7 +27,7 @@ module Api
         ".heic" => %w[image/heic image/heif],
         ".heif" => %w[image/heif image/heic]
       }.freeze
-      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at last_extraction_failed_at transaction_draft_count transaction_match_count routing_detected_kind routing_resolved_kind routing_source routing_conflict routing_conflict_reason routing_requires_confirmation routing_destination source_accounting_revision_id source_accounting_contract_version source_accounting_review_pending source_reconciliation].freeze
+      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at last_extraction_failed_at transaction_draft_count transaction_match_count routing_detected_kind routing_resolved_kind routing_source routing_conflict routing_conflict_reason routing_requires_confirmation routing_destination source_accounting_revision_id source_accounting_contract_version source_accounting_review_pending source_reconciliation extraction_parser_version extraction_template extraction_financial_row_count extraction_informational_row_count extraction_printed_arithmetic_verified].freeze
 
       def index
         imports = current_household.financial_document_imports
