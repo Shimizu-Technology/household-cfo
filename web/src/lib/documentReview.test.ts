@@ -13,6 +13,12 @@ describe('partial import review', () => {
     expect(transactionReviewCoverage(source)).toEqual({ total: 3, pending: 2, resolved: 1 })
   })
 
+  it('keeps full source accounting pending even when every expense has a decision', () => {
+    const source = statement('applied', ['confirmed', 'ignored'])
+    source.metadata = { source_accounting_review_pending: true }
+    expect(documentNeedsReview(source)).toBe(true)
+  })
+
   it('distinguishes complete decisions from a partially applied source', () => {
     expect(documentNeedsReview(statement('applied', ['confirmed', 'ignored', 'matched']))).toBe(false)
     expect(documentNeedsReview(statement('needs_review', []))).toBe(true)

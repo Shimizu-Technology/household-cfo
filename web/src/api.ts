@@ -1,3 +1,4 @@
+import type { SourceReview, SourceReviewFilter } from './lib/sourceReview'
 export type WorkspaceSetupValues = {
   household_name: string
   primary_goal: string
@@ -325,6 +326,9 @@ export type FinancialDocumentImport = {
     last_extracted_at?: string
     last_applied_count?: number
     last_applied_at?: string
+    source_accounting_revision_id?: number
+    source_accounting_contract_version?: string | number
+    source_accounting_review_pending?: boolean
     transaction_draft_count?: number
     transaction_match_count?: number
     upload_origin?: 'profile' | 'mia'
@@ -344,6 +348,8 @@ export type FinancialDocumentImport = {
 }
 
 export type DocumentSourceUrl = {
+  authenticated_content: true
+  source_version?: string
   url: string
   download_url: string
   expires_in: number
@@ -493,6 +499,7 @@ export type TransactionDraft = {
   amount_cents?: number
   status: string
   source_type?: string
+  financial_source_event_id?: number | null
   financial_document_import_id?: number | null
   category_id: number | null
   category_name: string | null
@@ -4343,6 +4350,12 @@ export async function fetchDocumentImports(): Promise<FinancialDocumentImport[]>
   return payload.document_imports
 }
 
+export async function fetchDocumentSourceReview(id: number, revisionId: number, page: number, filter: SourceReviewFilter, signal?: AbortSignal): Promise<SourceReview> {
+  const query = new URLSearchParams({ revision_id: String(revisionId), page: String(page), per_page: '50', filter })
+  const payload = await fetchJson<{ source_review: SourceReview }>(`/api/v1/document_imports/${id}/source_review?${query}`, { signal })
+  return payload.source_review
+}
+
 export async function fetchDocumentImport(id: number): Promise<FinancialDocumentImport> {
   const payload = await fetchJson<{ document_import: FinancialDocumentImport }>(`/api/v1/document_imports/${id}`)
   return payload.document_import
@@ -4470,12 +4483,23 @@ export async function deleteDocumentImport(documentImportId: number): Promise<vo
   await fetchJson<unknown>(`/api/v1/document_imports/${documentImportId}`, { method: 'DELETE' })
 }
 
-export async function fetchDocumentImportSourceUrl(documentImportId: number): Promise<DocumentSourceUrl> {
-  return fetchJson<DocumentSourceUrl>(`/api/v1/document_imports/${documentImportId}/source_url`)
+export async function fetchDocumentImportSourceUrl(documentImportId: number, signal?: AbortSignal): Promise<DocumentSourceUrl> {
+  return fetchJson<DocumentSourceUrl>(`/api/v1/document_imports/${documentImportId}/source_url`, { signal, cache: 'no-store' })
 }
 
-export async function fetchDocumentImportSourcePreview(documentImportId: number): Promise<DocumentSourcePreview> {
-  return fetchJson<DocumentSourcePreview>(`/api/v1/document_imports/${documentImportId}/source_preview`)
+// Derive this authenticated route from the import ID. Metadata URLs are never
+// trusted destinations for Authorization, brand or coach-workspace headers.
+export async function fetchDocumentImportSourceContent(documentImportId: number, download = false, signal?: AbortSignal): Promise<Blob> {
+  if (!Number.isSafeInteger(documentImportId) || documentImportId < 1) throw new Error('A valid document import is required.')
+  const path = `/api/v1/document_imports/${documentImportId}/source_content${download ? '?download=1' : ''}`
+  return apiOperation(path, { signal, cache: 'no-store' }, { timeoutMs: 60_000, timeoutMessage: 'Private document content took too long.' }, async (response) => {
+    if (!response.ok) throw await apiRequestError(response, 'Private document content could not be loaded.')
+    return response.blob()
+  })
+}
+
+export async function fetchDocumentImportSourcePreview(documentImportId: number, signal?: AbortSignal): Promise<DocumentSourcePreview> {
+  return fetchJson<DocumentSourcePreview>(`/api/v1/document_imports/${documentImportId}/source_preview`, { signal, cache: 'no-store' })
 }
 
 function demoWorkspaceSetupValues(profile: ProfileData, dashboard: DashboardData, budget: BudgetData, wealth: WealthData): WorkspaceSetupValues {

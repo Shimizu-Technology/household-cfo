@@ -1,7 +1,8 @@
 import type { FinancialDocumentImport } from '../api'
 
 export function documentNeedsReview(documentImport: FinancialDocumentImport): boolean {
-  return documentImport.status === 'needs_review'
+  return documentImport.metadata?.source_accounting_review_pending === true
+    || documentImport.status === 'needs_review'
     || documentImport.status === 'partially_applied'
     || documentImport.transaction_drafts.some((draft) => draft.status === 'pending')
 }

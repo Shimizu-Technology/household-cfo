@@ -1,0 +1,176 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DocumentSourceUrl, FinancialDocumentImport } from '../api'
+import { DocumentSourcePreview } from './DocumentSourcePreview'
+
+const documentImport = { id: 606, filename: 'fictional-source.png', content_type: 'image/png' } as FinancialDocumentImport
+const metadata: DocumentSourceUrl = { authenticated_content: true, source_version: 'source-v1', url: 'https://untrusted.example/do-not-use', download_url: 'https://untrusted.example/do-not-use', expires_in: 0, filename: 'fictional-source.png', content_type: 'image/png', inline_supported: true }
+const createUrl = vi.fn<(blob: Blob) => string>()
+const revokeUrl = vi.fn()
+const fetchMetadata = vi.fn<(id: number, signal?: AbortSignal) => Promise<DocumentSourceUrl>>()
+const fetchContent = vi.fn<(id: number, download?: boolean, signal?: AbortSignal) => Promise<Blob>>()
+const fetchPreview = vi.fn(async () => ({ type: 'text' as const, filename: 'fictional.txt', content_type: 'text/plain', text: 'Fictional private evidence' }))
+function preview(key = 'first', close = vi.fn()) {
+  return <DocumentSourcePreview key={key} documentImport={documentImport} title="fictional-source.png" description="Fictional source" onClose={close} onFetchSourceUrl={fetchMetadata} onFetchSourceContent={fetchContent} onFetchSourcePreview={fetchPreview} />
+}
+
+beforeEach(() => {
+  let sequence = 0
+  createUrl.mockReset().mockImplementation(() => `blob:fictional-${++sequence}`)
+  revokeUrl.mockReset()
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = createUrl; static revokeObjectURL = revokeUrl })
+  fetchMetadata.mockReset().mockResolvedValue(metadata)
+  fetchContent.mockReset().mockResolvedValue(new Blob(['fictional image'], { type: 'image/png' }))
+  fetchPreview.mockClear()
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+})
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+describe('authenticated source preview lifecycle', () => {
+  it('uses authenticated bytes and Blob URLs without putting untrusted metadata URLs in the DOM', async () => {
+    render(preview())
+    const image = await screen.findByRole('img')
+    expect(image.getAttribute('src')).toBe('blob:fictional-1')
+    expect(document.body.innerHTML).not.toContain('untrusted.example')
+    expect(fetchContent).toHaveBeenCalledWith(606, false, expect.any(AbortSignal))
+    expect(screen.getByRole('button', { name: 'Download source' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Download source' })).toBeNull()
+  })
+  it('rejects legacy raw URL metadata instead of falling back to a public source read', async () => {
+    fetchMetadata.mockResolvedValue({ ...metadata, authenticated_content: false } as unknown as DocumentSourceUrl)
+    render(preview())
+    await screen.findByRole('alert')
+    expect(fetchContent).not.toHaveBeenCalled()
+    expect(createUrl).not.toHaveBeenCalled()
+    expect(document.body.innerHTML).not.toContain('untrusted.example')
+  })
+  it('rejects executable content mislabeled as an inline image before creating a browser URL', async () => {
+    fetchContent.mockResolvedValue(new Blob(['<script>fictional</script>'], { type: 'text/html' }))
+    render(preview())
+    await screen.findByText(/unexpected image type/)
+    expect(createUrl).not.toHaveBeenCalled()
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Download source' })).toBeNull()
+  })
+  it('clears retained images and revokes temporary URLs on focus authorization failure', async () => {
+    render(preview())
+    await screen.findByRole('img')
+    fetchMetadata.mockRejectedValueOnce(new Error('Source access revoked.'))
+    fireEvent(window, new Event('focus'))
+    await screen.findByText('Source access revoked.')
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Download source' })).toBeNull()
+    expect(revokeUrl).toHaveBeenCalledWith('blob:fictional-1')
+  })
+  it('reuses an unchanged image after focus and visibility, but replaces changed source versions', async () => {
+    render(preview())
+    await screen.findByRole('img')
+    fireEvent(window, new Event('focus'))
+    await waitFor(() => expect(fetchMetadata).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole('img')).toBeTruthy())
+    fireEvent(document, new Event('visibilitychange'))
+    await waitFor(() => expect(fetchMetadata).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(screen.getByRole('img')).toBeTruthy())
+    expect(fetchContent).toHaveBeenCalledTimes(1)
+    expect(revokeUrl).not.toHaveBeenCalled()
+    fetchMetadata.mockResolvedValue({ ...metadata, source_version: 'source-v2' })
+    fireEvent(window, new Event('focus'))
+    await waitFor(() => expect(screen.getByRole('img').getAttribute('src')).toBe('blob:fictional-2'))
+    expect(fetchContent).toHaveBeenCalledTimes(2)
+    expect(revokeUrl).toHaveBeenCalledWith('blob:fictional-1')
+  })
+  it('continues fresh image reads when an older server provides no source version', async () => {
+    fetchMetadata.mockResolvedValue({ ...metadata, source_version: undefined })
+    render(preview())
+    await screen.findByRole('img')
+    fireEvent(window, new Event('focus'))
+    await waitFor(() => expect(screen.getByRole('img').getAttribute('src')).toBe('blob:fictional-2'))
+    expect(fetchContent).toHaveBeenCalledTimes(2)
+    expect(revokeUrl).toHaveBeenCalledWith('blob:fictional-1')
+  })
+  it('does not render late bytes after close, and aborts the exact pending request', async () => {
+    let finish!: (blob: Blob) => void
+    fetchContent.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    const view = render(preview())
+    await waitFor(() => expect(fetchContent).toHaveBeenCalledTimes(1))
+    const signal = fetchContent.mock.calls[0][2]
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    view.unmount()
+    expect(signal?.aborted).toBe(true)
+    await act(async () => { finish(new Blob(['late private bytes'], { type: 'image/png' })) })
+    expect(createUrl).not.toHaveBeenCalled()
+  })
+  it('releases old account/workspace media before a new keyed preview loads', async () => {
+    const view = render(preview())
+    await screen.findByRole('img')
+    view.rerender(preview('second-workspace'))
+    expect(revokeUrl).toHaveBeenCalledWith('blob:fictional-1')
+    await waitFor(() => expect(screen.getByRole('img').getAttribute('src')).toBe('blob:fictional-2'))
+    expect(fetchMetadata).toHaveBeenCalledTimes(2)
+  })
+  it('requires a fresh read for download and clears the preview when that read is denied', async () => {
+    render(preview())
+    await screen.findByRole('img')
+    fetchContent.mockRejectedValueOnce(new Error('Source download forbidden.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Download source' }))
+    await screen.findByText('Source download forbidden.')
+    expect(fetchContent).toHaveBeenLastCalledWith(606, true, expect.any(AbortSignal))
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(revokeUrl).toHaveBeenCalledWith('blob:fictional-1')
+  })
+  it('cancels only its pending blank PDF tab and ignores a late authorized response', async () => {
+    fetchMetadata.mockResolvedValue({ ...metadata, filename: 'fictional.pdf', content_type: 'application/pdf' })
+    let finish!: (blob: Blob) => void
+    fetchContent.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const popup = { opener: window, document: { title: '' }, close: vi.fn(), location: { replace: vi.fn() } }
+    vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
+    const view = render(preview())
+    fireEvent.click(await screen.findByRole('button', { name: 'Open PDF in new tab' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    view.unmount()
+    await act(async () => { finish(new Blob(['late PDF'], { type: 'application/pdf' })) })
+    expect(popup.close).toHaveBeenCalledTimes(1)
+    expect(popup.location.replace).not.toHaveBeenCalled()
+    expect(createUrl).not.toHaveBeenCalled()
+  })
+  it('makes every PDF click a new authorized read and releases URLs without claiming to recall opened copies', async () => {
+    fetchMetadata.mockResolvedValue({ ...metadata, filename: 'fictional.pdf', content_type: 'application/pdf' })
+    fetchContent.mockResolvedValue(new Blob(['fictional PDF'], { type: 'application/pdf' }))
+    const popups = Array.from({ length: 2 }, () => ({ opener: window, document: { title: '' }, close: vi.fn(), location: { replace: vi.fn() } }))
+    vi.spyOn(window, 'open').mockReturnValueOnce(popups[0] as unknown as Window).mockReturnValueOnce(popups[1] as unknown as Window)
+    const view = render(preview())
+    fireEvent.click(await screen.findByRole('button', { name: 'Open PDF in new tab' }))
+    await waitFor(() => expect(popups[0].location.replace).toHaveBeenCalledWith('blob:fictional-1'))
+    fireEvent.click(screen.getByRole('button', { name: 'Open PDF in new tab' }))
+    await waitFor(() => expect(popups[1].location.replace).toHaveBeenCalledWith('blob:fictional-2'))
+    expect(fetchContent).toHaveBeenCalledTimes(2)
+    expect(screen.getByText(/may remain available in separate tabs/)).toBeTruthy()
+    view.unmount()
+    expect(revokeUrl.mock.calls.map(([url]) => url)).toEqual(['blob:fictional-1', 'blob:fictional-2'])
+    expect(popups[0].close).not.toHaveBeenCalled()
+  })
+  it('rechecks retained text on visibility and clears it when server preview access is revoked', async () => {
+    fetchMetadata.mockResolvedValue({ ...metadata, filename: 'fictional.txt', content_type: 'text/plain', inline_supported: false })
+    render(preview())
+    await screen.findByText('Fictional private evidence')
+    fetchPreview.mockRejectedValueOnce(new Error('Evidence access revoked.'))
+    fireEvent(document, new Event('visibilitychange'))
+    await screen.findByText('Evidence access revoked.')
+    expect(screen.queryByText('Fictional private evidence')).toBeNull()
+  })
+  it('periodically rechecks metadata without reading unchanged image bytes and stops after unmount', async () => {
+    vi.useFakeTimers()
+    let view!: ReturnType<typeof render>
+    await act(async () => { view = render(preview()); await Promise.resolve() })
+    expect(fetchMetadata).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+    expect(fetchMetadata).toHaveBeenCalledTimes(2)
+    expect(fetchContent).toHaveBeenCalledTimes(1)
+    expect(revokeUrl).not.toHaveBeenCalled()
+    view.unmount()
+    expect(revokeUrl).toHaveBeenCalledWith('blob:fictional-1')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetchMetadata).toHaveBeenCalledTimes(2)
+  })
+})

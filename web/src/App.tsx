@@ -1,6 +1,10 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import './App.css'
+import { DocumentSourcePreview } from './components/DocumentSourcePreview'
+import { usePilotDialog } from './lib/usePilotDialog'
+import { StatementSourceReview } from './components/StatementSourceReview'
+import { sourceReviewMode } from './lib/sourceReview'
 import { HomeScreen } from './components/HomeScreen'
 import { ActivityPreview } from './components/ActivityPreview'
 import { ParticipantTabs } from './components/ParticipantTabs'
@@ -64,6 +68,7 @@ import {
   fetchDocumentImport,
   fetchDocumentImportSourcePreview,
   fetchDocumentImportSourceUrl,
+  fetchDocumentImportSourceContent,
   fetchDocumentImports,
   fetchMiaMessages,
   fetchSpendingReport,
@@ -113,8 +118,6 @@ import type {
   DebtPortfolio,
   DebtRecord,
   DebtType,
-  DocumentSourcePreview as DocumentSourcePreviewData,
-  DocumentSourceUrl,
   FinancialDocumentImport,
   InvitationStatus,
   IncomeScheduleEntry,
@@ -3651,11 +3654,14 @@ function App() {
 
       {previewImport && (
         <DocumentSourcePreview
-          key={previewImport.id}
+          key={`${previewImport.id}:${auth.authIdentityId}:${auth.currentUser?.id}:${auth.activeCoachWorkspaceId}:${data.workspace.household_id}:${data.workspace.cohort?.id}`}
           documentImport={previewImport}
+          title={documentImportDisplayName(previewImport)}
+          description={`${documentKindLabel(previewImport.document_kind)} · ${formatByteSize(previewImport.byte_size)}`}
           onClose={() => setPreviewImport(null)}
           onFetchSourceUrl={fetchDocumentImportSourceUrl}
           onFetchSourcePreview={fetchDocumentImportSourcePreview}
+          onFetchSourceContent={fetchDocumentImportSourceContent}
         />
       )}
 
@@ -4024,70 +4030,6 @@ function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow
   if (section === ADMIN_SECTION) return 'admin'
   if (section === 'Home') return 'home'
   return 'other'
-}
-
-function usePilotDialog(onClose: () => void) {
-  const dialogRef = useRef<HTMLElement | null>(null)
-  const onCloseRef = useRef(onClose)
-
-  useEffect(() => {
-    onCloseRef.current = onClose
-  }, [onClose])
-
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const previousBodyOverflow = document.body.style.overflow
-    const dialog = dialogRef.current
-    const focusableSelector = 'button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
-    const focusableElements = () => Array.from(dialog?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
-    const focusFrame = window.requestAnimationFrame(() => (focusableElements()[0] ?? dialog)?.focus())
-
-    function handleKeyDown(event: globalThis.KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        onCloseRef.current()
-        return
-      }
-      if (event.key !== 'Tab') return
-
-      const elements = focusableElements()
-      if (elements.length === 0) {
-        event.preventDefault()
-        dialog?.focus()
-        return
-      }
-
-      const first = elements[0]
-      const last = elements[elements.length - 1]
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-
-    function handleFocusIn(event: FocusEvent) {
-      if (dialog?.contains(event.target as Node)) return
-      const destination = focusableElements()[0] ?? dialog
-      destination?.focus()
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    document.addEventListener('focusin', handleFocusIn)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      window.cancelAnimationFrame(focusFrame)
-      document.removeEventListener('keydown', handleKeyDown)
-      document.removeEventListener('focusin', handleFocusIn)
-      document.body.style.overflow = previousBodyOverflow
-      previousFocus?.focus()
-    }
-  }, [])
-
-  return dialogRef
 }
 
 function PilotGuideDialog({ onClose }: { onClose: () => void }) {
@@ -4693,6 +4635,9 @@ function DocumentReviewPanel({
     )
   }
 
+  const sourceMode = sourceReviewMode(documentImport)
+  const fallbackDrafts = sourceMode === 'unsupported' ? [] : sourceMode === 'typed' ? documentImport.transaction_drafts.filter((draft) => !draft.financial_source_event_id) : documentImport.transaction_drafts
+  const fallbackCoverage = { total: fallbackDrafts.length, pending: fallbackDrafts.filter((draft) => draft.status === 'pending').length, resolved: fallbackDrafts.filter((draft) => draft.status !== 'pending').length }
   const warnings = metadataWarnings(documentImport)
   const groupedItems = groupedImportItems(documentImport.items)
   const coverage = transactionReviewCoverage(documentImport)
@@ -4722,7 +4667,7 @@ function DocumentReviewPanel({
         </div>
         <div className="document-review-controls">
           <div className="document-review-actions">
-            <button type="button" onClick={() => onOpenSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source-url')}>
+            <button type="button" onClick={(event) => { event.currentTarget.focus(); onOpenSource(documentImport) }} disabled={!documentImport.source_available || actionForImport('source-url')}>
               {actionForImport('source-url') ? 'Opening' : 'Preview original'}
             </button>
             {fullyApplied ? (
@@ -4776,15 +4721,30 @@ function DocumentReviewPanel({
         </div>
       )}
 
-      {(documentImport.transaction_drafts ?? []).length > 0 && (
+      {sourceMode === 'typed' && (
+        <StatementSourceReview
+          key={`${documentImport.id}:${documentImport.metadata.source_accounting_revision_id}`}
+          importId={documentImport.id}
+          revisionId={documentImport.metadata.source_accounting_revision_id!}
+          refreshKey={`${documentImport.updated_at}:${JSON.stringify(documentImport.transaction_drafts)}`}
+          renderExpenseDraft={(draft) => <TransactionDraftReviewStack
+            drafts={[draft]} isRealWorkspace action={draftAction} compact selectionEnabled={false} categories={categories} plan={annualPlan}
+            title="Review this proposed expense" onUpdate={onUpdateDraft} onMatch={onMatchDraft} onConfirm={onConfirmDraft} onIgnore={onIgnoreDraft} onReopen={onReopenDraft}
+          />}
+        />
+      )}
+      {sourceMode === 'unsupported' && <p className="document-alert error" role="alert">This extraction revision cannot be reviewed by this version of the app. Refresh or contact support; source rows have not been marked reviewed.</p>}
+      {fallbackDrafts.length > 0 && (
         <section className="document-transaction-drafts" aria-label="Extracted transaction drafts">
           <div className="document-item-group-heading">
-            <h5>Transaction drafts</h5>
-            <span>{coverage.total} proposed row{coverage.total === 1 ? '' : 's'}</span>
+            <h5>{sourceMode === 'typed' ? 'Additional expense reviews' : 'Transaction drafts'}</h5>
+            <span>{sourceMode === 'typed' ? fallbackCoverage.total : coverage.total} {sourceMode === 'typed' ? 'loaded additional' : 'proposed'} row{(sourceMode === 'typed' ? fallbackCoverage.total : coverage.total) === 1 ? '' : 's'}</span>
           </div>
-          <p className="document-review-coverage" role="status">{coverage.pending} transaction review{coverage.pending === 1 ? '' : 's'} remaining · {coverage.resolved} resolved. {coverage.pending > 0 ? 'This source still needs review; pending rows do not change actuals.' : 'All transaction rows have a review decision.'}</p>
+          {sourceMode === 'typed' && <p>Expense drafts without a linked source row remain available here. Decisions change expense actuals, not source accounting approval.</p>}
+          <p className="document-review-coverage" role="status">{sourceMode === 'typed' ? `${fallbackCoverage.pending} loaded expense reviews remaining · ${fallbackCoverage.resolved} resolved. Statement source review remains separate.` : `${coverage.pending} transaction review${coverage.pending === 1 ? '' : 's'} remaining · ${coverage.resolved} resolved. ${coverage.pending > 0 ? 'This source still needs review; pending rows do not change actuals.' : 'All transaction rows have a review decision.'}`}</p>
           <TransactionDraftReviewStack
-            drafts={documentImport.transaction_drafts ?? []}
+            drafts={fallbackDrafts}
+            selectionEnabled={sourceMode !== 'typed'}
             isRealWorkspace
             action={draftAction}
             compact
@@ -4795,8 +4755,8 @@ function DocumentReviewPanel({
             onConfirm={onConfirmDraft}
             onIgnore={onIgnoreDraft}
             onReopen={onReopenDraft}
-            onBulkConfirm={onBulkConfirmDrafts}
-            onBulkIgnore={onBulkIgnoreDrafts}
+            onBulkConfirm={sourceMode === 'typed' ? undefined : onBulkConfirmDrafts}
+            onBulkIgnore={sourceMode === 'typed' ? undefined : onBulkIgnoreDrafts}
           />
         </section>
       )}
@@ -4971,177 +4931,6 @@ function AppliedImportSummary({ documentImport, onEdit }: { documentImport: Fina
 function appliedItemDisplayValue(item: DocumentImportItem) {
   if (item.target_type === 'debt') return item.balance ? -item.balance : 0
   return item.balance ?? item.amount ?? item.payment ?? 0
-}
-
-function DocumentSourcePreview({
-  documentImport,
-  onClose,
-  onFetchSourceUrl,
-  onFetchSourcePreview,
-}: {
-  documentImport: FinancialDocumentImport
-  onClose: () => void
-  onFetchSourceUrl: (id: number) => Promise<DocumentSourceUrl>
-  onFetchSourcePreview: (id: number) => Promise<DocumentSourcePreviewData>
-}) {
-  const dialogRef = usePilotDialog(onClose)
-  const [source, setSource] = useState<DocumentSourceUrl | null>(null)
-  const [preview, setPreview] = useState<DocumentSourcePreviewData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [previewLoading, setPreviewLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [previewError, setPreviewError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-
-    onFetchSourceUrl(documentImport.id)
-      .then((payload) => {
-        if (cancelled) return
-
-        setSource(payload)
-        if (!usesServerPreview(payload.filename, payload.content_type)) return
-
-        setPreviewLoading(true)
-        onFetchSourcePreview(documentImport.id)
-          .then((previewPayload) => {
-            if (!cancelled) setPreview(previewPayload)
-          })
-          .catch((caught) => {
-            if (!cancelled) setPreviewError(caught instanceof Error ? caught.message : 'Secure document preview could not be loaded.')
-          })
-          .finally(() => {
-            if (!cancelled) setPreviewLoading(false)
-          })
-      })
-      .catch((caught) => {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : 'Secure document preview could not be loaded.')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [documentImport.id, onFetchSourcePreview, onFetchSourceUrl])
-
-  const filename = source?.filename ?? documentImport.filename
-  const previewTitle = documentImportDisplayName(documentImport)
-  const contentType = source?.content_type ?? documentImport.content_type
-  const isImage = source?.inline_supported === true && browserPreviewableImage(contentType)
-  const isPdf = source?.inline_supported === true && contentType === 'application/pdf'
-  const serverPreviewType = usesServerPreview(filename, contentType)
-
-  return (
-    <div className="document-preview-overlay" role="presentation">
-      <button type="button" className="document-preview-backdrop" aria-label="Close document preview" onClick={onClose} />
-      <section ref={dialogRef} className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${previewTitle}`} tabIndex={-1}>
-        <header className="document-preview-header">
-          <div>
-            <span className="document-status blue">Private preview</span>
-            <h3>{previewTitle}</h3>
-            <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · Private source saved; preview links refresh when opened.</p>
-          </div>
-          <div className="document-preview-actions">
-            {source && <a href={source.download_url} target="_blank" rel="noopener noreferrer">Download source</a>}
-            <button type="button" onClick={onClose}>Close</button>
-          </div>
-        </header>
-
-        <div className="document-preview-body">
-          {loading && <div className="document-preview-state"><span className="document-preview-spinner" />Loading private document preview…</div>}
-          {error && <div className="document-preview-state error">{error}</div>}
-
-          {source && !loading && !error && (
-            <>
-              {isPdf && (
-                <div className="document-preview-state document-pdf-handoff">
-                  <StatementIcon />
-                  <h4>Open this PDF in a separate browser tab</h4>
-                  <p>The browser PDF viewer opens outside this private preview so keyboard focus and Close controls remain predictable here.</p>
-                  <a href={source.url} target="_blank" rel="noopener noreferrer">Open PDF in new tab</a>
-                </div>
-              )}
-              {isImage && <img src={source.url} alt={filename} />}
-              {serverPreviewType && previewLoading && <div className="document-preview-state"><span className="document-preview-spinner" />Building safe in-app preview…</div>}
-              {serverPreviewType && previewError && <div className="document-preview-state error">{previewError}</div>}
-              {preview?.type === 'spreadsheet' && <SpreadsheetSourcePreview preview={preview} />}
-              {preview?.type === 'text' && <TextSourcePreview preview={preview} />}
-              {!isPdf && !isImage && !serverPreviewType && (
-                <div className="document-preview-state">
-                  <StatementIcon />
-                  <h4>Preview not available for this file type</h4>
-                  <p>Use “Download source” to save the secure source file.</p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </section>
-    </div>
-  )
-}
-
-function SpreadsheetSourcePreview({ preview }: { preview: DocumentSourcePreviewData }) {
-  const sheets = preview.sheets ?? []
-
-  if (sheets.length === 0) {
-    return (
-      <div className="document-preview-state">
-        <StatementIcon />
-        <h4>No rows to preview</h4>
-        <p>The document is readable, but no populated spreadsheet rows were found.</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="document-spreadsheet-preview">
-      {sheets.map((sheet) => (
-        <section className="document-preview-sheet" key={sheet.name}>
-          <div className="document-preview-sheet-heading">
-            <strong>{sheet.name}</strong>
-            <span>{sheet.sampled_row_count} of {sheet.row_count} rows shown</span>
-          </div>
-          <div className="document-preview-table-wrap">
-            <table>
-              <tbody>
-                {sheet.rows.map((row) => (
-                  <tr key={row.row}>
-                    <th scope="row">{row.row}</th>
-                    {row.values.map((value, index) => (
-                      <td key={`${row.row}-${index}`}>{value}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ))}
-    </div>
-  )
-}
-
-function TextSourcePreview({ preview }: { preview: DocumentSourcePreviewData }) {
-  return (
-    <div className="document-text-preview">
-      <pre>{preview.text || 'No text could be shown for this document.'}</pre>
-    </div>
-  )
-}
-
-function usesServerPreview(filename: string, contentType: string) {
-  const name = filename.toLowerCase()
-  return name.endsWith('.csv') || name.endsWith('.xls') || name.endsWith('.xlsx') || name.endsWith('.docx') || [
-    'text/csv',
-    'text/plain',
-    'application/csv',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  ].includes(contentType)
 }
 
 type EditableDocumentItemDraft = {
@@ -7716,6 +7505,7 @@ function TransactionDraftReviewStack({
   isRealWorkspace,
   action,
   compact = false,
+  selectionEnabled = true,
   draftActionsDisabled = false,
   disabledReason,
   categories = [],
@@ -7736,6 +7526,7 @@ function TransactionDraftReviewStack({
   isRealWorkspace: boolean
   action: string | null
   compact?: boolean
+  selectionEnabled?: boolean
   draftActionsDisabled?: boolean
   disabledReason?: string
   categories?: BudgetCategoryRow[]
@@ -7908,6 +7699,7 @@ function TransactionDraftReviewStack({
           onConfirm={onConfirm}
           onIgnore={onIgnore}
           onReopen={onReopen}
+          selectionEnabled={selectionEnabled}
           selected={draft.status === 'pending' && selectedIds.has(draft.id)}
           onSelectedChange={(selected) => toggleDraftSelection(draft.id, selected)}
         />
@@ -7953,6 +7745,7 @@ function TransactionDraftReviewCard({
   onIgnore,
   onReopen,
   selected,
+  selectionEnabled,
   onSelectedChange,
 }: {
   draft: TransactionDraft
@@ -7966,6 +7759,7 @@ function TransactionDraftReviewCard({
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
+  selectionEnabled: boolean
   selected: boolean
   onSelectedChange: (selected: boolean) => void
 }) {
@@ -8089,7 +7883,7 @@ function TransactionDraftReviewCard({
 
   return (
     <div className={`transaction-draft-card${selected ? ' is-selected' : ''}`}>
-      {isPending && (
+      {isPending && selectionEnabled && (
         <label className="transaction-draft-select" aria-label={`Select ${draft.merchant} for a bulk action`}>
           <input type="checkbox" checked={selected} disabled={!isRealWorkspace || draftActionsDisabled || Boolean(action)} onChange={(event) => onSelectedChange(event.currentTarget.checked)} />
           <span className="sr-only">Select {draft.merchant}</span>

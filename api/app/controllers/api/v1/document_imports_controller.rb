@@ -9,7 +9,8 @@ module Api
     class DocumentImportsController < BaseController
       before_action :authenticate_user!
       before_action :require_writable_household!, only: %i[create presign complete destroy reprocess apply destroy_source]
-      before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_preview destroy_source]
+      before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_content source_preview source_review destroy_source]
+      before_action :prevent_source_caching, only: %i[source_url source_content source_preview source_review]
 
       ALLOWED_EXTENSIONS = %w[.pdf .csv .xls .xlsx .docx .jpg .jpeg .png .webp .heic .heif].freeze
       REJECTED_EXTENSIONS = %w[.doc .zip .rar .7z .exe .svg].freeze
@@ -26,7 +27,7 @@ module Api
         ".heic" => %w[image/heic image/heif],
         ".heif" => %w[image/heif image/heic]
       }.freeze
-      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at last_extraction_failed_at transaction_draft_count transaction_match_count routing_detected_kind routing_resolved_kind routing_source routing_conflict routing_conflict_reason routing_requires_confirmation routing_destination].freeze
+      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at last_extraction_failed_at transaction_draft_count transaction_match_count routing_detected_kind routing_resolved_kind routing_source routing_conflict routing_conflict_reason routing_requires_confirmation routing_destination source_accounting_revision_id source_accounting_contract_version source_accounting_review_pending source_reconciliation extraction_parser_version extraction_template extraction_financial_row_count extraction_informational_row_count extraction_printed_arithmetic_verified].freeze
 
       def index
         imports = current_household.financial_document_imports
@@ -37,6 +38,20 @@ module Api
 
       def show
         render json: { document_import: serialize_document_import(@document_import, include_attempts: true) }
+      end
+
+      def source_review
+        review = @document_import.with_lock do
+          FinancialDocuments::SourceReviewPage.new(@document_import,
+            revision_id: params[:revision_id], page: params.fetch(:page, "1"),
+            per_page: params.fetch(:per_page, "50"), filter: params.fetch(:filter, "all"))
+            .call { |draft| draft ? serialize_transaction_draft(draft) : nil }
+        end
+        render json: { source_review: review }
+      rescue FinancialDocuments::SourceReviewPage::StaleRevision => error
+        render json: { errors: [ error.message ] }, status: :conflict
+      rescue FinancialDocuments::SourceReviewPage::InvalidPage => error
+        render json: { errors: [ error.message ] }, status: :unprocessable_entity
       end
 
       def create
@@ -160,7 +175,6 @@ module Api
       def destroy
         cleanup = nil
         destroy_error = nil
-        s3_missing = false
 
         ApplicationRecord.transaction do
           @document_import.with_lock do
@@ -169,17 +183,11 @@ module Api
               raise ActiveRecord::Rollback
             end
 
-            if @document_import.s3_key.present? && !S3Service.configured?
-              s3_missing = true
-              raise ActiveRecord::Rollback
-            end
-
             cleanup = FinancialDocumentSourceCleanup.request!(@document_import, user: current_user)
             @document_import.destroy!
           end
         end
 
-        return render_s3_not_configured if s3_missing
         return render json: { errors: [ destroy_error ] }, status: :unprocessable_entity if destroy_error
 
         FinancialDocumentSourceCleanupJob.perform_now(cleanup.id) if cleanup
@@ -210,7 +218,9 @@ module Api
           end
 
           @document_import.items.where(applied_at: nil).delete_all
-          @document_import.transaction_drafts.pending.destroy_all
+          @document_import.transaction_drafts.pending.find_each do |draft|
+            draft.financial_source_event_id ? draft.update!(status: "ignored") : draft.destroy!
+          end
           @document_import.update!(
             status: "uploaded",
             extraction_error: nil,
@@ -251,24 +261,14 @@ module Api
         return render json: { errors: [ "Document source is no longer available" ] }, status: :not_found unless @document_import.source_available?
 
         inline_supported = inline_supported?(@document_import)
-        url = S3Service.presigned_url(
-          @document_import.s3_key,
-          expires_in: 300,
-          filename: @document_import.filename,
-          disposition: inline_supported ? :inline : :attachment
-        )
-        download_url = S3Service.presigned_url(
-          @document_import.s3_key,
-          expires_in: 300,
-          filename: @document_import.filename,
-          disposition: :attachment
-        )
-        return render json: { errors: [ "Could not generate document link" ] }, status: :service_unavailable unless url && download_url
+        url = "/api/v1/document_imports/#{@document_import.id}/source_content"
 
         render json: {
           url: url,
-          download_url: download_url,
-          expires_in: 300,
+          download_url: "#{url}?download=1",
+          expires_in: 0,
+          authenticated_content: true,
+          source_version: Digest::SHA256.hexdigest(JSON.generate([ @document_import.id, @document_import.s3_key, @document_import.checksum_sha256, @document_import.byte_size, @document_import.content_type ])),
           filename: @document_import.filename,
           content_type: @document_import.content_type,
           inline_supported: inline_supported
@@ -277,11 +277,38 @@ module Api
         render_s3_not_configured
       end
 
+      def source_content
+        return render_s3_not_configured unless S3Service.configured?
+        return render_source_unavailable unless @document_import.source_available?
+
+        key = @document_import.s3_key
+        bytes = FinancialDocuments::PrivateSourceReader.read(key)
+        # Storage IO can race deletion or membership removal. Reauthorize before
+        # sending bytes; never turn an earlier read decision into a reusable URL.
+        return render_source_unavailable unless authorized_source_read?(key)
+
+        response.headers["Cache-Control"] = "private, no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Content-Security-Policy"] = "sandbox; default-src 'none'"
+        inline = params[:download] != "1" && @document_import.content_type.in?(%w[application/pdf image/jpeg image/png image/webp])
+        type = inline ? @document_import.content_type : "application/octet-stream"
+        send_data bytes, filename: S3Service.safe_filename(@document_import.filename), type: type,
+          disposition: inline ? "inline" : "attachment"
+      rescue S3Service::MissingConfigurationError, Aws::S3::Errors::ServiceError,
+        Seahorse::Client::NetworkingError, IOError, Timeout::Error
+        render json: { errors: [ "Private source could not be read. Try again." ] }, status: :service_unavailable
+      rescue FinancialDocuments::PrivateSourceReader::TooLarge
+        render json: { errors: [ "Private source exceeds the supported size." ] }, status: :unprocessable_entity
+      end
+
       def source_preview
         return render_s3_not_configured unless S3Service.configured?
         return render json: { errors: [ "Document source is no longer available" ] }, status: :not_found unless @document_import.source_available?
 
+        key = @document_import.s3_key
         result = FinancialDocuments::SourcePreviewer.new(@document_import).call
+        return render_source_unavailable unless authorized_source_read?(key)
         return render json: result.data if result.success?
 
         render json: { errors: [ result.error ] }, status: :unprocessable_entity
@@ -290,13 +317,13 @@ module Api
       end
 
       def destroy_source
-        return render_s3_not_configured unless S3Service.configured?
         return render json: { document_import: serialize_document_import(@document_import) } if @document_import.s3_key.blank?
 
         cleanup = nil
         @document_import.with_lock do
           cleanup = FinancialDocumentSourceCleanup.request!(@document_import, user: current_user)
           mark_source_deleted_before_s3_delete! unless @document_import.source_deleted_at.present?
+          FinancialDocuments::SourceEvidenceEraser.call(@document_import)
         end
         FinancialDocumentSourceCleanupJob.perform_now(cleanup.id) if cleanup
         if cleanup && cleanup.reload.status != "completed"
@@ -315,6 +342,21 @@ module Api
       end
 
       private
+
+      def prevent_source_caching
+        response.headers["Cache-Control"] = "private, no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+      end
+
+      def render_source_unavailable
+        render json: { errors: [ "Document source is no longer available" ] }, status: :not_found
+      end
+
+      def authorized_source_read?(key)
+        HouseholdMembership.exists?(household_id: @document_import.household_id, user_id: current_user.id) &&
+          FinancialDocumentImport.exists?(id: @document_import.id, household_id: @document_import.household_id,
+            source_deleted_at: nil, s3_key: key)
+      end
 
       def set_document_import
         @document_import = current_household.financial_document_imports.find(params[:id])
@@ -666,7 +708,13 @@ module Api
       end
 
       def ordered_transaction_drafts_for(document_import, include_details: true)
-        scope = if document_import.association(:transaction_drafts).loaded?
+        typed = document_import.metadata["source_accounting_contract_version"] == FinancialDocuments::AccountingContract::VERSION
+        scope = if typed
+          # Linked projections belong to the paginated source review. Do not
+          # also load hundreds of them into the legacy document-detail payload.
+          document_import.transaction_drafts.where(financial_source_event_id: nil)
+            .includes(:budget_category, :matched_transaction, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
+        elsif document_import.association(:transaction_drafts).loaded?
           document_import.transaction_drafts
         elsif include_details
           document_import.transaction_drafts.includes(:budget_category, :matched_transaction, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
@@ -714,6 +762,7 @@ module Api
           status: draft.status,
           source_type: draft.source_type,
           financial_document_import_id: draft.financial_document_import_id,
+          financial_source_event_id: draft.financial_source_event_id,
           category_id: draft.budget_category_id,
           category_name: draft.budget_category&.name,
           stack_label: draft.budget_category&.stack_label,
@@ -803,7 +852,7 @@ module Api
       end
 
       def safe_import_metadata(metadata)
-        (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "upload_origin", "declared_document_kind", "document_kind_explicit", "extraction_model", "extraction_mode", "extraction_page_count", "extraction_batch_count", "last_extracted_at", "last_applied_count", "last_applied_at", "transaction_draft_count", "transaction_match_count", "routing_detected_kind", "routing_resolved_kind", "routing_source", "routing_conflict", "routing_conflict_reason", "routing_requires_confirmation", "routing_destination")
+        (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "upload_origin", "declared_document_kind", "document_kind_explicit", "extraction_model", "extraction_mode", "extraction_page_count", "extraction_batch_count", "last_extracted_at", "last_applied_count", "last_applied_at", "transaction_draft_count", "transaction_match_count", "routing_detected_kind", "routing_resolved_kind", "routing_source", "routing_conflict", "routing_conflict_reason", "routing_requires_confirmation", "routing_destination", "source_accounting_revision_id", "source_accounting_contract_version", "source_accounting_review_pending", "source_reconciliation")
       end
 
       def safe_draft_payload(payload)

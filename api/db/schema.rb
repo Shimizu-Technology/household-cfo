@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -1136,9 +1136,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
     t.index ["actor_user_id"], name: "index_coach_workspace_membership_events_on_actor_user_id"
     t.index ["coach_workspace_id"], name: "index_coach_workspace_membership_events_on_coach_workspace_id"
     t.index ["subject_user_id"], name: "index_coach_workspace_membership_events_on_subject_user_id"
-    t.check_constraint "after_role IS NULL OR (after_role::text = ANY (ARRAY['owner'::character varying, 'editor'::character varying, 'reviewer'::character varying, 'viewer'::character varying]::text[]))", name: "workspace_membership_event_after_role"
-    t.check_constraint "before_role IS NULL OR (before_role::text = ANY (ARRAY['owner'::character varying, 'editor'::character varying, 'reviewer'::character varying, 'viewer'::character varying]::text[]))", name: "workspace_membership_event_before_role"
-    t.check_constraint "event_type::text = ANY (ARRAY['added'::character varying, 'role_changed'::character varying, 'removed'::character varying]::text[])", name: "workspace_membership_event_type"
+    t.check_constraint "after_role IS NULL OR (after_role::text = ANY (ARRAY['owner'::character varying::text, 'editor'::character varying::text, 'reviewer'::character varying::text, 'viewer'::character varying::text]))", name: "workspace_membership_event_after_role"
+    t.check_constraint "before_role IS NULL OR (before_role::text = ANY (ARRAY['owner'::character varying::text, 'editor'::character varying::text, 'reviewer'::character varying::text, 'viewer'::character varying::text]))", name: "workspace_membership_event_before_role"
+    t.check_constraint "event_type::text = ANY (ARRAY['added'::character varying::text, 'role_changed'::character varying::text, 'removed'::character varying::text])", name: "workspace_membership_event_type"
   end
 
   create_table "coach_workspace_memberships", force: :cascade do |t|
@@ -1281,8 +1281,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
     t.index ["from_cohort_release_id"], name: "idx_on_from_cohort_release_id_13d9f68065"
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_release_activation_events_scope", unique: true
     t.index ["to_cohort_release_id"], name: "index_cohort_release_activation_events_on_to_cohort_release_id"
-    t.check_constraint "event_type::text = 'backfill'::text AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NULL AND actor_role_snapshot IS NULL OR event_type::text = 'initial_launch'::text AND from_cohort_release_id IS NULL AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[])) OR event_type::text = 'rollout_completed'::text AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[]))", name: "release_activation_events_shape"
-    t.check_constraint "event_type::text = ANY (ARRAY['backfill'::character varying, 'initial_launch'::character varying, 'rollout_completed'::character varying]::text[])", name: "release_activation_events_type_valid"
+    t.check_constraint "event_type::text = 'backfill'::text AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NULL AND actor_role_snapshot IS NULL OR event_type::text = 'initial_launch'::text AND from_cohort_release_id IS NULL AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text])) OR event_type::text = 'rollout_completed'::text AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text]))", name: "release_activation_events_shape"
+    t.check_constraint "event_type::text = ANY (ARRAY['backfill'::character varying::text, 'initial_launch'::character varying::text, 'rollout_completed'::character varying::text])", name: "release_activation_events_type_valid"
     t.check_constraint "request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "release_activation_events_request_valid"
   end
 
@@ -1378,7 +1378,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
     t.check_constraint "event_type::text = ANY (ARRAY['release'::character varying::text, 'restore'::character varying::text, 'reconciliation'::character varying::text])", name: "cohort_releases_event_type_valid"
     t.check_constraint "jsonb_typeof(persona_snapshot) = 'object'::text AND jsonb_typeof(experience_snapshot) = 'object'::text AND jsonb_typeof(tool_registry_snapshot) = 'object'::text AND jsonb_typeof(bundle) = 'object'::text AND jsonb_typeof(manifest) = 'object'::text", name: "cohort_releases_json_shape"
     t.check_constraint "manifest_schema::text = 'cohort_release_manifest_v1'::text AND brand_mode IS NULL AND workspace_brand_version_id IS NULL AND brand_snapshot IS NULL AND brand_snapshot_digest IS NULL OR manifest_schema::text = 'cohort_release_manifest_v2'::text AND brand_snapshot IS NOT NULL AND brand_snapshot_digest IS NOT NULL AND (brand_mode::text = 'published_version'::text AND workspace_brand_version_id IS NOT NULL OR brand_mode::text = 'legacy_household_cfo_builtin'::text AND workspace_brand_version_id IS NULL)", name: "cohort_releases_brand_shape"
-    t.check_constraint "manifest_schema::text = ANY (ARRAY['cohort_release_manifest_v1'::character varying, 'cohort_release_manifest_v2'::character varying]::text[])", name: "cohort_releases_manifest_schema_valid"
+    t.check_constraint "manifest_schema::text = ANY (ARRAY['cohort_release_manifest_v1'::character varying::text, 'cohort_release_manifest_v2'::character varying::text])", name: "cohort_releases_manifest_schema_valid"
     t.check_constraint "octet_length(persona_snapshot::text) <= 65536 AND octet_length(experience_snapshot::text) <= 16384 AND octet_length(tool_registry_snapshot::text) <= 65536 AND octet_length(bundle::text) <= 196608 AND octet_length(manifest::text) <= 262144", name: "cohort_releases_json_bounded"
     t.check_constraint "persona_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND experience_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND tool_registry_digest::text ~ '^[0-9a-f]{64}$'::text AND bundle_digest::text ~ '^[0-9a-f]{64}$'::text AND manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND request_fingerprint::text ~ '^[0-9a-f]{64}$'::text", name: "cohort_releases_digest_shape"
     t.check_constraint "publication_source::text = 'user'::text AND released_by_user_id IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text])) OR (publication_source::text = ANY (ARRAY['legacy_backfill'::character varying::text, 'system'::character varying::text])) AND released_by_user_id IS NULL AND actor_role_snapshot IS NULL", name: "cohort_releases_actor_shape"
@@ -1678,6 +1678,87 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'failed'::character varying, 'completed'::character varying]::text[])", name: "document_cleanup_status_valid"
   end
 
+  create_table "financial_extraction_revisions", force: :cascade do |t|
+    t.string "contract_version", null: false
+    t.jsonb "coverage", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.bigint "financial_document_import_attempt_id"
+    t.bigint "financial_document_import_id"
+    t.bigint "household_id", null: false
+    t.string "payload_digest", null: false
+    t.jsonb "reconciliation", default: {}, null: false
+    t.integer "revision_number", null: false
+    t.string "source_document_identity", null: false
+    t.index ["financial_document_import_attempt_id"], name: "index_extraction_revisions_unique_attempt", unique: true
+    t.index ["financial_document_import_id", "revision_number"], name: "index_extraction_revisions_import_number", unique: true
+    t.index ["financial_document_import_id"], name: "idx_on_financial_document_import_id_0c4473f699"
+    t.index ["household_id"], name: "index_financial_extraction_revisions_on_household_id"
+    t.index ["id", "household_id"], name: "index_extraction_revisions_household_identity", unique: true
+  end
+
+  create_table "financial_source_accounts", force: :cascade do |t|
+    t.string "account_basis", default: "unknown", null: false
+    t.bigint "closing_balance_cents"
+    t.datetime "created_at", null: false
+    t.bigint "financial_extraction_revision_id", null: false
+    t.bigint "household_id", null: false
+    t.jsonb "limitations", default: [], null: false
+    t.bigint "opening_balance_cents"
+    t.date "period_end_on"
+    t.date "period_start_on"
+    t.bigint "printed_credit_cents"
+    t.bigint "printed_debit_cents"
+    t.integer "printed_row_count"
+    t.string "source_key", null: false
+    t.index ["financial_extraction_revision_id", "source_key"], name: "index_source_accounts_revision_key", unique: true
+    t.index ["financial_extraction_revision_id"], name: "index_source_accounts_revision"
+    t.index ["household_id"], name: "index_financial_source_accounts_on_household_id"
+    t.index ["id", "financial_extraction_revision_id", "household_id"], name: "index_source_accounts_scoped_identity", unique: true
+    t.index ["id", "household_id"], name: "index_source_accounts_household_identity", unique: true
+    t.check_constraint "account_basis::text = ANY (ARRAY['asset'::character varying::text, 'liability'::character varying::text, 'unknown'::character varying::text])", name: "source_account_basis_valid"
+  end
+
+  create_table "financial_source_events", force: :cascade do |t|
+    t.date "authorized_on"
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.bigint "expense_amount_cents"
+    t.bigint "financial_extraction_revision_id", null: false
+    t.bigint "financial_source_account_id", null: false
+    t.jsonb "funding_components", default: [], null: false
+    t.bigint "household_id", null: false
+    t.jsonb "limitations", default: [], null: false
+    t.jsonb "locator", default: {}, null: false
+    t.integer "position", null: false
+    t.date "posted_on"
+    t.string "row_identity", null: false
+    t.string "row_kind", null: false
+    t.bigint "signed_amount_cents"
+    t.index ["financial_extraction_revision_id", "position"], name: "index_source_events_revision_position", unique: true
+    t.index ["financial_extraction_revision_id", "row_identity"], name: "index_source_events_revision_row", unique: true
+    t.index ["financial_extraction_revision_id"], name: "index_source_events_revision"
+    t.index ["financial_source_account_id"], name: "index_financial_source_events_on_financial_source_account_id"
+    t.index ["household_id"], name: "index_financial_source_events_on_household_id"
+    t.index ["id", "household_id"], name: "index_source_events_household_identity", unique: true
+    t.check_constraint "event_type::text = ANY (ARRAY['purchase'::character varying::text, 'fee'::character varying::text, 'refund'::character varying::text, 'income'::character varying::text, 'transfer'::character varying::text, 'debt_payment'::character varying::text, 'cash_withdrawal'::character varying::text, 'interest'::character varying::text, 'adjustment'::character varying::text, 'unknown'::character varying::text])", name: "source_event_type_valid"
+    t.check_constraint "expense_amount_cents IS NULL OR expense_amount_cents > 0", name: "source_event_expense_positive"
+    t.check_constraint "expense_amount_cents IS NULL OR row_kind::text = 'posted'::text AND (event_type::text = ANY (ARRAY['purchase'::character varying::text, 'fee'::character varying::text, 'interest'::character varying::text])) AND signed_amount_cents < 0 AND posted_on IS NOT NULL", name: "source_event_expense_eligible"
+    t.check_constraint "row_kind::text = ANY (ARRAY['posted'::character varying::text, 'informational'::character varying::text, 'unresolved'::character varying::text])", name: "source_event_kind_valid"
+  end
+
+  create_table "financial_source_evidences", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "financial_source_account_id"
+    t.bigint "financial_source_event_id"
+    t.bigint "household_id", null: false
+    t.jsonb "payload", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.index ["financial_source_account_id"], name: "idx_on_financial_source_account_id_9c82150f7f", unique: true
+    t.index ["financial_source_event_id"], name: "index_financial_source_evidences_on_financial_source_event_id", unique: true
+    t.index ["household_id"], name: "index_financial_source_evidences_on_household_id"
+    t.check_constraint "num_nonnulls(financial_source_account_id, financial_source_event_id) = 1", name: "source_evidence_one_subject"
+  end
+
   create_table "goals", force: :cascade do |t|
     t.boolean "active", default: true, null: false
     t.datetime "archived_at"
@@ -1839,6 +1920,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
     t.bigint "budget_period_id", null: false
     t.datetime "created_at", null: false
     t.text "description"
+    t.bigint "financial_source_event_id"
     t.bigint "household_id", null: false
     t.string "merchant", null: false
     t.jsonb "metadata", default: {}, null: false
@@ -1850,6 +1932,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
     t.datetime "updated_at", null: false
     t.index ["budget_period_id", "status"], name: "index_household_transactions_on_budget_period_status"
     t.index ["budget_period_id"], name: "index_household_transactions_on_budget_period_id"
+    t.index ["financial_source_event_id"], name: "index_household_transactions_on_financial_source_event_id"
     t.index ["household_id", "occurred_on"], name: "index_household_transactions_on_household_id_and_occurred_on"
     t.index ["household_id", "status"], name: "index_household_transactions_on_household_id_and_status"
     t.index ["household_id"], name: "index_household_transactions_on_household_id"
@@ -2329,6 +2412,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
     t.datetime "created_at", null: false
     t.jsonb "draft_payload", default: {}, null: false
     t.bigint "financial_document_import_id"
+    t.bigint "financial_source_event_id"
     t.bigint "household_id", null: false
     t.bigint "matched_transaction_id"
     t.string "merchant", null: false
@@ -2342,6 +2426,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
     t.index ["confirmed_transaction_id"], name: "index_transaction_drafts_on_confirmed_transaction_id"
     t.index ["financial_document_import_id", "status"], name: "index_transaction_drafts_on_import_and_status"
     t.index ["financial_document_import_id"], name: "index_transaction_drafts_on_financial_document_import_id"
+    t.index ["financial_source_event_id"], name: "index_transaction_drafts_on_financial_source_event_id"
     t.index ["household_id", "status", "created_at"], name: "idx_on_household_id_status_created_at_cf0ad72279"
     t.index ["household_id"], name: "index_transaction_drafts_on_household_id"
     t.index ["matched_transaction_id"], name: "index_transaction_drafts_on_matched_transaction_id"
@@ -2701,6 +2786,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
   add_foreign_key "financial_document_source_cleanups", "financial_document_imports", on_delete: :nullify
   add_foreign_key "financial_document_source_cleanups", "households", on_delete: :nullify
   add_foreign_key "financial_document_source_cleanups", "users", column: "requested_by_user_id", on_delete: :nullify
+  add_foreign_key "financial_extraction_revisions", "financial_document_import_attempts", on_delete: :nullify
+  add_foreign_key "financial_extraction_revisions", "financial_document_imports", on_delete: :nullify
+  add_foreign_key "financial_extraction_revisions", "households"
+  add_foreign_key "financial_source_accounts", "financial_extraction_revisions"
+  add_foreign_key "financial_source_accounts", "financial_extraction_revisions", column: ["financial_extraction_revision_id", "household_id"], primary_key: ["id", "household_id"], name: "source_accounts_revision_household_fk"
+  add_foreign_key "financial_source_accounts", "households"
+  add_foreign_key "financial_source_events", "financial_extraction_revisions"
+  add_foreign_key "financial_source_events", "financial_source_accounts"
+  add_foreign_key "financial_source_events", "financial_source_accounts", column: ["financial_source_account_id", "financial_extraction_revision_id", "household_id"], primary_key: ["id", "financial_extraction_revision_id", "household_id"], name: "source_events_account_revision_household_fk"
+  add_foreign_key "financial_source_events", "households"
+  add_foreign_key "financial_source_evidences", "financial_source_accounts", column: ["financial_source_account_id", "household_id"], primary_key: ["id", "household_id"], name: "source_evidence_account_household_fk", on_delete: :cascade
+  add_foreign_key "financial_source_evidences", "financial_source_accounts", on_delete: :cascade
+  add_foreign_key "financial_source_evidences", "financial_source_events", column: ["financial_source_event_id", "household_id"], primary_key: ["id", "household_id"], name: "source_evidence_event_household_fk", on_delete: :cascade
+  add_foreign_key "financial_source_evidences", "financial_source_events", on_delete: :cascade
+  add_foreign_key "financial_source_evidences", "households"
   add_foreign_key "goals", "households"
   add_foreign_key "household_audit_events", "households"
   add_foreign_key "household_audit_events", "users"
@@ -2715,6 +2815,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
   add_foreign_key "household_profiles", "households"
   add_foreign_key "household_transactions", "budget_periods"
   add_foreign_key "household_transactions", "financial_document_imports", column: "source_import_id"
+  add_foreign_key "household_transactions", "financial_source_events", column: ["financial_source_event_id", "household_id"], primary_key: ["id", "household_id"], name: "source_transactions_event_household_fk"
+  add_foreign_key "household_transactions", "financial_source_events", on_delete: :nullify
   add_foreign_key "household_transactions", "households"
   add_foreign_key "households", "users", column: "created_by_user_id"
   add_foreign_key "income_schedule_entries", "income_sources", on_delete: :cascade
@@ -2756,6 +2858,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
   add_foreign_key "transaction_draft_splits", "transaction_drafts"
   add_foreign_key "transaction_drafts", "budget_categories"
   add_foreign_key "transaction_drafts", "financial_document_imports"
+  add_foreign_key "transaction_drafts", "financial_source_events", column: ["financial_source_event_id", "household_id"], primary_key: ["id", "household_id"], name: "source_drafts_event_household_fk"
+  add_foreign_key "transaction_drafts", "financial_source_events", on_delete: :nullify
   add_foreign_key "transaction_drafts", "household_transactions", column: "confirmed_transaction_id"
   add_foreign_key "transaction_drafts", "household_transactions", column: "matched_transaction_id"
   add_foreign_key "transaction_drafts", "households"
@@ -2775,6 +2879,37 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
   add_foreign_key "workspace_brand_versions", "workspace_brand_configurations", column: ["workspace_brand_configuration_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_workspace_brand_versions_configuration", on_delete: :restrict
   add_foreign_key "workspace_brand_versions", "workspace_brand_versions", column: "source_version_id"
   add_foreign_key "workspace_brand_versions", "workspace_brand_versions", column: ["source_version_id", "workspace_brand_configuration_id"], primary_key: ["id", "workspace_brand_configuration_id"], name: "fk_workspace_brand_versions_source", on_delete: :restrict
+  execute <<~SQL
+    CREATE OR REPLACE FUNCTION public.source_accounting_facts_immutable()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF TG_TABLE_NAME = 'financial_extraction_revisions' THEN
+        IF (to_jsonb(NEW) - 'financial_document_import_id' - 'financial_document_import_attempt_id') <> (to_jsonb(OLD) - 'financial_document_import_id' - 'financial_document_import_attempt_id') OR
+           (NEW.financial_document_import_id IS DISTINCT FROM OLD.financial_document_import_id AND NEW.financial_document_import_id IS NOT NULL) OR
+           (NEW.financial_document_import_attempt_id IS DISTINCT FROM OLD.financial_document_import_attempt_id AND NEW.financial_document_import_attempt_id IS NOT NULL) THEN
+          RAISE EXCEPTION 'Source accounting facts are immutable; append a revision';
+        END IF;
+      ELSIF to_jsonb(NEW) <> to_jsonb(OLD) THEN
+        RAISE EXCEPTION 'Source accounting facts are immutable; append a revision';
+      END IF;
+      RETURN NEW;
+    END;
+    $function$
+  SQL
+  execute <<~SQL
+    DROP TRIGGER IF EXISTS financial_extraction_revisions_immutable ON financial_extraction_revisions;
+    CREATE TRIGGER financial_extraction_revisions_immutable BEFORE UPDATE ON public.financial_extraction_revisions FOR EACH ROW EXECUTE FUNCTION source_accounting_facts_immutable();
+  SQL
+  execute <<~SQL
+    DROP TRIGGER IF EXISTS financial_source_accounts_immutable ON financial_source_accounts;
+    CREATE TRIGGER financial_source_accounts_immutable BEFORE UPDATE ON public.financial_source_accounts FOR EACH ROW EXECUTE FUNCTION source_accounting_facts_immutable();
+  SQL
+  execute <<~SQL
+    DROP TRIGGER IF EXISTS financial_source_events_immutable ON financial_source_events;
+    CREATE TRIGGER financial_source_events_immutable BEFORE UPDATE ON public.financial_source_events FOR EACH ROW EXECUTE FUNCTION source_accounting_facts_immutable();
+  SQL
 execute <<~SQL
   CREATE OR REPLACE FUNCTION prevent_cohort_release_mutation()
   RETURNS trigger

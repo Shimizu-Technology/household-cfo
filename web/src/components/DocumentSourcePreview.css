@@ -1,0 +1,3 @@
+.document-pdf-handoff button, .document-preview-state.error button { min-height: 44px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: var(--emerald); color: white; font: inherit; font-weight: 700; }
+.document-pdf-handoff button:disabled { opacity: .6; }
+.document-preview-modal .document-preview-actions button { min-height: 44px; }

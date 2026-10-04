@@ -545,87 +545,39 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, details.fetch("transaction_drafts").first.fetch("splits").length
   end
 
-  test "source_url returns preview and download links without exposing s3 key" do
-    document_import = create_import!(s3_key: "household-cfo/test/households/#{@household.id}/documents/1/source/statement.pdf")
-
-    dispositions = []
-    with_s3_stubs(
-      configured?: true,
-      presigned_url: ->(key, expires_in:, filename:, disposition:) {
-        assert_equal document_import.s3_key, key
-        assert_equal 300, expires_in
-        assert_equal "statement.pdf", filename
-        dispositions << disposition
-        "https://private.example.test/#{disposition}"
-      }
-    ) do
+  test "source_url returns authenticated app reads without presigned storage links" do
+    document_import = create_import!(s3_key: "synthetic/private.pdf")
+    with_s3_stubs(configured?: true, presigned_url: ->(*) { flunk "Storage GET URLs must not be issued" }) do
       get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
     end
-
     assert_response :success
     body = JSON.parse(response.body)
+    assert_equal "/api/v1/document_imports/#{document_import.id}/source_content", body.fetch("url")
+    assert_equal "#{body.fetch('url')}?download=1", body.fetch("download_url")
+    assert_equal 0, body.fetch("expires_in")
+    assert_equal true, body.fetch("authenticated_content")
+    assert_match(/\A[0-9a-f]{64}\z/, body.fetch("source_version"))
     assert_equal true, body.fetch("inline_supported")
-    assert_equal "https://private.example.test/inline", body.fetch("url")
-    assert_equal "https://private.example.test/attachment", body.fetch("download_url")
-    assert_equal [ :inline, :attachment ], dispositions
     assert_not body.key?("s3_key")
+    with_s3_stubs(configured?: true) do
+      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+      assert_equal body.fetch("source_version"), JSON.parse(response.body).fetch("source_version")
+      document_import.update!(s3_key: "synthetic/replacement.pdf")
+      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+      assert_not_equal body.fetch("source_version"), JSON.parse(response.body).fetch("source_version")
+      assert_not_includes response.body, "synthetic/replacement.pdf"
+    end
   end
 
-  test "source_url keeps mobile HEIC photos as attachment links" do
-    document_import = create_import!(
-      document_kind: "receipt",
-      filename: "receipt-photo.heic",
-      content_type: "image/heic",
-      s3_key: "household-cfo/test/source.heic"
-    )
-
-    dispositions = []
-    with_s3_stubs(
-      configured?: true,
-      presigned_url: ->(_key, expires_in:, filename:, disposition:) {
-        assert_equal 300, expires_in
-        assert_equal "receipt-photo.heic", filename
-        dispositions << disposition
-        "https://private.example.test/receipt-#{disposition}.heic"
-      }
-    ) do
-      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+  test "source_url keeps HEIC and server-previewed CSV attachment only" do
+    [ [ "photo.heic", "image/heic" ], [ "budget.csv", "text/csv" ] ].each do |filename, type|
+      document_import = create_import!(filename: filename, content_type: type, s3_key: "synthetic/#{filename}")
+      with_s3_stubs(configured?: true, presigned_url: ->(*) { flunk "Storage GET URLs must not be issued" }) do
+        get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+      end
+      assert_response :success
+      assert_equal false, JSON.parse(response.body).fetch("inline_supported")
     end
-
-    assert_response :success
-    body = JSON.parse(response.body)
-    assert_equal false, body.fetch("inline_supported")
-    assert_equal "https://private.example.test/receipt-attachment.heic", body.fetch("url")
-    assert_equal [ :attachment, :attachment ], dispositions
-  end
-
-  test "source_url keeps server-previewed csv sources as attachment links" do
-    document_import = create_import!(
-      document_kind: "spreadsheet",
-      filename: "budget.csv",
-      content_type: "text/csv",
-      s3_key: "household-cfo/test/source.csv"
-    )
-
-    dispositions = []
-    with_s3_stubs(
-      configured?: true,
-      presigned_url: ->(_key, expires_in:, filename:, disposition:) {
-        assert_equal 300, expires_in
-        assert_equal "budget.csv", filename
-        dispositions << disposition
-        "https://private.example.test/budget-#{disposition}.csv"
-      }
-    ) do
-      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
-    end
-
-    assert_response :success
-    body = JSON.parse(response.body)
-    assert_equal false, body.fetch("inline_supported")
-    assert_equal "https://private.example.test/budget-attachment.csv", body.fetch("url")
-    assert_equal "https://private.example.test/budget-attachment.csv", body.fetch("download_url")
-    assert_equal [ :attachment, :attachment ], dispositions
   end
 
   test "source_preview renders spreadsheet rows through Rails without a browser download" do
@@ -1349,6 +1301,39 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_nil document_import.period_end_on
     assert_empty document_import.items
     assert_equal({ "upload_request_id" => "keep-me" }, document_import.metadata)
+  end
+
+  test "reprocess retains source-linked pending history and removes only unlinked pending drafts" do
+    document_import = create_import!(status: "needs_review")
+    attempt = document_import.attempts.create!(provider: "synthetic", model: "synthetic", status: "processing", prompt_version: "synthetic", schema_version: "synthetic", started_at: Time.current)
+    accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+      accounts: [ { account_key: "synthetic-account", account_basis: "asset" } ],
+      events: [ { account_key: "synthetic-account", row_kind: "posted", event_type: "purchase", signed_amount_cents: -1_000,
+        posted_on: "2026-07-07", locator: { page: 1, row: 1 }, merchant: "Synthetic merchant" } ] })
+    source = FinancialDocuments::SourceAccountingPersister.new(document_import, attempt: attempt, accounting: accounting).call
+    HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, source[:transaction_drafts]).call
+    linked = document_import.transaction_drafts.sole
+    split_ids = linked.transaction_draft_splits.pluck(:id)
+    assert_not_empty split_ids
+    unlinked = document_import.transaction_drafts.create!(household: @household, occurred_on: Date.new(2026, 7, 7), merchant: "Legacy synthetic merchant",
+      total_amount_cents: 500, source_type: "statement", status: "pending")
+
+    with_s3_stubs(configured?: true) do
+      assert_enqueued_with(job: FinancialDocumentExtractionJob, args: [ document_import.id ]) do
+        post "/api/v1/document_imports/#{document_import.id}/reprocess", headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :success
+    assert_equal "uploaded", document_import.reload.status
+    assert_equal "ignored", linked.reload.status
+    assert_equal source[:events].sole.id, linked.financial_source_event_id
+    assert_equal split_ids, linked.transaction_draft_splits.pluck(:id)
+    assert_equal(-1_000, linked.financial_source_event.reload.signed_amount_cents)
+    assert_equal source[:revision].id, linked.financial_source_event.financial_extraction_revision_id
+    refute TransactionDraft.exists?(unlinked.id)
+    assert_empty document_import.transaction_drafts.pending
+    assert_empty @household.household_transactions
   end
 
   test "reprocess rejects imports that already applied household values" do

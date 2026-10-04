@@ -34,6 +34,32 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "mixed setup rows do not become fake source events while genuine and invalid financial rows remain" do
+    file = Tempfile.new([ "mixed-setup", ".csv" ])
+    file.write(<<~CSV)
+      type,date,label,merchant,amount,category,account
+      expense_item,,Monthly dining budget,,400,discretionary
+      purchase,2026-07-01,,Synthetic cafe,10,discretionary
+      purchase,,,Broken source row,invalid,discretionary
+      expense_item,2026-07-02,Synthetic dinner,,15,discretionary
+      expense_item,,Missing date purchase,Synthetic cafe,15,discretionary
+      account,,Synthetic setup checking,,1000,checking,Synthetic checking
+    CSV
+    file.rewind
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "mixed-setup.csv", document_kind: "statement").call
+    assert result.success?, result.error
+    assert_equal [ "Monthly dining budget", "Synthetic setup checking" ], result.data[:items].pluck(:label)
+    assert_equal 100_000, result.data[:items].last[:balance_cents]
+    assert_equal 4, result.data[:source_accounting][:events].length
+    assert_equal [ 3, 4, 5, 6 ], result.data[:source_accounting][:events].map { |event| event[:locator][:row] }
+    assert_equal "unresolved", result.data[:source_accounting][:events].second[:row_kind]
+    assert_equal "unresolved", result.data[:source_accounting][:events].last[:row_kind]
+    assert_includes result.data[:source_accounting][:events].last[:limitations], "posted_date_missing_or_invalid"
+    assert_equal 2, result.data[:transaction_drafts].length
+  ensure
+    file&.close!
+  end
+
   test "skips non-finite spreadsheet amounts without failing whole extraction" do
     file = Tempfile.new([ "budget", ".csv" ])
     file.write("type,label,amount,cadence,category,notes\nexpense_item,Broken formula,NaN,monthly,discretionary,Ignore\nexpense_item,Dining out,420,monthly,discretionary,Valid\n")
@@ -108,10 +134,12 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
 
     assert result.success?, result.error
     drafts = result.data.fetch(:transaction_drafts)
-    assert_equal 3, drafts.length
+    assert_equal 2, drafts.length
+    assert_equal 4, result.data.fetch(:source_accounting).fetch(:events).length
+    assert_equal 2, result.data.fetch(:source_accounting).fetch(:events).count { |event| event[:row_kind] == "unresolved" }
     assert_equal "statement", result.data.fetch(:document_kind)
     assert_equal Date.new(2026, 5, 12), result.data.fetch(:period_start_on)
-    assert_equal Date.new(2026, 7, 6), result.data.fetch(:period_end_on)
+    assert_equal Date.new(2026, 7, 5), result.data.fetch(:period_end_on)
     assert_equal "Ross", drafts.first.fetch(:merchant)
     assert_equal Date.new(2026, 5, 12), drafts.first.fetch(:occurred_on)
     assert_equal BigDecimal("0.90"), drafts.first.fetch(:confidence)
@@ -119,7 +147,6 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_equal 1_357, drafts.second.fetch(:total_amount_cents)
     assert_equal "Dining Out", drafts.second.fetch(:splits).first.fetch(:category_name)
     assert_equal BigDecimal("0.90"), drafts.second.fetch(:splits).first.fetch(:confidence)
-    assert_equal 10_342, drafts.third.fetch(:total_amount_cents)
   ensure
     file&.close!
   end
@@ -163,6 +190,8 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_empty result.data.fetch(:items)
     assert_empty result.data.fetch(:transaction_drafts)
     assert_equal 2, result.data.fetch(:warnings).length
+    assert result.data[:warnings].all? { |warning| warning.start_with?("Retained incoming") }
+    assert_equal 2, result.data[:source_accounting][:events].length
     assert_equal true, result.data.fetch(:no_reviewable_transactions)
     assert_includes result.data.fetch(:summary), "no spending transactions"
   ensure
@@ -203,7 +232,8 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert result.success?, result.error
     assert_equal [ "Valid groceries" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
     assert_equal 2, result.data.fetch(:warnings).length
-    assert result.data.fetch(:warnings).all? { |warning| warning.include?("conflicting debit and credit") }
+    assert result.data.fetch(:warnings).all? { |warning| warning.include?("conflicting debit and credit") && warning.start_with?("Retained unresolved") }
+    assert_equal 3, result.data[:source_accounting][:events].length
   ensure
     file&.close!
   end
@@ -268,9 +298,10 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "ambiguous-statement.csv", document_kind: "statement").call
 
     assert result.success?, result.error
-    assert_equal [ "Payless" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
-    assert_equal 2_500, result.data.fetch(:transaction_drafts).first.fetch(:total_amount_cents)
-    assert_equal 2, result.data.fetch(:warnings).length
+    assert_empty result.data.fetch(:transaction_drafts)
+    assert_equal 3, result.data.fetch(:source_accounting).fetch(:events).length
+    assert result.data.fetch(:source_accounting).fetch(:events).all? { |event| event[:row_kind] == "unresolved" }
+    assert_equal 3, result.data.fetch(:warnings).length
     assert_includes result.data.fetch(:warnings).join(" "), "direction"
   ensure
     file&.close!
@@ -332,6 +363,8 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_equal 150, drafts.length
     assert_equal "Merchant 1", drafts.first.fetch(:merchant)
     assert_equal "Merchant 150", drafts.last.fetch(:merchant)
+    assert_equal 150, result.data[:source_accounting][:events].length
+    assert_equal 151, result.data[:source_accounting][:events].last[:locator][:row]
   ensure
     file&.close!
   end
@@ -438,8 +471,36 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
 
     assert result.success?, result.error
     assert_equal [ "Sixth sheet merchant" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
+    assert_equal({ sheet_index: 5, row: 2 }, result.data[:source_accounting][:events].sole[:locator])
+    assert_equal [ 0, 1, 2, 3, 4, 5 ], result.data[:source_accounting][:coverage][:processed_sheets]
   ensure
     file&.unlink
+  end
+
+  test "retains ambiguous refunds invalid dates transfers and debt payments without staging them as purchases" do
+    file = Tempfile.new([ "typed-source", ".csv" ])
+    file.write(<<~CSV)
+      date,description,amount,category,type
+      2026-07-10,Signed refund,-25.00,Groceries,
+      bad-date,Undated purchase,20.00,Groceries,debit
+      2026-07-10,Bank transfer,50.00,,debit
+      2026-07-10,Visa payment,60.00,,debit
+      2026-07-10,Merchant refund,-25.00,,credit
+      2026-07-10,Groceries,10.00,,debit
+    CSV
+    file.rewind
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "typed-source.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    events = result.data[:source_accounting][:events]
+    assert_equal 6, events.length
+    assert_equal %w[unresolved unresolved posted posted posted posted], events.pluck(:row_kind)
+    assert_equal %w[unknown purchase transfer debt_payment refund purchase], events.pluck(:event_type)
+    assert_equal 2_500, events[4][:signed_amount_cents]
+    assert_equal "bad-date", events[1][:evidence][:source_fields][:source_posted_on]
+    assert_equal [ "Groceries" ], result.data[:transaction_drafts].pluck(:merchant)
+  ensure
+    file&.close!
   end
 
   test "rejects oversized setup CSVs instead of silently truncating values" do

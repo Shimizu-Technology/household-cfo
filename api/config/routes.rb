@@ -80,6 +80,8 @@ Rails.application.routes.draw do
           post :reprocess
           post :apply
           get :source_url
+          get :source_content
+          get :source_review
           get :source_preview
           delete :source, action: :destroy_source
         end

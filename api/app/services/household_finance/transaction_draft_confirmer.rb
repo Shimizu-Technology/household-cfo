@@ -70,6 +70,7 @@ module HouseholdFinance
       transaction = draft.household.household_transactions.create!(
         budget_period: period,
         source_import: draft.financial_document_import,
+        financial_source_event: draft.financial_source_event,
         occurred_on: draft.occurred_on,
         merchant: draft.merchant,
         description: draft.raw_input,
