@@ -10,3 +10,37 @@ test('BOG UI evidence stale source conflict requires a fresh review and revoked 
 test('BOG UI evidence reviewed transfer has negative bank movement but explicit new-money confirmation and bounded support',async({page})=>{const dialog=await open(page,'transfer');await expect(dialog).toContainText('Signed movement -$50.00');await expect(dialog).toContainText('Source file removed; approved facts retained');await prepare(page,'Fictional reserve transfer');await expect(dialog.getByRole('region',{name:'Evidence approval review'})).toContainText('Fictional reserves');await expect(dialog.getByRole('region',{name:'Evidence approval review'})).toContainText('Reserve transfer out');await dialog.getByRole('checkbox',{name:/I reviewed this exact/}).check();await dialog.getByRole('checkbox',{name:/These are my movements/}).check();await expect(dialog.getByRole('button',{name:'Approve proof link'})).toBeDisabled();await dialog.getByRole('checkbox',{name:/This was new money/}).check();await dialog.getByRole('button',{name:'Approve proof link'}).click();await expect(dialog.getByRole('region',{name:'Reported contribution'})).toContainText('$25.50 currently supported')})
 test('BOG UI evidence old savings revision pages into an explicit capacity-releasing revoke with no new link',async({page})=>{await page.goto('/e2e/fixtures/evidence.html?case=history');const home=page.getByRole('region',{name:'Savings challenge',exact:true});await home.getByText('Savings entry revision history',{exact:true}).click();const history=home.getByRole('region',{name:'Savings entry revisions'});await expect(history.getByRole('button',{name:/Review proof for/})).toHaveCount(0);await history.getByRole('button',{name:'Next records'}).click();await history.getByRole('button',{name:'Review proof for savings revision 1'}).click();const dialog=page.getByRole('dialog');await expect(dialog).toContainText('free the reserved movement capacity');await expect(dialog.getByRole('button',{name:'Link or replace proof'})).toBeDisabled();await dialog.getByLabel('Reason for evidence review').fill('Release stale proof from the earlier contribution revision.');await dialog.getByRole('button',{name:'Review proof revocation'}).click();await dialog.getByRole('checkbox',{name:/I reviewed this exact/}).check();await dialog.getByRole('button',{name:'Approve proof revocation'}).click();await expect(dialog).toContainText('No attached proof is available to revoke.');await expect(dialog.getByRole('region',{name:'Reported contribution'})).toContainText('$50.00 reported');await dialog.getByRole('button',{name:'Close evidence'}).click();await expect(home.getByRole('article',{name:'Approved savings progress'})).toContainText('$50.00')})
 test('BOG UI evidence blocked session storage refuses approval instead of starting an unrecoverable change',async({page})=>{await page.addInitScript(()=>{Storage.prototype.setItem=()=>{throw new DOMException('Synthetic storage blocked','QuotaExceededError')}});const dialog=await open(page);await prepare(page);await consent(page);await dialog.getByRole('button',{name:'Approve proof link'}).click();await expect(dialog).toContainText('No proof change was submitted');await expect(dialog.getByRole('region',{name:'Reported contribution'})).toContainText('$0.00 currently supported');await dialog.getByRole('button',{name:'Close evidence'}).click();await expect(page.getByLabel('Synthetic mutation count')).toHaveText('0')})
+
+
+for(const cold of [false,true]){
+ test(`BOG UI evidence ${cold?'cold':'warm'} busy metadata-only status preserves identity and recovers the exact committed enrollment`,async({page})=>{
+  let dialog=await open(page,'busy');await prepare(page);await consent(page)
+  await dialog.getByRole('button',{name:'Approve proof link'}).click()
+  await expect(dialog.getByRole('button',{name:'Retry exact evidence request'})).toBeVisible()
+  const identity=await page.evaluate(()=>sessionStorage.getItem('savings-evidence-request-identities-v1'))
+  expect(identity).not.toContain('amount_cents');expect(identity).not.toContain('income')
+  if(cold){await dialog.getByRole('button',{name:'Close evidence'}).click();await page.getByRole('button',{name:'Review fictional savings evidence'}).click();dialog=page.getByRole('dialog')}
+  await dialog.getByRole('button',{name:'Check earlier evidence result'}).click()
+  await expect(dialog).toContainText('The earlier request is still processing. Check again.')
+  await expect(dialog).not.toContainText('Private access is unavailable')
+  await expect(dialog.getByRole('button',{name:'Check earlier evidence result'})).toBeEnabled()
+  await expect(dialog.getByRole('button',{name:'Refresh evidence'})).toBeDisabled()
+  await expect(dialog.getByRole('button',{name:'Prepare fresh evidence review'})).toHaveCount(0)
+  await expect(page.getByLabel('Synthetic completed changes')).toHaveText('0')
+  expect(await page.evaluate(()=>sessionStorage.getItem('savings-evidence-request-identities-v1'))).toBe(identity)
+  if(cold){await expect(dialog.getByRole('button',{name:'Retry exact evidence request'})).toHaveCount(0);await expect(dialog.getByLabel('Reason for evidence review')).toHaveValue('')}
+  else{
+   await expect(dialog.getByLabel('Reason for evidence review')).toHaveValue('Reviewed new income I set aside after expenses.')
+   await expect(dialog.getByLabel('Reason for evidence review')).toBeDisabled()
+   await expect(dialog.getByLabel('Support amount 1 in US dollars')).toHaveValue('25.50')
+   await expect(dialog.getByRole('button',{name:'Retry exact evidence request'})).toBeVisible()
+  }
+  await dialog.getByRole('button',{name:'Check earlier evidence result'}).click()
+  await expect(dialog).toContainText('Evidence review saved')
+  await expect(dialog.getByRole('region',{name:'Reported contribution'})).toContainText('$50.00 reported')
+  await expect(dialog.getByRole('region',{name:'Reported contribution'})).toContainText('$25.50 currently supported')
+  await expect(page.getByLabel('Synthetic mutation count')).toHaveText('1')
+  await expect(page.getByLabel('Synthetic completed changes')).toHaveText('1')
+  expect(await page.evaluate(()=>sessionStorage.getItem('savings-evidence-request-identities-v1'))).toBeNull()
+ })
+}

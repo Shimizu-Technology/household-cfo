@@ -8,7 +8,7 @@ import {baselineScope} from '../../src/test/baselineFixtures'
 import type {EvidenceMutation} from '../../src/lib/savingsEvidence'
 import '../../src/index.css'
 import '../../src/App.css'
-const scenario=new URLSearchParams(location.search).get('case');let interrupted=false,denied=false,count=0
+const scenario=new URLSearchParams(location.search).get('case');let interrupted=false,statusBusy=false,denied=false,count=0
 let current=evidencePage();const journal=new Map<string,EvidenceMutation>()
 if(scenario==='history'){current={...current,entry_is_current:false,entry:{...current.entry,evidence_status:'stale'},head:{id:30,current_version_id:31,lock_version:2},current_version:evidenceVersion(),records:[evidenceVersion()]}}
 const response=(data:unknown,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}})
@@ -19,7 +19,10 @@ window.fetch=async(input,options)=>{
  if(path.endsWith('/entry_versions'))return response({records:cursor?[current.entry]:[{...current.entry,id:8,funding_source:'borrowed'}],next_cursor:cursor?null:8,...evidenceActor,cohort_id:42})
  if(path.endsWith('/entries'))return response({records:[],next_cursor:null,...evidenceActor,cohort_id:42})
  if(path.endsWith('/plan_drafts')||path.endsWith('/entry_drafts'))return response({records:[],next_cursor:null,...evidenceActor,cohort_id:42})
- if(path.endsWith('/request_status'))return response(journal.has(key)?{...journal.get(key),state:'committed',replayed:true}:{...evidenceActor,state:'unknown',can_retry:true})
+ if(path.endsWith('/request_status')){
+  if(scenario==='busy'&&journal.has(key)&&!statusBusy){statusBusy=true;return response({actor_scope:evidenceActor.actor_scope,enrollment_id:null,state:'in_flight'},202)}
+  return response(journal.has(key)?{...journal.get(key),state:'committed',replayed:true}:{...evidenceActor,state:'unknown',can_retry:true})
+ }
  if(path.endsWith('/candidates')){
   const record=evidenceCandidate(cursor?102:101)
   if(scenario==='empty'&&!cursor)return response({...evidenceActor,records:[],next_cursor:50})
@@ -34,7 +37,7 @@ window.fetch=async(input,options)=>{
  const values=JSON.parse(String(options?.body));const revoked=path.endsWith('/revoke');const version={...evidenceVersion(revoked?'revoked':'attached'),id:31+current.records.length,version_number:current.records.length+1,reason:values.reason,supported_cents:revoked?0:values.proofs.reduce((sum:number,row:{amount_cents:number})=>sum+row.amount_cents,0)}
  current={...current,entry:{...current.entry,evidence_status:revoked?'revoked':'linked',evidence_supported_cents:version.supported_cents},head:{id:30,current_version_id:version.id,lock_version:current.records.length+1},current_version:version,records:[...current.records,version]}
  const result={...evidenceActor,record:version,replayed:false};journal.set(key,result)
- if(scenario==='lost'&&!interrupted){interrupted=true;throw new TypeError('Synthetic interrupted response after commit')}
+ if((scenario==='lost'||scenario==='busy')&&!interrupted){interrupted=true;throw new TypeError('Synthetic interrupted response after commit')}
  return response(result)
 }
 export function Fixture(){const[open,setOpen]=useState(false);const[changes,setChanges]=useState(0);const[calls,setCalls]=useState(0);const[scope,setScope]=useState(baselineScope)
