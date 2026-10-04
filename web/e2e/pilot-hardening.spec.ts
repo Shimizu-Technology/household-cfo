@@ -4173,6 +4173,7 @@ test('Mia explains when starting numbers have not been approved yet', async ({ p
   await expect(context.getByText('Approved data loaded')).toHaveCount(0)
   const progress = page.locator('.first-session-setup-progress')
   await expect(progress).toContainText('0 of 5 essentials confirmed')
+  await progress.getByRole('button', { name: 'Show setup options' }).click()
   await expect(progress.getByText('Household name')).toBeVisible()
   await expect(progress.getByText('Flexible spending')).toBeVisible()
 })
@@ -6329,7 +6330,7 @@ test('participant can add edit archive and restore individual debt records', asy
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await expect(page.getByText('BOG cohort', { exact: true })).toBeVisible()
+  await expect(page.getByText('BOG', { exact: true })).toBeVisible()
   await openSection(page, 'My Profile')
   const debtPanel = page.locator('.debt-manager')
   await debtPanel.getByRole('button', { name: 'Add a debt' }).click()
