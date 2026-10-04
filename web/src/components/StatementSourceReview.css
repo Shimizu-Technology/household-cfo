@@ -51,3 +51,12 @@
 .source-economic-review, .source-batch-review { margin-block: 1rem; min-width: 0; }
 .source-link-member { border: 1px solid var(--line, #e2d9cb); padding: .8rem; border-radius: .6rem; display: grid; gap: .6rem; min-width: 0; overflow-wrap: anywhere; }
 .source-row-review-status { font-weight: 600; }
+
+/* Contain native single-line control internals, not the surrounding review flow. */
+.statement-source-review select,
+.statement-source-review input:not([type=checkbox]):not([type=radio]) {
+ box-sizing: border-box;
+ min-width: 0;
+ max-width: 100%;
+ contain: paint;
+}

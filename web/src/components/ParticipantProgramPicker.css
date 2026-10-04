@@ -10,3 +10,7 @@
 
 .participant-program-switch { min-width: 0; margin-block: .5rem; }
 .participant-program-switch > summary { cursor: pointer; font-size: .875rem; overflow-wrap: anywhere; }
+
+/* Keep the native menu's internally scrolling label inside its control box.
+   Containment is local to the control; its focus outline and popup stay native. */
+.participant-program-picker select { contain: paint; }

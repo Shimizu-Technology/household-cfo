@@ -31,3 +31,12 @@
 
 /* Native WebKit controls must clip their internally scrolling option/text content. */
 .baseline-dialog select,.baseline-dialog input:not([type=checkbox]) { overflow: hidden; text-overflow: ellipsis; }
+
+/* WebKit's native text/date/select internals can overflow a correctly sized box.
+   Bound only each single-line control, preserving the form's layout diagnostics,
+   native editing/selection and the control's own external focus outline. */
+.baseline-dialog select,
+.baseline-dialog input:not([type=checkbox]):not([type=radio]) {
+ box-sizing: border-box;
+ contain: paint;
+}
