@@ -57,14 +57,18 @@ class FinancialDocumentExtractionJob < ApplicationJob
       end
 
       routing = FinancialDocuments::RoutingDecision.new(document_import, detected_kind: data[:document_kind]).call
+      accounting = data[:source_accounting]
+      accounting ||= FinancialDocuments::AccountingContract.legacy(Array(data[:transaction_drafts]), coverage: { expected_page_count: result.metadata[:page_count] })
+      source_result = FinancialDocuments::SourceAccountingPersister.new(document_import, attempt: attempt, accounting: accounting).call
+      typed_accounting = accounting[:contract_version] == FinancialDocuments::AccountingContract::VERSION
       document_import.document_kind = routing.resolved_kind
       document_import.items.where(applied_at: nil).delete_all
       Array(data[:items]).each do |item_attributes|
         document_import.items.create!(item_attributes.merge(selected: false))
       end
-      extracted_transaction_drafts = Array(data[:transaction_drafts])
+      extracted_transaction_drafts = typed_accounting ? source_result.fetch(:transaction_drafts) : Array(data[:transaction_drafts])
       draft_result = HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, extracted_transaction_drafts).call
-      if extracted_transaction_drafts.any? && draft_result.fetch(:created_count).zero? &&
+      if !typed_accounting && extracted_transaction_drafts.any? && draft_result.fetch(:created_count).zero? &&
           !document_import.items.where(applied_at: nil, ignored: false).exists?
         reason = draft_result.fetch(:warnings).first.presence || "No transaction could be safely validated."
         raise ArgumentError, "Mia found spending transactions, but none could be saved for review. #{reason}"
@@ -83,6 +87,10 @@ class FinancialDocumentExtractionJob < ApplicationJob
       end
 
       metadata = (document_import.metadata || {}).merge(
+        "source_accounting_revision_id" => source_result.fetch(:revision).id,
+        "source_accounting_contract_version" => accounting[:contract_version],
+        "source_accounting_review_pending" => typed_accounting,
+        "source_reconciliation" => source_result.fetch(:reconciliation),
         "confidence" => data[:confidence],
         "warnings" => warnings.first(FinancialDocuments::Extractor::MAX_WARNINGS),
         "extraction_model" => attempt.model,
@@ -108,7 +116,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
         document_date: data[:document_date],
         period_start_on: data[:period_start_on],
         period_end_on: data[:period_end_on],
-        extracted_summary: data[:summary],
+        extracted_summary: typed_accounting ? "Retained #{source_result.fetch(:events).length} source rows and proposed #{draft_result.fetch(:created_count)} expenses. Source coverage and classifications still require review." : data[:summary],
         extraction_error: nil,
         processed_at: Time.current,
         metadata: metadata

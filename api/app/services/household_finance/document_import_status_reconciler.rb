@@ -27,6 +27,8 @@ module HouseholdFinance
 
     def reconciled_status
       any_resolved = resolved_items? || ignored_items? || resolved_transaction_drafts? || ignored_transaction_drafts?
+      # Expense confirmation is not approval of all source rows or coverage.
+      return any_resolved ? "partially_applied" : "needs_review" if document_import.metadata.to_h["source_accounting_review_pending"] == true
       return any_resolved ? "partially_applied" : "needs_review" if actionable_items?
       return any_resolved ? "partially_applied" : "needs_review" if pending_transaction_drafts?
       return "applied" if any_resolved

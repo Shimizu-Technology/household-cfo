@@ -14,6 +14,7 @@ class FinancialDocumentImport < ApplicationRecord
   has_many :items, class_name: "FinancialDocumentImportItem", dependent: :destroy, inverse_of: :financial_document_import
   has_many :attempts, class_name: "FinancialDocumentImportAttempt", dependent: :destroy, inverse_of: :financial_document_import
   has_many :transaction_drafts, dependent: :destroy
+  has_many :financial_extraction_revisions, dependent: :nullify
 
   validates :document_kind, inclusion: { in: DOCUMENT_KINDS }
   validates :status, inclusion: { in: STATUSES }
@@ -25,7 +26,9 @@ class FinancialDocumentImport < ApplicationRecord
   validate :source_present_for_active_import
 
   scope :recent_first, -> { order(created_at: :desc, id: :desc) }
-  scope :pending_review, -> { where(status: "needs_review") }
+  scope :pending_review, -> {
+    where.not(status: %w[failed source_deleted]).where("status IN (?) OR metadata @> ?", %w[needs_review partially_applied], { source_accounting_review_pending: true }.to_json)
+  }
   scope :applied_recent_first, -> { where(status: %w[applied partially_applied]).order(Arel.sql("COALESCE(applied_at, updated_at) DESC"), id: :desc) }
 
   def image?

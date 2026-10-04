@@ -50,7 +50,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
 
     prompt = FinancialDocuments::Extractor.new(api_key: "test-key").send(:user_content, document_import, file.path).first.fetch(:text)
 
-    assert_equal "financial_document_extraction_v5", FinancialDocuments::Extractor::PROMPT_VERSION
+    assert_equal "financial_document_extraction_v6", FinancialDocuments::Extractor::PROMPT_VERSION
     assert_includes prompt, "Categorize each split from its own line items"
     assert_includes prompt, "never apply the merchant's usual category to every split"
     assert_includes prompt, "participant will choose the category during review"
@@ -291,7 +291,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_includes instruction, "My bank statement from the past month"
     assert_includes instruction, "infer it from the statement date"
     assert_includes instruction, "copyright years"
-    assert_includes instruction, "one transaction_draft per visible debit, withdrawal, or subtraction row"
+    assert_includes instruction, "EVERY visible transaction-table row in source_accounting"
   ensure
     file&.close!
   end

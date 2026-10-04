@@ -5,6 +5,7 @@ class TransactionDraft < ApplicationRecord
   belongs_to :household
   belongs_to :budget_category, optional: true
   belongs_to :financial_document_import, optional: true
+  belongs_to :financial_source_event, optional: true
   belongs_to :confirmed_transaction, class_name: "HouseholdTransaction", optional: true
   belongs_to :matched_transaction, class_name: "HouseholdTransaction", optional: true
 
@@ -35,6 +36,7 @@ class TransactionDraft < ApplicationRecord
     {
       budget_category: budget_category,
       financial_document_import: financial_document_import,
+      financial_source_event: financial_source_event,
       confirmed_transaction: confirmed_transaction,
       matched_transaction: matched_transaction
     }.each do |name, record|

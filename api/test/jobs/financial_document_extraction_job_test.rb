@@ -712,6 +712,40 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal "processing", @document_import.attempts.order(:id).last.status
   end
 
+  test "typed credit-only source remains unreviewed rather than becoming applied" do
+    accounting = FinancialDocuments::AccountingContract.normalize({
+      contract_version: FinancialDocuments::AccountingContract::VERSION,
+      accounts: [ { account_key: "synthetic", account_basis: "asset" } ],
+      events: [ { account_key: "synthetic", row_kind: "posted", event_type: "refund", signed_amount_cents: 500, posted_on: "2026-06-20", locator: { page: 1, row: 1 }, merchant: "Synthetic refund" } ]
+    }, coverage: { expected_page_count: 1, processed_pages: [ 1 ] })
+    result = FinancialDocuments::Extractor::Result.new(success: true, data: {
+      document_kind: "statement", source_accounting: accounting, items: [], transaction_drafts: [], warnings: [], summary: "Everything approved."
+    }, error: nil, metadata: {})
+
+    with_extractor_stub(fake_extractor(result)) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    assert_equal "needs_review", @document_import.reload.status
+    assert_nil @document_import.applied_at
+    assert_equal true, @document_import.metadata["source_accounting_review_pending"]
+    assert_equal 1, @document_import.financial_extraction_revisions.sole.financial_source_events.count
+    assert_empty @document_import.transaction_drafts
+    assert_empty @household.household_transactions
+    assert_includes @document_import.extracted_summary, "1 source rows"
+    assert_includes @document_import.extracted_summary, "still require review"
+  end
+
+  test "typed source data from a superseded extraction attempt does not persist a revision" do
+    accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: [], events: [] })
+    result = FinancialDocuments::Extractor::Result.new(success: true, data: { document_kind: "statement", source_accounting: accounting, items: [], transaction_drafts: [], warnings: [] }, error: nil, metadata: {})
+    extractor = fake_extractor(result, before_return: lambda {
+      @document_import.reload.attempts.create!(provider: "synthetic", model: "synthetic", status: "processing", prompt_version: "synthetic", schema_version: "synthetic", started_at: Time.current)
+    })
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    assert_empty @document_import.financial_extraction_revisions
+    assert_equal "processing", @document_import.reload.status
+  end
+
   private
 
   def fake_extractor(result, before_return: nil)

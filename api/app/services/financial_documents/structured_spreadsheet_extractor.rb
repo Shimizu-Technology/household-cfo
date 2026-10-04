@@ -12,6 +12,10 @@ module FinancialDocuments
       "merchant name" => "merchant",
       "transaction date" => "date",
       "posted date" => "date",
+      "authorized date" => "authorized_on",
+      "authorization date" => "authorized_on",
+      "account name" => "account",
+      "account type" => "account_basis",
       "occurred_on" => "date",
       "debit amount" => "debit",
       "withdrawal" => "debit",
@@ -82,10 +86,11 @@ module FinancialDocuments
       end
 
       items = extract_items(summary)
-      transaction_drafts = extract_transaction_drafts(summary)
+      source_accounting = extract_source_accounting(summary)
+      transaction_drafts = accounting_expense_projections(source_accounting)
       return failure("This spreadsheet has more than #{Extractor::MAX_ITEMS} budget/profile rows. Split it into smaller files so every value can be reviewed without silently truncating the file.") if items.length > Extractor::MAX_ITEMS
       return failure("This statement has more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} transaction rows. Split it into smaller date ranges so Mia can stage every transaction.") if transaction_drafts.length > HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS
-      return failure("No structured Household CFO rows found") if items.empty? && transaction_drafts.empty? && warnings.empty?
+      return failure("No structured Household CFO rows found") if items.empty? && transaction_drafts.empty? && warnings.empty? && source_accounting[:events].empty?
 
       success(
         document_kind: document_kind == "statement" ? "statement" : "spreadsheet",
@@ -97,7 +102,8 @@ module FinancialDocuments
         warnings: warnings.first(Extractor::MAX_WARNINGS),
         no_reviewable_transactions: items.empty? && transaction_drafts.empty?,
         items: items,
-        transaction_drafts: transaction_drafts
+        transaction_drafts: transaction_drafts,
+        source_accounting: source_accounting
       )
     rescue StandardError => e
       failure(e.message)
@@ -154,54 +160,94 @@ module FinancialDocuments
       aliased.gsub(/[^a-z0-9]+/, "_").gsub(/\A_|_\z/, "")
     end
 
-    def extract_transaction_drafts(summary)
-      Array(summary[:sheets]).flat_map do |sheet|
+    def extract_source_accounting(summary)
+      raw_accounts = []
+      raw_events = []
+      Array(summary[:sheets]).each_with_index do |sheet, fallback_index|
+        sheet_index = sheet[:sheet_index] || fallback_index
         rows = Array(sheet[:rows])
-        header_row = rows.find { |row| transaction_header?(row[:values]) }
-        next [] unless header_row
-
-        header_map = header_map_for(header_row[:values])
-        rows.drop_while { |row| row[:row] <= header_row[:row] }.filter_map do |row|
-          transaction_draft_from_row(row[:values], header_map, row_number: row[:row])
+        header = rows.find { |row| transaction_header?(row[:values]) }
+        next unless header
+        map = header_map_for(header[:values])
+        rows.drop_while { |row| row[:row] <= header[:row] }.each do |row|
+          values = row[:values]
+          key = cell(values, map, "account").to_s.presence || "sheet-#{sheet_index}"
+          basis = cell(values, map, "account_basis").to_s.downcase
+          raw_accounts << { account_key: key, account_basis: basis.in?(%w[asset liability]) ? basis : "unknown", label: "Spreadsheet account #{sheet_index + 1}" }
+          merchant = clean_text(cell(values, map, "merchant") || cell(values, map, "label"), max_length: 120)
+          notes = clean_text(cell(values, map, "notes"), max_length: 500)
+          category = clean_text(cell(values, map, "category"), max_length: 120)
+          amount, limitations = signed_row_amount(values, map)
+          kind = "posted"
+          kind = "informational" if [ merchant, notes ].compact.join(" ").match?(/returned\s+unpaid|total\s+(?:fees?|charges?)\s+(?:for|this)\s+(?:the\s+)?(?:statement\s+)?period/i)
+          type = source_event_type(values, map, merchant, amount)
+          limitations << "merchant_missing" if merchant.blank?
+          warnings << "Skipped #{merchant.presence || 'unlabeled row'} (row #{row[:row]}): conflicting debit and credit information makes its direction unclear." if limitations.include?("conflicting_debit_credit")
+          warnings << "Retained #{merchant.presence || 'unlabeled row'} (row #{row[:row]}): transaction direction is unclear; provide debit/credit direction before review." if limitations.include?("transaction_direction_unclear")
+          warnings << "Skipped incoming credit/deposit for #{merchant} (row #{row[:row]}); incoming money is not spending and is retained as a source event." if amount.to_i.positive?
+          raw_events << {
+            account_key: key, row_kind: kind, event_type: type,
+            signed_amount_cents: amount, amount_column_cents: amount&.abs,
+            posted_on: parsed_date(cell(values, map, "date")), authorized_on: parsed_date(cell(values, map, "authorized_on")),
+            source_posted_on: cell(values, map, "date"), source_authorized_on: cell(values, map, "authorized_on"), source_debit: cell(values, map, "debit"), source_credit: cell(values, map, "credit"), source_direction: cell(values, map, "direction") || cell(values, map, "type"),
+            locator: { sheet_index: sheet_index, row: row[:row] },
+            merchant: merchant, category_name: category, stack_key: expense_stack_key(normalized_token(category), category.presence || merchant),
+            raw_description: [ merchant, notes ].compact_blank.join(" — "), evidence: notes.presence || "Spreadsheet sheet #{sheet_index + 1}, row #{row[:row]}",
+            source_amount_text: cell(values, map, "amount") || cell(values, map, "debit") || cell(values, map, "credit"),
+            external_id: "sheet-#{sheet_index}-row-#{row[:row]}", limitations: limitations
+          }
         end
       end
+      contract = raw_events.any? ? AccountingContract::VERSION : AccountingContract::LEGACY_VERSION
+      AccountingContract.normalize({ contract_version: contract, accounts: raw_accounts, events: raw_events },
+        coverage: { expected_sheet_count: summary[:sheet_count], processed_sheets: (0...summary[:sheet_count].to_i).to_a })
     end
 
-    def transaction_draft_from_row(values, header_map, row_number:)
-      occurred_on = parsed_date(cell(values, header_map, "date"))
-      merchant = clean_text(cell(values, header_map, "merchant") || cell(values, header_map, "label"), max_length: 120)
-      return if occurred_on.blank? || merchant.blank?
+    def signed_row_amount(values, map)
+      debit = money_cents(cell(values, map, "debit"), negative_as_magnitude: true).to_i
+      credit = money_cents(cell(values, map, "credit"), negative_as_magnitude: true).to_i
+      explicit = normalized_token(cell(values, map, "direction") || cell(values, map, "type"))
+      direction = transaction_direction(values, map)
+      return [ nil, [ "conflicting_debit_credit" ] ] if debit.positive? && (credit.positive? || direction == :credit)
+      return [ nil, [ "conflicting_debit_credit" ] ] if credit.positive? && explicit.present? && direction == :debit
+      return [ -debit, [] ] if debit.positive?
+      return [ credit, [] ] if credit.positive?
 
-      amount_cents = transaction_amount_cents(values, header_map, merchant: merchant, row_number: row_number)
-      category = clean_text(cell(values, header_map, "category"), max_length: 120)
-      notes = clean_text(cell(values, header_map, "notes"), max_length: 500)
-      return if amount_cents.blank? || amount_cents <= 0
+      raw = cell(values, map, "amount")
+      magnitude = money_cents(raw, negative_as_magnitude: true)
+      return [ nil, [ "amount_missing_or_invalid" ] ] unless magnitude&.positive?
+      return [ magnitude, [] ] if direction == :credit
+      # A negative amount plus a spending category alone can be a refund
+      # reversal. Category is not a debit/credit sign convention.
+      negative = raw.to_s.strip.start_with?("-", "(")
+      return [ nil, [ "transaction_direction_unclear" ] ] if direction.nil? || (negative && explicit.blank?)
 
-      {
-        occurred_on: occurred_on,
-        merchant: merchant,
-        total_amount: HouseholdFinance::Money.dollars(amount_cents),
-        total_amount_cents: amount_cents,
-        source_type: document_kind == "statement" ? "statement" : "import",
-        category_name: category,
-        stack_key: expense_stack_key(normalized_token(category), category.presence || merchant),
-        confidence: STRUCTURED_TRANSACTION_CONFIDENCE,
-        evidence: notes.presence || "Spreadsheet row #{row_number}",
-        raw_description: [ merchant, notes ].compact_blank.join(" — "),
-        external_id: "row-#{row_number}",
-        warnings: [],
-        splits: [
-          {
-            category_name: category,
-            stack_key: expense_stack_key(normalized_token(category), category.presence || merchant),
-            amount: HouseholdFinance::Money.dollars(amount_cents),
-            amount_cents: amount_cents,
-            notes: notes,
-            confidence: STRUCTURED_TRANSACTION_CONFIDENCE,
-            row_number: row_number
-          }
-        ]
-      }
+      [ -magnitude, [] ]
+    end
+
+    def source_event_type(values, map, merchant, amount)
+      label = [ cell(values, map, "direction"), cell(values, map, "type"), cell(values, map, "category"), merchant ].compact.join(" ").downcase
+      return "debt_payment" if label.match?(/(?:credit card|card|loan|debt|visa|mastercard)\s+payment|payment\s+(?:to|for)\s+(?:card|loan|debt)/)
+      return "transfer" if label.match?(/transfer|wallet\s+funding|payment[_ ]sent/)
+      return "cash_withdrawal" if label.match?(/atm|cash\s+withdrawal/)
+      return "refund" if amount.to_i.positive? && label.match?(/refund|reimburse|reversal/)
+      return "interest" if label.match?(/interest/)
+      return "income" if amount.to_i.positive?
+      return "fee" if amount.to_i.negative? && label.match?(/fee|service charge/)
+      return "purchase" if amount.to_i.negative?
+
+      "unknown"
+    end
+
+    def accounting_expense_projections(accounting)
+      accounting[:events].select { |event| event[:row_kind] == "posted" && event[:event_type].in?(%w[purchase fee interest]) && event[:expense_amount_cents].to_i.positive? }.map do |event|
+        evidence = event[:evidence]
+        amount = event[:expense_amount_cents]
+        { occurred_on: event[:posted_on], merchant: evidence[:merchant], total_amount_cents: amount, total_amount: HouseholdFinance::Money.dollars(amount),
+          source_type: document_kind == "statement" ? "statement" : "import", category_name: evidence[:category_name], stack_key: evidence[:stack_key],
+          confidence: STRUCTURED_TRANSACTION_CONFIDENCE, evidence: evidence[:evidence], raw_description: evidence[:raw_description], external_id: evidence[:external_id], warnings: [],
+          splits: [ { amount_cents: amount, amount: HouseholdFinance::Money.dollars(amount), category_name: evidence[:category_name], stack_key: evidence[:stack_key], notes: evidence[:evidence], confidence: STRUCTURED_TRANSACTION_CONFIDENCE, row_number: event[:locator][:row] } ] }
+      end
     end
 
     def transaction_amount_cents(values, header_map, merchant:, row_number:)

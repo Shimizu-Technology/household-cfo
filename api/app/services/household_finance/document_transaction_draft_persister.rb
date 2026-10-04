@@ -12,8 +12,9 @@ module HouseholdFinance
       @document_import = document_import
       @household = document_import.household
       @transaction_drafts = Array(transaction_drafts)
-      if @transaction_drafts.length > MAX_DRAFTS
-        raise ArgumentError, "Document contains more than #{MAX_DRAFTS} transaction rows; split it into smaller date ranges before staging reviews."
+      limit = @transaction_drafts.all? { |draft| draft.is_a?(Hash) && draft[:financial_source_event_id].present? } ? FinancialDocuments::AccountingContract::MAX_EVENTS : MAX_DRAFTS
+      if @transaction_drafts.length > limit
+        raise ArgumentError, "Document contains more than #{limit} transaction rows; split it into smaller date ranges before staging reviews."
       end
       @category_suggester = TransactionCategorySuggester.new(household)
       @created_count = 0
@@ -36,12 +37,21 @@ module HouseholdFinance
     attr_reader :document_import, :household, :transaction_drafts, :category_suggester
 
     def remove_pending_import_drafts!
-      document_import.transaction_drafts.pending.find_each(&:destroy!)
+      document_import.transaction_drafts.pending.find_each do |draft|
+        # Keep source lineage and review history on re-extraction. Legacy
+        # unlinked pending drafts retain their existing replacement behavior.
+        draft.financial_source_event_id ? draft.update!(status: "ignored") : draft.destroy!
+      end
     end
 
     def persist_payload(payload, index:)
       draft_payload = payload.is_a?(Hash) ? payload.deep_symbolize_keys : {}
-      occurred_on = parsed_date(draft_payload[:occurred_on]) || document_import.document_date || document_import.period_end_on
+      source_event = draft_payload[:financial_source_event_id] && FinancialSourceEvent.find(draft_payload[:financial_source_event_id])
+      if source_event && (source_event.household_id != household.id || source_event.financial_extraction_revision.financial_document_import_id != document_import.id || !source_event.expense_projection_eligible?)
+        raise ArgumentError, "Source event is not an eligible expense from this household import."
+      end
+      occurred_on = parsed_date(draft_payload[:occurred_on])
+      occurred_on ||= document_import.document_date || document_import.period_end_on unless source_event
       unless occurred_on && AnnualBudgetManager.supported_year?(occurred_on.year)
         warnings << "Skipped transaction row #{index + 1}: transaction date is outside supported budget years."
         return
@@ -84,6 +94,7 @@ module HouseholdFinance
       ApplicationRecord.transaction(requires_new: true) do
         draft = document_import.transaction_drafts.create!(
           household: household,
+          financial_source_event_id: draft_payload[:financial_source_event_id],
           occurred_on: occurred_on,
           merchant: merchant,
           total_amount_cents: total_amount_cents,
@@ -165,6 +176,7 @@ module HouseholdFinance
     def sanitized_draft_payload(draft_payload, index:)
       {
         parser: "document_intelligence_v1",
+        financial_source_event_id: draft_payload[:financial_source_event_id],
         document_import_id: document_import.id,
         row_index: index,
         evidence: sanitized_text(draft_payload[:evidence], max_length: 500),

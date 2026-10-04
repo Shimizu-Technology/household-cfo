@@ -29,9 +29,9 @@ module FinancialDocuments
         filename: filename,
         sheet_count: sheet_names.length,
         sheet_limit_exceeded: sheet_limit_exceeded,
-        sheets: sheet_names.first(MAX_SHEETS).map do |sheet_name|
+        sheets: sheet_names.first(MAX_SHEETS).each_with_index.map do |sheet_name, sheet_index|
           spreadsheet.default_sheet = sheet_name
-          summarize_sheet(spreadsheet, sheet_name)
+          summarize_sheet(spreadsheet, sheet_name, sheet_index: sheet_index)
         end.compact,
         column_limit_exceeded: @column_limit_exceeded,
         scan_incomplete: @scan_incomplete || sheet_limit_exceeded
@@ -55,7 +55,7 @@ module FinancialDocuments
       end
     end
 
-    def summarize_sheet(spreadsheet, sheet_name)
+    def summarize_sheet(spreadsheet, sheet_name, sheet_index: 0)
       last_row = spreadsheet.last_row.to_i
       actual_last_column = spreadsheet.last_column.to_i
       return nil if last_row.zero? || actual_last_column.zero?
@@ -63,6 +63,7 @@ module FinancialDocuments
         @column_limit_exceeded = true
         return {
           name: clean_sheet_name(sheet_name),
+          sheet_index: sheet_index,
           row_count: last_row,
           sampled_row_count: 0,
           rows_truncated: false,
@@ -106,6 +107,7 @@ module FinancialDocuments
 
       {
         name: clean_sheet_name(sheet_name),
+        sheet_index: sheet_index,
         row_count: last_row,
         sampled_row_count: rows.length,
         rows_truncated: rows_truncated,

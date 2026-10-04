@@ -5,6 +5,7 @@ class HouseholdTransaction < ApplicationRecord
   belongs_to :household
   belongs_to :budget_period
   belongs_to :source_import, class_name: "FinancialDocumentImport", optional: true
+  belongs_to :financial_source_event, optional: true
   has_many :transaction_splits, dependent: :destroy
   has_many :budget_categories, through: :transaction_splits
   has_many :transaction_drafts, foreign_key: :confirmed_transaction_id, dependent: :nullify, inverse_of: :confirmed_transaction
@@ -30,5 +31,6 @@ class HouseholdTransaction < ApplicationRecord
   def associations_belong_to_household
     errors.add(:budget_period, "must belong to the transaction household") if budget_period && budget_period.budget_year&.household_id != household_id
     errors.add(:source_import, "must belong to the transaction household") if source_import && source_import.household_id != household_id
+    errors.add(:financial_source_event, "must belong to the transaction household") if financial_source_event && financial_source_event.household_id != household_id
   end
 end
