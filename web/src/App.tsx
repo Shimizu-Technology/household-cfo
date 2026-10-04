@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import './App.css'
 import { HomeScreen } from './components/HomeScreen'
 import { ActivityPreview } from './components/ActivityPreview'
@@ -32,6 +32,8 @@ import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/f
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import { guamTodayIso } from './lib/householdDate'
+import { workspaceViewReducer } from './lib/workspaceView'
+import { documentNeedsReview, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
   applyDocumentImport,
@@ -98,7 +100,6 @@ import type {
   AdminUserInput,
   AdminUserMutationResponse,
   AnnualBudgetPlan,
-  AppData,
   BrandConfig,
   BudgetCategoryMonth,
   BudgetCategoryRow,
@@ -473,7 +474,7 @@ function App() {
   const auth = useAuthContext()
   const publicBrand = useBrand()
   const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isClerkEnabled || Boolean(auth.currentUser))
-  const [data, setData] = useState<AppData | null>(null)
+  const [{ data, homeBudget, budgets }, setData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
   const [workspaceLoadAttempt, setWorkspaceLoadAttempt] = useState(0)
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupDraft | null>(null)
   const [isProfileEditing, setIsProfileEditing] = useState(false)
@@ -601,25 +602,27 @@ function App() {
   const activeSection = !visibleSections.includes(active) ? sections[0] : active
   const selectedImport = useMemo(() => {
     const explicitImport = selectedImportId ? documentImports.find((documentImport) => documentImport.id === selectedImportId) : null
-    return explicitImport ?? documentImports.find((documentImport) => documentImport.status === 'needs_review') ?? documentImports[0] ?? null
+    return explicitImport ?? documentImports.find(documentNeedsReview) ?? documentImports[0] ?? null
   }, [documentImports, selectedImportId])
   const pendingImportsCount = useMemo(
-    () => documentImports.filter((documentImport) => documentImport.status === 'needs_review').length,
+    () => documentImports.filter(documentNeedsReview).length,
     [documentImports],
   )
   const processingImportsCount = useMemo(
     () => documentImports.filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
     [documentImports],
   )
-  const pendingTransactionDrafts = data?.budget.annual_plan?.pending_transaction_drafts ?? []
+  const budgetForView = (budgetView ? budgets[budgetView.year] : null) ?? data?.budget
+  const reviewBudget = activeSection === 'Budget' ? budgetForView : homeBudget
+  const pendingTransactionDrafts = reviewBudget?.annual_plan?.pending_transaction_drafts ?? []
   const pendingPlaidDrafts = pendingTransactionDrafts.filter((draft) => draft.source_type === 'plaid')
   const plaidActivityRefreshKey = pendingPlaidDrafts
     .map((draft) => `${draft.id}:${draft.status}:${draft.category_id ?? 'none'}:${draft.category_name ?? ''}:${JSON.stringify(draft.splits ?? [])}`)
     .join('|')
-  const pendingMiaActionDrafts = data?.budget.annual_plan?.pending_mia_action_drafts ?? []
-  const activeBudgetPlan = data?.budget.annual_plan
-  const selectedBudgetYear = budgetView?.year ?? activeBudgetPlan?.year ?? new Date().getFullYear()
-  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, budgetView?.monthIndex ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
+  const pendingMiaActionDrafts = reviewBudget?.annual_plan?.pending_mia_action_drafts ?? []
+  const activeBudgetPlan = reviewBudget?.annual_plan
+  const selectedBudgetYear = (activeSection === 'Budget' ? budgetView?.year : null) ?? activeBudgetPlan?.year ?? new Date().getFullYear()
+  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, (activeSection === 'Budget' ? budgetView?.monthIndex : null) ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const selectedBudgetOutlookMonth = selectedBudgetMonth
     ? activeBudgetPlan?.annual_outlook.months.find((month) => month.period_id === selectedBudgetMonth.id) ?? null
@@ -2398,7 +2401,7 @@ function App() {
     const room = Math.max(MAX_CHAT_ATTACHMENTS - pendingMiaAttachments.length, 0)
     const accepted = acceptedFiles.slice(0, room).map(pendingMiaAttachment)
     if (firstRejection && !firstRejection.validation.valid) setMiaError(firstRejection.validation.message)
-    else if (acceptedFiles.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time.`)
+    else if (acceptedFiles.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time. Not added: ${acceptedFiles.slice(room).map((file) => file.name).join(', ')}. Send this batch, then attach the remaining files.`)
     else setMiaError(null)
 
     if (accepted.length > 0) setPendingMiaAttachments((current) => [...current, ...accepted])
@@ -2853,10 +2856,16 @@ function App() {
           {data.workspace.setup_complete && (
             <HomeScreen
               dashboard={data.dashboard}
-              budget={data.budget}
+              budget={homeBudget ?? data.budget}
               onAskMia={() => switchSection('Ask Mia')}
               onReviewTransactions={() => switchSection('Review')}
               onReviewMiaActions={() => switchSection('Ask Mia')}
+              pendingImportCount={pendingImportsCount}
+              onReviewImports={() => {
+                setSelectedImportId(documentImports.find(documentNeedsReview)?.id ?? null)
+                switchSection('My Profile')
+                requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+              }}
             />
           )}
         </>
@@ -2966,7 +2975,6 @@ function App() {
               {isFirstSessionSetup && (
                 <FirstSessionSetupProgress
                   status={data.workspace.setup_status}
-                  hasConversation={currentMessages.length > 0}
                   onStartChat={startChatFirstSession}
                   onShareAll={shareAllFirstSession}
                   onManual={startManualFirstSession}
@@ -3090,6 +3098,7 @@ function App() {
                 />
                 {pendingMiaAttachments.length > 0 && (
                   <div className="composer-attachment-workflow">
+                    <strong>{pendingMiaAttachments.length} file{pendingMiaAttachments.length === 1 ? '' : 's'} ready to send</strong>
                     <p>Tell {assistantName} what each file is, or describe it in your message. Your assistant will verify the type and route only draft results for your review.</p>
                     <p className="attachment-size-guidance">{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</p>
                     <PendingAttachmentTray
@@ -3392,12 +3401,12 @@ function App() {
         </section>
       )}
 
-      {activeSection === 'Budget' && (
+      {activeSection === 'Budget' && budgetForView && (
         <section className="screen-grid budget-screen">
           <ScreenHeading
             eyebrow="Budget"
             title="Know what came in, what went out, and what is left."
-            copy={data.budget.intro}
+            copy={budgetForView.intro}
           />
 
           <div className="budget-period-summary" key={selectedBudgetOutlookMonth?.period_id ?? 'current-baseline'}>
@@ -3409,18 +3418,18 @@ function App() {
               <p>{selectedBudgetOutlookMonth ? 'These headline figures follow the month selected in the annual plan below.' : 'These figures use the currently approved recurring household baseline.'}</p>
             </div>
             <div className="metric-row">
-              <Metric label="Income" value={currency.format(selectedBudgetOutlookMonth?.income ?? data.budget.monthly_income)} />
-              <Metric label="Planned outflow" value={debtMinimumsKnown ? currency.format(selectedBudgetOutlookMonth?.planned_outflow ?? data.budget.total_monthly_outflow) : 'Not available'} />
+              <Metric label="Income" value={currency.format(selectedBudgetOutlookMonth?.income ?? budgetForView.monthly_income)} />
+              <Metric label="Planned outflow" value={debtMinimumsKnown ? currency.format(selectedBudgetOutlookMonth?.planned_outflow ?? budgetForView.total_monthly_outflow) : 'Not available'} />
               <Metric
-                label={debtMinimumsKnown && (selectedBudgetOutlookMonth?.baseline_surplus ?? data.budget.baseline_surplus) < 0 ? 'Baseline shortfall' : 'Baseline surplus'}
-                value={debtMinimumsKnown ? currency.format(Math.abs(selectedBudgetOutlookMonth?.baseline_surplus ?? data.budget.baseline_surplus)) : 'Not available'}
+                label={debtMinimumsKnown && (selectedBudgetOutlookMonth?.baseline_surplus ?? budgetForView.baseline_surplus) < 0 ? 'Baseline shortfall' : 'Baseline surplus'}
+                value={debtMinimumsKnown ? currency.format(Math.abs(selectedBudgetOutlookMonth?.baseline_surplus ?? budgetForView.baseline_surplus)) : 'Not available'}
               />
             </div>
           </div>
 
-          {data.budget.annual_plan ? (
+          {budgetForView.annual_plan ? (
             <AnnualBudgetPlanner
-              plan={data.budget.annual_plan}
+              plan={budgetForView.annual_plan}
               isRealWorkspace={Boolean(isRealWorkspace)}
               action={budgetAction}
               error={budgetError}
@@ -3640,12 +3649,12 @@ function PendingAttachmentTray({
   onKindChange: (id: string, documentKind: DocumentImportKind) => void
 }) {
   return (
-    <div className="composer-attachment-tray" aria-label="Attachments waiting to send">
+    <div className="composer-attachment-tray" aria-label="Attachments waiting to send" tabIndex={0}>
       {attachments.map((attachment) => (
         <div className="composer-attachment-card" key={attachment.id}>
           <button type="button" className="attachment-preview-button" onClick={() => onPreview(attachment)}>
             {pendingAttachmentHasImagePreview(attachment) ? <img src={attachment.previewUrl} alt="" /> : <AttachmentIcon />}
-            <span>{attachmentDisplayName(attachment)}</span>
+            <span>{attachment.filename}</span>
           </button>
           <label className="attachment-kind-picker">
             <span className="sr-only">Document type for {attachment.filename}</span>
@@ -3657,7 +3666,7 @@ function PendingAttachmentTray({
               <option value="other">Supporting document</option>
             </select>
           </label>
-          <button type="button" className="attachment-remove-button" aria-label={`Remove ${attachmentDisplayName(attachment)}`} onClick={() => onRemove(attachment.id)}>
+          <button type="button" className="attachment-remove-button" aria-label={`Remove ${attachment.filename}`} onClick={() => onRemove(attachment.id)}>
             <CloseIcon />
           </button>
         </div>
@@ -3885,10 +3894,10 @@ function FirstSessionCard({ onChat, onShareAll, onManual, onUpload, onGuide }: {
   )
 }
 
-function FirstSessionSetupProgress({ status, hasConversation, onStartChat, onShareAll, onManual }: { status: WorkspaceSetupStatus; hasConversation: boolean; onStartChat: () => void; onShareAll: () => void; onManual: () => void }) {
+function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }: { status: WorkspaceSetupStatus; onStartChat: () => void; onShareAll: () => void; onManual: () => void }) {
   const { assistantName } = useBrand()
   const [showOptions, setShowOptions] = useState(false)
-  const optionsVisible = !hasConversation || showOptions
+  const optionsVisible = showOptions
   return (
     <section className="first-session-setup-progress" aria-labelledby="first-session-progress-title" aria-live="polite">
       <div className="first-session-progress-heading">
@@ -3899,7 +3908,7 @@ function FirstSessionSetupProgress({ status, hasConversation, onStartChat, onSha
         <span>{Math.round((status.completed_count / Math.max(status.required_count, 1)) * 100)}%</span>
       </div>
       <div className="first-session-progress-bar" aria-hidden="true"><span style={{ width: `${(status.completed_count / Math.max(status.required_count, 1)) * 100}%` }} /></div>
-      {hasConversation && <button type="button" className="first-session-options-toggle secondary-button" aria-expanded={optionsVisible} aria-controls="first-session-setup-options" onClick={() => setShowOptions((visible) => !visible)}>{optionsVisible ? 'Hide setup options' : 'Show setup options'}</button>}
+      <button type="button" className="first-session-options-toggle secondary-button" aria-expanded={optionsVisible} aria-controls="first-session-setup-options" onClick={() => setShowOptions((visible) => !visible)}>{optionsVisible ? 'Hide setup options' : 'Show setup options'}</button>
       {optionsVisible && <div id="first-session-setup-options" className="first-session-setup-options">
       <ul>
         {status.required_fields.map((field) => (
@@ -4258,7 +4267,7 @@ function DocumentImportWorkspace({
   onOpenSource: (documentImport: FinancialDocumentImport) => void
 }) {
   const { assistantName } = useBrand()
-  const pendingCount = imports.filter((documentImport) => documentImport.status === 'needs_review').length
+  const pendingCount = imports.filter(documentNeedsReview).length
   const latestApplied = latestAppliedImport(imports)
 
   if (!isRealWorkspace) {
@@ -4428,7 +4437,7 @@ function DocumentImportHistory({
   const filteredImports = useMemo(() => {
     const query = search.trim().toLowerCase()
     return imports
-      .filter((documentImport) => statusFilter === 'all' || documentImport.status === statusFilter)
+      .filter((documentImport) => statusFilter === 'all' || (statusFilter === 'needs_review' ? documentNeedsReview(documentImport) : documentImport.status === statusFilter))
       .filter((documentImport) => kindFilter === 'all' || documentImport.document_kind === kindFilter)
       .filter((documentImport) => {
         if (!query) return true
@@ -4446,8 +4455,8 @@ function DocumentImportHistory({
       .sort((left, right) => {
         if (sort === 'oldest') return importTimestamp(left) - importTimestamp(right) || left.id - right.id
         if (sort === 'needs_review') {
-          const leftRank = left.status === 'needs_review' ? 0 : PROCESSING_IMPORT_STATUSES.has(left.status) ? 1 : 2
-          const rightRank = right.status === 'needs_review' ? 0 : PROCESSING_IMPORT_STATUSES.has(right.status) ? 1 : 2
+          const leftRank = documentNeedsReview(left) ? 0 : PROCESSING_IMPORT_STATUSES.has(left.status) ? 1 : 2
+          const rightRank = documentNeedsReview(right) ? 0 : PROCESSING_IMPORT_STATUSES.has(right.status) ? 1 : 2
           return leftRank - rightRank || importTimestamp(right) - importTimestamp(left) || right.id - left.id
         }
         return importTimestamp(right) - importTimestamp(left) || right.id - left.id
@@ -4631,6 +4640,7 @@ function DocumentReviewPanel({
 
   const warnings = metadataWarnings(documentImport)
   const groupedItems = groupedImportItems(documentImport.items)
+  const coverage = transactionReviewCoverage(documentImport)
   const selectedCount = selectedApplyItemIds(documentImport).length
   const reviewable = REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
   const processing = PROCESSING_IMPORT_STATUSES.has(documentImport.status)
@@ -4715,8 +4725,9 @@ function DocumentReviewPanel({
         <section className="document-transaction-drafts" aria-label="Extracted transaction drafts">
           <div className="document-item-group-heading">
             <h5>Transaction drafts</h5>
-            <span>{(documentImport.transaction_drafts ?? []).length} proposed row{(documentImport.transaction_drafts ?? []).length === 1 ? '' : 's'}</span>
+            <span>{coverage.total} proposed row{coverage.total === 1 ? '' : 's'}</span>
           </div>
+          <p className="document-review-coverage" role="status">{coverage.pending} transaction review{coverage.pending === 1 ? '' : 's'} remaining · {coverage.resolved} resolved. {coverage.pending > 0 ? 'This source still needs review; pending rows do not change actuals.' : 'All transaction rows have a review decision.'}</p>
           <TransactionDraftReviewStack
             drafts={documentImport.transaction_drafts ?? []}
             isRealWorkspace
@@ -5283,7 +5294,7 @@ function attachmentDisplayName(attachment: PendingMiaAttachment) {
   if (attachment.document_kind === 'statement' && attachment.content_type.startsWith('image/')) return 'Statement screenshot'
   if (attachment.content_type.startsWith('image/')) return 'Screenshot'
 
-  return documentKindLabel(attachment.document_kind)
+  return attachment.filename
 }
 
 function documentImportDisplayName(documentImport: FinancialDocumentImport) {
