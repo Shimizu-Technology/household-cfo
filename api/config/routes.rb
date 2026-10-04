@@ -4,6 +4,7 @@ Rails.application.routes.draw do
       resource :brand, only: :show
     end
     namespace :v1 do
+      get "participant_programs", to: "participant_programs#index"
       get "savings_challenge/debt", to: "savings_debt#show"
       get "savings_challenge/debt/records", to: "savings_debt#records"
       get "savings_challenge/debt/source_candidates", to: "savings_debt#source_candidates"
