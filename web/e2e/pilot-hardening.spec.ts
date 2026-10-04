@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import type { BrandConfig, CoachWorkspaceSettings, WorkspaceBrandConfiguration, WorkspaceBrandVersion, WorkspaceCollaborator } from '../src/api'
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const currentMonth = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date())
@@ -1494,18 +1495,21 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await expect(page.locator('.cohort-release-evidence').first().getByText('9', { exact: true })).toBeVisible()
 
   const tabs = page.locator('.coach-studio-section-tabs [role="tab"]')
-  expect(await tabs.count()).toBe(4)
+  await expect(tabs).toHaveCount(6)
   await page.evaluate(async () => {
     await document.fonts.ready
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
   })
-  const tabBoxes = await Promise.all(Array.from({ length: 4 }, (_, index) => tabs.nth(index).boundingBox()))
+  const tabBoxes = await Promise.all(Array.from({ length: 6 }, (_, index) => tabs.nth(index).boundingBox()))
   if (testInfo.project.name.includes('mobile')) {
-    expect(tabBoxes[0]?.y).toBeCloseTo(tabBoxes[1]?.y ?? 0, 0)
-    expect(tabBoxes[2]?.y).toBeCloseTo(tabBoxes[3]?.y ?? 0, 0)
-    expect((tabBoxes[2]?.y ?? 0) > (tabBoxes[0]?.y ?? 0)).toBe(true)
+    for (const first of [0, 2, 4]) expect(tabBoxes[first]?.y).toBeCloseTo(tabBoxes[first + 1]?.y ?? 0, 0)
+    expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(3)
   } else if (testInfo.project.name === 'desktop-chrome') {
-    expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(1)
+    for (const first of [0, 3]) {
+      expect(tabBoxes[first]?.y).toBeCloseTo(tabBoxes[first + 1]?.y ?? 0, 0)
+      expect(tabBoxes[first]?.y).toBeCloseTo(tabBoxes[first + 2]?.y ?? 0, 0)
+    }
+    expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(2)
   }
 
   const sealButton = page.getByRole('button', { name: 'Review and seal record' })
@@ -5958,6 +5962,10 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
   await expect(libraryTab).toBeFocused()
   await expect(libraryTab).toHaveAttribute('aria-selected', 'true')
   await libraryTab.press('Home')
+  const settingsTab = page.getByRole('tab', { name: /Program settings/ })
+  await expect(settingsTab).toBeFocused()
+  await expect(settingsTab).toHaveAttribute('aria-selected', 'true')
+  await settingsTab.press('ArrowRight')
   await expect(assistantTab).toBeFocused()
   await expect(assistantTab).toHaveAttribute('aria-selected', 'true')
   const sourceCheckbox = page.getByLabel(/Mrs. Mel Guam context/)
@@ -7508,4 +7516,286 @@ test('Coach Studio first launch requires impact review and stays usable on phone
   expect(launchRequests).toBe(1)
   await expect(card.getByRole('button', { name: 'Launch cohort now' })).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+// These mocks exercise client state and exact mutation contracts. Server-side
+// tenant, owner, account, and release authority remain covered by Rails tests.
+async function mockProgramSettings(page: Page) {
+  let revision = 1
+  let draft = structuredClone(legacyBrandConfig) as BrandConfig
+  let preview: WorkspaceBrandConfiguration['preview'] = null
+  const oldVersion: WorkspaceBrandVersion = { id: 12, number: 1, digest: 'old-brand', published_at: '2026-10-01T00:00:00Z', published_by: { id: 902, full_name: 'Mrs. Mel' }, config: structuredClone(draft) }
+  let published = oldVersion
+  const versions = [oldVersion]
+  let identity: CoachWorkspaceSettings = { id: 1, name: 'Mrs. Mel coaching workspace', slug: 'mrs-mel', membership_role: 'owner', coach_profile: { display_name: 'Mrs. Mel', title: 'Financial coach', bio: '' }, revision: 1, permissions: { manage: true } }
+  const mutations: Array<{ method: string; path: string; workspace: string }> = []
+  const configuration = (workspaceId = 1): WorkspaceBrandConfiguration => ({
+    workspace: { id: workspaceId, name: workspaceId === 1 ? identity.name : 'Partner coaching workspace', slug: workspaceId === 1 ? 'mrs-mel' : 'partner' },
+    draft, draft_revision: revision, preview_required: preview === null, preview,
+    published_version: published, versions,
+    permissions: { edit: workspaceId === 1, preview: true, publish: true, rollback: true },
+  })
+  await page.route(/http:\/\/api\.test\/api\/v1\/admin\/coach_workspaces\/[12]$/, async (route) => {
+    const workspaceId = Number(route.request().headers()['x-coach-workspace-id'])
+    if (route.request().method() === 'PATCH') {
+      expect(workspaceId).toBe(1)
+      const input = route.request().postDataJSON().coach_workspace
+      expect(input.revision).toBe(identity.revision)
+      identity = { ...identity, ...input, revision: identity.revision + 1 }
+      mutations.push({ method: 'PATCH', path: new URL(route.request().url()).pathname, workspace: '1' })
+    }
+    return route.fulfill({ status: 200, json: { coach_workspace: workspaceId === 2 ? { ...identity, id: 2, name: 'Partner coaching workspace', membership_role: 'reviewer', permissions: { manage: false } } : identity } })
+  })
+  await page.route(/http:\/\/api\.test\/api\/v1\/admin\/brand(?:\/.*)?$/, async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    const workspaceId = Number(request.headers()['x-coach-workspace-id'])
+    if (request.method() !== 'GET') {
+      mutations.push({ method: request.method(), path, workspace: String(workspaceId) })
+      if (!path.endsWith('/preview')) expect(workspaceId).toBe(1)
+    }
+    if (path === '/api/v1/admin/brand' && request.method() === 'PATCH') {
+      const input = request.postDataJSON().brand_configuration
+      expect(input.draft_revision).toBe(revision)
+      draft = input.draft_config
+      revision += 1
+      preview = null
+    }
+    if (path.endsWith('/preview')) {
+      expect(request.postDataJSON().brand_configuration.draft_revision).toBe(revision)
+      preview = { digest: `saved-brand-${revision}`, draft_revision: revision, generated_at: '2026-10-04T00:00:00Z' }
+      return route.fulfill({ status: 200, json: { brand_configuration: configuration(workspaceId), preview: { ...preview, brand: draft } } })
+    }
+    if (path.endsWith('/publish') || path.endsWith('/rollback')) {
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      const input = request.postDataJSON().brand_configuration
+      expect(input.expected_published_version_id).toBe(published.id)
+      expect(input.draft_revision).toBe(revision)
+      if (path.endsWith('/publish')) expect(input.preview_digest).toBe(preview?.digest)
+      else { draft = structuredClone(oldVersion.config!); revision += 1; preview = null }
+      published = { id: published.id + 1, number: published.number + 1, digest: `version-${published.id + 1}`, published_at: '2026-10-04T01:00:00Z', published_by: { id: 902, full_name: 'Mrs. Mel' }, config: structuredClone(draft), ...(path.endsWith('/rollback') ? { restored_from_version: { id: oldVersion.id, number: oldVersion.number } } : {}) }
+      versions.unshift(published)
+      return route.fulfill({ status: 200, json: { brand_configuration: configuration(), published_version: published } })
+    }
+    return route.fulfill({ status: 200, json: { brand_configuration: configuration(workspaceId) } })
+  })
+  return { mutations }
+}
+
+async function mockProgramTeam(page: Page) {
+  let members: WorkspaceCollaborator[] = [
+    { id: 11, user_id: 902, email: 'coach@pilot.test', full_name: 'Mrs. Mel', role: 'owner', status: 'accepted', is_self: true, platform_admin: false, cohort_managed: false },
+    { id: 12, user_id: 950, email: 'viewer@example.test', full_name: 'Viewer Teammate', role: 'viewer', status: 'accepted', is_self: false, platform_admin: false, cohort_managed: false },
+  ]
+  const writes: Array<{ path: string; method: string; body: unknown }> = []
+  await page.route(/http:\/\/api\.test\/api\/v1\/admin\/collaborators(?:\/.*)?$/, async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.headers()['x-coach-workspace-id'] === '2') return route.fulfill({ status: 404, json: { error: 'Team access unavailable' } })
+    expect(request.headers()['x-coach-workspace-id']).toBe('1')
+    if (request.method() !== 'GET') writes.push({ path, method: request.method(), body: request.postDataJSON() })
+    if (request.method() === 'PATCH') {
+      const input = request.postDataJSON().collaborator
+      const member = members.find((item) => path.endsWith(`/${item.id}`))!
+      expect(input.expected_role).toBe(member.role)
+      member.role = input.role
+      return route.fulfill({ status: 200, json: { member } })
+    }
+    if (request.method() === 'DELETE') {
+      const member = members.find((item) => path.endsWith(`/${item.id}`))!
+      expect(request.postDataJSON().collaborator.expected_role).toBe(member.role)
+      members = members.filter((item) => item.id !== member.id)
+      return route.fulfill({ status: 200, json: { removed: true, platform_admin: false } })
+    }
+    if (request.method() === 'POST') {
+      const input = request.postDataJSON().collaborator
+      expect(input.role).toBe('viewer')
+      const member: WorkspaceCollaborator = { id: 13, user_id: 951, email: input.email, full_name: 'New Collaborator', role: input.role, status: 'pending', is_self: false, platform_admin: false, cohort_managed: false }
+      members.push(member)
+      return route.fulfill({ status: 201, json: { member, added: true, new_user: true, delivery: { sent: false, status: 'failed', provider_message_id: null }, sign_in_url: 'https://example.test/sign-in' } })
+    }
+    return route.fulfill({ status: 200, json: { workspace_id: 1, permissions: { manage: true }, members, sign_in_url: 'https://example.test/sign-in' } })
+  })
+  return { writes }
+}
+
+async function assertProgramFits(page: Page) {
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+}
+
+async function openOwnerProgram(page: Page, tab: RegExp) {
+  await page.addInitScript(() => window.localStorage.setItem('household-cfo:coach-workspace-id', '1'))
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await page.getByRole('tab', { name: tab }).click()
+}
+
+test('Coach Studio program settings preserve draft review before exact brand publication and restoration', async ({ page }) => {
+  const { mutations } = await mockProgramSettings(page)
+  await mockProgramTeam(page)
+  await openOwnerProgram(page, /Program settings/)
+  await page.getByLabel('Workspace name', { exact: true }).fill('Island coaching community')
+  await page.getByLabel('Coach display name', { exact: true }).fill('Mrs. Mel Mendiola')
+  await page.getByRole('button', { name: 'Save program identity' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Program identity saved' })).toBeVisible()
+  await page.getByLabel('App name', { exact: true }).fill('Mel Island Money')
+  await page.getByLabel('Short name', { exact: true }).fill('Mel Island Money')
+  await page.getByLabel('Support label', { exact: true }).fill('AskTheMelCoachingTeamForHelpWithYourProgramSeatOrWorkspaceQuestionsAnytimeNow')
+  await expect(page.getByRole('button', { name: 'Preview welcome screen' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Publish branding' })).toBeDisabled()
+  page.once('dialog', (dialog) => dialog.dismiss())
+  await page.getByRole('tab', { name: /Groups & participants/ }).click()
+  await expect(page.getByLabel('App name', { exact: true })).toHaveValue('Mel Island Money')
+  await page.getByRole('button', { name: 'Save brand draft' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Brand draft saved' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Publish branding' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Preview welcome screen' }).click()
+  await expect(page.getByRole('heading', { name: 'Welcome screen preview' })).toBeVisible()
+  await expect(page.locator('.program-preview')).toContainText('Mel Island Money')
+  await assertProgramFits(page)
+  page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('Participants on a sealed release keep its brand'); await dialog.accept() })
+  await page.getByRole('button', { name: 'Publish branding' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Brand version 2 published' })).toBeVisible()
+  await page.getByText('Brand version history (2)', { exact: true }).click()
+  page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('Restore brand version 1 as a new published version'); await dialog.accept() })
+  await page.getByRole('button', { name: 'Restore as new version' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Brand version 1 restored as version 3' })).toBeVisible()
+  await expect(page.getByLabel('App name', { exact: true })).toHaveValue('Household CFO')
+  expect(mutations.map((mutation) => mutation.path)).toEqual(['/api/v1/admin/coach_workspaces/1', '/api/v1/admin/brand', '/api/v1/admin/brand/preview', '/api/v1/admin/brand/publish', '/api/v1/admin/brand/versions/12/rollback'])
+  await assertProgramFits(page)
+})
+
+test('Coach Studio program collaborator controls protect owner access and report failed access email honestly', async ({ page }) => {
+  await mockProgramSettings(page)
+  const { writes } = await mockProgramTeam(page)
+  await openOwnerProgram(page, /Program settings/)
+  const team = page.locator('.workspace-collaborators')
+  const owner = team.getByRole('region', { name: 'coach@pilot.test team access' })
+  const ownerCard = team.locator('.workspace-collaborator').filter({ hasText: 'coach@pilot.test' })
+  await expect(ownerCard.getByLabel('Role for coach@pilot.test')).toBeDisabled()
+  await expect(ownerCard.getByRole('button', { name: 'Remove', exact: true })).toBeDisabled()
+  await expect(owner).toHaveCount(1)
+  const viewer = team.locator('.workspace-collaborator').filter({ hasText: 'viewer@example.test' })
+  await viewer.getByLabel('Role for viewer@example.test').selectOption('editor')
+  page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('from viewer to editor'); await dialog.accept() })
+  await viewer.getByRole('button', { name: 'Save role', exact: true }).click()
+  await expect(team.getByRole('status')).toContainText('as editor')
+  await team.getByLabel('Collaborator email').fill('new-coach@example.test')
+  await team.getByRole('button', { name: 'Add collaborator', exact: true }).click()
+  await expect(team.getByRole('status')).toContainText('Access was saved, but the email could not be confirmed')
+  await expect(team.getByRole('status')).not.toContainText('provider accepted')
+  await expect(team.getByLabel('Access role')).not.toContainText('Admin')
+  page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('participant enrollments and access to other programs will stay intact'); await dialog.accept() })
+  await viewer.getByRole('button', { name: 'Remove', exact: true }).click()
+  await expect(viewer).toHaveCount(0)
+  expect(writes.map((write) => write.method)).toEqual(['PATCH', 'POST', 'DELETE'])
+  await assertProgramFits(page)
+})
+
+test('Coach Studio program reviewer cannot edit identity or access participants and collaborators', async ({ page }) => {
+  await mockProgramSettings(page)
+  const { writes } = await mockProgramTeam(page)
+  let rosterRequests = 0
+  await page.route('http://api.test/api/v1/admin/users', (route) => { rosterRequests += 1; return route.fulfill({ status: 403, json: { error: 'Owner access required' } }) })
+  await openOwnerProgram(page, /Program settings/)
+  await expect(page.getByLabel('Workspace name', { exact: true })).toBeEnabled()
+  await page.getByLabel('Coach workspace').selectOption('2')
+  await expect(page.getByLabel('Workspace name', { exact: true })).toBeDisabled()
+  await expect(page.getByLabel('App name', { exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Preview welcome screen' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Preview welcome screen' }).click()
+  await expect(page.getByRole('heading', { name: 'Welcome screen preview' })).toBeVisible()
+  await expect(page.getByLabel('Collaborator email')).toHaveCount(0)
+  await expect(page.getByText('Workspace owners and platform administrators manage collaborators.')).toBeVisible()
+  await page.getByRole('tab', { name: /Groups & participants/ }).click()
+  await expect(page.getByText(/Your collaborator role does not include roster access/)).toBeVisible()
+  expect(rosterRequests).toBe(0)
+  expect(writes).toEqual([])
+  await assertProgramFits(page)
+})
+
+test('Coach Studio program groups add participants without mistaking failed email for delivery and remove one enrollment', async ({ page }) => {
+  let groups = [structuredClone(pilotCohort)]
+  let users = [{ ...structuredClone(pilotAdminUser), can_resend_invitation: false }]
+  const writes: string[] = []
+  let removedMembership = false
+  await page.route(/http:\/\/api\.test\/api\/v1\/admin\/cohorts(?:\/\d+)?$/, async (route) => {
+    const request = route.request()
+    expect(request.headers()['x-coach-workspace-id']).toBe('1')
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'POST') {
+      const input = request.postDataJSON().cohort
+      expect(input).toEqual({ name: 'Island weekend group', status: 'enrolling' })
+      const group = { ...structuredClone(pilotCohort), ...input, id: 42, participant_count: 0, updated_at: '2026-10-04T00:00:00.000001Z' }
+      groups = [...groups, group]
+      writes.push(path)
+      return route.fulfill({ status: 201, json: { cohort: group } })
+    }
+    if (request.method() === 'PATCH') {
+      const input = request.postDataJSON().cohort
+      const group = groups.find((item) => path.endsWith(`/${item.id}`))!
+      expect(input.expected_updated_at).toBe(group.updated_at)
+      Object.assign(group, input, { updated_at: '2026-10-04T00:00:00.000002Z' })
+      writes.push(path)
+      return route.fulfill({ status: 200, json: { cohort: group } })
+    }
+    return route.fulfill({ status: 200, json: { cohorts: groups } })
+  })
+  await page.route('http://api.test/api/v1/admin/users', (route) => {
+    const request = route.request()
+    expect(request.headers()['x-coach-workspace-id']).toBe('1')
+    if (request.method() === 'POST') {
+      const input = request.postDataJSON().user
+      expect(input).toEqual({ email: 'new-participant@example.test', role: 'participant', cohort_id: 42, send_invitation_email: true })
+      const participant = { ...structuredClone(pilotAdminUser), id: 903, email: input.email, full_name: 'New Participant', invitation_status: 'pending', can_resend_invitation: true, cohorts: [{ id: 77, role: 'participant', cohort: { id: 42, name: 'Island weekend group revised', status: 'enrolling' } }] }
+      users = [...users, participant]
+      groups[1].participant_count = 1
+      writes.push('/api/v1/admin/users')
+      return route.fulfill({ status: 201, json: { user: participant, invitation_sent: false, invitation_status: 'failed', invitation_error: 'Delivery unavailable.' } })
+    }
+    return route.fulfill({ status: 200, json: { users } })
+  })
+  await page.route('http://api.test/api/v1/admin/users/903/resend_invitation', (route) => {
+    writes.push('/api/v1/admin/users/903/resend_invitation')
+    return route.fulfill({ status: 200, json: { user: users.find((item) => item.id === 903), invitation_sent: true, invitation_status: 'sent', invitation_error: null } })
+  })
+  await page.route('http://api.test/api/v1/admin/cohorts/42/participants/903', (route) => {
+    expect(route.request().method()).toBe('DELETE')
+    expect(route.request().headers()['content-type']).toBe('application/json')
+    expect(route.request().headers()['x-coach-workspace-id']).toBe('1')
+    expect(route.request().postDataJSON()).toEqual({ expected_membership_id: 77 })
+    writes.push('/api/v1/admin/cohorts/42/participants/903')
+    expect(users.find((item) => item.id === 903)!.invitation_status).toBe('pending')
+    users = users.filter((item) => item.id !== 903)
+    groups[1].participant_count = 0
+    removedMembership = true
+    return route.fulfill({ status: 200, json: { removed: true, cohort_id: 42 } })
+  })
+  await openOwnerProgram(page, /Groups & participants/)
+  await page.getByRole('button', { name: 'New group', exact: true }).click()
+  const createForm = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Create a group', exact: true }) })
+  await createForm.getByLabel('Group name', { exact: true }).fill('Island weekend group')
+  await createForm.getByRole('button', { name: 'Create group', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Group created' })).toBeVisible()
+  await page.getByLabel('Group name', { exact: true }).fill('Island weekend group revised')
+  await page.getByRole('button', { name: 'Save group', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Group saved' })).toBeVisible()
+  await page.getByLabel('Participant email', { exact: true }).fill('new-participant@example.test')
+  await page.getByRole('button', { name: 'Add to Island weekend group revised', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Participant added, but the invitation email failed' })).toBeVisible()
+  const card = page.locator('.coach-participants-list li').filter({ hasText: 'new-participant@example.test' })
+  await expect(card).toContainText('Invitation pending')
+  await card.getByRole('button', { name: 'Resend invitation', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Invitation email sent.' })).toBeVisible()
+  await card.getByRole('button', { name: 'Cancel enrollment', exact: true }).click()
+  await expect(card).toContainText('Their account and other group memberships stay available')
+  expect(removedMembership).toBe(false)
+  await card.getByRole('button', { name: 'Keep participant', exact: true }).click()
+  expect(removedMembership).toBe(false)
+  await card.getByRole('button', { name: 'Cancel enrollment', exact: true }).click()
+  await card.getByRole('button', { name: 'Confirm removal', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Enrollment removed from this group' })).toBeVisible()
+  await expect(card).toHaveCount(0)
+  expect(removedMembership).toBe(true)
+  expect(writes).toEqual(['/api/v1/admin/cohorts', '/api/v1/admin/cohorts/42', '/api/v1/admin/users', '/api/v1/admin/users/903/resend_invitation', '/api/v1/admin/cohorts/42/participants/903'])
+  await assertProgramFits(page)
 })
