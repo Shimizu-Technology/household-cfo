@@ -1,0 +1,16 @@
+.workspace-collaborators { display: grid; gap: 18px; min-width: 0; }
+.workspace-collaborators header p { margin-bottom: 0; }
+.workspace-collaborator-form { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.workspace-collaborators label { display: grid; gap: 6px; min-width: 0; font-weight: 700; }
+.workspace-collaborators input:not([type="checkbox"]), .workspace-collaborators select { width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); }
+.workspace-collaborators .workspace-collaborator-email { display: flex; gap: 10px; align-items: center; min-height: 44px; }
+.workspace-collaborator-email input { width: 20px; height: 20px; }
+.workspace-collaborator-help, .workspace-collaborators small { color: var(--muted); font-size: .85rem; font-weight: 500; margin: 0; }
+.workspace-collaborator-help a { color: var(--emerald); }
+.workspace-collaborator-list { display: grid; gap: 14px; }
+.workspace-collaborator { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; min-width: 0; }
+.workspace-collaborator > div:first-child { display: grid; gap: 4px; }
+.workspace-collaborators span, .workspace-collaborators strong, .workspace-collaborators small, .workspace-collaborator-help a { overflow-wrap: anywhere; }
+.workspace-collaborator-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.workspace-collaborator-actions .button { min-height: 44px; }
+@media (max-width: 600px) { .workspace-collaborator-form { grid-template-columns: minmax(0, 1fr); } .workspace-collaborator-actions .button { flex: 1 1 130px; } }

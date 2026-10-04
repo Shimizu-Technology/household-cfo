@@ -106,6 +106,9 @@ Rails.application.routes.draw do
       resources :pilot_feedback_reports, only: :create
       namespace :admin do
         resources :coach_workspaces, only: %i[show create update]
+        resources :collaborators, controller: "workspace_collaborators", only: %i[index create update destroy] do
+          post :send_invitation, on: :member
+        end
         resource :brand, controller: "workspace_brand_configurations", only: %i[show update] do
           post :preview
           post :publish

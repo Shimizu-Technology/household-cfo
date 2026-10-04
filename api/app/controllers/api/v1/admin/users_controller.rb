@@ -74,6 +74,7 @@ module Api
 
           admin_guard_error = nil
           workspace_guard_error = nil
+          owner_guard_error = nil
           apply_update = lambda do |compatibility_cohort_ids, locked_admin_ids|
             role = attributes[:role].presence || user.role
             normalized_status = normalized_invitation_status(user, attributes[:invitation_status])
@@ -87,6 +88,9 @@ module Api
               raise ActiveRecord::Rollback if admin_guard_error
             end
 
+            owner_guard_error = owner_access_change_error(user, role: role, invitation_status: normalized_status)
+            raise ActiveRecord::Rollback if owner_guard_error
+
             update_attributes = {
               role: role,
               invitation_status: normalized_status
@@ -96,6 +100,14 @@ module Api
             user.assign_attributes(update_attributes)
             user.invited_at ||= Time.current if user.invitation_status == "pending"
             user.save!
+
+            if user.participant?
+              user.coach_workspace_memberships.find_each do |workspace_membership|
+                CoachWorkspaceMembershipEvent.create!(coach_workspace_id: workspace_membership.coach_workspace_id,
+                  actor_user: current_user, subject_user: user, event_type: "removed", before_role: workspace_membership.role)
+                workspace_membership.destroy!
+              end
+            end
 
             if membership_params_present
               sync_cohort_memberships_for_request(
@@ -122,12 +134,8 @@ module Api
               &apply_update
             )
           else
-            User.transaction do
-              lock_cohorts!(cohort_ids)
-              locked_admin_ids = requested_admin_access_removal?(attributes) ? locked_active_admin_ids : nil
-              user.lock!
-              apply_update.call(cohort_ids, locked_admin_ids)
-            end
+            before_user_lock = -> { requested_admin_access_removal?(attributes) ? locked_active_admin_ids : nil }
+            with_stable_membership_locks(user, target_cohort_ids: -> { cohort_ids }, before_user_lock: before_user_lock, &apply_update)
           end
 
           if admin_guard_error
@@ -135,6 +143,9 @@ module Api
             return
           end
           return render_forbidden(workspace_guard_error) if workspace_guard_error
+          if owner_guard_error
+            return render json: { errors: [ owner_guard_error ], code: "workspace_owner_handover_required" }, status: :unprocessable_entity
+          end
 
           render json: { user: serialize_user(user.reload) }
         rescue ActiveRecord::RecordInvalid => e
@@ -519,18 +530,23 @@ module Api
 
         def with_stable_membership_locks(user, target_cohort_ids:, before_user_lock: nil)
           locked_cohort_ids = target_cohort_ids.call
+          locked_workspace_ids = membership_workspace_ids(user)
 
           loop do
             retry_cohort_ids = nil
+            retry_workspace_ids = nil
             begin
               User.transaction do
                 lock_cohorts!(locked_cohort_ids)
+                CoachWorkspace.where(id: locked_workspace_ids).order(:id).lock.load
                 lock_context = before_user_lock&.call
                 user.lock!
                 current_target_cohort_ids = target_cohort_ids.call
+                current_workspace_ids = membership_workspace_ids(user)
 
-                if current_target_cohort_ids.sort != locked_cohort_ids.sort
+                if current_target_cohort_ids.sort != locked_cohort_ids.sort || current_workspace_ids != locked_workspace_ids
                   retry_cohort_ids = current_target_cohort_ids
+                  retry_workspace_ids = current_workspace_ids
                   raise InvitationMembershipLockSetChanged
                 end
 
@@ -539,8 +555,24 @@ module Api
               return
             rescue InvitationMembershipLockSetChanged
               locked_cohort_ids = retry_cohort_ids
+              locked_workspace_ids = retry_workspace_ids
             end
           end
+        end
+
+        def membership_workspace_ids(user)
+          CoachWorkspaceMembership.where(user_id: user.id).order(:coach_workspace_id).pluck(:coach_workspace_id)
+        end
+
+        def owner_access_change_error(user, role:, invitation_status:)
+          return unless user.invitation_accepted? && (!role.in?(%w[coach admin]) || invitation_status != "accepted")
+
+          CoachWorkspaceMembership.where(user_id: user.id, role: "owner").order(:coach_workspace_id).pluck(:coach_workspace_id).each do |workspace_id|
+            available_owner = CoachWorkspaceMembership.joins(:user).where(coach_workspace_id: workspace_id, role: "owner", users: { role: %w[coach admin], invitation_status: "accepted" })
+              .where.not(user_id: user.id).where.not("users.clerk_id LIKE ?", "pending_%").exists?
+            return "Assign another active owner in every owned workspace before changing this account's access." unless available_owner
+          end
+          nil
         end
 
         def invitation_target_cohort_ids(user, requested_cohort_ids:, replace_memberships:)

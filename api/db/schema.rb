@@ -1124,6 +1124,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_160000) do
     t.check_constraint "verification_token_digest IS NULL OR verification_token_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_workspace_domains_token_digest"
   end
 
+  create_table "coach_workspace_membership_events", force: :cascade do |t|
+    t.bigint "actor_user_id", null: false
+    t.string "after_role"
+    t.string "before_role"
+    t.bigint "coach_workspace_id", null: false
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.bigint "subject_user_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id"], name: "index_coach_workspace_membership_events_on_actor_user_id"
+    t.index ["coach_workspace_id"], name: "index_coach_workspace_membership_events_on_coach_workspace_id"
+    t.index ["subject_user_id"], name: "index_coach_workspace_membership_events_on_subject_user_id"
+    t.check_constraint "event_type::text = ANY (ARRAY['added'::character varying, 'role_changed'::character varying, 'removed'::character varying]::text[])", name: "workspace_membership_event_type"
+  end
+
   create_table "coach_workspace_memberships", force: :cascade do |t|
     t.bigint "coach_workspace_id", null: false
     t.boolean "cohort_managed", default: false, null: false
@@ -2548,6 +2563,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_160000) do
   add_foreign_key "coach_workspace_domains", "coach_workspaces"
   add_foreign_key "coach_workspace_domains", "users", column: "created_by_user_id"
   add_foreign_key "coach_workspace_domains", "users", column: "updated_by_user_id"
+  add_foreign_key "coach_workspace_membership_events", "coach_workspaces"
+  add_foreign_key "coach_workspace_membership_events", "users", column: "actor_user_id"
+  add_foreign_key "coach_workspace_membership_events", "users", column: "subject_user_id"
   add_foreign_key "coach_workspace_memberships", "coach_workspaces", on_delete: :cascade
   add_foreign_key "coach_workspace_memberships", "users", on_delete: :cascade
   add_foreign_key "coach_workspaces", "users", column: "created_by_user_id", on_delete: :cascade

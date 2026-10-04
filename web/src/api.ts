@@ -4571,3 +4571,46 @@ export function restoreWorkspaceBrandVersion(id: number, values: { draft_revisio
     body: JSON.stringify({ brand_configuration: values }),
   })
 }
+
+export type WorkspaceCollaboratorRole = 'owner' | 'editor' | 'reviewer' | 'viewer'
+export type WorkspaceCollaborator = {
+  id: number; user_id: number; email: string; full_name: string; role: WorkspaceCollaboratorRole
+  status: 'pending' | 'accepted' | 'revoked'; platform_admin: boolean; is_self: boolean; cohort_managed: boolean
+}
+export type WorkspaceCollaboratorsPayload = {
+  workspace_id: number; permissions: { manage: boolean }; members: WorkspaceCollaborator[]; sign_in_url: string | null
+}
+export type CollaboratorDelivery = { sent: boolean; status: 'sent' | 'skipped' | 'failed'; provider_message_id: string | null }
+
+export async function fetchWorkspaceCollaborators(workspaceId: number, signal?: AbortSignal): Promise<WorkspaceCollaboratorsPayload> {
+  return fetchJson('/api/v1/admin/collaborators', { headers: { 'X-Coach-Workspace-Id': String(workspaceId) }, signal })
+}
+
+export async function addWorkspaceCollaborator(workspaceId: number, email: string, role: WorkspaceCollaboratorRole, sendEmail: boolean): Promise<{
+  member: WorkspaceCollaborator; added: boolean; new_user: boolean; delivery: CollaboratorDelivery | null; sign_in_url: string | null
+}> {
+  return fetchJson('/api/v1/admin/collaborators', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Coach-Workspace-Id': String(workspaceId) },
+    body: JSON.stringify({ collaborator: { email, role, send_email: sendEmail } }),
+  })
+}
+
+export async function changeWorkspaceCollaborator(workspaceId: number, member: WorkspaceCollaborator, role: WorkspaceCollaboratorRole): Promise<{ member: WorkspaceCollaborator }> {
+  return fetchJson(`/api/v1/admin/collaborators/${member.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Coach-Workspace-Id': String(workspaceId) },
+    body: JSON.stringify({ collaborator: { role, expected_role: member.role } }),
+  })
+}
+
+export async function removeWorkspaceCollaborator(workspaceId: number, member: WorkspaceCollaborator): Promise<{ removed: boolean; platform_admin: boolean }> {
+  return fetchJson(`/api/v1/admin/collaborators/${member.id}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-Coach-Workspace-Id': String(workspaceId) },
+    body: JSON.stringify({ collaborator: { expected_role: member.role } }),
+  })
+}
+
+export async function sendWorkspaceCollaboratorEmail(workspaceId: number, memberId: number): Promise<{ delivery: CollaboratorDelivery; sign_in_url: string | null }> {
+  return fetchJson(`/api/v1/admin/collaborators/${memberId}/send_invitation`, {
+    method: 'POST', headers: { 'X-Coach-Workspace-Id': String(workspaceId) },
+  })
+}
