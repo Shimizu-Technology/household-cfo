@@ -1985,7 +1985,7 @@ function App() {
   }
 
   async function handleBudgetViewChange(year: number, monthIndex: number) {
-    if (budgetYearLoading || budgetAction || miaLoading) return
+    if (budgetYearLoading || budgetAction) return
     const normalizedYear = Math.max(2000, Math.min(2100, year))
     const normalizedMonthIndex = Math.max(0, Math.min(11, monthIndex))
     const requestedView = { year: normalizedYear, monthIndex: normalizedMonthIndex }
