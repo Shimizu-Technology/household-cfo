@@ -349,6 +349,7 @@ export type FinancialDocumentImport = {
 
 export type DocumentSourceUrl = {
   authenticated_content: true
+  source_version?: string
   url: string
   download_url: string
   expires_in: number

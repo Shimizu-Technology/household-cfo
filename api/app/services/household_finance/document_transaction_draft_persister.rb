@@ -25,6 +25,9 @@ module HouseholdFinance
     attr_reader :created_count, :match_count, :warnings
 
     def call
+      source_ids = transaction_drafts.filter_map { |payload| payload.is_a?(Hash) && payload.deep_symbolize_keys[:financial_source_event_id] }
+      @source_events = FinancialSourceEvent.joins(:financial_extraction_revision).where(id: source_ids, household_id: household.id,
+        financial_extraction_revisions: { financial_document_import_id: document_import.id }).includes(:financial_extraction_revision).index_by(&:id)
       remove_pending_import_drafts!
       transaction_drafts.each_with_index do |payload, index|
         persist_payload(payload, index: index)
@@ -46,8 +49,9 @@ module HouseholdFinance
 
     def persist_payload(payload, index:)
       draft_payload = payload.is_a?(Hash) ? payload.deep_symbolize_keys : {}
-      source_event = draft_payload[:financial_source_event_id] && FinancialSourceEvent.find(draft_payload[:financial_source_event_id])
-      if source_event && (source_event.household_id != household.id || source_event.financial_extraction_revision.financial_document_import_id != document_import.id || !source_event.expense_projection_eligible?)
+      source_id = draft_payload[:financial_source_event_id]
+      source_event = source_id.present? && @source_events[Integer(source_id, exception: false)]
+      if source_id.present? && (!source_event || !source_event.expense_projection_eligible?)
         raise ArgumentError, "Source event is not an eligible expense from this household import."
       end
       occurred_on = parsed_date(draft_payload[:occurred_on])
@@ -94,7 +98,7 @@ module HouseholdFinance
       ApplicationRecord.transaction(requires_new: true) do
         draft = document_import.transaction_drafts.create!(
           household: household,
-          financial_source_event_id: draft_payload[:financial_source_event_id],
+          financial_source_event: @source_events[Integer(draft_payload[:financial_source_event_id], exception: false)],
           occurred_on: occurred_on,
           merchant: merchant,
           total_amount_cents: total_amount_cents,

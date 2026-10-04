@@ -34,6 +34,27 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "mixed setup rows do not become fake source events while genuine and invalid financial rows remain" do
+    file = Tempfile.new([ "mixed-setup", ".csv" ])
+    file.write(<<~CSV)
+      type,date,label,merchant,amount,category
+      expense_item,,Monthly dining budget,,400,discretionary
+      purchase,2026-07-01,,Synthetic cafe,10,discretionary
+      purchase,,,Broken source row,invalid,discretionary
+      expense_item,2026-07-02,Synthetic dinner,,15,discretionary
+    CSV
+    file.rewind
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "mixed-setup.csv", document_kind: "statement").call
+    assert result.success?, result.error
+    assert_equal [ "Monthly dining budget" ], result.data[:items].pluck(:label)
+    assert_equal 3, result.data[:source_accounting][:events].length
+    assert_equal [ 3, 4, 5 ], result.data[:source_accounting][:events].map { |event| event[:locator][:row] }
+    assert_equal "unresolved", result.data[:source_accounting][:events].second[:row_kind]
+    assert_equal 2, result.data[:transaction_drafts].length
+  ensure
+    file&.close!
+  end
+
   test "skips non-finite spreadsheet amounts without failing whole extraction" do
     file = Tempfile.new([ "budget", ".csv" ])
     file.write("type,label,amount,cadence,category,notes\nexpense_item,Broken formula,NaN,monthly,discretionary,Ignore\nexpense_item,Dining out,420,monthly,discretionary,Valid\n")
@@ -164,6 +185,8 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_empty result.data.fetch(:items)
     assert_empty result.data.fetch(:transaction_drafts)
     assert_equal 2, result.data.fetch(:warnings).length
+    assert result.data[:warnings].all? { |warning| warning.start_with?("Retained incoming") }
+    assert_equal 2, result.data[:source_accounting][:events].length
     assert_equal true, result.data.fetch(:no_reviewable_transactions)
     assert_includes result.data.fetch(:summary), "no spending transactions"
   ensure
@@ -204,7 +227,8 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert result.success?, result.error
     assert_equal [ "Valid groceries" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
     assert_equal 2, result.data.fetch(:warnings).length
-    assert result.data.fetch(:warnings).all? { |warning| warning.include?("conflicting debit and credit") }
+    assert result.data.fetch(:warnings).all? { |warning| warning.include?("conflicting debit and credit") && warning.start_with?("Retained unresolved") }
+    assert_equal 3, result.data[:source_accounting][:events].length
   ensure
     file&.close!
   end

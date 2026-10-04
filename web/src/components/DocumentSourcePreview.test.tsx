@@ -5,7 +5,7 @@ import type { DocumentSourceUrl, FinancialDocumentImport } from '../api'
 import { DocumentSourcePreview } from './DocumentSourcePreview'
 
 const documentImport = { id: 606, filename: 'fictional-source.png', content_type: 'image/png' } as FinancialDocumentImport
-const metadata: DocumentSourceUrl = { authenticated_content: true, url: 'https://untrusted.example/do-not-use', download_url: 'https://untrusted.example/do-not-use', expires_in: 0, filename: 'fictional-source.png', content_type: 'image/png', inline_supported: true }
+const metadata: DocumentSourceUrl = { authenticated_content: true, source_version: 'source-v1', url: 'https://untrusted.example/do-not-use', download_url: 'https://untrusted.example/do-not-use', expires_in: 0, filename: 'fictional-source.png', content_type: 'image/png', inline_supported: true }
 const createUrl = vi.fn<(blob: Blob) => string>()
 const revokeUrl = vi.fn()
 const fetchMetadata = vi.fn<(id: number, signal?: AbortSignal) => Promise<DocumentSourceUrl>>()
@@ -61,6 +61,32 @@ describe('authenticated source preview lifecycle', () => {
     await screen.findByText('Source access revoked.')
     expect(screen.queryByRole('img')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Download source' })).toBeNull()
+    expect(revokeUrl).toHaveBeenCalledWith('blob:fictional-1')
+  })
+  it('reuses an unchanged image after focus and visibility, but replaces changed source versions', async () => {
+    render(preview())
+    await screen.findByRole('img')
+    fireEvent(window, new Event('focus'))
+    await waitFor(() => expect(fetchMetadata).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole('img')).toBeTruthy())
+    fireEvent(document, new Event('visibilitychange'))
+    await waitFor(() => expect(fetchMetadata).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(screen.getByRole('img')).toBeTruthy())
+    expect(fetchContent).toHaveBeenCalledTimes(1)
+    expect(revokeUrl).not.toHaveBeenCalled()
+    fetchMetadata.mockResolvedValue({ ...metadata, source_version: 'source-v2' })
+    fireEvent(window, new Event('focus'))
+    await waitFor(() => expect(screen.getByRole('img').getAttribute('src')).toBe('blob:fictional-2'))
+    expect(fetchContent).toHaveBeenCalledTimes(2)
+    expect(revokeUrl).toHaveBeenCalledWith('blob:fictional-1')
+  })
+  it('continues fresh image reads when an older server provides no source version', async () => {
+    fetchMetadata.mockResolvedValue({ ...metadata, source_version: undefined })
+    render(preview())
+    await screen.findByRole('img')
+    fireEvent(window, new Event('focus'))
+    await waitFor(() => expect(screen.getByRole('img').getAttribute('src')).toBe('blob:fictional-2'))
+    expect(fetchContent).toHaveBeenCalledTimes(2)
     expect(revokeUrl).toHaveBeenCalledWith('blob:fictional-1')
   })
   it('does not render late bytes after close, and aborts the exact pending request', async () => {
@@ -133,15 +159,17 @@ describe('authenticated source preview lifecycle', () => {
     await screen.findByText('Evidence access revoked.')
     expect(screen.queryByText('Fictional private evidence')).toBeNull()
   })
-  it('periodically rechecks access only while mounted, and revokes previous image URLs on replacement', async () => {
+  it('periodically rechecks metadata without reading unchanged image bytes and stops after unmount', async () => {
     vi.useFakeTimers()
     let view!: ReturnType<typeof render>
     await act(async () => { view = render(preview()); await Promise.resolve() })
     expect(fetchMetadata).toHaveBeenCalledTimes(1)
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
     expect(fetchMetadata).toHaveBeenCalledTimes(2)
-    expect(revokeUrl).toHaveBeenCalledWith('blob:fictional-1')
+    expect(fetchContent).toHaveBeenCalledTimes(1)
+    expect(revokeUrl).not.toHaveBeenCalled()
     view.unmount()
+    expect(revokeUrl).toHaveBeenCalledWith('blob:fictional-1')
     await vi.advanceTimersByTimeAsync(60_000)
     expect(fetchMetadata).toHaveBeenCalledTimes(2)
   })

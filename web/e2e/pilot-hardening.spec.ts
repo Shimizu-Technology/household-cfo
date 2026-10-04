@@ -8286,7 +8286,7 @@ async function openAuthenticatedSource(page: Page, type: 'image' | 'pdf', settin
   const contentReads: Array<{ url: string; brand: string | undefined }> = []
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
-  await page.route('http://api.test/api/v1/document_imports/1610/source_url', (route) => settings.metadataRevoked?.() ? route.fulfill({ status: 403, json: { error: 'Source access revoked.' } }) : route.fulfill({ json: { authenticated_content: true, url: 'https://untrusted.example/never-fetch', download_url: 'https://untrusted.example/never-fetch', expires_in: 0, filename, content_type: mime, inline_supported: true } }))
+  await page.route('http://api.test/api/v1/document_imports/1610/source_url', (route) => settings.metadataRevoked?.() ? route.fulfill({ status: 403, json: { error: 'Source access revoked.' } }) : route.fulfill({ json: { authenticated_content: true, source_version: 'fictional-source-v1', url: 'https://untrusted.example/never-fetch', download_url: 'https://untrusted.example/never-fetch', expires_in: 0, filename, content_type: mime, inline_supported: true } }))
   await page.route('http://api.test/api/v1/document_imports/1610/source_content**', async (route) => {
     contentReads.push({ url: route.request().url(), brand: route.request().headers()['x-brand-hostname'] })
     if (settings.delayContent) await settings.delayContent
@@ -8318,6 +8318,22 @@ test('BOG UI private source image uses Blob bytes and fresh authenticated downlo
   const urls = await page.evaluate(() => (window as unknown as { privateSourceUrls: { created: string[]; revoked: string[] } }).privateSourceUrls)
   expect(urls.created.length).toBeGreaterThanOrEqual(2)
   expect(urls.created.every((url) => urls.revoked.includes(url))).toBe(true)
+})
+
+test('BOG UI private source image rechecks metadata on focus and visibility without rereading unchanged bytes', async ({ page }) => {
+  const { dialog, contentReads } = await openAuthenticatedSource(page, 'image')
+  await expect(dialog.getByRole('img')).toBeVisible()
+  const original = await dialog.getByRole('img').getAttribute('src')
+  for (const event of ['focus', 'visibilitychange']) {
+    const metadataRead = page.waitForResponse((response) => response.url().endsWith('/1610/source_url'))
+    await page.evaluate((event) => (event === 'focus' ? window : document).dispatchEvent(new Event(event)), event)
+    await metadataRead
+    await expect(dialog.getByRole('img')).toHaveAttribute('src', original!)
+    expect(contentReads).toHaveLength(1)
+  }
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  const urls = await page.evaluate(() => (window as unknown as { privateSourceUrls: { revoked: string[] } }).privateSourceUrls)
+  expect(urls.revoked).toContain(original)
 })
 
 test('BOG UI private source preview clears displayed media when focus recheck revokes access', async ({ page }) => {

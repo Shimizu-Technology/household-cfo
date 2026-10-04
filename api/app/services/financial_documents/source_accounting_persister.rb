@@ -2,10 +2,11 @@
 
 module FinancialDocuments
   class SourceAccountingPersister
-    def initialize(document_import, attempt:, accounting:)
+    def initialize(document_import, attempt:, accounting:, structured_spreadsheet: false)
       @document_import = document_import
       @attempt = attempt
       @accounting = accounting.deep_symbolize_keys
+      @structured_spreadsheet = structured_spreadsheet
     end
 
     # Caller holds the import lock and has fenced the attempt. Facts are append
@@ -41,11 +42,18 @@ module FinancialDocuments
 
     private
 
-    attr_reader :document_import, :attempt, :accounting
+    attr_reader :document_import, :attempt, :accounting, :structured_spreadsheet
 
     def expense_projections(events)
       events.select(&:expense_projection_eligible?).map do |event|
         evidence = event.financial_source_evidence&.payload.to_h.deep_symbolize_keys
+        structured = structured_spreadsheet && event.locator.to_h.key?("sheet_index")
+        confidence = structured ? StructuredSpreadsheetExtractor::STRUCTURED_TRANSACTION_CONFIDENCE : evidence[:confidence]
+        splits = Array(evidence[:splits])
+        if structured && splits.empty?
+          splits = [ { amount_cents: event.expense_amount_cents, category_name: evidence[:category_name], stack_key: evidence[:stack_key],
+            notes: evidence[:evidence], confidence: confidence, row_number: event.locator["row"] } ]
+        end
         {
           financial_source_event_id: event.id,
           occurred_on: event.posted_on.iso8601,
@@ -54,7 +62,7 @@ module FinancialDocuments
           total_amount: HouseholdFinance::Money.dollars(event.expense_amount_cents),
           category_name: evidence[:category_name], stack_key: evidence[:stack_key],
           raw_description: evidence[:raw_description], evidence: evidence[:evidence],
-          external_id: event.row_identity, splits: Array(evidence[:splits])
+          external_id: event.row_identity, confidence: confidence, splits: splits
         }
       end
     end

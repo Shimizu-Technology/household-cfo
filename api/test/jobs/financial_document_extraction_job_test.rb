@@ -114,6 +114,24 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_not attempt.metadata.key?("usage")
   end
 
+  test "typed spreadsheet job retains deterministic confidence and original row through source staging" do
+    Tempfile.create([ "synthetic-structured", ".csv" ]) do |file|
+      file.write("date,merchant,debit,credit\n2026-06-20,Synthetic cafe,12.50,\n")
+      file.flush
+      structured = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "synthetic.csv", document_kind: "statement").call
+      assert structured.success?, structured.error
+      result = FinancialDocuments::Extractor::Result.new(success: true, data: structured.data, error: nil, metadata: { extraction_mode: "structured_spreadsheet" })
+      with_extractor_stub(fake_extractor(result)) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+      assert_equal "needs_review", @document_import.reload.status
+      draft = @document_import.transaction_drafts.sole
+      assert_equal BigDecimal("0.90"), draft.confidence
+      assert_equal BigDecimal("0.90"), draft.transaction_draft_splits.sole.confidence
+      assert_equal 2, draft.transaction_draft_splits.sole.metadata["row_number"]
+      assert_equal 2, draft.financial_source_event.locator["row"]
+      assert_equal 0, @household.household_transactions.count
+    end
+  end
+
   test "successful extraction preserves participant routing when detection conflicts" do
     @document_import.update!(
       document_kind: "pay_stub",

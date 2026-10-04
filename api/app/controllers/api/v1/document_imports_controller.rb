@@ -266,6 +266,7 @@ module Api
           download_url: "#{url}?download=1",
           expires_in: 0,
           authenticated_content: true,
+          source_version: Digest::SHA256.hexdigest(JSON.generate([ @document_import.id, @document_import.s3_key, @document_import.checksum_sha256, @document_import.byte_size, @document_import.content_type ])),
           filename: @document_import.filename,
           content_type: @document_import.content_type,
           inline_supported: inline_supported

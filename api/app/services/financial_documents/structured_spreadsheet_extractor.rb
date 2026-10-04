@@ -171,10 +171,11 @@ module FinancialDocuments
         map = header_map_for(header[:values])
         rows.drop_while { |row| row[:row] <= header[:row] }.each do |row|
           values = row[:values]
+          next if !transaction_like_row?(values, map) && item_from_row(values, map, cell_types: row[:cell_types], cell_formats: row[:cell_formats])
           key = cell(values, map, "account").to_s.presence || "sheet-#{sheet_index}"
           basis = cell(values, map, "account_basis").to_s.downcase
           raw_accounts << { account_key: key, account_basis: basis.in?(%w[asset liability]) ? basis : "unknown", label: "Spreadsheet account #{sheet_index + 1}" }
-          merchant = clean_text(cell(values, map, "merchant") || cell(values, map, "label"), max_length: 120)
+          merchant = clean_text(cell(values, map, "merchant").presence || cell(values, map, "label"), max_length: 120)
           notes = clean_text(cell(values, map, "notes"), max_length: 500)
           category = clean_text(cell(values, map, "category"), max_length: 120)
           amount, limitations = signed_row_amount(values, map)
@@ -182,9 +183,9 @@ module FinancialDocuments
           kind = "informational" if [ merchant, notes ].compact.join(" ").match?(/returned\s+unpaid|total\s+(?:fees?|charges?)\s+(?:for|this)\s+(?:the\s+)?(?:statement\s+)?period/i)
           type = source_event_type(values, map, merchant, amount)
           limitations << "merchant_missing" if merchant.blank?
-          warnings << "Skipped #{merchant.presence || 'unlabeled row'} (row #{row[:row]}): conflicting debit and credit information makes its direction unclear." if limitations.include?("conflicting_debit_credit")
+          warnings << "Retained unresolved #{merchant.presence || 'unlabeled row'} (row #{row[:row]}): conflicting debit and credit information makes its direction unclear." if limitations.include?("conflicting_debit_credit")
           warnings << "Retained #{merchant.presence || 'unlabeled row'} (row #{row[:row]}): transaction direction is unclear; provide debit/credit direction before review." if limitations.include?("transaction_direction_unclear")
-          warnings << "Skipped incoming credit/deposit for #{merchant} (row #{row[:row]}); incoming money is not spending and is retained as a source event." if amount.to_i.positive?
+          warnings << "Retained incoming credit/deposit for #{merchant} (row #{row[:row]}); incoming money is not staged as spending." if amount.to_i.positive?
           raw_events << {
             account_key: key, row_kind: kind, event_type: type,
             signed_amount_cents: amount, amount_column_cents: amount&.abs,

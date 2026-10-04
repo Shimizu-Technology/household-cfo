@@ -234,21 +234,27 @@ module FinancialDocuments
 
     def merge_source_accounting(batch_data, page_count:)
       sources = batch_data.map { |data| data[:source_accounting] || AccountingContract.legacy(data[:transaction_drafts]) }
-      versions = sources.pluck(:contract_version).uniq
+      financial_sources = sources.reject { |source| source[:contract_version] == AccountingContract::LEGACY_VERSION && source[:events].empty? }
+      versions = (financial_sources.presence || sources).pluck(:contract_version).uniq
       return failure("Statement batches returned inconsistent source accounting contracts; no partial statement was accepted.") unless versions.one?
       events = sources.flat_map { |source| source[:events] }
       return failure("This statement contains more than #{AccountingContract::MAX_EVENTS} source rows. Split it without truncating rows.") if events.length > AccountingContract::MAX_EVENTS
 
-      accounts = sources.flat_map { |source| source[:accounts] }.group_by { |account| account[:source_key] }.map do |_key, variants|
+      # Empty legacy batches represent disclosures, not a fabricated "legacy"
+      # account. Typed headers with zero financial rows still remain evidence.
+      accounts = financial_sources.flat_map { |source| source[:accounts] }.group_by { |account| account[:source_key] }.map do |_key, variants|
         merged = variants.first.deep_dup
+        merged[:limitations] = variants.flat_map { |variant| Array(variant[:limitations]) }.uniq
         %i[account_basis period_start_on period_end_on opening_balance_cents closing_balance_cents printed_debit_cents printed_credit_cents printed_row_count].each do |field|
           values = variants.pluck(field).compact.uniq
+          values.delete("unknown") if field == :account_basis
           if values.many?
             merged[:limitations] << "conflicting_header_#{field}"
           elsif values.one?
             merged[field] = values.first
           end
         end
+        merged[:limitations].delete("account_basis_unknown") if merged[:account_basis].in?(%w[asset liability]) && !merged[:limitations].include?("conflicting_header_account_basis")
         merged
       end
       events.each_with_index do |event, index|

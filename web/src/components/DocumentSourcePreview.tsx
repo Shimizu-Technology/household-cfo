@@ -28,6 +28,7 @@ export function DocumentSourcePreview({ documentImport, title, description, onCl
   const controllers = useRef(new Set<AbortController>())
   const urls = useRef(new Set<string>())
   const imageUrlRef = useRef<string | null>(null)
+  const imageIdentityRef = useRef<string | null>(null)
   const pendingPopup = useRef<Window | null>(null)
   const downloadTimers = useRef(new Set<ReturnType<typeof setTimeout>>())
 
@@ -40,6 +41,7 @@ export function DocumentSourcePreview({ documentImport, title, description, onCl
     for (const url of urls.current) URL.revokeObjectURL(url)
     urls.current.clear()
     imageUrlRef.current = null
+    imageIdentityRef.current = null
     for (const timer of downloadTimers.current) clearTimeout(timer)
     downloadTimers.current.clear()
     pendingPopup.current?.close()
@@ -78,22 +80,29 @@ export function DocumentSourcePreview({ documentImport, title, description, onCl
       if (metadata.authenticated_content !== true) throw new Error('This source requires an authenticated preview. Refresh the app before opening it.')
       let nextPreview: SourcePreviewData | null = null
       let nextImageUrl: string | null = null
+      let nextImageIdentity: string | null = null
       if (usesServerPreview(metadata.filename, metadata.content_type)) {
         nextPreview = await onFetchSourcePreview(documentImport.id, controller.signal)
         if (!live()) return
       } else if (metadata.inline_supported && IMAGE_TYPES.includes(metadata.content_type.toLowerCase())) {
-        const blob = await onFetchSourceContent(documentImport.id, false, controller.signal)
-        if (!live()) return
-        if (blob.type.toLowerCase() !== metadata.content_type.toLowerCase()) throw new Error('The source returned an unexpected image type. Retry the private preview or contact support.')
-        nextImageUrl = URL.createObjectURL(blob)
-        urls.current.add(nextImageUrl)
+        nextImageIdentity = metadata.source_version ? JSON.stringify([documentImport.id, metadata.source_version, metadata.filename, metadata.content_type]) : null
+        if (nextImageIdentity && nextImageIdentity === imageIdentityRef.current && imageUrlRef.current) {
+          nextImageUrl = imageUrlRef.current
+        } else {
+          const blob = await onFetchSourceContent(documentImport.id, false, controller.signal)
+          if (!live()) return
+          if (blob.type.toLowerCase() !== metadata.content_type.toLowerCase()) throw new Error('The source returned an unexpected image type. Retry the private preview or contact support.')
+          nextImageUrl = URL.createObjectURL(blob)
+          urls.current.add(nextImageUrl)
+        }
       }
       if (!live()) return
-      if (imageUrlRef.current) {
+      if (imageUrlRef.current && imageUrlRef.current !== nextImageUrl) {
         URL.revokeObjectURL(imageUrlRef.current)
         urls.current.delete(imageUrlRef.current)
       }
       imageUrlRef.current = nextImageUrl
+      imageIdentityRef.current = nextImageIdentity
       setImageUrl(nextImageUrl)
       setSource(metadata)
       setPreview(nextPreview)

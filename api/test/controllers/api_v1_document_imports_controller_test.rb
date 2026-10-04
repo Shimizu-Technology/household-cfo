@@ -556,8 +556,17 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "#{body.fetch('url')}?download=1", body.fetch("download_url")
     assert_equal 0, body.fetch("expires_in")
     assert_equal true, body.fetch("authenticated_content")
+    assert_match(/\A[0-9a-f]{64}\z/, body.fetch("source_version"))
     assert_equal true, body.fetch("inline_supported")
     assert_not body.key?("s3_key")
+    with_s3_stubs(configured?: true) do
+      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+      assert_equal body.fetch("source_version"), JSON.parse(response.body).fetch("source_version")
+      document_import.update!(s3_key: "synthetic/replacement.pdf")
+      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+      assert_not_equal body.fetch("source_version"), JSON.parse(response.body).fetch("source_version")
+      assert_not_includes response.body, "synthetic/replacement.pdf"
+    end
   end
 
   test "source_url keeps HEIC and server-previewed CSV attachment only" do

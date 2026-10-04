@@ -36,6 +36,65 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
     assert_equal 1, result[:reconciliation][:accounts].first[:unresolved_rows]
   end
 
+  test "structured projections keep confidence and sheet row provenance through draft staging" do
+    accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: [ account ],
+      events: [ event(-1_000, locator: { sheet_index: 0, row: 7 }, category_name: "Dining Out", evidence: "Synthetic sheet row") ] }, coverage: { expected_sheet_count: 1, processed_sheets: [ 0 ] })
+    result = FinancialDocuments::SourceAccountingPersister.new(@import, attempt: @attempt, accounting: accounting, structured_spreadsheet: true).call
+    projection = result[:transaction_drafts].sole
+    assert_equal BigDecimal("0.90"), projection[:confidence]
+    assert_equal 7, projection[:splits].sole[:row_number]
+    staged = HouseholdFinance::DocumentTransactionDraftPersister.new(@import, result[:transaction_drafts]).call
+    assert_equal 1, staged[:created_count]
+    draft = @import.transaction_drafts.sole
+    assert_equal BigDecimal("0.90"), draft.confidence
+    assert_equal BigDecimal("0.90"), draft.transaction_draft_splits.sole.confidence
+    assert_equal 7, draft.transaction_draft_splits.sole.metadata["row_number"]
+    # A model-generated sheet locator alone is not deterministic confidence.
+    model_result = persist(accounting, new_attempt: true)
+    assert_nil model_result[:transaction_drafts].sole[:confidence]
+  end
+
+  test "missing foreign and ineligible source events are rejected explicitly without date fallback" do
+    result = persist(normalized([ event(-1_000), event(500, type: "refund", row: 2) ]))
+    other_import = @household.financial_document_imports.create!(uploaded_by_user: @user, document_kind: "statement", filename: "other.pdf", content_type: "application/pdf", status: "processing", byte_size: 10, s3_key: "synthetic/other")
+    payload = result[:transaction_drafts].sole
+    invalid = [ payload.merge(financial_source_event_id: -1), payload.merge(financial_source_event_id: result[:events].last.id) ]
+    rejected = HouseholdFinance::DocumentTransactionDraftPersister.new(@import, invalid).call
+    assert_equal 0, rejected[:created_count]
+    assert_equal 2, rejected[:warnings].length
+    assert rejected[:warnings].all? { |warning| warning.include?("not an eligible expense from this household import") }
+    rejected = HouseholdFinance::DocumentTransactionDraftPersister.new(other_import, [ payload ]).call
+    assert_equal 0, rejected[:created_count]
+    assert_includes rejected[:warnings].sole, "not an eligible expense from this household import"
+  end
+
+  test "source event and revision loading remains bounded for a multirow import" do
+    result = persist(normalized((1..12).map { |row| event(-1_000, row: row) }))
+    reads = []
+    subscriber = lambda do |*_args|
+      payload = _args.last
+      reads << payload[:sql] if payload[:sql].match?(/SELECT.*FROM "financial_(?:source_events|extraction_revisions)"/)
+    end
+    ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+      assert_equal 12, HouseholdFinance::DocumentTransactionDraftPersister.new(@import, result[:transaction_drafts]).call[:created_count]
+    end
+    assert_operator reads.length, :<=, 2, reads.join("\n")
+  end
+
+  test "nullable metadata does not prevent evidence erasure or full import deletion" do
+    result = persist(normalized([ event(-1_000) ]))
+    # SQL enforces NOT NULL, but an in-memory assignment can still be nil
+    # before destruction. The eraser normalizes that state before writing.
+    @import.metadata = nil
+    FinancialDocuments::SourceEvidenceEraser.call(@import)
+    assert_equal({}, @import.reload.metadata)
+    assert_nil result[:events].sole.reload.financial_source_evidence
+    @import.metadata = nil
+    @import.destroy!
+    assert_nil result[:revision].reload.financial_document_import_id
+    assert_equal(-1_000, result[:events].sole.reload.signed_amount_cents)
+  end
+
   test "returned-unpaid principal and period fee summaries are informational not extra spending" do
     rows = [ event(-111_000, merchant: "Returned unpaid principal"), event(-1_500, type: "fee", row: 2, merchant: "Total fees for the statement period"), event(-1_500, type: "fee", row: 3, merchant: "Posted service fee", posted_on: "2026-07-08") ]
     result = persist(normalized(rows))

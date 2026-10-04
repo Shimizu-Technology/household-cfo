@@ -64,7 +64,8 @@ class FinancialDocumentExtractionJob < ApplicationJob
       routing = FinancialDocuments::RoutingDecision.new(document_import, detected_kind: data[:document_kind]).call
       accounting = data[:source_accounting]
       accounting ||= FinancialDocuments::AccountingContract.legacy(Array(data[:transaction_drafts]), coverage: { expected_page_count: result.metadata[:page_count] })
-      source_result = FinancialDocuments::SourceAccountingPersister.new(document_import, attempt: attempt, accounting: accounting).call
+      source_result = FinancialDocuments::SourceAccountingPersister.new(document_import, attempt: attempt, accounting: accounting,
+        structured_spreadsheet: result.metadata[:extraction_mode] == "structured_spreadsheet").call
       typed_accounting = accounting[:contract_version] == FinancialDocuments::AccountingContract::VERSION
       document_import.document_kind = routing.resolved_kind
       document_import.items.where(applied_at: nil).delete_all

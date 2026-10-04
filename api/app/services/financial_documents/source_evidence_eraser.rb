@@ -18,7 +18,7 @@ module FinancialDocuments
       TransactionDraftSplit.where(transaction_draft_id: unapproved.select(:id)).update_all(notes: nil, metadata: {}, updated_at: Time.current)
       document_import.items.update_all(evidence: nil, metadata: {}, updated_at: Time.current)
       document_import.update_columns(extracted_summary: nil, extraction_error: nil,
-        metadata: document_import.metadata.except("warnings"))
+        metadata: document_import.metadata.to_h.except("warnings"))
     end
   end
 end

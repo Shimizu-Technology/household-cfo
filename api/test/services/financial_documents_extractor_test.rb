@@ -32,6 +32,43 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     end
   end
 
+  test "disclosure-only batches do not conflict with typed accounting but nonempty legacy rows fail closed" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    typed = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+      accounts: [ { account_key: "synthetic", account_basis: "asset" } ], events: [ { account_key: "synthetic", event_type: "purchase", row_kind: "posted", signed_amount_cents: -100, amount_column_cents: 100, posted_on: "2026-07-01", locator: { page: 1, row: 1 } } ] })
+    result = extractor.send(:merge_source_accounting, [ { source_accounting: typed }, { transaction_drafts: [] } ], page_count: 2)
+    assert_equal FinancialDocuments::AccountingContract::VERSION, result[:contract_version]
+    assert_equal 1, result[:events].length
+    assert_equal 1, result[:accounts].length
+    assert_equal "asset", result[:accounts].sole[:account_basis]
+    assert_equal [ 1, 2 ], result[:coverage][:processed_pages]
+    mixed = extractor.send(:merge_source_accounting, [ { source_accounting: typed }, { transaction_drafts: [ { occurred_on: "2026-07-02", merchant: "Legacy row" } ] } ], page_count: 2)
+    refute mixed.success?
+    assert_match(/inconsistent source accounting/, mixed.error)
+    empty = extractor.send(:merge_source_accounting, [ { transaction_drafts: [] }, { transaction_drafts: [] } ], page_count: 2)
+    assert_equal FinancialDocuments::AccountingContract::LEGACY_VERSION, empty[:contract_version]
+    assert_empty empty[:accounts]
+  end
+
+  test "account merging resolves unknown basis and retains all limitations while preserving real conflicts" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    source = lambda do |basis, closing, limitations|
+      { contract_version: FinancialDocuments::AccountingContract::VERSION, events: [], accounts: [ { source_key: "same-account", account_basis: basis, closing_balance_cents: closing, limitations: limitations } ] }
+    end
+    unknown = source.call("unknown", nil, [ "account_basis_unknown", "first_page_limit" ])
+    known = source.call("asset", 100, [ "later_page_limit" ])
+    [ [ unknown, known ], [ known, unknown ] ].each do |sources|
+      account = extractor.send(:merge_source_accounting, sources.map { |value| { source_accounting: value } }, page_count: 2)[:accounts].sole
+      assert_equal "asset", account[:account_basis]
+      assert_equal 100, account[:closing_balance_cents]
+      assert_equal %w[first_page_limit later_page_limit], account[:limitations].sort
+    end
+    conflict = extractor.send(:merge_source_accounting, [ known, source.call("liability", 200, [ "third_page_limit" ]) ].map { |value| { source_accounting: value } }, page_count: 2)[:accounts].sole
+    assert_includes conflict[:limitations], "conflicting_header_account_basis"
+    assert_includes conflict[:limitations], "conflicting_header_closing_balance_cents"
+    assert_includes conflict[:limitations], "third_page_limit"
+  end
+
   test "accepts canonical model money and rejects malformed or unbounded formats" do
     extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
 
