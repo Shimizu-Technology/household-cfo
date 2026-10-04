@@ -9467,7 +9467,7 @@ function AnnualBudgetPlanner({
       if (target) {
         const disclosure = target.closest('details')
         if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        target.scrollIntoView({ behavior: 'auto', block: 'center' })
         target.focus({ preventScroll: true })
       } else if (tool !== 'income') {
         manualManagerRef.current?.focus({ preventScroll: true })

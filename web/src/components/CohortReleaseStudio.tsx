@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   ApiRequestError,
   createCohortReleaseRequestId,
@@ -54,10 +54,15 @@ export function CohortReleaseStudio({
   const [notice, setNotice] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [focusVersion, setFocusVersion] = useState(0)
   const loadRequestRef = useRef(0)
   const loadAbortControllerRef = useRef<AbortController | null>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
   const releaseStateHeadingRef = useRef<HTMLHeadingElement | null>(null)
+
+  useLayoutEffect(() => {
+    if (focusVersion > 0) releaseStateHeadingRef.current?.focus()
+  }, [focusVersion])
 
   const loadStudio = useCallback(async (cohortId: number) => {
     const requestId = ++loadRequestRef.current
@@ -193,7 +198,7 @@ export function CohortReleaseStudio({
         : 'Restore record sealed. Participant runtime did not change.')
       await loadStudio(cohortId)
       onReleaseChange?.()
-      window.requestAnimationFrame(() => releaseStateHeadingRef.current?.focus())
+      setFocusVersion((version) => version + 1)
     } catch (caught) {
       if (!mutationLifecycle.isCurrent(mutation)) return
       if (caught instanceof ApiRequestError && caught.status === 409) {
