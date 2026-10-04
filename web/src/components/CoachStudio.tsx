@@ -126,6 +126,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }, [description, draft, selectedPersona])
   const studioDirty = groupsDirty || dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty || settingsDirty || collaboratorsDirty
   const personaDirty = dirty || personaSourcesDirty || setupDirty
+  const createDisabled = workspaceCreateDisabled || loading || detailLoading || pendingAction !== null || workspaceMutations.pending
 
   const filteredPersonas = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -374,9 +375,14 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     workspaceMutations.finish(context)
   }
 
+  function openCreateForm() {
+    if (createDisabled) return
+    setCreateOpen(true)
+  }
+
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!createName.trim() || pendingAction || workspaceCreateDisabled) return
+    if (!createName.trim() || createDisabled) return
     const mutation = beginMutation('create')
     setError(null)
     try {
@@ -805,7 +811,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               <p className="eyebrow">Assistant library</p>
               <h3 ref={libraryHeadingRef} tabIndex={-1}>{personas.length} coaching assistant{personas.length === 1 ? '' : 's'}</h3>
             </div>
-            <Button size="compact" disabled={workspaceCreateDisabled} onClick={() => setCreateOpen(true)}>Create</Button>
+            <Button size="compact" disabled={createDisabled} onClick={openCreateForm}>Create</Button>
           </div>
 
           {workspaceCreationNeedsSelection && <p className="coach-content-note">Choose a coach workspace before creating an assistant. Platform mode can review all workspaces without assigning a hidden owner.</p>}
@@ -873,7 +879,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               <p className="eyebrow">Start here</p>
               <h3>Create a safe draft, then shape it with the guided questions.</h3>
               <p>You can preview and publish only after the exact saved revision has passed the fixed system guardrails.</p>
-              <Button disabled={workspaceCreateDisabled} onClick={() => setCreateOpen(true)}>Create coaching assistant</Button>
+              <Button disabled={createDisabled} onClick={openCreateForm}>Create coaching assistant</Button>
             </article>
           ) : (
             <>
