@@ -2584,20 +2584,23 @@ export async function submitPilotFeedback(values: PilotFeedbackInput): Promise<P
   formData.append('feedback_report[actual]', values.actual)
   if (values.screenshot) formData.append('screenshot', values.screenshot)
 
-  let response: Response
-  try {
-    response = await apiFetch('/api/v1/pilot_feedback_reports', {
-      method: 'POST',
-      body: formData,
-    })
-  } catch (error) {
-    throw new Error(apiNetworkErrorMessage('Feedback submission could not reach the API'), { cause: error })
-  }
+  return withDeadline(async (signal) => {
+    let response: Response
+    try {
+      response = await apiFetch('/api/v1/pilot_feedback_reports', {
+        method: 'POST',
+        body: formData,
+      }, signal)
+    } catch (error) {
+      throw new Error(apiNetworkErrorMessage('Feedback submission could not reach the API'), { cause: error })
+    }
 
-  if (!response.ok) throw new Error(await responseErrorMessage(response, 'Feedback submission failed'))
+    if (!response.ok) throw new Error(await responseErrorMessage(response, 'Feedback submission failed'))
 
-  const payload = (await response.json()) as { feedback_report: PilotFeedbackReceipt }
-  return payload.feedback_report
+    const payload = (await response.json()) as { feedback_report: PilotFeedbackReceipt }
+    return payload.feedback_report
+  }, FILE_UPLOAD_TIMEOUT_MS, 'The server did not confirm whether your report was received.', undefined,
+  'It may already be submitted. Keep your details and check with support before submitting again.')
 }
 
 export async function fetchAdminPilotFeedback(status: PilotFeedbackStatus | 'all' = 'submitted'): Promise<{ feedback_reports: AdminPilotFeedbackSummary[]; counts: AdminPilotFeedbackCounts }> {
