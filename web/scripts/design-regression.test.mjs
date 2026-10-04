@@ -190,10 +190,8 @@ assert.ok(app.includes('Send invite email now'), 'admin invite form should make 
 assert.ok(app.includes('filterAndSortAdminUsers'), 'admin users should have filter/sort controls')
 assert.ok(app.includes('serverCohortIdsForUser(user).filter'), 'admin quick actions should use server-confirmed cohort state, not unsaved drafts')
 assert.ok(!app.includes('setup_complete_count: memberships.filter'), 'admin cohort cards should not override server setup-complete counts client-side')
-assert.ok(
-  app.includes('const previousBudgetView = budgetView') && app.includes('setBudgetView((current) => (') && app.includes('? previousBudgetView'),
-  'budget year navigation must restore the previous view when loading a different year fails',
-)
+// Delayed/failing year selection and stale workspace responses are exercised in
+// the BOG UI budget-year browser regressions rather than pinning rollback syntax.
 assert.ok(app.includes('Search merchant, category, date, or amount'), 'large transaction review queues should be searchable')
 assert.ok(app.includes('Remove original file keeps this history and extracted results.'), 'source deletion should clearly preserve the import record')
 assert.ok(app.includes('Delete upload & record removes the original file and this entire import history.'), 'full import deletion should clearly describe its larger scope')

@@ -506,6 +506,9 @@ function App() {
   const [budgetError, setBudgetError] = useState<string | null>(null)
   const [hasUnsavedBudgetChanges, setHasUnsavedBudgetChanges] = useState(false)
   const [hasUnsavedCoachChanges, setHasUnsavedCoachChanges] = useState(false)
+  const [pendingBudgetView, setPendingBudgetView] = useState<{ requestId: number; scope: string; year: number } | null>(null)
+  const budgetViewRequestRef = useRef(0)
+  const budgetViewScopeRef = useRef('')
   const [budgetView, setBudgetView] = useState<{ year: number; monthIndex: number } | null>(null)
   const [spendingReport, setSpendingReport] = useState<SpendingReport | null>(null)
   const [spendingReportLoading, setSpendingReportLoading] = useState(false)
@@ -591,6 +594,21 @@ function App() {
   const isFirstSessionUpload = isFirstSessionSetup && firstSessionUploadOpen
   const isFocusedFirstSessionSetup = isFirstSessionSetup && !isFirstSessionUpload
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
+  const budgetViewScope = `${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'preview'}:${auth.activeCoachWorkspaceId ?? 'participant'}:${workspaceLoadKey}:${data?.workspace.cohort?.id ?? 'none'}:${workspaceLoadAttempt}`
+  budgetViewScopeRef.current = budgetViewScope
+  const budgetYearLoading = pendingBudgetView?.scope === budgetViewScope
+  const budgetContextAction = budgetYearLoading ? 'load-budget-year' : budgetAction
+  useEffect(() => {
+    budgetViewRequestRef.current += 1
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setBudgetView(null)
+      setPendingBudgetView(null)
+      setBudgetError(null)
+    })
+    return () => { cancelled = true; budgetViewRequestRef.current += 1 }
+  }, [budgetViewScope])
   const visibleSections = useMemo(() => {
     const enabledParticipantSections = data
       ? sections.filter((section) => data.workspace.capabilities.modules.some((module) => module.id === sectionCapabilityIds[section] && module.enabled))
@@ -612,7 +630,9 @@ function App() {
     () => documentImports.filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
     [documentImports],
   )
-  const budgetForView = (budgetView ? budgets[budgetView.year] : null) ?? data?.budget
+  const budgetForView = budgetView
+    ? budgets[budgetView.year] ?? (data?.budget.annual_plan?.year === budgetView.year ? data.budget : null)
+    : data?.budget
   const usesSelectedBudgetContext = activeSection === 'Budget' || activeSection === 'Ask Mia'
   const reviewBudget = usesSelectedBudgetContext ? budgetForView : homeBudget
   const pendingTransactionDrafts = reviewBudget?.annual_plan?.pending_transaction_drafts ?? []
@@ -1559,7 +1579,7 @@ function App() {
   async function handleAskMia(prompt = question) {
     const cleanPrompt = prompt.trim()
     const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
-    if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading) return
+    if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading || budgetYearLoading) return
     if (cleanPrompt.length > MIA_MESSAGE_MAX_LENGTH) {
       setMiaError(`${assistantName} messages must stay under ${MIA_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`)
       return
@@ -1792,6 +1812,7 @@ function App() {
 
   async function handleCreateBudgetCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) {
       setBudgetError('Sign in to a real workspace before editing the annual budget.')
       return
@@ -1855,6 +1876,7 @@ function App() {
   }
 
   async function handleSaveIncomeScheduleEntry(values: IncomeScheduleEntryInput, entryId?: number) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) {
       setBudgetError('Sign in to a real workspace before editing the income timeline.')
       return
@@ -1879,6 +1901,7 @@ function App() {
   }
 
   async function handleDeleteIncomeScheduleEntry(entry: IncomeScheduleEntry) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
     setBudgetAction(`delete-income:${entry.id}`)
@@ -1897,6 +1920,7 @@ function App() {
   }
 
   async function handleSaveIncomeSource(values: IncomeSourceInput, sourceId?: number) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) {
       setSetupError('Sign in to a real workspace before editing income sources.')
       return
@@ -1922,6 +1946,7 @@ function App() {
   }
 
   async function handleArchiveIncomeSource(source: IncomeTimelineSource, endsOn: string) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
     const signature = `archive-income-source:${selectedBudgetYear}:${source.id}:${endsOn}`
@@ -1941,6 +1966,7 @@ function App() {
   }
 
   async function handleRestoreIncomeSource(source: IncomeTimelineSource) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
     const signature = `restore-income-source:${selectedBudgetYear}:${source.id}`
@@ -1959,30 +1985,38 @@ function App() {
   }
 
   async function handleBudgetViewChange(year: number, monthIndex: number) {
+    if (budgetYearLoading || budgetAction) return
     const normalizedYear = Math.max(2000, Math.min(2100, year))
     const normalizedMonthIndex = Math.max(0, Math.min(11, monthIndex))
-    const previousBudgetView = budgetView
-    setBudgetView({ year: normalizedYear, monthIndex: normalizedMonthIndex })
-    if (!isRealWorkspace || !data || data.budget.annual_plan?.year === normalizedYear) return
+    const requestedView = { year: normalizedYear, monthIndex: normalizedMonthIndex }
+    if (!data) return
+    if (!isRealWorkspace && data.budget.annual_plan?.year !== normalizedYear) return
+    if (!isRealWorkspace || budgets[normalizedYear]?.annual_plan?.year === normalizedYear) {
+      setBudgetView(requestedView)
+      setBudgetError(null)
+      return
+    }
 
-    setBudgetAction('load-budget-year')
+    const requestId = ++budgetViewRequestRef.current
+    const scope = budgetViewScope
+    const isCurrent = () => requestId === budgetViewRequestRef.current && scope === budgetViewScopeRef.current
+    setPendingBudgetView({ requestId, scope, year: normalizedYear })
     setBudgetError(null)
     try {
       const budget = await fetchBudget(normalizedYear)
+      if (!isCurrent()) return
+      if (budget.annual_plan?.year !== normalizedYear) throw new Error('The server returned a different budget year. Your previous period remains selected.')
       setData((current) => current ? { ...current, budget } : current)
+      setBudgetView(requestedView)
     } catch (caught) {
-      setBudgetView((current) => (
-        current?.year === normalizedYear && current.monthIndex === normalizedMonthIndex
-          ? previousBudgetView
-          : current
-      ))
-      setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded.')
+      if (isCurrent()) setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded. Your previous period remains selected.')
     } finally {
-      setBudgetAction(null)
+      if (isCurrent()) setPendingBudgetView(null)
     }
   }
 
   async function handleBudgetEditSave(changes: BudgetEditChanges) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data || (changes.allocations.length === 0 && changes.categories.length === 0)) return
 
     setBudgetAction('save-budget-edits')
@@ -2031,6 +2065,7 @@ function App() {
   }
 
   async function handleArchiveBudgetCategory(row: BudgetCategoryRow) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
     const confirmed = window.confirm(`Archive ${row.name}? It will leave active planning, but confirmed transaction history will not be deleted.`)
@@ -2053,6 +2088,7 @@ function App() {
   }
 
   async function handleRestoreBudgetCategory(categoryId: number) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
     setBudgetAction(`restore-category:${categoryId}`)
@@ -2072,6 +2108,7 @@ function App() {
   }
 
   async function handleApplyMiaActionDraft(draft: MiaActionDraft, itemIds?: number[]) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`apply-mia-action:${draft.id}`)
@@ -2105,6 +2142,7 @@ function App() {
   }
 
   async function handleCancelMiaActionDraft(draft: MiaActionDraft) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`cancel-mia-action:${draft.id}`)
@@ -2134,6 +2172,7 @@ function App() {
   }
 
   async function handleCreateTransactionDraft(values: TransactionDraftCreateInput) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     const signature = `transaction:create:${JSON.stringify(values)}`
@@ -2158,6 +2197,7 @@ function App() {
   }
 
   async function handleUpdateTransactionDraft(draft: TransactionDraft, values: TransactionDraftUpdateInput) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`update-draft:${draft.id}`)
@@ -2184,6 +2224,7 @@ function App() {
   }
 
   async function handleConfirmTransactionDraft(draft: TransactionDraft) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`confirm-draft:${draft.id}`)
@@ -2214,6 +2255,7 @@ function App() {
   }
 
   async function handleIgnoreTransactionDraft(draft: TransactionDraft) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`ignore-draft:${draft.id}`)
@@ -2244,6 +2286,7 @@ function App() {
   }
 
   async function handleBulkTransactionDrafts(drafts: TransactionDraft[], resolution: 'confirm' | 'ignore') {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     const pendingDrafts = drafts.filter((draft) => draft.status === 'pending')
@@ -2291,6 +2334,7 @@ function App() {
   }
 
   async function handleMatchTransactionDraft(draft: TransactionDraft, matchId?: number) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`match-draft:${draft.id}`)
@@ -2319,6 +2363,7 @@ function App() {
   }
 
   async function handleReopenTransactionDraft(draft: TransactionDraft) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     const confirmed = window.confirm('Reopen this draft for correction? If it created an actual transaction, that actual will be removed from month-to-date totals and the draft will return to pending review.')
@@ -2843,6 +2888,8 @@ function App() {
         <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
       )}
 
+      {budgetYearLoading && <p className="document-alert" role="status">Loading the {pendingBudgetView?.year} plan. Your previous period remains selected; Send and plan changes pause until it loads.</p>}
+
       {activeSection === 'Home' && (
         <>
           {unavailableModuleNotice && (
@@ -3051,7 +3098,7 @@ function App() {
                       <MiaActionDraftReviewStack
                         drafts={pendingMiaActionDrafts}
                         isRealWorkspace={Boolean(isRealWorkspace)}
-                        action={budgetAction}
+                        action={budgetContextAction}
                         compact
                         onApply={handleApplyMiaActionDraft}
                         onCancel={handleCancelMiaActionDraft}
@@ -3062,8 +3109,9 @@ function App() {
                     {pendingTransactionDrafts.length > 0 && (
                       <TransactionDraftReviewStack
                         drafts={pendingTransactionDrafts}
+                        draftActionsDisabled={budgetYearLoading}
                         isRealWorkspace={Boolean(isRealWorkspace)}
-                        action={budgetAction}
+                        action={budgetContextAction}
                         compact
                         categories={activeBudgetPlan?.rows ?? []}
                         plan={activeBudgetPlan}
@@ -3080,6 +3128,7 @@ function App() {
                   </>}
                 />
 
+              {!budgetYearLoading && budgetError && <p className="chat-error" role="alert">{budgetError}</p>}
               {miaError && <p className="chat-error" role="alert">{miaError}</p>}
               {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
               {voiceNotice && <p className={`voice-status${voiceRecording ? ' is-recording' : ''}`} role="status">{voiceNotice}</p>}
@@ -3159,7 +3208,7 @@ function App() {
                 <button
                   className="send-button"
                   type="submit"
-                  disabled={miaLoading || voiceRecording || voiceTranscribing || question.trim().length > MIA_MESSAGE_MAX_LENGTH || (!question.trim() && pendingMiaAttachments.length === 0)}
+                  disabled={budgetYearLoading || miaLoading || voiceRecording || voiceTranscribing || question.trim().length > MIA_MESSAGE_MAX_LENGTH || (!question.trim() && pendingMiaAttachments.length === 0)}
                   aria-label={miaLoading ? `${assistantName} is thinking` : `Send message to ${assistantName}`}
                 >
                   <span>{miaLoading ? 'Thinking' : 'Send'}</span>
@@ -3183,17 +3232,19 @@ function App() {
           {isRealWorkspace && auth.currentUser ? (
             <>
               <article className="panel activity-review-panel">
+                <fieldset className="budget-loading-boundary" disabled={budgetYearLoading}><legend className="sr-only">Manual transaction controls</legend>
                 <ManualTransactionCapture
                   categories={activeBudgetPlan?.rows ?? []}
                   busy={budgetAction === 'create-transaction-draft'}
                   onCreate={handleCreateTransactionDraft}
                 />
+                </fieldset>
                 {pendingTransactionDrafts.length > 0 && (
                   <TransactionDraftReviewStack
                     drafts={pendingTransactionDrafts}
                     isRealWorkspace
                     compact
-                    action={budgetAction}
+                    action={budgetContextAction}
                     categories={activeBudgetPlan?.rows ?? []}
                     plan={activeBudgetPlan}
                     queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
@@ -3286,10 +3337,11 @@ function App() {
           )}
 
           {isRealWorkspace && !isFirstSessionSetup && data.budget.annual_plan && (
+            <fieldset className="budget-loading-boundary" disabled={budgetYearLoading}><legend className="sr-only">Income plan controls</legend>
             <IncomeSourceManager
               sectionRef={incomeSourcesRef}
               sources={data.workspace.income_sources ?? data.budget.annual_plan.income_sources}
-              action={budgetAction}
+              action={budgetContextAction}
               error={setupError}
               onSave={handleSaveIncomeSource}
               onArchive={handleArchiveIncomeSource}
@@ -3297,6 +3349,7 @@ function App() {
               focusRequest={incomeFocusRequest}
               onFocusRequestHandled={() => setIncomeFocusRequest(null)}
             />
+            </fieldset>
           )}
 
 
@@ -3360,7 +3413,7 @@ function App() {
             uploadingKind={uploadingKind}
             itemSavingIds={itemSavingIds}
             action={documentAction}
-            draftAction={budgetAction}
+            draftAction={budgetContextAction}
             expandedAppliedImportId={expandedAppliedImportId}
             onExpandedAppliedImportIdChange={setExpandedAppliedImportId}
             demoUploads={data.profile.uploads}
@@ -3428,10 +3481,11 @@ function App() {
           </div>
 
           {budgetForView.annual_plan ? (
+            <fieldset className="budget-loading-boundary" disabled={budgetYearLoading} aria-busy={budgetYearLoading}><legend className="sr-only">Annual budget controls</legend>
             <AnnualBudgetPlanner
               plan={budgetForView.annual_plan}
               isRealWorkspace={Boolean(isRealWorkspace)}
-              action={budgetAction}
+              action={budgetContextAction}
               error={budgetError}
               selectedMonthIndex={selectedBudgetMonthIndex}
               spendingReport={spendingReport}
@@ -3465,6 +3519,7 @@ function App() {
               focusRequest={budgetFocusRequest}
               onFocusRequestHandled={() => setBudgetFocusRequest(null)}
             />
+            </fieldset>
           ) : (
             <article className="panel coach-panel">
               <h3>Annual budget foundation</h3>
@@ -7341,7 +7396,7 @@ function MiaActionDraftReviewCard({
 }) {
   const { brand } = useBrand()
   const isPending = draft.status === 'pending' || draft.status === 'partially_applied'
-  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || action === 'load-budget-year'
   const remainingItems = draft.items.filter((item) => !item.applied_at && !item.canceled_at)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set(
     draft.suggested_selected_item_ids?.length ? draft.suggested_selected_item_ids : remainingItems.map((item) => item.id),
@@ -7845,7 +7900,7 @@ function TransactionDraftReviewStack({
           draft={draft}
           isRealWorkspace={isRealWorkspace}
           action={action}
-          draftActionsDisabled={draftActionsDisabled || bulkBusy}
+          draftActionsDisabled={draftActionsDisabled || bulkBusy || action === 'load-budget-year'}
           categories={categories}
           plan={plan}
           onUpdate={onUpdate}
@@ -7932,7 +7987,7 @@ function TransactionDraftReviewCard({
   const splitMismatch = moneyCents(splitTotal) !== moneyCents(targetAmount)
   const saving = action === `update-draft:${draft.id}`
   const reopening = action === `reopen-draft:${draft.id}`
-  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || action === 'load-budget-year'
   const splitsNeedingCategory = (draft.splits ?? []).filter(transactionDraftSplitNeedsCategory)
   const needsCategoryReview = splitsNeedingCategory.length > 0
   const categoryWarningId = `transaction-draft-${draft.id}-category-warning`
