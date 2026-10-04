@@ -2691,10 +2691,10 @@ test('a confirmed zero remains available when the rest of setup is completed man
   await expect(progress.getByRole('listitem').filter({ hasText: 'Primary monthly income' }).locator('.sr-only')).toHaveText('— Still needed')
   await progress.getByRole('button', { name: 'Enter manually' }).click()
 
+  await expect(page.getByLabel('Primary monthly income')).toBeFocused()
   await expect(page.getByLabel('Flexible spending')).toHaveValue('0')
   await expect(page.getByLabel('Primary monthly income')).toHaveValue('')
   await expect(page.getByLabel('Fixed essentials')).toHaveValue('')
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   await page.getByLabel('Household name').fill('Zero Spend Household')
   await expect(page.getByLabel('Household name')).toHaveValue('Zero Spend Household')
   await page.getByLabel('Primary goal').fill('Keep a calm plan.')
@@ -2727,6 +2727,46 @@ test('a confirmed zero remains available when the rest of setup is completed man
     fixed_expenses: 2800,
     flexible_spend: 0,
   })
+})
+
+test('manual first-session upload return focuses numeric entry without changing sections', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(false) }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await page.getByRole('button', { name: 'Test a private upload' }).click()
+  await expect(page.getByRole('heading', { name: 'Test one private file without changing your numbers.' })).toBeVisible()
+  await expect(page).toHaveURL(/#My%20Profile$/)
+  await page.getByRole('button', { name: 'Return to starting numbers' }).click()
+  await expect(page).toHaveURL(/#My%20Profile$/)
+  await expect(page.getByLabel('Primary monthly income')).toBeFocused()
+  await page.getByLabel('Primary goal').fill('Return to the same setup form.')
+  await expect(page.getByLabel('Primary goal')).toHaveValue('Return to the same setup form.')
+})
+
+test('manual first-session entry respects a field selected before navigation focus settles', async ({ page }) => {
+  await page.clock.install()
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(false) }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const progress = page.locator('.first-session-setup-progress')
+  await progress.getByRole('button', { name: 'Show setup options' }).click()
+
+  // Model a person choosing their goal as soon as the form appears, before
+  // the scheduled entry-focus frame. Mutation delivery precedes that frame.
+  await page.evaluate(() => {
+    const observer = new MutationObserver(() => {
+      const goal = document.querySelector<HTMLTextAreaElement>('.first-session-setup-form [name="primary_goal"]')
+      if (!goal) return
+      observer.disconnect()
+      goal.focus()
+    })
+    observer.observe(document.documentElement, { childList: true, subtree: true })
+  })
+  await progress.getByRole('button', { name: 'Enter manually' }).click()
+  const goal = page.getByLabel('Primary goal')
+  await expect(goal).toBeFocused()
+  await goal.fill('Keep the field I chose.')
+  await page.clock.runFor(120)
+  await expect(goal).toBeFocused()
+  await expect(goal).toHaveValue('Keep the field I chose.')
 })
 
 test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its controls', async ({ page }) => {
@@ -4500,9 +4540,41 @@ test('admin cohort rows show only safe pilot progress signals', async ({ page })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('Coach Studio waits for its initial library before opening a create form', async ({ page }) => {
+  let releaseList: (() => void) | undefined
+  let releaseDetail: (() => void) | undefined
+  const listGate = new Promise<void>((resolve) => { releaseList = resolve })
+  const detailGate = new Promise<void>((resolve) => { releaseDetail = resolve })
+  await page.route('http://api.test/api/v1/admin/personas', async (route) => {
+    if (route.request().method() === 'GET') await listGate
+    return route.fallback()
+  })
+  await page.route('http://api.test/api/v1/admin/personas/81', async (route) => {
+    await detailGate
+    return route.fallback()
+  })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  const create = page.getByRole('button', { name: 'Create', exact: true })
+  await expect(page.getByText('Loading coaching assistants…')).toBeVisible()
+  await expect(create).toBeDisabled()
+  await create.dispatchEvent('click')
+  await expect(page.locator('.coach-create-form')).toHaveCount(0)
+
+  releaseList?.()
+  await expect(page.getByText('Loading the selected assistant…')).toHaveCount(1)
+  await expect(create).toBeDisabled()
+  releaseDetail?.()
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
+  if (!(await create.isVisible())) await page.getByRole('button', { name: 'All assistants' }).click()
+  await create.click()
+  await page.locator('.coach-create-form').getByLabel('Assistant name').fill('A ready creation form')
+  await expect(page.locator('.coach-create-form').getByLabel('Assistant name')).toHaveValue('A ready creation form')
+})
+
 test('Coach Studio creates a persona through private setup chat and reviewed changes', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
   await openSection(page, 'Coach Studio')
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
 
   const createButton = page.getByRole('button', { name: 'Create', exact: true })
   if (!(await createButton.isVisible())) await page.getByRole('button', { name: 'All assistants' }).click()
@@ -4538,6 +4610,7 @@ test('Coach Studio creates a persona through private setup chat and reviewed cha
 test('Coach Studio Review in form opens and focuses the exact teaching and phrase controls', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
   await openSection(page, 'Coach Studio')
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
   const createButton = page.getByRole('button', { name: 'Create', exact: true })
   if (!(await createButton.isVisible())) await page.getByRole('button', { name: 'All assistants' }).click()
   await createButton.click()

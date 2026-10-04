@@ -479,6 +479,7 @@ function App() {
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
+  const [manualSetupFocusRequest, setManualSetupFocusRequest] = useState(0)
   const [active, setActive] = useState(() => {
     return sectionFromLocation()
   })
@@ -529,6 +530,8 @@ function App() {
   const [previewImport, setPreviewImport] = useState<FinancialDocumentImport | null>(null)
   const miaAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const setupFormRef = useRef<HTMLFormElement | null>(null)
+  const handledManualSetupFocusRef = useRef(0)
+  const manualSetupFocusOriginRef = useRef<Element | null>(null)
   const incomeSourcesRef = useRef<HTMLElement | null>(null)
   const incomeFocusSequenceRef = useRef(0)
   const [incomeFocusRequest, setIncomeFocusRequest] = useState<IncomeSourceFocusRequest | null>(null)
@@ -1348,19 +1351,37 @@ function App() {
 
   useLayoutEffect(() => {
     const pendingNavigation = pendingSectionNavigationRef.current
-    if (!pendingNavigation || pendingNavigation.section !== activeSection) return
+    const navigationMatches = pendingNavigation?.section === activeSection
+    const manualFocusPending = manualSetupFocusRequest !== handledManualSetupFocusRef.current
+    if (manualFocusPending && activeSection !== 'My Profile') {
+      handledManualSetupFocusRef.current = manualSetupFocusRequest
+    }
+    const focusManualSetup = manualFocusPending && activeSection === 'My Profile'
+    if (!navigationMatches && !focusManualSetup) return
 
     const animationFrame = window.requestAnimationFrame(() => {
-      window.scrollTo({ top: pendingNavigation.scrollTop, left: 0, behavior: 'auto' })
-      if (pendingNavigation.focusHeading) {
-        document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll: true })
+      // A person can choose a field before this frame. Respect that choice.
+      const focusInterrupted = focusManualSetup
+        && document.activeElement !== manualSetupFocusOriginRef.current
+        && document.activeElement !== document.body
+      if (focusManualSetup) handledManualSetupFocusRef.current = manualSetupFocusRequest
+      if (!focusInterrupted) {
+        if (navigationMatches) window.scrollTo({ top: pendingNavigation.scrollTop, left: 0, behavior: 'auto' })
+        if (focusManualSetup) {
+          setupFormRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' })
+          setupFormRef.current?.querySelector<HTMLInputElement>('[name="primary_income"]')?.focus({ preventScroll: true })
+        } else if (navigationMatches && pendingNavigation.focusHeading) {
+          document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll: true })
+        }
       }
-      setRouteAnnouncement(`${activeSection} screen loaded.`)
-      pendingSectionNavigationRef.current = null
+      if (navigationMatches) {
+        setRouteAnnouncement(`${activeSection} screen loaded.`)
+        pendingSectionNavigationRef.current = null
+      }
     })
 
     return () => window.cancelAnimationFrame(animationFrame)
-  }, [activeSection])
+  }, [activeSection, manualSetupFocusRequest])
 
   function prepareMiaUpdate(prompt: string) {
     setQuestion(prompt)
@@ -1494,13 +1515,11 @@ function App() {
   }
 
   function startManualFirstSession() {
-    switchSection('My Profile')
+    if (!switchSection('My Profile', { focusHeading: false })) return
+    manualSetupFocusOriginRef.current = document.activeElement
+    setManualSetupFocusRequest((current) => current + 1)
     setFirstSessionUploadOpen(false)
     setIsProfileEditing(true)
-    window.setTimeout(() => {
-      setupFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      setupFormRef.current?.querySelector<HTMLInputElement>('[name="primary_income"]')?.focus({ preventScroll: true })
-    }, 80)
   }
 
   function startChatFirstSession() {
