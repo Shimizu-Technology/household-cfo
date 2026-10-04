@@ -24,6 +24,7 @@ module HouseholdFinance
     ESSENTIAL_PURCHASE_TERMS = /\b(?:groceries|grocery|food|medicine|medication|rent|mortgage|power|water|utilities|utility|insurance|gas|daycare|childcare|school|tuition|diapers|formula|doctor|medical|dental)\b/i.freeze
     SCREENSHOT_PURCHASE_TERMS = /\b(?:purse|bag|handbag)\b/i.freeze
     PLANNED_PURCHASE_DETAIL_PATTERN = /(?:costs?|price|\$\s*\d|does that change|kid|school|work|league)/i.freeze
+    READ_ONLY_AMOUNT_EDIT_PATTERN = /(?:\A|[.!?;])\s*(?:(?:please|can you|could you|would you)\s+)?(?:set|change|update|adjust|increase|raise|decrease|lower|reduce|cut)\s+[^.!?;]{1,120}?\b(?:to|at|by)\s*\$?\s*\d/i.freeze
     FAMILY_SUPPORT_PATTERN = /\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend)\b.*\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b|\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b.*\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend|off-island)\b/i.freeze
     DEBT_VS_SAVINGS_PATTERN = /\b(?:debt|credit card|loan)\b.*\b(?:saving|savings|emergency|runway|extra|payoff|pay off)\b|\b(?:saving|savings|emergency|runway)\b.*\b(?:debt|credit card|loan|payoff|pay off)\b/i.freeze
     JOB_TRANSITION_PATTERN = /\b(?:leave|quit|stop|reduce\s+hours?|cut\s+hours?)\b.*\b(?:job|work|hours?)\b|\b(?:run|focus on)\b.*\b(?:my )?business\b|\bbusiness\s+income\b|\bbusiness\b.*\b(?:one big client|no contracts?)\b/i.freeze
@@ -80,6 +81,7 @@ module HouseholdFinance
 
     def call
       return injection_boundary_answer if self.class.prompt_injection?(message)
+      return read_only_amount_edit_answer if ::Mia::FinancialReadOnlyRequest.matches?(message) && message.match?(READ_ONLY_AMOUNT_EDIT_PATTERN)
       return nil if transaction_report?
 
       guardrail_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || planned_purchase_detail_answer || purchase_decision_answer
@@ -96,6 +98,10 @@ module HouseholdFinance
     private
 
     attr_reader :household, :message, :annual_budget_manager, :provided_annual_plan, :reference_month, :conversation_messages, :ensure_plan
+
+    def read_only_amount_edit_answer
+      "I kept this read-only: I did not change your financial records and did not create a review card. Your saved plan stays unchanged. Next CFO move: ask how that proposed amount compares with your saved plan if you want an analysis."
+    end
 
     def capability_answer
       return unless ::Mia::Capabilities.persona_configuration_request?(message)

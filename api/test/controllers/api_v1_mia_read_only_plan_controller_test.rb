@@ -42,6 +42,35 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     assert_equal accounts, @household.accounts.order(:id).pluck(:id, :balance_cents)
   end
 
+  test "provider unavailable no changes budget command stays read only after a purchase discussion" do
+    post "/api/v1/mia/messages", params: { message: "What if I buy a $900 flight? Do not change anything." }, headers: auth_headers, as: :json
+    assert_response :created
+    counts = financial_counts
+    allocations = BudgetAllocation.order(:id).pluck(:id, :planned_amount_cents)
+    balances = @household.accounts.order(:id).pluck(:id, :balance_cents)
+
+    post "/api/v1/mia/messages", params: { message: "Set Groceries to $650 for July. No changes, please." }, headers: auth_headers, as: :json
+
+    assert_response :created
+    body = response.parsed_body
+    answer = body.dig("assistant_message", "content")
+    assert_includes answer, "kept this read-only"
+    assert_includes answer, "did not create a review card"
+    refute_match(/purchase|need or a want|safe-to-spend|remaining discretionary plan/i, answer)
+    assert_nil body.fetch("mia_action_draft")
+    assert_nil body.fetch("transaction_draft")
+    assert_equal counts, financial_counts
+    assert_equal allocations, BudgetAllocation.order(:id).pluck(:id, :planned_amount_cents)
+    assert_equal balances, @household.accounts.order(:id).pluck(:id, :balance_cents)
+
+    post "/api/v1/mia/messages", params: { message: "What if I buy a $900 laptop? Do not change anything." }, headers: auth_headers, as: :json
+    assert_response :created
+    assert_equal "read_only_answer", response.parsed_body.dig("assistant_message", "presentation", "kind")
+    assert_equal "$900", response.parsed_body.dig("assistant_message", "presentation", "scenario", "values", 0, "display_value")
+    assert_equal counts, financial_counts
+    assert_equal allocations, BudgetAllocation.order(:id).pluck(:id, :planned_amount_cents)
+  end
+
   test "create history and idempotent replay preserve the read-only presentation without financial changes" do
     message = "Why is my readiness Yellow? Also, what if I buy a laptop for $900?"
     resolver = resolver_for(
