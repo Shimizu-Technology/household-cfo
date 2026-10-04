@@ -8,10 +8,17 @@ module Api
       rescue_from ::Mia::EffectiveCohortResolver::InvalidSelection, with: :render_invalid_cohort_selection
       rescue_from InvalidIdempotencyKey, with: :render_invalid_idempotency_key
 
+      rescue_from ChallengePrivacy::PrivateFinanceAccess::Denied do |error|
+        response.set_header("Cache-Control", "private, no-store")
+        render json: { errors: [ error.message ] }, status: :forbidden
+      end
+
       private
 
       def current_household
         @current_household ||= HouseholdFinance::WorkspaceResolver.new(current_user).household
+        ChallengePrivacy::PrivateFinanceAccess.authorize!(@current_household, user: current_user)
+        @current_household
       end
 
       def current_cohort_membership

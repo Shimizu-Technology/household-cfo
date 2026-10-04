@@ -15,6 +15,9 @@ module HouseholdFinance
       accepted_match = nil
       ApplicationRecord.transaction do
         draft.with_lock do
+          if draft.financial_source_event_id.present?
+            raise ArgumentError, "Review this statement row in Statements before adding it to your spending."
+          end
           raise ArgumentError, "Transaction draft is not pending" unless draft.pending?
 
           accepted_match = selected_match

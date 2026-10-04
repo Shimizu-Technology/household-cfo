@@ -5,15 +5,16 @@ module HouseholdFinance
       IdempotencyConflict = Class.new(ArgumentError)
       InvalidPreparedOperation = Class.new(ArgumentError)
 
-      def initialize(household, user:, audit_writer: nil)
+      def initialize(household, user:, audit_writer: nil, cohort_membership: nil)
         @household = household
         @user = user
         @audit_writer = audit_writer
+        @cohort_membership = cohort_membership
       end
 
       def run(operation_key:, input:, idempotency_key:, source: "manual", reviewable: nil)
         operation_class = Registry.fetch(operation_key)
-        key = normalize_idempotency_key(idempotency_key)
+        key = storage_idempotency_key(operation_class, idempotency_key)
         invocation_fingerprint = invocation_fingerprint_for(
           operation_class,
           input,
@@ -26,13 +27,13 @@ module HouseholdFinance
           if (existing = household.household_operation_executions.find_by(idempotency_key: key))
             return replay_invocation(existing, invocation_fingerprint) if existing.invocation_fingerprint.present?
 
-            normalized = operation_class.new(household).normalized_input(input).deep_stringify_keys
+            normalized = build_operation(operation_class).normalized_input(input).deep_stringify_keys
             return replay_raw(existing, operation_class, normalized, source: source, reviewable: reviewable)
           end
-          prepared = operation_class.new(household).prepare(input)
+          prepared = build_operation(operation_class).prepare(input)
           execute_inside_transaction!(
             prepared,
-            idempotency_key: key,
+            idempotency_key: idempotency_key,
             source: source,
             reviewable: reviewable,
             invocation_fingerprint: invocation_fingerprint
@@ -53,6 +54,26 @@ module HouseholdFinance
         end
       end
 
+      # Resolve an interrupted private request without retaining financial input
+      # in browser storage or returning generic execution/audit snapshots.
+      def private_request_result(operation_key:, idempotency_key:)
+        operation_class = Registry.fetch(operation_key)
+        raise InvalidPreparedOperation, "Only actor-scoped private requests can be resolved" unless actor_required?(operation_class) && sensitive_operation?(operation_class)
+        ApplicationRecord.transaction do
+          household.lock!
+          ensure_actor_membership!
+          execution = household.household_operation_executions.find_by(idempotency_key: storage_idempotency_key(operation_class, idempotency_key))
+          return nil unless execution
+          unless execution.user_id == user.id && execution.operation_key == operation_key
+            raise IdempotencyConflict, "This request identity belongs to a different private operation."
+          end
+          subject = execution.subject_type.safe_constantize&.find_by(id: execution.subject_id)
+          raise InvalidPreparedOperation, "The private request result is unavailable" unless subject
+          build_operation(operation_class).authorize_replay!(subject)
+          Result.new(execution: execution, subject: subject, after_snapshot: {}, replayed?: true)
+        end
+      end
+
       private
 
       attr_reader :household, :user, :audit_writer
@@ -63,17 +84,23 @@ module HouseholdFinance
         end
         operation_class = Registry.fetch(prepared.operation_key, prepared.operation_version)
         request_fingerprint = request_fingerprint_for(prepared, source: source, reviewable: reviewable)
-        key = normalize_idempotency_key(idempotency_key)
+        key = storage_idempotency_key(operation_class, idempotency_key)
         if (existing = household.household_operation_executions.find_by(idempotency_key: key))
           return replay_invocation(existing, invocation_fingerprint) if invocation_fingerprint && existing.invocation_fingerprint.present?
 
           return replay(existing, request_fingerprint)
         end
 
-        operation = operation_class.new(household)
+        operation = build_operation(operation_class)
         subject = operation.execute!(prepared, source: source)
         after_snapshot = operation.after_snapshot(subject, prepared)
         operation.send(:verify_after!, prepared.predicted_after_snapshot, after_snapshot)
+        mirrored = if sensitive_operation?(operation_class)
+          { normalized_input: {}, before_snapshot: {}, predicted_after_snapshot: {}, after_snapshot: {} }
+        else
+          { normalized_input: prepared.normalized_input, before_snapshot: prepared.before_snapshot,
+            predicted_after_snapshot: prepared.predicted_after_snapshot, after_snapshot: after_snapshot }
+        end
         audit_attributes = {
           user: user,
           actor_type: "user",
@@ -86,10 +113,7 @@ module HouseholdFinance
             operation_version: prepared.operation_version,
             source: source,
             idempotency_key: key,
-            normalized_input: prepared.normalized_input,
-            before_snapshot: prepared.before_snapshot,
-            predicted_after_snapshot: prepared.predicted_after_snapshot,
-            after_snapshot: after_snapshot
+            **mirrored
           }
         }
         audit = audit_writer ? audit_writer.call(audit_attributes) : household.household_audit_events.create!(audit_attributes)
@@ -106,10 +130,7 @@ module HouseholdFinance
           status: "completed",
           subject_type: subject.class.name,
           subject_id: subject.id,
-          normalized_input: prepared.normalized_input,
-          before_snapshot: prepared.before_snapshot,
-          predicted_after_snapshot: prepared.predicted_after_snapshot,
-          after_snapshot: after_snapshot,
+          **mirrored,
           completed_at: Time.current
         )
         Result.new(execution: execution, subject: subject, after_snapshot: after_snapshot, replayed?: false)
@@ -120,7 +141,17 @@ module HouseholdFinance
           raise IdempotencyConflict, "That idempotency key was already used for a different household change. Nothing changed."
         end
         subject = execution.subject_type.safe_constantize&.find_by(id: execution.subject_id)
-        unless subject_belongs_to_household?(subject)
+        operation_class = Registry.fetch(execution.operation_key, execution.operation_version)
+        if actor_required?(operation_class)
+          unless subject && execution.user_id == user.id
+            raise InvalidPreparedOperation, "The original private operation is unavailable for this participant. Nothing changed."
+          end
+          operation = build_operation(operation_class)
+          unless operation.respond_to?(:authorize_replay!)
+            raise InvalidPreparedOperation, "The private operation does not support authorized replay. Nothing changed."
+          end
+          operation.authorize_replay!(subject)
+        elsif !subject_belongs_to_household?(subject)
           raise InvalidPreparedOperation, "The original household operation subject is no longer available. Nothing changed."
         end
         Result.new(execution: execution, subject: subject, after_snapshot: execution.after_snapshot, replayed?: true)
@@ -200,6 +231,29 @@ module HouseholdFinance
         raise ArgumentError, "Idempotency key is required" if key.blank?
         raise ArgumentError, "Idempotency key is too long" if key.length > 200
         key
+      end
+
+      def build_operation(operation_class)
+        operation = actor_required?(operation_class) ? operation_class.new(household, user: user) : operation_class.new(household)
+        operation.release_membership = @cohort_membership if operation.respond_to?(:release_membership=)
+        operation
+      end
+
+      def actor_required?(operation_class)
+        operation_class.const_defined?(:ACTOR_REQUIRED) && operation_class::ACTOR_REQUIRED == true
+      end
+
+      def sensitive_operation?(operation_class)
+        operation_class.const_defined?(:SENSITIVE_AUDIT) && operation_class::SENSITIVE_AUDIT == true
+      end
+
+      def storage_idempotency_key(operation_class, value)
+        key = normalize_idempotency_key(value)
+        return key unless sensitive_operation?(operation_class)
+
+        # Callers sometimes put financial text into a key. Keep it out of generic
+        # audit/execution rows without losing actor-scoped invocation identity.
+        "private:#{PreparedOperation.fingerprint(user_id: user.id, key: key)}"
       end
 
       def secure_equal?(left, right)

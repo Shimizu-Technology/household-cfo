@@ -6,6 +6,12 @@ module HouseholdFinance
 
         private
 
+        def require_legacy_draft!(draft)
+          return if draft.financial_source_event_id.nil?
+
+          raise ArgumentError, "Review this statement row in Statements before adding it to your spending."
+        end
+
         def parsed_date(value)
           date = Date.iso8601(value.to_s)
           raise ArgumentError, "Transaction date is outside supported budget years" unless AnnualBudgetManager.supported_year?(date.year)

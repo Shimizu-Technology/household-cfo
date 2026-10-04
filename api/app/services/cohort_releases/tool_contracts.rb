@@ -42,8 +42,36 @@ module CohortReleases
       }
     )
     V2 = deep_freeze(V1.merge("schema_version" => 2, "experience_schema_versions" => [ 1, 2 ]))
-    SUPPORTED = { 1 => V1, 2 => V2 }.freeze
-    EXPERIENCE_CONTRACT_VERSIONS = { 1 => 1, 2 => 2 }.freeze
+    V3 = deep_freeze(V2.merge(
+      "schema_version" => 3, "experience_schema_versions" => [ 1, 2, 3 ],
+      "operations" => V1.fetch("operations") + %w[
+        savings.enrollment.accept savings.plan.stage savings.plan.approve
+        savings.entry.stage savings.entry.approve savings.zero.attest
+        source_review.account.link source_review.draft.stage source_review.draft.approve
+        source_review.draft.cancel source_review.revision.approve source_review.economic.link
+        source_review.expense.project
+      ].map { |key| { "key" => key, "version" => 1 } }
+    ))
+    V4 = deep_freeze(V3.merge(
+      "schema_version" => 4,
+      "operations" => V3.fetch("operations") + %w[
+        baseline.approve baseline.revise
+        savings.daily.purchase.stage savings.daily.purchase.approve
+        savings.daily.reflection.save savings.daily.reflection.erase savings.daily.check_in.save
+        savings.checkpoint.stage savings.checkpoint.approve savings.daily.category.create
+        privacy.consent.set support.request.create support.access.grant support.access.revoke
+        source_use.authorize source_use.revoke reminder.preference.set reminder.dismiss
+        savings.evidence.attach savings.evidence.revoke
+      ].map { |key| { "key" => key, "version" => 1 } }
+    ))
+    V5 = deep_freeze(V4.merge(
+      "schema_version" => 5,
+      "operations" => V4.fetch("operations") + %w[
+        savings.debt.stage savings.debt.approve
+      ].map { |key| { "key" => key, "version" => 1 } }
+    ))
+    SUPPORTED = { 1 => V1, 2 => V2, 3 => V3, 4 => V4, 5 => V5 }.freeze
+    EXPERIENCE_CONTRACT_VERSIONS = { 1 => 1, 2 => 2, 3 => 5 }.freeze
 
     module_function
 

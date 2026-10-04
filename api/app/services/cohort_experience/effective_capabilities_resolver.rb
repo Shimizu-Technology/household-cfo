@@ -52,7 +52,7 @@ module CohortExperience
             end
           end
         }
-        payload[:experience_mode] = config.fetch("experience_mode") if config.fetch("schema_version") == 2
+        payload[:experience_mode] = config.fetch("experience_mode") if [ 2, 3 ].include?(config.fetch("schema_version"))
         payload
       end
     end

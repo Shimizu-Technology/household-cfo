@@ -7,8 +7,9 @@ module FinancialDocuments
     FILTERS = %w[all posted informational unresolved].freeze
     PER_PAGE = 50
 
-    def initialize(document_import, revision_id:, page: "1", per_page: "50", filter: "all")
+    def initialize(document_import, revision_id:, page: "1", per_page: "50", filter: "all", user: nil)
       @import = document_import
+      @user = user
       @revision_id = revision_id.to_s
       @page = positive_integer(page)
       raise InvalidPage, "Review pages contain 50 rows" unless per_page.to_s == PER_PAGE.to_s
@@ -36,6 +37,7 @@ module FinancialDocuments
       summary = presenter.summary
       {
         schema_version: 1, document_import_id: @import.id, revision: summary, accounts: summary.fetch(:accounts),
+        participant_review: SourceReview::ParticipantPresenter.new(@import.household, revision, user: @user).context(event_ids: events.map(&:id)),
         review_pending: @import.metadata["source_accounting_review_pending"] == true,
         counts: { all: grouped.values.sum, posted: grouped.fetch("posted", 0), informational: grouped.fetch("informational", 0), unresolved: grouped.fetch("unresolved", 0),
           pending_transaction_drafts: @import.transaction_drafts.pending.count,

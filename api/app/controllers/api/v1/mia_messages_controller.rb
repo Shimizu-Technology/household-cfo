@@ -9,6 +9,10 @@ module Api
       ATTACHMENT_INFORMATIONAL_FRAME_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:update\s+me\b|tell\s+me\b|explain\b|increase\s+(?:my|our)\s+understanding\b)/i.freeze
       ATTACHMENT_NAMED_AMOUNT_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:set|change|update|increase|decrease|lower|raise)\s+[^?!.;,\r\n]{1,60}?\s+(?:to|at|by)\s+\$?\d[\d,]*(?:\.\d{1,2})?(?:\s*(?:dollars?|monthly|per\s+month))?\s*[?!.;]*\z/i.freeze
 
+      rescue_from SavingsChallenge::AccessPolicy::Unavailable do |error|
+        render json: { errors: [ error.message ], code: "savings_challenge_unavailable" }, status: :forbidden
+      end
+
       before_action :authenticate_user!
       before_action :require_writable_household!, only: %i[create destroy]
 
@@ -44,6 +48,7 @@ module Api
         return render json: { errors: [ "Message can't be blank" ] }, status: :unprocessable_entity if content.blank?
         return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
 
+        require_savings_chat_access! if savings_program_selected?
         session = current_chat_session
         return if render_preexisting_message_request(session, content, attached_imports)
 
@@ -72,6 +77,8 @@ module Api
             retire_prior_document_evidence: document_evidence_topic_present?(session)
           )
         end
+
+        return render_savings_response(session, content, attached_imports, message_request: message_request) if savings_program_selected?
 
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
           session,
@@ -287,6 +294,45 @@ module Api
       end
 
       private
+
+      def savings_program_selected?
+        current_cohort_membership&.cohort&.savings_challenge_enabled == true
+      end
+
+      def require_savings_chat_access!
+        cohort = current_cohort_membership.cohort.reload
+        enrollment = SavingsEnrollment.find_by(household: current_household, user: current_user, cohort: cohort)
+        SavingsChallenge::AccessPolicy.new(household: current_household, user: current_user, cohort: cohort, enrollment: enrollment).call!
+        enrollment
+      end
+
+      def render_savings_response(session, content, attached_imports, message_request:)
+        enrollment = require_savings_chat_access!
+        transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session, persona_version_id: current_persona.version_id,
+          cohort_id: current_participant_runtime.cohort_id, cohort_release_id: current_participant_runtime.release_id).call
+        history = intent_transcript_without_memory_commands(transcript_for_current_persona(transcript)).map { |message| message.slice(:role, :content) }
+        reference = SavingsChallenge::CoachAnswerer.new(household: current_household, user: current_user,
+          enrollment: enrollment, message: content, attachments: attached_imports).call
+        @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
+        narrator = SavingsChallenge::Narrator.new(user_message: content,
+          answer_packet: { kind: "savings_challenge", basis: "participant-approved savings ledger and explicitly scoped baseline",
+            write_state: "no_write", fallback_response: reference, guardrails: [ "90_day_total_not_monthly", "approved_new_money_reserved_only", "partial_coverage_is_not_full_household", "feelings_optional_private" ] },
+          history: history, persona: current_persona, approved_content: @approved_coach_content)
+        answer = narrator.call
+        @used_coach_content = narrator.supplied_content_context
+        ApplicationRecord.transaction do
+          current_household.lock!
+          require_savings_chat_access!
+          user_message, assistant_message = persist_chat_messages(session, content, attached_imports, answer)
+          payload = { user_message: serialize_chat_message(user_message, author: "You"),
+            assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil, transaction_draft: nil,
+            budget: nil, spending_report: nil,
+            savings_intake: attached_imports.empty? ? SavingsChallenge::ChatIntake.new(enrollment, message: content).call : nil }
+          complete_message_request(message_request, payload)
+          record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports)
+          render json: payload, status: :created
+        end
+      end
 
       def render_crisis_response(session, content, attached_imports, message_request:)
         user_message, assistant_message = persist_chat_messages(session, content, attached_imports, ::Mia::CrisisBoundary.response)
