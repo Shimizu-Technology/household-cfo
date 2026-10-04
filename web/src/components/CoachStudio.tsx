@@ -828,7 +828,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 <textarea rows={2} value={createDescription} onChange={(event) => setCreateDescription(event.target.value)} placeholder="Mrs. Mel's first cohort voice" />
               </label>
               <div>
-                <Button size="compact" type="submit" disabled={pendingAction === 'create'}>{pendingAction === 'create' ? 'Creating' : 'Create safe draft'}</Button>
+                <Button size="compact" type="submit" disabled={createDisabled}>{pendingAction === 'create' ? 'Creating' : 'Create safe draft'}</Button>
                 <Button size="compact" type="button" variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
               </div>
             </form>
