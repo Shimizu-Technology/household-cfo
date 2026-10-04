@@ -4944,7 +4944,7 @@ test('Coach Studio platform administrator deliberately switches between global a
   await expect(page.getByRole('button', { name: 'Create cohort' })).toBeEnabled()
   await page.getByLabel('Name').first().fill('Unsaved cohort workspace switch')
   page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Discard unsaved cohort, invite, and user changes')
+    expect(dialog.message()).toContain('Discard unsaved program, cohort, invite, and user changes')
     await dialog.dismiss()
   })
   await adminWorkspacePicker.selectOption('platform')
