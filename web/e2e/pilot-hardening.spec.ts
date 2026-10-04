@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 import { sourceReviewFixture } from './sourceReviewFixtures'
 import type { SourceReviewFilter } from '../src/lib/sourceReview'
 import type { BrandConfig, CoachWorkspaceSettings, WorkspaceBrandConfiguration, WorkspaceBrandVersion, WorkspaceCollaborator } from '../src/api'
@@ -8290,7 +8291,7 @@ async function openAuthenticatedSource(page: Page, type: 'image' | 'pdf', settin
     contentReads.push({ url: route.request().url(), brand: route.request().headers()['x-brand-hostname'] })
     if (settings.delayContent) await settings.delayContent
     if (settings.contentRevoked?.()) return route.fulfill({ status: 403, json: { error: 'Source content access revoked.' } })
-    const bytes = type === 'image' ? Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6Y8YAAAAASUVORK5CYII=', 'base64') : Buffer.from('%PDF-1.4\n1 0 obj <</Type /Catalog>> endobj\n%%EOF')
+    const bytes = type === 'image' ? Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6Y8YAAAAASUVORK5CYII=', 'base64') : readFileSync(new URL('./fixtures/fictional-private-statement.pdf', import.meta.url))
     return route.fulfill({ contentType: mime, body: bytes })
   })
   await page.goto('/?pilot_e2e_role=participant#My%20Profile')
@@ -8356,23 +8357,38 @@ test('BOG UI private source close aborts pending media and does not create a lat
   await expect.poll(async () => page.evaluate(() => (window as unknown as { privateSourceUrls: { created: string[] } }).privateSourceUrls.created.length)).toBe(0)
 })
 
-test('BOG UI private source PDF opens only after fresh content reads and releases app URLs on Close', async ({ page }) => {
+test('BOG UI private source PDF opens only after fresh content reads and releases app URLs on Close', async ({ page, browserName }) => {
   const { dialog, contentReads } = await openAuthenticatedSource(page, 'pdf')
   const open = dialog.getByRole('button', { name: 'Open PDF in new tab', exact: true })
   await expect(open).toBeEnabled()
   expect(contentReads).toHaveLength(0)
-  const popupPending = page.waitForEvent('popup')
-  await open.click()
-  const popup = await popupPending
-  await expect.poll(() => popup.url()).toMatch(/^blob:/)
+  const openVerifiedPdf = async () => {
+    // Linux WebKit hands PDFs to downloads; macOS WebKit has a native viewer.
+    // Verify the entire file in the former case, never accept a blank popup.
+    const downloadsPdf = browserName === 'webkit' && process.platform === 'linux'
+    const parentDownload = downloadsPdf ? page.waitForEvent('download') : null
+    const popupPending = page.waitForEvent('popup').then((popup) => ({ popup,
+      download: downloadsPdf ? popup.waitForEvent('download') : null }))
+    await open.click()
+    const { popup, download } = await popupPending
+    if (parentDownload && download) {
+      const delivered = await Promise.any([parentDownload, download])
+      const stream = await delivered.createReadStream()
+      expect(stream).not.toBeNull()
+      const chunks: Buffer[] = []
+      for await (const chunk of stream!) chunks.push(Buffer.from(chunk))
+      expect(Buffer.concat(chunks)).toEqual(readFileSync(new URL('./fixtures/fictional-private-statement.pdf', import.meta.url)))
+    } else {
+      await expect.poll(() => popup.url()).toMatch(/^blob:/)
+    }
+    return popup
+  }
+  const popup = await openVerifiedPdf()
   expect(contentReads).toHaveLength(1)
   await popup.close()
   await page.bringToFront()
   await expect(open).toBeEnabled()
-  const secondPopupPending = page.waitForEvent('popup')
-  await open.click()
-  const secondPopup = await secondPopupPending
-  await expect.poll(() => secondPopup.url()).toMatch(/^blob:/)
+  const secondPopup = await openVerifiedPdf()
   expect(contentReads).toHaveLength(2)
   await expect(dialog).toContainText('Files already opened or downloaded may remain available')
   await secondPopup.close()
