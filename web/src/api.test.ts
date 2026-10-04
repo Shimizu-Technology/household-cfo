@@ -36,6 +36,8 @@ import {
   fetchAdminContentItems,
   fetchAdminContentPacks,
   fetchAdminContentSource,
+  fetchDocumentImportSourceContent,
+  fetchDocumentImportSourceUrl,
   fetchAdminContentSourceUrlIntake,
   fetchAdminContentSourceUrlIntakes,
   fetchAdminContentSources,
@@ -1304,5 +1306,45 @@ describe('feedback submission deadlines', () => {
     expect(body.get('feedback_report[attempted]')).toBe(values.attempted)
     expect(body.get('screenshot')).toBe(screenshot)
     expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
+
+describe('authenticated financial source content', () => {
+  it('derives the app route and refreshes Bearer, brand and workspace headers for each read instead of following metadata URLs', async () => {
+    let token = 'first-private-token'
+    setAuthTokenGetter(async () => token)
+    setActiveCoachWorkspaceId(42)
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ authenticated_content: true, url: 'https://evil.example/private.pdf', download_url: 'https://evil.example/download', expires_in: 0, filename: 'fictional.pdf', content_type: 'application/pdf', inline_supported: true })).mockImplementation(async () => new Response(new Blob(['fictional PDF'], { type: 'application/pdf' })))
+    vi.stubGlobal('fetch', fetchMock)
+    await fetchDocumentImportSourceUrl(606)
+    const first = await fetchDocumentImportSourceContent(606)
+    expect(first.type).toBe('application/pdf')
+    token = 'second-private-token'
+    setActiveCoachWorkspaceId(43)
+    await fetchDocumentImportSourceContent(606, true)
+    expect(String(fetchMock.mock.calls[1][0])).toMatch(/\/api\/v1\/document_imports\/606\/source_content$/)
+    expect(String(fetchMock.mock.calls[2][0])).toMatch(/\/api\/v1\/document_imports\/606\/source_content\?download=1$/)
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('evil.example')
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ Authorization: 'Bearer first-private-token', 'X-Coach-Workspace-Id': '42', 'X-Brand-Hostname': browserBrandHostname() })
+    expect((fetchMock.mock.calls[2][1] as RequestInit).headers).toMatchObject({ Authorization: 'Bearer second-private-token', 'X-Coach-Workspace-Id': '43' })
+    expect((fetchMock.mock.calls[2][1] as RequestInit).cache).toBe('no-store')
+  })
+  it('rejects revoked reads without returning bytes and rejects invalid import identities before any request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: 'Source access revoked.' }, 403))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(fetchDocumentImportSourceContent(606)).rejects.toMatchObject({ status: 403, message: 'Source access revoked.' })
+    await expect(fetchDocumentImportSourceContent(-1)).rejects.toThrow('valid document import')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+  it('keeps consumption of Blob bytes inside the request deadline', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: () => new Promise<Blob>(() => undefined) })
+    vi.stubGlobal('fetch', fetchMock)
+    const request = fetchDocumentImportSourceContent(606)
+    const failure = expect(request).rejects.toThrow('Private document content took too long.')
+    await vi.advanceTimersByTimeAsync(60_001)
+    await failure
+    expect((fetchMock.mock.calls[0][1] as RequestInit).signal?.aborted).toBe(true)
   })
 })

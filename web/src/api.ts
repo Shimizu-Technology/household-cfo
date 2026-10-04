@@ -348,6 +348,7 @@ export type FinancialDocumentImport = {
 }
 
 export type DocumentSourceUrl = {
+  authenticated_content: true
   url: string
   download_url: string
   expires_in: number
@@ -4481,12 +4482,23 @@ export async function deleteDocumentImport(documentImportId: number): Promise<vo
   await fetchJson<unknown>(`/api/v1/document_imports/${documentImportId}`, { method: 'DELETE' })
 }
 
-export async function fetchDocumentImportSourceUrl(documentImportId: number): Promise<DocumentSourceUrl> {
-  return fetchJson<DocumentSourceUrl>(`/api/v1/document_imports/${documentImportId}/source_url`)
+export async function fetchDocumentImportSourceUrl(documentImportId: number, signal?: AbortSignal): Promise<DocumentSourceUrl> {
+  return fetchJson<DocumentSourceUrl>(`/api/v1/document_imports/${documentImportId}/source_url`, { signal, cache: 'no-store' })
 }
 
-export async function fetchDocumentImportSourcePreview(documentImportId: number): Promise<DocumentSourcePreview> {
-  return fetchJson<DocumentSourcePreview>(`/api/v1/document_imports/${documentImportId}/source_preview`)
+// Derive this authenticated route from the import ID. Metadata URLs are never
+// trusted destinations for Authorization, brand or coach-workspace headers.
+export async function fetchDocumentImportSourceContent(documentImportId: number, download = false, signal?: AbortSignal): Promise<Blob> {
+  if (!Number.isSafeInteger(documentImportId) || documentImportId < 1) throw new Error('A valid document import is required.')
+  const path = `/api/v1/document_imports/${documentImportId}/source_content${download ? '?download=1' : ''}`
+  return apiOperation(path, { signal, cache: 'no-store' }, { timeoutMs: 60_000, timeoutMessage: 'Private document content took too long.' }, async (response) => {
+    if (!response.ok) throw await apiRequestError(response, 'Private document content could not be loaded.')
+    return response.blob()
+  })
+}
+
+export async function fetchDocumentImportSourcePreview(documentImportId: number, signal?: AbortSignal): Promise<DocumentSourcePreview> {
+  return fetchJson<DocumentSourcePreview>(`/api/v1/document_imports/${documentImportId}/source_preview`, { signal, cache: 'no-store' })
 }
 
 function demoWorkspaceSetupValues(profile: ProfileData, dashboard: DashboardData, budget: BudgetData, wealth: WealthData): WorkspaceSetupValues {

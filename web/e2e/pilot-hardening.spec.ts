@@ -4539,9 +4539,10 @@ test('PDF document preview keeps keyboard focus inside accessible controls', asy
   await page.route('http://api.test/api/v1/document_imports/606/source_url', (route) => route.fulfill({
     status: 200,
     json: {
-      url: 'https://signed.example/checking-statement.pdf',
-      download_url: 'https://signed.example/checking-statement-download.pdf',
-      expires_in: 300,
+      authenticated_content: true,
+      url: '/api/v1/document_imports/606/source_content',
+      download_url: '/api/v1/document_imports/606/source_content?download=1',
+      expires_in: 0,
       filename: pdfImport.filename,
       content_type: pdfImport.content_type,
       inline_supported: true,
@@ -4554,12 +4555,12 @@ test('PDF document preview keeps keyboard focus inside accessible controls', asy
   await page.keyboard.press('Enter')
 
   const dialog = page.getByRole('dialog', { name: 'Preview checking-statement.pdf' })
-  const downloadLink = dialog.getByRole('link', { name: 'Download source' })
+  const downloadLink = dialog.getByRole('button', { name: 'Download source' })
   const closeButton = dialog.getByRole('button', { name: 'Close', exact: true })
-  const openPdfLink = dialog.getByRole('link', { name: 'Open PDF in new tab' })
+  const openPdfLink = dialog.getByRole('button', { name: 'Open PDF in new tab' })
   await expect(dialog).toBeVisible()
   await expect(dialog.locator('iframe')).toHaveCount(0)
-  await expect(openPdfLink).toHaveAttribute('href', 'https://signed.example/checking-statement.pdf')
+  await expect(openPdfLink).toBeEnabled()
   await expect(closeButton).toBeVisible()
   await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true)
 
@@ -8173,7 +8174,7 @@ async function openTypedStatementReview(page: Page, failSecondPage = false) {
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
   await page.route('http://api.test/api/v1/document_imports/1203', (route) => route.fulfill({ json: { document_import: source } }))
-  await page.route('http://api.test/api/v1/document_imports/1203/source_url', (route) => route.fulfill({ json: { url: 'https://signed.example/fictional.pdf', download_url: 'https://signed.example/fictional-download.pdf', expires_in: 300, filename: source.filename, content_type: 'application/pdf', inline_supported: true } }))
+  await page.route('http://api.test/api/v1/document_imports/1203/source_url', (route) => route.fulfill({ json: { authenticated_content: true, url: '/api/v1/document_imports/1203/source_content', download_url: '/api/v1/document_imports/1203/source_content?download=1', expires_in: 0, filename: source.filename, content_type: 'application/pdf', inline_supported: true } }))
   await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', (route) => {
     const query = new URL(route.request().url()).searchParams
     expect(query.get('revision_id')).toBe('88')
@@ -8241,4 +8242,116 @@ test('BOG UI typed statement revision conflicts hide stale rows and retain a ret
   await expect(review.getByRole('button', { name: 'Retry statement page' })).toBeEnabled()
   await review.getByRole('combobox', { name: 'Filter statement rows' }).selectOption('unresolved')
   await expect(review.locator('.source-event')).toHaveCount(7)
+})
+
+
+async function openAuthenticatedSource(page: Page, type: 'image' | 'pdf', settings: { metadataRevoked?: () => boolean; contentRevoked?: () => boolean; delayContent?: Promise<void> } = {}) {
+  const mime = type === 'image' ? 'image/png' : 'application/pdf'
+  const filename = type === 'image' ? 'fictional-private-receipt.png' : 'fictional-private-statement.pdf'
+  const source = { id: 1610, household_id: 77, document_kind: 'statement', status: 'needs_review', filename, content_type: mime, byte_size: 500, document_date: null, period_start_on: null, period_end_on: null, extracted_summary: 'Fictional private source.', extraction_error: null, processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true, uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [], attempts: [], transaction_drafts: [] }
+  await page.addInitScript(() => {
+    const state = { created: [] as string[], revoked: [] as string[] }
+    ;(window as unknown as { privateSourceUrls: typeof state }).privateSourceUrls = state
+    const create = URL.createObjectURL.bind(URL); const revoke = URL.revokeObjectURL.bind(URL)
+    URL.createObjectURL = (blob) => { const url = create(blob); state.created.push(url); return url }
+    URL.revokeObjectURL = (url) => { state.revoked.push(url); revoke(url) }
+  })
+  const contentReads: Array<{ url: string; brand: string | undefined }> = []
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
+  await page.route('http://api.test/api/v1/document_imports/1610/source_url', (route) => settings.metadataRevoked?.() ? route.fulfill({ status: 403, json: { error: 'Source access revoked.' } }) : route.fulfill({ json: { authenticated_content: true, url: 'https://untrusted.example/never-fetch', download_url: 'https://untrusted.example/never-fetch', expires_in: 0, filename, content_type: mime, inline_supported: true } }))
+  await page.route('http://api.test/api/v1/document_imports/1610/source_content**', async (route) => {
+    contentReads.push({ url: route.request().url(), brand: route.request().headers()['x-brand-hostname'] })
+    if (settings.delayContent) await settings.delayContent
+    if (settings.contentRevoked?.()) return route.fulfill({ status: 403, json: { error: 'Source content access revoked.' } })
+    const bytes = type === 'image' ? Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6Y8YAAAAASUVORK5CYII=', 'base64') : Buffer.from('%PDF-1.4\n1 0 obj <</Type /Catalog>> endobj\n%%EOF')
+    return route.fulfill({ contentType: mime, body: bytes })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await page.getByRole('button', { name: 'Preview original', exact: true }).click()
+  return { dialog: page.getByRole('dialog', { name: `Preview ${filename}`, exact: true }), contentReads, filename }
+}
+
+test('BOG UI private source image uses Blob bytes and fresh authenticated download instead of metadata URLs', async ({ page }) => {
+  const untrustedRequests: string[] = []
+  page.on('request', (request) => { if (request.url().includes('untrusted.example')) untrustedRequests.push(request.url()) })
+  const { dialog, contentReads, filename } = await openAuthenticatedSource(page, 'image')
+  await expect(dialog.getByRole('img')).toHaveAttribute('src', /^blob:/)
+  expect(contentReads).toHaveLength(1)
+  expect(contentReads[0].brand).toBeTruthy()
+  const downloadPending = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Download source' }).click()
+  const download = await downloadPending
+  expect(download.suggestedFilename()).toBe(filename)
+  await download.cancel()
+  expect(contentReads.some((read) => read.url.endsWith('/source_content?download=1'))).toBe(true)
+  expect(untrustedRequests).toEqual([])
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  const urls = await page.evaluate(() => (window as unknown as { privateSourceUrls: { created: string[]; revoked: string[] } }).privateSourceUrls)
+  expect(urls.created.length).toBeGreaterThanOrEqual(2)
+  expect(urls.created.every((url) => urls.revoked.includes(url))).toBe(true)
+})
+
+test('BOG UI private source preview clears displayed media when focus recheck revokes access', async ({ page }) => {
+  let revoked = false
+  const { dialog } = await openAuthenticatedSource(page, 'image', { metadataRevoked: () => revoked })
+  await expect(dialog.getByRole('img')).toBeVisible()
+  revoked = true
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(dialog.getByRole('alert')).toContainText('Source access revoked.')
+  await expect(dialog.getByRole('img')).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Download source' })).toHaveCount(0)
+  const urls = await page.evaluate(() => (window as unknown as { privateSourceUrls: { created: string[]; revoked: string[] } }).privateSourceUrls)
+  expect(urls.created.every((url) => urls.revoked.includes(url))).toBe(true)
+})
+
+test('BOG UI private source denied download clears the retained image and preserves Close', async ({ page }) => {
+  let revoked = false
+  const { dialog } = await openAuthenticatedSource(page, 'image', { contentRevoked: () => revoked })
+  await expect(dialog.getByRole('img')).toBeVisible()
+  revoked = true
+  await dialog.getByRole('button', { name: 'Download source' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('Source content access revoked.')
+  await expect(dialog.getByRole('img')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Close', exact: true }).press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Preview original', exact: true })).toBeFocused()
+})
+
+test('BOG UI private source close aborts pending media and does not create a late Blob URL', async ({ page }) => {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const { dialog, contentReads } = await openAuthenticatedSource(page, 'image', { delayContent: gate })
+  await expect.poll(() => contentReads.length).toBe(1)
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  release()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(async () => page.evaluate(() => (window as unknown as { privateSourceUrls: { created: string[] } }).privateSourceUrls.created.length)).toBe(0)
+})
+
+test('BOG UI private source PDF opens only after fresh content reads and releases app URLs on Close', async ({ page }) => {
+  const { dialog, contentReads } = await openAuthenticatedSource(page, 'pdf')
+  const open = dialog.getByRole('button', { name: 'Open PDF in new tab', exact: true })
+  await expect(open).toBeEnabled()
+  expect(contentReads).toHaveLength(0)
+  const popupPending = page.waitForEvent('popup')
+  await open.click()
+  const popup = await popupPending
+  await expect.poll(() => popup.url()).toMatch(/^blob:/)
+  expect(contentReads).toHaveLength(1)
+  await popup.close()
+  await page.bringToFront()
+  await expect(open).toBeEnabled()
+  const secondPopupPending = page.waitForEvent('popup')
+  await open.click()
+  const secondPopup = await secondPopupPending
+  await expect.poll(() => secondPopup.url()).toMatch(/^blob:/)
+  expect(contentReads).toHaveLength(2)
+  await expect(dialog).toContainText('Files already opened or downloaded may remain available')
+  await secondPopup.close()
+  await page.bringToFront()
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  const urls = await page.evaluate(() => (window as unknown as { privateSourceUrls: { created: string[]; revoked: string[] } }).privateSourceUrls)
+  expect(urls.created.every((url) => urls.revoked.includes(url))).toBe(true)
 })
