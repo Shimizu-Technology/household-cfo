@@ -44,7 +44,7 @@ export function BrandProvider({ children }: { children: ReactNode }) {
         const timedOut = timeoutReached || (requestError instanceof Error && ['AbortError', 'TimeoutError'].includes(requestError.name))
         setError(timedOut
           ? 'This program took too long to load. Check your connection and try again.'
-          : 'This program could not be verified. Check the link from your coach and try again.')
+          : 'Your program could not load. Check your connection and try again. If the problem continues, contact your coach.')
       })
       .finally(() => window.clearTimeout(timeout))
 

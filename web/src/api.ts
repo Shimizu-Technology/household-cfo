@@ -1,3 +1,6 @@
+import { checkedSavingsChallenge } from './lib/savingsChallenge'
+import type { SavingsChallenge, SavingsEnrollment, SavingsPlanVersion, SavingsPlanDraft, SavingsEntry, SavingsEntryDraft, SavingsEntryVersion, SavingsPage, SavingsMutation, SavingsPlanInput, SavingsPlanApproval, SavingsEntryInput, SavingsEntryApproval } from './lib/savingsChallenge'
+import type { SourceReviewAction, TrackedSourceAccount, ReviewedRow } from './lib/participantSourceReview'
 import type { SourceReview, SourceReviewFilter } from './lib/sourceReview'
 export type WorkspaceSetupValues = {
   household_name: string
@@ -68,6 +71,7 @@ export type PublicBrandResponse = {
 }
 
 export type WorkspaceData = {
+  experience_mode?: 'household_cfo' | 'savings_challenge'
   mode: 'demo' | 'real'
   household_id: number | null
   setup_complete: boolean
@@ -2191,6 +2195,9 @@ const BRAND_DISPLAY_FONTS = new Set(['cormorant_garamond', 'lora', 'merriweather
 const BRAND_BODY_FONTS = new Set(['inter', 'montserrat', 'nunito_sans', 'source_sans_3', 'system_sans'])
 let authTokenGetter: AuthTokenGetter | null = null
 let activeCoachWorkspaceId = readStoredCoachWorkspaceId()
+let activeParticipantCohortId: number | null = null
+let apiActorIdentity: string | null = null
+let apiContextGeneration = 0
 
 type ApiFetchSettings = {
   timeoutMs?: number
@@ -2354,10 +2361,15 @@ function apiNetworkErrorMessage(action: string) {
 }
 
 export function setAuthTokenGetter(getter: AuthTokenGetter | null) {
+  if (authTokenGetter !== getter) apiContextGeneration += 1
   authTokenGetter = getter
 }
 
 export function setActiveCoachWorkspaceId(workspaceId: number | null) {
+  if (activeCoachWorkspaceId !== workspaceId) {
+    apiContextGeneration += 1
+    activeParticipantCohortId = null
+  }
   activeCoachWorkspaceId = workspaceId
   if (typeof window === 'undefined') return
 
@@ -2365,18 +2377,38 @@ export function setActiveCoachWorkspaceId(workspaceId: number | null) {
   else window.localStorage.removeItem('household-cfo:coach-workspace-id')
 }
 
+export function setApiActorIdentity(identity: string | null) {
+  if (apiActorIdentity === identity) return
+  apiActorIdentity = identity
+  activeParticipantCohortId = null
+  activeCoachWorkspaceId = null
+  apiContextGeneration += 1
+}
+
+// A program choice stays in memory and is cleared on account/workspace changes.
+// The server still authorizes every selected cohort independently.
+export function setActiveParticipantCohortId(cohortId: number | null) {
+  if (activeParticipantCohortId === cohortId) return
+  activeParticipantCohortId = cohortId
+  apiContextGeneration += 1
+}
+
+// Capture once before a logical operation, then assert after waits and before
+// its next request. A later request must never adopt a different program.
+export function captureApiOperation(): () => void {
+  const generation = apiContextGeneration
+  return function assertApiOperation() {
+    if (generation !== apiContextGeneration) {
+      throw new ApiContextChangedError('Your account or program changed. Reopen the current program before continuing.')
+    }
+  }
+}
+
 function readStoredCoachWorkspaceId() {
   if (typeof window === 'undefined') return null
 
   const parsed = Number.parseInt(window.localStorage.getItem('household-cfo:coach-workspace-id') ?? '', 10)
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
-}
-
-async function authHeaders(): Promise<Record<string, string>> {
-  if (!authTokenGetter) return {}
-
-  const token = await authTokenGetter()
-  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 async function withDeadline<T>(
@@ -2431,6 +2463,10 @@ async function fetchWithDeadline(
 }
 
 async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortSignal) {
+  const assertCurrentContext = captureApiOperation()
+  const getToken = authTokenGetter
+  const workspaceId = activeCoachWorkspaceId
+  const cohortId = activeParticipantCohortId
   try {
     const callerHeaders = options.headers instanceof Headers
       ? Object.fromEntries(options.headers.entries())
@@ -2438,21 +2474,30 @@ async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortS
         ? Object.fromEntries(options.headers)
         : { ...(options.headers ?? {}) }
     const safeCallerHeaders = Object.fromEntries(Object.entries(callerHeaders).filter(([name]) => name.toLowerCase() !== 'x-brand-hostname'))
+    const token = getToken ? await getToken() : null
+    assertCurrentContext()
+    if (signal?.aborted || options.signal?.aborted) throw new DOMException('Request cancelled', 'AbortError')
     const headers = {
-      ...(await authHeaders()),
-      ...(activeCoachWorkspaceId ? { 'X-Coach-Workspace-Id': String(activeCoachWorkspaceId) } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(workspaceId ? { 'X-Coach-Workspace-Id': String(workspaceId) } : {}),
+      ...(cohortId ? { 'X-Cohort-Id': String(cohortId) } : {}),
       ...safeCallerHeaders,
       'X-Brand-Hostname': browserBrandHostname(),
     }
-    return fetch(`${API_BASE}${path}`, {
+    const response = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers,
       ...(signal ? { signal } : {}),
     })
+    assertCurrentContext()
+    return response
   } catch (error) {
+    if (error instanceof ApiContextChangedError) throw error
     throw new Error(apiNetworkErrorMessage('API request could not reach the server'), { cause: error })
   }
 }
+
+class ApiContextChangedError extends Error {}
 
 async function apiOperation<T>(
   path: string,
@@ -2460,7 +2505,13 @@ async function apiOperation<T>(
   settings: ApiFetchSettings,
   consume: (response: Response) => Promise<T>,
 ) {
-  const request = async (signal?: AbortSignal) => consume(await apiFetch(path, options, signal))
+  const assertCurrentContext = captureApiOperation()
+  const request = async (signal?: AbortSignal) => {
+    assertCurrentContext()
+    const result = await consume(await apiFetch(path, options, signal))
+    assertCurrentContext()
+    return result
+  }
 
   const method = (options.method ?? 'GET').toUpperCase()
   const readOnly = method === 'GET' || method === 'HEAD'
@@ -2500,8 +2551,10 @@ async function postJson<T>(path: string, body: unknown, settings: ApiFetchSettin
 }
 
 async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T> {
+  const assertCurrentContext = captureApiOperation()
   const maximumPolls = 60
   for (let poll = 0; poll < maximumPolls; poll += 1) {
+    assertCurrentContext()
     const response = await fetchJsonResponse<T | { code?: string; retry_after_ms?: number }>(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2510,6 +2563,7 @@ async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T>
       timeoutMs: MIA_REQUEST_TIMEOUT_MS,
       timeoutMessage: 'Your assistant took too long to finish this request.',
     })
+    assertCurrentContext()
 
     if (response.status === 202) {
       const payload = response.payload as { code?: string; retry_after_ms?: number }
@@ -3671,6 +3725,7 @@ export async function fetchSpendingReport(startOn: string, endOn: string): Promi
 }
 
 export type MiaMessageResponse = {
+  savings_intake?: import('./lib/savingsChallenge').SavingsIntake | null
   user_message: MiaMessage
   assistant_message: MiaMessage
   transaction_draft?: TransactionDraft | null
@@ -4356,15 +4411,32 @@ export async function fetchDocumentSourceReview(id: number, revisionId: number, 
   return payload.source_review
 }
 
+export async function mutateStatementReview<T>(importId: number, revisionId: number, action: SourceReviewAction, input: object, requestId: string, signal?: AbortSignal): Promise<{ record: T; replayed: boolean }> {
+  return fetchJson(`/api/v1/document_imports/${importId}/review/${action}`, { method: 'POST', signal,
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId }, body: JSON.stringify({ revision_id: revisionId, input }) })
+}
+export function fetchTrackedSourceAccounts(cursor: number | null, signal?: AbortSignal): Promise<{ records: TrackedSourceAccount[]; next_cursor: number | null }> {
+  return fetchJson(`/api/v1/source_review_accounts?cursor=${cursor ?? 0}`, { signal, cache: 'no-store' })
+}
+
+export function fetchSourceDuplicateCandidates(importId: number, eventId: number, cursor: number | null, signal?: AbortSignal, options: { filter?: 'duplicate' | 'link'; signed_amount_cents?: number; posted_on?: string } = {}): Promise<{ records: ReviewedRow[]; next_cursor: number | null }> {
+  const query = new URLSearchParams({ event_id: String(eventId), cursor: String(cursor ?? 0), filter: options.filter ?? 'duplicate' })
+  if (options.signed_amount_cents !== undefined) query.set('signed_amount_cents', String(options.signed_amount_cents))
+  if (options.posted_on) query.set('posted_on', options.posted_on)
+  return fetchJson(`/api/v1/document_imports/${importId}/review_candidates?${query}`, { signal, cache: 'no-store' })
+}
+
 export async function fetchDocumentImport(id: number): Promise<FinancialDocumentImport> {
   const payload = await fetchJson<{ document_import: FinancialDocumentImport }>(`/api/v1/document_imports/${id}`)
   return payload.document_import
 }
 
 export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind, origin: 'profile' | 'mia' = 'profile', uploadContext = '', documentKindExplicit = origin === 'profile'): Promise<FinancialDocumentImport> {
+  const assertCurrentContext = captureApiOperation()
   const uploadRequestId = clientRequestId()
   const contentType = uploadContentType(file)
   const checksumSha256 = await fileSha256(file)
+  assertCurrentContext()
   const presign = await postJson<{
     upload_url: string
     upload_headers: Record<string, string>
@@ -4380,6 +4452,7 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
     document_kind_explicit: documentKindExplicit,
     upload_request_id: uploadRequestId,
   })
+  assertCurrentContext()
 
   let uploadResponse: Response
   try {
@@ -4397,6 +4470,7 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
     if (error instanceof ApiDeadlineError) throw error
     throw new Error('The private file upload could not reach storage. Check your connection and try again.', { cause: error })
   }
+  assertCurrentContext()
   if (!uploadResponse.ok) {
     throw new Error(`The private file upload failed (${uploadResponse.status}). Try again or report the problem.`)
   }
@@ -4409,6 +4483,7 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
       timeoutMessage: 'Document extraction took too long.',
     },
   )
+  assertCurrentContext()
   return payload.document_import
 }
 
@@ -4500,6 +4575,16 @@ export async function fetchDocumentImportSourceContent(documentImportId: number,
 
 export async function fetchDocumentImportSourcePreview(documentImportId: number, signal?: AbortSignal): Promise<DocumentSourcePreview> {
   return fetchJson<DocumentSourcePreview>(`/api/v1/document_imports/${documentImportId}/source_preview`, { signal, cache: 'no-store' })
+}
+
+export async function fetchSharedChallengeSource(enrollmentId: number, sourceId: number, supportAccessId: number | undefined, signal?: AbortSignal): Promise<Blob> {
+  if (![enrollmentId, sourceId, ...(supportAccessId === undefined ? [] : [supportAccessId])].every(id => Number.isSafeInteger(id) && id > 0)) throw new Error('Choose an exact shared original.')
+  const query = new URLSearchParams({record_type:'document_source',record_id:String(sourceId),download:'1'})
+  if (supportAccessId !== undefined) query.set('support_access_id',String(supportAccessId))
+  return apiOperation(`/api/v1/shared_challenges/${enrollmentId}/source_content?${query}`, {signal,cache:'no-store'}, {timeoutMs:60_000,timeoutMessage:'Shared original took too long.'}, async response => {
+    if (!response.ok) throw await apiRequestError(response,'Shared original is no longer available.')
+    return response.blob()
+  })
 }
 
 function demoWorkspaceSetupValues(profile: ProfileData, dashboard: DashboardData, budget: BudgetData, wealth: WealthData): WorkspaceSetupValues {
@@ -4675,4 +4760,119 @@ export async function removeCoachGroupParticipant(cohortId: number, userId: numb
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ expected_membership_id: membershipId }),
   })
+}
+
+// Participant-only challenge operations. Request identity belongs to the caller
+// so an uncertain response can be retried with the exact same key and payload.
+export async function fetchSavingsChallenge(signal?: AbortSignal): Promise<SavingsChallenge> {
+  return checkedSavingsChallenge(await fetchJson<SavingsChallenge>('/api/v1/savings_challenge', { signal, cache: 'no-store' }))
+}
+export type SavingsCollection = 'entries' | 'entry_drafts' | 'entry_versions' | 'plan_drafts' | 'plan_versions' | 'zero_attestations'
+export async function fetchSavingsPage<T extends SavingsEntry | SavingsEntryDraft | SavingsEntryVersion | SavingsPlanDraft | SavingsPlanVersion>(collection: SavingsCollection, cursor: number | null = null, signal?: AbortSignal): Promise<SavingsPage<T>> {
+  const allowed: SavingsCollection[] = ['entries', 'entry_drafts', 'entry_versions', 'plan_drafts', 'plan_versions', 'zero_attestations']
+  if (!allowed.includes(collection) || (cursor !== null && (!Number.isSafeInteger(cursor) || cursor < 1))) throw new Error('Invalid savings history page.')
+  const page = await fetchJson<SavingsPage<T>>(`/api/v1/savings_challenge/${collection}?limit=10${cursor === null ? '' : `&cursor=${cursor}`}`, { signal, cache: 'no-store' })
+  if (!Array.isArray(page.records) || page.records.length > 10 || page.records.some((record) => !Number.isSafeInteger(record.id) || record.id < 1) || new Set(page.records.map((record) => record.id)).size !== page.records.length || (page.next_cursor !== null && (!Number.isSafeInteger(page.next_cursor) || page.next_cursor < 1 || page.next_cursor <= (cursor ?? 0)))) throw new Error('Savings history could not be verified. Retry this page.')
+  return page
+}
+async function savingsMutation<T>(path: string, values: object, requestId: string, signal?: AbortSignal): Promise<SavingsMutation<T>> {
+  if (!requestId.trim()) throw new Error('A savings request identity is required.')
+  const result = await fetchJson<SavingsMutation<T>>(`/api/v1/savings_challenge/${path}`, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId }, body: JSON.stringify(values) })
+  checkedSavingsChallenge(result.challenge)
+  return result
+}
+export function enrollSavingsChallenge(values: { participation_accepted: true; policy_version: string; late_start_accepted: boolean; expected_acceptance_digest: string }, requestId: string, signal?: AbortSignal) {
+  return savingsMutation<SavingsEnrollment>('enrollment', values, requestId, signal)
+}
+export function stageSavingsPlan(values: SavingsPlanInput, requestId: string, signal?: AbortSignal) {
+  return savingsMutation<SavingsPlanDraft>('plan_drafts', values, requestId, signal)
+}
+export function approveSavingsPlan(id: number, values: SavingsPlanApproval, requestId: string, signal?: AbortSignal) {
+  return savingsMutation<SavingsPlanVersion>(`plan_drafts/${savingsRecordId(id)}/approve`, values, requestId, signal)
+}
+export function stageSavingsEntry(values: SavingsEntryInput, requestId: string, signal?: AbortSignal) {
+  return savingsMutation<SavingsEntryDraft>('entry_drafts', values, requestId, signal)
+}
+export function approveSavingsEntry(id: number, values: SavingsEntryApproval, requestId: string, signal?: AbortSignal) {
+  return savingsMutation<SavingsEntryVersion>(`entry_drafts/${savingsRecordId(id)}/approve`, values, requestId, signal)
+}
+export function attestSavingsZero(values: { known_zero: true; cutoff_on: string; expected_enrollment_lock_version: number }, requestId: string, signal?: AbortSignal) {
+  return savingsMutation<{ id: number; cutoff_on: string; approval_sequence: number; previous_attestation_id: number | null; approved_at: string }>('zero_attestations', values, requestId, signal)
+}
+
+function savingsRecordId(id: number): number {
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error('A valid savings record is required.')
+  return id
+}
+
+export function fetchStatementReviewRequestStatus(importId: number, action: SourceReviewAction, key: string, signal?: AbortSignal): Promise<import('./lib/participantSourceReview').StatementReviewRequestStatus> {
+  return fetchJson(`/api/v1/document_imports/${importId}/review_request_status?review_action=${action}`, { signal, cache: 'no-store', headers: { 'Idempotency-Key': key } })
+}
+
+export function fetchFinancialBaseline(signal?: AbortSignal): Promise<import('./lib/financialBaseline').BaselineCurrent> {
+  return fetchJson('/api/v1/financial_baseline', { signal, cache: 'no-store' })
+}
+export function fetchBaselineContext(cursor: number | null, signal?: AbortSignal): Promise<import('./lib/financialBaseline').BaselineContext> {
+  return fetchJson(`/api/v1/financial_baseline/context?cursor=${cursor ?? 0}`, { signal, cache: 'no-store' })
+}
+export function fetchBaselineHistory(cursor: number | null, signal?: AbortSignal): Promise<{ actor_scope: import('./lib/financialBaseline').BaselineScope; local_today: string; records: import('./lib/financialBaseline').BaselineVersion[]; next_cursor: number | null }> {
+  return fetchJson(`/api/v1/financial_baseline/history?cursor=${cursor ?? 0}`, { signal, cache: 'no-store' })
+}
+export function previewFinancialBaseline(request: import('./lib/financialBaseline').BaselineRequest, signal?: AbortSignal): Promise<import('./lib/financialBaseline').BaselinePreview> {
+  return fetchJson('/api/v1/financial_baseline/preview', { method: 'POST', signal, cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ request }) })
+}
+export function approveFinancialBaseline(action: 'approve' | 'revise', input: import('./lib/financialBaseline').BaselineApproval, key: string): Promise<import('./lib/financialBaseline').BaselineMutation> {
+  return fetchJson(`/api/v1/financial_baseline/${action}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify(input) })
+}
+export function fetchBaselineRequestStatus(action: 'approve' | 'revise', key: string, signal?: AbortSignal): Promise<import('./lib/financialBaseline').BaselineStatus> {
+  return fetchJson(`/api/v1/financial_baseline/request_status?approval_action=${action}`, { signal, cache: 'no-store', headers: { 'Idempotency-Key': key } })
+}
+export function fetchBaselineObservations<T extends import('./lib/financialBaseline').BaselineActualRecord | ReviewedRow>(kind: import('./lib/financialBaseline').BaselineObservationKind, start: string, end: string, cursor: number | null, signal?: AbortSignal): Promise<import('./lib/financialBaseline').BaselineObservationPage<T>> {
+  const query = new URLSearchParams({ kind, window_start_on: start, window_end_on: end, cursor: String(cursor ?? 0) })
+  return fetchJson(`/api/v1/financial_baseline/observations?${query}`, { signal, cache: 'no-store' })
+}
+
+export function fetchDailyContext(localOn?: string, signal?: AbortSignal): Promise<import('./lib/dailyChallenge').DailyContext> {
+  const query = localOn ? `?${new URLSearchParams({ local_on: localOn })}` : ''
+  return fetchJson(`/api/v1/savings_challenge/daily${query}`, { signal, cache: 'no-store' })
+}
+export function fetchDailyPage<T>(collection: import('./lib/dailyChallenge').DailyCollection, cursor: number | null, parentId?: number, signal?: AbortSignal): Promise<import('./lib/dailyChallenge').DailyPage<T>> {
+  const query = new URLSearchParams({ collection })
+  if (cursor !== null) query.set('cursor', String(cursor))
+  if (parentId !== undefined) query.set('parent_id', String(parentId))
+  return fetchJson(`/api/v1/savings_challenge/daily/records?${query}`, { signal, cache: 'no-store' })
+}
+export function fetchDailyCandidates(localOn: string, cursor: number | null, signal?: AbortSignal): Promise<import('./lib/dailyChallenge').DailyPage<import('./lib/dailyChallenge').DailyCandidate>> {
+  return fetchJson(`/api/v1/savings_challenge/daily/candidates?${new URLSearchParams({ local_on: localOn, ...(cursor === null ? {} : { cursor: String(cursor) }) })}`, { signal, cache: 'no-store' })
+}
+export function mutateDaily<T>(action: Exclude<import('./lib/dailyChallenge').DailyAction, 'reflection_erase'>, input: import('./lib/dailyChallenge').DailyInput, key: string): Promise<import('./lib/dailyChallenge').DailyResult<T>> {
+  return fetchJson(`/api/v1/savings_challenge/daily/actions/${action}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify(input) })
+}
+export function fetchDailyRequestStatus(action: Exclude<import('./lib/dailyChallenge').DailyAction, 'reflection_erase'>, key: string): Promise<import('./lib/dailyChallenge').DailyStatus> {
+  return fetchJson(`/api/v1/savings_challenge/daily/request_status?review_action=${action}`, { cache: 'no-store', headers: { 'Idempotency-Key': key } })
+}
+export function eraseDailyReflection(id: number, input: import('./lib/dailyChallenge').DailyInput, key: string): Promise<import('./lib/dailyChallenge').DailyEraseResult> {
+  return fetchJson(`/api/v1/savings_challenge/daily/reflections/${id}/erase`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify(input) })
+}
+export function fetchDailyEraseStatus(id: number, key: string): Promise<import('./lib/dailyChallenge').DailyEraseStatus> {
+  return fetchJson(`/api/v1/savings_challenge/daily/reflections/${id}/erase_status`, { cache: 'no-store', headers: { 'Idempotency-Key': key } })
+}
+
+// Scoped modules share the same authenticated, deadline-bounded transport.
+export { fetchJson as fetchPrivateJson, postJson as postPrivateJson }
+
+// Plan recovery checks the journal under the current authorized workspace.
+export async function fetchSavingsPlanRequestStatus(action: 'plan_stage' | 'plan_approve', requestId: string): Promise<import('./lib/savingsChallenge').SavingsPlanRequestStatus> {
+  if (!requestId.trim() || !['plan_stage', 'plan_approve'].includes(action)) throw new Error('A valid plan request identity is required.')
+  const result = await fetchJson<import('./lib/savingsChallenge').SavingsPlanRequestStatus>(`/api/v1/savings_challenge/request_status?review_action=${action}`, { cache: 'no-store', headers: { 'Idempotency-Key': requestId } })
+  if (result.state === 'committed') checkedSavingsChallenge(result.challenge)
+  return result
+}
+
+export async function fetchHomeSavingsRequestStatus(action: import('./lib/homeSavingsRecovery').HomeSavingsAction, requestId: string, signal?: AbortSignal): Promise<import('./lib/homeSavingsRecovery').HomeSavingsStatus> {
+  if (!requestId.trim() || !['enrollment', 'entry_stage', 'entry_approve', 'zero_attest'].includes(action)) throw new Error('A valid savings request identity is required.')
+  const result = await fetchJson<import('./lib/homeSavingsRecovery').HomeSavingsStatus>(`/api/v1/savings_challenge/request_status?review_action=${action}`, { signal, cache: 'no-store', headers: { 'Idempotency-Key': requestId } })
+  if (!Number.isSafeInteger(result.cohort_id) || result.cohort_id < 1 || !Number.isSafeInteger(result.actor_scope?.user_id) || !Number.isSafeInteger(result.actor_scope?.household_id) || result.actor_scope.user_id < 1 || result.actor_scope.household_id < 1 || !['committed', 'unknown', 'in_flight'].includes(result.state) || (result.state === 'unknown' && result.can_retry !== true)) throw new Error('The savings request result cannot be verified. Check again before making changes.')
+  if (result.state === 'committed') checkedSavingsChallenge(result.challenge)
+  return result
 }

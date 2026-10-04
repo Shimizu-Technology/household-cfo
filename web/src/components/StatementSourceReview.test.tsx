@@ -75,6 +75,12 @@ describe('bounded source accounting review', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Inspect source row 4 & expense review' }))
     expect(screen.getByText('Expense editor 777')).toBeTruthy()
     expect(screen.queryByText('Synthetic source description 1')).toBeNull()
-    expect(screen.getAllByText(/Source review: unreviewed/)).toHaveLength(1)
+    expect(screen.getAllByText(/Original source review: unreviewed/)).toHaveLength(1)
   })
+})
+
+it('renders real PDF nullable sheet coverage without treating it as an error', async () => {
+  const data = sourceReviewFixture(); data.revision.reconciliation.sheet_coverage = { expected: null, processed: null }; fetchReview.mockResolvedValue(data)
+  mount(); await screen.findByText(/137 source rows/); fireEvent.click(screen.getByText('Account balances, period & extraction coverage'))
+  expect(screen.getByText(/0 processed \/ unknown expected/)).toBeTruthy()
 })

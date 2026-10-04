@@ -1,0 +1,43 @@
+.savings-home { max-width: 1100px; margin-inline: auto; gap: 20px; }
+.savings-home .panel { min-width: 0; }
+.savings-home h3 { margin: 0 0 12px; }
+.savings-home p { line-height: 1.6; overflow-wrap: anywhere; }
+.savings-home button { min-height: 44px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--emerald); color: var(--brand-on-primary); font: inherit; font-weight: 700; cursor: pointer; }
+.savings-home button:disabled { opacity: .6; cursor: default; }
+.savings-home button:focus-visible, .savings-home input:focus-visible, .savings-home select:focus-visible, .savings-home textarea:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 3px; }
+.savings-workflows { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.savings-home fieldset { padding: 0; border: 0; margin: 0; min-width: 0; display: grid; gap: 14px; }
+.savings-home label { display: grid; gap: 7px; font-size: 14px; font-weight: 600; }
+.savings-home input:not([type=checkbox]), .savings-home select, .savings-home textarea { width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--paper); color: var(--ink); font: inherit; font-size: 16px; }
+.savings-home .savings-check { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; line-height: 1.6; }
+.savings-check input { width: 20px; height: 20px; margin-top: 2px; flex-shrink: 0; }
+.savings-progress { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 24px; }
+.savings-total { font-family: var(--font-display); font-size: clamp(30px, 5vw, 48px); font-weight: 600; overflow-wrap: anywhere; }
+.savings-target { display: grid; gap: 8px; align-content: start; }
+.savings-progress progress, .savings-progress > p { grid-column: 1 / -1; width: 100%; }
+.savings-progress progress { accent-color: var(--emerald); height: 12px; }
+.savings-caption { font-size: 12px; color: var(--muted); }
+.savings-calendar { padding: 18px 24px; border-block: 1px solid var(--line); }
+.savings-calendar > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+.savings-calendar ol { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 20px; }
+.savings-calendar li { display: grid; gap: 6px; flex: 1; min-width: 125px; }
+.savings-history { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 14px; }
+.savings-history ol { padding: 0; list-style: none; }
+.savings-history li { border-bottom: 1px solid var(--line); padding: 10px 0 16px; }
+.savings-pager, .savings-next { display: flex; gap: 10px; flex-wrap: wrap; }
+.savings-next p { width: 100%; }
+.savings-error { background: #fff4f0; color: #71291e; border: 1px solid #d7998a; padding: 16px; border-radius: 12px; }
+.savings-notice { background: var(--emerald-soft); padding: 12px 16px; border-radius: 12px; }
+.savings-excluded { border-left: 3px solid var(--line); padding-left: 10px; }
+@media (max-width: 768px) { .savings-workflows { grid-template-columns: 1fr; } .savings-progress { grid-template-columns: 1fr; } .savings-calendar { padding: 16px 8px; } .savings-home button { max-width: 100%; overflow-wrap: anywhere; } }
+.comfortable-plan { border-top: 1px solid var(--line); padding-top: 12px; min-width: 0; }
+.comfortable-plan summary { min-height: 44px; cursor: pointer; font-weight: 700; overflow-wrap: anywhere; align-content: center; }
+.savings-home fieldset.comfortable-choice { border: 1px solid var(--line); padding: 12px; border-radius: 10px; margin-block: 10px; }
+.comfortable-plan legend { max-width: 100%; overflow-wrap: anywhere; padding: 0 5px; font-weight: 700; }
+.comfortable-summary { padding: 12px; margin-block: 14px; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); }
+.comfortable-summary ul { padding-left: 20px; }
+.comfortable-summary p { margin-block: 8px; }
+.comfortable-plan select { max-width: 100%; text-overflow: ellipsis; overflow: hidden; }
+
+.savings-progress > h3 { grid-column: 1 / -1; scroll-margin-top: 20px; }
+.savings-progress > button { grid-column: 1 / -1; justify-self: start; }

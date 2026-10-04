@@ -14,18 +14,18 @@ Keep reported savings, evidence support, comparable spending change and optional
 
 | Slice | Scope | Status |
 |---|---|---|
-| S01 | Existing debt/setup correctness, compact chat, current Home year, partial review visibility, durable source cleanup | Implementation and verification underway |
-| S02 | Frozen release contracts and a versioned savings experience | In progress on an isolated branch |
-| S03 | Typed source events, reconciliation, evidence links, authenticated revocable source viewing | Pending |
-| S04 | Paginated statement review, account/period coverage, corrections and overlap resolution | Pending |
-| S05 | Approved baseline versions and full-window patterns | Pending |
-| S06 | Enrollment, accepted plan versions and reviewed savings ledger | Pending |
-| S07 | Daily entries/reflections, no-spend and missed-day states, day30/60/90 checkpoints | Pending |
-| S08 | Scoped coach sharing, support and privacy-preserving exports | Pending |
-| S09 | Durable consented prompts, recovery and measured concurrency | Pending |
-| S10 | Sealed coaching release, full rehearsal and launch gate | Pending |
+| S01 | Existing debt/setup correctness, compact chat, current Home year, partial review visibility, durable source cleanup | Merged in PR146; integrated acceptance still required |
+| S02 | Frozen release contracts and a versioned savings experience | Merged in PR147; historical contracts remain immutable |
+| S03 | Typed source events, reconciliation, evidence links, authenticated revocable source viewing | Merged PR148 at 451c250; separate deployment evidence recorded, new integration acceptance still required |
+| S04 | Paginated statement review, account/period coverage, corrections and overlap resolution | Implemented on integration branch; final combined gates and PR pending |
+| S05 | Approved baseline versions and full-window patterns | Implemented on integration branch; final combined gates and PR pending |
+| S06 | Enrollment, accepted plan versions and reviewed savings ledger | Implemented on integration branch; final combined gates and PR pending |
+| S07 | Daily entries/reflections, no-spend and missed-day states, day30/60/90 checkpoints | Implemented on integration branch; final combined gates and PR pending |
+| S08 | Scoped coach sharing, support and privacy-preserving exports | Implemented on integration branch; final combined gates and PR pending |
+| S09 | Durable consented prompts, recovery and measured concurrency | Implemented on integration branch; final combined gates and PR pending |
+| S10 | Sealed coaching release, full rehearsal and launch gate | Acceptance and human launch hold; no invitation or outbound activation |
 
-The source cleanup outbox persists in the primary database before deleting an import. Storage or queue failure leaves durable retry work. Recovery runs every five minutes under the configured production Solid Queue scheduler. Cleanup preserves approved financial records. S01 still uses the existing source-view URL mechanism; authenticated application reads and immediate denial of new source reads belong to S03. Already downloaded copies cannot be recalled.
+The source cleanup outbox persists in the primary database before deleting an import. Storage or queue failure leaves durable retry work. Recovery runs every five minutes under the configured production Solid Queue scheduler. Cleanup preserves approved financial records. The integrated S03 source viewer checks authorization on every new application read and returns private bytes rather than a reusable storage bearer URL. Real deletion-failure/provider and deployed revocation acceptance remain open. Already downloaded copies cannot be recalled.
 
 ## Experience and privacy
 
@@ -39,8 +39,14 @@ Prompts are in-app by default, with optional consented generic email. Notificati
 
 ## Acceptance and rollout
 
-The companion `test-matrix.csv` contains 209 independent acceptance cases; its status records execution, not intention. `testing-plan.txt` describes the realistic journeys and appropriate layers. Green engineering checks alone do not establish pilot readiness.
+The companion `test-matrix.csv` contains 209 independent acceptance cases. The October 5 evidence audit records 2 PASS, 179 NOT RUN and 28 BLOCKED full acceptance scenarios, with specific related assertions and partial runtime evidence. None is promoted to PASS from a generic engineering suite. `testing-plan.txt` describes the realistic journeys and appropriate layers. Green engineering checks alone do not establish pilot readiness.
 
 Each slice requires the complete repository gate, affected live browser flows, current-head reviewer coverage, resolution of material findings, merge and exact-commit deployment verification. Final rehearsal covers debt-free and indebted participants, independent real checking/wallet statement oracles, fictional card oracles, 30 mixed synthetic participants, interrupted providers/workers and access revocation. Synthetic cards do not prove compatibility with every issuer.
 
 Before invitations, settle the actual start date, support availability, final consent/retention wording and sponsor report template; obtain Mel’s acceptance of the concrete coaching flow. Real iPhone Safari and Android Chrome need usability verification in addition to emulation. Keep the pilot behind a release hold until the launch criteria pass. Do not roll back by dropping approved participant data.
+
+The original evidence audit inspected integration `36100012c01fd2fa9a1011f5cf11f24729177d86`; this update inspects `dfffba74e0a3cc1c7e71cc7d72f71ad0717c9e50`. Backend 5072fca passed 2,552 tests/39,512 assertions; dfffba7 has the identical API tree. Later actual HTTP and primary-outbox rehearsals passed within their stated local synthetic scope. Full browser verification is pending/failing and remains a release blocker. These statuses are the integration owner's October 5 report, not a claim that current remote CI/review is complete. [Readiness evidence](readiness-evidence.md) pins artifact hashes, commits and limits. [Operations runbook](operations-runbook.md) covers hold, recovery, private storage and restore. The final integrated-head evidence must supersede this snapshot before release.
+
+Use [Mel’s acceptance packet](mel-acceptance-packet.md) for the proposed calendar, coaching examples, voluntary participation, support, privacy and retention decisions. It is a review document; no decision, invitation or start date is accepted by its creation.
+
+A later native program switch found that Ask Mia restored chat from the original program even though Home cleared its savings panels. E15 records this material privacy failure. API PR149 is on merge hold; the central session/status/idempotency fix and its exact-head gates/native rerun remain pending.

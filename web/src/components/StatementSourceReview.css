@@ -34,3 +34,20 @@
  .source-review-pagination > div { width: 100%; }
  .source-review-pagination button { flex: 1; }
 }
+.source-participant-accounts { margin-block: 1rem; }
+.source-reviewed-account { padding-block: .8rem; border-top: 1px solid var(--line, #e2d9cb); }
+.source-review-form, .source-review-form fieldset, .source-coverage-details fieldset { min-width: 0; display: grid; gap: .8rem; }
+.source-review-form fieldset, .source-coverage-details fieldset { border: 0; padding: .8rem 0; margin: 0; }
+.source-review-form label, .source-coverage-details fieldset label { display: grid; gap: .35rem; font-size: .85rem; min-width: 0; }
+.source-review-form input, .source-review-form select, .source-coverage-details fieldset input, .source-coverage-details fieldset select { min-height: 44px; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.source-review-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: .8rem; }
+.source-review-form .source-review-check, .source-pending-proposal .source-review-check, .source-coverage-details .source-review-check { display: flex; align-items: flex-start; gap: .6rem; line-height: 1.6; }
+.source-review-check input[type=checkbox], .source-review-check input[type=radio] { flex: 0 0 20px; width: 20px; min-height: 20px; height: 20px; margin-top: .3rem; }
+.source-pending-proposal { padding: 1rem; margin-block: .8rem; border: 1px solid var(--line, #e2d9cb); border-radius: .6rem; }
+.source-pending-proposal button { margin: .5rem .5rem 0 0; }
+
+.source-review-check { overflow-wrap: anywhere; }
+.source-review-check > span { min-width: 0; }
+.source-economic-review, .source-batch-review { margin-block: 1rem; min-width: 0; }
+.source-link-member { border: 1px solid var(--line, #e2d9cb); padding: .8rem; border-radius: .6rem; display: grid; gap: .6rem; min-width: 0; overflow-wrap: anywhere; }
+.source-row-review-status { font-weight: 600; }

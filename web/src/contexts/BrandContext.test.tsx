@@ -59,6 +59,7 @@ describe('BrandProvider', () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(9_001) })
     expect(screen.getByRole('alert').textContent).toBe('This program took too long to load. Check your connection and try again.')
+    expect(screen.getByRole('heading', { name: 'Your program could not load' })).toBeTruthy()
     expect(document.body.textContent).not.toContain('Branding request timed out')
 
     await act(async () => {
