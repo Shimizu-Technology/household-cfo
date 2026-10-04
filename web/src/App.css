@@ -4410,7 +4410,6 @@ h3 {
   .choice-grid,
   .milestone-list,
   .setup-field-grid,
-  .admin-stat-row,
   .admin-form,
   .admin-user-controls,
   .admin-user-toolbar {
@@ -10010,4 +10009,9 @@ h3 {
   min-height: 36px;
   padding: 7px 12px;
   font-size: 0.74rem;
+}
+
+@media (max-width: 640px) {
+  .admin-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .admin-stat-row .metric-card { min-height: 0; padding: 14px; }
 }
