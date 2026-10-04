@@ -9108,7 +9108,7 @@ async function openBaseline(page: Page, options: { approved?: boolean; home?: bo
   })
   if(options.home)await openSavingsHome(page,{enrolled:false})
   else {await page.route('http://api.test/api/v1/workspace',(route)=>route.fulfill({json:realWorkspaceData(true)}));await page.goto('/?pilot_e2e_role=participant#My%20Profile')}
-  const trigger=page.getByRole('button',{name:'Review spending baseline',exact:true});await trigger.click()
+  const trigger=page.getByRole('button',{name:'Review spending baseline',exact:true});await expect(trigger).toBeVisible();await page.evaluate(()=>document.fonts.ready);await trigger.click()
   const dialog=page.getByRole('dialog',{name:'Review your spending baseline',exact:true});await expect(dialog.getByLabel('Period begins')).toBeVisible()
   return {dialog,trigger,calls,previews,revoke:()=>{revoked=true}}
 }
