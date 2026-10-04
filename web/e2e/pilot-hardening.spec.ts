@@ -2655,9 +2655,9 @@ test('a confirmed zero remains available when the rest of setup is completed man
   await applyButton.press('Enter')
 
   const progress = page.locator('.first-session-setup-progress')
+  await progress.getByRole('button', { name: 'Show setup options' }).click()
   await expect(progress.getByRole('listitem').filter({ hasText: 'Flexible spending' }).locator('.sr-only')).toHaveText('— Confirmed')
   await expect(progress.getByRole('listitem').filter({ hasText: 'Primary monthly income' }).locator('.sr-only')).toHaveText('— Still needed')
-  await progress.getByRole('button', { name: 'Show setup options' }).click()
   await progress.getByRole('button', { name: 'Enter manually' }).click()
 
   await expect(page.getByLabel('Flexible spending')).toHaveValue('0')
