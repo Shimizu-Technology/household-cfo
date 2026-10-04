@@ -47,7 +47,10 @@ module Api
         end
 
         def input
-          @input ||= params.require(:collaborator).permit(:email, :role, :expected_role, :send_email)
+          @input ||= params.require(:collaborator)
+            .permit(:email, :role, :expected_role, :send_email)
+            .to_h
+            .symbolize_keys
         end
 
         def send_access_email(user, role, requested:)

@@ -68,7 +68,7 @@ class ApiV1WorkspaceCollaboratorsControllerTest < ActionDispatch::IntegrationTes
   end
 
   test "collaborator invite never upgrades participants or reactivates a revoked account" do
-    [user(role: "participant"), user(status: "revoked")].each do |account|
+    [ user(role: "participant"), user(status: "revoked") ].each do |account|
       post @endpoint, params: { collaborator: { email: account.email, role: "owner", send_email: false } }, headers: headers(@owner), as: :json
       assert_response :unprocessable_entity
       assert_nil @workspace.coach_workspace_memberships.find_by(user: account)
@@ -101,7 +101,7 @@ class ApiV1WorkspaceCollaboratorsControllerTest < ActionDispatch::IntegrationTes
     patch "#{@endpoint}/#{member.id}", params: { collaborator: { role: "reviewer", expected_role: "editor" } }, headers: headers(@owner), as: :json
     assert_response :success
     event = CoachWorkspaceMembershipEvent.last
-    assert_equal [@owner.id, coach.id, "editor", "reviewer"], [event.actor_user_id, event.subject_user_id, event.before_role, event.after_role]
+    assert_equal [ @owner.id, coach.id, "editor", "reviewer" ], [ event.actor_user_id, event.subject_user_id, event.before_role, event.after_role ]
     patch "#{@endpoint}/#{member.id}", params: { collaborator: { role: "viewer", expected_role: "editor" } }, headers: headers(@owner), as: :json
     assert_response :conflict
     assert_equal "reviewer", member.reload.role
@@ -156,7 +156,7 @@ class ApiV1WorkspaceCollaboratorsControllerTest < ActionDispatch::IntegrationTes
     assert_response :unprocessable_entity
     assert_equal "workspace_owner_handover_required", response.parsed_body["code"]
     assert @owner.reload.invitation_accepted?
-    patch "/api/v1/admin/users/#{@owner.id}", params: { user: { role: "participant", cohort_ids: [cohort.id] } }, headers: platform_headers, as: :json
+    patch "/api/v1/admin/users/#{@owner.id}", params: { user: { role: "participant", cohort_ids: [ cohort.id ] } }, headers: platform_headers, as: :json
     assert_response :unprocessable_entity
     assert_equal "coach", @owner.reload.role
 
@@ -167,7 +167,7 @@ class ApiV1WorkspaceCollaboratorsControllerTest < ActionDispatch::IntegrationTes
     patch "/api/v1/admin/users/#{@owner.id}", params: { user: { invitation_status: "revoked" } }, headers: platform_headers, as: :json
     assert_response :unprocessable_entity
     second_workspace.coach_workspace_memberships.create!(user: replacement, role: "owner")
-    patch "/api/v1/admin/users/#{@owner.id}", params: { user: { role: "participant", cohort_ids: [cohort.id] } }, headers: platform_headers, as: :json
+    patch "/api/v1/admin/users/#{@owner.id}", params: { user: { role: "participant", cohort_ids: [ cohort.id ] } }, headers: platform_headers, as: :json
     assert_response :success
     assert_equal "participant", @owner.reload.role
     assert_empty @owner.coach_workspace_memberships
