@@ -1,5 +1,7 @@
 html {
-  scroll-behavior: smooth;
+  /* Focus and native control scrolling must settle before the next interaction.
+     Navigation that benefits from animation opts in at its call site. */
+  scroll-behavior: auto;
 }
 
 body {
