@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_03_132000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_04_160000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -1140,11 +1140,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_132000) do
   create_table "coach_workspaces", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
+    t.string "creation_request_fingerprint"
+    t.string "creation_request_key"
     t.integer "lock_version", default: 0, null: false
     t.string "name", null: false
     t.string "slug", null: false
     t.datetime "updated_at", null: false
     t.index "lower((slug)::text)", name: "index_coach_workspaces_on_lower_slug", unique: true
+    t.index ["created_by_user_id", "creation_request_key"], name: "idx_coach_workspaces_creation_request", unique: true, where: "(creation_request_key IS NOT NULL)"
     t.index ["created_by_user_id"], name: "index_coach_workspaces_on_created_by_user_id"
   end
 

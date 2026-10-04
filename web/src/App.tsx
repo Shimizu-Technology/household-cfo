@@ -11,6 +11,7 @@ import { PlaidConnections } from './components/PlaidConnections'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
 import { GoalManager, type GoalFocusRequest } from './components/GoalManager'
 import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
+import { CreateCoachProgram } from './components/CoachProgramSettings'
 import { CoachStudio } from './components/CoachStudio'
 import { MiaMemoryPanel } from './components/MiaMemoryPanel'
 import {
@@ -5840,6 +5841,8 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   const [savingUserIds, setSavingUserIds] = useState<Set<number>>(() => new Set())
   const [resendingUserIds, setResendingUserIds] = useState<Set<number>>(() => new Set())
   const [roleMatrixOpen, setRoleMatrixOpen] = useState(false)
+  const [programCreateDirty, setProgramCreateDirty] = useState(false)
+  const [programCreating, setProgramCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const selectedCohortIdRef = useRef<number | null | undefined>(undefined)
@@ -5888,7 +5891,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     return users.some((user) => !adminUserDraftsEqual(userDrafts[user.id], adminDraftForUser(user)))
   }, [createDraft, editDraft, inviteDraft, selectedCohort, selectedCohortId, userDrafts, users])
 
-  const adminMutationPending = loading || cohortSaving || inviteSaving || savingUserIds.size > 0 || resendingUserIds.size > 0
+  const adminMutationPending = loading || cohortSaving || programCreating || inviteSaving || savingUserIds.size > 0 || resendingUserIds.size > 0
 
   const adminStats = useMemo(() => ({
     cohorts: cohorts.length,
@@ -5965,7 +5968,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
 
   function chooseAdminWorkspace(nextWorkspaceId: number | null) {
     if (nextWorkspaceId === activeCoachWorkspaceId || adminMutationPending) return
-    if (adminDraftsDirty && !window.confirm('Discard unsaved cohort, invite, and user changes and switch workspaces?')) return
+    if ((adminDraftsDirty || programCreateDirty) && !window.confirm('Discard unsaved program, cohort, invite, and user changes and switch workspaces?')) return
 
     setCreateDraft({ name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' })
     setEditDraft(null)
@@ -6210,6 +6213,8 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
 
       {error && <p className="admin-alert error" role="alert">{error}</p>}
       {notice && <p className="admin-alert success">{notice}</p>}
+
+      {currentUser.is_admin && <CreateCoachProgram key={activeCoachWorkspaceId ?? 'platform'} disabled={adminMutationPending || adminDraftsDirty} onDirtyChange={setProgramCreateDirty} onPendingChange={setProgramCreating} />}
 
       <div className="admin-stat-row">
         <AdminStat label="Cohorts" value={adminStats.cohorts.toString()} />

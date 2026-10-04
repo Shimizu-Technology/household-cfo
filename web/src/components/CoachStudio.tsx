@@ -40,6 +40,7 @@ import {
   replaceListItem as replaceAt,
 } from '../lib/personaDraft'
 import { Button } from './Button'
+import { CoachProgramSettings } from './CoachProgramSettings'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { ReleaseAndRolloutStudio } from './ReleaseAndRolloutStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
@@ -61,7 +62,7 @@ type GuidedStep = (typeof guidedSteps)[number]['id']
 type EditorMode = 'setup' | 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'draft_restore' | 'assignment' | 'phrase_restore' | null
-type StudioSection = 'assistants' | 'library' | 'participant_tools' | 'cohort_releases'
+type StudioSection = 'settings' | 'assistants' | 'library' | 'participant_tools' | 'cohort_releases'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId: activeWorkspaceId, selectCoachWorkspace } = useAuthContext()
@@ -97,6 +98,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
   const [setupDirty, setSetupDirty] = useState(false)
   const [rolloutDirty, setRolloutDirty] = useState(false)
+  const [settingsDirty, setSettingsDirty] = useState(false)
   const workspaceMutations = useCoachWorkspaceMutationLifecycle(activeWorkspaceId)
   const selectedIdRef = useRef<number | null>(null)
   const activeWorkspaceIdRef = useRef(activeWorkspaceId)
@@ -114,7 +116,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     if (!selectedPersona?.draft || !draft) return false
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
-  const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty
+  const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty || settingsDirty
   const personaDirty = dirty || personaSourcesDirty || setupDirty
 
   const filteredPersonas = useMemo(() => {
@@ -252,6 +254,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setPersonaSourcesDirty(false)
     setSetupDirty(false)
     setRolloutDirty(false)
+    setSettingsDirty(false)
     setStudioSection(next)
     return true
   }
@@ -281,6 +284,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setPersonaSourcesDirty(false)
     setSetupDirty(false)
     setRolloutDirty(false)
+    setSettingsDirty(false)
   }
 
   function handleStudioSectionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -706,6 +710,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       </div>
 
       <nav className="coach-studio-section-tabs" role="tablist" aria-label="Coach Studio areas">
+        <button type="button" role="tab" id="coach-studio-tab-settings" aria-controls="coach-studio-panel-settings" aria-selected={studioSection === 'settings'} tabIndex={studioSection === 'settings' ? 0 : -1} data-studio-section="settings" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('settings')}>
+          <strong>Program settings</strong><small>Name, coach identity, and participant branding</small>
+        </button>
         <button type="button" role="tab" id="coach-studio-tab-assistants" aria-controls="coach-studio-panel-assistants" aria-selected={studioSection === 'assistants'} tabIndex={studioSection === 'assistants' ? 0 : -1} data-studio-section="assistants" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('assistants')}>
           <strong>Assistant voice</strong><small>Shape how Mia coaches and communicates</small>
         </button>
@@ -720,7 +727,11 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         </button>
       </nav>
 
-      {studioSection === 'library' ? (
+      {studioSection === 'settings' ? (
+        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-settings" aria-labelledby="coach-studio-tab-settings" tabIndex={0}>
+          <CoachProgramSettings key={activeWorkspaceId ?? 'platform'} workspaceId={activeWorkspaceId} currentUser={currentUser} mutationLifecycle={workspaceMutations} onDirtyChange={setSettingsDirty} />
+        </div>
+      ) : studioSection === 'library' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-library" aria-labelledby="coach-studio-tab-library" tabIndex={0}>
           <CoachContentLibrary
             key={activeWorkspaceId ?? 'legacy'}

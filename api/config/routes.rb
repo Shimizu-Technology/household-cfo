@@ -105,6 +105,7 @@ Rails.application.routes.draw do
       end
       resources :pilot_feedback_reports, only: :create
       namespace :admin do
+        resources :coach_workspaces, only: %i[show create update]
         resource :brand, controller: "workspace_brand_configurations", only: %i[show update] do
           post :preview
           post :publish

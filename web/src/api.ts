@@ -4493,3 +4493,81 @@ function demoWorkspaceSetupValues(profile: ProfileData, dashboard: DashboardData
     target_runway_months: 6,
   }
 }
+
+export type CoachWorkspaceSettings = CoachWorkspaceSummary & {
+  revision: number
+  permissions: { manage: boolean }
+}
+export type CoachWorkspaceSettingsInput = {
+  name: string
+  revision?: number
+  coach_profile: { display_name: string; title: string; bio: string }
+}
+export type WorkspaceBrandVersion = {
+  id: number
+  number: number
+  digest: string
+  published_at: string
+  published_by: { id: number; full_name: string }
+  restored_from_version?: { id: number; number: number } | null
+  config?: BrandConfig
+}
+export type WorkspaceBrandConfiguration = {
+  workspace: { id: number; name: string; slug: string }
+  draft: BrandConfig
+  draft_revision: number
+  preview_required: boolean
+  preview: { digest: string; draft_revision: number; generated_at: string } | null
+  published_version: WorkspaceBrandVersion | null
+  versions: WorkspaceBrandVersion[]
+  permissions: { edit: boolean; preview: boolean; publish: boolean; rollback: boolean }
+}
+export type WorkspaceBrandPreview = {
+  digest: string
+  draft_revision: number
+  generated_at: string
+  brand: BrandConfig
+}
+export async function fetchCoachWorkspaceSettings(id: number): Promise<CoachWorkspaceSettings> {
+  const result = await fetchJson<{ coach_workspace: CoachWorkspaceSettings }>(`/api/v1/admin/coach_workspaces/${id}`)
+  return result.coach_workspace
+}
+export async function createCoachWorkspace(values: CoachWorkspaceSettingsInput, idempotencyKey: string): Promise<CoachWorkspaceSettings> {
+  const result = await fetchJson<{ coach_workspace: CoachWorkspaceSettings }>('/api/v1/admin/coach_workspaces', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ coach_workspace: values }),
+  })
+  return result.coach_workspace
+}
+export async function updateCoachWorkspaceSettings(id: number, values: CoachWorkspaceSettingsInput): Promise<CoachWorkspaceSettings> {
+  const result = await fetchJson<{ coach_workspace: CoachWorkspaceSettings }>(`/api/v1/admin/coach_workspaces/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coach_workspace: values }),
+  })
+  return result.coach_workspace
+}
+export async function fetchWorkspaceBrand(): Promise<WorkspaceBrandConfiguration> {
+  const result = await fetchJson<{ brand_configuration: WorkspaceBrandConfiguration }>('/api/v1/admin/brand')
+  return result.brand_configuration
+}
+export async function saveWorkspaceBrand(draft: BrandConfig, revision: number): Promise<WorkspaceBrandConfiguration> {
+  const result = await fetchJson<{ brand_configuration: WorkspaceBrandConfiguration }>('/api/v1/admin/brand', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ brand_configuration: { draft_config: draft, draft_revision: revision } }),
+  })
+  return result.brand_configuration
+}
+export function previewWorkspaceBrand(revision: number): Promise<{ brand_configuration: WorkspaceBrandConfiguration; preview: WorkspaceBrandPreview }> {
+  return postJson('/api/v1/admin/brand/preview', { brand_configuration: { draft_revision: revision } })
+}
+export function publishWorkspaceBrand(values: { draft_revision: number; preview_digest: string; expected_published_version_id: number | null }, idempotencyKey: string): Promise<{ brand_configuration: WorkspaceBrandConfiguration; published_version: WorkspaceBrandVersion }> {
+  return fetchJson('/api/v1/admin/brand/publish', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ brand_configuration: values }),
+  })
+}
+export function restoreWorkspaceBrandVersion(id: number, values: { draft_revision: number; expected_published_version_id: number | null }, idempotencyKey: string): Promise<{ brand_configuration: WorkspaceBrandConfiguration; published_version: WorkspaceBrandVersion }> {
+  return fetchJson(`/api/v1/admin/brand/versions/${id}/rollback`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ brand_configuration: values }),
+  })
+}
