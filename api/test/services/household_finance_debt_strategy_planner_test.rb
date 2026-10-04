@@ -20,6 +20,38 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
     )
   end
 
+  test "confirmed debt free household needs no liquid balance for a debt ranking answer" do
+    @household.debts.update_all(balance_cents: 0, minimum_payment_cents: 0)
+    @household.accounts.destroy_all
+    answer = HouseholdFinance::MiaCoachAnswerer.new(@household, "Which debt should I pay first?").call
+    assert_includes answer, "no outstanding debt"
+    assert_includes answer, "no debt payment target"
+    refute_includes answer, "liquid account picture is incomplete"
+  end
+
+  test "confirmed zero summary does not require inventing individual debts" do
+    @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_known: true,
+      debt_summary_minimum_payment_known: true, debt_summary_balance_cents: 0, debt_summary_minimum_payment_cents: 0)
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.").call
+    assert_includes answer, "no outstanding debt"
+    refute_includes answer, "Add each balance"
+  end
+
+  test "a new stated debt scenario is not dismissed as a debt free summary" do
+    @household.debts.update_all(balance_cents: 0, minimum_payment_cents: 0)
+    planner = HouseholdFinance::DebtStrategyPlanner.new(@household, "My Card C has $500 at 20% APR and $25 minimum. Give me a debt plan.")
+    refute planner.confirmed_debt_free?
+    assert_includes planner.call, "Card C"
+  end
+
+  test "debt free shortcut retains prior participant debt scenarios" do
+    @household.debts.update_all(balance_cents: 0, minimum_payment_cents: 0)
+    answer = HouseholdFinance::MiaCoachAnswerer.new(@household, "Which debt should I pay first?",
+      conversation_messages: [ { role: "user", content: "Card C has $500 at 20% APR and $25 minimum." } ]).call
+    refute_includes answer, "no outstanding debt"
+    assert_includes answer, "Card C"
+  end
+
   test "compares avalanche and snowball from approved balances and APRs" do
     answer = HouseholdFinance::DebtStrategyPlanner.new(
       @household,
@@ -116,7 +148,7 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
 
     answer = HouseholdFinance::MiaCoachAnswerer.new(@household, "Compare avalanche and snowball.").call
 
-    assert_includes answer, "All listed balances are confirmed at $0"
+    assert_includes answer, "no outstanding debt"
     refute_includes answer, "Avalanche:"
     refute_includes answer, "Snowball:"
     refute_includes answer, "3. Send"

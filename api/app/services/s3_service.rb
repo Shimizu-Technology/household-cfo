@@ -177,7 +177,7 @@ class S3Service
       s3_client.delete_object(bucket: bucket_name, key: key)
       true
     rescue Aws::S3::Errors::ServiceError => e
-      Rails.logger.error("[S3Service] Delete failed for #{key}: #{e.message}")
+      Rails.logger.error("[S3Service] Delete failed error_class=#{e.class}")
       false
     end
 

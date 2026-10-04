@@ -30,6 +30,7 @@ module HouseholdFinance
       return unless self.class.question?(message) || debt_plan_followup?
 
       portfolio = DebtPortfolio.new(household)
+      return "Your approved records confirm no outstanding debt and no monthly debt minimums. There is no debt payment target to rank. You can continue with your savings goal; no payment is made automatically." if confirmed_debt_free?
       if portfolio.mode == "summary" && parsed_scenario_debts.empty?
         balance = portfolio.balance_known? ? money(portfolio.total_balance_cents) : "an unconfirmed total balance"
         minimum = portfolio.minimum_payment_known? ? money(portfolio.monthly_minimum_cents) : "an unconfirmed monthly minimum"
@@ -80,6 +81,13 @@ module HouseholdFinance
       lines << numbered_plan(avalanche, snowball, adjusted_surplus, cash_flow_known: cash_flow_known, balances_known: balances_known)
       lines << missing_apr_line(outstanding_debts)
       lines.compact_blank.join(" ")
+    end
+
+    def confirmed_debt_free?
+      portfolio = DebtPortfolio.new(household)
+      portfolio.balance_known? && portfolio.minimum_payment_known? &&
+        portfolio.total_balance_cents.zero? && portfolio.monthly_minimum_cents.zero? &&
+        parsed_scenario_debts.empty?
     end
 
     private
