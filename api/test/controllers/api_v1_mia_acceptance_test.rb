@@ -123,6 +123,50 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
     refute result.follow_up?
   end
 
+  test "compound read only household question explains approved facts and missing cash instead of budget edits" do
+    user, household = participant
+    HouseholdFinance::SetupUpdater.new(household, {
+      household_name: "Read only household", primary_goal: "Build emergency runway",
+      primary_income: "6400", fixed_expenses: "2400", flexible_spend: "800"
+    }).call
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_minimum_payment_cents: 17_500,
+      debt_summary_minimum_payment_known: true
+    )
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    manager.create_category!(name: "Emergency Fund", stack_key: "sinking_expected", monthly_amount: 0)
+    prompt = "I have $6,400 monthly income, $2,400 fixed bills, $800 flexible spending, and a $175 debt minimum. I have not entered my checking balance. I am considering a $900 flight for a family visit from Guam, but I also want a $2,000 emergency fund. Do not change anything. Explain what we know, what is missing, and one next step."
+
+    [ prompt, prompt.sub("$6,400", "$99,999") ].each do |message|
+      assert_no_difference [ -> { household.mia_action_drafts.count }, -> { household.transaction_drafts.count }, -> { household.accounts.count } ] do
+        post_message(user, message)
+      end
+      assert_response :created
+      answer = response.parsed_body.dig("assistant_message", "content")
+      assert_includes answer, "From approved records"
+      %w[$6,400 $2,400 $800 $175].each { |amount| assert_includes answer, amount }
+      assert_includes answer, "liquid account picture is incomplete"
+      assert_includes answer, "Next step:"
+      assert_includes answer, "no numbers changed"
+      refute_includes answer, "$99,999"
+      refute_includes answer, "match every requested amount"
+      assert_nil response.parsed_body["mia_action_draft"]
+      assert_nil response.parsed_body["transaction_draft"]
+    end
+  end
+
+  test "do not change anything suffix prevents even a fully specified budget review" do
+    user, household = participant
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+    manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    assert_no_difference -> { household.mia_action_drafts.count } do
+      post_message(user, "Set Groceries to $650 and Dining Out to $275 this month. Do not change anything. Explain only.")
+    end
+    assert_response :created
+    assert_nil response.parsed_body["mia_action_draft"]
+  end
+
   private
 
   def without_provider(klass)

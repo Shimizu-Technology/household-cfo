@@ -129,7 +129,10 @@ module HouseholdFinance
       return unless setup_dependent_coaching_request?
       return if AssetPortfolio.new(household).liquid_balance_known?
 
-      "I cannot give a readiness, safe-to-spend, purchase, payoff, or runway verdict yet because the liquid account picture is incomplete. I will not treat a missing balance as $0. Next step: add at least one checking, savings, or emergency-fund account and enter every active liquid balance. No financial decision was made and no numbers changed."
+      overview = if ::Mia::FinancialReadOnlyRequest.matches?(message) && normalized_message.match?(/\b(?:what (?:we|i) know|what is missing|what(?:'s| is) missing|household picture)\b/i)
+        "From approved records, monthly income is #{money(snapshot.fetch(:monthly_income_cents))}, planned fixed essentials are #{money(snapshot.fetch(:stack_totals_cents).fetch('non_discretionary'))}, planned flexible spending is #{money(snapshot.fetch(:stack_totals_cents).fetch('discretionary'))}, and monthly debt minimums are #{money(snapshot.fetch(:debt_payments_cents))}. "
+      end
+      "#{overview}I cannot give a readiness, safe-to-spend, purchase, payoff, or runway verdict yet because the liquid account picture is incomplete. I will not treat a missing balance as $0. Next step: add at least one checking, savings, or emergency-fund account and enter every active liquid balance. No financial decision was made and no numbers changed."
     end
 
     def setup_dependent_coaching_request?

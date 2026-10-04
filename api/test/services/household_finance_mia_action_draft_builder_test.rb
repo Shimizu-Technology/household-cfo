@@ -56,6 +56,18 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_includes result.response, "one review"
   end
 
+  test "global read only request blocks legacy and structured proposals before preparing the budget" do
+    prompt = "Set Groceries to $650 and Dining Out to $275 for August. Do not change anything."
+    [ nil, { type: "set_allocation", category_id: @groceries.id, amount: "650", months: [ 8 ], year: 2026 } ].each do |command|
+      result = HouseholdFinance::MiaActionDraftBuilder.new(
+        @household, prompt, user: @user, annual_budget_manager: @manager,
+        selected_month: 8, raw_input: prompt, command: command
+      ).call
+      assert_nil result
+    end
+    assert_equal 50_000, @groceries.budget_allocations.joins(:budget_period).find_by!(budget_periods: { starts_on: Date.new(2026, 8, 1) }).planned_amount_cents
+  end
+
   test "preserves structured month scope and participant-authored mixed adjustment directions" do
     result = HouseholdFinance::MiaActionDraftBuilder.new(
       @household,

@@ -1,6 +1,35 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  test "global read only request prevents provider write classification without blocking safe report routing" do
+    prompt = "Set Fixed essentials to $650 for July 2026. Do not change anything. Explain only."
+    transport = ->(_) do
+      resolution_json(intent: "budget_action", continuation: false, resolved_message: "Set Fixed essentials to $650 for July 2026",
+        topic: { type: "budget_edit", title: "Fixed essentials", subject: "Fixed essentials" },
+        action: default_action.merge(type: "set_allocation", category_id: 42, category_name: "Fixed essentials", amount: "650", months: [ 7 ], year: 2026))
+    end
+    positive_result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Set Fixed essentials to $650 for July 2026", context: intent_context, api_key: "test-key", transport: transport
+    ).call
+    assert positive_result.actionable?, positive_result.to_h.inspect
+    write_result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: prompt, context: intent_context, api_key: "test-key",
+      transport: transport
+    ).call
+    assert_equal "coaching", write_result.intent
+    refute write_result.actionable?
+    assert_equal "none", write_result.action.fetch(:type)
+
+    report_result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Show my spending this month. Do not change anything.", context: intent_context, api_key: "test-key",
+      transport: ->(_) { resolution_json(intent: "spending_report", continuation: false, resolved_message: "Show my spending this month", topic: { type: "spending_report", title: "Current spending", subject: "Spending" }, action: default_action) }
+    ).call
+    assert_equal "spending_report", report_result.intent
+    refute report_result.actionable?
+    refute Mia::FinancialReadOnlyRequest.matches?("Do not change income, but set Groceries to $650")
+    refute Mia::FinancialReadOnlyRequest.matches?("Read only approved records, then set Groceries to $650")
+  end
+
   test "resolves named pending action-plan steps from authoritative item ids after conversation context expires" do
     context = intent_context.deep_merge(
       conversation: { active_thread: nil, open_threads: [], older_summary: nil, recent_messages: [] },
