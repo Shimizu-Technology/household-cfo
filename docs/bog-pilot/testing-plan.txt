@@ -1,0 +1,102 @@
+BOG pilot testing execution plan
+October 4, 2026 | Acceptance plan, not a new application test result
+
+The purpose is to prove that an employee can understand their spending, choose an affordable savings goal, use Mia daily and see an honest 90-day result. Tests must establish source accuracy, approval, privacy, recoverability and usable phones together. A large count of mocked browser passes alone cannot establish that promise.
+
+1. Evidence and test status
+
+Prior runtime results live in .codex/reports/20261004-bog-audit/audit.txt and .codex/reports/20261004-real-statements-ux-audit/audit.txt. They cover fcd513c. The prior Rails suite passed 2,153 tests/16,632 assertions; frontend passed 269 tests; mocked browser matrix passed 480 Chromium and 48 WebKit checks with 82 intentional skips. Those results are not passes for the new savings challenge.
+
+All cases in test-matrix.csv are NOT RUN. Fill actual outcome, evidence, tested commit, environment, owner and status during implementation. Use PASS, FAIL, BLOCKED or REMOVED WITH SCOPE CHANGE only when supported. A skipped live integration is not a pass because the mocked browser version passed. Every failure needs a reproducible case and issue; retest the affected cases after a change. Do not rerun unrelated expensive provider tests without a reason.
+
+P0 means money correctness, approval, privacy or the central challenge promise. P1 means important usability, recovery, enrollment or release behavior. Both are launch gates for included functionality. Removing a blocked optional feature requires updating scope, UI, documentation and the test record; it does not erase a central statement/savings requirement.
+
+2. Fixtures and independent oracles
+
+Real corpus: use only the six user-authorized PDFs. The prior audit removed its private row-level oracle during cleanup; the report and aggregate extraction-summary survive. Regenerate and independently reconcile the row-level oracle from the authorized originals inside isolated QA before repeating extraction, and remove private intermediate outputs afterward. Keep real originals outside Git and shared fixture bundles. The prior oracle reconciled 934 posted rows, 733 debits/201 credits, source totals and running/daily balances. Actual checking/wallet testing provides evidence for that path; it is not card issuer evidence. June-August coverage across supplied sources is complete for those accounts; September is partial. Do not infer cash or absent-account completeness.
+
+Compare exact date, signed amount, source row multiplicity, source balances and typed event treatment. Then compare consolidated consumption separately. Matching a source movement does not automatically determine spending classification. Every discrepancy must have a source-backed explanation. The regression targets include Apple split funding/date errors/unsupported debits, Wells Fargo returned-unpaid table and fee-summary duplication, missing credits/refunds, pending-file overlap and silent invalid-date drops. Run extraction with an explicitly fixed reference date to keep future-date warnings reproducible.
+
+Fictional card corpus: output/pdf/bog-pilot-fixtures contains six clearly labeled invented PDFs, 143 posted rows over 10 pages, and JSON/CSV ground truth. AUG-A and SEP-A are consecutive statements for one account. SEP-A contains two real fixture purchases with identical merchant/date/amount and one refund. PROMO contains current promotional and future APR/expiry. ZERO has high APR but zero balance/minimum. UNKNOWN intentionally omits APR/minimum/due/limit. LONG has 125 rows over five pages, December/January and a USD-posted foreign purchase. The oracle uses positive amounts to increase card liability, negative to reduce it; this differs from an asset-account sign convention.
+
+Withhold expected-results.json, expected-transactions.csv and fixture annotations in the generator from model input. Give the extraction service only the PDFs. Otherwise the test merely checks that the model can copy its answer. Compare output afterward with the oracle using integer cents. Do not include summary totals as extra transaction rows. Generated labels are test hints inherent in the fictional document, so obtain minimized, consented real card statements later before making broad issuer-support claims.
+
+Additional disposable derivatives to create in the isolated QA environment: password-protected/rotated/scanned PDFs, missing-middle-page copy, corrupted/summary-only documents, 60/61-page and 12MB/over-limit boundaries, malicious instruction text, more than 500 pending records, overlapping files and signed CSV refunds/invalid dates. These are planned variants, not claimed outputs already created. Keep generation reproducible and record the hash and expected outcome. Never modify Leon's originals.
+
+Financial scenarios use a fixed test clock and explicitly known opening balances. Synthetic balances are not actual bank accounts. For actual provider runs, use configured private test storage and bounded calls; capture sanitized extraction/version/errors, not raw private model payloads in general logs.
+
+3. Mixed 30-person cohort
+
+Use 30 synthetic primary personas, with secondary traits deliberately overlapping:
+- Eight debt-free checking-only employees; include two sharing a household and one in a second program.
+- Six checking-plus-wallet employees; include split funding, refunds, cash withdrawal and incomplete statements.
+- Six card users; mix revolving, promotional, zero-balance and unknown-information cards.
+- Four cash/manual users; include irregular income and a receipt split.
+- Three late joiners; include a January finish and travel timezone change.
+- Three participants with tight cash flow, missed weeks or privacy preferences; do not assume they can save $500.
+
+This is a fixture distribution, not a predicted BOG population. Include Mel's coach role, a separate wrong-coach role, Leon's limited support role, participant household partners and a sponsor-export test principal. No sponsor account or new real access is needed before the reporting contract exists.
+
+4. Full journeys to exercise through computer use
+
+Journey A — Debt-free employee.
+Open the correct invitation with an existing test account. Read who sees what. Select no debts, upload/review checking sources, acknowledge missing accounts/cash, approve a baseline. Ask Mia for patterns; accept comfortable choices and the $500 target. Record a purchase, skip feelings once, enter a no-spend day, reserve $100 and approve it. Reload. Withdraw $25 and approve it. Expected progress is $75 reported, with honest evidence status. Advance the fixed clock through checkpoints. Export; confirm no debt setup was required.
+
+Journey B — Bank and wallet movement.
+Upload checking/wallet files out of order. Stage an overlap before approving either. Review bank funding, wallet funding, actual merchant purchase, refund and informational rows from source pages. Approve distinct events once; open the same review position after returning from each PDF. Ask patterns for the supported three-month window. Check the separate account reconciliations and consolidated spending. No transfer/refund becomes a savings contribution by itself.
+
+Journey C — Card user.
+Upload AUG-A/SEP-A/PROMO/ZERO/UNKNOWN, then LONG separately. Inspect rates/minimums/due dates and missing fields. Keep both identical SEP-A purchases; match one refund. Ask debt guidance: ZERO cannot become the highest-APR payment target, unknown facts cannot be invented, and extra payments cannot exceed known balances. Record a debt payment and a separate savings contribution; dashboard/report keeps them distinct.
+
+Journey D — Phone interruption.
+On real iPhone Safari and Android Chrome, attach five files plus multiline text with keyboard open. Attempt a sixth file and inspect the named rejection. Fail one upload, switch apps/lose signal, return and retry only the failed work. Go to Statements before household setup is finished. Review a source and return. Expire the session mid-review, recover safely and verify no duplicate actuals or cross-account draft after account switch. Test short landscape and large text.
+
+Journey E — Cash and reflection.
+Record a $100 cash withdrawal as movement, a $40 purchase later and the remaining unallocated cash. Add feeling at purchase and a later feeling after midnight. Edit/remove only the reflection; financial amount/date stays correct. Return after seven missed days and backfill a forgotten purchase. Missing reports remain unknown; unused cash does not become $60 saved.
+
+Also contradict an explicit no-spend check-in with late purchase evidence. Preserve the reported check-in/reflection, show the discrepancy, distinguish posting from purchase date and revise spending/checkpoints only through approval.
+
+Journey F — Tight cash flow and voluntary use.
+Income is $2,000 and essentials $2,100. Ask for the $500 plan. Mia must acknowledge the shortfall and offer stabilization/custom goal; it must not suggest skipping food, rent, medication or required payments. Decline feelings and coach monetary sharing. Continue daily use. No shame, forced percentage or employer-facing private details.
+
+Journey G — Late joiner and year boundary.
+Accept November 15 with the agreed personal start. Day30 is December14, day60 January13 and day90 February12. Browse a future Budget year and return Home; change device timezone. Reports compare matched checkpoint ages and label late finishers. No invented early missed days or mixed-year zero totals.
+
+Journey H — Honest progress and revised evidence.
+Approve supported $200 then unsupported $100; withdraw $150. Expect $150 reported, $50 supported under FIFO/conservative within-lot allocation. Link evidence from a later statement; do not add another contribution. Close a checkpoint, correct an earlier entry and open the old/revised checkpoint. Verify cutoff, plan/baseline versions and revision explanation. Test $499.99/$500/$500.01 and negative net progress.
+
+Journey I — Coach and sponsor separation.
+Mel sees participation/help status for private participants and only consented financial summaries. Revoke a sharing grant while a coach tab is open; server requests fail appropriately. Produce scheduled coarse sponsor reports with missing/withdrawn/unconsented people. Attempt individual endpoints, department filters, 29-versus-1 complement and repeated-export differencing. No transaction, feeling, chat or exact individual outcome is exposed.
+
+Source revocation tests require authenticated application viewing/downloads with an authorization check on every new read, rather than a raw presigned S3 GET URL that survives database revocation. Failed physical deletion still denies new reads. Previously downloaded copies are outside revocation and must be disclosed as such.
+
+Journey J — Operational recovery.
+Commit a contribution while the queue database is unavailable, fail a middle extraction batch, interrupt the exact worker, fail source deletion, restart and run recovery. The outbox/cleanup ledger must recover work without duplicates. Review safe errors and support diagnostics. Restore a disposable known dataset and reconcile. Run the final deployed smoke using actual authentication/private storage/provider/jobs.
+
+5. Execution layers and assertions
+
+Domain/database: money, lots/withdrawals, evidence subsets, exclusions, target versions, enrollment dates, baseline/checkpoint immutability, source allocations, uniqueness and concurrent approval. Assert real invariants and exact totals, not implementation-shaped snapshots.
+
+Request/security: all reads and mutations enforce participant/cohort/household/consent scope; stale versions conflict; idempotency resolves unknown successful responses; serializers omit forbidden content including summaries/counts. Exercise direct endpoint changes, exports, signed URLs and role revocation. Do not treat hidden navigation as authorization.
+
+Import integration: run deterministic parser fixtures broadly, then a bounded actual provider/storage corpus. Reconcile each account before asking whether consolidated consumption is correct. Record exact differences rather than a single percentage accuracy metric. Any unsupported extra dollar or unexplained rejected row is a failure of the complete-baseline claim.
+
+Browser: use automated journeys for the few critical flows and prior layout/approval regressions. Mocked API tests are useful for UI states but are labeled as such. Computer use verifies actual screen behavior, source navigation and recoveries. Real phone testing covers keyboard/safe areas, VoiceOver/TalkBack and app switching that desktop emulation misses.
+
+Coaching: run Mel-approved good/bad response examples across debt-free, debt, distress, seasonal spending, unknown facts, comfortable cuts and challenge measurement. Separate deterministic numerical correctness from model phrasing. Never treat model consistency as proof of financial outcome accuracy.
+
+Operational: actual job boundaries, cleanup/recovery, credential/session behavior, support, backup, cohort capacity and 30-person queue. Use one measured execution owner with bounded concurrency. Peak scenarios are 5, 10 and 30 concurrent workflows, not uncontrolled provider fan-out.
+
+Proposed initial service goals for measurement: challenge/review UI acknowledges an action within two seconds under the representative rehearsal; ordinary non-model API P95 within two seconds. Measure large-file/model extraction separately, publish honest queued/progress status and set the service expectation from observed latency/cost. These are proposed targets, not currently achieved results or guaranteed provider SLAs. Load fails on lost/duplicated work even if average latency looks good.
+
+6. Repository gates and recording evidence
+
+Reinspect the actual target commit's workflow before execution. Current commands include api bin/rails db:prepare, bin/rails test, bin/rails zeitwerk:check, bin/rubocop, bin/brakeman --no-pager and bin/bundler-audit check --update. Frontend uses npm ci, npm run lint, npm test, npm run build, npm run test:browser and npm audit --audit-level=moderate. api/bin/ci includes seed replanting, so it requires an explicitly disposable database. Follow actual required CI checks and reviewer selection rather than assuming this list is frozen.
+
+Each acceptance record includes environment/release/commit, fixed clock, account scope, source fixture hash, action, expected/actual, sanitized evidence and rerun result. UI evidence should crop private unrelated content. No raw real statements in PRs, telemetry or public reports. Attach source references to audit notes without transmitting unnecessary private data.
+
+7. Release and cleanup
+
+Complete the internal suite, Mel/Leon walkthrough and small voluntary usability rehearsal before inviting the full cohort. Final readiness requires all included P0/P1 cases, current repository gates, exact reconciliations, real phones, Mel-approved coaching, normal deployed auth and jobs, configured consent/report/retention/support facts and restore proof. A synthetic 30-person rehearsal is capacity evidence, not evidence that 30 real employees have achieved the goal.
+
+Use local-dev-lifecycle for any execution phase: inspect baseline/profile, claim exact task-owned servers/tabs/DB/storage after start and clean only the delta after QA. Preserve borrowed/shared resources. Record named handoffs if any resource intentionally remains. This planning turn started no servers, browser tabs, real accounts, reminders or external messages; the existing WhatsApp app was only read.

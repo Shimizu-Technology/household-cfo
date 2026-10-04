@@ -158,8 +158,7 @@ module Api
       end
 
       def destroy
-        source_key = nil
-        document_import_id = nil
+        cleanup = nil
         destroy_error = nil
         s3_missing = false
 
@@ -170,13 +169,12 @@ module Api
               raise ActiveRecord::Rollback
             end
 
-            source_key = @document_import.s3_key
-            if source_key.present? && !S3Service.configured?
+            if @document_import.s3_key.present? && !S3Service.configured?
               s3_missing = true
               raise ActiveRecord::Rollback
             end
 
-            document_import_id = @document_import.id
+            cleanup = FinancialDocumentSourceCleanup.request!(@document_import, user: current_user)
             @document_import.destroy!
           end
         end
@@ -184,8 +182,12 @@ module Api
         return render_s3_not_configured if s3_missing
         return render json: { errors: [ destroy_error ] }, status: :unprocessable_entity if destroy_error
 
-        delete_source_after_destroy(source_key, document_import_id: document_import_id)
-        head :no_content
+        FinancialDocumentSourceCleanupJob.perform_now(cleanup.id) if cleanup
+        if cleanup && cleanup.reload.status != "completed"
+          render json: { source_cleanup: { status: "pending", retrying: true } }, status: :accepted
+        else
+          head :no_content
+        end
       rescue S3Service::MissingConfigurationError
         render_s3_not_configured
       rescue ActiveRecord::RecordNotDestroyed
@@ -291,16 +293,20 @@ module Api
         return render_s3_not_configured unless S3Service.configured?
         return render json: { document_import: serialize_document_import(@document_import) } if @document_import.s3_key.blank?
 
-        source_key = @document_import.s3_key
-        mark_source_deleted_before_s3_delete! unless @document_import.source_deleted_at.present?
-
-        deleted = S3Service.delete(source_key)
-        unless deleted
-          Rails.logger.warn("[DocumentImportsController] marked source deleted for import #{@document_import.id} but could not delete private S3 source")
-          return render json: { errors: [ "Could not delete document source" ], document_import: serialize_document_import(@document_import.reload) }, status: :service_unavailable
+        cleanup = nil
+        @document_import.with_lock do
+          cleanup = FinancialDocumentSourceCleanup.request!(@document_import, user: current_user)
+          mark_source_deleted_before_s3_delete! unless @document_import.source_deleted_at.present?
+        end
+        FinancialDocumentSourceCleanupJob.perform_now(cleanup.id) if cleanup
+        if cleanup && cleanup.reload.status != "completed"
+          return render json: {
+            errors: [ "Source access was removed. Private storage cleanup is pending and will retry automatically." ],
+            source_cleanup: { status: "pending", retrying: true },
+            document_import: serialize_document_import(@document_import.reload)
+          }, status: :service_unavailable
         end
 
-        @document_import.update_columns(s3_key: nil, updated_at: Time.current)
         render json: { document_import: serialize_document_import(@document_import.reload) }
       rescue S3Service::MissingConfigurationError
         render_s3_not_configured
@@ -584,14 +590,6 @@ module Api
           "source",
           S3Service.safe_filename(File.basename(file.original_filename.to_s.presence || document_import.filename), fallback: document_import.filename)
         )
-      end
-
-      def delete_source_after_destroy(source_key, document_import_id:)
-        return true if source_key.blank?
-
-        deleted = S3Service.delete(source_key)
-        Rails.logger.warn("[DocumentImportsController] deleted import #{document_import_id} but could not delete private S3 source") unless deleted
-        deleted
       end
 
       def cleanup_failed_upload_import!(document_import)

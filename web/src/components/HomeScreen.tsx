@@ -25,9 +25,11 @@ type HomeScreenProps = {
   onAskMia: () => void
   onReviewTransactions: () => void
   onReviewMiaActions: () => void
+  pendingImportCount: number
+  onReviewImports: () => void
 }
 
-export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions }: HomeScreenProps) {
+export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports }: HomeScreenProps) {
   const { brand, assistantName } = useBrand()
   const actionCenter = dashboard.action_center
   const currentPlan = budget.annual_plan?.year === actionCenter.current_year ? budget.annual_plan : null
@@ -49,17 +51,19 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
       </div>
 
       <section className="home-action-center" aria-label={`${brand.product_name} action center`}>
-        <article className={`home-review-card ${actionCenter.total_review_count > 0 ? 'has-reviews' : 'is-clear'}`}>
+        <article className={`home-review-card ${actionCenter.total_review_count > 0 || pendingImportCount > 0 ? 'has-reviews' : 'is-clear'}`}>
           <span>What needs review?</span>
           <strong>{actionCenter.total_review_count}</strong>
-          <p>{actionCenter.total_review_count === 0 ? `You are caught up. New transactions and ${assistantName} changes will wait here for your approval.` : 'Pending items do not change actuals or the plan until you approve them.'}</p>
+          <p>{actionCenter.total_review_count === 0 ? (pendingImportCount > 0 ? `Transaction and ${assistantName} change reviews are up to date. Files still need your review below.` : `You are caught up. New transactions and ${assistantName} changes will wait here for your approval.`) : 'Pending items do not change actuals or the plan until you approve them.'}</p>
+          {pendingImportCount > 0 && <p>{pendingImportCount} file{pendingImportCount === 1 ? '' : 's'} needing review. File review is separate from transaction and plan changes.</p>}
           <div className="home-review-actions">
+            {pendingImportCount > 0 && <button type="button" className="subtle" onClick={onReviewImports}>Review {pendingImportCount} file{pendingImportCount === 1 ? '' : 's'}</button>}
             {actionCenter.transaction_review_count > 0 && <button type="button" onClick={onReviewTransactions}>Review {actionCenter.transaction_review_count} transaction{actionCenter.transaction_review_count === 1 ? '' : 's'}</button>}
             {actionCenter.mia_action_review_count > 0 && <button type="button" className="subtle" onClick={onReviewMiaActions}>Review {actionCenter.mia_action_review_count} {assistantName} change{actionCenter.mia_action_review_count === 1 ? '' : 's'}</button>}
           </div>
         </article>
 
-        <MonthPlanSummary
+        {currentPlan ? <MonthPlanSummary
           label={`${actionCenter.current_month_label} ${actionCenter.current_year}`}
           income={currentMonthIncome}
           planned={currentPlan ? currentTotals.planned : monthPlanned}
@@ -69,7 +73,10 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           baselineSurplus={budget.baseline_surplus}
           debtMinimums={currentPlan?.monthly_debt_minimums ?? dashboard.summary.debt_payments}
           debtMinimumsKnown={currentPlan ? currentPlan.monthly_debt_minimums_known !== false : dashboard.summary.readiness_available}
-        />
+        /> : <article className="panel" role="status">
+          <h3>Current month plan unavailable</h3>
+          <p>Your current plan could not be loaded. This does not mean spending is zero.</p>
+        </article>}
       </section>
 
       <div className={`status-ribbon ${dashboard.summary.readiness_tone}`}>

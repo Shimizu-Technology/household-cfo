@@ -135,6 +135,7 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
     )
     manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
     manager.create_category!(name: "Emergency Fund", stack_key: "sinking_expected", monthly_amount: 0)
+    refute HouseholdFinance::DebtPortfolio.new(household).balance_known?
     prompt = "I have $6,400 monthly income, $2,400 fixed bills, $800 flexible spending, and a $175 debt minimum. I have not entered my checking balance. I am considering a $900 flight for a family visit from Guam, but I also want a $2,000 emergency fund. Do not change anything. Explain what we know, what is missing, and one next step."
 
     [ prompt, prompt.sub("$6,400", "$99,999") ].each do |message|

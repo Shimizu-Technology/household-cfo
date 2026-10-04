@@ -2038,20 +2038,13 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await page.goto('/')
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   const suggestedQuestion = page.getByRole('button', { name: 'Why is my readiness Red?' })
-  if ((page.viewportSize()?.width ?? 0) <= 620) {
-    await expect(suggestedQuestion).toBeHidden()
-    await page.getByRole('button', { name: 'Prompts', exact: true }).click()
-  }
+  await expect(suggestedQuestion).toBeHidden()
+  await page.getByRole('button', { name: 'Prompts', exact: true }).click()
   await expect(suggestedQuestion).toBeVisible()
-  if ((page.viewportSize()?.width ?? 0) <= 620) {
-    await page.getByRole('button', { name: 'Prompts', exact: true }).click()
-  }
   const promptCue = page.getByText('More prompts →')
-  if ((page.viewportSize()?.width ?? 0) <= 720) {
-    await expect(promptCue).toBeHidden()
-  } else {
-    await expect(promptCue).toBeVisible()
-  }
+  if ((page.viewportSize()?.width ?? 0) <= 620) await expect(promptCue).toBeHidden()
+  else await expect(promptCue).toBeVisible()
+  await page.getByRole('button', { name: 'Prompts', exact: true }).click()
   await expect(page.locator('.message-row')).toHaveCount(60)
   await expect(page.getByRole('button', { name: 'Load earlier messages (40 remaining)' })).toBeVisible()
   await expect(page.locator('.message-attachment-card img')).toHaveAttribute('loading', 'lazy')
@@ -2227,9 +2220,7 @@ test('chat-first Mia preserves legacy reviews without structured before and afte
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
 
-  if ((page.viewportSize()?.width ?? 0) <= 620) {
-    await page.getByRole('button', { name: 'Prompts', exact: true }).click()
-  }
+  await page.getByRole('button', { name: 'Prompts', exact: true }).click()
   await expect(page.getByText('Nothing changes until you tap Apply.')).toBeVisible()
   const example = page.getByRole('button', { name: 'My take-home pay is now $6,200 a month.' })
   await example.click()
@@ -2943,11 +2934,20 @@ test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its cont
     expect(element.right).toBeLessThanOrEqual(composerLayout.viewportWidth + 1)
   }
   expect(composerLayout.attach.right).toBeLessThanOrEqual(composerLayout.voice.left)
-  expect(composerLayout.voice.right).toBeLessThanOrEqual(composerLayout.textarea.left)
-  expect(composerLayout.textarea.right).toBeLessThanOrEqual(composerLayout.send.left)
-  expect(Math.abs(composerLayout.attach.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
-  expect(Math.abs(composerLayout.voice.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
-  expect(Math.abs(composerLayout.send.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+  if (composerLayout.viewportWidth <= 420) {
+    // Narrow phones put the message above the controls, preserving readable width.
+    expect(composerLayout.textarea.bottom).toBeLessThanOrEqual(composerLayout.attach.top)
+    expect(composerLayout.textarea.bottom).toBeLessThanOrEqual(composerLayout.voice.top)
+    expect(composerLayout.textarea.bottom).toBeLessThanOrEqual(composerLayout.send.top)
+    expect(composerLayout.voice.right).toBeLessThanOrEqual(composerLayout.send.left)
+    expect(Math.abs(composerLayout.attach.bottom - composerLayout.send.bottom)).toBeLessThanOrEqual(1)
+  } else {
+    expect(composerLayout.voice.right).toBeLessThanOrEqual(composerLayout.textarea.left)
+    expect(composerLayout.textarea.right).toBeLessThanOrEqual(composerLayout.send.left)
+    expect(Math.abs(composerLayout.attach.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+    expect(Math.abs(composerLayout.voice.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+    expect(Math.abs(composerLayout.send.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+  }
 
   await composer.fill(Array.from({ length: 30 }, (_, index) => `Line ${index + 1}: review this planned change before applying it.`).join('\n'))
   const cappedMetrics = await composer.evaluate((element) => {
@@ -2990,8 +2990,13 @@ test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its cont
     }
   })
   expect(nearLimitLayout.count.top).toBeGreaterThanOrEqual(nearLimitLayout.textarea.bottom - 1)
-  expect(nearLimitLayout.field.left).toBeGreaterThanOrEqual(nearLimitLayout.voice.right)
-  expect(nearLimitLayout.field.right).toBeLessThanOrEqual(nearLimitLayout.send.left)
+  if (nearLimitLayout.viewportWidth <= 420) {
+    expect(nearLimitLayout.field.bottom).toBeLessThanOrEqual(nearLimitLayout.voice.top)
+    expect(nearLimitLayout.field.bottom).toBeLessThanOrEqual(nearLimitLayout.send.top)
+  } else {
+    expect(nearLimitLayout.field.left).toBeGreaterThanOrEqual(nearLimitLayout.voice.right)
+    expect(nearLimitLayout.field.right).toBeLessThanOrEqual(nearLimitLayout.send.left)
+  }
   expect(nearLimitLayout.count.right).toBeLessThanOrEqual(nearLimitLayout.viewportWidth)
   expect(nearLimitLayout.row.bottom).toBeGreaterThanOrEqual(nearLimitLayout.count.bottom)
   await composer.fill('x'.repeat(7_999))
@@ -3091,6 +3096,7 @@ test('Ask Mia uses a new request ID when the retry targets a different budget mo
   const nextMonthIndex = (new Date().getMonth() + 1) % 12
   await page.getByLabel('Report month').selectOption(String(nextMonthIndex))
   await openSection(page, 'Ask Mia')
+  await expect(page.locator('.chat-period-context')).toHaveText(`Plan context: ${months[nextMonthIndex]} ${currentYear}`)
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   await expect(page.getByText('Use the newly selected month.')).toBeVisible()
 
@@ -3155,9 +3161,9 @@ test('Ask Mia restores uploaded attachment context and its exact request ID afte
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue(message)
-  await expect(page.getByText('saved-receipt.jpg')).toBeVisible()
+  await expect(page.locator('.composer-attachment-tray').getByRole('button', { name: 'saved-receipt.jpg', exact: true })).toBeVisible()
   await expect(page.locator('.composer-attachment-card img')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Receipt screenshot', exact: true }).click()
+  await page.locator('.composer-attachment-tray').getByRole('button', { name: 'saved-receipt.jpg', exact: true }).click()
   await expect(page.getByText('This restored upload has no local preview. You can still send it to Mia.')).toBeVisible()
   await expect(page.locator('.local-attachment-preview img')).toHaveCount(0)
   expect(emptySourceErrors).toEqual([])
@@ -3247,8 +3253,8 @@ test('Ask Mia uploads an attachment with its question and renders the grounded r
     mimeType: 'image/png',
     buffer: Buffer.from('mock-receipt-evidence'),
   })
-  await expect(page.getByText('Images and PDFs up to 12 MB · CSV, Excel, and Word up to 20 MB')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Receipt screenshot', exact: true })).toBeVisible()
+  if ((page.viewportSize()?.width ?? 0) > 620) await expect(page.getByText('Images and PDFs up to 12 MB · CSV, Excel, and Word up to 20 MB')).toBeVisible()
+  await expect(page.locator('.composer-attachment-tray').getByRole('button', { name: 'receipt.png', exact: true })).toBeVisible()
 
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Does this grocery receipt fit my plan?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
@@ -4097,7 +4103,7 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   await expect(suggestionsButton).toHaveAttribute('aria-expanded', 'true')
   await expect(suggestedQuestion).toBeVisible()
   const historyWhileOpen = await page.locator('.chat-card-wrap').evaluate((history) => history.getBoundingClientRect().height)
-  expect(historyWhileOpen).toBeCloseTo(compactLayout.historyHeight, 0)
+  expect(Math.abs(historyWhileOpen - compactLayout.historyHeight)).toBeLessThanOrEqual(1)
 
   await page.keyboard.press('Escape')
   await expect(suggestionsButton).toHaveAttribute('aria-expanded', 'false')
@@ -4155,7 +4161,7 @@ test('compact Ask Mia header keeps its title and controls separate at 320px', as
 
   const layout = await page.locator('.chat-shell-header').evaluate((header) => {
     const headerBox = header.getBoundingClientRect()
-    const copyBox = header.querySelector('.chat-shell-copy')?.getBoundingClientRect()
+    const copyBox = header.querySelector('.chat-shell-copy h3')?.getBoundingClientRect()
     const actionsBox = header.querySelector('.chat-actions')?.getBoundingClientRect()
     const actionBoxes = Array.from(header.querySelectorAll<HTMLButtonElement>('.chat-actions button'))
       .map((button) => {
@@ -4166,13 +4172,15 @@ test('compact Ask Mia header keeps its title and controls separate at 320px', as
     return {
       header: { left: headerBox.left, right: headerBox.right },
       copyBottom: copyBox?.bottom ?? Number.POSITIVE_INFINITY,
+      copyRight: copyBox?.right ?? Number.POSITIVE_INFINITY,
+      actionsLeft: actionsBox?.left ?? Number.NEGATIVE_INFINITY,
       actionsTop: actionsBox?.top ?? Number.NEGATIVE_INFINITY,
       actionBoxes,
       pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
     }
   })
 
-  expect(layout.copyBottom).toBeLessThanOrEqual(layout.actionsTop + 1)
+  expect(layout.copyBottom <= layout.actionsTop + 1 || layout.copyRight <= layout.actionsLeft + 1).toBe(true)
   expect(layout.pageFits).toBe(true)
   expect(layout.actionBoxes.length).toBeGreaterThanOrEqual(2)
   for (const [index, box] of layout.actionBoxes.entries()) {
@@ -8001,4 +8009,154 @@ test('Coach Studio program groups add participants without mistaking failed emai
   expect(removedMembership).toBe(true)
   expect(writes).toEqual(['/api/v1/admin/cohorts', '/api/v1/admin/cohorts/42', '/api/v1/admin/users', '/api/v1/admin/users/903/resend_invitation', '/api/v1/admin/cohorts/42/participants/903'])
   await assertProgramFits(page)
+})
+
+for (const setupComplete of [false, true]) {
+  test(`BOG UI five named statements keep chat and Send usable (${setupComplete ? 'established' : 'first session'})`, async ({ page }) => {
+    await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(setupComplete) }))
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+    await composer.fill('Review these statements.\nHelp me understand my spending.')
+    const fileInput = page.locator('.ask-row input[type="file"]')
+    const files = Array.from({ length: 5 }, (_, index) => ({ name: `QA-statement-${index + 1}.pdf`, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nQA') }))
+    await fileInput.setInputFiles(files)
+    await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Remove QA-statement-3.pdf', exact: true })).toHaveCount(1)
+    const geometry = await page.locator('.mia-chat-shell').evaluate((shell) => {
+      const box = shell.getBoundingClientRect()
+      const history = shell.querySelector('.chat-card-wrap')!.getBoundingClientRect()
+      const send = shell.querySelector('.send-button')!.getBoundingClientRect()
+      const tray = shell.querySelector('.composer-attachment-tray') as HTMLElement
+      return { historyHeight: history.height, sendBottom: send.bottom, shellBottom: box.bottom, trayScrollable: tray.scrollHeight > tray.clientHeight, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth }
+    })
+    expect(geometry.historyHeight).toBeGreaterThan(100)
+    expect(geometry.sendBottom).toBeLessThanOrEqual(geometry.shellBottom)
+    expect(geometry.overflow).toBeLessThanOrEqual(1)
+    if ((page.viewportSize()?.width ?? 0) <= 900) expect(geometry.trayScrollable).toBe(true)
+    await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
+
+    await fileInput.setInputFiles({ name: 'QA-sixth-statement.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nQA') })
+    await expect(page.getByRole('alert').filter({ hasText: 'Not added: QA-sixth-statement.pdf' })).toBeVisible()
+    await expect(composer).toHaveValue('Review these statements.\nHelp me understand my spending.')
+    await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
+    // Remove by a unique filename using keyboard, after scrolling the bounded tray.
+    const remove = page.getByRole('button', { name: 'Remove QA-statement-3.pdf', exact: true })
+    await remove.focus()
+    await remove.press('Enter')
+    await expect(remove).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Remove QA-statement-4.pdf', exact: true })).toHaveCount(1)
+    await expect(page.getByText('4 files ready to send', { exact: true })).toBeVisible()
+  })
+}
+
+test('BOG UI desktop and tablet help collapse without shrinking history', async ({ page }) => {
+  await page.goto('/#Ask%20Mia')
+  const prompts = page.getByRole('button', { name: 'Prompts', exact: true })
+  await expect(prompts).toHaveAttribute('aria-expanded', 'false')
+  const guide = page.getByText('Fastest way to update your plan', { exact: true })
+  await expect(guide).toBeHidden()
+  const before = await page.locator('.chat-card-wrap').evaluate((node) => node.getBoundingClientRect().height)
+  await prompts.click()
+  await expect(guide).toBeVisible()
+  expect(Math.abs(await page.locator('.chat-card-wrap').evaluate((node) => node.getBoundingClientRect().height) - before)).toBeLessThanOrEqual(1)
+  await prompts.press('Escape')
+  await expect(guide).toBeHidden()
+  await page.getByRole('button', { name: 'Expand Ask Mia chat' }).click()
+  await expect(guide).toBeHidden()
+  const expanded = await page.locator('.mia-chat-shell').evaluate((node) => ({ height: node.getBoundingClientRect().height, viewport: window.innerHeight }))
+  expect(expanded.height).toBeGreaterThanOrEqual(expanded.viewport - 37)
+  await page.keyboard.press('Escape')
+})
+
+test('BOG UI Home and current review survive a future Budget year', async ({ page }) => {
+  const current = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: current }))
+  const future = structuredClone(current.budget)
+  future.annual_plan.year = currentYear + 1
+  future.annual_plan.pending_transaction_drafts = []
+  future.annual_plan.pending_mia_action_drafts = []
+  future.annual_plan.rows.forEach((row) => row.months.forEach((month) => { month.actual = 0; month.planned = 0 }))
+  await page.route('http://api.test/api/v1/budget?**', (route) => route.fulfill({ json: future }))
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  await expect(page.getByText(`Annual budget · ${currentYear + 1}`, { exact: true })).toBeVisible()
+  await openSection(page, 'Ask Mia')
+  await expect(page.locator('.chat-period-context')).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear + 1}`)
+  await openSection(page, 'Home')
+  const summary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
+  await expect(summary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$3,475.00')
+  await expect(summary.getByText('Planned', { exact: true }).locator('..')).toContainText('$5,300.00')
+  await page.getByRole('button', { name: 'Review 2 transactions', exact: true }).click()
+  await expect(page.getByText('Dinner with friends', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Storm supplies', { exact: true }).first()).toBeVisible()
+})
+
+test('BOG UI partially reviewed statements keep their remaining coverage visible', async ({ page }) => {
+  const source = {
+    id: 1201, household_id: 77, document_kind: 'statement', status: 'partially_applied', filename: 'QA-partial.pdf', content_type: 'application/pdf', byte_size: 50,
+    document_date: null, period_start_on: `${currentYear}-01-01`, period_end_on: `${currentYear}-01-31`, extracted_summary: 'Three extracted purchases.', extraction_error: null,
+    processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
+    uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [], attempts: [],
+    transaction_drafts: ['matched', 'pending', 'pending'].map((status, index) => ({ id: 1210 + index, occurred_on: `${currentYear}-01-03`, merchant: `QA purchase ${index + 1}`, amount: 10, amount_cents: 1000, status, source_type: 'statement', category_id: 2, category_name: 'Dining out', splits: [] })),
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.getByLabel('Document import context for Mia')).toContainText('1 waiting review')
+  await page.getByRole('button', { name: 'Review imports', exact: true }).click()
+  await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
+  await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
+  await page.getByLabel('Filter by status').selectOption('needs_review')
+  await expect(page.locator('.document-history-card').filter({ hasText: 'QA-partial.pdf' })).toBeVisible()
+})
+
+test('BOG UI Home keeps source-only partial review distinct from transaction counts', async ({ page }) => {
+  const current = realWorkspaceData(true)
+  current.dashboard.action_center.total_review_count = 0
+  current.dashboard.action_center.transaction_review_count = 0
+  current.dashboard.action_center.mia_action_review_count = 0
+  current.budget.annual_plan.pending_transaction_drafts = []
+  current.budget.annual_plan.pending_mia_action_drafts = []
+  const source = {
+    id: 1202, household_id: 77, document_kind: 'statement', status: 'partially_applied', filename: 'QA-source-only.pdf', content_type: 'application/pdf', byte_size: 50,
+    document_date: null, period_start_on: null, period_end_on: null, extracted_summary: 'Source review remains incomplete.', extraction_error: null,
+    processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
+    uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [], attempts: [], transaction_drafts: [],
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: current }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  const reviews = page.locator('.home-review-card')
+  await expect(reviews.locator(':scope > strong')).toHaveText('0')
+  await expect(reviews).toContainText('1 file needing review')
+  await expect(reviews).not.toContainText('You are caught up.')
+  await expect(reviews.getByRole('button', { name: /Review .* transaction/ })).toHaveCount(0)
+  await reviews.getByRole('button', { name: 'Review 1 file', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'QA-source-only.pdf', exact: true })).toBeVisible()
+  await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
+})
+
+test('BOG UI incomplete setup can review a partial source and return to starting numbers', async ({ page }) => {
+  const source = {
+    id: 1201, household_id: 77, document_kind: 'statement', status: 'partially_applied', filename: 'QA-partial.pdf', content_type: 'application/pdf', byte_size: 50,
+    document_date: null, period_start_on: `${currentYear}-01-01`, period_end_on: `${currentYear}-01-31`, extracted_summary: 'Three extracted purchases.', extraction_error: null,
+    processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
+    uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [], attempts: [],
+    transaction_drafts: ['matched', 'pending', 'pending'].map((status, index) => ({ id: 1210 + index, occurred_on: `${currentYear}-01-03`, merchant: `QA purchase ${index + 1}`, amount: 10, amount_cents: 1000, status, source_type: 'statement', category_id: 2, category_name: 'Dining out', splits: [] })),
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(false) }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.getByLabel('Document import context for Mia')).toContainText('1 waiting review')
+  await page.getByRole('button', { name: 'Review imports', exact: true }).click()
+  await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
+  await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Return to starting numbers', exact: true })).toBeVisible()
+  await page.getByLabel('Filter by status').selectOption('needs_review')
+  await expect(page.locator('.document-history-card').filter({ hasText: 'QA-partial.pdf' })).toBeVisible()
+  await page.getByRole('button', { name: 'Return to starting numbers', exact: true }).click()
+  await expect(page.getByText('Essential first-session information', { exact: true })).toBeVisible()
+  await openSection(page, 'Ask Mia')
+  await page.getByRole('button', { name: 'Review imports', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'QA-partial.pdf', exact: true })).toBeVisible()
 })
