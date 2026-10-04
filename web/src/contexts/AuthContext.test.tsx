@@ -45,6 +45,8 @@ function AuthProbe() {
     <div>
       <span data-testid="verification">{auth.isVerifyingApi ? 'pending' : 'settled'}</span>
       <span data-testid="user">{auth.currentUser?.clerk_id ?? 'none'}</span>
+      <span data-testid="name">{auth.currentUser?.full_name ?? 'none'}</span>
+      <button onClick={() => void auth.refreshCurrentUser()}>Refresh account</button>
       <span data-testid="error">{auth.authError ?? 'none'}</span>
     </div>
   )
@@ -102,5 +104,36 @@ describe('AuthProvider identity verification', () => {
     expect(screen.getByTestId('user').textContent).toBe('none')
     expect(screen.getByTestId('error').textContent).toBe('Unable to verify program access for this account')
     expect(mocks.setActiveCoachWorkspaceId).toHaveBeenLastCalledWith(null)
+  })
+})
+
+
+describe('opt-in local real API QA authentication', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('loads and refreshes actual server identity instead of a static workspace list', async () => {
+    vi.stubEnv('DEV', true)
+    vi.stubEnv('VITE_E2E_AUTH', 'true')
+    window.history.replaceState(null, '', '/?pilot_e2e_role=coach&pilot_e2e_live_api=true')
+    mocks.fetchCurrentUser.mockResolvedValueOnce({ ...apiUser('e2e_coach'), full_name: 'Before program creation' })
+    render(<AuthProvider isClerkEnabled={false}><AuthProbe /></AuthProvider>)
+    await waitFor(() => expect(screen.getByTestId('name').textContent).toBe('Before program creation'))
+    mocks.fetchCurrentUser.mockResolvedValueOnce({ ...apiUser('e2e_coach'), full_name: 'After program creation' })
+    screen.getByRole('button', { name: 'Refresh account' }).click()
+    await waitFor(() => expect(screen.getByTestId('name').textContent).toBe('After program creation'))
+    expect(mocks.fetchCurrentUser).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails closed when the QA API identity differs from the selected synthetic account', async () => {
+    vi.stubEnv('DEV', true)
+    vi.stubEnv('VITE_E2E_AUTH', 'true')
+    window.history.replaceState(null, '', '/?pilot_e2e_role=coach&pilot_e2e_live_api=true')
+    mocks.fetchCurrentUser.mockResolvedValue(apiUser('another-account'))
+    render(<AuthProvider isClerkEnabled={false}><AuthProbe /></AuthProvider>)
+    await waitFor(() => expect(screen.getByTestId('error').textContent).toBe('QA account identity did not match the API'))
+    expect(screen.getByTestId('user').textContent).toBe('none')
   })
 })

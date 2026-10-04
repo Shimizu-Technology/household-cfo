@@ -41,6 +41,7 @@ import {
 } from '../lib/personaDraft'
 import { Button } from './Button'
 import { CoachProgramSettings } from './CoachProgramSettings'
+import { WorkspaceCollaborators } from './WorkspaceCollaborators'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { ReleaseAndRolloutStudio } from './ReleaseAndRolloutStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
@@ -99,6 +100,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [setupDirty, setSetupDirty] = useState(false)
   const [rolloutDirty, setRolloutDirty] = useState(false)
   const [settingsDirty, setSettingsDirty] = useState(false)
+  const [collaboratorsDirty, setCollaboratorsDirty] = useState(false)
   const workspaceMutations = useCoachWorkspaceMutationLifecycle(activeWorkspaceId)
   const selectedIdRef = useRef<number | null>(null)
   const activeWorkspaceIdRef = useRef(activeWorkspaceId)
@@ -116,7 +118,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     if (!selectedPersona?.draft || !draft) return false
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
-  const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty || settingsDirty
+  const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty || settingsDirty || collaboratorsDirty
   const personaDirty = dirty || personaSourcesDirty || setupDirty
 
   const filteredPersonas = useMemo(() => {
@@ -730,6 +732,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       {studioSection === 'settings' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-settings" aria-labelledby="coach-studio-tab-settings" tabIndex={0}>
           <CoachProgramSettings key={activeWorkspaceId ?? 'platform'} workspaceId={activeWorkspaceId} currentUser={currentUser} mutationLifecycle={workspaceMutations} onDirtyChange={setSettingsDirty} />
+          {activeWorkspaceId !== null && <WorkspaceCollaborators workspaceId={activeWorkspaceId} mutationLifecycle={workspaceMutations} onDirtyChange={setCollaboratorsDirty} />}
         </div>
       ) : studioSection === 'library' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-library" aria-labelledby="coach-studio-tab-library" tabIndex={0}>

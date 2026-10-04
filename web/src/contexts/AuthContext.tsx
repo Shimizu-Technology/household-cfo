@@ -124,15 +124,22 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
 function NoAuthBridge({ children }: { children: ReactNode }) {
   const pilotE2ERole = e2eAuthRole()
   const includeCoachWorkspaces = e2eCoachWorkspacesEnabled()
-  const currentUser = useMemo(
+  const seedUser = useMemo(
     () => pilotE2ERole === 'admin' || pilotE2ERole === 'coach' || pilotE2ERole === 'participant'
       ? e2eCurrentUser(pilotE2ERole, includeCoachWorkspaces)
       : null,
     [includeCoachWorkspaces, pilotE2ERole],
   )
 
-  const pilotE2EToken = currentUser && pilotE2ERole
-    ? `test_token:${currentUser.clerk_id}:${currentUser.email}:${currentUser.first_name ?? ''}:${currentUser.last_name ?? ''}`
+  const liveApi = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && new URLSearchParams(window.location.search).get('pilot_e2e_live_api') === 'true'
+  const liveRequest = useRef(0)
+  const liveMounted = useRef(true)
+  const [apiUser, setApiUser] = useState<CurrentUser | null>(null)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const currentUser = liveApi ? apiUser : seedUser
+  const pilotE2EToken = seedUser && pilotE2ERole
+    ? `test_token:${seedUser.clerk_id}:${seedUser.email}:${seedUser.first_name ?? ''}:${seedUser.last_name ?? ''}`
     : null
   const [isTokenReady, setIsTokenReady] = useState(!pilotE2EToken)
   const [activeCoachWorkspaceId, setActiveCoachWorkspaceState] = useState<number | null>(
@@ -145,10 +152,10 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
   }, [])
 
   useLayoutEffect(() => {
-    if (!includeCoachWorkspaces) return
+    if (!includeCoachWorkspaces && !liveApi) return
 
     setActiveCoachWorkspaceId(activeCoachWorkspaceId)
-  }, [activeCoachWorkspaceId, includeCoachWorkspaces])
+  }, [activeCoachWorkspaceId, includeCoachWorkspaces, liveApi])
 
   useEffect(() => {
     let cancelled = false
@@ -162,18 +169,47 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
     }
   }, [pilotE2EToken])
 
+  const refreshCurrentUser = useCallback(async () => {
+    if (!liveApi || !isTokenReady || !seedUser) return
+    const request = ++liveRequest.current
+    setRefreshing(true)
+    setAuthError(null)
+    try {
+      const user = await fetchCurrentUser()
+      if (!liveMounted.current || request !== liveRequest.current) return
+      if (user.clerk_id !== seedUser.clerk_id) throw new Error('QA account identity did not match the API')
+      const workspaceId = user.active_coach_workspace?.id ?? null
+      setActiveCoachWorkspaceState(workspaceId)
+      setActiveCoachWorkspaceId(workspaceId)
+      setApiUser(user)
+    } catch (error) {
+      if (!liveMounted.current || request !== liveRequest.current) return
+      setApiUser(null)
+      setAuthError(error instanceof Error ? error.message : 'Unable to verify QA program access')
+    } finally {
+      if (liveMounted.current && request === liveRequest.current) setRefreshing(false)
+    }
+  }, [isTokenReady, liveApi, seedUser])
+
+  useEffect(() => {
+    let cancelled = false
+    liveMounted.current = true
+    queueMicrotask(() => { if (!cancelled && liveApi && isTokenReady) void refreshCurrentUser() })
+    return () => { cancelled = true; liveMounted.current = false; liveRequest.current += 1 }
+  }, [isTokenReady, liveApi, refreshCurrentUser])
+
   const value = useMemo<AuthContextValue>(() => ({
     isClerkEnabled: false,
-    authIdentityId: currentUser?.clerk_id ?? null,
-    isSignedIn: Boolean(currentUser),
+    authIdentityId: seedUser?.clerk_id ?? null,
+    isSignedIn: Boolean(seedUser),
     isLoading: false,
-    isVerifyingApi: Boolean(pilotE2EToken && !isTokenReady),
+    isVerifyingApi: Boolean(pilotE2EToken && (!isTokenReady || (liveApi && (!apiUser && !authError || refreshing)))),
     currentUser,
     activeCoachWorkspaceId,
-    authError: null,
-    refreshCurrentUser: async () => undefined,
+    authError,
+    refreshCurrentUser,
     selectCoachWorkspace,
-  }), [activeCoachWorkspaceId, currentUser, isTokenReady, pilotE2EToken, selectCoachWorkspace])
+  }), [activeCoachWorkspaceId, apiUser, authError, currentUser, isTokenReady, liveApi, pilotE2EToken, refreshCurrentUser, refreshing, seedUser, selectCoachWorkspace])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
