@@ -8236,6 +8236,27 @@ test('BOG UI failed budget year preserves previous rows and context across brows
 })
 
 test('BOG UI budget year response cannot cross a coach workspace switch or replace its newer request', async ({ page }) => {
+  await page.addInitScript(() => {
+    const fetch = window.fetch.bind(window)
+    window.fetch = async (...args) => {
+      const response = await fetch(...args)
+      if (response.url.includes('/api/v1/budget?')) {
+        const json = response.json.bind(response)
+        response.json = async () => {
+          const payload = await json()
+          if (payload.intro === 'Stale budget from previous workspace.') {
+            // Observe consumption in the browser, after the awaiting app code
+            // and its subsequent render opportunity, not response headers.
+            setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+              document.documentElement.dataset.staleBudgetConsumed = 'true'
+            })), 0)
+          }
+          return payload
+        }
+      }
+      return response
+    }
+  })
   let releaseOld!: () => void
   const oldGate = new Promise<void>((resolve) => { releaseOld = resolve })
   let firstRequest = true
@@ -8258,7 +8279,8 @@ test('BOG UI budget year response cannot cross a coach workspace switch or repla
   await expect(page.getByText('Fresh budget after workspace switch.', { exact: true })).toBeVisible()
   const oldResponse = page.waitForResponse((response) => response.url().includes('/api/v1/budget?') && response.status() === 200)
   releaseOld()
-  await oldResponse
+  await (await oldResponse).finished()
+  await expect(page.locator('html')).toHaveAttribute('data-stale-budget-consumed', 'true')
   await expect(page.getByText('Fresh budget after workspace switch.', { exact: true })).toBeVisible()
   await expect(page.getByText('Stale budget from previous workspace.', { exact: true })).toHaveCount(0)
 })
