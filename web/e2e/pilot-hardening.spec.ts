@@ -1862,6 +1862,21 @@ test('initial Plaid sync refreshes the workspace when transaction history is rea
   await expect.poll(() => workspaceRequests).toBeGreaterThan(1)
 })
 
+test('Home preserves confirmed debt minimums while liquid balances are still unknown', async ({ page }) => {
+  await page.route('**/api/v1/dashboard', (route) => route.fulfill({ json: {
+    ...dashboard,
+    summary: { ...dashboard.summary, readiness_available: false, next_safe_to_spend_amount: null, readiness_label: 'Liquid balances needed — add them before using cash guidance' },
+  } }))
+  await page.goto('/?pilot_e2e_role=participant')
+  const monthSummary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
+  const breakdown = monthSummary.getByRole('group', { name: 'Monthly money out breakdown' })
+  await expect(breakdown).toContainText('Debt minimums$200.00')
+  await expect(breakdown).toContainText('Total money out$5,500.00')
+  await expect(monthSummary.getByText('Baseline left', { exact: true }).locator('..')).toContainText('$8,700.00')
+  await expect(monthSummary.getByText('Safe to spend', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Liquid balances needed — add them before using cash guidance', { exact: true })).toBeVisible()
+})
+
 test('Home centers review work and keeps Red guidance internally consistent', async ({ page, browserName }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
