@@ -182,6 +182,24 @@ class ApiV1AdminCohortReleaseLaunchesControllerTest < ActionDispatch::Integratio
     assert_nil cohort.reload.active_cohort_release_id
   end
 
+  test "database rejects an initial launch with an actor but no role snapshot" do
+    owner, cohort, release = launch_setup
+    assert_raises(ActiveRecord::StatementInvalid) do
+      CohortReleaseActivationEvent.transaction(requires_new: true) do
+        CohortReleaseActivationEvent.insert_all!([ {
+          coach_workspace_id: cohort.coach_workspace_id, cohort_id: cohort.id,
+          to_cohort_release_id: release.id, event_type: "initial_launch",
+          actor_user_id: owner.id, actor_role_snapshot: nil,
+          request_key: "forged-roleless-launch", request_fingerprint: "f" * 64,
+          occurred_at: Time.current
+        } ])
+        cohort.update!(active_cohort_release_id: release.id)
+      end
+    end
+    assert_empty cohort.cohort_release_activation_events
+    assert_nil cohort.reload.active_cohort_release_id
+  end
+
   test "valid fields and explicit idempotency are mandatory" do
     owner, cohort, release = launch_setup
     headers = workspace_headers(owner, cohort.coach_workspace)

@@ -13,10 +13,12 @@ class EnableGovernedInitialCohortLaunch < ActiveRecord::Migration[8.1]
         OR
         (event_type = 'initial_launch' AND from_cohort_release_id IS NULL
           AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL
-          AND actor_user_id IS NOT NULL AND actor_role_snapshot IN ('platform_admin', 'owner', 'reviewer'))
+          AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL
+          AND actor_role_snapshot IN ('platform_admin', 'owner', 'reviewer'))
         OR
         (event_type = 'rollout_completed' AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL
-          AND actor_user_id IS NOT NULL AND actor_role_snapshot IN ('platform_admin', 'owner', 'reviewer'))
+          AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL
+          AND actor_role_snapshot IN ('platform_admin', 'owner', 'reviewer'))
       SQL
     execute <<~SQL
       CREATE OR REPLACE FUNCTION prepare_cohort_release_activation_event()
