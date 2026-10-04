@@ -38,7 +38,13 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
       "I want to end it all.",
       "I do not want to live.",
       "I don't think I can keep living.",
-      "I can't go on with this anymore."
+      "I can't go on with this anymore.",
+      "I am going to shoot myself tonight. My monthly income is $6,200.",
+      "I'm thinking about hanging myself. My monthly income is $6,200.",
+      "I want to overdose tonight. My monthly income is $6,200.",
+      "I am planning to overdose. My monthly income is $6,200.",
+      "I wish I were dead. My monthly income is $6,200.",
+      "I'd rather be dead. My monthly income is $6,200."
     ].each do |message|
       without_provider(HouseholdFinance::MiaIntentResolver) do
         without_provider(HouseholdFinance::MiaCoachAnswerer) do
@@ -56,6 +62,20 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
     assert_equal 0, household.mia_action_drafts.count
     assert_equal 0, household.household_memories.count
     assert_equal 0, household.budget_years.count
+  end
+
+  test "lethal method references without first person self harm intent stay outside crisis preflight" do
+    [
+      "My friend is planning to overdose.",
+      "Someone is going to shoot themselves.",
+      "What happens when someone overdoses?",
+      "I do not want to overdose.",
+      "I am not going to shoot myself.",
+      "I wish my debt were dead.",
+      "I am planning to shoot a video about household budgets."
+    ].each do |message|
+      refute Mia::CrisisBoundary.matches?(message), message
+    end
   end
 
   test "ambiguous setup facts never become a partial current household review" do
