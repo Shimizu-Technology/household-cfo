@@ -390,8 +390,8 @@ module FinancialDocuments
     end
 
     def transaction_like_row?(values, header_map)
-      cell(values, header_map, "date").present? &&
-        (cell(values, header_map, "merchant").present? || cell(values, header_map, "label").present?)
+      financial_evidence = %w[merchant debit credit direction authorized_on].any? { |key| cell(values, header_map, key).present? }
+      financial_evidence || (cell(values, header_map, "date").present? && cell(values, header_map, "label").present?)
     end
 
     def target_type(value)

@@ -240,9 +240,15 @@ module FinancialDocuments
       events = sources.flat_map { |source| source[:events] }
       return failure("This statement contains more than #{AccountingContract::MAX_EVENTS} source rows. Split it without truncating rows.") if events.length > AccountingContract::MAX_EVENTS
 
-      # Empty legacy batches represent disclosures, not a fabricated "legacy"
-      # account. Typed headers with zero financial rows still remain evidence.
-      accounts = financial_sources.flat_map { |source| source[:accounts] }.group_by { |account| account[:source_key] }.map do |_key, variants|
+      # Remove only the generated disclosure placeholder. Explicit header
+      # evidence remains useful even for a legacy contract with no rows.
+      placeholder = AccountingContract.legacy([]).fetch(:accounts).sole
+      account_headers = sources.flat_map do |source|
+        source[:accounts].reject do |account|
+          source[:contract_version] == AccountingContract::LEGACY_VERSION && source[:events].empty? && account == placeholder
+        end
+      end
+      accounts = account_headers.group_by { |account| account[:source_key] }.map do |_key, variants|
         merged = variants.first.deep_dup
         merged[:limitations] = variants.flat_map { |variant| Array(variant[:limitations]) }.uniq
         %i[account_basis period_start_on period_end_on opening_balance_cents closing_balance_cents printed_debit_cents printed_credit_cents printed_row_count].each do |field|

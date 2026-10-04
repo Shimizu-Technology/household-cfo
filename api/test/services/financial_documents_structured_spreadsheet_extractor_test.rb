@@ -37,19 +37,24 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
   test "mixed setup rows do not become fake source events while genuine and invalid financial rows remain" do
     file = Tempfile.new([ "mixed-setup", ".csv" ])
     file.write(<<~CSV)
-      type,date,label,merchant,amount,category
+      type,date,label,merchant,amount,category,account
       expense_item,,Monthly dining budget,,400,discretionary
       purchase,2026-07-01,,Synthetic cafe,10,discretionary
       purchase,,,Broken source row,invalid,discretionary
       expense_item,2026-07-02,Synthetic dinner,,15,discretionary
+      expense_item,,Missing date purchase,Synthetic cafe,15,discretionary
+      account,,Synthetic setup checking,,1000,checking,Synthetic checking
     CSV
     file.rewind
     result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "mixed-setup.csv", document_kind: "statement").call
     assert result.success?, result.error
-    assert_equal [ "Monthly dining budget" ], result.data[:items].pluck(:label)
-    assert_equal 3, result.data[:source_accounting][:events].length
-    assert_equal [ 3, 4, 5 ], result.data[:source_accounting][:events].map { |event| event[:locator][:row] }
+    assert_equal [ "Monthly dining budget", "Synthetic setup checking" ], result.data[:items].pluck(:label)
+    assert_equal 100_000, result.data[:items].last[:balance_cents]
+    assert_equal 4, result.data[:source_accounting][:events].length
+    assert_equal [ 3, 4, 5, 6 ], result.data[:source_accounting][:events].map { |event| event[:locator][:row] }
     assert_equal "unresolved", result.data[:source_accounting][:events].second[:row_kind]
+    assert_equal "unresolved", result.data[:source_accounting][:events].last[:row_kind]
+    assert_includes result.data[:source_accounting][:events].last[:limitations], "posted_date_missing_or_invalid"
     assert_equal 2, result.data[:transaction_drafts].length
   ensure
     file&.close!

@@ -50,6 +50,21 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_empty empty[:accounts]
   end
 
+  test "an explicit zero-row legacy account header is retained without fabricating events or upgrading its contract" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    legacy = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::LEGACY_VERSION,
+      accounts: [ { account_key: "synthetic-zero", account_basis: "asset", opening_balance_cents: 0, closing_balance_cents: 0, header_evidence: "Synthetic zero balance header" } ], events: [] })
+    merged = extractor.send(:merge_source_accounting, [ { source_accounting: legacy }, { transaction_drafts: [] } ], page_count: 2)
+    assert_equal FinancialDocuments::AccountingContract::LEGACY_VERSION, merged[:contract_version]
+    assert_equal legacy[:accounts], merged[:accounts]
+    assert_empty merged[:events]
+    assert_equal [ 1, 2 ], merged[:coverage][:processed_pages]
+    typed = legacy.deep_dup.merge(contract_version: FinancialDocuments::AccountingContract::VERSION)
+    merged = extractor.send(:merge_source_accounting, [ { source_accounting: typed }, { transaction_drafts: [] } ], page_count: 2)
+    assert_equal FinancialDocuments::AccountingContract::VERSION, merged[:contract_version]
+    assert_equal typed[:accounts], merged[:accounts]
+  end
+
   test "account merging resolves unknown basis and retains all limitations while preserving real conflicts" do
     extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
     source = lambda do |basis, closing, limitations|
