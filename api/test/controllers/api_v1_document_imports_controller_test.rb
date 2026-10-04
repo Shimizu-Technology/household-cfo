@@ -545,87 +545,30 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, details.fetch("transaction_drafts").first.fetch("splits").length
   end
 
-  test "source_url returns preview and download links without exposing s3 key" do
-    document_import = create_import!(s3_key: "household-cfo/test/households/#{@household.id}/documents/1/source/statement.pdf")
-
-    dispositions = []
-    with_s3_stubs(
-      configured?: true,
-      presigned_url: ->(key, expires_in:, filename:, disposition:) {
-        assert_equal document_import.s3_key, key
-        assert_equal 300, expires_in
-        assert_equal "statement.pdf", filename
-        dispositions << disposition
-        "https://private.example.test/#{disposition}"
-      }
-    ) do
+  test "source_url returns authenticated app reads without presigned storage links" do
+    document_import = create_import!(s3_key: "synthetic/private.pdf")
+    with_s3_stubs(configured?: true, presigned_url: ->(*) { flunk "Storage GET URLs must not be issued" }) do
       get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
     end
-
     assert_response :success
     body = JSON.parse(response.body)
+    assert_equal "/api/v1/document_imports/#{document_import.id}/source_content", body.fetch("url")
+    assert_equal "#{body.fetch('url')}?download=1", body.fetch("download_url")
+    assert_equal 0, body.fetch("expires_in")
+    assert_equal true, body.fetch("authenticated_content")
     assert_equal true, body.fetch("inline_supported")
-    assert_equal "https://private.example.test/inline", body.fetch("url")
-    assert_equal "https://private.example.test/attachment", body.fetch("download_url")
-    assert_equal [ :inline, :attachment ], dispositions
     assert_not body.key?("s3_key")
   end
 
-  test "source_url keeps mobile HEIC photos as attachment links" do
-    document_import = create_import!(
-      document_kind: "receipt",
-      filename: "receipt-photo.heic",
-      content_type: "image/heic",
-      s3_key: "household-cfo/test/source.heic"
-    )
-
-    dispositions = []
-    with_s3_stubs(
-      configured?: true,
-      presigned_url: ->(_key, expires_in:, filename:, disposition:) {
-        assert_equal 300, expires_in
-        assert_equal "receipt-photo.heic", filename
-        dispositions << disposition
-        "https://private.example.test/receipt-#{disposition}.heic"
-      }
-    ) do
-      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+  test "source_url keeps HEIC and server-previewed CSV attachment only" do
+    [ [ "photo.heic", "image/heic" ], [ "budget.csv", "text/csv" ] ].each do |filename, type|
+      document_import = create_import!(filename: filename, content_type: type, s3_key: "synthetic/#{filename}")
+      with_s3_stubs(configured?: true, presigned_url: ->(*) { flunk "Storage GET URLs must not be issued" }) do
+        get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+      end
+      assert_response :success
+      assert_equal false, JSON.parse(response.body).fetch("inline_supported")
     end
-
-    assert_response :success
-    body = JSON.parse(response.body)
-    assert_equal false, body.fetch("inline_supported")
-    assert_equal "https://private.example.test/receipt-attachment.heic", body.fetch("url")
-    assert_equal [ :attachment, :attachment ], dispositions
-  end
-
-  test "source_url keeps server-previewed csv sources as attachment links" do
-    document_import = create_import!(
-      document_kind: "spreadsheet",
-      filename: "budget.csv",
-      content_type: "text/csv",
-      s3_key: "household-cfo/test/source.csv"
-    )
-
-    dispositions = []
-    with_s3_stubs(
-      configured?: true,
-      presigned_url: ->(_key, expires_in:, filename:, disposition:) {
-        assert_equal 300, expires_in
-        assert_equal "budget.csv", filename
-        dispositions << disposition
-        "https://private.example.test/budget-#{disposition}.csv"
-      }
-    ) do
-      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
-    end
-
-    assert_response :success
-    body = JSON.parse(response.body)
-    assert_equal false, body.fetch("inline_supported")
-    assert_equal "https://private.example.test/budget-attachment.csv", body.fetch("url")
-    assert_equal "https://private.example.test/budget-attachment.csv", body.fetch("download_url")
-    assert_equal [ :attachment, :attachment ], dispositions
   end
 
   test "source_preview renders spreadsheet rows through Rails without a browser download" do

@@ -16,6 +16,8 @@ class FinancialDocumentImport < ApplicationRecord
   has_many :transaction_drafts, dependent: :destroy
   has_many :financial_extraction_revisions, dependent: :nullify
 
+  before_destroy :erase_source_evidence, prepend: true
+
   validates :document_kind, inclusion: { in: DOCUMENT_KINDS }
   validates :status, inclusion: { in: STATUSES }
   validates :filename, presence: true, length: { maximum: 255 }
@@ -76,6 +78,10 @@ class FinancialDocumentImport < ApplicationRecord
   end
 
   private
+
+  def erase_source_evidence
+    FinancialDocuments::SourceEvidenceEraser.call(self)
+  end
 
   def source_present_for_active_import
     return if new_record?
