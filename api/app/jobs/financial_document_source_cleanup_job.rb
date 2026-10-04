@@ -41,6 +41,10 @@ class FinancialDocumentSourceCleanupJob < ApplicationJob
       delay = [ 2**[ cleanup.attempts, 10 ].min, 60 ].min.minutes
       cleanup.update!(status: "failed", error_code: "storage_unavailable", lease_token: nil,
         lease_expires_at: nil, next_attempt_at: delay.from_now)
+      if cleanup.attempts >= FinancialDocumentSourceCleanup::ALERT_AFTER_ATTEMPTS
+        # Keep retrying the privacy obligation; do not abandon its storage key.
+        Rails.logger.error("[DocumentSourceCleanup] cleanup=#{cleanup.id} stalled_cleanup attempts=#{cleanup.attempts}")
+      end
     end
     cleanup.enqueue_retry
   end

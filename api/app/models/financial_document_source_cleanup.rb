@@ -2,6 +2,7 @@
 class FinancialDocumentSourceCleanup < ApplicationRecord
   STATUSES = %w[pending processing failed completed].freeze
   LEASE_DURATION = 10.minutes
+  ALERT_AFTER_ATTEMPTS = 12
 
   belongs_to :financial_document_import, optional: true
   belongs_to :household, optional: true
@@ -22,14 +23,18 @@ class FinancialDocumentSourceCleanup < ApplicationRecord
     key = document_import.s3_key
     return if key.blank?
 
-    find_or_create_by!(s3_key: key) do |cleanup|
+    cleanup = find_or_create_by!(s3_key: key) do |cleanup|
       cleanup.financial_document_import = document_import
       cleanup.household = document_import.household
       cleanup.requested_by_user = user
       cleanup.next_attempt_at = Time.current
     end
+    cleanup.with_lock do
+      cleanup.update!(next_attempt_at: Time.current) if cleanup.status.in?(%w[pending failed])
+    end
+    cleanup
   rescue ActiveRecord::RecordNotUnique
-    find_by!(s3_key: key)
+    retry
   end
 
   def claim!

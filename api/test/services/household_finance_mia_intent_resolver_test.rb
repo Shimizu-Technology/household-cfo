@@ -1883,7 +1883,9 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     [
       "Call my household BOG QA Household. My rent changed but I do not know the amount.",
       "BOG QA Household. I take home $4,000 but I do not know whether that is monthly.",
-      "BOG QA Household; please add an account too."
+      "BOG QA Household; please add an account too.",
+      "BOG QA Household, my rent changed",
+      "BOG QA Household, we need help with bills"
     ].each do |message|
       result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: setup_zero_context("household_name"), api_key: nil).call
 
@@ -1899,6 +1901,22 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     refute result.actionable?
     assert_equal "none", result.action.fetch(:type)
     assert_includes result.clarification, "120 characters"
+  end
+
+  test "normalized setup text limits reject expanding ligatures instead of silently truncating" do
+    {
+      household_name: "Call my household #{'ﬃ' * 41}.",
+      primary_goal: "My primary goal is #{'ﬃ' * 167}."
+    }.each do |field, message|
+      result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: setup_zero_context(field.to_s), api_key: nil).call
+      assert result.clarification?, field
+      refute result.actionable?, field
+      assert_includes result.clarification, "#{field == :household_name ? 120 : 500} characters"
+    end
+    guided = HouseholdFinance::MiaIntentResolver.new(user_message: "ﬃ" * 41, context: setup_zero_context("household_name"), api_key: nil).call
+    assert_nil guided
+    ordinary = HouseholdFinance::MiaIntentResolver.new(user_message: "Leon, Ana and Kids", context: setup_zero_context("household_name"), api_key: nil).call
+    assert_equal "Leon, Ana and Kids", ordinary.action.dig(:setup_updates, :household_name)
   end
 
   test "guided name replies cannot bypass hypothetical no-save or third-party boundaries" do

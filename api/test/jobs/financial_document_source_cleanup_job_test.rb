@@ -85,6 +85,31 @@ class FinancialDocumentSourceCleanupJobTest < ActiveSupport::TestCase
     end
   end
 
+  test "an explicit retry renews failed cleanup but cannot steal an active lease" do
+    @cleanup.update!(status: "failed", next_attempt_at: 1.hour.from_now)
+    FinancialDocumentSourceCleanup.request!(@import, user: @user)
+    assert_operator @cleanup.reload.next_attempt_at, :<=, Time.current
+    plan = @cleanup.claim!
+    FinancialDocumentSourceCleanup.request!(@import, user: @user)
+    assert_equal plan.fetch(:token), @cleanup.reload.lease_token
+    assert_nil @cleanup.claim!
+  end
+
+  test "a persistently failing cleanup raises a sanitized signal without abandoning deletion" do
+    @cleanup.update!(attempts: FinancialDocumentSourceCleanup::ALERT_AFTER_ATTEMPTS - 1)
+    logs = []
+    with_singleton_stub(Rails.logger, :error, ->(message) { logs << message }) do
+      with_singleton_stub(S3Service, :delete, false) { FinancialDocumentSourceCleanupJob.perform_now(@cleanup.id) }
+    end
+    assert_equal "failed", @cleanup.reload.status
+    assert_equal "qa/cleanup/source.pdf", @cleanup.s3_key
+    assert logs.any? { |message| message.include?("stalled_cleanup") }
+    refute logs.any? { |message| message.include?(@cleanup.s3_key) }
+    travel_to @cleanup.next_attempt_at + 1.second do
+      assert @cleanup.claim!, "privacy cleanup must remain recoverable after the alert threshold"
+    end
+  end
+
   test "partially applied sources remain in operational review counts" do
     @import.update!(status: "partially_applied")
     assert_includes @household.financial_document_imports.pending_review, @import

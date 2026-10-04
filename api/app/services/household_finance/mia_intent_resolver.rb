@@ -381,8 +381,8 @@ module HouseholdFinance
 
     def oversized_setup_text_field
       names = DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS.flat_map { |pattern| user_message.scan(pattern).flatten }
-      return :household_name if names.any? { |name| name.squish.length > setup_text_limit(:household_name) }
-      :primary_goal if user_message.scan(DETERMINISTIC_PRIMARY_GOAL_PATTERN).flatten.any? { |goal| goal.squish.length > setup_text_limit(:primary_goal) }
+      return :household_name if names.any? { |name| normalized_bounded_text(name).length > setup_text_limit(:household_name) }
+      :primary_goal if user_message.scan(DETERMINISTIC_PRIMARY_GOAL_PATTERN).flatten.any? { |goal| normalized_bounded_text(goal).length > setup_text_limit(:primary_goal) }
     end
 
     def deterministic_setup_clarification(field, clarification: nil)
@@ -440,7 +440,7 @@ module HouseholdFinance
     end
 
     def guided_text_setup_value(field)
-      return if user_message.length > setup_text_limit(field) || guided_setup_non_answer?
+      return if normalized_bounded_text(user_message).length > setup_text_limit(field) || guided_setup_non_answer?
       return if normalized_user_message.match?(HYPOTHETICAL_PATTERN) ||
         normalized_user_message.match?(PURCHASE_SCENARIO_PATTERN) ||
         normalized_user_message.match?(DETERMINISTIC_SETUP_READ_ONLY_PATTERN)
@@ -450,6 +450,7 @@ module HouseholdFinance
       # validated planner. It must never be saved whole as the requested name.
       values, conflicts = deterministic_setup_values
       return if values.any? || conflicts.any? || user_message.match?(/[.;]\s*\S/)
+      return if field == "household_name" && user_message.match?(/,\s*(?:(?:my|our)\s+|(?:i|we)\s+(?:have|bring|make|take|want|need|pay|spent)\b|(?:please|also)\b)/i)
       return if field == "household_name" && user_message.include?("$")
 
       user_message
@@ -2702,7 +2703,11 @@ module HouseholdFinance
     end
 
     def bounded(value, limit)
-      value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").gsub(/[<>`]/, "").squish.truncate(limit, omission: "…")
+      normalized_bounded_text(value).truncate(limit, omission: "…")
+    end
+
+    def normalized_bounded_text(value)
+      value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").gsub(/[<>`]/, "").squish
     end
   end
 end
