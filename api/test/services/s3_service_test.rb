@@ -1,6 +1,19 @@
 require "test_helper"
 
 class S3ServiceTest < ActiveSupport::TestCase
+  test "synchronous cleanup uses bounded timeouts and leaves retries to the outbox" do
+    ENV["AWS_ACCESS_KEY_ID"] = "fictional-access"
+    ENV["AWS_SECRET_ACCESS_KEY"] = "fictional-secret"
+    client = S3Service.send(:cleanup_s3_client)
+    assert_equal 3, client.config.http_open_timeout
+    assert_equal 8, client.config.http_read_timeout
+    assert_equal "legacy", client.config.retry_mode
+    assert_equal 0, client.config.retry_limit
+  ensure
+    ENV.delete("AWS_ACCESS_KEY_ID")
+    ENV.delete("AWS_SECRET_ACCESS_KEY")
+  end
+
   test "safe_filename strips path traversal and leading hidden-file dots" do
     assert_equal "statement.pdf", S3Service.safe_filename("../../statement.pdf")
     assert_equal "env", S3Service.safe_filename(".env")

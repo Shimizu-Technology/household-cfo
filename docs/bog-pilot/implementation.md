@@ -31,7 +31,7 @@ The source cleanup outbox persists in the primary database before deleting an im
 
 Home should show the personal challenge day, accepted target, reported progress, evidence status and next action. Mia gets the available screen height; help collapses, the composer stays reachable and attachment trays are bounded. Statements/review remain directly available without full setup. Desktop, tablet, 390-pixel and 320-pixel phone layouts require actual browser verification.
 
-Each enrollment uses a frozen Pacific/Guam calendar. An early enrollee starts on the configured cohort start; an accepted late enrollee receives a personal 90-day window. November 1, 2026 is a test fixture, not a booked launch: inclusive checkpoints are November30, December30 and January29. Device timezone changes cannot shift challenge dates silently.
+Each enrollment uses a frozen Pacific/Guam calendar. An early enrollee starts on the configured cohort start; an accepted late enrollee receives a personal 90-day window. November 1, 2026 is a test fixture, not a booked launch: inclusive checkpoints are November 30, December 30 and January 29. Device timezone changes cannot shift challenge dates silently.
 
 Raw documents, chat, reflections and finances are private by default. Basic coach participation/support access does not grant amounts or detailed records. Monetary and detailed sharing require separate scoped grants with revocation. Sponsor reports use fixed scheduled coarse cohort summaries with small-cell and complement/differencing suppression. No sponsor individual drilldown or dynamic department filtering.
 
