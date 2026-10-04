@@ -6420,7 +6420,7 @@ test('Coach Studio publishes only the exact reviewed release evidence', async ({
   // Wait before the first preview click, not only the later release-check click.
   await page.evaluate(() => document.fonts.ready)
   await page.getByRole('button', { name: 'Run exact preview' }).click()
-  await expect(page.getByRole('region', { name: 'Exact draft preview' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Sealed behavioral preview evidence' })).toContainText('Saved live-model preview')
   await completePersonaReleaseChecks(page)
   const publishRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/admin/personas/81/publish'))
   await page.getByRole('button', { name: 'Publish first version' }).click()
@@ -6550,18 +6550,27 @@ test('Coach Studio prevents assistant switches while a mutation is pending', asy
   const second = { ...personaDetailFixture(), id: 82, name: 'Coach B', draft: { ...structuredClone(personaConfiguration), identity: { ...personaConfiguration.identity, assistant_name: 'Coach B' } } }
   await page.route('http://api.test/api/v1/admin/personas', (route) => route.fulfill({ status: 200, json: { personas: [first, second] } }))
   await page.route('http://api.test/api/v1/admin/personas/82', (route) => route.fulfill({ status: 200, json: { persona: second } }))
+  let releasePreview!: () => void
+  const previewHeld = new Promise<void>((resolve) => { releasePreview = resolve })
+  const previewRequested = page.waitForRequest((request) => request.url().endsWith('/api/v1/admin/personas/81/preview'))
   await page.route('http://api.test/api/v1/admin/personas/81/preview', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await previewHeld
     await route.fallback()
   })
 
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.evaluate(() => document.fonts.ready)
   await page.getByRole('button', { name: 'Run exact preview' }).click()
+  await previewRequested
 
   const selectionControl = ['desktop-chrome', 'tablet-1024-chrome'].includes(testInfo.project.name)
     ? page.locator('.coach-library-list').getByRole('button', { name: /Coach B/ })
     : page.getByRole('button', { name: 'All assistants' })
-  await expect(selectionControl).toBeDisabled()
+  try {
+    await expect(selectionControl).toBeDisabled()
+  } finally {
+    releasePreview()
+  }
   await expect(page.getByRole('region', { name: 'Sealed behavioral preview evidence' })).toContainText('Saved live-model preview')
   await expect(selectionControl).toBeEnabled()
 })
