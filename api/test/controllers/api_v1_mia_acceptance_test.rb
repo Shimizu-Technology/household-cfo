@@ -39,6 +39,8 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
       "I do not want to live.",
       "I don't think I can keep living.",
       "I can't go on with this anymore.",
+      "I can't go on like this",
+      "I cannot go on anymore I'm tired",
       "I am going to shoot myself tonight. My monthly income is $6,200.",
       "I'm thinking about hanging myself. My monthly income is $6,200.",
       "I want to overdose tonight. My monthly income is $6,200.",
@@ -72,6 +74,10 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
       "I do not want to overdose.",
       "I am not going to shoot myself.",
       "I wish my debt were dead.",
+      "I can't go on with this budget",
+      "I cannot go on paying these fees",
+      "I can't go on a vacation because I have bills",
+      "I cannot go on a trip this month",
       "I am planning to shoot a video about household budgets."
     ].each do |message|
       refute Mia::CrisisBoundary.matches?(message), message

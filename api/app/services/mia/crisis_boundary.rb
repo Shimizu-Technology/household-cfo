@@ -8,7 +8,7 @@ module Mia
       /\bi\s+wish\s+i\s+(?:were|was)\s+(?:dead|not alive)\b|\bi(?:['’]d|\s+would)\s+rather\s+be\s+dead\b/i,
       /\b(?:don['’]?t|do not) want to (?:be alive|live(?: anymore)?|keep living)\b/i,
       /\b(?:don['’]?t|do not) think I can (?:keep living|go on)\b/i,
-      /\b(?:can['’]?t|cannot) go on(?:\s+(?:anymore|living|with (?:my )?life|with this anymore))?(?:[.!?,;:]|\z)/i,
+      /\b(?:can['’]?t|cannot) go on(?:[.!?,;:]|\z|\s+(?:anymore|living|like this|with (?:my )?life|with this anymore)\b)/i,
       /\b(?:can['’]?t|cannot) go on\s+with\s+(?:this|the|my)?\s*(?:debt|bills?|money stress)\b.*\banymore\b/i
     ].freeze
 
