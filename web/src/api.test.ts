@@ -723,7 +723,7 @@ describe('Persona Studio API contract', () => {
       '/api/v1/admin/personas/17/versions/31/rollback',
     ])
     expect((fetchMock.mock.calls[3][1] as RequestInit).method).toBe('PATCH')
-    expect(fetchMock.mock.calls[2][1]).not.toHaveProperty('signal')
+    expect((fetchMock.mock.calls[2][1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
     expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({
       persona: { draft_revision: 2, description: 'Clear and kind.' },
     })
@@ -1022,6 +1022,45 @@ describe('safe read deadlines', () => {
   })
 })
 
+describe('mutation deadlines', () => {
+  it('ends a stalled write without retrying a possibly committed change', async () => {
+    vi.useFakeTimers()
+    let signal: AbortSignal | null | undefined
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal
+      return new Promise<Response>(() => undefined)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const operation = createBudgetCategory({ name: 'Meals', stack_key: 'discretionary', monthly_amount: 50 }, 2026, 'stalled-category')
+    const result = expect(operation).rejects.toThrow('Refresh to check the current state before trying again.')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await result
+    expect(signal?.aborted).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'stalled-category' })
+  })
+
+  it('includes stalled token acquisition and response parsing in the write deadline', async () => {
+    vi.useFakeTimers()
+    setAuthTokenGetter(() => new Promise<string>(() => undefined))
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const authRequest = createBudgetCategory({ name: 'Meals', stack_key: 'discretionary' }, 2026, 'stalled-auth')
+    const authResult = expect(authRequest).rejects.toThrow('Refresh to check the current state')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await authResult
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    setAuthTokenGetter(null)
+    fetchMock.mockResolvedValue(new Response(new ReadableStream({ start() { /* Stalled body. */ } }), { status: 201 }))
+    const bodyRequest = createBudgetCategory({ name: 'Meals', stack_key: 'discretionary' }, 2026, 'stalled-body')
+    const bodyResult = expect(bodyRequest).rejects.toThrow('Refresh to check the current state')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await bodyResult
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('Mia request idempotency polling', () => {
   it('polls an in-flight request with the same request ID until the cached response is ready', async () => {
     vi.useFakeTimers()
@@ -1083,7 +1122,7 @@ describe('Mia request idempotency polling', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const firstAttempt = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-timeout-1')
-    const firstResult = expect(firstAttempt).rejects.toThrow('Your assistant took too long to finish this request. Please try again.')
+    const firstResult = expect(firstAttempt).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check the current state before trying again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await firstResult
 
@@ -1104,7 +1143,7 @@ describe('Mia request idempotency polling', () => {
     setAuthTokenGetter(() => new Promise<string | null>(() => undefined))
 
     const request = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-auth-timeout-1')
-    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Please try again.')
+    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check the current state before trying again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await result
 
@@ -1121,7 +1160,7 @@ describe('Mia request idempotency polling', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const request = sendMiaMessage('Can I afford this?', [], false)
-    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Please try again.')
+    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check the current state before trying again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await result
 

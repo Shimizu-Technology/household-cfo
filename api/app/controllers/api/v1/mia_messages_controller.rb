@@ -22,6 +22,17 @@ module Api
       def create
         @mia_request_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         content = params[:message].to_s.strip
+        # Emergency guidance must not depend on uploads being available. Do not
+        # resolve or expose attachments for this boundary response.
+        if content.present? && content.length <= ChatMessage::MAX_CONTENT_LENGTH && ::Mia::CrisisBoundary.matches?(content)
+          session = current_chat_session
+          return if render_preexisting_message_request(session, content, [])
+          message_request, request_handled = reserve_message_request(session, content, [])
+          return if request_handled
+          @active_mia_message_request = message_request
+          return render_crisis_response(session, content, [], message_request: message_request)
+        end
+
         if attachment_limit_exceeded?
           return render json: { errors: [ "Attach up to 5 uploads to one Mia message." ] }, status: :unprocessable_entity
         end
@@ -268,6 +279,18 @@ module Api
       end
 
       private
+
+      def render_crisis_response(session, content, attached_imports, message_request:)
+        user_message, assistant_message = persist_chat_messages(session, content, attached_imports, ::Mia::CrisisBoundary.response)
+        payload = {
+          user_message: serialize_chat_message(user_message, author: "You"),
+          assistant_message: serialize_chat_message(assistant_message),
+          mia_action_draft: nil, transaction_draft: nil, budget: nil, spending_report: nil
+        }
+        complete_message_request(message_request, payload)
+        record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports)
+        render json: payload, status: :created
+      end
 
       def transcript_for_current_persona(transcript)
         Array(transcript).filter_map do |message|

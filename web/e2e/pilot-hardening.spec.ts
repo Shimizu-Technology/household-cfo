@@ -6093,7 +6093,7 @@ test('Coach Studio confirms immediate assigned-cohort impact before publishing a
   await expect(page.getByText('Publishing updates future participant messages', { exact: false })).toBeVisible()
 
   page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Future participant messages in 1 assigned cohort will use it immediately.')
+    expect(dialog.message()).toContain('Cohorts using a sealed release keep their current voice')
     await dialog.accept()
   })
   await page.getByRole('button', { name: 'Publish next version' }).click()

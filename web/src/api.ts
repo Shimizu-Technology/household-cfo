@@ -2169,6 +2169,7 @@ type AuthTokenGetter = () => Promise<string | null>
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
 const SAFE_READ_REQUEST_TIMEOUT_MS = 30_000
+const MUTATION_REQUEST_TIMEOUT_MS = 90_000
 const MIA_REQUEST_TIMEOUT_MS = 90_000
 const FILE_UPLOAD_TIMEOUT_MS = 180_000
 const EXTRACTION_REQUEST_TIMEOUT_MS = 300_000
@@ -2374,6 +2375,7 @@ async function withDeadline<T>(
   timeoutMs: number,
   timeoutMessage: string,
   callerSignal?: AbortSignal | null,
+  recoveryMessage = 'Please try again.',
 ) {
   const controller = new AbortController()
   let deadlineReached = false
@@ -2386,7 +2388,7 @@ async function withDeadline<T>(
   const deadlinePromise = new Promise<never>((_resolve, reject) => {
     deadline = globalThis.setTimeout(() => {
       deadlineReached = true
-      reject(new ApiDeadlineError(`${timeoutMessage} Please try again.`))
+      reject(new ApiDeadlineError(`${timeoutMessage} ${recoveryMessage}`))
       controller.abort()
     }, timeoutMs)
   })
@@ -2396,7 +2398,7 @@ async function withDeadline<T>(
   } catch (error) {
     if (error instanceof ApiDeadlineError) throw error
     if (deadlineReached) {
-      throw new ApiDeadlineError(`${timeoutMessage} Please try again.`, { cause: error })
+      throw new ApiDeadlineError(`${timeoutMessage} ${recoveryMessage}`, { cause: error })
     }
     throw error
   } finally {
@@ -2452,18 +2454,15 @@ async function apiOperation<T>(
   const request = async (signal?: AbortSignal) => consume(await apiFetch(path, options, signal))
 
   const method = (options.method ?? 'GET').toUpperCase()
-  const safeReadTimeoutMs = method === 'GET' || method === 'HEAD'
-    ? SAFE_READ_REQUEST_TIMEOUT_MS
-    : undefined
-  const timeoutMs = settings.timeoutMs ?? safeReadTimeoutMs
+  const readOnly = method === 'GET' || method === 'HEAD'
+  const timeoutMs = settings.timeoutMs ?? (readOnly ? SAFE_READ_REQUEST_TIMEOUT_MS : MUTATION_REQUEST_TIMEOUT_MS)
 
-  return timeoutMs === undefined
-    ? request()
-    : withDeadline(
+  return withDeadline(
         request,
         timeoutMs,
-        settings.timeoutMessage ?? 'This request took too long.',
+        settings.timeoutMessage ?? (readOnly ? 'This request took too long.' : 'The server did not confirm whether this change finished.'),
         options.signal,
+        readOnly ? 'Please try again.' : 'Refresh to check the current state before trying again.',
       )
 }
 

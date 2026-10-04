@@ -2782,7 +2782,7 @@ function App() {
             <p className="eyebrow">{brandByline(brand)}</p>
             <h1>{brand.short_name}</h1>
           </div>
-          {data.workspace?.cohort && <span className="cohort-brand-chip">{data.workspace.cohort.name} cohort</span>}
+          {data.workspace?.cohort && <span className="cohort-brand-chip">{data.workspace.cohort.name}</span>}
         </div>
         <div className="shell-actions">
           {auth.currentUser && (
@@ -3118,8 +3118,10 @@ function App() {
                     ref={composerRef}
                   />
                   {miaCharactersRemaining <= MIA_MESSAGE_LENGTH_WARNING_AT && (
-                    <span id="mia-composer-count" className={`composer-character-count${question.length === MIA_MESSAGE_MAX_LENGTH ? ' is-limit' : ''}`} role="status" aria-live="polite">
-                      {miaCharactersRemaining.toLocaleString()} {miaCharactersRemaining === 1 ? 'character' : 'characters'} remaining
+                    <span id="mia-composer-count" className={`composer-character-count${question.length >= MIA_MESSAGE_MAX_LENGTH ? ' is-limit' : ''}`} role="status" aria-live="polite">
+                      {miaCharactersRemaining < 0
+                        ? `Remove ${Math.abs(miaCharactersRemaining).toLocaleString()} ${miaCharactersRemaining === -1 ? 'character' : 'characters'} to send.`
+                        : `${miaCharactersRemaining.toLocaleString()} ${miaCharactersRemaining === 1 ? 'character' : 'characters'} remaining`}
                     </span>
                   )}
                 </div>
@@ -3127,7 +3129,7 @@ function App() {
                 <button
                   className="send-button"
                   type="submit"
-                  disabled={miaLoading || voiceRecording || voiceTranscribing || (!question.trim() && pendingMiaAttachments.length === 0)}
+                  disabled={miaLoading || voiceRecording || voiceTranscribing || question.trim().length > MIA_MESSAGE_MAX_LENGTH || (!question.trim() && pendingMiaAttachments.length === 0)}
                   aria-label={miaLoading ? `${assistantName} is thinking` : `Send message to ${assistantName}`}
                 >
                   <span>{miaLoading ? 'Thinking' : 'Send'}</span>
@@ -7131,7 +7133,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
           <h3>Choose the amount of detail that works for your household.</h3>
           <p>Use one approved summary for a quick starting picture, or track each debt so {assistantName} can compare payoff strategies without guessing.</p>
         </div>
-        {editingId === null && <button type="button" onClick={beginCreate}>{portfolio.mode === 'summary' ? 'Add preserved record' : 'Add a debt'}</button>}
+        {editingId === null && <button type="button" onClick={beginCreate}>Add a debt</button>}
       </div>
 
       <form className="debt-tracking" data-debt-action="tracking" tabIndex={-1} onSubmit={saveTrackingMode}>

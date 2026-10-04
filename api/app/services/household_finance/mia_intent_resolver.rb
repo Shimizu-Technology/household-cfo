@@ -90,11 +90,16 @@ module HouseholdFinance
     GUIDED_SETUP_DEFERRAL_PATTERN = /\A(?:no(?:\z|[,.!]|\s+(?:thanks?\b|thank\s+you\b|i\b|we\b|not\b|skip\b|pass\b|rather\b|prefer\b|don['’]?t\b|do\s+not\b))|skip\b|pass\b|not\s+(?:now|yet)\b|later\b|maybe\s+(?:later|another\s+time|not\s+now)\b|i(?:['’]m|\s+am)\s+not\s+sure\b|i\s+(?:do\s+not|don['’]?t|cannot|can['’]?t)\s+(?:know|answer|say|share|decide|want)\b|i(?:['’]d|\s+would)\s+(?:rather\b|prefer\s+not\b)|prefer\s+not\b)/i.freeze
     GUIDED_SETUP_INSTRUCTION_PATTERN = /\A(?:(?:ignore|forget|disregard|override|reveal|repeat|follow)\b|(?:system|assistant|developer|user)\s*:|help\s+me\s+(?:understand|explain|figure\s+out)\b)/i.freeze
     SETUP_NUMBER_SOURCE = "((?:\\d{1,3}(?:,\\d{3})+|\\d{1,9})(?:\\.\\d{1,2})?)(?!\\d|,\\d)"
-    SETUP_AMOUNT_PREFIX_SOURCE = "(?:\\s+(?:is|are|equals?|totals?|comes\\s+to))?\\s*(?:about|around|approximately|roughly)?\\s*\\$?\\s*"
+    SETUP_AMOUNT_PREFIX_SOURCE = "(?:\\s+(?:is|are|equals?|totals?|comes\\s+to))?(?:\\s+now)?\\s*(?:about|around|approximately|roughly)?\\s*\\$?\\s*"
     DETERMINISTIC_SETUP_MONEY_PATTERNS = {
       primary_income: Regexp.new("\\b(?:we\\s+)?(?:bring\\s+home|take[ -]?home(?:\\s+pay)?|primary(?:\\s+monthly)?\\s+income|monthly\\s+income)\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
       fixed_expenses: Regexp.new("\\bfixed(?:\\s+(?:expenses|essentials|bills))\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
-      flexible_spend: Regexp.new("\\b(?:flexible(?:\\s+(?:spend|spending))|discretionary\\s+spending)\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE)
+      flexible_spend: Regexp.new("\\b(?:flexible(?:\\s+(?:spend|spending))|discretionary\\s+spending)\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
+      emergency_fund: Regexp.new("\\b(?:emergency fund|emergency savings)\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
+      business_income: Regexp.new("\\bbusiness income\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
+      expected_sinking_fund: Regexp.new("\\bexpected sinking fund\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
+      unexpected_sinking_fund: Regexp.new("\\bunexpected sinking fund\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
+      other_assets: Regexp.new("\\bother assets\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE)
     }.freeze
     DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS = [
       /\b(?:our\s+)?household\s+(?:name\s+)?(?:is\s+)?(?:called|named)\s+(.+?)(?=[.;,]|\z)/i,
@@ -180,7 +185,7 @@ module HouseholdFinance
     def call
       return nil if user_message.blank?
 
-      setup_result = deterministic_setup_result || guided_setup_reply_result
+      setup_result = deterministic_debt_result || deterministic_setup_result || guided_setup_reply_result
       return setup_result if setup_result
       return nil if api_key.blank? && transport.nil?
 
@@ -205,17 +210,48 @@ module HouseholdFinance
 
     attr_reader :raw_user_message, :user_message, :context, :api_key, :model, :transport
 
+    # This deliberately accepts a complete current fact, not arbitrary debt prose.
+    # More complex changes still use the validated provider schema.
+    def deterministic_debt_result
+      match = user_message.match(/\A(?:my|our) credit card balance is \$?#{SETUP_NUMBER_SOURCE} and (?:my|our|the) monthly minimum is \$?#{SETUP_NUMBER_SOURCE}[.!]?\z/i)
+      return unless match
+
+      debts = Array(context[:active_debts]).select { |debt| debt[:debt_type] == "credit_card" }
+      if debts.many?
+        return Result.new(
+          intent: "clarification", confidence: 1.0, continuation: false,
+          resolved_message: user_message, needs_clarification: true,
+          clarification: "Which credit card should I update? Use its saved name. Nothing changed.",
+          topic: { type: "debt_edit", title: "Credit card update", subject: "Credit card" },
+          action: { type: "none" }, source: "deterministic"
+        )
+      end
+      debt = debts.first
+      action = {
+        type: debt ? "update_debt" : "create_debt", debt_id: debt&.fetch(:id),
+        debt_name: debt ? debt.fetch(:label) : "Credit card", debt_type: "credit_card",
+        amount: normalized_setup_money(match[1]), minimum_payment: normalized_setup_money(match[2])
+      }
+      Result.new(
+        intent: "debt_action", confidence: 1.0, continuation: false,
+        resolved_message: user_message, needs_clarification: false, clarification: "",
+        topic: { type: "debt_edit", title: "Credit card update", subject: action[:debt_name] },
+        action: action, read_only_plan: {}, source: "deterministic"
+      )
+    end
+
     def deterministic_setup_result
       return @deterministic_setup_result if defined?(@deterministic_setup_result)
 
       @deterministic_setup_result = begin
         unless normalized_user_message.match?(HYPOTHETICAL_PATTERN) ||
             normalized_user_message.match?(PURCHASE_SCENARIO_PATTERN) ||
-            normalized_user_message.match?(DETERMINISTIC_SETUP_READ_ONLY_PATTERN)
+            normalized_user_message.match?(DETERMINISTIC_SETUP_READ_ONLY_PATTERN) ||
+            ambiguous_setup_statement?
           values, conflicts = deterministic_setup_values
           if conflicts.any?
             deterministic_setup_clarification(conflicts.first)
-          elsif values.any?
+          elsif values.any? && complete_setup_amounts?(values)
             action = normalize_action(default_action_payload.merge(type: "update_household_setup", setup_updates: values))
             prior_action = validated_prior_action(action, continuation: true)
             action = merge_prior_action(action, prior_action)
@@ -234,6 +270,25 @@ module HouseholdFinance
           end
         end
       end
+    end
+
+    # The fast path is only for current household facts. Other cadences,
+    # scheduled changes and multi-domain requests need the validated planner.
+    def ambiguous_setup_statement?
+      text = normalized_user_message
+      return true if text.match?(/\b(?:weekly|biweekly|fortnightly|annually|yearly|per week|a week|every two weeks|next month|next year|will be|would be|used to|example|sample|daughter|son|friend|cousin|she|he|they)\b/i)
+      return true if text.match?(/\b(?:do not|don['’]?t|never)\s+(?:change|save|update|record|set)|\b(?:just|only)\s+(?:asking|explain|calculate|compare)\b/i)
+      return true if text.match?(/\b(?:card balance|credit card balance|minimum payment|monthly minimum|checking|account balance)\b/i)
+      return true if text.match?(/\b(?:set|change|update|increase|decrease|move|add|create)\b.{0,60}\b(?:category|allocation|dining|groceries|debt|account|goal)\b/i)
+
+      primary = DETERMINISTIC_SETUP_MONEY_PATTERNS.fetch(:primary_income)
+      text.match?(primary) && !text.match?(/\b(?:monthly\s+income|primary\s+monthly\s+income)\b|#{primary.source}\s*(?:(?:a|each|per)\s+month|monthly)\b/i)
+    end
+
+    def complete_setup_amounts?(values)
+      # Do not silently omit another dollar amount from a compound request.
+      stated = user_message.scan(MONEY_TEXT_PATTERN).flatten.filter_map { |raw| normalized_setup_money(raw) }.uniq
+      stated.all? { |value| values.values.include?(value) }
     end
 
     def deterministic_setup_values
@@ -280,7 +335,7 @@ module HouseholdFinance
         end
       end
 
-      [ values.slice(:household_name, :primary_goal, :primary_income, :fixed_expenses, :flexible_spend, :target_runway_months), conflicts ]
+      [ values.slice(*MiaActionDraftHouseholdCommands::SETUP_KEYS), conflicts ]
     end
 
     def normalized_setup_money(raw)
