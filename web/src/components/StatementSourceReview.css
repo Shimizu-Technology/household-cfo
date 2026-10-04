@@ -1,0 +1,36 @@
+.statement-source-review { min-width: 0; margin: 1.25rem 0; border-block: 1px solid var(--line, #e2d9cb); padding-block: 1rem; }
+.source-review-heading, .source-review-toolbar, .source-review-pagination { display: flex; justify-content: space-between; gap: .75rem; align-items: center; flex-wrap: wrap; }
+.source-review-heading h5 { font-size: 1.1rem; margin: 0; }
+.statement-source-review h6 { font-size: 1rem; margin: 0 0 .5rem; }
+.statement-source-review p { line-height: 1.6; overflow-wrap: anywhere; }
+.source-review-boundary, .source-review-counts { font-size: .84rem; }
+.source-coverage-details { padding: .75rem; border: 1px solid var(--line, #e2d9cb); border-radius: .6rem; margin-block: 1rem; }
+.source-coverage-details summary { cursor: pointer; line-height: 1.5; }
+.source-coverage-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: .75rem; font-size: .8rem; }
+.source-coverage-facts dt { font-weight: 700; }
+.source-coverage-facts dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
+.source-account { border-top: 1px solid var(--line, #e2d9cb); padding-block: 1rem; }
+.source-review-limitation { color: var(--muted, #706d66); font-size: .8rem; }
+.source-review-toolbar label { display: grid; gap: .4rem; font-size: .8rem; }
+.source-review-toolbar select { min-height: 44px; max-width: 100%; }
+.source-review-toolbar > span, .source-review-page-status { font-size: .8rem; }
+.source-event-list { list-style: none; padding: 0; margin: .75rem 0; display: grid; gap: .6rem; }
+.source-event { min-width: 0; border: 1px solid var(--line, #e2d9cb); border-radius: .6rem; padding: .8rem; }
+.source-event-unresolved { border-left-width: 4px; }
+.source-event-main { display: flex; justify-content: space-between; align-items: start; gap: .75rem; font-size: .9rem; }
+.source-event-main > div { min-width: 0; }
+.source-event-main strong { overflow-wrap: anywhere; }
+.source-event-main span { display: block; font-size: .75rem; line-height: 1.5; margin-top: .3rem; }
+.source-event-amount { text-align: right; flex: 0 0 auto; max-width: 45%; }
+.source-event p { margin-block: .45rem; font-size: .8rem; }
+.statement-source-review button { min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.source-event-details { border-top: 1px solid var(--line, #e2d9cb); margin-top: .6rem; padding-top: .6rem; }
+.source-review-pagination > div { display: flex; gap: .5rem; flex-wrap: wrap; }
+.source-review-error { padding: 1rem; border: 1px solid var(--line, #e2d9cb); }
+@media (max-width: 520px) {
+ .source-event-main { display: grid; }
+ .source-event-amount { text-align: left; max-width: 100%; }
+ .source-review-toolbar label { width: 100%; }
+ .source-review-pagination > div { width: 100%; }
+ .source-review-pagination button { flex: 1; }
+}

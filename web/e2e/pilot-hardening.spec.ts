@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
+import { sourceReviewFixture } from './sourceReviewFixtures'
+import type { SourceReviewFilter } from '../src/lib/sourceReview'
 import type { BrandConfig, CoachWorkspaceSettings, WorkspaceBrandConfiguration, WorkspaceBrandVersion, WorkspaceCollaborator } from '../src/api'
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -8159,4 +8161,84 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await openSection(page, 'Ask Mia')
   await page.getByRole('button', { name: 'Review imports', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'QA-partial.pdf', exact: true })).toBeVisible()
+})
+
+async function openTypedStatementReview(page: Page, failSecondPage = false) {
+  const source = {
+    id: 1203, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'Fictional-137-row-statement.pdf', content_type: 'application/pdf', byte_size: 500,
+    document_date: null, period_start_on: '2026-09-01', period_end_on: '2026-09-30', extracted_summary: 'Fictional statement with 137 represented rows.', extraction_error: null,
+    processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
+    uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: { source_accounting_revision_id: 88, source_accounting_contract_version: 'source_accounting_v1', source_accounting_review_pending: true }, items: [], attempts: [], transaction_drafts: [],
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
+  await page.route('http://api.test/api/v1/document_imports/1203', (route) => route.fulfill({ json: { document_import: source } }))
+  await page.route('http://api.test/api/v1/document_imports/1203/source_url', (route) => route.fulfill({ json: { url: 'https://signed.example/fictional.pdf', download_url: 'https://signed.example/fictional-download.pdf', expires_in: 300, filename: source.filename, content_type: 'application/pdf', inline_supported: true } }))
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', (route) => {
+    const query = new URL(route.request().url()).searchParams
+    expect(query.get('revision_id')).toBe('88')
+    expect(query.get('per_page')).toBe('50')
+    const currentPage = Number(query.get('page'))
+    if (failSecondPage && currentPage === 2) return route.fulfill({ status: 409, json: { error: 'Extraction revision changed. Refresh the import.' } })
+    return route.fulfill({ json: { source_review: sourceReviewFixture(currentPage, query.get('filter') as SourceReviewFilter) } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.getByRole('button', { name: 'Review imports', exact: true }).click()
+  return page.getByRole('region', { name: 'Statement source accounting', exact: true })
+}
+
+test('BOG UI typed statements keep 137 source rows paginated and account coverage explicit', async ({ page }) => {
+  const review = await openTypedStatementReview(page)
+  await expect(review).toContainText('137 source rows · 125 posted · 5 informational · 7 unresolved')
+  await expect(review.locator('.source-event')).toHaveCount(50)
+  await expect(review).toContainText('Refund · inflow')
+  await expect(review).toContainText('+$30.00')
+  await expect(review).toContainText('Card / debt payment · outflow')
+  await review.getByText('Account balances, period & extraction coverage', { exact: true }).click()
+  await expect(review).toContainText('Incomplete page coverage')
+  await expect(review).toContainText('Asset account · outflows reduce this balance; inflows increase it.')
+  await expect(review).toContainText('2026-09-01 — 2026-09-30')
+  await review.getByRole('button', { name: 'Next rows', exact: true }).click()
+  await expect(review).toContainText('Rows 51–100 of 137')
+  await expect(review.getByText('Fictional entry 1', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Preview original', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Preview Fictional-137-row-statement.pdf', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(review).toContainText('Rows 51–100 of 137')
+  await review.getByRole('button', { name: 'Next rows', exact: true }).click()
+  await expect(review).toContainText('Rows 101–137 of 137')
+  await expect(review.locator('.source-event')).toHaveCount(37)
+  await expect(review.getByRole('button', { name: 'Next rows' })).toBeDisabled()
+  const overflow = await review.evaluate((element) => element.scrollWidth > element.clientWidth + 1)
+  expect(overflow).toBe(false)
+})
+
+test('BOG UI typed statement filters preserve total census and distinguish unresolved from informational amounts', async ({ page }) => {
+  const review = await openTypedStatementReview(page)
+  await expect(review.locator('.source-event')).toHaveCount(50)
+  await review.getByRole('combobox', { name: 'Filter statement rows' }).selectOption('unresolved')
+  await expect(review.locator('.source-event')).toHaveCount(7)
+  await expect(review).toContainText('137 source rows')
+  await expect(review).toContainText('Rows 1–7 of 7')
+  await expect(review).toContainText('Posted date unknown')
+  await expect(review).toContainText('amount unknown · date unknown')
+  await review.getByRole('combobox', { name: 'Filter statement rows' }).selectOption('informational')
+  await expect(review.locator('.source-event')).toHaveCount(5)
+  await expect(review).toContainText('$50.00 (information)')
+  await expect(review).toContainText('excluded from movements')
+  await review.getByRole('button', { name: 'Inspect source row 126', exact: true }).click()
+  await expect(review).toContainText('This row does not propose an expense.')
+  await expect(review.getByRole('button', { name: /Confirm|Approve/ })).toHaveCount(0)
+  await expect(review).toContainText('Movements, transfers and card payments are not savings.')
+})
+
+test('BOG UI typed statement revision conflicts hide stale rows and retain a retry path', async ({ page }) => {
+  const review = await openTypedStatementReview(page, true)
+  await expect(review.locator('.source-event')).toHaveCount(50)
+  await review.getByRole('button', { name: 'Next rows', exact: true }).click()
+  await expect(review.getByRole('alert')).toContainText('Extraction revision changed. Refresh the import.')
+  await expect(review.locator('.source-event')).toHaveCount(0)
+  await expect(review.getByRole('button', { name: 'Retry statement page' })).toBeEnabled()
+  await review.getByRole('combobox', { name: 'Filter statement rows' }).selectOption('unresolved')
+  await expect(review.locator('.source-event')).toHaveCount(7)
 })

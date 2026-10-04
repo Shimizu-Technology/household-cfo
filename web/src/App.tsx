@@ -1,6 +1,8 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import './App.css'
+import { StatementSourceReview } from './components/StatementSourceReview'
+import { sourceReviewMode } from './lib/sourceReview'
 import { HomeScreen } from './components/HomeScreen'
 import { ActivityPreview } from './components/ActivityPreview'
 import { ParticipantTabs } from './components/ParticipantTabs'
@@ -4638,6 +4640,9 @@ function DocumentReviewPanel({
     )
   }
 
+  const sourceMode = sourceReviewMode(documentImport)
+  const fallbackDrafts = sourceMode === 'unsupported' ? [] : sourceMode === 'typed' ? documentImport.transaction_drafts.filter((draft) => !draft.financial_source_event_id) : documentImport.transaction_drafts
+  const fallbackCoverage = { total: fallbackDrafts.length, pending: fallbackDrafts.filter((draft) => draft.status === 'pending').length, resolved: fallbackDrafts.filter((draft) => draft.status !== 'pending').length }
   const warnings = metadataWarnings(documentImport)
   const groupedItems = groupedImportItems(documentImport.items)
   const coverage = transactionReviewCoverage(documentImport)
@@ -4721,15 +4726,30 @@ function DocumentReviewPanel({
         </div>
       )}
 
-      {(documentImport.transaction_drafts ?? []).length > 0 && (
+      {sourceMode === 'typed' && (
+        <StatementSourceReview
+          key={`${documentImport.id}:${documentImport.metadata.source_accounting_revision_id}`}
+          importId={documentImport.id}
+          revisionId={documentImport.metadata.source_accounting_revision_id!}
+          refreshKey={`${documentImport.updated_at}:${JSON.stringify(documentImport.transaction_drafts)}`}
+          renderExpenseDraft={(draft) => <TransactionDraftReviewStack
+            drafts={[draft]} isRealWorkspace action={draftAction} compact selectionEnabled={false} categories={categories} plan={annualPlan}
+            title="Review this proposed expense" onUpdate={onUpdateDraft} onMatch={onMatchDraft} onConfirm={onConfirmDraft} onIgnore={onIgnoreDraft} onReopen={onReopenDraft}
+          />}
+        />
+      )}
+      {sourceMode === 'unsupported' && <p className="document-alert error" role="alert">This extraction revision cannot be reviewed by this version of the app. Refresh or contact support; source rows have not been marked reviewed.</p>}
+      {fallbackDrafts.length > 0 && (
         <section className="document-transaction-drafts" aria-label="Extracted transaction drafts">
           <div className="document-item-group-heading">
-            <h5>Transaction drafts</h5>
-            <span>{coverage.total} proposed row{coverage.total === 1 ? '' : 's'}</span>
+            <h5>{sourceMode === 'typed' ? 'Additional expense reviews' : 'Transaction drafts'}</h5>
+            <span>{sourceMode === 'typed' ? fallbackCoverage.total : coverage.total} {sourceMode === 'typed' ? 'loaded additional' : 'proposed'} row{(sourceMode === 'typed' ? fallbackCoverage.total : coverage.total) === 1 ? '' : 's'}</span>
           </div>
-          <p className="document-review-coverage" role="status">{coverage.pending} transaction review{coverage.pending === 1 ? '' : 's'} remaining · {coverage.resolved} resolved. {coverage.pending > 0 ? 'This source still needs review; pending rows do not change actuals.' : 'All transaction rows have a review decision.'}</p>
+          {sourceMode === 'typed' && <p>Expense drafts without a linked source row remain available here. Decisions change expense actuals, not source accounting approval.</p>}
+          <p className="document-review-coverage" role="status">{sourceMode === 'typed' ? `${fallbackCoverage.pending} loaded expense reviews remaining · ${fallbackCoverage.resolved} resolved. Statement source review remains separate.` : `${coverage.pending} transaction review${coverage.pending === 1 ? '' : 's'} remaining · ${coverage.resolved} resolved. ${coverage.pending > 0 ? 'This source still needs review; pending rows do not change actuals.' : 'All transaction rows have a review decision.'}`}</p>
           <TransactionDraftReviewStack
-            drafts={documentImport.transaction_drafts ?? []}
+            drafts={fallbackDrafts}
+            selectionEnabled={sourceMode !== 'typed'}
             isRealWorkspace
             action={draftAction}
             compact
@@ -4740,8 +4760,8 @@ function DocumentReviewPanel({
             onConfirm={onConfirmDraft}
             onIgnore={onIgnoreDraft}
             onReopen={onReopenDraft}
-            onBulkConfirm={onBulkConfirmDrafts}
-            onBulkIgnore={onBulkIgnoreDrafts}
+            onBulkConfirm={sourceMode === 'typed' ? undefined : onBulkConfirmDrafts}
+            onBulkIgnore={sourceMode === 'typed' ? undefined : onBulkIgnoreDrafts}
           />
         </section>
       )}
@@ -7661,6 +7681,7 @@ function TransactionDraftReviewStack({
   isRealWorkspace,
   action,
   compact = false,
+  selectionEnabled = true,
   draftActionsDisabled = false,
   disabledReason,
   categories = [],
@@ -7681,6 +7702,7 @@ function TransactionDraftReviewStack({
   isRealWorkspace: boolean
   action: string | null
   compact?: boolean
+  selectionEnabled?: boolean
   draftActionsDisabled?: boolean
   disabledReason?: string
   categories?: BudgetCategoryRow[]
@@ -7853,6 +7875,7 @@ function TransactionDraftReviewStack({
           onConfirm={onConfirm}
           onIgnore={onIgnore}
           onReopen={onReopen}
+          selectionEnabled={selectionEnabled}
           selected={draft.status === 'pending' && selectedIds.has(draft.id)}
           onSelectedChange={(selected) => toggleDraftSelection(draft.id, selected)}
         />
@@ -7898,6 +7921,7 @@ function TransactionDraftReviewCard({
   onIgnore,
   onReopen,
   selected,
+  selectionEnabled,
   onSelectedChange,
 }: {
   draft: TransactionDraft
@@ -7911,6 +7935,7 @@ function TransactionDraftReviewCard({
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
+  selectionEnabled: boolean
   selected: boolean
   onSelectedChange: (selected: boolean) => void
 }) {
@@ -8034,7 +8059,7 @@ function TransactionDraftReviewCard({
 
   return (
     <div className={`transaction-draft-card${selected ? ' is-selected' : ''}`}>
-      {isPending && (
+      {isPending && selectionEnabled && (
         <label className="transaction-draft-select" aria-label={`Select ${draft.merchant} for a bulk action`}>
           <input type="checkbox" checked={selected} disabled={!isRealWorkspace || draftActionsDisabled || Boolean(action)} onChange={(event) => onSelectedChange(event.currentTarget.checked)} />
           <span className="sr-only">Select {draft.merchant}</span>

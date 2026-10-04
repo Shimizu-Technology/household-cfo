@@ -1,3 +1,4 @@
+import type { SourceReview, SourceReviewFilter } from './lib/sourceReview'
 export type WorkspaceSetupValues = {
   household_name: string
   primary_goal: string
@@ -325,6 +326,9 @@ export type FinancialDocumentImport = {
     last_extracted_at?: string
     last_applied_count?: number
     last_applied_at?: string
+    source_accounting_revision_id?: number
+    source_accounting_contract_version?: string | number
+    source_accounting_review_pending?: boolean
     transaction_draft_count?: number
     transaction_match_count?: number
     upload_origin?: 'profile' | 'mia'
@@ -493,6 +497,7 @@ export type TransactionDraft = {
   amount_cents?: number
   status: string
   source_type?: string
+  financial_source_event_id?: number | null
   financial_document_import_id?: number | null
   category_id: number | null
   category_name: string | null
@@ -4341,6 +4346,12 @@ export async function transcribeMiaVoice(audio: Blob): Promise<string> {
 export async function fetchDocumentImports(): Promise<FinancialDocumentImport[]> {
   const payload = await fetchJson<{ document_imports: FinancialDocumentImport[] }>('/api/v1/document_imports')
   return payload.document_imports
+}
+
+export async function fetchDocumentSourceReview(id: number, revisionId: number, page: number, filter: SourceReviewFilter, signal?: AbortSignal): Promise<SourceReview> {
+  const query = new URLSearchParams({ revision_id: String(revisionId), page: String(page), per_page: '50', filter })
+  const payload = await fetchJson<{ source_review: SourceReview }>(`/api/v1/document_imports/${id}/source_review?${query}`, { signal })
+  return payload.source_review
 }
 
 export async function fetchDocumentImport(id: number): Promise<FinancialDocumentImport> {
