@@ -50,6 +50,9 @@ module FinancialDocuments
         return Result.new(success: true, data: structured_result.data, error: nil, metadata: { extraction_mode: "structured_spreadsheet" }) if structured_result&.success?
         return failure(structured_result.error) if terminal_structured_spreadsheet_error?(structured_result)
 
+        native = native_statement_result(document_import, tempfile.path)
+        return Result.new(success: true, data: native.data, error: nil, metadata: native.metadata) if native&.success?
+
         return failure("OpenRouter API key is not configured") if api_key.blank?
 
         batched_pdf = batched_pdf_result(document_import, tempfile.path)
@@ -92,6 +95,12 @@ module FinancialDocuments
         filename: document_import.filename,
         document_kind: document_import.document_kind
       ).call
+    end
+
+    def native_statement_result(document_import, file_path)
+      return unless document_import.pdf? && document_import.document_kind == "statement"
+
+      NativeStatementParser.new(file_path: file_path).call
     end
 
     def batched_pdf_result(document_import, file_path)

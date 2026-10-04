@@ -2,6 +2,36 @@ require "test_helper"
 require "tempfile"
 
 class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
+  test "qualified native statement succeeds without provider credentials or model calls" do
+    document_import = FinancialDocumentImport.new(document_kind: "statement", filename: "native.pdf", content_type: "application/pdf", s3_key: "test/native")
+    extractor = FinancialDocuments::Extractor.new(api_key: "")
+    native = FinancialDocuments::NativeStatementParser::Result.new(success: true, data: { source_accounting: { contract_version: "source_accounting_v1" } }, error: nil, metadata: { extraction_mode: "native_statement" })
+    extractor.define_singleton_method(:native_statement_result) { |_import, _path| native }
+    extractor.define_singleton_method(:batched_pdf_result) { |*_args| raise "native must not invoke model extraction" }
+    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write("private source placeholder"); true }) do
+      result = extractor.call(document_import)
+      assert result.success?
+      assert_equal native.data, result.data
+      assert_equal "native_statement", result.metadata[:extraction_mode]
+    end
+  end
+
+  test "native rejection preserves the qualified model route rather than returning partial rows" do
+    document_import = FinancialDocumentImport.new(document_kind: "statement", filename: "unknown.pdf", content_type: "application/pdf", s3_key: "test/unknown")
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    fallback_called = false
+    extractor.define_singleton_method(:batched_pdf_result) do |_import, _path|
+      fallback_called = true
+      FinancialDocuments::Extractor::Result.new(success: true, data: { transaction_drafts: [] }, error: nil, metadata: { extraction_mode: "qualified_model_test" })
+    end
+    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write("not a native PDF"); true }) do
+      result = extractor.call(document_import)
+      assert result.success?
+      assert fallback_called
+      assert_equal "qualified_model_test", result.metadata[:extraction_mode]
+    end
+  end
+
   test "accepts canonical model money and rejects malformed or unbounded formats" do
     extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
 
