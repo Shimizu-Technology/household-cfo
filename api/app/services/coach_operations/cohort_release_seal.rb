@@ -73,14 +73,14 @@ module CoachOperations
       unless latest_id == input.fetch("expected_latest_release_id")
         raise CohortReleases::Sealer::Stale, "The latest sealed record changed; reload before sealing"
       end
-      registry = CohortReleases::Contract.tool_registry_snapshot
-      actual_digest = CohortReleases::Contract.digest(registry)
-      valid = input.fetch("expected_tool_registry_version") == CohortReleases::Contract::TOOL_REGISTRY_VERSION &&
-        input.fetch("expected_tool_registry_digest") == actual_digest
-      raise CohortReleases::Sealer::Stale, "The operation registry changed; reload before sealing" unless valid
-
       candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
       raise CohortReleases::Sealer::Incomplete, candidate.blockers if candidate.blockers.any?
+
+      registry = candidate.tool_registry_snapshot
+      actual_digest = CohortReleases::Contract.digest(registry)
+      valid = input.fetch("expected_tool_registry_version") == registry.fetch("schema_version") &&
+        input.fetch("expected_tool_registry_digest") == actual_digest
+      raise CohortReleases::Sealer::Stale, "The operation registry changed; reload before sealing" unless valid
 
       components_match = input.fetch("expected_assignment_id") == candidate.assignment&.id &&
         input.fetch("expected_persona_version_id") == candidate.persona_version&.id &&

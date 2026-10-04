@@ -8,6 +8,12 @@ module CohortExperience
         raise ArgumentError, "release experience snapshot is invalid" unless snapshot["configuration_id"] ==
           release.cohort_experience_configuration_id
 
+        raise ArgumentError, "release experience configuration is invalid" if Schema.errors(snapshot.fetch("config")).any?
+        unless CohortReleases::ToolContracts.supported_snapshot?(release.tool_registry_snapshot, version: release.tool_registry_version) &&
+            CohortReleases::ToolContracts.supports_experience?(release.tool_registry_snapshot, snapshot.fetch("config"))
+          raise ArgumentError, "release tool contract does not support this experience"
+        end
+
         config = CohortExperience::Schema.normalize(snapshot.fetch("config"))
         source = snapshot.fetch("mode") == "published_version" ? "cohort_release" : "safe_default_release"
         payload_for(
@@ -32,19 +38,22 @@ module CohortExperience
 
       def payload_for(config:, source:, cohort_membership:, version:, release: nil)
         enabled = config.fetch("optional_modules")
-        {
-          schema_version: 1,
+        definitions = release ? release.tool_registry_snapshot.fetch("modules").map(&:deep_symbolize_keys) : ModuleRegistry::MODULES
+        payload = {
+          schema_version: config.fetch("schema_version"),
           source: source,
           cohort_id: cohort_membership&.cohort_id,
           cohort_release: release && { id: release.id, number: release.release_number },
           experience_version: version && { id: version.id, number: version.version_number },
-          modules: ModuleRegistry::MODULES.map do |item|
+          modules: definitions.map do |item|
             module_enabled = item.fetch(:core) || enabled.fetch(item.fetch(:id), false)
             item.merge(enabled: module_enabled).tap do |payload|
               payload.delete(:unavailable_message) if module_enabled
             end
           end
         }
+        payload[:experience_mode] = config.fetch("experience_mode") if config.fetch("schema_version") == 2
+        payload
       end
     end
 

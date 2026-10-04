@@ -144,10 +144,18 @@ module CohortReleases
     end
 
     def current_runtime_compatible?
-      return false unless release.tool_registry_version == Contract::TOOL_REGISTRY_VERSION
-      registry_snapshot = current_tool_registry_snapshot || Contract.tool_registry_snapshot
-      registry_digest = Contract.digest(registry_snapshot)
-      return false unless release.tool_registry_digest == registry_digest
+      registry_snapshot = current_tool_registry_snapshot || Contract.runtime_tool_registry_snapshot
+      return false unless ToolContracts.runtime_compatible?(
+        release.tool_registry_snapshot, version: release.tool_registry_version, runtime_snapshot: registry_snapshot
+      )
+      # A supplied projection cannot hide an unsupported live handler version.
+      return false unless ToolContracts.runtime_compatible?(
+        release.tool_registry_snapshot, version: release.tool_registry_version,
+        runtime_snapshot: Contract.runtime_tool_registry_snapshot
+      )
+      return false unless ToolContracts.supports_experience?(
+        release.tool_registry_snapshot, release.experience_snapshot.fetch("config")
+      )
 
       persona_compatible = if release.persona_mode == "published_version"
         snapshot = if current_persona_snapshot.equal?(UNSET)

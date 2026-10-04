@@ -105,7 +105,7 @@ module CohortReleases
           workspace_brand_version: candidate.brand_version,
           brand_snapshot: candidate.brand_snapshot,
           brand_snapshot_digest: Contract.digest(candidate.brand_snapshot),
-          tool_registry_version: Contract::TOOL_REGISTRY_VERSION,
+          tool_registry_version: candidate.tool_registry_snapshot.fetch("schema_version"),
           tool_registry_snapshot: candidate.tool_registry_snapshot,
           tool_registry_digest: Contract.digest(candidate.tool_registry_snapshot),
           manifest_schema: Contract::CURRENT_SCHEMA,

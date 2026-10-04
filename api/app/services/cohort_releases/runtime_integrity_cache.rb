@@ -2,7 +2,7 @@
 
 module CohortReleases
   class RuntimeIntegrityCache
-    CACHE_SCHEMA = 2
+    CACHE_SCHEMA = 3
     STORE = ActiveSupport::Cache::MemoryStore.new(size: 2.megabytes)
 
     class << self
@@ -32,10 +32,12 @@ module CohortReleases
           release.bundle_digest,
           release.manifest_digest,
           release.manifest_schema,
+          Contract.digest(release.attributes),
           Contract::CURRENT_SCHEMA,
           Contract::SUPPORTED_SCHEMAS.join(","),
           Contract::TOOL_REGISTRY_VERSION,
-          Contract.digest(Contract.tool_registry_snapshot)
+          Contract.digest(ToolContracts::SUPPORTED),
+          Contract.digest(Contract.runtime_tool_registry_snapshot)
         ]
       end
     end
