@@ -2450,6 +2450,61 @@ test('account manager routes keep-saved reviews to Keep saved and never Accept',
   await expect(manager.getByRole('button', { name: 'Accept bank balance' })).not.toBeFocused()
 })
 
+for (const decision of ['keep_saved', 'accept_observed'] as const) {
+  test(`mobile Ask Mia bank review controls preserve focus after ${decision}, unmatch and rematch`, async ({ page }) => {
+    let linked = true
+    let reviewed = false
+    let balance = 100
+    const mutations: string[] = []
+    const bankLink = { plaid_account_id: 88, institution_name: 'Island Bank', name: 'Checking', mask: '1234',
+      current_balance: 120, available_balance: 110, observed_at: '2026-10-01T00:00:00Z', active: true }
+    const currentAccount = () => ({ id: 22, label: 'Everyday checking', account_type: 'checking', balance,
+      balance_as_of_on: '2026-09-01', active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {},
+      plaid_link: linked ? { ...bankLink, observation_newer_than_saved: !reviewed } : null })
+    await page.route('http://api.test/api/v1/workspace', (route) => {
+      const base = realWorkspaceData(true)
+      return route.fulfill({ status: 200, json: { ...base, workspace: { ...base.workspace, accounts: [currentAccount()] } } })
+    })
+    await page.route('http://api.test/api/v1/plaid/items', (route) => route.fulfill({ status: 200, json: {
+      configured: true, environment: 'sandbox', consent_policy_version: '2026-08-17', items: [{
+        id: 7, institution_name: 'Island Bank', status: 'active', environment: 'sandbox', consented_at: '2026-08-17T00:00:00Z',
+        last_synced_at: '2026-10-01T00:00:00Z', health: { state: 'healthy', label: 'Healthy', message: 'Current', requires_attention: false, last_successful_update_at: '2026-10-01T00:00:00Z', stale_after: '2026-10-02T00:00:00Z' },
+        error_message: null, disconnected_at: null, auto_confirm_trusted_merchants: false,
+        accounts: [{ id: 88, name: 'Checking', official_name: null, mask: '1234', type: 'depository', subtype: 'checking',
+          current_balance_cents: 12_000, available_balance_cents: 11_000, currency: 'USD', active: true,
+          eligible_for_asset_tracking: true, allowed_account_types: ['checking'], suggested_account_type: 'checking',
+          canonical_account_id: linked ? 22 : null, canonical_balance_known: linked ? true : null,
+          canonical_balance_cents: linked ? balance * 100 : null, observation_newer_than_saved: !reviewed }],
+      }],
+    } }))
+    await page.route('http://api.test/api/v1/accounts/22/plaid_reconcile', (route) => {
+      expect(route.request().postDataJSON().decision).toBe(decision)
+      mutations.push(decision); reviewed = true
+      if (decision === 'accept_observed') balance = 120
+      return route.fulfill({ status: 200, json: { account: currentAccount() } })
+    })
+    await page.route('http://api.test/api/v1/accounts/22/plaid_link', (route) => {
+      linked = route.request().method() === 'POST'
+      mutations.push(linked ? 'link' : 'unlink')
+      if (linked) expect(route.request().postDataJSON().plaid_account_id).toBe(88)
+      return route.fulfill({ status: 200, json: { account: currentAccount() } })
+    })
+    await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+    const manager = page.locator('.account-manager')
+    await manager.getByRole('button', { name: decision === 'keep_saved' ? 'Keep saved' : 'Accept bank balance' }).click()
+    await expect(manager.getByRole('button', { name: 'Edit', exact: true })).toBeFocused()
+    await expect(manager.getByRole('button', { name: 'Keep saved' })).toHaveCount(0)
+    await expect(manager).toContainText(decision === 'keep_saved' ? '$100.00' : '$120.00')
+    await manager.getByRole('button', { name: 'Unmatch' }).click()
+    const match = manager.getByLabel('Match a bank observation')
+    await expect(match).toBeFocused()
+    await match.selectOption('88')
+    await expect(manager.getByRole('button', { name: 'Unmatch' })).toBeFocused()
+    expect(mutations).toEqual([decision, 'unlink', 'link'])
+    expect(await manager.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+  })
+}
+
 test('account manager opens archived accounts before routing a restore review', async ({ page }) => {
   const archived = {
     id: 23, label: 'Old brokerage', account_type: 'investment', balance: 500, balance_as_of_on: '2025-01-01',

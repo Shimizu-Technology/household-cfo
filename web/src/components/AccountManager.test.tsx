@@ -235,6 +235,70 @@ describe('AccountManager', () => {
     expect((screen.getByLabelText('Balance date') as HTMLInputElement).value).toBe('2026-10-02')
   })
 
+  it.each(['accept_observed', 'keep_saved'] as const)('returns focus after %s when bank reconciliation renders later', async (decision) => {
+    const user = userEvent.setup()
+    const original = account({ balance: 100, plaid_link: {
+      plaid_account_id: 8, institution_name: 'Island Bank', name: 'Checking', mask: '1234',
+      current_balance: 120, available_balance: 110, observed_at: '2026-10-01T00:00:00Z',
+      active: true, observation_newer_than_saved: true,
+    } })
+    const reconciled = { ...original, plaid_link: { ...original.plaid_link!, observation_newer_than_saved: false } }
+    apiMocks.reconcilePlaidAccount.mockResolvedValue(reconciled)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
+    await user.click(screen.getByRole('button', { name: decision === 'accept_observed' ? 'Accept bank balance' : 'Keep saved' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })))
+    view.rerender(<AccountManager accounts={[reconciled]} portfolio={portfolio} onChanged={onChanged} />)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' }))
+    expect(apiMocks.reconcilePlaidAccount).toHaveBeenCalledWith(1, decision, expect.any(String))
+  })
+
+  it('waits for the committed bank match before focusing its unmatch control', async () => {
+    const user = userEvent.setup()
+    apiMocks.fetchPlaidOverview.mockResolvedValue({ items: [{ id: 9, institution_name: 'Island Bank', accounts: [{
+      id: 8, name: 'Checking', active: true, eligible_for_asset_tracking: true,
+      canonical_account_id: null, allowed_account_types: ['checking'], mask: '1234', current_balance_cents: 120_00,
+    }] }] })
+    const original = account({ balance: 100 })
+    const linked = { ...original, plaid_link: {
+      plaid_account_id: 8, institution_name: 'Island Bank', name: 'Checking', mask: '1234',
+      current_balance: 120, available_balance: 110, observed_at: '2026-10-01T00:00:00Z',
+      active: true, observation_newer_than_saved: true,
+    } }
+    apiMocks.linkPlaidAccount.mockResolvedValue(linked)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
+    const selector = await screen.findByRole('combobox', { name: 'Match a bank observation' })
+    await user.selectOptions(selector, '8')
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    view.rerender(<AccountManager accounts={[linked]} portfolio={portfolio} onChanged={onChanged} />)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Unmatch' })))
+    expect(apiMocks.linkPlaidAccount).toHaveBeenCalledWith(1, 8, expect.any(String))
+  })
+
+  it('waits for the committed bank unmatch before focusing the match selector', async () => {
+    const user = userEvent.setup()
+    apiMocks.fetchPlaidOverview.mockResolvedValue({ items: [{ id: 9, institution_name: 'Island Bank', accounts: [{
+      id: 8, name: 'Checking', active: true, eligible_for_asset_tracking: true,
+      canonical_account_id: null, allowed_account_types: ['checking'], mask: '1234', current_balance_cents: 120_00,
+    }] }] })
+    const original = account({ balance: 100, plaid_link: {
+      plaid_account_id: 8, institution_name: 'Island Bank', name: 'Checking', mask: '1234',
+      current_balance: 120, available_balance: 110, observed_at: '2026-10-01T00:00:00Z',
+      active: true, observation_newer_than_saved: false,
+    } })
+    const unlinked = { ...original, plaid_link: null }
+    apiMocks.unlinkPlaidAccount.mockResolvedValue(unlinked)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
+    await user.click(screen.getByRole('button', { name: 'Unmatch' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    view.rerender(<AccountManager accounts={[unlinked]} portfolio={portfolio} onChanged={onChanged} />)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Match a bank observation' })))
+    expect(apiMocks.unlinkPlaidAccount).toHaveBeenCalledWith(1, expect.any(String))
+  })
+
   it('preserves focus deliberately moved to another field while the updated list is pending', async () => {
     const user = userEvent.setup()
     const original = account()
