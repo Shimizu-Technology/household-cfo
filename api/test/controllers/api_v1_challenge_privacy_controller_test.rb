@@ -53,9 +53,9 @@ class ApiV1ChallengePrivacyControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "selected chat grant returns exactly one reviewed message and loses access on revoke" do
-    session = ChatSession.create!(household: @savings_household, user: @savings_user)
-    selected = session.chat_messages.create!(role: "user", content: "Selected synthetic request")
-    other = session.chat_messages.create!(role: "user", content: "Unselected synthetic secret")
+    session = ChatSession.create!(household: @savings_household, user: @savings_user, cohort: @savings_cohort)
+    selected = session.chat_messages.create!(role: "user", content: "Selected synthetic request", cohort: @savings_cohort, cohort_release: @savings_release)
+    other = session.chat_messages.create!(role: "user", content: "Unselected synthetic secret", cohort: @savings_cohort, cohort_release: @savings_release)
     foreign_user = User.create!(clerk_id: SecureRandom.uuid, email: "foreign-#{SecureRandom.hex(4)}@example.com", invitation_status: "accepted", role: "participant")
     foreign_session = ChatSession.create!(household: @savings_household, user: foreign_user)
     foreign_message = foreign_session.chat_messages.create!(role: "user", content: "Other participant private message")

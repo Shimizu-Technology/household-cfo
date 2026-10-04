@@ -29,7 +29,11 @@ module Api
         # Emergency guidance must not depend on uploads being available. Do not
         # resolve or expose attachments for this boundary response.
         if content.present? && content.length <= ChatMessage::MAX_CONTENT_LENGTH && ::Mia::CrisisBoundary.matches?(content)
-          session = current_chat_session
+          begin
+            session = current_chat_session
+          rescue SavingsChallenge::AccessPolicy::Unavailable
+            return render_stateless_crisis_response(content)
+          end
           return if render_preexisting_message_request(session, content, [])
           message_request, request_handled = reserve_message_request(session, content, [])
           return if request_handled
@@ -274,8 +278,9 @@ module Api
       end
 
       def destroy
-        if (session = current_household.chat_sessions.find_by(user: current_user))
-          session.with_lock do
+        current_household.with_lock do
+          if (session = chat_session_scope.find)
+            session.lock!
             session.mia_message_requests.where(status: "processing").find_each(&:expire_if_stale!)
             if session.mia_message_requests.where(status: "processing").exists?
               render json: {
@@ -344,6 +349,15 @@ module Api
         complete_message_request(message_request, payload)
         record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports)
         render json: payload, status: :created
+      end
+
+      def render_stateless_crisis_response(content)
+        render json: {
+          user_message: { id: nil, role: "user", author: "You", content: content, attachments: [], presentation: {}, citations: [] },
+          assistant_message: { id: nil, role: "assistant", author: "Mia", content: ::Mia::CrisisBoundary.response, attachments: [], presentation: {}, citations: [] },
+          mia_action_draft: nil, transaction_draft: nil, budget: nil, spending_report: nil,
+          conversation_persisted: false
+        }, status: :created
       end
 
       def transcript_for_current_persona(transcript)
@@ -944,12 +958,23 @@ module Api
         end
 
         existing_request = session.mia_message_requests.find_by(request_key: request_key)
-        return false unless existing_request
+        unless existing_request
+          if session.cohort_id && current_household.chat_sessions.where(user: current_user, cohort_id: nil)
+              .joins(:mia_message_requests).where(mia_message_requests: { request_key: request_key }).exists?
+            render json: {
+              status: "unknown", code: "mia_request_scope_unknown",
+              error: "This earlier request cannot be safely attributed to this program. Its result is unknown here; review your records before sending a new request."
+            }, status: :conflict
+            return true
+          end
+          return false
+        end
 
         render_existing_message_request(existing_request, message_request_fingerprint(content, attached_imports))
       end
 
       def render_existing_message_request(message_request, fingerprint)
+        chat_session_scope.authorize! if message_request.chat_session.cohort_id
         if message_request.request_fingerprint != fingerprint
           render json: {
             error: "This Mia request ID was already used for different content. Send the edited message as a new request.",
@@ -1038,6 +1063,10 @@ module Api
 
       def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})
         ApplicationRecord.transaction do
+          if session.cohort_id
+            current_household.lock!
+            chat_session_scope.authorize!
+          end
           user_message = session.chat_messages.create!(user_message_attributes(content, attached_imports))
           assistant_message = assistant_message_writer(session).build(
             content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"),
@@ -2053,21 +2082,12 @@ module Api
       end
 
       def current_chat_session
-        existing_session = current_household.chat_sessions.find_by(user: current_user)
-        return existing_session if existing_session
+        chat_session_scope.find_or_create!
+      end
 
-        now = Time.current
-        ChatSession.insert_all(
-          [ {
-            household_id: current_household.id,
-            user_id: current_user.id,
-            title: "Ask Mia",
-            created_at: now,
-            updated_at: now
-          } ],
-          unique_by: :index_chat_sessions_on_household_id_and_user_id
-        )
-        current_household.chat_sessions.find_by!(user: current_user)
+      def chat_session_scope
+        ::Mia::ChatSessionScope.new(household: current_household, user: current_user,
+          membership: current_cohort_membership, runtime: current_participant_runtime)
       end
 
       def record_mia_operation(event_type, assistant_message: nil, attached_imports: [], transaction_draft: nil, mia_action_draft: nil, error_code: nil)

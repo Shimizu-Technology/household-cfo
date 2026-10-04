@@ -415,7 +415,7 @@ module HouseholdFinance
     def chat_session
       return nil unless user
 
-      @chat_session ||= household.chat_sessions.find_by(user: user)
+      ::Mia::ChatSessionScope.new(household: household, user: user, membership: @cohort_membership).find
     end
 
     def members

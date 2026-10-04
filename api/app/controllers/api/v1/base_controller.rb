@@ -7,6 +7,9 @@ module Api
 
       rescue_from ::Mia::EffectiveCohortResolver::InvalidSelection, with: :render_invalid_cohort_selection
       rescue_from InvalidIdempotencyKey, with: :render_invalid_idempotency_key
+      rescue_from SavingsChallenge::AccessPolicy::Unavailable do |error|
+        render json: { errors: [ error.message ], code: "savings_challenge_unavailable" }, status: :forbidden
+      end
 
       rescue_from ChallengePrivacy::PrivateFinanceAccess::Denied do |error|
         response.set_header("Cache-Control", "private, no-store")

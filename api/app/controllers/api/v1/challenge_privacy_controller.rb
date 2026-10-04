@@ -46,7 +46,7 @@ module Api
           when "source_review_version" then SourceReviewVersion.where(household: current_household)
           when "savings_entry_version" then enrollment.savings_entry_versions
           when "savings_plan_version" then enrollment.savings_plan_versions
-          when "chat_message" then ChatMessage.joins(:chat_session).where(chat_sessions: { household_id: current_household.id, user_id: current_user.id })
+          when "chat_message" then ChatMessage.joins(:chat_session).where(chat_sessions: { household_id: current_household.id, user_id: current_user.id, cohort_id: enrollment.cohort_id })
           else raise ArgumentError, "Choose a supported exact record type"
           end
           scope = scope.where("#{scope.table_name}.id > ?", SavingsChallenge::Inputs.id!(params[:cursor])) if params[:cursor].present?

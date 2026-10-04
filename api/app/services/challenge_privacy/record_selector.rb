@@ -28,7 +28,7 @@ module ChallengePrivacy
       when "savings_entry_version" then SavingsEntryVersion.where(savings_enrollment: @enrollment).find(id)
       when "savings_plan_version" then SavingsPlanVersion.where(savings_enrollment: @enrollment).find(id)
       when "chat_message"
-        ChatMessage.joins(:chat_session).where(chat_sessions: { household_id: @enrollment.household_id, user_id: @enrollment.user_id }).find(id)
+        ChatMessage.joins(:chat_session).where(chat_sessions: { household_id: @enrollment.household_id, user_id: @enrollment.user_id, cohort_id: @enrollment.cohort_id }).find(id)
       else raise Access::Denied, "The selected record is unavailable"
       end
     end

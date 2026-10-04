@@ -71,8 +71,8 @@ class ApiV1ChallengeCohortsControllerTest < ActionDispatch::IntegrationTest
     get route, headers: auth(@savings_owner)
     assert_response :success
     assert_equal false, response.parsed_body["summary_available"]
-    session = ChatSession.create!(household: @savings_household, user: @savings_user)
-    message = session.chat_messages.create!(role: "user", content: "Synthetic private feelings secret")
+    session = ChatSession.create!(household: @savings_household, user: @savings_user, cohort: @savings_cohort)
+    message = session.chat_messages.create!(role: "user", content: "Synthetic private feelings secret", cohort: @savings_cohort, cohort_release: @savings_release)
     op = HouseholdFinance::Operations::Privacy::ConsentSet.new(@savings_household, user: @savings_user)
     op.execute!(op.prepare(enrollment_id: @savings_enrollment.id, kind: "selected_details", recipient_user_id: @savings_owner.id,
       granted: true, selected_records: [ { record_type: "chat_message", record_id: message.id } ], expires_at: 1.hour.from_now.iso8601,

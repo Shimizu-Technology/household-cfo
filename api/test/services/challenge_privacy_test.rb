@@ -77,8 +77,8 @@ class ChallengePrivacyTest < ActiveSupport::TestCase
   end
 
   test "private chat sharing requires exact participant messages and no wildcard scope" do
-    session = ChatSession.create!(household: @savings_household, user: @savings_user)
-    message = session.chat_messages.create!(role: "user", content: "Synthetic private feeling")
+    session = ChatSession.create!(household: @savings_household, user: @savings_user, cohort: @savings_cohort)
+    message = session.chat_messages.create!(role: "user", content: "Synthetic private feeling", cohort: @savings_cohort, cohort_release: @savings_release)
     privacy_run(:consent, consent_input(kind: "selected_details", selected_records: [ { record_type: "chat_message", record_id: message.id } ], expires_at: 1.hour.from_now.iso8601))
     assert_equal message, shared.selected(record_type: "chat_message", record_id: message.id)
     assert_raises(ArgumentError) { operation(:consent).prepare(consent_input(kind: "selected_details", selected_records: [ { record_type: "all_chat", record_id: message.id } ], expires_at: 1.hour.from_now.iso8601)) }

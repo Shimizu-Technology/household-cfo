@@ -20,6 +20,7 @@ class ChatMessage < ApplicationRecord
   validate :persona_attribution_is_complete
   validate :persona_attribution_is_immutable, on: :update
   validate :release_attribution_is_complete
+  validate :session_program_matches
 
   before_validation :set_global_assistant_author, on: :create
 
@@ -84,9 +85,17 @@ class ChatMessage < ApplicationRecord
   def persona_attribution_is_immutable
     return unless will_save_change_to_role? || will_save_change_to_assistant_author? ||
       will_save_change_to_coach_persona_version_id? || will_save_change_to_cohort_id? ||
-      will_save_change_to_cohort_release_id?
+      will_save_change_to_cohort_release_id? || will_save_change_to_chat_session_id?
 
     errors.add(:base, "message role and assistant attribution are immutable")
+  end
+
+  def session_program_matches
+    return unless chat_session&.cohort_id
+    unless cohort_id == chat_session.cohort_id && cohort_release&.cohort_id == cohort_id && cohort_release.tool_registry_version >= 3 &&
+        cohort_release.experience_snapshot.dig("config", "experience_mode") == "savings_challenge"
+      errors.add(:base, "message must match its sealed challenge conversation")
+    end
   end
 
   def release_attribution_is_complete

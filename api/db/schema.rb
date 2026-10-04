@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_04_310000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_04_320000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -342,6 +342,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_310000) do
 
   create_table "chat_sessions", force: :cascade do |t|
     t.jsonb "active_topic", default: {}, null: false
+    t.bigint "cohort_id"
     t.datetime "created_at", null: false
     t.bigint "household_id", null: false
     t.datetime "last_compacted_at"
@@ -351,7 +352,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_310000) do
     t.string "title"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
-    t.index ["household_id", "user_id"], name: "index_chat_sessions_on_household_id_and_user_id", unique: true
+    t.index ["cohort_id"], name: "index_chat_sessions_on_cohort_id"
+    t.index ["household_id", "user_id", "cohort_id"], name: "index_chat_sessions_on_household_user_cohort", unique: true, where: "(cohort_id IS NOT NULL)"
+    t.index ["household_id", "user_id"], name: "index_chat_sessions_on_household_id_and_user_id", unique: true, where: "(cohort_id IS NULL)"
     t.index ["household_id"], name: "index_chat_sessions_on_household_id"
     t.index ["last_compacted_message_id"], name: "index_chat_sessions_on_last_compacted_message_id"
     t.index ["user_id"], name: "index_chat_sessions_on_user_id"
@@ -1703,7 +1706,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_310000) do
     t.index ["baseline_cohort_release_id"], name: "index_cohort_rollouts_on_baseline_cohort_release_id"
     t.index ["coach_workspace_id"], name: "index_cohort_rollouts_on_coach_workspace_id"
     t.index ["cohort_id", "created_at", "id"], name: "idx_cohort_rollouts_history"
-    t.index ["cohort_id"], name: "idx_cohort_rollouts_one_open", unique: true, where: "((status)::text = ANY ((ARRAY['planned'::character varying, 'active'::character varying, 'paused'::character varying])::text[]))"
+    t.index ["cohort_id"], name: "idx_cohort_rollouts_one_open", unique: true, where: "((status)::text = ANY (ARRAY[('planned'::character varying)::text, ('active'::character varying)::text, ('paused'::character varying)::text]))"
     t.index ["cohort_id"], name: "index_cohort_rollouts_on_cohort_id"
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_cohort_rollouts_id_cohort_workspace", unique: true
     t.index ["planned_by_user_id"], name: "index_cohort_rollouts_on_planned_by_user_id"
@@ -3548,6 +3551,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_310000) do
   add_foreign_key "chat_messages", "cohort_releases", column: ["cohort_release_id", "cohort_id"], primary_key: ["id", "cohort_id"], name: "fk_chat_messages_release_cohort", on_delete: :restrict
   add_foreign_key "chat_messages", "cohort_releases", on_delete: :restrict
   add_foreign_key "chat_messages", "cohorts", on_delete: :restrict
+  add_foreign_key "chat_sessions", "cohorts", on_delete: :restrict
   add_foreign_key "chat_sessions", "households"
   add_foreign_key "chat_sessions", "users"
   add_foreign_key "coach_content_citations", "chat_messages", on_delete: :cascade
@@ -6005,5 +6009,39 @@ SQL
   SQL
   execute <<~SQL
     CREATE TRIGGER financial_source_uses_scope BEFORE INSERT OR UPDATE ON public.financial_source_uses FOR EACH ROW EXECUTE FUNCTION challenge_privacy_scope_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.challenge_chat_scope_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE session_cohort bigint;
+    BEGIN
+      IF TG_TABLE_NAME = 'chat_sessions' THEN
+        IF NEW.household_id IS DISTINCT FROM OLD.household_id OR NEW.user_id IS DISTINCT FROM OLD.user_id
+          OR NEW.cohort_id IS DISTINCT FROM OLD.cohort_id THEN
+          RAISE EXCEPTION 'conversation actor and program are immutable';
+        END IF;
+      ELSE
+        IF TG_OP = 'UPDATE' AND NEW.chat_session_id IS DISTINCT FROM OLD.chat_session_id THEN
+          RAISE EXCEPTION 'message conversation is immutable';
+        END IF;
+        SELECT cohort_id INTO session_cohort FROM chat_sessions WHERE id = NEW.chat_session_id;
+        IF TG_OP = 'UPDATE' AND session_cohort IS NOT NULL AND (
+          NEW.cohort_id IS DISTINCT FROM OLD.cohort_id OR NEW.cohort_release_id IS DISTINCT FROM OLD.cohort_release_id
+        ) THEN RAISE EXCEPTION 'challenge message release attribution is immutable'; END IF;
+        IF session_cohort IS NOT NULL AND (NEW.cohort_id IS DISTINCT FROM session_cohort OR NOT EXISTS (
+          SELECT 1 FROM cohort_releases r WHERE r.id = NEW.cohort_release_id AND r.cohort_id = session_cohort
+            AND r.tool_registry_version >= 3 AND r.experience_snapshot->'config'->>'experience_mode' = 'savings_challenge'
+        )) THEN RAISE EXCEPTION 'message must match its sealed challenge conversation'; END IF;
+      END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER chat_messages_scope BEFORE INSERT OR UPDATE ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION challenge_chat_scope_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER chat_sessions_scope BEFORE UPDATE ON public.chat_sessions FOR EACH ROW EXECUTE FUNCTION challenge_chat_scope_guard();
   SQL
 end
