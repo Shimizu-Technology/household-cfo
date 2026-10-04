@@ -7,11 +7,6 @@ module Demo
 
     LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey", "help" ].freeze
     TEST_MESSAGES = [ "test", "testing" ].freeze
-    CRISIS_PATTERNS = [
-      /\b(kill myself|end my life|want to die|suicidal|suicide|hurt myself|self[-\s]?harm)\b/i,
-      /\b(?:can['’]?t|cannot) go on(?:\s+(?:anymore|living|with (?:my )?life))?(?:[.!?,;:]|\z)/i,
-      /\b(?:can['’]?t|cannot) go on\s+with\s+(?:this|the|my)?\s*(?:debt|bills?|money stress)\b.*\banymore\b/i
-    ].freeze
     SCREENSHOT_PURCHASE_TERMS = %w[purse bag handbag].freeze
     DISCRETIONARY_PURCHASE_TERMS = %w[
       purse bag handbag shoes vacation trip upgrade coffee latte dining takeout restaurant
@@ -548,8 +543,7 @@ module Demo
     end
 
     def crisis_message?(message)
-      normalized = message.to_s.downcase
-      CRISIS_PATTERNS.any? { |pattern| normalized.match?(pattern) }
+      ::Mia::CrisisBoundary.matches?(message)
     end
 
     def screenshot_spending_question?(message)
@@ -594,7 +588,7 @@ module Demo
     end
 
     def crisis_response
-      @persona.fallback_response(:crisis)
+      ::Mia::CrisisBoundary.response
     end
 
     def discretionary_spending_response

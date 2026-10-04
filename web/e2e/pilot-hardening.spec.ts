@@ -40,6 +40,8 @@ async function openSection(page: Page, name: string) {
 }
 
 async function completePersonaReleaseChecks(page: Page) {
+  // A late font swap can move the mobile click target after scrolling it into view.
+  await page.evaluate(() => document.fonts.ready)
   await page.getByRole('button', { name: /Run checks for this draft|Run checks again/ }).click()
   await expect(page.getByRole('region', { name: 'Release check results' })).toContainText('All release checks passed')
   const phraseApprovalButtons = page.getByRole('button', { name: 'Approve for this audience' })
@@ -760,7 +762,7 @@ async function mockDemoApi(page: Page) {
     preview: experiencePreview,
     published_version: experiencePublishedVersion,
     versions: experienceVersions,
-    permissions: { edit: true, publish: true, rollback: true },
+    permissions: { edit: true, review: true, publish: true, rollback: true },
   })
   const responses: Record<string, unknown> = {
     '/api/demo/profile': profile,
@@ -1847,7 +1849,7 @@ test('initial Plaid sync refreshes the workspace when transaction history is rea
   await expect.poll(() => workspaceRequests).toBeGreaterThan(1)
 })
 
-test('Home centers review work and keeps Red guidance internally consistent', async ({ page }) => {
+test('Home centers review work and keeps Red guidance internally consistent', async ({ page, browserName }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
   await expect(page.getByText('What needs review?')).toBeVisible()
@@ -1873,15 +1875,23 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   expect(pressureRows[0]).toContain('$100.00 over if approved')
   await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
   const januaryChartButton = page.getByRole('button', { name: new RegExp(`Jan ${currentYear}:`) }).first()
-  await januaryChartButton.focus()
+  // WebKit's default keyboard navigation includes buttons with Option-Tab.
+  const nextControlKey = browserName === 'webkit' ? 'Alt+Tab' : 'Tab'
+  await page.getByRole('region', { name: `${currentYear} monthly income and planned outflow chart` }).focus()
+  await page.keyboard.press(nextControlKey)
+  await expect(januaryChartButton).toBeFocused()
   const chartDetail = page.locator('.home-financial-visuals .cash-flow-detail-panel')
   await expect(chartDetail).toContainText(`Jan ${currentYear}`)
   await expect(chartDetail).toContainText('$14,200.00')
   await expect(chartDetail).toContainText('$5,500.00')
   await expect(chartDetail).toContainText('$8,700.00 remains after planned outflow.')
   await expect(chartDetail).toContainText('No expected irregular categories are planned this month.')
+  await page.getByRole('button', { name: new RegExp(`Feb ${currentYear}:`) }).first().hover()
+  await expect(januaryChartButton).toBeFocused()
+  await expect(chartDetail).toContainText(`Jan ${currentYear}`)
   const decemberChartButton = page.getByRole('button', { name: new RegExp(`Dec ${currentYear}:`) }).first()
-  await decemberChartButton.focus()
+  for (let index = 0; index < 11; index += 1) await page.keyboard.press(nextControlKey)
+  await expect(decemberChartButton).toBeFocused()
   await expect(chartDetail).toContainText(`Dec ${currentYear}`)
   await expect(chartDetail).toContainText('Expected irregular plan included in outflow')
   await expect(chartDetail).toContainText('Holiday travel')
@@ -1899,6 +1909,27 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   await expect(page).toHaveURL(/#Review$/)
   await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeFocused()
+})
+
+test('cash-flow chart resumes pointer previews after pinning and unpinning a month', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'pointer hover interaction')
+  await page.goto('/')
+  await page.getByText('Explore the plan behind this snapshot').click()
+  await page.evaluate(() => document.fonts.ready)
+
+  const january = page.getByRole('button', { name: new RegExp(`Jan ${currentYear}:`) }).first()
+  const february = page.getByRole('button', { name: new RegExp(`Feb ${currentYear}:`) }).first()
+  const detail = page.locator('.home-financial-visuals .cash-flow-detail-panel')
+  await january.click()
+  await expect(january).toHaveAttribute('aria-pressed', 'true')
+  await february.hover()
+  await expect(detail).toContainText(`Jan ${currentYear}`)
+  await january.click()
+  await expect(january).toHaveAttribute('aria-pressed', 'false')
+  await expect(january).toBeFocused()
+  await february.hover()
+  await expect(january).toBeFocused()
+  await expect(detail).toContainText(`Feb ${currentYear}`)
 })
 
 test('penny-level plans never show a false over-budget warning', async ({ page }) => {
@@ -2536,7 +2567,7 @@ test('first-session review states what it completes and what Mia still needs', a
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Add monthly income to your starting picture' })
   await expect(card).toContainText('1 of 5 essentials after approval')
   await expect(card).toContainText('Still needed: Household name, Primary goal, Fixed essentials, Flexible spending.')
-  await expect(card.getByRole('button', { name: 'Apply these 1 value' })).toBeEnabled()
+  await expect(card.getByRole('button', { name: 'Apply 1 value' })).toBeEnabled()
 })
 
 test('a confirmed zero remains available when the rest of setup is completed manually', async ({ page }) => {
@@ -2650,19 +2681,20 @@ test('a confirmed zero remains available when the rest of setup is completed man
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Confirm zero flexible spending' })
-  const applyButton = card.getByRole('button', { name: 'Apply these 1 value' })
+  const applyButton = card.getByRole('button', { name: 'Apply 1 value' })
   await applyButton.focus()
   await applyButton.press('Enter')
 
   const progress = page.locator('.first-session-setup-progress')
+  await progress.getByRole('button', { name: 'Show setup options' }).click()
   await expect(progress.getByRole('listitem').filter({ hasText: 'Flexible spending' }).locator('.sr-only')).toHaveText('— Confirmed')
   await expect(progress.getByRole('listitem').filter({ hasText: 'Primary monthly income' }).locator('.sr-only')).toHaveText('— Still needed')
   await progress.getByRole('button', { name: 'Enter manually' }).click()
 
+  await expect(page.getByLabel('Primary monthly income')).toBeFocused()
   await expect(page.getByLabel('Flexible spending')).toHaveValue('0')
   await expect(page.getByLabel('Primary monthly income')).toHaveValue('')
   await expect(page.getByLabel('Fixed essentials')).toHaveValue('')
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   await page.getByLabel('Household name').fill('Zero Spend Household')
   await expect(page.getByLabel('Household name')).toHaveValue('Zero Spend Household')
   await page.getByLabel('Primary goal').fill('Keep a calm plan.')
@@ -2695,6 +2727,46 @@ test('a confirmed zero remains available when the rest of setup is completed man
     fixed_expenses: 2800,
     flexible_spend: 0,
   })
+})
+
+test('manual first-session upload return focuses numeric entry without changing sections', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(false) }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await page.getByRole('button', { name: 'Test a private upload' }).click()
+  await expect(page.getByRole('heading', { name: 'Test one private file without changing your numbers.' })).toBeVisible()
+  await expect(page).toHaveURL(/#My%20Profile$/)
+  await page.getByRole('button', { name: 'Return to starting numbers' }).click()
+  await expect(page).toHaveURL(/#My%20Profile$/)
+  await expect(page.getByLabel('Primary monthly income')).toBeFocused()
+  await page.getByLabel('Primary goal').fill('Return to the same setup form.')
+  await expect(page.getByLabel('Primary goal')).toHaveValue('Return to the same setup form.')
+})
+
+test('manual first-session entry respects a field selected before navigation focus settles', async ({ page }) => {
+  await page.clock.install()
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(false) }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const progress = page.locator('.first-session-setup-progress')
+  await progress.getByRole('button', { name: 'Show setup options' }).click()
+
+  // Model a person choosing their goal as soon as the form appears, before
+  // the scheduled entry-focus frame. Mutation delivery precedes that frame.
+  await page.evaluate(() => {
+    const observer = new MutationObserver(() => {
+      const goal = document.querySelector<HTMLTextAreaElement>('.first-session-setup-form [name="primary_goal"]')
+      if (!goal) return
+      observer.disconnect()
+      goal.focus()
+    })
+    observer.observe(document.documentElement, { childList: true, subtree: true })
+  })
+  await progress.getByRole('button', { name: 'Enter manually' }).click()
+  const goal = page.getByLabel('Primary goal')
+  await expect(goal).toBeFocused()
+  await goal.fill('Keep the field I chose.')
+  await page.clock.runFor(120)
+  await expect(goal).toBeFocused()
+  await expect(goal).toHaveValue('Keep the field I chose.')
 })
 
 test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its controls', async ({ page }) => {
@@ -3572,6 +3644,8 @@ test('participant links preserve browser history, heading focus, and section scr
   const budgetHeading = page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })
   await expect(budgetHeading).toBeFocused()
 
+  // Measure after font layout settles; the app restores the scroll at departure.
+  await page.evaluate(() => document.fonts.ready)
   await page.evaluate(() => window.scrollTo(0, Math.min(900, document.documentElement.scrollHeight - window.innerHeight)))
   const budgetScrollTop = await page.evaluate(() => Math.round(window.scrollY))
   expect(budgetScrollTop).toBeGreaterThan(0)
@@ -4093,6 +4167,7 @@ test('incomplete participants get a short first session, private feedback, and a
   expect(guidedSetupRequest.postDataJSON().message).toBe(guidedSetupPrompt)
   await expect(page.getByText(guidedSetupReply, { exact: true })).toBeVisible()
 
+  await page.getByRole('button', { name: 'Show setup options' }).click()
   await page.getByRole('button', { name: 'Share everything at once' }).click()
   await expect(guidedComposer).toHaveValue(/Here is everything I know so far: our household is called ___/)
   await page.getByRole('button', { name: 'Ask me one question at a time' }).click()
@@ -4171,6 +4246,7 @@ test('Mia explains when starting numbers have not been approved yet', async ({ p
   await expect(context.getByText('Approved data loaded')).toHaveCount(0)
   const progress = page.locator('.first-session-setup-progress')
   await expect(progress).toContainText('0 of 5 essentials confirmed')
+  await progress.getByRole('button', { name: 'Show setup options' }).click()
   await expect(progress.getByText('Household name')).toBeVisible()
   await expect(progress.getByText('Flexible spending')).toBeVisible()
 })
@@ -4464,9 +4540,47 @@ test('admin cohort rows show only safe pilot progress signals', async ({ page })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('Coach Studio waits for its initial library before opening a create form', async ({ page }) => {
+  let releaseList: (() => void) | undefined
+  let releaseDetail: (() => void) | undefined
+  let listGate = new Promise<void>((resolve) => { releaseList = resolve })
+  const detailGate = new Promise<void>((resolve) => { releaseDetail = resolve })
+  await page.route('http://api.test/api/v1/admin/personas', async (route) => {
+    if (route.request().method() === 'GET') await listGate
+    return route.fallback()
+  })
+  await page.route('http://api.test/api/v1/admin/personas/81', async (route) => {
+    await detailGate
+    return route.fallback()
+  })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  const create = page.getByRole('button', { name: 'Create', exact: true })
+  await expect(page.getByText('Loading coaching assistants…')).toBeVisible()
+  await expect(create).toBeDisabled()
+  await create.dispatchEvent('click')
+  await expect(page.locator('.coach-create-form')).toHaveCount(0)
+
+  releaseList?.()
+  await expect(page.getByText('Loading the selected assistant…')).toHaveCount(1)
+  await expect(create).toBeDisabled()
+  releaseDetail?.()
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
+  if (!(await create.isVisible())) await page.getByRole('button', { name: 'All assistants' }).click()
+  await create.click()
+  await page.locator('.coach-create-form').getByLabel('Assistant name').fill('A ready creation form')
+  await expect(page.locator('.coach-create-form').getByLabel('Assistant name')).toHaveValue('A ready creation form')
+  listGate = new Promise<void>((resolve) => { releaseList = resolve })
+  await page.getByRole('combobox', { name: /Coach workspace/ }).selectOption('2')
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'true')
+  await expect(page.locator('.coach-create-form').getByRole('button', { name: 'Create safe draft' })).toBeDisabled()
+  releaseList?.()
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
+})
+
 test('Coach Studio creates a persona through private setup chat and reviewed changes', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
   await openSection(page, 'Coach Studio')
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
 
   const createButton = page.getByRole('button', { name: 'Create', exact: true })
   if (!(await createButton.isVisible())) await page.getByRole('button', { name: 'All assistants' }).click()
@@ -4502,6 +4616,7 @@ test('Coach Studio creates a persona through private setup chat and reviewed cha
 test('Coach Studio Review in form opens and focuses the exact teaching and phrase controls', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
   await openSection(page, 'Coach Studio')
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
   const createButton = page.getByRole('button', { name: 'Create', exact: true })
   if (!(await createButton.isVisible())) await page.getByRole('button', { name: 'All assistants' }).click()
   await createButton.click()
@@ -4871,7 +4986,8 @@ test('Coach Studio participant tools preview publish and restore the exact cohor
   await expect(preview).toContainText('Not included: CFO Filter')
 
   page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('1 participant in Household CFO pilot')
+    expect(dialog.message()).toContain('1 participant will keep the tools in their current sealed release')
+    expect(dialog.message()).toContain('until a new release is activated or rolled out')
     await dialog.accept()
   })
   await page.getByRole('button', { name: 'Publish to cohort' }).click()
@@ -4892,6 +5008,99 @@ test('Coach Studio participant tools preview publish and restore the exact cohor
   await expect(page.getByLabel('Include CFO Filter')).not.toBeChecked()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
+
+for (const role of ['editor', 'reviewer', 'viewer'] as const) {
+  test(`Coach Studio participant tools honor ${role} capabilities`, async ({ page }) => {
+    const permissions = {
+      edit: role === 'editor', review: role !== 'viewer', publish: role === 'reviewer', rollback: role === 'reviewer',
+    }
+    const oldVersion = { id: 100, number: 1, digest: 'old', published_at: '2026-10-01T00:00:00Z', published_by: { id: 1, full_name: 'Owner' } }
+    const currentVersion = { ...oldVersion, id: 101, number: 2, digest: 'current' }
+    const configuration = {
+      cohort: { id: 41, name: 'Household CFO pilot', status: 'active', participant_count: 1 },
+      draft: { schema_version: 1, optional_modules: { cfo_filter: true, optionality: true } },
+      draft_revision: 1, preview_required: true, preview: null as null | { digest: string; draft_revision: number; generated_at: string },
+      published_version: currentVersion, versions: [currentVersion, oldVersion], permissions,
+    }
+    let previewRequests = 0
+    const mutationRequests: { method: string; path: string; body: unknown }[] = []
+    await page.route('**/api/v1/admin/cohorts/41/experience_configuration', (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = route.request().postDataJSON()
+        mutationRequests.push({ method: 'PATCH', path: new URL(route.request().url()).pathname, body })
+        configuration.draft = body.experience_configuration.draft_config
+        configuration.draft_revision += 1
+        configuration.preview = null
+      }
+      return route.fulfill({ status: 200, json: { experience_configuration: configuration } })
+    })
+    for (const action of ['publish', 'versions/100/rollback']) {
+      await page.route(`**/api/v1/admin/cohorts/41/experience_configuration/${action}`, (route) => {
+        mutationRequests.push({ method: route.request().method(), path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() })
+        const version = { ...oldVersion, id: 100 + configuration.versions.length, number: configuration.versions.length + 1 }
+        configuration.published_version = version
+        configuration.versions = [version, ...configuration.versions]
+        configuration.preview = null
+        return route.fulfill({ status: 200, json: { experience_configuration: configuration, published_version: version } })
+      })
+    }
+    await page.route('**/api/v1/admin/cohorts/41/experience_configuration/preview', (route) => {
+      previewRequests += 1
+      configuration.preview = { digest: 'role-preview', draft_revision: configuration.draft_revision, generated_at: '2026-10-01T00:00:00Z' }
+      return route.fulfill({ status: 200, json: { experience_configuration: configuration, preview: { ...configuration.preview, modules: [] } } })
+    })
+    await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
+    await page.getByRole('tab', { name: /Participant tools/ }).click()
+    await expect(page.getByLabel('Include CFO Filter')).toBeVisible()
+    if (permissions.edit) await expect(page.getByLabel('Include CFO Filter')).toBeEnabled()
+    else await expect(page.getByLabel('Include CFO Filter')).toBeDisabled()
+    if (permissions.edit) {
+      await page.getByLabel('Include CFO Filter').uncheck()
+      await page.getByRole('button', { name: 'Save draft' }).click()
+      await expect(page.getByRole('status')).toContainText('draft saved')
+      expect(mutationRequests).toEqual([{
+        method: 'PATCH', path: '/api/v1/admin/cohorts/41/experience_configuration',
+        body: { experience_configuration: { draft_revision: 1, draft_config: { schema_version: 1, optional_modules: { cfo_filter: false, optionality: true } } } },
+      }])
+    } else await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled()
+    const preview = page.getByRole('button', { name: 'Preview navigation' })
+    if (permissions.review) {
+      await expect(preview).toBeEnabled()
+      await preview.click()
+      await expect(page.getByRole('status')).toContainText('Exact participant navigation preview is ready')
+      expect(previewRequests).toBe(1)
+    } else {
+      await expect(preview).toBeDisabled()
+      await expect(page.getByText('Your workspace role can view these tools but cannot change or publish them.')).toBeVisible()
+    }
+    if (permissions.publish) {
+      await expect(page.getByRole('button', { name: 'Publish to cohort' })).toBeEnabled()
+      page.once('dialog', (dialog) => dialog.accept())
+      await page.getByRole('button', { name: 'Publish to cohort' }).click()
+      await expect(page.getByRole('status')).toContainText('version 3 is published')
+      expect(mutationRequests).toEqual([{
+        method: 'POST', path: '/api/v1/admin/cohorts/41/experience_configuration/publish',
+        body: { experience_configuration: { draft_revision: 1, preview_digest: 'role-preview', expected_published_version_id: 101 } },
+      }])
+    }
+    else await expect(page.getByRole('button', { name: 'Publish to cohort' })).toBeDisabled()
+    await page.getByText(`Version history (${permissions.publish ? 3 : 2})`).click()
+    if (permissions.rollback) {
+      const versionOne = page.locator('.coach-version-list article').filter({ hasText: 'Version 1' })
+      await expect(versionOne.getByRole('button', { name: 'Restore as new version' })).toBeEnabled()
+      page.once('dialog', (dialog) => dialog.accept())
+      await versionOne.getByRole('button', { name: 'Restore as new version' }).click()
+      await expect(page.getByRole('status')).toContainText('Version 1 was restored as version 4')
+      expect(mutationRequests[1]).toEqual({
+        method: 'POST', path: '/api/v1/admin/cohorts/41/experience_configuration/versions/100/rollback',
+        body: { experience_configuration: { draft_revision: 1, expected_published_version_id: 102 } },
+      })
+    }
+    else await expect(page.getByRole('button', { name: 'Restore as new version' })).toBeDisabled()
+    expect(mutationRequests).toHaveLength(role === 'reviewer' ? 2 : role === 'editor' ? 1 : 0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  })
+}
 
 test('Coach Studio shows participant cohorts loading before an empty state', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chrome', 'loading-state regression')
@@ -4943,7 +5152,7 @@ test('Coach Studio ignores a delayed participant-tool response after switching c
           preview: null,
           published_version: null,
           versions: [],
-          permissions: { edit: true, publish: true, rollback: true },
+          permissions: { edit: true, review: true, publish: true, rollback: true },
         },
       },
     })
@@ -5217,7 +5426,7 @@ test('Coach Studio locks workspace selection through a delayed Participant Tools
         cohort: { id: 41, name: 'Household CFO pilot', status: 'active', participant_count: 1 },
         draft: route.request().postDataJSON().experience_configuration.draft_config,
         draft_revision: 2, preview_required: true, preview: null, published_version: null, versions: [],
-        permissions: { edit: true, publish: true, rollback: true },
+        permissions: { edit: true, review: true, publish: true, rollback: true },
       } },
     })
   })
@@ -6093,7 +6302,7 @@ test('Coach Studio confirms immediate assigned-cohort impact before publishing a
   await expect(page.getByText('Publishing updates future participant messages', { exact: false })).toBeVisible()
 
   page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Future participant messages in 1 assigned cohort will use it immediately.')
+    expect(dialog.message()).toContain('Cohorts using a sealed release keep their current voice')
     await dialog.accept()
   })
   await page.getByRole('button', { name: 'Publish next version' }).click()
@@ -6282,7 +6491,7 @@ test('participant can add edit archive and restore individual debt records', asy
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await expect(page.getByText('BOG cohort', { exact: true })).toBeVisible()
+  await expect(page.getByText('BOG', { exact: true })).toBeVisible()
   await openSection(page, 'My Profile')
   const debtPanel = page.locator('.debt-manager')
   await debtPanel.getByRole('button', { name: 'Add a debt' }).click()
@@ -7299,4 +7508,35 @@ test('an empty Profile upload is rejected before private upload work begins', as
   await expect(page.getByRole('alert')).toHaveText('empty-receipt.png is empty. Choose the original file and try again.')
   await expect(receiptCard.getByText('Choose file', { exact: true })).toBeVisible()
   expect(presignRequests).toBe(0)
+})
+
+
+test('Ask Mia retains an oversized voice transcript and requires shortening before send', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } })
+    class SyntheticRecorder {
+      static isTypeSupported() { return true }
+      state = 'inactive'
+      mimeType = 'audio/webm'
+      ondataavailable: ((event: { data: Blob }) => void) | null = null
+      onstop: (() => void) | null = null
+      start() { this.state = 'recording' }
+      stop() {
+        this.state = 'inactive'
+        this.ondataavailable?.({ data: new Blob(['synthetic QA recording'], { type: 'audio/webm' }) })
+        this.onstop?.()
+      }
+    }
+    Object.defineProperty(window, 'MediaRecorder', { configurable: true, value: SyntheticRecorder })
+  })
+  await page.route('http://api.test/api/v1/mia/transcriptions', (route) => route.fulfill({ status: 200, json: { transcript: 'x'.repeat(8_025) } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.getByRole('button', { name: 'Record voice note for Mia' }).click()
+  await page.getByRole('button', { name: 'Stop voice recording' }).click()
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await expect(composer).toHaveValue('x'.repeat(8_025))
+  await expect(page.locator('#mia-composer-count')).toHaveText('Remove 25 characters to send.')
+  await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeDisabled()
+  await composer.fill('A shorter, reviewed transcript.')
+  await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
 })

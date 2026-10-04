@@ -116,6 +116,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }, [description, draft, selectedPersona])
   const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty
   const personaDirty = dirty || personaSourcesDirty || setupDirty
+  const createDisabled = workspaceCreateDisabled || loading || detailLoading || pendingAction !== null || workspaceMutations.pending
 
   const filteredPersonas = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -357,9 +358,14 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     workspaceMutations.finish(context)
   }
 
+  function openCreateForm() {
+    if (createDisabled) return
+    setCreateOpen(true)
+  }
+
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!createName.trim() || pendingAction) return
+    if (!createName.trim() || createDisabled) return
     const mutation = beginMutation('create')
     setError(null)
     try {
@@ -435,7 +441,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       return
     }
     if (selectedPersona.assignments.length > 0 && !window.confirm(
-      `Publish this version now? Future participant messages in ${selectedPersona.assignments.length} assigned cohort${selectedPersona.assignments.length === 1 ? '' : 's'} will use it immediately.`,
+      `Publish this assistant version? Cohorts using a sealed release keep their current voice until you launch a new release or rollout. Assigned cohorts without a sealed release use the published version for future messages.`,
     )) return
     const mutation = beginMutation('publish')
     setError(null)
@@ -564,7 +570,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setConflict('Save or discard your unsaved changes before changing cohort assignments.')
       return
     }
-    if (!window.confirm(`Remove the coaching assistant from ${cohort.name}? Participants will receive the neutral product voice until another persona is assigned.`)) return
+    if (!window.confirm(`Remove the assistant assignment from ${cohort.name}? Participants using a sealed release keep its voice until a new release or rollout. Cohorts without a sealed release use the neutral voice.`)) return
     const mutation = beginMutation('assignment')
     setError(null)
     try {
@@ -765,7 +771,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               <p className="eyebrow">Assistant library</p>
               <h3 ref={libraryHeadingRef} tabIndex={-1}>{personas.length} coaching assistant{personas.length === 1 ? '' : 's'}</h3>
             </div>
-            <Button size="compact" disabled={workspaceCreateDisabled} onClick={() => setCreateOpen(true)}>Create</Button>
+            <Button size="compact" disabled={createDisabled} onClick={openCreateForm}>Create</Button>
           </div>
 
           {workspaceCreateDisabled && <p className="coach-content-note">Choose a coach workspace before creating an assistant. Platform mode can review all workspaces without assigning a hidden owner.</p>}
@@ -781,7 +787,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 <textarea rows={2} value={createDescription} onChange={(event) => setCreateDescription(event.target.value)} placeholder="Mrs. Mel's first cohort voice" />
               </label>
               <div>
-                <Button size="compact" type="submit" disabled={pendingAction === 'create'}>{pendingAction === 'create' ? 'Creating' : 'Create safe draft'}</Button>
+                <Button size="compact" type="submit" disabled={createDisabled}>{pendingAction === 'create' ? 'Creating' : 'Create safe draft'}</Button>
                 <Button size="compact" type="button" variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
               </div>
             </form>
@@ -832,7 +838,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               <p className="eyebrow">Start here</p>
               <h3>Create a safe draft, then shape it with the guided questions.</h3>
               <p>You can preview and publish only after the exact saved revision has passed the fixed system guardrails.</p>
-              <Button disabled={workspaceCreateDisabled} onClick={() => setCreateOpen(true)}>Create coaching assistant</Button>
+              <Button disabled={createDisabled} onClick={openCreateForm}>Create coaching assistant</Button>
             </article>
           ) : (
             <>
@@ -1227,7 +1233,7 @@ function AssignmentPanel({ persona, cohorts, pending, dirty, onAssign, onRemove 
 }) {
   return (
     <article className="panel coach-assignments">
-      <header><div><p className="eyebrow">Cohort assignments</p><h3>Choose where the published voice is active.</h3><p>Each cohort has one effective persona. Replacing one updates future assistant messages while preserving immutable message attribution.</p></div><span>{persona.assignments.length} visible assignment{persona.assignments.length === 1 ? '' : 's'}</span></header>
+      <header><div><p className="eyebrow">Cohort assignments</p><h3>Choose the assistant for each cohort.</h3><p>Assignments prepare the next release. Participants using a sealed release keep its assistant until you launch a new release or rollout. Cohorts without a sealed release use the current published assignment.</p></div><span>{persona.assignments.length} visible assignment{persona.assignments.length === 1 ? '' : 's'}</span></header>
       {!persona.published_version ? (
         <p className="coach-empty">Publish the first version before assigning this assistant to a cohort.</p>
       ) : cohorts.length === 0 ? (

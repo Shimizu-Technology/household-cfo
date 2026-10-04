@@ -57,7 +57,7 @@ module HouseholdFinance
     TRANSACTION_DRAFT_FOLLOWUP_PATTERN = /\bfollow-up to previous transaction_draft topic\b|\btopic:\s*reported spending\b/i.freeze
 
     def self.prompt_injection?(value)
-      value.to_s.downcase.gsub(/[^a-z0-9\s$.-]/, " ").squish.match?(PROMPT_INJECTION_PATTERN)
+      value.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").downcase.gsub(/[^a-z0-9\s$.-]/, " ").squish.match?(PROMPT_INJECTION_PATTERN)
     end
 
     def self.unsafe_memory_instruction?(value)
@@ -90,7 +90,7 @@ module HouseholdFinance
     end
 
     def guardrail_answer
-      capability_answer || incomplete_setup_answer || incomplete_debt_minimums_answer || incomplete_liquid_balances_answer
+      capability_answer || investment_boundary_answer || incomplete_setup_answer || incomplete_debt_minimums_answer || incomplete_liquid_balances_answer
     end
 
     private
@@ -196,6 +196,10 @@ module HouseholdFinance
 
     def investment_boundary_answer
       return nil unless normalized_message.match?(INVESTMENT_PATTERN)
+
+      unless setup_status.complete? && DebtPortfolio.new(household).minimum_payment_known? && AssetPortfolio.new(household).liquid_balance_known?
+        return "I cannot give licensed investment advice or tell you what stock or crypto to buy. Do not put emergency money at risk to chase a short-term return. Next step: protect essential bills and emergency runway, and confirm the missing household numbers before considering an investment decision."
+      end
 
       "Based on approved household numbers, this is not the moment to use investing or risky products as the shortcut to green: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}. I cannot give licensed investment advice or tell you what stock or crypto to buy. Next CFO move: protect roof, food, utilities, debt minimums, and emergency runway first; only discuss investing after the baseline and sinking funds are stable."
     end
@@ -690,6 +694,7 @@ module HouseholdFinance
     def planned_purchase_detail_answer
       return nil unless amount_from_message_cents&.positive?
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
+      return nil if !purchase_question? && normalized_message.match?(/\b(?:income|take home|salary|paycheck|balance|minimum|account|apr|goal progress)\b/)
       return nil if transaction_report?
       return nil if normalized_message.match?(TRANSACTION_DRAFT_FOLLOWUP_PATTERN)
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)

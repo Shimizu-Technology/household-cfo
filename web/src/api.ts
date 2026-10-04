@@ -1793,7 +1793,7 @@ export type CohortExperienceConfiguration = {
   preview: null | { digest: string; draft_revision: number; generated_at: string }
   published_version: CohortExperienceVersion | null
   versions: CohortExperienceVersion[]
-  permissions: { edit: boolean; publish: boolean; rollback: boolean }
+  permissions: { edit: boolean; review: boolean; publish: boolean; rollback: boolean }
 }
 
 export type CohortExperiencePreview = {
@@ -2169,6 +2169,7 @@ type AuthTokenGetter = () => Promise<string | null>
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
 const SAFE_READ_REQUEST_TIMEOUT_MS = 30_000
+const MUTATION_REQUEST_TIMEOUT_MS = 90_000
 const MIA_REQUEST_TIMEOUT_MS = 90_000
 const FILE_UPLOAD_TIMEOUT_MS = 180_000
 const EXTRACTION_REQUEST_TIMEOUT_MS = 300_000
@@ -2374,6 +2375,7 @@ async function withDeadline<T>(
   timeoutMs: number,
   timeoutMessage: string,
   callerSignal?: AbortSignal | null,
+  recoveryMessage = 'Please try again.',
 ) {
   const controller = new AbortController()
   let deadlineReached = false
@@ -2386,7 +2388,7 @@ async function withDeadline<T>(
   const deadlinePromise = new Promise<never>((_resolve, reject) => {
     deadline = globalThis.setTimeout(() => {
       deadlineReached = true
-      reject(new ApiDeadlineError(`${timeoutMessage} Please try again.`))
+      reject(new ApiDeadlineError(`${timeoutMessage} ${recoveryMessage}`))
       controller.abort()
     }, timeoutMs)
   })
@@ -2396,7 +2398,7 @@ async function withDeadline<T>(
   } catch (error) {
     if (error instanceof ApiDeadlineError) throw error
     if (deadlineReached) {
-      throw new ApiDeadlineError(`${timeoutMessage} Please try again.`, { cause: error })
+      throw new ApiDeadlineError(`${timeoutMessage} ${recoveryMessage}`, { cause: error })
     }
     throw error
   } finally {
@@ -2452,18 +2454,15 @@ async function apiOperation<T>(
   const request = async (signal?: AbortSignal) => consume(await apiFetch(path, options, signal))
 
   const method = (options.method ?? 'GET').toUpperCase()
-  const safeReadTimeoutMs = method === 'GET' || method === 'HEAD'
-    ? SAFE_READ_REQUEST_TIMEOUT_MS
-    : undefined
-  const timeoutMs = settings.timeoutMs ?? safeReadTimeoutMs
+  const readOnly = method === 'GET' || method === 'HEAD'
+  const timeoutMs = settings.timeoutMs ?? (readOnly ? SAFE_READ_REQUEST_TIMEOUT_MS : MUTATION_REQUEST_TIMEOUT_MS)
 
-  return timeoutMs === undefined
-    ? request()
-    : withDeadline(
+  return withDeadline(
         request,
         timeoutMs,
-        settings.timeoutMessage ?? 'This request took too long.',
+        settings.timeoutMessage ?? (readOnly ? 'This request took too long.' : 'The server did not confirm whether this change finished.'),
         options.signal,
+        readOnly ? 'Please try again.' : 'Refresh to check the current state before trying again.',
       )
 }
 
@@ -2585,20 +2584,23 @@ export async function submitPilotFeedback(values: PilotFeedbackInput): Promise<P
   formData.append('feedback_report[actual]', values.actual)
   if (values.screenshot) formData.append('screenshot', values.screenshot)
 
-  let response: Response
-  try {
-    response = await apiFetch('/api/v1/pilot_feedback_reports', {
-      method: 'POST',
-      body: formData,
-    })
-  } catch (error) {
-    throw new Error(apiNetworkErrorMessage('Feedback submission could not reach the API'), { cause: error })
-  }
+  return withDeadline(async (signal) => {
+    let response: Response
+    try {
+      response = await apiFetch('/api/v1/pilot_feedback_reports', {
+        method: 'POST',
+        body: formData,
+      }, signal)
+    } catch (error) {
+      throw new Error(apiNetworkErrorMessage('Feedback submission could not reach the API'), { cause: error })
+    }
 
-  if (!response.ok) throw new Error(await responseErrorMessage(response, 'Feedback submission failed'))
+    if (!response.ok) throw new Error(await responseErrorMessage(response, 'Feedback submission failed'))
 
-  const payload = (await response.json()) as { feedback_report: PilotFeedbackReceipt }
-  return payload.feedback_report
+    const payload = (await response.json()) as { feedback_report: PilotFeedbackReceipt }
+    return payload.feedback_report
+  }, FILE_UPLOAD_TIMEOUT_MS, 'The server did not confirm whether your report was received.', undefined,
+  'It may already be submitted. Keep your details and check with support before submitting again.')
 }
 
 export async function fetchAdminPilotFeedback(status: PilotFeedbackStatus | 'all' = 'submitted'): Promise<{ feedback_reports: AdminPilotFeedbackSummary[]; counts: AdminPilotFeedbackCounts }> {
@@ -4314,22 +4316,24 @@ export async function transcribeMiaVoice(audio: Blob): Promise<string> {
   const extension = contentType.includes('mp4') ? 'm4a' : contentType.includes('mpeg') ? 'mp3' : contentType.includes('ogg') ? 'ogg' : 'webm'
   formData.append('audio', new File([audio], `mia-voice.${extension}`, { type: contentType }))
 
-  let response: Response
-  try {
-    response = await apiFetch('/api/v1/mia/transcriptions', {
-      method: 'POST',
-      body: formData,
-    })
-  } catch (error) {
-    throw new Error(apiNetworkErrorMessage('Voice transcription could not reach the API'), { cause: error })
-  }
+  return withDeadline(async (signal) => {
+    let response: Response
+    try {
+      response = await apiFetch('/api/v1/mia/transcriptions', {
+        method: 'POST',
+        body: formData,
+      }, signal)
+    } catch (error) {
+      throw new Error(apiNetworkErrorMessage('Voice transcription could not reach the API'), { cause: error })
+    }
 
-  if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, 'Voice transcription failed'))
-  }
+    if (!response.ok) {
+      throw new Error(await responseErrorMessage(response, 'Voice transcription failed'))
+    }
 
-  const payload = (await response.json()) as { transcript: string }
-  return payload.transcript
+    const payload = (await response.json()) as { transcript: string }
+    return payload.transcript
+  }, FILE_UPLOAD_TIMEOUT_MS, 'Voice transcription took too long.', undefined, 'Record again or type your note.')
 }
 
 export async function fetchDocumentImports(): Promise<FinancialDocumentImport[]> {

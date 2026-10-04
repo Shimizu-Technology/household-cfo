@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AdminApprovedPhrase, AdminPhraseProposal } from './api'
 import {
   ApiRequestError,
+  transcribeMiaVoice,
+  submitPilotFeedback,
   archiveAdminPersona,
   approveAdminContentItem,
   createAdminContentItem,
@@ -723,7 +725,7 @@ describe('Persona Studio API contract', () => {
       '/api/v1/admin/personas/17/versions/31/rollback',
     ])
     expect((fetchMock.mock.calls[3][1] as RequestInit).method).toBe('PATCH')
-    expect(fetchMock.mock.calls[2][1]).not.toHaveProperty('signal')
+    expect((fetchMock.mock.calls[2][1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
     expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({
       persona: { draft_revision: 2, description: 'Clear and kind.' },
     })
@@ -1022,6 +1024,45 @@ describe('safe read deadlines', () => {
   })
 })
 
+describe('mutation deadlines', () => {
+  it('ends a stalled write without retrying a possibly committed change', async () => {
+    vi.useFakeTimers()
+    let signal: AbortSignal | null | undefined
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal
+      return new Promise<Response>(() => undefined)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const operation = createBudgetCategory({ name: 'Meals', stack_key: 'discretionary', monthly_amount: 50 }, 2026, 'stalled-category')
+    const result = expect(operation).rejects.toThrow('Refresh to check the current state before trying again.')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await result
+    expect(signal?.aborted).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'stalled-category' })
+  })
+
+  it('includes stalled token acquisition and response parsing in the write deadline', async () => {
+    vi.useFakeTimers()
+    setAuthTokenGetter(() => new Promise<string>(() => undefined))
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const authRequest = createBudgetCategory({ name: 'Meals', stack_key: 'discretionary' }, 2026, 'stalled-auth')
+    const authResult = expect(authRequest).rejects.toThrow('Refresh to check the current state')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await authResult
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    setAuthTokenGetter(null)
+    fetchMock.mockResolvedValue(new Response(new ReadableStream({ start() { /* Stalled body. */ } }), { status: 201 }))
+    const bodyRequest = createBudgetCategory({ name: 'Meals', stack_key: 'discretionary' }, 2026, 'stalled-body')
+    const bodyResult = expect(bodyRequest).rejects.toThrow('Refresh to check the current state')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await bodyResult
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('Mia request idempotency polling', () => {
   it('polls an in-flight request with the same request ID until the cached response is ready', async () => {
     vi.useFakeTimers()
@@ -1083,7 +1124,7 @@ describe('Mia request idempotency polling', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const firstAttempt = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-timeout-1')
-    const firstResult = expect(firstAttempt).rejects.toThrow('Your assistant took too long to finish this request. Please try again.')
+    const firstResult = expect(firstAttempt).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check the current state before trying again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await firstResult
 
@@ -1104,7 +1145,7 @@ describe('Mia request idempotency polling', () => {
     setAuthTokenGetter(() => new Promise<string | null>(() => undefined))
 
     const request = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-auth-timeout-1')
-    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Please try again.')
+    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check the current state before trying again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await result
 
@@ -1121,7 +1162,7 @@ describe('Mia request idempotency polling', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const request = sendMiaMessage('Can I afford this?', [], false)
-    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Please try again.')
+    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check the current state before trying again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await result
 
@@ -1176,5 +1217,92 @@ describe('private document upload', () => {
     const presignBody = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
     expect(presignBody.content_type).toBe('text/csv')
     expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toEqual({ 'Content-Type': 'text/csv' })
+  })
+})
+
+
+describe('voice transcription deadlines', () => {
+  it('aborts a stalled transcription and returns a usable recovery message', async () => {
+    vi.useFakeTimers()
+    let signal: AbortSignal | null | undefined
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal
+      return new Promise<Response>(() => undefined)
+    }))
+    const result = expect(transcribeMiaVoice(new Blob(['synthetic audio'], { type: 'audio/webm' }))).rejects.toThrow('Voice transcription took too long. Record again or type your note.')
+    await vi.advanceTimersByTimeAsync(180_000)
+    await result
+    expect(signal?.aborted).toBe(true)
+  })
+})
+
+describe('feedback submission deadlines', () => {
+  const values = {
+    workflow: 'ask_mia' as const, attempted: 'Open the chat', expected: 'See a reply', actual: 'The reply did not appear',
+  }
+  const timeoutMessage = 'The server did not confirm whether your report was received. It may already be submitted. Keep your details and check with support before submitting again.'
+
+  it('bounds stalled authentication without submitting or automatically retrying the report', async () => {
+    vi.useFakeTimers()
+    setAuthTokenGetter(() => new Promise<string | null>(() => undefined))
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = expect(submitPilotFeedback(values)).rejects.toThrow(timeoutMessage)
+    await vi.advanceTimersByTimeAsync(180_000)
+    await result
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('aborts a stalled upload without retrying a possibly received report', async () => {
+    vi.useFakeTimers()
+    let signal: AbortSignal | null | undefined
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal
+      return new Promise<Response>(() => undefined)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = expect(submitPilotFeedback({ ...values, screenshot: new File(['image'], 'issue.png', { type: 'image/png' }) })).rejects.toThrow(timeoutMessage)
+    await vi.advanceTimersByTimeAsync(179_999)
+    expect(signal?.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await result
+    expect(signal?.aborted).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each([201, 422])('bounds stalled response body parsing for HTTP %i', async (status) => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue(new Response(new ReadableStream({ start() { /* Stalled response body. */ } }), { status }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = expect(submitPilotFeedback(values)).rejects.toThrow(timeoutMessage)
+    await vi.advanceTimersByTimeAsync(180_000)
+    await result
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect((fetchMock.mock.calls[0][1] as RequestInit).signal?.aborted).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps the multipart upload and receipt contract and clears the deadline on success', async () => {
+    vi.useFakeTimers()
+    const receipt = { id: 42, screenshot_attached: true }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ feedback_report: receipt }), { status: 201 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const screenshot = new File(['image'], 'issue.png', { type: 'image/png' })
+
+    await expect(submitPilotFeedback({ ...values, screenshot })).resolves.toEqual(receipt)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toContain('/api/v1/pilot_feedback_reports')
+    expect(init.method).toBe('POST')
+    expect(init.signal?.aborted).toBe(false)
+    const body = init.body as FormData
+    expect(body.get('feedback_report[attempted]')).toBe(values.attempted)
+    expect(body.get('screenshot')).toBe(screenshot)
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

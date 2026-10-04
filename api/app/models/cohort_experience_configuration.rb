@@ -48,7 +48,11 @@ class CohortExperienceConfiguration < ApplicationRecord
   end
 
   def editor_is_staff
-    errors.add(:last_edited_by_user, "cannot edit this coach workspace") unless coach_workspace&.allows?(last_edited_by_user, :edit)
+    permission = @restoring_version ? :publish : :edit
+    return if coach_workspace&.allows?(last_edited_by_user, permission)
+
+    action = @restoring_version ? "restore participant tools in" : "edit"
+    errors.add(:last_edited_by_user, "cannot #{action} this coach workspace")
   end
 
   def draft_matches_schema
@@ -86,6 +90,7 @@ class CohortExperienceConfiguration < ApplicationRecord
     raise ArgumentError, "version must belong to this configuration" unless version.cohort_experience_configuration_id == id
 
     @force_draft_revision_and_preview_reset = true
+    @restoring_version = true
     update!(
       draft_config: version.config.deep_dup,
       current_published_version: version,
@@ -93,5 +98,6 @@ class CohortExperienceConfiguration < ApplicationRecord
     )
   ensure
     @force_draft_revision_and_preview_reset = false
+    @restoring_version = false
   end
 end

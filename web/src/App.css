@@ -9992,3 +9992,22 @@ h3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+.first-session-setup-options {
+  display: grid;
+  gap: 9px;
+}
+
+.first-session-setup-options > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.first-session-options-toggle {
+  justify-self: start;
+  min-height: 36px;
+  padding: 7px 12px;
+  font-size: 0.74rem;
+}

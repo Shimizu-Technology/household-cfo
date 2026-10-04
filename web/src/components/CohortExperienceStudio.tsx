@@ -134,7 +134,7 @@ export function CohortExperienceStudio({
   }
 
   async function saveDraft() {
-    if (!configuration || !draft || pendingAction) return
+    if (!configuration || !draft || pendingAction || !configuration.permissions.edit) return
     const ticket = mutationLifecycle.begin()
     setPendingAction('save')
     setError(null)
@@ -154,7 +154,7 @@ export function CohortExperienceStudio({
   }
 
   async function runPreview() {
-    if (!configuration || dirty || pendingAction) return
+    if (!configuration || dirty || pendingAction || !configuration.permissions.review) return
     const ticket = mutationLifecycle.begin()
     setPendingAction('preview')
     setError(null)
@@ -174,10 +174,10 @@ export function CohortExperienceStudio({
   }
 
   async function publishDraft() {
-    if (!configuration || !preview || pendingAction || dirty) return
+    if (!configuration || !preview || pendingAction || dirty || !configuration.permissions.publish) return
     const impact = configuration.cohort.participant_count
     if (configuration.cohort.status === 'active' && !window.confirm(
-      `Publish these participant tools now? ${impact} participant${impact === 1 ? '' : 's'} in ${configuration.cohort.name} will see the new navigation after refresh.`,
+      `Publish these participant tools for ${configuration.cohort.name}? Its ${impact} participant${impact === 1 ? '' : 's'} will keep the tools in their current sealed release until a new release is activated or rolled out. Participants without a sealed release will see the published tools after refresh.`,
     )) return
     const ticket = mutationLifecycle.begin()
     setPendingAction('publish')
@@ -205,7 +205,7 @@ export function CohortExperienceStudio({
   }
 
   async function rollback(versionId: number, versionNumber: number) {
-    if (!configuration || dirty || pendingAction) return
+    if (!configuration || dirty || pendingAction || !configuration.permissions.rollback) return
     if (!window.confirm(`Restore version ${versionNumber} as a new published version?`)) return
     const ticket = mutationLifecycle.begin()
     setPendingAction('rollback')
@@ -242,7 +242,7 @@ export function CohortExperienceStudio({
         <div>
           <p className="eyebrow">Cohort experience</p>
           <h3>Choose what participants can open.</h3>
-          <p>The essential financial controls stay available. Optional teaching tools appear only after this exact draft is previewed and published.</p>
+          <p>The essential financial controls stay available. Preview and publish optional tools, then include them in the cohort release participants will use.</p>
         </div>
         <label>
           <span>Cohort</span>
@@ -283,7 +283,7 @@ export function CohortExperienceStudio({
                   />
                 </label>
               ))}
-              {!configuration.permissions.edit && <p className="coach-read-only" role="note">Completed and archived cohorts are read-only.</p>}
+              {!configuration.permissions.edit && <p className="coach-read-only" role="note">{['completed', 'archived'].includes(configuration.cohort.status) ? 'Completed and archived cohorts are read-only.' : configuration.permissions.review ? 'Your workspace role can review the saved draft but cannot change these tools.' : 'Your workspace role can view these tools but cannot change or publish them.'}</p>}
             </article>
           </div>
 
@@ -294,8 +294,8 @@ export function CohortExperienceStudio({
             </header>
             <div className="experience-actions">
               <Button onClick={() => void saveDraft()} disabled={!dirty || pendingAction !== null || !configuration.permissions.edit}>{pendingAction === 'save' ? 'Saving' : 'Save draft'}</Button>
-              <Button variant="secondary" onClick={() => void runPreview()} disabled={dirty || pendingAction !== null || !configuration.permissions.edit}>{pendingAction === 'preview' ? 'Previewing' : 'Preview navigation'}</Button>
-              <Button onClick={() => void publishDraft()} disabled={!preview || dirty || pendingAction !== null || preview.digest !== configuration.preview?.digest}>{pendingAction === 'publish' ? 'Publishing' : 'Publish to cohort'}</Button>
+              <Button variant="secondary" onClick={() => void runPreview()} disabled={dirty || pendingAction !== null || !configuration.permissions.review}>{pendingAction === 'preview' ? 'Previewing' : 'Preview navigation'}</Button>
+              <Button onClick={() => void publishDraft()} disabled={!configuration.permissions.publish || !preview || dirty || pendingAction !== null || preview.digest !== configuration.preview?.digest}>{pendingAction === 'publish' ? 'Publishing' : 'Publish to cohort'}</Button>
             </div>
 
             {preview && <ExperiencePreview preview={preview} />}

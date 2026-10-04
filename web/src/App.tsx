@@ -479,6 +479,7 @@ function App() {
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
+  const [manualSetupFocusRequest, setManualSetupFocusRequest] = useState(0)
   const [active, setActive] = useState(() => {
     return sectionFromLocation()
   })
@@ -529,6 +530,8 @@ function App() {
   const [previewImport, setPreviewImport] = useState<FinancialDocumentImport | null>(null)
   const miaAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const setupFormRef = useRef<HTMLFormElement | null>(null)
+  const handledManualSetupFocusRef = useRef(0)
+  const manualSetupFocusOriginRef = useRef<Element | null>(null)
   const incomeSourcesRef = useRef<HTMLElement | null>(null)
   const incomeFocusSequenceRef = useRef(0)
   const [incomeFocusRequest, setIncomeFocusRequest] = useState<IncomeSourceFocusRequest | null>(null)
@@ -1348,19 +1351,37 @@ function App() {
 
   useLayoutEffect(() => {
     const pendingNavigation = pendingSectionNavigationRef.current
-    if (!pendingNavigation || pendingNavigation.section !== activeSection) return
+    const navigationMatches = pendingNavigation?.section === activeSection
+    const manualFocusPending = manualSetupFocusRequest !== handledManualSetupFocusRef.current
+    if (manualFocusPending && activeSection !== 'My Profile') {
+      handledManualSetupFocusRef.current = manualSetupFocusRequest
+    }
+    const focusManualSetup = manualFocusPending && activeSection === 'My Profile'
+    if (!navigationMatches && !focusManualSetup) return
 
     const animationFrame = window.requestAnimationFrame(() => {
-      window.scrollTo({ top: pendingNavigation.scrollTop, left: 0, behavior: 'auto' })
-      if (pendingNavigation.focusHeading) {
-        document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll: true })
+      // A person can choose a field before this frame. Respect that choice.
+      const focusInterrupted = focusManualSetup
+        && document.activeElement !== manualSetupFocusOriginRef.current
+        && document.activeElement !== document.body
+      if (focusManualSetup) handledManualSetupFocusRef.current = manualSetupFocusRequest
+      if (!focusInterrupted) {
+        if (navigationMatches) window.scrollTo({ top: pendingNavigation.scrollTop, left: 0, behavior: 'auto' })
+        if (focusManualSetup) {
+          setupFormRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' })
+          setupFormRef.current?.querySelector<HTMLInputElement>('[name="primary_income"]')?.focus({ preventScroll: true })
+        } else if (navigationMatches && pendingNavigation.focusHeading) {
+          document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll: true })
+        }
       }
-      setRouteAnnouncement(`${activeSection} screen loaded.`)
-      pendingSectionNavigationRef.current = null
+      if (navigationMatches) {
+        setRouteAnnouncement(`${activeSection} screen loaded.`)
+        pendingSectionNavigationRef.current = null
+      }
     })
 
     return () => window.cancelAnimationFrame(animationFrame)
-  }, [activeSection])
+  }, [activeSection, manualSetupFocusRequest])
 
   function prepareMiaUpdate(prompt: string) {
     setQuestion(prompt)
@@ -1494,13 +1515,11 @@ function App() {
   }
 
   function startManualFirstSession() {
-    switchSection('My Profile')
+    if (!switchSection('My Profile', { focusHeading: false })) return
+    manualSetupFocusOriginRef.current = document.activeElement
+    setManualSetupFocusRequest((current) => current + 1)
     setFirstSessionUploadOpen(false)
     setIsProfileEditing(true)
-    window.setTimeout(() => {
-      setupFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      setupFormRef.current?.querySelector<HTMLInputElement>('[name="primary_income"]')?.focus({ preventScroll: true })
-    }, 80)
   }
 
   function startChatFirstSession() {
@@ -2782,7 +2801,7 @@ function App() {
             <p className="eyebrow">{brandByline(brand)}</p>
             <h1>{brand.short_name}</h1>
           </div>
-          {data.workspace?.cohort && <span className="cohort-brand-chip">{data.workspace.cohort.name} cohort</span>}
+          {data.workspace?.cohort && <span className="cohort-brand-chip">{data.workspace.cohort.name}</span>}
         </div>
         <div className="shell-actions">
           {auth.currentUser && (
@@ -2946,6 +2965,7 @@ function App() {
               {isFirstSessionSetup && (
                 <FirstSessionSetupProgress
                   status={data.workspace.setup_status}
+                  hasConversation={currentMessages.length > 0}
                   onStartChat={startChatFirstSession}
                   onShareAll={shareAllFirstSession}
                   onManual={startManualFirstSession}
@@ -3118,8 +3138,10 @@ function App() {
                     ref={composerRef}
                   />
                   {miaCharactersRemaining <= MIA_MESSAGE_LENGTH_WARNING_AT && (
-                    <span id="mia-composer-count" className={`composer-character-count${question.length === MIA_MESSAGE_MAX_LENGTH ? ' is-limit' : ''}`} role="status" aria-live="polite">
-                      {miaCharactersRemaining.toLocaleString()} {miaCharactersRemaining === 1 ? 'character' : 'characters'} remaining
+                    <span id="mia-composer-count" className={`composer-character-count${question.length >= MIA_MESSAGE_MAX_LENGTH ? ' is-limit' : ''}`} role="status" aria-live="polite">
+                      {miaCharactersRemaining < 0
+                        ? `Remove ${Math.abs(miaCharactersRemaining).toLocaleString()} ${miaCharactersRemaining === -1 ? 'character' : 'characters'} to send.`
+                        : `${miaCharactersRemaining.toLocaleString()} ${miaCharactersRemaining === 1 ? 'character' : 'characters'} remaining`}
                     </span>
                   )}
                 </div>
@@ -3127,7 +3149,7 @@ function App() {
                 <button
                   className="send-button"
                   type="submit"
-                  disabled={miaLoading || voiceRecording || voiceTranscribing || (!question.trim() && pendingMiaAttachments.length === 0)}
+                  disabled={miaLoading || voiceRecording || voiceTranscribing || question.trim().length > MIA_MESSAGE_MAX_LENGTH || (!question.trim() && pendingMiaAttachments.length === 0)}
                   aria-label={miaLoading ? `${assistantName} is thinking` : `Send message to ${assistantName}`}
                 >
                   <span>{miaLoading ? 'Thinking' : 'Send'}</span>
@@ -3862,8 +3884,10 @@ function FirstSessionCard({ onChat, onShareAll, onManual, onUpload, onGuide }: {
   )
 }
 
-function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }: { status: WorkspaceSetupStatus; onStartChat: () => void; onShareAll: () => void; onManual: () => void }) {
+function FirstSessionSetupProgress({ status, hasConversation, onStartChat, onShareAll, onManual }: { status: WorkspaceSetupStatus; hasConversation: boolean; onStartChat: () => void; onShareAll: () => void; onManual: () => void }) {
   const { assistantName } = useBrand()
+  const [showOptions, setShowOptions] = useState(false)
+  const optionsVisible = !hasConversation || showOptions
   return (
     <section className="first-session-setup-progress" aria-labelledby="first-session-progress-title" aria-live="polite">
       <div className="first-session-progress-heading">
@@ -3874,6 +3898,8 @@ function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }
         <span>{Math.round((status.completed_count / Math.max(status.required_count, 1)) * 100)}%</span>
       </div>
       <div className="first-session-progress-bar" aria-hidden="true"><span style={{ width: `${(status.completed_count / Math.max(status.required_count, 1)) * 100}%` }} /></div>
+      {hasConversation && <button type="button" className="first-session-options-toggle secondary-button" aria-expanded={optionsVisible} aria-controls="first-session-setup-options" onClick={() => setShowOptions((visible) => !visible)}>{optionsVisible ? 'Hide setup options' : 'Show setup options'}</button>}
+      {optionsVisible && <div id="first-session-setup-options" className="first-session-setup-options">
       <ul>
         {status.required_fields.map((field) => (
           <li key={field.key} className={field.confirmed ? 'is-confirmed' : ''}>
@@ -3889,6 +3915,7 @@ function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }
         <button type="button" className="secondary-button" onClick={onShareAll}>Share everything at once</button>
         <button type="button" className="secondary-button" onClick={onManual}>Enter manually</button>
       </div>
+      </div>}
     </section>
   )
 }
@@ -7131,7 +7158,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
           <h3>Choose the amount of detail that works for your household.</h3>
           <p>Use one approved summary for a quick starting picture, or track each debt so {assistantName} can compare payoff strategies without guessing.</p>
         </div>
-        {editingId === null && <button type="button" onClick={beginCreate}>{portfolio.mode === 'summary' ? 'Add preserved record' : 'Add a debt'}</button>}
+        {editingId === null && <button type="button" onClick={beginCreate}>Add a debt</button>}
       </div>
 
       <form className="debt-tracking" data-debt-action="tracking" tabIndex={-1} onSubmit={saveTrackingMode}>
@@ -7351,10 +7378,11 @@ function MiaActionDraftReviewCard({
     .filter(Boolean))
   const touchesStartingPicture = Boolean(draft.setup_coverage_after_apply?.required_fields.some((field) => proposedSetupKeys.has(field.key)))
   const setupCoverage = draft.draft_type === 'household_setup' && touchesStartingPicture ? draft.setup_coverage_after_apply : null
+  const reviewValueCount = proposedSetupKeys.size || draft.items.length
   const applyLabel = setupCoverage?.complete
     ? 'Apply starting picture'
     : setupCoverage
-      ? `Apply these ${draft.items.length} value${draft.items.length === 1 ? '' : 's'}`
+      ? `Apply ${reviewValueCount} value${reviewValueCount === 1 ? '' : 's'}`
       : 'Apply reviewed change'
   const planApplyLabel = !isChoosingChanges || selectedIds.size === remainingItems.length
     ? `Apply all ${remainingItems.length} ${remainingItems.length === 1 ? 'change' : 'changes'}`
@@ -7433,7 +7461,7 @@ function MiaActionDraftReviewCard({
           <section className={`mia-setup-coverage${setupCoverage.complete ? ' is-complete' : ''}`} aria-label="Starting picture coverage after applying this review">
             <div>
               <strong>{setupCoverage.complete ? 'Starting picture complete after approval' : `${setupCoverage.completed_count} of ${setupCoverage.required_count} essentials after approval`}</strong>
-              <span>This review includes {draft.items.length} confirmed value{draft.items.length === 1 ? '' : 's'}.</span>
+              <span>This review includes {reviewValueCount} confirmed value{reviewValueCount === 1 ? '' : 's'}.</span>
             </div>
             {setupCoverage.missing_fields.length > 0 && (
               <p><strong>Still needed:</strong> {setupCoverage.missing_fields.map((field) => field.label).join(', ')}.</p>
@@ -9458,7 +9486,7 @@ function AnnualBudgetPlanner({
       if (target) {
         const disclosure = target.closest('details')
         if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        target.scrollIntoView({ behavior: 'auto', block: 'center' })
         target.focus({ preventScroll: true })
       } else if (tool !== 'income') {
         manualManagerRef.current?.focus({ preventScroll: true })

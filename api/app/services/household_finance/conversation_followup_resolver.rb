@@ -34,6 +34,9 @@ module HouseholdFinance
       return Result.new(message: message, direct_answer: nil, follow_up?: false) if message.blank?
       return recall_result if recall_request? && useful_context?
       return empty_recall_result if recall_request?
+      if MiaCoachAnswerer.prompt_injection?(active_topic.to_h["latest_user_context"])
+        return Result.new(message: message, direct_answer: nil, follow_up?: false)
+      end
       return Result.new(message: enriched_message, direct_answer: nil, follow_up?: true) if confirmation? && active_topic.present?
       return acknowledgment_result if acknowledgment?
       return Result.new(message: enriched_message, direct_answer: nil, follow_up?: true) if topic_continuation?
@@ -60,7 +63,7 @@ module HouseholdFinance
       scenario_summaries = Array(topic.dig("read_only_plan", "items")).first(3).filter_map do |item|
         recall_scenario_summary(item.to_h)
       end
-      participant_context = topic["latest_user_context"] if scenario_summaries.empty?
+      participant_context = topic["latest_user_context"] if scenario_summaries.empty? && !MiaCoachAnswerer.prompt_injection?(topic["latest_user_context"])
       assistant_context = if scenario_summaries.empty?
         [ topic["latest_mia_summary"], topic["next_move"] ]
       else
@@ -172,6 +175,8 @@ module HouseholdFinance
     def strong_new_topic?
       normalized = message.downcase
       self.class.complete_conditional_income_question?(message) ||
+        MiaCoachAnswerer.prompt_injection?(active_topic.to_h["latest_user_context"]) ||
+        normalized.match?(/\b(?:crypto(?:currency)?|bitcoin|stocks?|take[ -]?home pay|credit card balance)\b/) ||
         normalized.match?(/\b(?:new question|different question|switch topics|unrelated)\b/) ||
         normalized.match?(/\b(?:my cousin|car registration|car repair|payday loan|balance transfer|leave my job|business income|pending drafts?|i spent|we spent)\b/) ||
         spending_report_question?

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import {
   ApiRequestError,
   advanceCohortRollout,
@@ -36,6 +36,7 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
   const [notice, setNotice] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [focusVersion, setFocusVersion] = useState(0)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const loadRequestRef = useRef(0)
   const loadAbortRef = useRef<AbortController | null>(null)
@@ -147,8 +148,14 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
   }, [])
 
   const focusCurrentState = useCallback(() => {
-    window.requestAnimationFrame(() => studioRootRef.current?.querySelector<HTMLElement>('[data-rollout-focus-target]')?.focus())
+    setFocusVersion((version) => version + 1)
   }, [])
+
+  // Restore focus after React commits the refreshed state. Animation frames
+  // can be suspended in background Safari tabs and are not a commit boundary.
+  useLayoutEffect(() => {
+    if (focusVersion > 0) studioRootRef.current?.querySelector<HTMLElement>('[data-rollout-focus-target]')?.focus()
+  }, [focusVersion])
 
   async function confirmAction() {
     if (!confirmation || !studio || !cohortId || pendingAction || mutationLifecycle.pending) return

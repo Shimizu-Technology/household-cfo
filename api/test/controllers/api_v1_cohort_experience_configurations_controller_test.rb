@@ -6,6 +6,98 @@ require_relative "../support/persona_test_helper"
 class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::IntegrationTest
   include PersonaTestHelper
 
+  test "participant tool permissions match workspace roles and cohort status" do
+    owner = create_user("coach")
+    cohort = Cohort.create!(name: "Role capabilities #{SecureRandom.hex(3)}", status: "active", created_by_user: owner)
+    expectations = {
+      "owner" => { "edit" => true, "review" => true, "publish" => true, "rollback" => true },
+      "editor" => { "edit" => true, "review" => true, "publish" => false, "rollback" => false },
+      "reviewer" => { "edit" => false, "review" => true, "publish" => true, "rollback" => true },
+      "viewer" => { "edit" => false, "review" => false, "publish" => false, "rollback" => false }
+    }
+    expectations.each do |role, permissions|
+      user = role == "owner" ? owner : create_user("coach")
+      cohort.coach_workspace.coach_workspace_memberships.create!(user: user, role: role) unless role == "owner"
+      get endpoint(cohort), headers: workspace_headers(user, cohort.coach_workspace)
+      assert_response :success
+      assert_equal permissions, response.parsed_body.dig("experience_configuration", "permissions"), role
+    end
+
+    cohort.update!(status: "completed")
+    get endpoint(cohort), headers: workspace_headers(owner, cohort.coach_workspace)
+    assert_response :success
+    assert_equal expectations.fetch("viewer"), response.parsed_body.dig("experience_configuration", "permissions")
+  end
+
+  test "viewer reads a fresh cohort without creating or editing its configuration" do
+    owner = create_user("coach")
+    viewer = create_user("coach")
+    cohort = Cohort.create!(name: "Fresh viewer #{SecureRandom.hex(3)}", status: "active", created_by_user: owner)
+    cohort.coach_workspace.coach_workspace_memberships.create!(user: viewer, role: "viewer")
+    configuration = cohort.cohort_experience_configuration
+    assert_no_difference "CohortExperienceConfiguration.count" do
+      get endpoint(cohort), headers: workspace_headers(viewer, cohort.coach_workspace)
+    end
+    assert_response :success
+    assert_equal owner.id, configuration.reload.last_edited_by_user_id
+
+    configuration.destroy!
+    assert_no_difference "CohortExperienceConfiguration.count" do
+      get endpoint(cohort), headers: workspace_headers(viewer, cohort.coach_workspace)
+    end
+    assert_response :not_found
+    assert_equal "experience_configuration_not_found", response.parsed_body.fetch("code")
+  end
+
+  test "editor can preview the saved draft but cannot publish or restore" do
+    owner = create_user("coach")
+    editor = create_user("coach")
+    cohort = Cohort.create!(name: "Editor preview #{SecureRandom.hex(3)}", status: "active", created_by_user: owner)
+    cohort.coach_workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
+    version = publish_configuration(cohort.cohort_experience_configuration, owner, cfo_filter: true, optionality: false)
+    configuration = cohort.cohort_experience_configuration.reload
+    headers = workspace_headers(editor, cohort.coach_workspace)
+    post "#{endpoint(cohort)}/preview", params: { experience_configuration: { draft_revision: configuration.draft_revision } }, headers: headers, as: :json
+    assert_response :success
+    digest = response.parsed_body.dig("preview", "digest")
+    post "#{endpoint(cohort)}/publish", params: { experience_configuration: {
+      draft_revision: configuration.draft_revision, preview_digest: digest, expected_published_version_id: version.id
+    } }, headers: headers, as: :json
+    assert_response :not_found
+    post "#{version_endpoint(cohort, version)}/rollback", params: { experience_configuration: {
+      draft_revision: configuration.draft_revision, expected_published_version_id: version.id
+    } }, headers: headers, as: :json
+    assert_response :not_found
+    assert_equal version.id, configuration.reload.current_published_version_id
+  end
+
+  test "reviewer can restore a published version with accurate actor attribution but cannot edit a draft" do
+    owner = create_user("coach")
+    reviewer = create_user("coach")
+    cohort = Cohort.create!(name: "Reviewer restore #{SecureRandom.hex(3)}", status: "active", created_by_user: owner)
+    cohort.coach_workspace.coach_workspace_memberships.create!(user: reviewer, role: "reviewer")
+    configuration = cohort.cohort_experience_configuration
+    original = publish_configuration(configuration, owner, cfo_filter: true, optionality: false)
+    latest = publish_configuration(configuration, owner, cfo_filter: false, optionality: true)
+    revision = configuration.reload.draft_revision
+    post "#{version_endpoint(cohort, original)}/rollback", params: { experience_configuration: {
+      draft_revision: revision, expected_published_version_id: latest.id
+    } }, headers: workspace_headers(reviewer, cohort.coach_workspace), as: :json
+    assert_response :success
+    restored = configuration.reload.current_published_version
+    assert_equal original.id, restored.source_version_id
+    assert_equal reviewer.id, restored.published_by_user_id
+    assert_equal reviewer.id, configuration.last_edited_by_user_id
+    assert_equal reviewer.id, configuration.publication_events.order(:id).last.actor_user_id
+    assert_equal revision + 1, configuration.draft_revision
+    assert_equal original.config, configuration.draft_config
+
+    assert_raises ActiveRecord::RecordInvalid do
+      configuration.update!(last_edited_by_user: owner)
+      configuration.update!(draft_config: CohortExperience::Schema::DEFAULT_CONFIG, last_edited_by_user: reviewer)
+    end
+  end
+
   test "workspace editor can save and reviewer can preview and publish while participants cannot manage" do
     admin = create_user("admin")
     coach = create_user("coach")

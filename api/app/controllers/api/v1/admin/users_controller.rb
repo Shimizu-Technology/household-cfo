@@ -6,6 +6,7 @@ module Api
 
         before_action :authenticate_user!
         before_action :require_staff!
+        before_action :require_participant_management!
         rescue_from Mia::PersonaAssignmentCompatibility::Conflict, with: :render_persona_membership_conflict
 
         def index
@@ -377,8 +378,18 @@ module Api
           (cohort_ids - coach_cohort_ids).empty?
         end
 
+        def require_participant_management!
+          render_forbidden("Participant management access required") unless participant_roster_policy.manage?
+        end
+
+        def participant_roster_policy
+          @participant_roster_policy ||= CoachWorkspaces::ParticipantRosterPolicy.new(
+            user: current_user, workspace: coach_workspace_for_policy
+          )
+        end
+
         def coach_cohort_ids
-          @coach_cohort_ids ||= current_user.cohort_memberships.where(role: "coach", cohort_id: current_workspace_cohort_ids).pluck(:cohort_id)
+          @coach_cohort_ids ||= participant_roster_policy.cohort_ids
         end
 
         def current_workspace_cohort_ids
