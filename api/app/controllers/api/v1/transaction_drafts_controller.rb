@@ -245,10 +245,8 @@ module Api
       end
 
       def current_chat_session
-        current_household.chat_sessions.find_by(user: current_user) ||
-          current_household.chat_sessions.create!(user: current_user, title: "Ask Mia")
-      rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
-        current_household.chat_sessions.find_by!(user: current_user)
+        ::Mia::ChatSessionScope.new(household: current_household, user: current_user,
+          membership: current_cohort_membership, runtime: current_participant_runtime).find_or_create!
       end
 
       def workspace_payload_for(year)

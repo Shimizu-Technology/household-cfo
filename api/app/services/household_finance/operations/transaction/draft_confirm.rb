@@ -11,6 +11,7 @@ module HouseholdFinance
 
         def normalize(input)
           draft = household.transaction_drafts.find(input[:draft_id].to_i)
+          require_legacy_draft!(draft)
           source_type = normalized_source_type(input[:source_type])
           normalized = { draft_id: draft.id, source_type: source_type, year: draft.occurred_on.year }
           if input[:occurred_on].present?
@@ -64,6 +65,7 @@ module HouseholdFinance
         end
 
         def validate_execution!(draft, input, prepared:, source:)
+          require_legacy_draft!(draft)
           validate_source!(input, source)
           raise ArgumentError, "Transaction draft is not pending" unless draft.pending?
         end

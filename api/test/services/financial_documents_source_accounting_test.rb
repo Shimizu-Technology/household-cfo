@@ -4,6 +4,7 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
   setup do
     @user = User.create!(clerk_id: "source-accounting-#{SecureRandom.hex(8)}", email: "source-accounting-#{SecureRandom.hex(8)}@example.com", role: "participant", invitation_status: "accepted")
     @household = Household.create!(created_by_user: @user, name: "Synthetic source accounting")
+    @household.household_memberships.create!(user: @user, role: "owner")
     @import = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "processing", filename: "synthetic.pdf", content_type: "application/pdf", byte_size: 10, s3_key: "synthetic/source.pdf")
     @attempt = @import.attempts.create!(provider: "synthetic", model: "synthetic", status: "processing", prompt_version: "synthetic", schema_version: "synthetic", started_at: Time.current)
   end
@@ -194,9 +195,23 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
     draft = @import.transaction_drafts.sole
     confirmation = HouseholdFinance::TransactionDraftConfirmer.new(draft, { budget_category_id: category.id }).call
 
-    assert confirmation.success?, confirmation.errors.inspect
-    assert_equal result[:events].first.id, confirmation.transaction.financial_source_event_id
-    assert_equal 1_000, confirmation.transaction.total_amount_cents
+    refute confirmation.success?
+    assert_includes confirmation.errors.join, "Statements"
+    assert_empty @household.household_transactions
+    account = result[:revision].financial_source_accounts.sole
+    identity = source_operation(HouseholdFinance::Operations::SourceReview::AccountLink,
+      source_account_id: account.id, account_basis: "asset", label: "Synthetic checking", base_version_id: nil, base_lock_version: 0,
+      statement_facts: account.attributes.slice("period_start_on", "period_end_on", "opening_balance_cents", "closing_balance_cents", "printed_debit_cents", "printed_credit_cents", "printed_row_count"), reason: "Participant checked the header")
+    proposal = source_operation(HouseholdFinance::Operations::SourceReview::DraftStage,
+      event_id: result[:events].first.id, base_version_id: nil, base_lock_version: 0, expected_pending_draft: nil,
+      facts: { source_account_identity_version_id: identity.id, disposition: "include", event_type: "purchase", signed_amount_cents: -1_000,
+        purchase_amount_cents: 1_000, posted_on: "2026-07-07", merchant: "Synthetic merchant", budget_category_id: category.id, overlap_disposition: "new" },
+      projection: { action: "create" }, reason: "Participant checked this row and approves positive spending")
+    approved = source_operation(HouseholdFinance::Operations::SourceReview::DraftApprove,
+      draft_id: proposal.id, draft_lock_version: proposal.lock_version, draft_digest: proposal.digest)
+    transaction = approved.source_projection_revision.replacement_transaction
+    assert_equal result[:events].first.id, transaction.financial_source_event_id
+    assert_equal 1_000, transaction.total_amount_cents
     assert_equal(-1_000, result[:events].first.reload.signed_amount_cents)
     second = persist(normalized([ event(-500, row: 2) ]), new_attempt: true)
     HouseholdFinance::DocumentTransactionDraftPersister.new(@import, second[:transaction_drafts]).call
@@ -206,8 +221,8 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
     assert_equal "ignored", old_pending.reload.status
     assert_equal 3, FinancialExtractionRevision.where(household: @household).count
     assert_equal 3, FinancialSourceEvent.where(household: @household).count
-    assert_equal 1_000, confirmation.transaction.reload.total_amount_cents
-    assert_equal confirmation.transaction.id, draft.reload.confirmed_transaction_id
+    assert_equal 1_000, transaction.reload.total_amount_cents
+    assert_equal transaction.id, draft.reload.confirmed_transaction_id
     assert_includes %w[confirmed corrected], draft.status
   end
 
@@ -263,6 +278,11 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
   end
 
   private
+
+  def source_operation(klass, input)
+    operation = klass.new(@household, user: @user)
+    operation.execute!(operation.prepare(input), source: "manual")
+  end
 
   def account(**overrides)
     { account_key: "test-account", account_basis: "asset", period_start_on: "2026-07-01", period_end_on: "2026-07-31", opening_balance_cents: 10_000, closing_balance_cents: nil, printed_debit_cents: nil, printed_credit_cents: nil }.merge(overrides)

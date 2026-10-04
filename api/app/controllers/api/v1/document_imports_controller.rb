@@ -44,7 +44,7 @@ module Api
         review = @document_import.with_lock do
           FinancialDocuments::SourceReviewPage.new(@document_import,
             revision_id: params[:revision_id], page: params.fetch(:page, "1"),
-            per_page: params.fetch(:per_page, "50"), filter: params.fetch(:filter, "all"))
+            per_page: params.fetch(:per_page, "50"), filter: params.fetch(:filter, "all"), user: current_user)
             .call { |draft| draft ? serialize_transaction_draft(draft) : nil }
         end
         render json: { source_review: review }
@@ -178,6 +178,10 @@ module Api
 
         ApplicationRecord.transaction do
           @document_import.with_lock do
+            if FinancialSourceUse.where(financial_document_import: @document_import).exists?
+              destroy_error = "Review every affected challenge use in Privacy before deleting this original."
+              raise ActiveRecord::Rollback
+            end
             if import_has_resolved_values?(@document_import)
               destroy_error = "Delete the source file instead; this import already applied or matched household values"
               raise ActiveRecord::Rollback
@@ -207,7 +211,7 @@ module Api
 
         reprocess_error = nil
         @document_import.with_lock do
-          unless @document_import.source_available?
+          unless ChallengePrivacy::SourceRetention.available?(@document_import)
             reprocess_error = "Document source is no longer available"
             next
           end
@@ -257,8 +261,8 @@ module Api
       end
 
       def source_url
+        return render json: { errors: [ "Document source is no longer available" ] }, status: :not_found unless ChallengePrivacy::SourceRetention.available?(@document_import)
         return render_s3_not_configured unless S3Service.configured?
-        return render json: { errors: [ "Document source is no longer available" ] }, status: :not_found unless @document_import.source_available?
 
         inline_supported = inline_supported?(@document_import)
         url = "/api/v1/document_imports/#{@document_import.id}/source_content"
@@ -278,10 +282,11 @@ module Api
       end
 
       def source_content
+        return render_source_unavailable unless ChallengePrivacy::SourceRetention.available?(@document_import)
         return render_s3_not_configured unless S3Service.configured?
-        return render_source_unavailable unless @document_import.source_available?
 
         key = @document_import.s3_key
+        return render_source_unavailable unless authorized_source_read?(key)
         bytes = FinancialDocuments::PrivateSourceReader.read(key)
         # Storage IO can race deletion or membership removal. Reauthorize before
         # sending bytes; never turn an earlier read decision into a reusable URL.
@@ -303,10 +308,11 @@ module Api
       end
 
       def source_preview
+        return render json: { errors: [ "Document source is no longer available" ] }, status: :not_found unless ChallengePrivacy::SourceRetention.available?(@document_import)
         return render_s3_not_configured unless S3Service.configured?
-        return render json: { errors: [ "Document source is no longer available" ] }, status: :not_found unless @document_import.source_available?
 
         key = @document_import.s3_key
+        return render_source_unavailable unless authorized_source_read?(key)
         result = FinancialDocuments::SourcePreviewer.new(@document_import).call
         return render_source_unavailable unless authorized_source_read?(key)
         return render json: result.data if result.success?
@@ -319,8 +325,14 @@ module Api
       def destroy_source
         return render json: { document_import: serialize_document_import(@document_import) } if @document_import.s3_key.blank?
 
+        if FinancialSourceUse.where(financial_document_import: @document_import).exists?
+          return render json: { errors: [ "Review every affected challenge use in Privacy before deleting this original." ] }, status: :conflict
+        end
         cleanup = nil
         @document_import.with_lock do
+          if FinancialSourceUse.where(financial_document_import: @document_import).exists?
+            raise ArgumentError, "Review every affected challenge use before deleting this original"
+          end
           cleanup = FinancialDocumentSourceCleanup.request!(@document_import, user: current_user)
           mark_source_deleted_before_s3_delete! unless @document_import.source_deleted_at.present?
           FinancialDocuments::SourceEvidenceEraser.call(@document_import)
@@ -335,6 +347,8 @@ module Api
         end
 
         render json: { document_import: serialize_document_import(@document_import.reload) }
+      rescue ArgumentError => error
+        render json: { errors: [ error.message ] }, status: :conflict
       rescue S3Service::MissingConfigurationError
         render_s3_not_configured
       rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotSaved
@@ -353,9 +367,11 @@ module Api
       end
 
       def authorized_source_read?(key)
+        ChallengePrivacy::PrivateFinanceAccess.authorize!(@document_import.household, user: current_user)
+        source = FinancialDocumentImport.find_by(id: @document_import.id, household_id: @document_import.household_id,
+          source_deleted_at: nil, s3_key: key)
         HouseholdMembership.exists?(household_id: @document_import.household_id, user_id: current_user.id) &&
-          FinancialDocumentImport.exists?(id: @document_import.id, household_id: @document_import.household_id,
-            source_deleted_at: nil, s3_key: key)
+          source && ChallengePrivacy::SourceRetention.available?(source)
       end
 
       def set_document_import
@@ -687,7 +703,7 @@ module Api
           applied_at: document_import.applied_at,
           source_deleted_at: document_import.source_deleted_at,
           updated_at: document_import.updated_at&.iso8601,
-          source_available: document_import.source_available?,
+          source_available: ChallengePrivacy::SourceRetention.available?(document_import),
           details_included: include_details,
           uploaded_by: serialize_user_reference(document_import.uploaded_by_user),
           applied_by: serialize_user_reference(document_import.applied_by_user),

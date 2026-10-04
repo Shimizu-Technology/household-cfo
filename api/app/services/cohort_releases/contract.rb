@@ -12,6 +12,7 @@ module CohortReleases
     SUPPORTED_SCHEMAS = [ V1_SCHEMA, V2_SCHEMA ].freeze
     # Legacy default, not a global requirement for every sealed release.
     TOOL_REGISTRY_VERSION = 1
+    RUNTIME_TOOL_REGISTRY_VERSION = 5
 
     def self.deep_freeze(value)
       case value
@@ -161,7 +162,7 @@ module CohortReleases
 
     def runtime_tool_registry_snapshot
       canonicalize(
-        "schema_version" => TOOL_REGISTRY_VERSION,
+        "schema_version" => RUNTIME_TOOL_REGISTRY_VERSION,
         "modules" => CohortExperience::ModuleRegistry::MODULES.map { |entry| entry.deep_stringify_keys },
         "operations" => HouseholdFinance::Operations::Registry.operations.sort_by { |key, _operation| key }.map do |key, operation|
           raise ArgumentError, "operation registry key does not match its handler" unless key == operation::KEY

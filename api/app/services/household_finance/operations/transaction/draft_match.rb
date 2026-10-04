@@ -11,6 +11,7 @@ module HouseholdFinance
 
         def normalize(input)
           draft = household.transaction_drafts.find(input[:draft_id].to_i)
+          require_legacy_draft!(draft)
           match = if input[:match_id].to_i.positive?
             draft.transaction_draft_matches.find_by(id: input[:match_id].to_i)
           elsif draft.matched?
@@ -43,6 +44,7 @@ module HouseholdFinance
         end
 
         def validate_execution!(draft, input, prepared:, source:)
+          require_legacy_draft!(draft)
           validate_source!(input, source)
           raise ArgumentError, "Transaction draft is not pending" unless draft.pending?
         end

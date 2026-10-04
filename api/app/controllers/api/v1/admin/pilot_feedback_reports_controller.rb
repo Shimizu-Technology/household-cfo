@@ -18,7 +18,7 @@ module Api
             return render json: { errors: [ "Feedback status is not valid" ] }, status: :unprocessable_entity
           end
 
-          reports = PilotFeedbackReport.includes(:user).recent_first
+          reports = visible_reports.includes(:user).recent_first
           reports = reports.where(status: requested_status) unless requested_status == "all"
 
           render json: {
@@ -93,15 +93,17 @@ module Api
         private
 
         def set_report
-          @report = PilotFeedbackReport.includes(:user).find(params[:id])
+          @report = visible_reports.includes(:user).find(params[:id])
         end
+
+        def visible_reports = ChallengePrivacy::PrivateFinanceAccess.without_pilot_households(PilotFeedbackReport.all)
 
         def feedback_report_params
           params.require(:feedback_report).permit(:status)
         end
 
         def feedback_counts
-          counts = PilotFeedbackReport.group(:status).count
+          counts = visible_reports.group(:status).count
           PilotFeedbackReport::STATUSES.to_h { |status| [ status, counts.fetch(status, 0) ] }
         end
 

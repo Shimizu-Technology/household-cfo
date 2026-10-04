@@ -6,7 +6,7 @@ require "json"
 module CohortExperience
   module Schema
     OPTIONAL_MODULES = %w[cfo_filter optionality].freeze
-    SUPPORTED_SCHEMA_VERSIONS = [ 1, 2 ].freeze
+    SUPPORTED_SCHEMA_VERSIONS = [ 1, 2, 3 ].freeze
     EXPERIENCE_MODES = %w[household_cfo savings_challenge].freeze
     DEFAULT_CONFIG = {
       "schema_version" => 1,
@@ -21,6 +21,7 @@ module CohortExperience
       "experience_mode" => "savings_challenge",
       "optional_modules" => OPTIONAL_MODULES.index_with(false).freeze
     }.freeze
+    PILOT_SAVINGS_CONFIG = SAVINGS_CONFIG.merge("schema_version" => 3).freeze
 
     module_function
 
@@ -31,7 +32,7 @@ module CohortExperience
         "schema_version" => Integer(input.fetch("schema_version", 1), exception: false),
         "optional_modules" => OPTIONAL_MODULES.index_with { |key| modules.fetch(key, false) }
       }
-      normalized["experience_mode"] = input["experience_mode"] if normalized["schema_version"] == 2
+      normalized["experience_mode"] = input["experience_mode"] if [ 2, 3 ].include?(normalized["schema_version"])
       normalized
     end
 
@@ -41,10 +42,10 @@ module CohortExperience
       input = value.to_h.deep_stringify_keys
       result = []
       allowed_keys = %w[schema_version optional_modules]
-      allowed_keys += %w[experience_mode] if input["schema_version"] == 2
+      allowed_keys += %w[experience_mode] if [ 2, 3 ].include?(input["schema_version"])
       result << "contains unsupported configuration fields" if (input.keys - allowed_keys).any?
-      result << "schema_version must be 1 or 2" unless SUPPORTED_SCHEMA_VERSIONS.include?(input["schema_version"])
-      if input["schema_version"] == 2 && !EXPERIENCE_MODES.include?(input["experience_mode"])
+      result << "schema_version must be 1, 2 or 3" unless SUPPORTED_SCHEMA_VERSIONS.include?(input["schema_version"])
+      if [ 2, 3 ].include?(input["schema_version"]) && !EXPERIENCE_MODES.include?(input["experience_mode"])
         result << "experience_mode must be household_cfo or savings_challenge"
       end
       modules = input["optional_modules"]

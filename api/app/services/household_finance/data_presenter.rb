@@ -6,6 +6,7 @@ module HouseholdFinance
       experience_capabilities: nil, brand: nil, ensure_plan: true)
       @household = household
       @user = user
+      ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
       @annual_plan = annual_plan
       @annual_budget_manager = AnnualBudgetManager.new(household)
       @snapshot_builder = SnapshotBuilder.new(household, annual_budget_manager: @annual_budget_manager, ensure_plan: ensure_plan)
@@ -22,6 +23,7 @@ module HouseholdFinance
     end
 
     def app_data
+      ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
       payload = {
         workspace: workspace,
         profile: profile,
@@ -36,9 +38,11 @@ module HouseholdFinance
     end
 
     def workspace
+      ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
       status = setup_status
       {
         mode: "real",
+        experience_mode: participant_experience_mode,
         household_id: household.id,
         setup_complete: status.complete?,
         setup_status: status.as_json,
@@ -56,7 +60,18 @@ module HouseholdFinance
       }
     end
 
+    def participant_experience_mode
+      return "household_cfo" unless user && cohort_membership && experience_capabilities[:experience_mode] == "savings_challenge"
+
+      SavingsChallenge::AccessPolicy.new(household: household, user: user, cohort: cohort_membership.cohort).call!
+      "savings_challenge"
+    rescue SavingsChallenge::AccessPolicy::Unavailable, ActiveRecord::RecordNotFound
+      # A paused challenge remains a challenge UI; never route it into full setup.
+      "savings_challenge"
+    end
+
     def profile
+      ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
       {
         household: {
           name: household.name,
@@ -78,6 +93,7 @@ module HouseholdFinance
     end
 
     def dashboard
+      ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
       {
         summary: {
           monthly_income: dollars(snapshot.fetch(:monthly_income_cents)),
@@ -101,6 +117,7 @@ module HouseholdFinance
     end
 
     def budget
+      ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
       {
         framework: "Expense Stack",
         intro: "Most budgets collapse life into bills versus fun. Household CFO separates the expenses that surprise you before they turn into emergencies.",
@@ -114,6 +131,7 @@ module HouseholdFinance
     end
 
     def wealth
+      ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
       debt_balance_known = snapshot.fetch(:debt_balance_known)
       total_assets_known = snapshot.fetch(:total_assets_known)
       liquid_assets_known = snapshot.fetch(:liquid_assets_known)
@@ -200,6 +218,7 @@ module HouseholdFinance
     end
 
     def mia(before_id: nil, limit: 60)
+      ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
       page = chat_message_page(before_id: before_id, limit: limit)
       {
         messages: page.fetch(:messages),
@@ -396,7 +415,7 @@ module HouseholdFinance
     def chat_session
       return nil unless user
 
-      @chat_session ||= household.chat_sessions.find_by(user: user)
+      ::Mia::ChatSessionScope.new(household: household, user: user, membership: @cohort_membership).find
     end
 
     def members

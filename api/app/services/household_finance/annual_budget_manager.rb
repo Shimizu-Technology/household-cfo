@@ -544,6 +544,7 @@ module HouseholdFinance
 
     def pending_drafts_scope(budget_year)
       household.transaction_drafts.pending
+        .where(financial_source_event_id: nil)
         .where(occurred_on: Date.new(budget_year.year, 1, 1)..Date.new(budget_year.year, 12, 31))
     end
 

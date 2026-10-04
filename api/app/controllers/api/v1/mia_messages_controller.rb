@@ -9,6 +9,10 @@ module Api
       ATTACHMENT_INFORMATIONAL_FRAME_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:update\s+me\b|tell\s+me\b|explain\b|increase\s+(?:my|our)\s+understanding\b)/i.freeze
       ATTACHMENT_NAMED_AMOUNT_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:set|change|update|increase|decrease|lower|raise)\s+[^?!.;,\r\n]{1,60}?\s+(?:to|at|by)\s+\$?\d[\d,]*(?:\.\d{1,2})?(?:\s*(?:dollars?|monthly|per\s+month))?\s*[?!.;]*\z/i.freeze
 
+      rescue_from SavingsChallenge::AccessPolicy::Unavailable do |error|
+        render json: { errors: [ error.message ], code: "savings_challenge_unavailable" }, status: :forbidden
+      end
+
       before_action :authenticate_user!
       before_action :require_writable_household!, only: %i[create destroy]
 
@@ -25,7 +29,11 @@ module Api
         # Emergency guidance must not depend on uploads being available. Do not
         # resolve or expose attachments for this boundary response.
         if content.present? && content.length <= ChatMessage::MAX_CONTENT_LENGTH && ::Mia::CrisisBoundary.matches?(content)
-          session = current_chat_session
+          begin
+            session = current_chat_session
+          rescue SavingsChallenge::AccessPolicy::Unavailable
+            return render_stateless_crisis_response(content)
+          end
           return if render_preexisting_message_request(session, content, [])
           message_request, request_handled = reserve_message_request(session, content, [])
           return if request_handled
@@ -44,6 +52,7 @@ module Api
         return render json: { errors: [ "Message can't be blank" ] }, status: :unprocessable_entity if content.blank?
         return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
 
+        require_savings_chat_access! if savings_program_selected?
         session = current_chat_session
         return if render_preexisting_message_request(session, content, attached_imports)
 
@@ -72,6 +81,8 @@ module Api
             retire_prior_document_evidence: document_evidence_topic_present?(session)
           )
         end
+
+        return render_savings_response(session, content, attached_imports, message_request: message_request) if savings_program_selected?
 
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
           session,
@@ -267,8 +278,9 @@ module Api
       end
 
       def destroy
-        if (session = current_household.chat_sessions.find_by(user: current_user))
-          session.with_lock do
+        current_household.with_lock do
+          if (session = chat_session_scope.find)
+            session.lock!
             session.mia_message_requests.where(status: "processing").find_each(&:expire_if_stale!)
             if session.mia_message_requests.where(status: "processing").exists?
               render json: {
@@ -288,6 +300,45 @@ module Api
 
       private
 
+      def savings_program_selected?
+        current_cohort_membership&.cohort&.savings_challenge_enabled == true
+      end
+
+      def require_savings_chat_access!
+        cohort = current_cohort_membership.cohort.reload
+        enrollment = SavingsEnrollment.find_by(household: current_household, user: current_user, cohort: cohort)
+        SavingsChallenge::AccessPolicy.new(household: current_household, user: current_user, cohort: cohort, enrollment: enrollment).call!
+        enrollment
+      end
+
+      def render_savings_response(session, content, attached_imports, message_request:)
+        enrollment = require_savings_chat_access!
+        transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session, persona_version_id: current_persona.version_id,
+          cohort_id: current_participant_runtime.cohort_id, cohort_release_id: current_participant_runtime.release_id).call
+        history = intent_transcript_without_memory_commands(transcript_for_current_persona(transcript)).map { |message| message.slice(:role, :content) }
+        reference = SavingsChallenge::CoachAnswerer.new(household: current_household, user: current_user,
+          enrollment: enrollment, message: content, attachments: attached_imports).call
+        @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
+        narrator = SavingsChallenge::Narrator.new(user_message: content,
+          answer_packet: { kind: "savings_challenge", basis: "participant-approved savings ledger and explicitly scoped baseline",
+            write_state: "no_write", fallback_response: reference, guardrails: [ "90_day_total_not_monthly", "approved_new_money_reserved_only", "partial_coverage_is_not_full_household", "feelings_optional_private" ] },
+          history: history, persona: current_persona, approved_content: @approved_coach_content)
+        answer = narrator.call
+        @used_coach_content = narrator.supplied_content_context
+        ApplicationRecord.transaction do
+          current_household.lock!
+          require_savings_chat_access!
+          user_message, assistant_message = persist_chat_messages(session, content, attached_imports, answer)
+          payload = { user_message: serialize_chat_message(user_message, author: "You"),
+            assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil, transaction_draft: nil,
+            budget: nil, spending_report: nil,
+            savings_intake: attached_imports.empty? ? SavingsChallenge::ChatIntake.new(enrollment, message: content).call : nil }
+          complete_message_request(message_request, payload)
+          record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports)
+          render json: payload, status: :created
+        end
+      end
+
       def render_crisis_response(session, content, attached_imports, message_request:)
         user_message, assistant_message = persist_chat_messages(session, content, attached_imports, ::Mia::CrisisBoundary.response)
         payload = {
@@ -298,6 +349,15 @@ module Api
         complete_message_request(message_request, payload)
         record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports)
         render json: payload, status: :created
+      end
+
+      def render_stateless_crisis_response(content)
+        render json: {
+          user_message: { id: nil, role: "user", author: "You", content: content, attachments: [], presentation: {}, citations: [] },
+          assistant_message: { id: nil, role: "assistant", author: "Mia", content: ::Mia::CrisisBoundary.response, attachments: [], presentation: {}, citations: [] },
+          mia_action_draft: nil, transaction_draft: nil, budget: nil, spending_report: nil,
+          conversation_persisted: false
+        }, status: :created
       end
 
       def transcript_for_current_persona(transcript)
@@ -898,12 +958,23 @@ module Api
         end
 
         existing_request = session.mia_message_requests.find_by(request_key: request_key)
-        return false unless existing_request
+        unless existing_request
+          if session.cohort_id && current_household.chat_sessions.where(user: current_user, cohort_id: nil)
+              .joins(:mia_message_requests).where(mia_message_requests: { request_key: request_key }).exists?
+            render json: {
+              status: "unknown", code: "mia_request_scope_unknown",
+              error: "This earlier request cannot be safely attributed to this program. Its result is unknown here; review your records before sending a new request."
+            }, status: :conflict
+            return true
+          end
+          return false
+        end
 
         render_existing_message_request(existing_request, message_request_fingerprint(content, attached_imports))
       end
 
       def render_existing_message_request(message_request, fingerprint)
+        chat_session_scope.authorize! if message_request.chat_session.cohort_id
         if message_request.request_fingerprint != fingerprint
           render json: {
             error: "This Mia request ID was already used for different content. Send the edited message as a new request.",
@@ -992,6 +1063,10 @@ module Api
 
       def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})
         ApplicationRecord.transaction do
+          if session.cohort_id
+            current_household.lock!
+            chat_session_scope.authorize!
+          end
           user_message = session.chat_messages.create!(user_message_attributes(content, attached_imports))
           assistant_message = assistant_message_writer(session).build(
             content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"),
@@ -2007,21 +2082,12 @@ module Api
       end
 
       def current_chat_session
-        existing_session = current_household.chat_sessions.find_by(user: current_user)
-        return existing_session if existing_session
+        chat_session_scope.find_or_create!
+      end
 
-        now = Time.current
-        ChatSession.insert_all(
-          [ {
-            household_id: current_household.id,
-            user_id: current_user.id,
-            title: "Ask Mia",
-            created_at: now,
-            updated_at: now
-          } ],
-          unique_by: :index_chat_sessions_on_household_id_and_user_id
-        )
-        current_household.chat_sessions.find_by!(user: current_user)
+      def chat_session_scope
+        ::Mia::ChatSessionScope.new(household: current_household, user: current_user,
+          membership: current_cohort_membership, runtime: current_participant_runtime)
       end
 
       def record_mia_operation(event_type, assistant_message: nil, attached_imports: [], transaction_draft: nil, mia_action_draft: nil, error_code: nil)

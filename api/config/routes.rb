@@ -4,6 +4,66 @@ Rails.application.routes.draw do
       resource :brand, only: :show
     end
     namespace :v1 do
+      get "participant_programs", to: "participant_programs#index"
+      get "savings_challenge/debt", to: "savings_debt#show"
+      get "savings_challenge/debt/records", to: "savings_debt#records"
+      get "savings_challenge/debt/source_candidates", to: "savings_debt#source_candidates"
+      get "savings_challenge/debt/request_status", to: "savings_debt#request_status"
+      post "savings_challenge/debt/actions/:review_action", to: "savings_debt#mutate"
+      get "savings_challenge/daily", to: "savings_daily#show"
+      get "savings_challenge/export", to: "savings_exports#show"
+      get "savings_challenge/evidence", to: "savings_evidence#show"
+      get "savings_challenge/evidence/candidates", to: "savings_evidence#candidates"
+      get "savings_challenge/evidence/request_status", to: "savings_evidence#request_status"
+      post "savings_challenge/evidence/actions/:review_action", to: "savings_evidence#mutate"
+      get "savings_challenge/private_controls", to: "challenge_privacy#controls"
+      get "savings_challenge/:enrollment_id/reminders", to: "challenge_reminders#show"
+      get "savings_challenge/:enrollment_id/reminders/request_status", to: "challenge_reminders#request_status"
+      post "savings_challenge/:enrollment_id/reminders/:reminder_action", to: "challenge_reminders#mutate"
+      get "savings_challenge/daily/records", to: "savings_daily#records"
+      get "savings_challenge/daily/candidates", to: "savings_daily#candidates"
+      get "savings_challenge/daily/request_status", to: "savings_daily#request_status"
+      post "savings_challenge/daily/actions/:review_action", to: "savings_daily#mutate"
+      get "savings_challenge/daily/reflections/:id/erase_status", to: "savings_daily#erase_status"
+      post "savings_challenge/daily/reflections/:id/erase", to: "savings_daily#erase_reflection"
+      get "shared_challenges/:enrollment_id/basic", to: "shared_challenges#basic"
+      get "shared_challenges/:enrollment_id/summary", to: "shared_challenges#summary"
+      get "shared_challenges/:enrollment_id/scopes", to: "shared_challenges#scopes"
+      get "shared_challenges/:enrollment_id/help", to: "shared_challenges#help"
+      get "challenge_cohorts/:cohort_id/participants", to: "challenge_cohorts#participants"
+      get "challenge_cohorts/:cohort_id/sponsor_exports", to: "challenge_cohorts#exports"
+      post "challenge_cohorts/:cohort_id/sponsor_exports", to: "challenge_cohorts#approve_export"
+      get "challenge_cohorts/:cohort_id/sponsor_exports/:id", to: "challenge_cohorts#export"
+      get "shared_challenges/:enrollment_id/selected", to: "shared_challenges#selected"
+      get "shared_challenges/:enrollment_id/source_content", to: "shared_challenges#source_content"
+      get "shared_challenges/:enrollment_id/support/:ticket_id", to: "shared_challenges#support_ticket"
+      patch "shared_challenges/:enrollment_id/support/:ticket_id", to: "shared_challenges#support_status"
+      get "savings_challenge/:enrollment_id/privacy", to: "challenge_privacy#show"
+      get "savings_challenge/:enrollment_id/privacy/request_status", to: "challenge_privacy#request_status"
+      get "savings_challenge/:enrollment_id/privacy/selection_candidates", to: "challenge_privacy#selection_candidates"
+      get "savings_challenge/:enrollment_id/source_use/:document_import_id", to: "challenge_privacy#source_use"
+      %w[consent support_request support_grant support_revoke source_authorize source_revoke].each do |action|
+        post "savings_challenge/:enrollment_id/privacy/#{action}", to: "challenge_privacy##{action}"
+      end
+      get "financial_baseline", to: "financial_baselines#show"
+      get "financial_baseline/observations", to: "financial_baselines#observations"
+      get "financial_baseline/request_status", to: "financial_baselines#request_status"
+      get "financial_baseline/context", to: "financial_baselines#context"
+      get "financial_baseline/history", to: "financial_baselines#history"
+      post "financial_baseline/preview", to: "financial_baselines#preview"
+      post "financial_baseline/approve", to: "financial_baselines#approve"
+      post "financial_baseline/revise", to: "financial_baselines#revise"
+      get "savings_challenge", to: "savings_challenges#show"
+      get "savings_challenge/request_status", to: "savings_challenges#request_status"
+      post "savings_challenge/enrollment", to: "savings_challenges#enroll"
+      post "savings_challenge/plan_drafts", to: "savings_challenges#stage_plan"
+      post "savings_challenge/plan_drafts/:id/approve", to: "savings_challenges#approve_plan"
+      post "savings_challenge/entry_drafts", to: "savings_challenges#stage_entry"
+      post "savings_challenge/entry_drafts/:id/approve", to: "savings_challenges#approve_entry"
+      post "savings_challenge/zero_attestations", to: "savings_challenges#attest_zero"
+      %w[entries entry_versions entry_drafts plan_versions plan_drafts zero_attestations].each do |collection|
+        get "savings_challenge/#{collection}", to: "savings_challenges##{collection}"
+      end
       get "auth/me", to: "auth#me"
       resource :workspace, only: :show do
         patch "setup", on: :collection
@@ -71,6 +131,10 @@ Rails.application.routes.draw do
           post :reopen
         end
       end
+      get "source_review_accounts", to: "source_reviews#accounts"
+      get "document_imports/:document_import_id/review_candidates", to: "source_reviews#candidates"
+      get "document_imports/:document_import_id/review_request_status", to: "source_reviews#request_status"
+      post "document_imports/:document_import_id/review/:review_action", to: "source_reviews#mutate"
       resources :document_imports, only: %i[index show create destroy] do
         collection do
           post :presign

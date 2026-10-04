@@ -22,6 +22,9 @@ module HouseholdFinance
       transaction = nil
       ApplicationRecord.transaction do
         draft.with_lock do
+          if draft.financial_source_event_id.present?
+            raise ArgumentError, "Review this statement row in Statements before adding it to your spending."
+          end
           if draft.pending?
             corrected = apply_corrections!
             transaction = create_transaction!

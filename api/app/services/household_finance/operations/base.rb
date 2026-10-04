@@ -3,6 +3,7 @@ module HouseholdFinance
     class Base
       StaleOperation = Class.new(ArgumentError)
       STALE_MESSAGE = "Budget changed since Mia drafted this. Ask Mia to draft a fresh edit."
+      attr_accessor :release_membership
 
       def initialize(household)
         @household = household

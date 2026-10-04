@@ -10,7 +10,46 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_04_320000) do
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
+     RETURNS boolean
+     LANGUAGE plpgsql
+     IMMUTABLE
+    AS $function$
+    DECLARE field text; rate jsonb; day date; allocated numeric := 0;
+    BEGIN
+      IF jsonb_typeof(value) IS DISTINCT FROM 'object' OR NOT value ?& ARRAY['label','as_of_on','balance_cents','minimum_payment_cents','apr_bps','due_on','promotional_apr_bps','promotional_expires_on','post_promo_apr_bps','rate_segments','status'] OR (SELECT count(*) FROM jsonb_object_keys(value)) <> 11 THEN RETURN false; END IF;
+      IF jsonb_typeof(value->'label') IS DISTINCT FROM 'string' OR length(btrim(value->>'label'))=0 OR length(value->>'label')>120 OR jsonb_typeof(value->'status') IS DISTINCT FROM 'string' OR value->>'status' NOT IN ('active','paid_off','archived') THEN RETURN false; END IF;
+      FOREACH field IN ARRAY ARRAY['balance_cents','minimum_payment_cents','apr_bps','promotional_apr_bps','post_promo_apr_bps'] LOOP
+        IF value->field <> 'null'::jsonb THEN
+          IF jsonb_typeof(value->field) <> 'number' OR (value->>field) !~ '^[0-9]+$' OR (value->>field)::numeric > (CASE WHEN field LIKE '%apr_bps' THEN 100000 ELSE 9223372036854775807 END) THEN RETURN false; END IF;
+        END IF;
+      END LOOP;
+      IF value->>'status'='paid_off' AND value->'balance_cents' IS DISTINCT FROM '0'::jsonb THEN RETURN false; END IF;
+      FOREACH field IN ARRAY ARRAY['as_of_on','due_on','promotional_expires_on'] LOOP
+        IF value->field <> 'null'::jsonb THEN
+          IF jsonb_typeof(value->field) <> 'string' OR value->>field !~ '^\d{4}-\d{2}-\d{2}$' THEN RETURN false; END IF;
+          day := (value->>field)::date;
+        ELSIF field='as_of_on' THEN RETURN false;
+        END IF;
+      END LOOP;
+      IF jsonb_typeof(value->'rate_segments') IS DISTINCT FROM 'array' OR jsonb_array_length(value->'rate_segments')>8 THEN RETURN false; END IF;
+      FOR rate IN SELECT jsonb_array_elements(value->'rate_segments') LOOP
+        IF jsonb_typeof(rate) IS DISTINCT FROM 'object' OR NOT rate ?& ARRAY['label','balance_cents','apr_bps','promotional_expires_on','post_promo_apr_bps'] OR (SELECT count(*) FROM jsonb_object_keys(rate))<>5 OR jsonb_typeof(rate->'label') IS DISTINCT FROM 'string' OR length(btrim(rate->>'label'))=0 OR length(rate->>'label')>120 THEN RETURN false; END IF;
+        FOREACH field IN ARRAY ARRAY['balance_cents','apr_bps','post_promo_apr_bps'] LOOP
+          IF rate->field <> 'null'::jsonb AND (jsonb_typeof(rate->field)<>'number' OR rate->>field !~ '^[0-9]+$' OR (rate->>field)::numeric > (CASE WHEN field LIKE '%apr_bps' THEN 100000 ELSE 9223372036854775807 END)) THEN RETURN false; END IF;
+        END LOOP;
+        IF rate->'promotional_expires_on' <> 'null'::jsonb THEN
+          IF rate->>'promotional_expires_on' !~ '^\d{4}-\d{2}-\d{2}$' OR jsonb_typeof(rate->'promotional_expires_on')<>'string' THEN RETURN false; END IF;
+          day := (rate->>'promotional_expires_on')::date;
+        END IF;
+        allocated := allocated + coalesce((rate->>'balance_cents')::numeric,0);
+      END LOOP;
+      RETURN value->'balance_cents'='null'::jsonb OR allocated <= (value->>'balance_cents')::numeric;
+    EXCEPTION WHEN OTHERS THEN RETURN false;
+    END; $function$
+  SQL
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -33,12 +72,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_id", "account_type"], name: "index_accounts_on_household_id_and_account_type"
     t.index ["household_id", "active"], name: "index_accounts_on_household_id_and_active"
     t.index ["household_id"], name: "index_accounts_on_household_id"
+    t.index ["id", "household_id"], name: "accounts_source_review_household_identity", unique: true
     t.index ["plaid_account_id"], name: "index_accounts_on_unique_plaid_account", unique: true, where: "(plaid_account_id IS NOT NULL)"
-    t.check_constraint "(account_type::text = ANY (ARRAY['checking'::character varying::text, 'savings'::character varying::text])) OR balance_cents >= 0", name: "accounts_balance_signed_only_for_cash"
+    t.check_constraint "(account_type::text = ANY (ARRAY['checking'::character varying, 'savings'::character varying]::text[])) OR balance_cents >= 0", name: "accounts_balance_signed_only_for_cash"
     t.check_constraint "active = true AND archived_at IS NULL OR active = false AND archived_at IS NOT NULL", name: "accounts_archive_state_valid"
     t.check_constraint "balance_known = true OR balance_cents = 0 AND balance_as_of_on IS NULL", name: "accounts_unknown_balance_zero_without_date"
     t.check_constraint "jsonb_typeof(source_metadata) = 'object'::text", name: "accounts_source_metadata_object"
-    t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying::text, 'mia'::character varying::text, 'document_import'::character varying::text, 'setup'::character varying::text, 'plaid'::character varying::text])", name: "accounts_source_type_valid"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying, 'mia'::character varying, 'document_import'::character varying, 'setup'::character varying, 'plaid'::character varying]::text[])", name: "accounts_source_type_valid"
   end
 
   create_table "budget_allocations", force: :cascade do |t|
@@ -52,7 +92,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["budget_period_id", "budget_category_id"], name: "idx_on_budget_period_id_budget_category_id_396e159b33", unique: true
     t.index ["budget_period_id"], name: "index_budget_allocations_on_budget_period_id"
     t.check_constraint "planned_amount_cents >= 0", name: "budget_allocations_amount_non_negative"
-    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying::text, 'setup'::character varying::text, 'imported'::character varying::text, 'mia_suggested'::character varying::text])", name: "budget_allocations_source_valid"
+    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying, 'setup'::character varying, 'imported'::character varying, 'mia_suggested'::character varying]::text[])", name: "budget_allocations_source_valid"
   end
 
   create_table "budget_categories", force: :cascade do |t|
@@ -66,8 +106,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index "household_id, lower((name)::text)", name: "index_budget_categories_on_household_lower_name", unique: true
     t.index ["household_id", "active", "sort_order"], name: "idx_on_household_id_active_sort_order_01ee1248fa"
     t.index ["household_id"], name: "index_budget_categories_on_household_id"
+    t.index ["id", "household_id"], name: "budget_categories_source_review_household_identity", unique: true
     t.check_constraint "char_length(name::text) <= 80", name: "budget_categories_name_length"
-    t.check_constraint "stack_key::text = ANY (ARRAY['non_discretionary'::character varying::text, 'discretionary'::character varying::text, 'sinking_expected'::character varying::text, 'sinking_unexpected'::character varying::text])", name: "budget_categories_stack_key_valid"
+    t.check_constraint "stack_key::text = ANY (ARRAY['non_discretionary'::character varying, 'discretionary'::character varying, 'sinking_expected'::character varying, 'sinking_unexpected'::character varying]::text[])", name: "budget_categories_stack_key_valid"
   end
 
   create_table "budget_periods", force: :cascade do |t|
@@ -80,7 +121,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["budget_year_id", "starts_on"], name: "index_budget_periods_on_budget_year_id_and_starts_on", unique: true
     t.index ["budget_year_id"], name: "index_budget_periods_on_budget_year_id"
     t.check_constraint "ends_on >= starts_on", name: "budget_periods_dates_ordered"
-    t.check_constraint "status::text = ANY (ARRAY['open'::character varying::text, 'reviewing'::character varying::text, 'closed'::character varying::text])", name: "budget_periods_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['open'::character varying, 'reviewing'::character varying, 'closed'::character varying]::text[])", name: "budget_periods_status_valid"
   end
 
   create_table "budget_years", force: :cascade do |t|
@@ -91,8 +132,186 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.integer "year", null: false
     t.index ["household_id", "year"], name: "index_budget_years_on_household_id_and_year", unique: true
     t.index ["household_id"], name: "index_budget_years_on_household_id"
-    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying::text, 'active'::character varying::text, 'archived'::character varying::text])", name: "budget_years_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'active'::character varying, 'archived'::character varying]::text[])", name: "budget_years_status_valid"
     t.check_constraint "year >= 2000 AND year <= 2100", name: "budget_years_year_reasonable"
+  end
+
+  create_table "challenge_privacy_events", force: :cascade do |t|
+    t.string "action", null: false
+    t.bigint "actor_user_id", null: false
+    t.jsonb "approved_values", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.bigint "participant_user_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.bigint "subject_id", null: false
+    t.string "subject_type", null: false
+    t.index ["actor_user_id"], name: "index_challenge_privacy_events_on_actor_user_id"
+    t.index ["household_id"], name: "index_challenge_privacy_events_on_household_id"
+    t.index ["participant_user_id"], name: "index_challenge_privacy_events_on_participant_user_id"
+    t.index ["savings_enrollment_id"], name: "index_challenge_privacy_events_on_savings_enrollment_id"
+  end
+
+  create_table "challenge_privacy_grants", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.datetime "expires_at"
+    t.boolean "granted", default: false, null: false
+    t.bigint "household_id", null: false
+    t.string "kind", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "participant_user_id", null: false
+    t.string "policy_version", null: false
+    t.bigint "recipient_user_id"
+    t.bigint "savings_enrollment_id", null: false
+    t.jsonb "selected_records", default: [], null: false
+    t.datetime "updated_at", null: false
+    t.index "savings_enrollment_id, kind, COALESCE(recipient_user_id, (0)::bigint)", name: "challenge_privacy_grant_identity", unique: true
+    t.index ["household_id"], name: "index_challenge_privacy_grants_on_household_id"
+    t.index ["participant_user_id"], name: "index_challenge_privacy_grants_on_participant_user_id"
+    t.index ["recipient_user_id"], name: "index_challenge_privacy_grants_on_recipient_user_id"
+    t.index ["savings_enrollment_id"], name: "index_challenge_privacy_grants_on_savings_enrollment_id"
+    t.check_constraint "(kind::text = ANY (ARRAY['coach_summary'::character varying, 'selected_details'::character varying, 'sponsor_aggregate'::character varying]::text[])) AND (kind::text = 'sponsor_aggregate'::text AND recipient_user_id IS NULL OR kind::text <> 'sponsor_aggregate'::text AND recipient_user_id IS NOT NULL)", name: "challenge_privacy_grant_kind"
+  end
+
+  create_table "challenge_privacy_reads", force: :cascade do |t|
+    t.bigint "actor_user_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.bigint "participant_user_id", null: false
+    t.string "purpose", null: false
+    t.bigint "record_id", null: false
+    t.string "record_type", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.index ["actor_user_id"], name: "index_challenge_privacy_reads_on_actor_user_id"
+    t.index ["household_id"], name: "index_challenge_privacy_reads_on_household_id"
+    t.index ["participant_user_id"], name: "index_challenge_privacy_reads_on_participant_user_id"
+    t.index ["savings_enrollment_id"], name: "index_challenge_privacy_reads_on_savings_enrollment_id"
+  end
+
+  create_table "challenge_reminder_events", force: :cascade do |t|
+    t.string "action", null: false
+    t.bigint "actor_user_id", null: false
+    t.jsonb "approved_values", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.bigint "participant_user_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.bigint "subject_id", null: false
+    t.string "subject_type", null: false
+    t.index ["actor_user_id"], name: "index_challenge_reminder_events_on_actor_user_id"
+    t.index ["household_id"], name: "index_challenge_reminder_events_on_household_id"
+    t.index ["participant_user_id"], name: "index_challenge_reminder_events_on_participant_user_id"
+    t.index ["savings_enrollment_id"], name: "index_challenge_reminder_events_on_savings_enrollment_id"
+  end
+
+  create_table "challenge_reminder_preferences", force: :cascade do |t|
+    t.string "channel", null: false
+    t.datetime "created_at", null: false
+    t.boolean "enabled", null: false
+    t.bigint "household_id", null: false
+    t.string "local_time", default: "18:00", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "participant_user_id", null: false
+    t.string "policy_version", null: false
+    t.string "quiet_end", default: "08:00", null: false
+    t.string "quiet_start", default: "21:00", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["household_id"], name: "index_challenge_reminder_preferences_on_household_id"
+    t.index ["participant_user_id"], name: "index_challenge_reminder_preferences_on_participant_user_id"
+    t.index ["savings_enrollment_id", "channel"], name: "challenge_reminder_preference_identity", unique: true
+    t.index ["savings_enrollment_id"], name: "index_challenge_reminder_preferences_on_savings_enrollment_id"
+    t.check_constraint "channel::text = ANY (ARRAY['in_app'::character varying, 'email'::character varying]::text[])", name: "challenge_reminder_preferences_channel"
+    t.check_constraint "local_time::text ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'::text AND quiet_start::text ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'::text AND quiet_end::text ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'::text", name: "challenge_reminder_clock"
+  end
+
+  create_table "challenge_reminders", force: :cascade do |t|
+    t.integer "attempts", default: 0, null: false
+    t.bigint "challenge_reminder_preference_id", null: false
+    t.string "channel", null: false
+    t.datetime "created_at", null: false
+    t.datetime "delivered_at"
+    t.string "delivery_key", null: false
+    t.boolean "delivery_uncertain", default: false, null: false
+    t.datetime "dismissed_at"
+    t.bigint "household_id", null: false
+    t.datetime "lease_expires_at"
+    t.string "lease_token"
+    t.date "local_on", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "next_attempt_at", null: false
+    t.bigint "participant_user_id", null: false
+    t.boolean "provider_idempotent", default: false, null: false
+    t.string "provider_namespace"
+    t.string "reason_code", default: "scheduled", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["challenge_reminder_preference_id"], name: "index_challenge_reminders_on_challenge_reminder_preference_id"
+    t.index ["delivery_key"], name: "index_challenge_reminders_on_delivery_key", unique: true
+    t.index ["household_id"], name: "index_challenge_reminders_on_household_id"
+    t.index ["participant_user_id"], name: "index_challenge_reminders_on_participant_user_id"
+    t.index ["savings_enrollment_id", "local_on", "channel"], name: "challenge_reminder_day_identity", unique: true
+    t.index ["savings_enrollment_id"], name: "index_challenge_reminders_on_savings_enrollment_id"
+    t.index ["status", "next_attempt_at"], name: "challenge_reminder_due"
+    t.check_constraint "(status::text = ANY (ARRAY['pending'::character varying, 'leased'::character varying, 'delivered'::character varying, 'cancelled'::character varying, 'failed'::character varying, 'unknown'::character varying]::text[])) AND attempts >= 0 AND attempts <= 5", name: "challenge_reminder_state"
+    t.check_constraint "channel::text = ANY (ARRAY['in_app'::character varying, 'email'::character varying]::text[])", name: "challenge_reminders_channel"
+    t.check_constraint "status::text = 'leased'::text AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL OR status::text <> 'leased'::text AND lease_token IS NULL AND lease_expires_at IS NULL", name: "challenge_reminder_lease"
+  end
+
+  create_table "challenge_sponsor_exports", force: :cascade do |t|
+    t.bigint "approved_by_user_id", null: false
+    t.integer "checkpoint_day", null: false
+    t.bigint "cohort_id", null: false
+    t.datetime "created_at", null: false
+    t.string "digest", null: false
+    t.string "policy_version", null: false
+    t.jsonb "private_provenance", default: {}, null: false
+    t.jsonb "report", default: {}, null: false
+    t.date "resolved_cutoff_on", null: false
+    t.index ["approved_by_user_id"], name: "index_challenge_sponsor_exports_on_approved_by_user_id"
+    t.index ["cohort_id", "checkpoint_day", "policy_version"], name: "challenge_sponsor_fixed_identity", unique: true
+    t.index ["cohort_id"], name: "index_challenge_sponsor_exports_on_cohort_id"
+    t.check_constraint "checkpoint_day = ANY (ARRAY[30, 60, 90])", name: "challenge_sponsor_day"
+  end
+
+  create_table "challenge_support_accesses", force: :cascade do |t|
+    t.bigint "challenge_support_ticket_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "expires_at", null: false
+    t.bigint "household_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "participant_user_id", null: false
+    t.string "reason", limit: 500, null: false
+    t.bigint "recipient_user_id", null: false
+    t.datetime "revoked_at"
+    t.bigint "savings_enrollment_id", null: false
+    t.jsonb "selected_records", default: [], null: false
+    t.datetime "updated_at", null: false
+    t.index ["challenge_support_ticket_id"], name: "idx_on_challenge_support_ticket_id_25cf13fca8"
+    t.index ["household_id"], name: "index_challenge_support_accesses_on_household_id"
+    t.index ["participant_user_id"], name: "index_challenge_support_accesses_on_participant_user_id"
+    t.index ["recipient_user_id"], name: "index_challenge_support_accesses_on_recipient_user_id"
+    t.index ["savings_enrollment_id"], name: "index_challenge_support_accesses_on_savings_enrollment_id"
+  end
+
+  create_table "challenge_support_tickets", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.string "issue_kind", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "message", limit: 500, null: false
+    t.bigint "participant_user_id", null: false
+    t.bigint "recipient_user_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.jsonb "selected_records", default: [], null: false
+    t.string "status", default: "open", null: false
+    t.datetime "updated_at", null: false
+    t.index ["household_id"], name: "index_challenge_support_tickets_on_household_id"
+    t.index ["participant_user_id"], name: "index_challenge_support_tickets_on_participant_user_id"
+    t.index ["recipient_user_id"], name: "index_challenge_support_tickets_on_recipient_user_id"
+    t.index ["savings_enrollment_id"], name: "index_challenge_support_tickets_on_savings_enrollment_id"
+    t.check_constraint "status::text = ANY (ARRAY['open'::character varying, 'triaged'::character varying, 'resolved'::character varying]::text[])", name: "challenge_support_status"
   end
 
   create_table "chat_messages", force: :cascade do |t|
@@ -115,7 +334,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["cohort_release_id"], name: "index_chat_messages_on_cohort_release_id"
     t.index ["role"], name: "index_chat_messages_on_role"
     t.check_constraint "(assistant_author IS NULL OR role::text = 'assistant'::text) AND (coach_persona_version_id IS NULL OR role::text = 'assistant'::text AND assistant_author IS NOT NULL)", name: "chat_messages_persona_attribution_complete"
-    t.check_constraint "(role::text = ANY (ARRAY['user'::character varying::text, 'assistant'::character varying::text])) AND char_length(content) <= 8000", name: "chat_messages_content_length_by_role"
+    t.check_constraint "(role::text = ANY (ARRAY['user'::character varying, 'assistant'::character varying]::text[])) AND char_length(content) <= 8000", name: "chat_messages_content_length_by_role"
     t.check_constraint "assistant_author IS NULL OR char_length(assistant_author::text) >= 1 AND char_length(assistant_author::text) <= 80", name: "chat_messages_assistant_author_length"
     t.check_constraint "cohort_release_id IS NULL OR cohort_id IS NOT NULL", name: "chat_messages_release_attribution_complete"
     t.check_constraint "jsonb_typeof(presentation) = 'object'::text", name: "chat_messages_presentation_object"
@@ -123,6 +342,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
 
   create_table "chat_sessions", force: :cascade do |t|
     t.jsonb "active_topic", default: {}, null: false
+    t.bigint "cohort_id"
     t.datetime "created_at", null: false
     t.bigint "household_id", null: false
     t.datetime "last_compacted_at"
@@ -132,7 +352,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.string "title"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
-    t.index ["household_id", "user_id"], name: "index_chat_sessions_on_household_id_and_user_id", unique: true
+    t.index ["cohort_id"], name: "index_chat_sessions_on_cohort_id"
+    t.index ["household_id", "user_id", "cohort_id"], name: "index_chat_sessions_on_household_user_cohort", unique: true, where: "(cohort_id IS NOT NULL)"
+    t.index ["household_id", "user_id"], name: "index_chat_sessions_on_household_id_and_user_id", unique: true, where: "(cohort_id IS NULL)"
     t.index ["household_id"], name: "index_chat_sessions_on_household_id"
     t.index ["last_compacted_message_id"], name: "index_chat_sessions_on_last_compacted_message_id"
     t.index ["user_id"], name: "index_chat_sessions_on_user_id"
@@ -194,7 +416,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "provenance_digest_version = ANY (ARRAY[1, 2])", name: "coach_content_item_draft_provenances_digest_version_valid"
     t.check_constraint "source_byte_size > 0", name: "coach_content_item_draft_provenances_source_size_positive"
     t.check_constraint "source_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_source_checksum_sha256"
-    t.check_constraint "source_ingestion_method::text = ANY (ARRAY['upload'::character varying::text, 'url_snapshot'::character varying::text])", name: "coach_content_item_draft_provenances_ingestion_method_valid"
+    t.check_constraint "source_ingestion_method::text = ANY (ARRAY['upload'::character varying, 'url_snapshot'::character varying]::text[])", name: "coach_content_item_draft_provenances_ingestion_method_valid"
   end
 
   create_table "coach_content_item_version_provenances", force: :cascade do |t|
@@ -239,7 +461,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "provenance_digest_version = ANY (ARRAY[1, 2])", name: "coach_content_item_version_provenances_digest_version_valid"
     t.check_constraint "source_byte_size > 0", name: "coach_content_item_version_provenances_source_size_positive"
     t.check_constraint "source_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_source_checksum_sha256"
-    t.check_constraint "source_ingestion_method::text = ANY (ARRAY['upload'::character varying::text, 'url_snapshot'::character varying::text])", name: "coach_content_item_version_provenances_ingestion_method_valid"
+    t.check_constraint "source_ingestion_method::text = ANY (ARRAY['upload'::character varying, 'url_snapshot'::character varying]::text[])", name: "coach_content_item_version_provenances_ingestion_method_valid"
   end
 
   create_table "coach_content_item_versions", force: :cascade do |t|
@@ -282,10 +504,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["created_by_user_id"], name: "index_coach_content_items_on_created_by_user_id"
     t.index ["current_approved_version_id"], name: "idx_content_items_current_version"
     t.check_constraint "draft_revision > 0", name: "coach_content_items_revision_positive"
-    t.check_constraint "kind::text = ANY (ARRAY['guidance'::character varying::text, 'script'::character varying::text, 'example'::character varying::text, 'phrase'::character varying::text, 'culture'::character varying::text, 'finance_reference'::character varying::text])", name: "coach_content_items_kind_valid"
+    t.check_constraint "kind::text = ANY (ARRAY['guidance'::character varying, 'script'::character varying, 'example'::character varying, 'phrase'::character varying, 'culture'::character varying, 'finance_reference'::character varying]::text[])", name: "coach_content_items_kind_valid"
     t.check_constraint "octet_length(draft_content) <= 12000", name: "coach_content_items_content_bytes"
     t.check_constraint "scope::text = 'platform'::text AND coach_workspace_id IS NULL OR scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL", name: "coach_content_items_workspace_matches_scope"
-    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_items_scope_valid"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "coach_content_items_scope_valid"
   end
 
   create_table "coach_content_pack_draft_entries", force: :cascade do |t|
@@ -352,9 +574,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["created_by_user_id"], name: "index_coach_content_packs_on_created_by_user_id"
     t.index ["current_published_version_id"], name: "idx_content_packs_current_version"
     t.check_constraint "draft_revision > 0", name: "coach_content_packs_revision_positive"
-    t.check_constraint "pack_kind::text = ANY (ARRAY['voice_culture'::character varying::text, 'coaching_method'::character varying::text, 'finance_reference'::character varying::text])", name: "coach_content_packs_kind_valid"
+    t.check_constraint "pack_kind::text = ANY (ARRAY['voice_culture'::character varying, 'coaching_method'::character varying, 'finance_reference'::character varying]::text[])", name: "coach_content_packs_kind_valid"
     t.check_constraint "scope::text = 'platform'::text AND coach_workspace_id IS NULL OR scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL", name: "coach_content_packs_workspace_matches_scope"
-    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_packs_scope_valid"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "coach_content_packs_scope_valid"
   end
 
   create_table "coach_content_source_attempts", force: :cascade do |t|
@@ -375,7 +597,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["coach_content_source_id", "generation"], name: "idx_content_source_attempt_generation", unique: true
     t.index ["coach_content_source_id"], name: "index_coach_content_source_attempts_on_coach_content_source_id"
     t.check_constraint "generation > 0", name: "coach_content_source_attempt_generation_positive"
-    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text, 'superseded'::character varying::text])", name: "coach_content_source_attempt_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying, 'succeeded'::character varying, 'failed'::character varying, 'superseded'::character varying]::text[])", name: "coach_content_source_attempt_status_valid"
   end
 
   create_table "coach_content_source_candidates", force: :cascade do |t|
@@ -412,7 +634,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "octet_length(evidence_excerpt) <= 1200", name: "coach_content_source_candidates_excerpt_bytes"
     t.check_constraint "original_proposal_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_source_candidates_original_digest_sha256"
     t.check_constraint "revision > 0", name: "coach_content_source_candidates_revision_positive"
-    t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying::text, 'accepted'::character varying::text, 'rejected'::character varying::text, 'superseded'::character varying::text])", name: "coach_content_source_candidates_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying, 'accepted'::character varying, 'rejected'::character varying, 'superseded'::character varying]::text[])", name: "coach_content_source_candidates_status_valid"
   end
 
   create_table "coach_content_source_url_intake_attempts", force: :cascade do |t|
@@ -466,10 +688,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "redirect_count >= 0 AND redirect_count <= 3", name: "url_intakes_redirects_bounded"
     t.check_constraint "reserved_bytes > 0 AND reserved_bytes <= 12582912", name: "url_intakes_reservation_bounded"
     t.check_constraint "scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL OR scope::text = 'platform'::text AND coach_workspace_id IS NULL", name: "url_intakes_workspace_matches_scope"
-    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "url_intakes_scope_valid"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "url_intakes_scope_valid"
     t.check_constraint "status::text = 'deleted'::text OR redaction_requested_at IS NOT NULL OR encrypted_url_ciphertext IS NOT NULL AND encrypted_url_iv IS NOT NULL AND encrypted_url_auth_tag IS NOT NULL", name: "url_intakes_encrypted_payload_present"
-    t.check_constraint "status::text = 'registered'::text AND coach_content_source_id IS NOT NULL OR status::text = 'deleted'::text OR (status::text <> ALL (ARRAY['registered'::character varying::text, 'deleted'::character varying::text])) AND coach_content_source_id IS NULL", name: "url_intakes_source_state_coherent"
-    t.check_constraint "status::text = ANY (ARRAY['queued'::character varying::text, 'fetching'::character varying::text, 'staged'::character varying::text, 'registering'::character varying::text, 'registered'::character varying::text, 'failed'::character varying::text, 'cleanup_pending'::character varying::text, 'cleanup_failed'::character varying::text, 'deleted'::character varying::text])", name: "url_intakes_status_valid"
+    t.check_constraint "status::text = 'registered'::text AND coach_content_source_id IS NOT NULL OR status::text = 'deleted'::text OR (status::text <> ALL (ARRAY['registered'::character varying, 'deleted'::character varying]::text[])) AND coach_content_source_id IS NULL", name: "url_intakes_source_state_coherent"
+    t.check_constraint "status::text = ANY (ARRAY['queued'::character varying, 'fetching'::character varying, 'staged'::character varying, 'registering'::character varying, 'registered'::character varying, 'failed'::character varying, 'cleanup_pending'::character varying, 'cleanup_failed'::character varying, 'deleted'::character varying]::text[])", name: "url_intakes_status_valid"
     t.check_constraint "url_identity_hmac::text ~ '^[0-9a-f]{64}$'::text", name: "url_intakes_hmac_sha256"
   end
 
@@ -508,10 +730,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "byte_size > 0", name: "coach_content_sources_byte_size_positive"
     t.check_constraint "checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_sources_checksum_sha256"
     t.check_constraint "generation >= 0", name: "coach_content_sources_generation_nonnegative"
-    t.check_constraint "ingestion_method::text = ANY (ARRAY['upload'::character varying::text, 'url_snapshot'::character varying::text])", name: "coach_content_sources_ingestion_method_valid"
+    t.check_constraint "ingestion_method::text = ANY (ARRAY['upload'::character varying, 'url_snapshot'::character varying]::text[])", name: "coach_content_sources_ingestion_method_valid"
     t.check_constraint "scope::text = 'platform'::text AND coach_workspace_id IS NULL OR scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL", name: "coach_content_sources_workspace_matches_scope"
-    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_sources_scope_valid"
-    t.check_constraint "status::text = ANY (ARRAY['uploading'::character varying::text, 'verifying'::character varying::text, 'upload_cleanup'::character varying::text, 'queued'::character varying::text, 'processing'::character varying::text, 'needs_review'::character varying::text, 'failed'::character varying::text, 'deletion_pending'::character varying::text, 'deletion_failed'::character varying::text, 'source_deleted'::character varying::text, 'upload_cleanup_failed'::character varying::text])", name: "coach_content_sources_status_valid"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "coach_content_sources_scope_valid"
+    t.check_constraint "status::text = ANY (ARRAY['uploading'::character varying, 'verifying'::character varying, 'upload_cleanup'::character varying, 'queued'::character varying, 'processing'::character varying, 'needs_review'::character varying, 'failed'::character varying, 'deletion_pending'::character varying, 'deletion_failed'::character varying, 'source_deleted'::character varying, 'upload_cleanup_failed'::character varying]::text[])", name: "coach_content_sources_status_valid"
   end
 
   create_table "coach_operation_executions", force: :cascade do |t|
@@ -546,14 +768,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["cohort_release_id"], name: "idx_coach_operations_release_unique", unique: true
     t.index ["cohort_rollout_transition_id"], name: "idx_coach_operations_rollout_transition_unique", unique: true
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_coach_operations_id_cohort_workspace", unique: true
-    t.check_constraint "(operation_key::text = ANY (ARRAY['cohort.release.seal'::character varying::text, 'cohort.release.restore'::character varying::text])) AND cohort_release_id IS NOT NULL AND cohort_rollout_transition_id IS NULL OR (operation_key::text = ANY (ARRAY['cohort.rollout.plan'::character varying::text, 'cohort.rollout.advance'::character varying::text, 'cohort.rollout.pause'::character varying::text, 'cohort.rollout.resume'::character varying::text, 'cohort.rollout.cancel'::character varying::text, 'cohort.rollout.rollback'::character varying::text])) AND cohort_release_id IS NULL AND cohort_rollout_transition_id IS NOT NULL", name: "coach_operations_result_matches_key"
-    t.check_constraint "actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text])", name: "coach_operations_actor_role_valid"
+    t.check_constraint "(operation_key::text = ANY (ARRAY['cohort.release.seal'::character varying, 'cohort.release.restore'::character varying]::text[])) AND cohort_release_id IS NOT NULL AND cohort_rollout_transition_id IS NULL OR (operation_key::text = ANY (ARRAY['cohort.rollout.plan'::character varying, 'cohort.rollout.advance'::character varying, 'cohort.rollout.pause'::character varying, 'cohort.rollout.resume'::character varying, 'cohort.rollout.cancel'::character varying, 'cohort.rollout.rollback'::character varying]::text[])) AND cohort_release_id IS NULL AND cohort_rollout_transition_id IS NOT NULL", name: "coach_operations_result_matches_key"
+    t.check_constraint "actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[])", name: "coach_operations_actor_role_valid"
     t.check_constraint "char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "coach_operations_request_key_bounded"
     t.check_constraint "invocation_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND normalized_input_digest::text ~ '^[0-9a-f]{64}$'::text AND before_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND predicted_after_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND after_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_operations_digest_shape"
     t.check_constraint "jsonb_typeof(normalized_input) = 'object'::text AND jsonb_typeof(before_snapshot) = 'object'::text AND jsonb_typeof(predicted_after_snapshot) = 'object'::text AND jsonb_typeof(after_snapshot) = 'object'::text", name: "coach_operations_json_shape"
     t.check_constraint "num_nonnulls(cohort_release_id, cohort_rollout_transition_id) = 1", name: "coach_operations_exactly_one_result"
     t.check_constraint "octet_length(normalized_input::text) <= 16384 AND octet_length(before_snapshot::text) <= 16384 AND octet_length(predicted_after_snapshot::text) <= 16384 AND octet_length(after_snapshot::text) <= 16384", name: "coach_operations_json_bounded"
-    t.check_constraint "operation_key::text = ANY (ARRAY['cohort.release.seal'::character varying::text, 'cohort.release.restore'::character varying::text, 'cohort.rollout.plan'::character varying::text, 'cohort.rollout.advance'::character varying::text, 'cohort.rollout.pause'::character varying::text, 'cohort.rollout.resume'::character varying::text, 'cohort.rollout.cancel'::character varying::text, 'cohort.rollout.rollback'::character varying::text])", name: "coach_operations_key_valid"
+    t.check_constraint "operation_key::text = ANY (ARRAY['cohort.release.seal'::character varying, 'cohort.release.restore'::character varying, 'cohort.rollout.plan'::character varying, 'cohort.rollout.advance'::character varying, 'cohort.rollout.pause'::character varying, 'cohort.rollout.resume'::character varying, 'cohort.rollout.cancel'::character varying, 'cohort.rollout.rollback'::character varying]::text[])", name: "coach_operations_key_valid"
     t.check_constraint "operation_version = ANY (ARRAY[1, 2])", name: "coach_operations_version_supported"
     t.check_constraint "source::text = 'api'::text", name: "coach_operations_source_valid"
   end
@@ -636,7 +858,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.datetime "updated_at", null: false
     t.index ["coach_persona_evaluation_run_id"], name: "idx_persona_evaluation_approvals_run", unique: true
     t.index ["reviewed_by_user_id"], name: "idx_on_reviewed_by_user_id_3507893542"
-    t.check_constraint "decision::text = ANY (ARRAY['approved'::character varying::text, 'rejected'::character varying::text])", name: "persona_evaluation_approvals_decision_valid"
+    t.check_constraint "decision::text = ANY (ARRAY['approved'::character varying, 'rejected'::character varying]::text[])", name: "persona_evaluation_approvals_decision_valid"
     t.check_constraint "reviewer_role_snapshot IS NULL AND reviewer_authority_digest IS NULL AND reviewer_authority_snapshot = '{}'::jsonb OR reviewer_role_snapshot IS NOT NULL AND reviewer_authority_digest::text ~ '^[0-9a-f]{64}$'::text AND jsonb_typeof(reviewer_authority_snapshot) = 'object'::text", name: "persona_evaluation_approvals_authority_shape"
     t.check_constraint "run_digest::text ~ '^[0-9a-f]{64}$'::text AND approval_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_evaluation_approvals_digest_shape"
   end
@@ -666,7 +888,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["created_by_user_id"], name: "index_coach_persona_evaluation_cases_on_created_by_user_id"
     t.index ["request_key"], name: "idx_persona_evaluation_cases_request_key", unique: true, where: "(request_key IS NOT NULL)"
     t.index ["retired_by_user_id"], name: "index_coach_persona_evaluation_cases_on_retired_by_user_id"
-    t.check_constraint "case_kind::text = ANY (ARRAY['system'::character varying::text, 'custom'::character varying::text])", name: "persona_evaluation_cases_kind_valid"
+    t.check_constraint "case_kind::text = ANY (ARRAY['system'::character varying, 'custom'::character varying]::text[])", name: "persona_evaluation_cases_kind_valid"
     t.check_constraint "jsonb_typeof(assertions) = 'array'::text AND (case_kind::text = 'system'::text AND required = true AND active = true AND system_key IS NOT NULL AND request_key IS NULL AND request_fingerprint IS NULL OR case_kind::text = 'custom'::text AND system_key IS NULL AND request_key IS NOT NULL AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100 AND request_fingerprint::text ~ '^[0-9a-f]{64}$'::text) AND (active = true AND retired_by_user_id IS NULL AND retired_at IS NULL AND retirement_digest IS NULL OR active = false AND case_kind::text = 'custom'::text AND retired_by_user_id IS NOT NULL AND retired_at IS NOT NULL AND retirement_digest::text ~ '^[0-9a-f]{64}$'::text)", name: "persona_evaluation_cases_shape"
   end
 
@@ -686,7 +908,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["coach_persona_evaluation_run_id", "coach_persona_evaluation_case_id"], name: "idx_persona_evaluation_results_unique_case", unique: true
     t.index ["coach_persona_evaluation_run_id"], name: "idx_persona_evaluation_results_run"
     t.check_constraint "result_digest::text ~ '^[0-9a-f]{64}$'::text AND jsonb_typeof(case_snapshot) = 'object'::text AND jsonb_typeof(adapter_metadata) = 'object'::text AND jsonb_typeof(assertion_results) = 'array'::text", name: "persona_evaluation_results_shape"
-    t.check_constraint "status::text = ANY (ARRAY['passed'::character varying::text, 'failed'::character varying::text, 'error'::character varying::text])", name: "persona_evaluation_results_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['passed'::character varying, 'failed'::character varying, 'error'::character varying]::text[])", name: "persona_evaluation_results_status_valid"
   end
 
   create_table "coach_persona_evaluation_runs", force: :cascade do |t|
@@ -712,9 +934,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["lease_token"], name: "idx_persona_evaluation_runs_lease_token", unique: true, where: "(lease_token IS NOT NULL)"
     t.index ["request_key"], name: "idx_persona_evaluation_runs_request_key", unique: true
     t.index ["requested_by_user_id"], name: "index_coach_persona_evaluation_runs_on_requested_by_user_id"
-    t.check_constraint "cases_digest::text ~ '^[0-9a-f]{64}$'::text AND request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100 AND execution_attempts >= 0 AND (run_digest IS NULL OR run_digest::text ~ '^[0-9a-f]{64}$'::text) AND (status::text = 'pending'::text AND started_at IS NULL AND completed_at IS NULL AND run_digest IS NULL OR status::text = 'running'::text AND started_at IS NOT NULL AND completed_at IS NULL AND run_digest IS NULL OR (status::text = ANY (ARRAY['passed'::character varying::text, 'failed'::character varying::text, 'error'::character varying::text])) AND started_at IS NOT NULL AND completed_at IS NOT NULL AND run_digest IS NOT NULL)", name: "persona_evaluation_runs_lifecycle"
+    t.check_constraint "cases_digest::text ~ '^[0-9a-f]{64}$'::text AND request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100 AND execution_attempts >= 0 AND (run_digest IS NULL OR run_digest::text ~ '^[0-9a-f]{64}$'::text) AND (status::text = 'pending'::text AND started_at IS NULL AND completed_at IS NULL AND run_digest IS NULL OR status::text = 'running'::text AND started_at IS NOT NULL AND completed_at IS NULL AND run_digest IS NULL OR (status::text = ANY (ARRAY['passed'::character varying, 'failed'::character varying, 'error'::character varying]::text[])) AND started_at IS NOT NULL AND completed_at IS NOT NULL AND run_digest IS NOT NULL)", name: "persona_evaluation_runs_lifecycle"
     t.check_constraint "lease_token IS NULL AND lease_expires_at IS NULL AND heartbeat_at IS NULL AND lease_claimed_at IS NULL OR lease_token IS NOT NULL AND lease_expires_at IS NOT NULL AND heartbeat_at IS NOT NULL", name: "persona_evaluation_runs_lease_complete"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'running'::character varying::text, 'passed'::character varying::text, 'failed'::character varying::text, 'error'::character varying::text])", name: "persona_evaluation_runs_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'running'::character varying, 'passed'::character varying, 'failed'::character varying, 'error'::character varying]::text[])", name: "persona_evaluation_runs_status_valid"
   end
 
   create_table "coach_persona_phrase_promotions", force: :cascade do |t|
@@ -755,10 +977,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["coach_persona_id"], name: "index_coach_persona_publication_events_on_coach_persona_id"
     t.index ["coach_persona_version_id"], name: "idx_on_coach_persona_version_id_4ab8b00110"
     t.index ["source_version_id"], name: "index_coach_persona_publication_events_on_source_version_id"
-    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying::text, 'rollback'::character varying::text])", name: "coach_persona_publication_events_type_valid"
+    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "coach_persona_publication_events_type_valid"
     t.check_constraint "jsonb_typeof(phrase_audience_attestation_digests) = 'array'::text", name: "persona_publication_events_audience_attestation_digests_array"
     t.check_constraint "release_gate_version::text = 'gate_v1'::text AND release_evidence_digest IS NULL OR release_gate_version::text = 'gate_v2'::text AND release_evidence_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_publication_events_release_evidence_complete"
-    t.check_constraint "release_gate_version::text = ANY (ARRAY['gate_v1'::character varying::text, 'gate_v2'::character varying::text])", name: "persona_publication_events_release_gate_valid"
+    t.check_constraint "release_gate_version::text = ANY (ARRAY['gate_v1'::character varying, 'gate_v2'::character varying]::text[])", name: "persona_publication_events_release_gate_valid"
   end
 
   create_table "coach_persona_release_candidates", force: :cascade do |t|
@@ -808,7 +1030,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["coach_persona_setup_turn_id"], name: "idx_persona_setup_proposals_one_per_turn", unique: true
     t.index ["coach_persona_setup_turn_id"], name: "idx_persona_setup_proposals_turn"
     t.index ["resolved_by_user_id"], name: "index_coach_persona_setup_proposals_on_resolved_by_user_id"
-    t.check_constraint "(status::text = ANY (ARRAY['pending'::character varying::text, 'superseded'::character varying::text, 'stale'::character varying::text])) OR resolution_idempotency_key IS NOT NULL", name: "persona_setup_proposals_user_resolution_key_present"
+    t.check_constraint "(status::text = ANY (ARRAY['pending'::character varying, 'superseded'::character varying, 'stale'::character varying]::text[])) OR resolution_idempotency_key IS NOT NULL", name: "persona_setup_proposals_user_resolution_key_present"
     t.check_constraint "base_config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_setup_proposals_base_digest_sha256"
     t.check_constraint "base_draft_revision > 0", name: "persona_setup_proposals_revision_positive"
     t.check_constraint "jsonb_typeof(before_state) = 'object'::text AND jsonb_typeof(after_state) = 'object'::text", name: "persona_setup_proposals_states_objects"
@@ -816,7 +1038,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "octet_length(operations::text) <= 32768 AND octet_length(before_state::text) <= 65536 AND octet_length(after_state::text) <= 65536", name: "persona_setup_proposals_payload_sizes"
     t.check_constraint "proposal_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_setup_proposals_digest_sha256"
     t.check_constraint "status::text = 'pending'::text AND resolved_by_user_id IS NULL AND resolved_at IS NULL OR status::text <> 'pending'::text AND resolved_by_user_id IS NOT NULL AND resolved_at IS NOT NULL", name: "persona_setup_proposals_resolution_complete"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'applied'::character varying::text, 'rejected'::character varying::text, 'superseded'::character varying::text, 'stale'::character varying::text])", name: "persona_setup_proposals_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'applied'::character varying, 'rejected'::character varying, 'superseded'::character varying, 'stale'::character varying]::text[])", name: "persona_setup_proposals_status_valid"
   end
 
   create_table "coach_persona_setup_sessions", force: :cascade do |t|
@@ -837,7 +1059,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["id", "coach_workspace_id"], name: "idx_persona_setup_sessions_id_workspace", unique: true
     t.check_constraint "base_config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_setup_sessions_digest_sha256"
     t.check_constraint "base_draft_revision > 0", name: "persona_setup_sessions_revision_positive"
-    t.check_constraint "status::text = ANY (ARRAY['active'::character varying::text, 'completed'::character varying::text, 'abandoned'::character varying::text])", name: "persona_setup_sessions_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['active'::character varying, 'completed'::character varying, 'abandoned'::character varying]::text[])", name: "persona_setup_sessions_status_valid"
   end
 
   create_table "coach_persona_setup_turns", force: :cascade do |t|
@@ -870,7 +1092,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "char_length(user_message) >= 1 AND char_length(user_message) <= 4000", name: "persona_setup_turns_user_message_length"
     t.check_constraint "error_code IS NULL OR char_length(error_code::text) >= 1 AND char_length(error_code::text) <= 80", name: "persona_setup_turns_error_code_length"
     t.check_constraint "jsonb_typeof(usage) = 'object'::text", name: "persona_setup_turns_usage_object"
-    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying::text, 'ready'::character varying::text, 'failed'::character varying::text, 'stale'::character varying::text])", name: "persona_setup_turns_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying, 'ready'::character varying, 'failed'::character varying, 'stale'::character varying]::text[])", name: "persona_setup_turns_status_valid"
   end
 
   create_table "coach_persona_version_content_packs", force: :cascade do |t|
@@ -942,8 +1164,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "octet_length(config::text) <= 49152", name: "coach_persona_versions_config_bytes"
     t.check_constraint "phrase_manifest_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_phrase_manifest_sha256"
     t.check_constraint "release_gate_version::text = 'gate_v1'::text AND coach_persona_release_candidate_id IS NULL AND coach_persona_evaluation_run_id IS NULL AND coach_persona_evaluation_approval_id IS NULL AND release_manifest_digest IS NULL AND audience_digest IS NULL AND release_evidence_digest IS NULL OR release_gate_version::text = 'gate_v2'::text AND coach_persona_release_candidate_id IS NOT NULL AND coach_persona_evaluation_run_id IS NOT NULL AND coach_persona_evaluation_approval_id IS NOT NULL AND release_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND audience_digest::text ~ '^[0-9a-f]{64}$'::text AND release_evidence_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_versions_release_evidence_complete"
-    t.check_constraint "release_gate_version::text = 'gate_v1'::text AND release_evidence_schema IS NULL AND coach_persona_behavioral_preview_evidence_id IS NULL AND behavioral_preview_digest IS NULL OR release_gate_version::text = 'gate_v2'::text AND (release_evidence_schema::text = ANY (ARRAY['persona_release_evidence_v2'::character varying::text, 'persona_release_evidence_v3'::character varying::text])) AND (release_evidence_schema::text = 'persona_release_evidence_v2'::text AND coach_persona_behavioral_preview_evidence_id IS NULL AND behavioral_preview_digest IS NULL OR release_evidence_schema::text = 'persona_release_evidence_v3'::text AND coach_persona_behavioral_preview_evidence_id IS NOT NULL AND behavioral_preview_digest::text ~ '^[0-9a-f]{64}$'::text)", name: "persona_versions_behavioral_preview_shape"
-    t.check_constraint "release_gate_version::text = ANY (ARRAY['gate_v1'::character varying::text, 'gate_v2'::character varying::text])", name: "persona_versions_release_gate_valid"
+    t.check_constraint "release_gate_version::text = 'gate_v1'::text AND release_evidence_schema IS NULL AND coach_persona_behavioral_preview_evidence_id IS NULL AND behavioral_preview_digest IS NULL OR release_gate_version::text = 'gate_v2'::text AND (release_evidence_schema::text = ANY (ARRAY['persona_release_evidence_v2'::character varying, 'persona_release_evidence_v3'::character varying]::text[])) AND (release_evidence_schema::text = 'persona_release_evidence_v2'::text AND coach_persona_behavioral_preview_evidence_id IS NULL AND behavioral_preview_digest IS NULL OR release_evidence_schema::text = 'persona_release_evidence_v3'::text AND coach_persona_behavioral_preview_evidence_id IS NOT NULL AND behavioral_preview_digest::text ~ '^[0-9a-f]{64}$'::text)", name: "persona_versions_behavioral_preview_shape"
+    t.check_constraint "release_gate_version::text = ANY (ARRAY['gate_v1'::character varying, 'gate_v2'::character varying]::text[])", name: "persona_versions_release_gate_valid"
     t.check_constraint "version_number > 0", name: "coach_persona_versions_positive_number"
   end
 
@@ -975,7 +1197,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "octet_length(draft_config::text) <= 49152", name: "coach_personas_draft_config_bytes"
     t.check_constraint "preview_digest IS NULL AND previewed_at IS NULL AND previewed_draft_revision IS NULL OR preview_digest IS NOT NULL AND previewed_at IS NOT NULL AND previewed_draft_revision IS NOT NULL", name: "coach_personas_preview_fields_complete"
     t.check_constraint "preview_digest IS NULL OR preview_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_personas_preview_digest_sha256"
-    t.check_constraint "release_gate_version::text = ANY (ARRAY['gate_v1'::character varying::text, 'gate_v2'::character varying::text])", name: "coach_personas_release_gate_valid"
+    t.check_constraint "release_gate_version::text = ANY (ARRAY['gate_v1'::character varying, 'gate_v2'::character varying]::text[])", name: "coach_personas_release_gate_valid"
   end
 
   create_table "coach_phrase_attestations", force: :cascade do |t|
@@ -991,7 +1213,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.datetime "updated_at", null: false
     t.index ["coach_phrase_proposal_id"], name: "index_coach_phrase_attestations_on_coach_phrase_proposal_id", unique: true
     t.index ["reviewed_by_user_id"], name: "index_coach_phrase_attestations_on_reviewed_by_user_id"
-    t.check_constraint "decision::text = ANY (ARRAY['approved'::character varying::text, 'rejected'::character varying::text])", name: "phrase_attestations_decision_valid"
+    t.check_constraint "decision::text = ANY (ARRAY['approved'::character varying, 'rejected'::character varying]::text[])", name: "phrase_attestations_decision_valid"
     t.check_constraint "proposal_digest::text ~ '^[0-9a-f]{64}$'::text AND evidence_digest::text ~ '^[0-9a-f]{64}$'::text AND attestation_digest::text ~ '^[0-9a-f]{64}$'::text", name: "phrase_attestations_digests_sha256"
   end
 
@@ -1014,7 +1236,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["coach_persona_release_candidate_id"], name: "idx_phrase_audience_attestations_candidate"
     t.index ["reviewed_by_user_id"], name: "idx_on_reviewed_by_user_id_4e3698fda7"
     t.check_constraint "artifact_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND audience_digest::text ~ '^[0-9a-f]{64}$'::text AND attestation_digest::text ~ '^[0-9a-f]{64}$'::text", name: "phrase_audience_attestations_digest_shape"
-    t.check_constraint "decision::text = ANY (ARRAY['approved'::character varying::text, 'rejected'::character varying::text])", name: "phrase_audience_attestations_decision_valid"
+    t.check_constraint "decision::text = ANY (ARRAY['approved'::character varying, 'rejected'::character varying]::text[])", name: "phrase_audience_attestations_decision_valid"
     t.check_constraint "reviewer_role_snapshot IS NULL AND reviewer_authority_digest IS NULL AND reviewer_authority_snapshot = '{}'::jsonb OR reviewer_role_snapshot IS NOT NULL AND reviewer_authority_digest::text ~ '^[0-9a-f]{64}$'::text AND jsonb_typeof(reviewer_authority_snapshot) = 'object'::text", name: "phrase_audience_attestations_authority_shape"
   end
 
@@ -1056,9 +1278,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "octet_length(phrase_payload::text) <= 4096 AND octet_length(evidence_locator::text) <= 2048", name: "phrase_proposals_payload_sizes"
     t.check_constraint "revision > 0", name: "phrase_proposals_revision_positive"
     t.check_constraint "source_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text AND source_segment_digest::text ~ '^[0-9a-f]{64}$'::text AND phrase_digest::text ~ '^[0-9a-f]{64}$'::text AND approved_content_digest::text ~ '^[0-9a-f]{64}$'::text AND source_provenance_digest::text ~ '^[0-9a-f]{64}$'::text AND proposal_digest::text ~ '^[0-9a-f]{64}$'::text", name: "phrase_proposals_digests_sha256"
-    t.check_constraint "status::text = 'draft'::text AND submitted_at IS NULL OR (status::text = ANY (ARRAY['submitted'::character varying::text, 'rejected'::character varying::text])) AND submitted_at IS NOT NULL OR status::text = 'superseded'::text", name: "phrase_proposals_submission_coherent"
+    t.check_constraint "status::text = 'draft'::text AND submitted_at IS NULL OR (status::text = ANY (ARRAY['submitted'::character varying, 'rejected'::character varying]::text[])) AND submitted_at IS NOT NULL OR status::text = 'superseded'::text", name: "phrase_proposals_submission_coherent"
     t.check_constraint "status::text = 'superseded'::text AND superseded_at IS NOT NULL OR status::text <> 'superseded'::text AND superseded_at IS NULL", name: "phrase_proposals_supersession_coherent"
-    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying::text, 'submitted'::character varying::text, 'rejected'::character varying::text, 'superseded'::character varying::text])", name: "phrase_proposals_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'submitted'::character varying, 'rejected'::character varying, 'superseded'::character varying]::text[])", name: "phrase_proposals_status_valid"
   end
 
   create_table "coach_profiles", force: :cascade do |t|
@@ -1086,7 +1308,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.datetime "updated_at", null: false
     t.index ["actor_user_id"], name: "index_coach_workspace_domain_events_on_actor_user_id"
     t.index ["coach_workspace_domain_id"], name: "idx_coach_workspace_domain_events_domain"
-    t.check_constraint "event_type::text = ANY (ARRAY['created'::character varying::text, 'verification_requested'::character varying::text, 'verified'::character varying::text, 'activated'::character varying::text, 'disabled'::character varying::text])", name: "coach_workspace_domain_events_type"
+    t.check_constraint "event_type::text = ANY (ARRAY['created'::character varying, 'verification_requested'::character varying, 'verified'::character varying, 'activated'::character varying, 'disabled'::character varying]::text[])", name: "coach_workspace_domain_events_type"
     t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "coach_workspace_domain_events_metadata_object"
     t.check_constraint "octet_length(metadata::text) <= 4096", name: "coach_workspace_domain_events_metadata_bytes"
   end
@@ -1113,14 +1335,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["created_by_user_id"], name: "index_coach_workspace_domains_on_created_by_user_id"
     t.index ["id", "coach_workspace_id"], name: "idx_coach_workspace_domains_id_workspace", unique: true
     t.index ["updated_by_user_id"], name: "index_coach_workspace_domains_on_updated_by_user_id"
-    t.check_constraint "(status::text <> ALL (ARRAY['verified'::character varying::text, 'active'::character varying::text])) OR verified_at IS NOT NULL", name: "coach_workspace_domains_verified_evidence"
+    t.check_constraint "(status::text <> ALL (ARRAY['verified'::character varying, 'active'::character varying]::text[])) OR verified_at IS NOT NULL", name: "coach_workspace_domains_verified_evidence"
     t.check_constraint "(status::text = 'disabled'::text) = (disabled_at IS NOT NULL)", name: "coach_workspace_domains_disabled_evidence"
     t.check_constraint "NOT is_primary OR status::text = 'active'::text", name: "coach_workspace_domains_primary_active"
     t.check_constraint "char_length(hostname::text) >= 4 AND char_length(hostname::text) <= 253", name: "coach_workspace_domains_hostname_length"
     t.check_constraint "hostname::text = lower(hostname::text) AND hostname::text ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$'::text", name: "coach_workspace_domains_hostname"
-    t.check_constraint "kind::text = ANY (ARRAY['managed_subdomain'::character varying::text, 'custom'::character varying::text])", name: "coach_workspace_domains_kind"
+    t.check_constraint "kind::text = ANY (ARRAY['managed_subdomain'::character varying, 'custom'::character varying]::text[])", name: "coach_workspace_domains_kind"
     t.check_constraint "status::text <> 'active'::text OR activated_at IS NOT NULL", name: "coach_workspace_domains_active_evidence"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'verified'::character varying::text, 'active'::character varying::text, 'disabled'::character varying::text])", name: "coach_workspace_domains_status"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'verified'::character varying, 'active'::character varying, 'disabled'::character varying]::text[])", name: "coach_workspace_domains_status"
     t.check_constraint "verification_token_digest IS NULL OR verification_token_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_workspace_domains_token_digest"
   end
 
@@ -1136,9 +1358,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["actor_user_id"], name: "index_coach_workspace_membership_events_on_actor_user_id"
     t.index ["coach_workspace_id"], name: "index_coach_workspace_membership_events_on_coach_workspace_id"
     t.index ["subject_user_id"], name: "index_coach_workspace_membership_events_on_subject_user_id"
-    t.check_constraint "after_role IS NULL OR (after_role::text = ANY (ARRAY['owner'::character varying::text, 'editor'::character varying::text, 'reviewer'::character varying::text, 'viewer'::character varying::text]))", name: "workspace_membership_event_after_role"
-    t.check_constraint "before_role IS NULL OR (before_role::text = ANY (ARRAY['owner'::character varying::text, 'editor'::character varying::text, 'reviewer'::character varying::text, 'viewer'::character varying::text]))", name: "workspace_membership_event_before_role"
-    t.check_constraint "event_type::text = ANY (ARRAY['added'::character varying::text, 'role_changed'::character varying::text, 'removed'::character varying::text])", name: "workspace_membership_event_type"
+    t.check_constraint "after_role IS NULL OR (after_role::text = ANY (ARRAY['owner'::character varying, 'editor'::character varying, 'reviewer'::character varying, 'viewer'::character varying]::text[]))", name: "workspace_membership_event_after_role"
+    t.check_constraint "before_role IS NULL OR (before_role::text = ANY (ARRAY['owner'::character varying, 'editor'::character varying, 'reviewer'::character varying, 'viewer'::character varying]::text[]))", name: "workspace_membership_event_before_role"
+    t.check_constraint "event_type::text = ANY (ARRAY['added'::character varying, 'role_changed'::character varying, 'removed'::character varying]::text[])", name: "workspace_membership_event_type"
   end
 
   create_table "coach_workspace_memberships", force: :cascade do |t|
@@ -1151,7 +1373,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["coach_workspace_id", "user_id"], name: "index_coach_workspace_memberships_unique_user", unique: true
     t.index ["coach_workspace_id"], name: "index_coach_workspace_memberships_on_coach_workspace_id"
     t.index ["user_id"], name: "index_coach_workspace_memberships_on_user_id"
-    t.check_constraint "role::text = ANY (ARRAY['owner'::character varying::text, 'editor'::character varying::text, 'reviewer'::character varying::text, 'viewer'::character varying::text])", name: "coach_workspace_memberships_role_valid"
+    t.check_constraint "role::text = ANY (ARRAY['owner'::character varying, 'editor'::character varying, 'reviewer'::character varying, 'viewer'::character varying]::text[])", name: "coach_workspace_memberships_role_valid"
   end
 
   create_table "coach_workspaces", force: :cascade do |t|
@@ -1205,7 +1427,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["cohort_experience_configuration_id"], name: "index_cohort_experience_events_on_configuration"
     t.index ["cohort_experience_version_id"], name: "index_cohort_experience_events_on_version"
     t.index ["source_version_id"], name: "idx_on_source_version_id_eaa4a993fe"
-    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying::text, 'rollback'::character varying::text])", name: "cohort_experience_publication_events_type"
+    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "cohort_experience_publication_events_type"
   end
 
   create_table "cohort_experience_versions", force: :cascade do |t|
@@ -1237,7 +1459,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["cohort_id"], name: "index_cohort_memberships_on_cohort_id"
     t.index ["user_id", "role"], name: "index_cohort_memberships_on_user_id_and_role"
     t.index ["user_id"], name: "index_cohort_memberships_on_user_id"
-    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying::text, 'coach'::character varying::text, 'admin'::character varying::text])", name: "cohort_memberships_role_valid"
+    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying, 'coach'::character varying, 'admin'::character varying]::text[])", name: "cohort_memberships_role_valid"
   end
 
   create_table "cohort_persona_assignments", force: :cascade do |t|
@@ -1281,8 +1503,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["from_cohort_release_id"], name: "idx_on_from_cohort_release_id_13d9f68065"
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_release_activation_events_scope", unique: true
     t.index ["to_cohort_release_id"], name: "index_cohort_release_activation_events_on_to_cohort_release_id"
-    t.check_constraint "event_type::text = 'backfill'::text AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NULL AND actor_role_snapshot IS NULL OR event_type::text = 'initial_launch'::text AND from_cohort_release_id IS NULL AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text])) OR event_type::text = 'rollout_completed'::text AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text]))", name: "release_activation_events_shape"
-    t.check_constraint "event_type::text = ANY (ARRAY['backfill'::character varying::text, 'initial_launch'::character varying::text, 'rollout_completed'::character varying::text])", name: "release_activation_events_type_valid"
+    t.check_constraint "event_type::text = 'backfill'::text AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NULL AND actor_role_snapshot IS NULL OR event_type::text = 'initial_launch'::text AND from_cohort_release_id IS NULL AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[])) OR event_type::text = 'rollout_completed'::text AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[]))", name: "release_activation_events_shape"
+    t.check_constraint "event_type::text = ANY (ARRAY['backfill'::character varying, 'initial_launch'::character varying, 'rollout_completed'::character varying]::text[])", name: "release_activation_events_type_valid"
     t.check_constraint "request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "release_activation_events_request_valid"
   end
 
@@ -1314,7 +1536,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["user_id"], name: "index_cohort_release_exposures_on_user_id"
     t.check_constraint "char_length(exposure_key::text) >= 1 AND char_length(exposure_key::text) <= 160", name: "cohort_release_exposures_key_bounded"
     t.check_constraint "cohort_rollout_id IS NOT NULL AND cohort_rollout_wave_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL", name: "cohort_release_exposures_rollout_shape"
-    t.check_constraint "event_type::text = ANY (ARRAY['wave'::character varying::text, 'rollback'::character varying::text])", name: "cohort_release_exposures_type_valid"
+    t.check_constraint "event_type::text = ANY (ARRAY['wave'::character varying, 'rollback'::character varying]::text[])", name: "cohort_release_exposures_type_valid"
   end
 
   create_table "cohort_releases", force: :cascade do |t|
@@ -1368,21 +1590,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["released_by_user_id"], name: "index_cohort_releases_on_released_by_user_id"
     t.index ["source_release_id"], name: "index_cohort_releases_on_source_release_id"
     t.index ["workspace_brand_version_id"], name: "idx_cohort_releases_brand_version"
-    t.check_constraint "(experience_mode::text = ANY (ARRAY['published_version'::character varying::text, 'safe_default'::character varying::text])) AND (experience_mode::text = 'published_version'::text AND cohort_experience_version_id IS NOT NULL OR experience_mode::text = 'safe_default'::text AND cohort_experience_version_id IS NULL)", name: "cohort_releases_experience_shape"
-    t.check_constraint "(persona_mode::text = ANY (ARRAY['published_version'::character varying::text, 'neutral_builtin'::character varying::text])) AND (persona_mode::text = 'published_version'::text AND coach_persona_id IS NOT NULL AND coach_persona_version_id IS NOT NULL OR persona_mode::text = 'neutral_builtin'::text AND coach_persona_id IS NULL AND coach_persona_version_id IS NULL)", name: "cohort_releases_persona_shape"
+    t.check_constraint "(experience_mode::text = ANY (ARRAY['published_version'::character varying, 'safe_default'::character varying]::text[])) AND (experience_mode::text = 'published_version'::text AND cohort_experience_version_id IS NOT NULL OR experience_mode::text = 'safe_default'::text AND cohort_experience_version_id IS NULL)", name: "cohort_releases_experience_shape"
+    t.check_constraint "(persona_mode::text = ANY (ARRAY['published_version'::character varying, 'neutral_builtin'::character varying]::text[])) AND (persona_mode::text = 'published_version'::text AND coach_persona_id IS NOT NULL AND coach_persona_version_id IS NOT NULL OR persona_mode::text = 'neutral_builtin'::text AND coach_persona_id IS NULL AND coach_persona_version_id IS NULL)", name: "cohort_releases_persona_shape"
     t.check_constraint "brand_snapshot IS NULL OR jsonb_typeof(brand_snapshot) = 'object'::text", name: "cohort_releases_brand_json_shape"
     t.check_constraint "brand_snapshot IS NULL OR octet_length(brand_snapshot::text) <= 32768", name: "cohort_releases_brand_json_bounded"
     t.check_constraint "brand_snapshot_digest IS NULL OR brand_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text", name: "cohort_releases_brand_digest_shape"
     t.check_constraint "char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "cohort_releases_request_key_bounded"
-    t.check_constraint "event_type::text = 'restore'::text AND source_release_id IS NOT NULL OR (event_type::text = ANY (ARRAY['release'::character varying::text, 'reconciliation'::character varying::text])) AND source_release_id IS NULL", name: "cohort_releases_source_shape"
-    t.check_constraint "event_type::text = ANY (ARRAY['release'::character varying::text, 'restore'::character varying::text, 'reconciliation'::character varying::text])", name: "cohort_releases_event_type_valid"
+    t.check_constraint "event_type::text = 'restore'::text AND source_release_id IS NOT NULL OR (event_type::text = ANY (ARRAY['release'::character varying, 'reconciliation'::character varying]::text[])) AND source_release_id IS NULL", name: "cohort_releases_source_shape"
+    t.check_constraint "event_type::text = ANY (ARRAY['release'::character varying, 'restore'::character varying, 'reconciliation'::character varying]::text[])", name: "cohort_releases_event_type_valid"
     t.check_constraint "jsonb_typeof(persona_snapshot) = 'object'::text AND jsonb_typeof(experience_snapshot) = 'object'::text AND jsonb_typeof(tool_registry_snapshot) = 'object'::text AND jsonb_typeof(bundle) = 'object'::text AND jsonb_typeof(manifest) = 'object'::text", name: "cohort_releases_json_shape"
     t.check_constraint "manifest_schema::text = 'cohort_release_manifest_v1'::text AND brand_mode IS NULL AND workspace_brand_version_id IS NULL AND brand_snapshot IS NULL AND brand_snapshot_digest IS NULL OR manifest_schema::text = 'cohort_release_manifest_v2'::text AND brand_snapshot IS NOT NULL AND brand_snapshot_digest IS NOT NULL AND (brand_mode::text = 'published_version'::text AND workspace_brand_version_id IS NOT NULL OR brand_mode::text = 'legacy_household_cfo_builtin'::text AND workspace_brand_version_id IS NULL)", name: "cohort_releases_brand_shape"
-    t.check_constraint "manifest_schema::text = ANY (ARRAY['cohort_release_manifest_v1'::character varying::text, 'cohort_release_manifest_v2'::character varying::text])", name: "cohort_releases_manifest_schema_valid"
+    t.check_constraint "manifest_schema::text = ANY (ARRAY['cohort_release_manifest_v1'::character varying, 'cohort_release_manifest_v2'::character varying]::text[])", name: "cohort_releases_manifest_schema_valid"
     t.check_constraint "octet_length(persona_snapshot::text) <= 65536 AND octet_length(experience_snapshot::text) <= 16384 AND octet_length(tool_registry_snapshot::text) <= 65536 AND octet_length(bundle::text) <= 196608 AND octet_length(manifest::text) <= 262144", name: "cohort_releases_json_bounded"
     t.check_constraint "persona_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND experience_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND tool_registry_digest::text ~ '^[0-9a-f]{64}$'::text AND bundle_digest::text ~ '^[0-9a-f]{64}$'::text AND manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND request_fingerprint::text ~ '^[0-9a-f]{64}$'::text", name: "cohort_releases_digest_shape"
-    t.check_constraint "publication_source::text = 'user'::text AND released_by_user_id IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text])) OR (publication_source::text = ANY (ARRAY['legacy_backfill'::character varying::text, 'system'::character varying::text])) AND released_by_user_id IS NULL AND actor_role_snapshot IS NULL", name: "cohort_releases_actor_shape"
-    t.check_constraint "publication_source::text = ANY (ARRAY['user'::character varying::text, 'legacy_backfill'::character varying::text, 'system'::character varying::text])", name: "cohort_releases_publication_source_valid"
+    t.check_constraint "publication_source::text = 'user'::text AND released_by_user_id IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[])) OR (publication_source::text = ANY (ARRAY['legacy_backfill'::character varying, 'system'::character varying]::text[])) AND released_by_user_id IS NULL AND actor_role_snapshot IS NULL", name: "cohort_releases_actor_shape"
+    t.check_constraint "publication_source::text = ANY (ARRAY['user'::character varying, 'legacy_backfill'::character varying, 'system'::character varying]::text[])", name: "cohort_releases_publication_source_valid"
     t.check_constraint "release_number > 0 AND tool_registry_version > 0", name: "cohort_releases_positive_versions"
   end
 
@@ -1435,14 +1657,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_rollout_transitions_scope", unique: true
     t.index ["id", "cohort_rollout_id", "cohort_id", "coach_workspace_id"], name: "idx_rollout_transitions_full_scope", unique: true
     t.index ["rollback_cohort_release_id"], name: "idx_rollout_transitions_rollback_release"
-    t.check_constraint "(event_type::text = ANY (ARRAY['activated'::character varying::text, 'advanced'::character varying::text, 'completed'::character varying::text, 'rolled_back'::character varying::text])) OR participant_runtime_changed = false", name: "cohort_rollout_transitions_runtime_changed_shape"
-    t.check_constraint "(event_type::text = ANY (ARRAY['activated'::character varying::text, 'advanced'::character varying::text, 'completed'::character varying::text])) AND readiness_digest::text ~ '^[0-9a-f]{64}$'::text OR (event_type::text <> ALL (ARRAY['activated'::character varying::text, 'advanced'::character varying::text, 'completed'::character varying::text])) AND readiness_digest IS NULL", name: "cohort_rollout_transitions_readiness_evidence"
+    t.check_constraint "(event_type::text = ANY (ARRAY['activated'::character varying, 'advanced'::character varying, 'completed'::character varying, 'rolled_back'::character varying]::text[])) OR participant_runtime_changed = false", name: "cohort_rollout_transitions_runtime_changed_shape"
+    t.check_constraint "(event_type::text = ANY (ARRAY['activated'::character varying, 'advanced'::character varying, 'completed'::character varying]::text[])) AND readiness_digest::text ~ '^[0-9a-f]{64}$'::text OR (event_type::text <> ALL (ARRAY['activated'::character varying, 'advanced'::character varying, 'completed'::character varying]::text[])) AND readiness_digest IS NULL", name: "cohort_rollout_transitions_readiness_evidence"
     t.check_constraint "(from_wave_position IS NULL OR from_wave_position >= 0 AND from_wave_position <= 25) AND (to_wave_position IS NULL OR to_wave_position >= 0 AND to_wave_position <= 25)", name: "cohort_rollout_transitions_wave_positions_bounded"
-    t.check_constraint "(to_status::text = ANY (ARRAY['planned'::character varying::text, 'active'::character varying::text, 'paused'::character varying::text, 'completed'::character varying::text, 'cancelled'::character varying::text, 'rolled_back'::character varying::text])) AND (from_status IS NULL OR (from_status::text = ANY (ARRAY['planned'::character varying::text, 'active'::character varying::text, 'paused'::character varying::text, 'completed'::character varying::text, 'cancelled'::character varying::text, 'rolled_back'::character varying::text])))", name: "cohort_rollout_transitions_status_valid"
-    t.check_constraint "actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text])", name: "cohort_rollout_transitions_actor_role_valid"
-    t.check_constraint "event_type::text = 'planned'::text AND from_status IS NULL AND to_status::text = 'planned'::text AND from_wave_position IS NULL AND to_wave_position = 0 OR event_type::text = 'activated'::text AND from_status::text = 'planned'::text AND to_status::text = 'active'::text AND from_wave_position = 0 AND to_wave_position = 1 OR event_type::text = 'advanced'::text AND from_status::text = 'active'::text AND to_status::text = 'active'::text AND from_wave_position >= 1 AND to_wave_position = (from_wave_position + 1) OR event_type::text = 'completed'::text AND from_status::text = 'active'::text AND to_status::text = 'completed'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position OR event_type::text = 'paused'::text AND from_status::text = 'active'::text AND to_status::text = 'paused'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position OR event_type::text = 'resumed'::text AND from_status::text = 'paused'::text AND to_status::text = 'active'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position OR event_type::text = 'cancelled'::text AND from_status::text = 'planned'::text AND to_status::text = 'cancelled'::text AND from_wave_position = 0 AND to_wave_position = 0 OR event_type::text = 'rolled_back'::text AND (from_status::text = ANY (ARRAY['active'::character varying::text, 'paused'::character varying::text])) AND to_status::text = 'rolled_back'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position", name: "cohort_rollout_transitions_event_shape"
+    t.check_constraint "(to_status::text = ANY (ARRAY['planned'::character varying, 'active'::character varying, 'paused'::character varying, 'completed'::character varying, 'cancelled'::character varying, 'rolled_back'::character varying]::text[])) AND (from_status IS NULL OR (from_status::text = ANY (ARRAY['planned'::character varying, 'active'::character varying, 'paused'::character varying, 'completed'::character varying, 'cancelled'::character varying, 'rolled_back'::character varying]::text[])))", name: "cohort_rollout_transitions_status_valid"
+    t.check_constraint "actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[])", name: "cohort_rollout_transitions_actor_role_valid"
+    t.check_constraint "event_type::text = 'planned'::text AND from_status IS NULL AND to_status::text = 'planned'::text AND from_wave_position IS NULL AND to_wave_position = 0 OR event_type::text = 'activated'::text AND from_status::text = 'planned'::text AND to_status::text = 'active'::text AND from_wave_position = 0 AND to_wave_position = 1 OR event_type::text = 'advanced'::text AND from_status::text = 'active'::text AND to_status::text = 'active'::text AND from_wave_position >= 1 AND to_wave_position = (from_wave_position + 1) OR event_type::text = 'completed'::text AND from_status::text = 'active'::text AND to_status::text = 'completed'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position OR event_type::text = 'paused'::text AND from_status::text = 'active'::text AND to_status::text = 'paused'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position OR event_type::text = 'resumed'::text AND from_status::text = 'paused'::text AND to_status::text = 'active'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position OR event_type::text = 'cancelled'::text AND from_status::text = 'planned'::text AND to_status::text = 'cancelled'::text AND from_wave_position = 0 AND to_wave_position = 0 OR event_type::text = 'rolled_back'::text AND (from_status::text = ANY (ARRAY['active'::character varying, 'paused'::character varying]::text[])) AND to_status::text = 'rolled_back'::text AND from_wave_position >= 1 AND to_wave_position = from_wave_position", name: "cohort_rollout_transitions_event_shape"
     t.check_constraint "event_type::text = 'rolled_back'::text AND rollback_cohort_release_id IS NOT NULL OR event_type::text <> 'rolled_back'::text AND rollback_cohort_release_id IS NULL", name: "cohort_rollout_transitions_rollback_shape"
-    t.check_constraint "event_type::text = ANY (ARRAY['planned'::character varying::text, 'activated'::character varying::text, 'advanced'::character varying::text, 'paused'::character varying::text, 'resumed'::character varying::text, 'completed'::character varying::text, 'cancelled'::character varying::text, 'rolled_back'::character varying::text])", name: "cohort_rollout_transitions_event_valid"
+    t.check_constraint "event_type::text = ANY (ARRAY['planned'::character varying, 'activated'::character varying, 'advanced'::character varying, 'paused'::character varying, 'resumed'::character varying, 'completed'::character varying, 'cancelled'::character varying, 'rolled_back'::character varying]::text[])", name: "cohort_rollout_transitions_event_valid"
   end
 
   create_table "cohort_rollout_waves", force: :cascade do |t|
@@ -1492,10 +1714,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["target_cohort_release_id"], name: "idx_cohort_rollouts_target_release"
     t.check_constraint "baseline_cohort_release_id IS NULL OR baseline_cohort_release_id <> target_cohort_release_id", name: "cohort_rollouts_distinct_runtime_releases"
     t.check_constraint "current_wave_position >= 0 AND current_wave_position <= 25", name: "cohort_rollouts_wave_position_bounded"
-    t.check_constraint "planned_by_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text])", name: "cohort_rollouts_actor_role_valid"
+    t.check_constraint "planned_by_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[])", name: "cohort_rollouts_actor_role_valid"
     t.check_constraint "status::text = 'planned'::text AND activated_at IS NULL AND paused_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL AND rolled_back_at IS NULL OR status::text = 'active'::text AND activated_at IS NOT NULL AND paused_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL AND rolled_back_at IS NULL OR status::text = 'paused'::text AND activated_at IS NOT NULL AND paused_at IS NOT NULL AND completed_at IS NULL AND cancelled_at IS NULL AND rolled_back_at IS NULL OR status::text = 'completed'::text AND activated_at IS NOT NULL AND paused_at IS NULL AND completed_at IS NOT NULL AND cancelled_at IS NULL AND rolled_back_at IS NULL OR status::text = 'cancelled'::text AND activated_at IS NULL AND paused_at IS NULL AND completed_at IS NULL AND cancelled_at IS NOT NULL AND rolled_back_at IS NULL OR status::text = 'rolled_back'::text AND activated_at IS NOT NULL AND completed_at IS NULL AND cancelled_at IS NULL AND rolled_back_at IS NOT NULL", name: "cohort_rollouts_lifecycle_timestamps"
     t.check_constraint "status::text = 'rolled_back'::text AND rollback_cohort_release_id IS NOT NULL AND rolled_back_at IS NOT NULL OR status::text <> 'rolled_back'::text AND rollback_cohort_release_id IS NULL AND rolled_back_at IS NULL", name: "cohort_rollouts_rollback_shape"
-    t.check_constraint "status::text = ANY (ARRAY['planned'::character varying::text, 'active'::character varying::text, 'paused'::character varying::text, 'completed'::character varying::text, 'cancelled'::character varying::text, 'rolled_back'::character varying::text])", name: "cohort_rollouts_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['planned'::character varying, 'active'::character varying, 'paused'::character varying, 'completed'::character varying, 'cancelled'::character varying, 'rolled_back'::character varying]::text[])", name: "cohort_rollouts_status_valid"
   end
 
   create_table "cohorts", force: :cascade do |t|
@@ -1506,6 +1728,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.date "ends_on"
     t.string "name", null: false
     t.text "notes"
+    t.integer "savings_challenge_capacity", default: 30, null: false
+    t.boolean "savings_challenge_enabled", default: false, null: false
+    t.string "savings_challenge_policy_version", default: "1", null: false
+    t.boolean "savings_challenge_release_hold", default: true, null: false
     t.date "starts_on"
     t.string "status", default: "draft", null: false
     t.datetime "updated_at", null: false
@@ -1516,7 +1742,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["id", "coach_workspace_id", "active_cohort_release_id"], name: "idx_cohorts_active_release_scope", unique: true
     t.index ["id", "coach_workspace_id"], name: "idx_cohorts_id_workspace", unique: true
     t.index ["status"], name: "index_cohorts_on_status"
-    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying::text, 'enrolling'::character varying::text, 'active'::character varying::text, 'completed'::character varying::text, 'archived'::character varying::text])", name: "cohorts_status_valid"
+    t.check_constraint "savings_challenge_capacity >= 1 AND savings_challenge_capacity <= 30", name: "savings_challenge_capacity_valid"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'enrolling'::character varying, 'active'::character varying, 'completed'::character varying, 'archived'::character varying]::text[])", name: "cohorts_status_valid"
   end
 
   create_table "debts", force: :cascade do |t|
@@ -1541,7 +1768,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "active = true AND archived_at IS NULL OR active = false AND archived_at IS NOT NULL", name: "debts_archive_state_valid"
     t.check_constraint "balance_cents >= 0", name: "debts_balance_cents_non_negative"
     t.check_constraint "minimum_payment_cents >= 0", name: "debts_minimum_payment_cents_non_negative"
-    t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying::text, 'mia'::character varying::text, 'document_import'::character varying::text, 'setup'::character varying::text])", name: "debts_source_type_valid"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying, 'mia'::character varying, 'document_import'::character varying, 'setup'::character varying]::text[])", name: "debts_source_type_valid"
   end
 
   create_table "expense_items", force: :cascade do |t|
@@ -1558,6 +1785,43 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_id", "stack_key"], name: "index_expense_items_on_household_id_and_stack_key"
     t.index ["household_id"], name: "index_expense_items_on_household_id"
     t.check_constraint "amount_cents >= 0", name: "expense_items_amount_cents_non_negative"
+  end
+
+  create_table "financial_baseline_heads", force: :cascade do |t|
+    t.bigint "approved_version_id"
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "participant_user_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["household_id", "participant_user_id"], name: "financial_baseline_participant_identity", unique: true
+    t.index ["household_id"], name: "index_financial_baseline_heads_on_household_id"
+    t.index ["id", "household_id"], name: "financial_baseline_head_household_identity", unique: true
+    t.index ["id", "participant_user_id", "household_id"], name: "financial_baseline_head_actor_identity", unique: true
+    t.index ["participant_user_id"], name: "index_financial_baseline_heads_on_participant_user_id"
+  end
+
+  create_table "financial_baseline_versions", force: :cascade do |t|
+    t.bigint "approved_by_user_id", null: false
+    t.string "calculation_version", null: false
+    t.string "coverage_status", null: false
+    t.datetime "created_at", null: false
+    t.string "digest", null: false
+    t.bigint "financial_baseline_head_id", null: false
+    t.bigint "household_id", null: false
+    t.text "reason", null: false
+    t.jsonb "snapshot", null: false
+    t.bigint "supersedes_id"
+    t.integer "version_number", null: false
+    t.date "window_end_on", null: false
+    t.date "window_start_on", null: false
+    t.index ["approved_by_user_id"], name: "index_financial_baseline_versions_on_approved_by_user_id"
+    t.index ["financial_baseline_head_id", "version_number"], name: "financial_baseline_version_sequence", unique: true
+    t.index ["financial_baseline_head_id"], name: "idx_on_financial_baseline_head_id_a1412e8b08"
+    t.index ["household_id"], name: "index_financial_baseline_versions_on_household_id"
+    t.index ["id", "financial_baseline_head_id", "household_id"], name: "financial_baseline_version_head_identity", unique: true
+    t.check_constraint "coverage_status::text = ANY (ARRAY['complete'::character varying, 'partial'::character varying, 'manual'::character varying]::text[])", name: "financial_baseline_coverage_status"
+    t.check_constraint "window_end_on >= window_start_on AND version_number > 0", name: "financial_baseline_window_version"
   end
 
   create_table "financial_document_import_attempts", force: :cascade do |t|
@@ -1577,7 +1841,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["financial_document_import_id"], name: "index_financial_doc_attempts_on_import_id"
     t.index ["status"], name: "index_financial_document_import_attempts_on_status"
     t.check_constraint "status::text = 'processing'::text OR completed_at IS NOT NULL", name: "financial_document_import_attempts_completed_at_required_when_t"
-    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text])", name: "financial_document_import_attempts_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying, 'succeeded'::character varying, 'failed'::character varying]::text[])", name: "financial_document_import_attempts_status_valid"
   end
 
   create_table "financial_document_import_items", force: :cascade do |t|
@@ -1612,11 +1876,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["selected"], name: "index_financial_document_import_items_on_selected"
     t.check_constraint "NOT (selected AND ignored)", name: "financial_document_import_items_selected_not_ignored"
     t.check_constraint "amount_cents IS NULL OR amount_cents >= 0", name: "financial_doc_items_amount_cents_non_negative"
-    t.check_constraint "balance_cents IS NULL OR balance_cents >= 0 OR target_type::text = 'account'::text AND (account_type::text = ANY (ARRAY['checking'::character varying::text, 'savings'::character varying::text]))", name: "financial_doc_items_balance_cents_valid"
-    t.check_constraint "confidence IS NULL OR (confidence::text = ANY (ARRAY['high'::character varying::text, 'medium'::character varying::text, 'low'::character varying::text]))", name: "financial_document_import_items_confidence_valid"
+    t.check_constraint "balance_cents IS NULL OR balance_cents >= 0 OR target_type::text = 'account'::text AND (account_type::text = ANY (ARRAY['checking'::character varying, 'savings'::character varying]::text[]))", name: "financial_doc_items_balance_cents_valid"
+    t.check_constraint "confidence IS NULL OR (confidence::text = ANY (ARRAY['high'::character varying, 'medium'::character varying, 'low'::character varying]::text[]))", name: "financial_document_import_items_confidence_valid"
     t.check_constraint "interest_rate_percent IS NULL OR interest_rate_percent >= 0::numeric AND interest_rate_percent <= 999.99", name: "financial_doc_items_apr_valid"
     t.check_constraint "payment_cents IS NULL OR payment_cents >= 0", name: "financial_doc_items_payment_cents_non_negative"
-    t.check_constraint "target_type::text = ANY (ARRAY['income_source'::character varying::text, 'expense_item'::character varying::text, 'account'::character varying::text, 'debt'::character varying::text, 'goal'::character varying::text, 'profile_note'::character varying::text])", name: "financial_document_import_items_target_type_valid"
+    t.check_constraint "target_type::text = ANY (ARRAY['income_source'::character varying, 'expense_item'::character varying, 'account'::character varying, 'debt'::character varying, 'goal'::character varying, 'profile_note'::character varying]::text[])", name: "financial_document_import_items_target_type_valid"
   end
 
   create_table "financial_document_imports", force: :cascade do |t|
@@ -1651,8 +1915,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["source_deleted_by_user_id"], name: "index_financial_document_imports_on_source_deleted_by_user_id"
     t.index ["uploaded_by_user_id"], name: "index_financial_document_imports_on_uploaded_by_user_id"
     t.check_constraint "byte_size >= 0", name: "financial_document_imports_byte_size_non_negative"
-    t.check_constraint "document_kind::text = ANY (ARRAY['spreadsheet'::character varying::text, 'statement'::character varying::text, 'pay_stub'::character varying::text, 'receipt'::character varying::text, 'other'::character varying::text])", name: "financial_document_imports_document_kind_valid"
-    t.check_constraint "status::text = ANY (ARRAY['uploaded'::character varying::text, 'processing'::character varying::text, 'needs_review'::character varying::text, 'applied'::character varying::text, 'partially_applied'::character varying::text, 'failed'::character varying::text, 'source_deleted'::character varying::text])", name: "financial_document_imports_status_valid"
+    t.check_constraint "document_kind::text = ANY (ARRAY['spreadsheet'::character varying, 'statement'::character varying, 'pay_stub'::character varying, 'receipt'::character varying, 'other'::character varying]::text[])", name: "financial_document_imports_document_kind_valid"
+    t.check_constraint "status::text = ANY (ARRAY['uploaded'::character varying, 'processing'::character varying, 'needs_review'::character varying, 'applied'::character varying, 'partially_applied'::character varying, 'failed'::character varying, 'source_deleted'::character varying]::text[])", name: "financial_document_imports_status_valid"
   end
 
   create_table "financial_document_source_cleanups", force: :cascade do |t|
@@ -1715,7 +1979,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_id"], name: "index_financial_source_accounts_on_household_id"
     t.index ["id", "financial_extraction_revision_id", "household_id"], name: "index_source_accounts_scoped_identity", unique: true
     t.index ["id", "household_id"], name: "index_source_accounts_household_identity", unique: true
-    t.check_constraint "account_basis::text = ANY (ARRAY['asset'::character varying::text, 'liability'::character varying::text, 'unknown'::character varying::text])", name: "source_account_basis_valid"
+    t.check_constraint "account_basis::text = ANY (ARRAY['asset'::character varying, 'liability'::character varying, 'unknown'::character varying]::text[])", name: "source_account_basis_valid"
   end
 
   create_table "financial_source_events", force: :cascade do |t|
@@ -1740,10 +2004,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["financial_source_account_id"], name: "index_financial_source_events_on_financial_source_account_id"
     t.index ["household_id"], name: "index_financial_source_events_on_household_id"
     t.index ["id", "household_id"], name: "index_source_events_household_identity", unique: true
-    t.check_constraint "event_type::text = ANY (ARRAY['purchase'::character varying::text, 'fee'::character varying::text, 'refund'::character varying::text, 'income'::character varying::text, 'transfer'::character varying::text, 'debt_payment'::character varying::text, 'cash_withdrawal'::character varying::text, 'interest'::character varying::text, 'adjustment'::character varying::text, 'unknown'::character varying::text])", name: "source_event_type_valid"
+    t.check_constraint "event_type::text = ANY (ARRAY['purchase'::character varying, 'fee'::character varying, 'refund'::character varying, 'income'::character varying, 'transfer'::character varying, 'debt_payment'::character varying, 'cash_withdrawal'::character varying, 'interest'::character varying, 'adjustment'::character varying, 'unknown'::character varying]::text[])", name: "source_event_type_valid"
     t.check_constraint "expense_amount_cents IS NULL OR expense_amount_cents > 0", name: "source_event_expense_positive"
-    t.check_constraint "expense_amount_cents IS NULL OR row_kind::text = 'posted'::text AND (event_type::text = ANY (ARRAY['purchase'::character varying::text, 'fee'::character varying::text, 'interest'::character varying::text])) AND signed_amount_cents < 0 AND posted_on IS NOT NULL", name: "source_event_expense_eligible"
-    t.check_constraint "row_kind::text = ANY (ARRAY['posted'::character varying::text, 'informational'::character varying::text, 'unresolved'::character varying::text])", name: "source_event_kind_valid"
+    t.check_constraint "expense_amount_cents IS NULL OR row_kind::text = 'posted'::text AND (event_type::text = ANY (ARRAY['purchase'::character varying, 'fee'::character varying, 'interest'::character varying]::text[])) AND signed_amount_cents < 0 AND posted_on IS NOT NULL", name: "source_event_expense_eligible"
+    t.check_constraint "row_kind::text = ANY (ARRAY['posted'::character varying, 'informational'::character varying, 'unresolved'::character varying]::text[])", name: "source_event_kind_valid"
   end
 
   create_table "financial_source_evidences", force: :cascade do |t|
@@ -1757,6 +2021,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["financial_source_event_id"], name: "index_financial_source_evidences_on_financial_source_event_id", unique: true
     t.index ["household_id"], name: "index_financial_source_evidences_on_household_id"
     t.check_constraint "num_nonnulls(financial_source_account_id, financial_source_event_id) = 1", name: "source_evidence_one_subject"
+  end
+
+  create_table "financial_source_uses", force: :cascade do |t|
+    t.datetime "authorized_at", null: false
+    t.datetime "created_at", null: false
+    t.string "disclosure_version", null: false
+    t.datetime "expires_at", null: false
+    t.bigint "financial_document_import_id"
+    t.bigint "household_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "participant_user_id", null: false
+    t.datetime "revoked_at"
+    t.bigint "savings_enrollment_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["financial_document_import_id", "savings_enrollment_id"], name: "financial_source_use_identity", unique: true
+    t.index ["financial_document_import_id"], name: "index_financial_source_uses_on_financial_document_import_id"
+    t.index ["household_id"], name: "index_financial_source_uses_on_household_id"
+    t.index ["participant_user_id"], name: "index_financial_source_uses_on_participant_user_id"
+    t.index ["savings_enrollment_id"], name: "index_financial_source_uses_on_savings_enrollment_id"
   end
 
   create_table "goals", force: :cascade do |t|
@@ -1789,8 +2072,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "current_amount_cents >= 0", name: "goals_current_amount_cents_non_negative"
     t.check_constraint "current_amount_known = true OR current_amount_cents = 0", name: "goals_unknown_current_is_zero"
     t.check_constraint "jsonb_typeof(source_metadata) = 'object'::text", name: "goals_source_metadata_object"
-    t.check_constraint "record_kind::text = ANY (ARRAY['tracked'::character varying::text, 'policy'::character varying::text])", name: "goals_record_kind_valid"
-    t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying::text, 'mia'::character varying::text, 'document_import'::character varying::text, 'setup'::character varying::text])", name: "goals_source_type_valid"
+    t.check_constraint "record_kind::text = ANY (ARRAY['tracked'::character varying, 'policy'::character varying]::text[])", name: "goals_record_kind_valid"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying, 'mia'::character varying, 'document_import'::character varying, 'setup'::character varying]::text[])", name: "goals_source_type_valid"
     t.check_constraint "target_amount_cents >= 0", name: "goals_target_amount_cents_non_negative"
     t.check_constraint "target_amount_known = true OR target_amount_cents = 0", name: "goals_unknown_target_is_zero"
   end
@@ -1810,7 +2093,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_id", "occurred_at"], name: "index_household_audit_events_on_household_occurred_at"
     t.index ["household_id"], name: "index_household_audit_events_on_household_id"
     t.index ["user_id"], name: "index_household_audit_events_on_user_id"
-    t.check_constraint "actor_type::text = ANY (ARRAY['user'::character varying::text, 'mia'::character varying::text, 'system'::character varying::text])", name: "household_audit_events_actor_type_valid"
+    t.check_constraint "actor_type::text = ANY (ARRAY['user'::character varying, 'mia'::character varying, 'system'::character varying]::text[])", name: "household_audit_events_actor_type_valid"
   end
 
   create_table "household_memberships", force: :cascade do |t|
@@ -1850,12 +2133,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_id"], name: "index_household_memories_on_household_id"
     t.index ["owner_user_id"], name: "index_household_memories_on_owner_user_id"
     t.index ["source_chat_message_id"], name: "index_household_memories_on_source_chat_message_id"
-    t.check_constraint "category::text = ANY (ARRAY['goal'::character varying::text, 'preference'::character varying::text, 'constraint'::character varying::text, 'habit'::character varying::text, 'coaching_style'::character varying::text, 'follow_up'::character varying::text])", name: "household_memories_category_valid"
+    t.check_constraint "category::text = ANY (ARRAY['goal'::character varying, 'preference'::character varying, 'constraint'::character varying, 'habit'::character varying, 'coaching_style'::character varying, 'follow_up'::character varying]::text[])", name: "household_memories_category_valid"
     t.check_constraint "char_length(display_value::text) >= 1 AND char_length(display_value::text) <= 500", name: "household_memories_display_value_length"
     t.check_constraint "request_key IS NULL OR char_length(request_key::text) <= 120", name: "household_memories_request_key_length"
-    t.check_constraint "sensitivity::text = ANY (ARRAY['ordinary'::character varying::text, 'sensitive'::character varying::text])", name: "household_memories_sensitivity_valid"
-    t.check_constraint "source_kind::text = ANY (ARRAY['manual_profile'::character varying::text, 'mia_command'::character varying::text])", name: "household_memories_source_kind_valid"
-    t.check_constraint "status::text = ANY (ARRAY['pending_confirmation'::character varying::text, 'user_confirmed'::character varying::text, 'rejected'::character varying::text, 'expired'::character varying::text])", name: "household_memories_status_valid"
+    t.check_constraint "sensitivity::text = ANY (ARRAY['ordinary'::character varying, 'sensitive'::character varying]::text[])", name: "household_memories_sensitivity_valid"
+    t.check_constraint "source_kind::text = ANY (ARRAY['manual_profile'::character varying, 'mia_command'::character varying]::text[])", name: "household_memories_source_kind_valid"
+    t.check_constraint "status::text = ANY (ARRAY['pending_confirmation'::character varying, 'user_confirmed'::character varying, 'rejected'::character varying, 'expired'::character varying]::text[])", name: "household_memories_status_valid"
     t.check_constraint "visibility::text = 'private'::text", name: "household_memories_visibility_valid"
   end
 
@@ -1893,7 +2176,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "jsonb_typeof(normalized_input) = 'object'::text", name: "household_operations_input_object"
     t.check_constraint "jsonb_typeof(predicted_after_snapshot) = 'object'::text", name: "household_operations_predicted_object"
     t.check_constraint "operation_version > 0", name: "household_operations_version_positive"
-    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying::text, 'mia'::character varying::text])", name: "household_operations_source_valid"
+    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying, 'mia'::character varying]::text[])", name: "household_operations_source_valid"
     t.check_constraint "status::text = 'completed'::text", name: "household_operations_status_valid"
   end
 
@@ -1913,7 +2196,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_id"], name: "index_household_profiles_on_household_id", unique: true
     t.check_constraint "debt_summary_balance_cents >= 0", name: "household_profiles_debt_summary_balance_non_negative"
     t.check_constraint "debt_summary_minimum_payment_cents >= 0", name: "household_profiles_debt_summary_minimum_non_negative"
-    t.check_constraint "debt_tracking_mode::text = ANY (ARRAY['summary'::character varying::text, 'individual'::character varying::text])", name: "household_profiles_debt_tracking_mode_valid"
+    t.check_constraint "debt_tracking_mode::text = ANY (ARRAY['summary'::character varying, 'individual'::character varying]::text[])", name: "household_profiles_debt_tracking_mode_valid"
   end
 
   create_table "household_transactions", force: :cascade do |t|
@@ -1936,9 +2219,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_id", "occurred_on"], name: "index_household_transactions_on_household_id_and_occurred_on"
     t.index ["household_id", "status"], name: "index_household_transactions_on_household_id_and_status"
     t.index ["household_id"], name: "index_household_transactions_on_household_id"
+    t.index ["id", "household_id"], name: "household_transactions_source_review_household_identity", unique: true
     t.index ["source_import_id"], name: "index_household_transactions_on_source_import_id"
-    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying::text, 'manual_ui'::character varying::text, 'receipt'::character varying::text, 'screenshot'::character varying::text, 'statement'::character varying::text, 'import'::character varying::text, 'plaid'::character varying::text])", name: "household_transactions_source_type_valid"
-    t.check_constraint "status::text = ANY (ARRAY['confirmed'::character varying::text, 'reconciled'::character varying::text, 'ignored'::character varying::text])", name: "household_transactions_status_valid"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying, 'plaid'::character varying]::text[])", name: "household_transactions_source_type_valid"
+    t.check_constraint "status::text = ANY (ARRAY['confirmed'::character varying, 'reconciled'::character varying, 'ignored'::character varying]::text[])", name: "household_transactions_status_valid"
     t.check_constraint "total_amount_cents > 0", name: "household_transactions_amount_positive"
   end
 
@@ -1968,7 +2252,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["income_source_id", "effective_on"], name: "index_income_schedule_entries_on_recurring_source_and_date", unique: true, where: "((entry_type)::text = 'recurring_change'::text)"
     t.index ["income_source_id"], name: "index_income_schedule_entries_on_income_source_id"
     t.check_constraint "amount_cents >= 0", name: "income_schedule_entries_amount_cents_non_negative"
-    t.check_constraint "entry_type::text = ANY (ARRAY['recurring_change'::character varying::text, 'one_time'::character varying::text])", name: "income_schedule_entries_type_valid"
+    t.check_constraint "entry_type::text = ANY (ARRAY['recurring_change'::character varying, 'one_time'::character varying]::text[])", name: "income_schedule_entries_type_valid"
     t.check_constraint "retained_after_transition IS NOT TRUE OR entry_type::text = 'recurring_change'::text AND amount_cents > 0", name: "income_schedule_entries_retained_income_valid"
   end
 
@@ -2007,7 +2291,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["user_id", "attempted_at"], name: "index_invitation_email_attempts_on_user_id_and_attempted_at"
     t.index ["user_id"], name: "index_invitation_email_attempts_on_user_id"
     t.check_constraint "status::text <> 'sent'::text OR sent_at IS NOT NULL", name: "invitation_email_attempts_sent_at_required_when_sent"
-    t.check_constraint "status::text = ANY (ARRAY['not_sent'::character varying::text, 'skipped'::character varying::text, 'sent'::character varying::text, 'failed'::character varying::text])", name: "invitation_email_attempts_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['not_sent'::character varying, 'skipped'::character varying, 'sent'::character varying, 'failed'::character varying]::text[])", name: "invitation_email_attempts_status_valid"
   end
 
   create_table "merchant_category_rules", force: :cascade do |t|
@@ -2028,7 +2312,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_id"], name: "index_merchant_category_rules_on_household_id"
     t.check_constraint "char_length(merchant_pattern::text) <= 120", name: "merchant_category_rules_pattern_length"
     t.check_constraint "confidence >= 0::numeric AND confidence <= 1::numeric", name: "merchant_category_rules_confidence_unit_interval"
-    t.check_constraint "source::text = ANY (ARRAY['user_confirmed'::character varying::text, 'system_inferred'::character varying::text, 'coach_confirmed'::character varying::text])", name: "merchant_category_rules_source_valid"
+    t.check_constraint "source::text = ANY (ARRAY['user_confirmed'::character varying, 'system_inferred'::character varying, 'coach_confirmed'::character varying]::text[])", name: "merchant_category_rules_source_valid"
     t.check_constraint "times_confirmed >= 0", name: "merchant_category_rules_times_confirmed_non_negative"
   end
 
@@ -2051,8 +2335,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["user_id"], name: "index_mia_action_draft_applications_on_user_id"
     t.check_constraint "char_length(idempotency_key::text) >= 1 AND char_length(idempotency_key::text) <= 200", name: "mia_plan_applications_key_length"
     t.check_constraint "jsonb_typeof(selected_item_ids) = 'array'::text", name: "mia_plan_applications_selected_ids_array"
-    t.check_constraint "request_kind::text = ANY (ARRAY['apply'::character varying::text, 'cancel'::character varying::text])", name: "mia_plan_applications_request_kind_valid"
-    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text])", name: "mia_plan_applications_status_valid"
+    t.check_constraint "request_kind::text = ANY (ARRAY['apply'::character varying, 'cancel'::character varying]::text[])", name: "mia_plan_applications_request_kind_valid"
+    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "mia_plan_applications_status_valid"
   end
 
   create_table "mia_action_drafts", force: :cascade do |t|
@@ -2082,8 +2366,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["id", "household_id"], name: "index_mia_action_drafts_on_id_and_household", unique: true
     t.index ["requested_by_user_id"], name: "index_mia_action_drafts_on_requested_by_user_id"
     t.index ["source_chat_message_id"], name: "index_mia_action_drafts_on_source_chat_message_id"
-    t.check_constraint "draft_type::text = ANY (ARRAY['budget_edit'::character varying::text, 'household_setup'::character varying::text, 'income_schedule'::character varying::text, 'debt_plan'::character varying::text, 'asset_plan'::character varying::text, 'goal_plan'::character varying::text, 'action_plan'::character varying::text])", name: "mia_action_drafts_type_valid"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'partially_applied'::character varying::text, 'applied'::character varying::text, 'canceled'::character varying::text])", name: "mia_action_drafts_status_valid"
+    t.check_constraint "draft_type::text = ANY (ARRAY['budget_edit'::character varying, 'household_setup'::character varying, 'income_schedule'::character varying, 'debt_plan'::character varying, 'asset_plan'::character varying, 'goal_plan'::character varying, 'action_plan'::character varying]::text[])", name: "mia_action_drafts_type_valid"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'partially_applied'::character varying, 'applied'::character varying, 'canceled'::character varying]::text[])", name: "mia_action_drafts_status_valid"
     t.check_constraint "year >= 2000 AND year <= 2100", name: "mia_action_drafts_year_reasonable"
   end
 
@@ -2116,7 +2400,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["mia_action_draft_id"], name: "index_mia_action_items_on_mia_action_draft_id"
     t.index ["target_record_type", "target_record_id"], name: "index_mia_action_items_on_target"
     t.check_constraint "\"position\" >= 0", name: "mia_action_items_position_non_negative"
-    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying::text, 'update_category'::character varying::text, 'update_allocation'::character varying::text, 'archive_category'::character varying::text, 'restore_category'::character varying::text, 'update_setup_value'::character varying::text, 'upsert_income_schedule_entry'::character varying::text, 'create_income_source'::character varying::text, 'update_income_source'::character varying::text, 'archive_income_source'::character varying::text, 'restore_income_source'::character varying::text, 'create_income_schedule_entry'::character varying::text, 'update_income_schedule_entry'::character varying::text, 'delete_income_schedule_entry'::character varying::text, 'create_debt'::character varying::text, 'update_debt'::character varying::text, 'archive_debt'::character varying::text, 'restore_debt'::character varying::text, 'update_debt_tracking'::character varying::text, 'create_account'::character varying::text, 'update_account'::character varying::text, 'archive_account'::character varying::text, 'restore_account'::character varying::text, 'link_plaid_account'::character varying::text, 'reconcile_plaid_account'::character varying::text, 'unlink_plaid_account'::character varying::text, 'create_goal'::character varying::text, 'update_goal'::character varying::text, 'archive_goal'::character varying::text, 'restore_goal'::character varying::text, 'update_runway_policy'::character varying::text, 'update_transition_policy'::character varying::text, 'update_household_profile'::character varying::text, 'confirm_household_setup'::character varying::text])", name: "mia_action_items_action_type_valid"
+    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying, 'update_setup_value'::character varying, 'upsert_income_schedule_entry'::character varying, 'create_income_source'::character varying, 'update_income_source'::character varying, 'archive_income_source'::character varying, 'restore_income_source'::character varying, 'create_income_schedule_entry'::character varying, 'update_income_schedule_entry'::character varying, 'delete_income_schedule_entry'::character varying, 'create_debt'::character varying, 'update_debt'::character varying, 'archive_debt'::character varying, 'restore_debt'::character varying, 'update_debt_tracking'::character varying, 'create_account'::character varying, 'update_account'::character varying, 'archive_account'::character varying, 'restore_account'::character varying, 'link_plaid_account'::character varying, 'reconcile_plaid_account'::character varying, 'unlink_plaid_account'::character varying, 'create_goal'::character varying, 'update_goal'::character varying, 'archive_goal'::character varying, 'restore_goal'::character varying, 'update_runway_policy'::character varying, 'update_transition_policy'::character varying, 'update_household_profile'::character varying, 'confirm_household_setup'::character varying]::text[])", name: "mia_action_items_action_type_valid"
     t.check_constraint "jsonb_typeof(dependencies) = 'array'::text", name: "mia_action_items_dependencies_array"
     t.check_constraint "jsonb_typeof(prepared_operation) = 'object'::text", name: "mia_action_items_prepared_operation_object"
     t.check_constraint "operation_key IS NULL AND operation_version IS NULL AND prepared_operation_fingerprint IS NULL AND prepared_operation = '{}'::jsonb OR operation_key IS NOT NULL AND operation_version > 0 AND prepared_operation_fingerprint IS NOT NULL AND prepared_operation <> '{}'::jsonb", name: "mia_action_items_operation_identity_complete"
@@ -2136,7 +2420,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["chat_session_id", "request_key"], name: "index_mia_message_requests_on_chat_session_id_and_request_key", unique: true
     t.index ["chat_session_id"], name: "index_mia_message_requests_on_chat_session_id"
     t.check_constraint "char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "mia_message_requests_key_length"
-    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text])", name: "mia_message_requests_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "mia_message_requests_status_valid"
   end
 
   create_table "pilot_feedback_reports", force: :cascade do |t|
@@ -2156,8 +2440,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_id"], name: "index_pilot_feedback_reports_on_household_id"
     t.index ["status", "created_at"], name: "index_pilot_feedback_reports_on_status_and_created_at"
     t.index ["user_id"], name: "index_pilot_feedback_reports_on_user_id"
-    t.check_constraint "status::text = ANY (ARRAY['submitted'::character varying::text, 'reviewed'::character varying::text, 'resolved'::character varying::text])", name: "pilot_feedback_reports_status_valid"
-    t.check_constraint "workflow::text = ANY (ARRAY['sign_in'::character varying::text, 'home'::character varying::text, 'setup'::character varying::text, 'ask_mia'::character varying::text, 'voice'::character varying::text, 'budget'::character varying::text, 'transaction_review'::character varying::text, 'receipt_upload'::character varying::text, 'statement_upload'::character varying::text, 'document_upload'::character varying::text, 'private_document'::character varying::text, 'admin'::character varying::text, 'other'::character varying::text])", name: "pilot_feedback_reports_workflow_valid"
+    t.check_constraint "status::text = ANY (ARRAY['submitted'::character varying, 'reviewed'::character varying, 'resolved'::character varying]::text[])", name: "pilot_feedback_reports_status_valid"
+    t.check_constraint "workflow::text = ANY (ARRAY['sign_in'::character varying, 'home'::character varying, 'setup'::character varying, 'ask_mia'::character varying, 'voice'::character varying, 'budget'::character varying, 'transaction_review'::character varying, 'receipt_upload'::character varying, 'statement_upload'::character varying, 'document_upload'::character varying, 'private_document'::character varying, 'admin'::character varying, 'other'::character varying]::text[])", name: "pilot_feedback_reports_workflow_valid"
   end
 
   create_table "plaid_accounts", force: :cascade do |t|
@@ -2205,8 +2489,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["connected_by_user_id"], name: "index_plaid_items_on_connected_by_user_id"
     t.index ["household_id"], name: "index_plaid_items_on_household_id"
     t.index ["plaid_item_id"], name: "index_plaid_items_on_plaid_item_id", unique: true
-    t.check_constraint "environment::text = ANY (ARRAY['sandbox'::character varying::text, 'production'::character varying::text])", name: "plaid_items_environment"
-    t.check_constraint "status::text = ANY (ARRAY['active'::character varying::text, 'update_required'::character varying::text, 'error'::character varying::text, 'disconnecting'::character varying::text, 'disconnected'::character varying::text])", name: "plaid_items_status"
+    t.check_constraint "environment::text = ANY (ARRAY['sandbox'::character varying, 'production'::character varying]::text[])", name: "plaid_items_environment"
+    t.check_constraint "status::text = ANY (ARRAY['active'::character varying, 'update_required'::character varying, 'error'::character varying, 'disconnecting'::character varying, 'disconnected'::character varying]::text[])", name: "plaid_items_status"
   end
 
   create_table "plaid_transactions", force: :cascade do |t|
@@ -2236,7 +2520,482 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["plaid_item_id"], name: "index_plaid_transactions_on_plaid_item_id"
     t.index ["plaid_transaction_id"], name: "index_plaid_transactions_on_plaid_transaction_id", unique: true
     t.index ["transaction_draft_id"], name: "index_plaid_transactions_on_transaction_draft_id"
-    t.check_constraint "review_status::text = ANY (ARRAY['unreviewed'::character varying::text, 'drafted'::character varying::text, 'ignored'::character varying::text])", name: "plaid_transactions_review_status"
+    t.check_constraint "review_status::text = ANY (ARRAY['unreviewed'::character varying, 'drafted'::character varying, 'ignored'::character varying]::text[])", name: "plaid_transactions_review_status"
+  end
+
+  create_table "savings_checkpoint_drafts", force: :cascade do |t|
+    t.bigint "approved_version_id"
+    t.integer "base_head_lock_version", null: false
+    t.bigint "base_version_id"
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "reason", limit: 500, default: "", null: false
+    t.bigint "savings_checkpoint_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.jsonb "snapshot", default: {}, null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_by_user_id"], name: "index_savings_checkpoint_drafts_on_created_by_user_id"
+    t.index ["savings_checkpoint_id"], name: "index_savings_checkpoint_drafts_on_savings_checkpoint_id"
+    t.index ["savings_enrollment_id"], name: "index_savings_checkpoint_drafts_on_savings_enrollment_id"
+    t.check_constraint "(status::text = ANY (ARRAY['pending'::character varying, 'approved'::character varying]::text[])) AND base_head_lock_version >= 0", name: "savings_checkpoint_drafts_state"
+    t.check_constraint "jsonb_typeof(snapshot) = 'object'::text", name: "savings_checkpoint_drafts_snapshot"
+  end
+
+  create_table "savings_checkpoint_versions", force: :cascade do |t|
+    t.datetime "approved_at", null: false
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "previous_version_id"
+    t.string "reason", limit: 500, default: "", null: false
+    t.bigint "savings_checkpoint_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.jsonb "snapshot", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_savings_checkpoint_versions_on_approved_by_user_id"
+    t.index ["id", "savings_checkpoint_id"], name: "savings_checkpoint_versions_scope", unique: true
+    t.index ["savings_checkpoint_id", "version_number"], name: "savings_checkpoint_versions_number", unique: true
+    t.index ["savings_checkpoint_id"], name: "index_savings_checkpoint_versions_on_savings_checkpoint_id"
+    t.index ["savings_enrollment_id"], name: "index_savings_checkpoint_versions_on_savings_enrollment_id"
+    t.check_constraint "jsonb_typeof(snapshot) = 'object'::text", name: "savings_checkpoint_versions_snapshot"
+    t.check_constraint "version_number > 0", name: "savings_checkpoint_versions_number_valid"
+  end
+
+  create_table "savings_checkpoints", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "current_version_id"
+    t.integer "lock_version", default: 0, null: false
+    t.integer "milestone_day", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["id", "savings_enrollment_id"], name: "savings_checkpoints_scope", unique: true
+    t.index ["savings_enrollment_id", "milestone_day"], name: "idx_savings_checkpoint_day", unique: true
+    t.index ["savings_enrollment_id"], name: "index_savings_checkpoints_on_savings_enrollment_id"
+    t.check_constraint "milestone_day = ANY (ARRAY[30, 60, 90])", name: "savings_checkpoint_day_valid"
+  end
+
+  create_table "savings_daily_check_in_versions", force: :cascade do |t|
+    t.datetime "approved_at", null: false
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "daily_sequence", null: false
+    t.bigint "previous_version_id"
+    t.string "reason", limit: 500, default: "", null: false
+    t.bigint "savings_daily_check_in_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.string "spending_state", null: false
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_savings_daily_check_in_versions_on_approved_by_user_id"
+    t.index ["id", "savings_daily_check_in_id"], name: "savings_daily_check_in_versions_scope", unique: true
+    t.index ["savings_daily_check_in_id", "version_number"], name: "savings_daily_check_in_versions_number", unique: true
+    t.index ["savings_daily_check_in_id"], name: "idx_on_savings_daily_check_in_id_250be89243"
+    t.index ["savings_enrollment_id", "daily_sequence"], name: "savings_daily_check_in_versions_sequence", unique: true
+    t.index ["savings_enrollment_id"], name: "index_savings_daily_check_in_versions_on_savings_enrollment_id"
+    t.check_constraint "daily_sequence > 0", name: "savings_daily_check_in_versions_sequence_valid"
+    t.check_constraint "spending_state::text = ANY (ARRAY['spending'::character varying, 'no_spend'::character varying, 'unknown'::character varying]::text[])", name: "savings_daily_check_in_state"
+    t.check_constraint "version_number > 0", name: "savings_daily_check_in_versions_number_valid"
+  end
+
+  create_table "savings_daily_check_ins", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "current_version_id"
+    t.date "local_on", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["id", "savings_enrollment_id"], name: "savings_daily_check_ins_scope", unique: true
+    t.index ["savings_enrollment_id", "local_on"], name: "idx_daily_check_in_day", unique: true
+    t.index ["savings_enrollment_id"], name: "index_savings_daily_check_ins_on_savings_enrollment_id"
+  end
+
+  create_table "savings_daily_ledgers", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.integer "sequence", default: 0, null: false
+    t.datetime "updated_at", null: false
+    t.index ["savings_enrollment_id"], name: "index_savings_daily_ledgers_on_savings_enrollment_id", unique: true
+    t.check_constraint "sequence >= 0", name: "savings_daily_sequence_valid"
+  end
+
+  create_table "savings_daily_purchase_drafts", force: :cascade do |t|
+    t.bigint "amount_cents", null: false
+    t.bigint "approved_version_id"
+    t.integer "base_head_lock_version", null: false
+    t.bigint "base_version_id"
+    t.string "canonical_digest"
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.string "disposition", default: "purchase", null: false
+    t.string "link_kind", null: false
+    t.bigint "linked_transaction_id"
+    t.integer "lock_version", default: 0, null: false
+    t.string "merchant", limit: 120, null: false
+    t.string "previous_canonical_digest"
+    t.date "purchased_on", null: false
+    t.string "reason", limit: 500, default: "", null: false
+    t.bigint "savings_daily_purchase_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.jsonb "splits", default: [], null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_by_user_id"], name: "index_savings_daily_purchase_drafts_on_created_by_user_id"
+    t.index ["linked_transaction_id"], name: "index_savings_daily_purchase_drafts_on_linked_transaction_id"
+    t.index ["savings_daily_purchase_id"], name: "idx_on_savings_daily_purchase_id_3437266630"
+    t.index ["savings_enrollment_id"], name: "index_savings_daily_purchase_drafts_on_savings_enrollment_id"
+    t.check_constraint "(disposition::text = 'purchase'::text AND amount_cents >= 1 AND amount_cents <= 2147483647 OR disposition::text = 'void'::text AND amount_cents = 0 AND splits = '[]'::jsonb AND link_kind::text = 'manual_new'::text) AND char_length(merchant::text) >= 1 AND char_length(merchant::text) <= 120 AND (link_kind::text = ANY (ARRAY['manual_new'::character varying, 'existing_transaction'::character varying]::text[])) AND jsonb_typeof(splits) = 'array'::text", name: "savings_daily_purchase_drafts_values"
+    t.check_constraint "(status::text = ANY (ARRAY['pending'::character varying, 'approved'::character varying]::text[])) AND base_head_lock_version >= 0", name: "savings_daily_purchase_drafts_state"
+  end
+
+  create_table "savings_daily_purchase_versions", force: :cascade do |t|
+    t.bigint "amount_cents", null: false
+    t.datetime "approved_at", null: false
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "daily_sequence", null: false
+    t.string "disposition", default: "purchase", null: false
+    t.bigint "household_transaction_id", null: false
+    t.string "link_kind", null: false
+    t.string "merchant", limit: 120, null: false
+    t.date "posted_on"
+    t.bigint "previous_version_id"
+    t.date "purchased_on", null: false
+    t.string "reason", limit: 500, default: "", null: false
+    t.bigint "savings_daily_purchase_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.jsonb "splits", default: [], null: false
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_savings_daily_purchase_versions_on_approved_by_user_id"
+    t.index ["household_transaction_id"], name: "idx_on_household_transaction_id_33a62012b0"
+    t.index ["id", "savings_daily_purchase_id"], name: "savings_daily_purchase_versions_scope", unique: true
+    t.index ["savings_daily_purchase_id", "version_number"], name: "savings_daily_purchase_versions_number", unique: true
+    t.index ["savings_daily_purchase_id"], name: "idx_on_savings_daily_purchase_id_1ce728900b"
+    t.index ["savings_enrollment_id", "daily_sequence"], name: "savings_daily_purchase_versions_sequence", unique: true
+    t.index ["savings_enrollment_id"], name: "index_savings_daily_purchase_versions_on_savings_enrollment_id"
+    t.check_constraint "(disposition::text = 'purchase'::text AND amount_cents >= 1 AND amount_cents <= 2147483647 OR disposition::text = 'void'::text AND amount_cents = 0 AND splits = '[]'::jsonb AND link_kind::text = 'manual_new'::text) AND char_length(merchant::text) >= 1 AND char_length(merchant::text) <= 120 AND (link_kind::text = ANY (ARRAY['manual_new'::character varying, 'existing_transaction'::character varying]::text[])) AND jsonb_typeof(splits) = 'array'::text", name: "savings_daily_purchase_versions_values"
+    t.check_constraint "daily_sequence > 0", name: "savings_daily_purchase_versions_sequence_valid"
+    t.check_constraint "version_number > 0", name: "savings_daily_purchase_versions_number_valid"
+  end
+
+  create_table "savings_daily_purchases", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "current_version_id"
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["id", "savings_enrollment_id"], name: "savings_daily_purchases_scope", unique: true
+    t.index ["savings_enrollment_id"], name: "index_savings_daily_purchases_on_savings_enrollment_id"
+  end
+
+  create_table "savings_daily_reflection_versions", force: :cascade do |t|
+    t.datetime "approved_at", null: false
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "erased_at"
+    t.bigint "erased_by_user_id"
+    t.string "feeling_now", limit: 500
+    t.string "feeling_then", limit: 500
+    t.bigint "previous_version_id"
+    t.string "reason", limit: 500, default: "", null: false
+    t.bigint "savings_daily_reflection_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_savings_daily_reflection_versions_on_approved_by_user_id"
+    t.index ["erased_by_user_id"], name: "index_savings_daily_reflection_versions_on_erased_by_user_id"
+    t.index ["id", "savings_daily_reflection_id"], name: "savings_daily_reflection_versions_scope", unique: true
+    t.index ["savings_daily_reflection_id", "version_number"], name: "savings_daily_reflection_versions_number", unique: true
+    t.index ["savings_daily_reflection_id"], name: "idx_on_savings_daily_reflection_id_299b667705"
+    t.index ["savings_enrollment_id"], name: "idx_on_savings_enrollment_id_ae44db91c4"
+    t.check_constraint "version_number > 0", name: "savings_daily_reflection_versions_number_valid"
+  end
+
+  create_table "savings_daily_reflections", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "current_version_id"
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "savings_daily_purchase_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["id", "savings_enrollment_id"], name: "savings_daily_reflections_scope", unique: true
+    t.index ["savings_daily_purchase_id"], name: "index_savings_daily_reflections_on_savings_daily_purchase_id", unique: true
+    t.index ["savings_enrollment_id"], name: "index_savings_daily_reflections_on_savings_enrollment_id"
+  end
+
+  create_table "savings_debt_cards", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "current_version_id"
+    t.bigint "household_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.bigint "source_tracked_account_id"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["household_id"], name: "index_savings_debt_cards_on_household_id"
+    t.index ["savings_enrollment_id", "source_tracked_account_id"], name: "savings_debt_canonical_account_once", unique: true, where: "(source_tracked_account_id IS NOT NULL)"
+    t.index ["savings_enrollment_id"], name: "index_savings_debt_cards_on_savings_enrollment_id"
+    t.index ["source_tracked_account_id"], name: "index_savings_debt_cards_on_source_tracked_account_id"
+    t.index ["user_id"], name: "index_savings_debt_cards_on_user_id"
+  end
+
+  create_table "savings_debt_drafts", force: :cascade do |t|
+    t.bigint "approved_version_id"
+    t.integer "base_head_lock_version", null: false
+    t.bigint "base_version_id"
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.text "reason", default: "", null: false
+    t.bigint "savings_debt_card_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.bigint "source_account_identity_version_id"
+    t.string "source_fingerprint"
+    t.bigint "source_revision_approval_id"
+    t.jsonb "source_snapshot", default: {}, null: false
+    t.bigint "source_tracked_account_id"
+    t.string "status", default: "pending", null: false
+    t.jsonb "terms", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_by_user_id"], name: "index_savings_debt_drafts_on_created_by_user_id"
+    t.index ["savings_debt_card_id"], name: "index_savings_debt_drafts_on_savings_debt_card_id"
+    t.index ["savings_enrollment_id"], name: "index_savings_debt_drafts_on_savings_enrollment_id"
+    t.index ["source_account_identity_version_id"], name: "idx_on_source_account_identity_version_id_d819faade4"
+    t.index ["source_revision_approval_id"], name: "index_savings_debt_drafts_on_source_revision_approval_id"
+    t.index ["source_tracked_account_id"], name: "index_savings_debt_drafts_on_source_tracked_account_id"
+    t.check_constraint "base_head_lock_version >= 0 AND (status::text = 'pending'::text AND approved_version_id IS NULL OR status::text = 'approved'::text AND approved_version_id IS NOT NULL)", name: "savings_debt_draft_state"
+    t.check_constraint "length(reason) <= 500", name: "savings_debt_drafts_reason_length"
+    t.check_constraint "savings_debt_terms_valid(terms)", name: "savings_debt_drafts_terms_valid"
+    t.check_constraint "source_tracked_account_id IS NULL AND source_account_identity_version_id IS NULL AND source_revision_approval_id IS NULL AND source_fingerprint IS NULL AND source_snapshot = '{}'::jsonb OR source_tracked_account_id IS NOT NULL AND source_account_identity_version_id IS NOT NULL AND source_revision_approval_id IS NOT NULL AND source_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND jsonb_typeof(source_snapshot) = 'object'::text", name: "savings_debt_drafts_mapping_complete"
+  end
+
+  create_table "savings_debt_versions", force: :cascade do |t|
+    t.datetime "approved_at", null: false
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.string "digest", null: false
+    t.bigint "previous_version_id"
+    t.text "reason", default: "", null: false
+    t.bigint "savings_debt_card_id", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.bigint "source_account_identity_version_id"
+    t.string "source_fingerprint"
+    t.bigint "source_revision_approval_id"
+    t.jsonb "source_snapshot", default: {}, null: false
+    t.bigint "source_tracked_account_id"
+    t.jsonb "terms", null: false
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_savings_debt_versions_on_approved_by_user_id"
+    t.index ["id", "savings_debt_card_id"], name: "savings_debt_version_head_identity", unique: true
+    t.index ["savings_debt_card_id", "version_number"], name: "savings_debt_version_sequence", unique: true
+    t.index ["savings_debt_card_id"], name: "index_savings_debt_versions_on_savings_debt_card_id"
+    t.index ["savings_enrollment_id"], name: "index_savings_debt_versions_on_savings_enrollment_id"
+    t.index ["source_account_identity_version_id"], name: "idx_on_source_account_identity_version_id_2f27e4803d"
+    t.index ["source_revision_approval_id"], name: "index_savings_debt_versions_on_source_revision_approval_id"
+    t.index ["source_tracked_account_id"], name: "index_savings_debt_versions_on_source_tracked_account_id"
+    t.check_constraint "length(reason) <= 500", name: "savings_debt_versions_reason_length"
+    t.check_constraint "savings_debt_terms_valid(terms)", name: "savings_debt_versions_terms_valid"
+    t.check_constraint "source_tracked_account_id IS NULL AND source_account_identity_version_id IS NULL AND source_revision_approval_id IS NULL AND source_fingerprint IS NULL AND source_snapshot = '{}'::jsonb OR source_tracked_account_id IS NOT NULL AND source_account_identity_version_id IS NOT NULL AND source_revision_approval_id IS NOT NULL AND source_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND jsonb_typeof(source_snapshot) = 'object'::text", name: "savings_debt_versions_mapping_complete"
+    t.check_constraint "version_number > 0 AND digest::text ~ '^[0-9a-f]{64}$'::text", name: "savings_debt_approved_digest"
+  end
+
+  create_table "savings_enrollments", force: :cascade do |t|
+    t.datetime "accepted_at", null: false
+    t.bigint "accepted_cohort_membership_id", null: false
+    t.bigint "accepted_cohort_release_id"
+    t.date "accepted_local_on", null: false
+    t.integer "approval_sequence", default: 0, null: false
+    t.bigint "cohort_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "current_accepted_plan_version_id"
+    t.date "ends_on", null: false
+    t.bigint "household_id", null: false
+    t.boolean "late_start_accepted", default: false, null: false
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "membership_started_at", null: false
+    t.string "policy_version", null: false
+    t.date "starts_on", null: false
+    t.string "status", default: "active", null: false
+    t.string "time_zone", default: "Pacific/Guam", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["accepted_cohort_release_id"], name: "index_savings_enrollments_on_accepted_cohort_release_id"
+    t.index ["cohort_id", "user_id"], name: "index_savings_enrollments_on_cohort_id_and_user_id", unique: true
+    t.index ["cohort_id"], name: "index_savings_enrollments_on_cohort_id"
+    t.index ["household_id"], name: "index_savings_enrollments_on_household_id"
+    t.index ["user_id"], name: "index_savings_enrollments_on_user_id"
+    t.check_constraint "(status::text = ANY (ARRAY['active'::character varying, 'withdrawn'::character varying, 'completed'::character varying]::text[])) AND approval_sequence >= 0", name: "savings_enrollment_state_valid"
+    t.check_constraint "ends_on = (starts_on + 89) AND time_zone::text = 'Pacific/Guam'::text AND starts_on >= accepted_local_on", name: "savings_enrollment_calendar_valid"
+  end
+
+  create_table "savings_entries", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "current_approved_version_id"
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["id", "savings_enrollment_id"], name: "idx_savings_entry_scope", unique: true
+    t.index ["savings_enrollment_id"], name: "index_savings_entries_on_savings_enrollment_id"
+  end
+
+  create_table "savings_entry_drafts", force: :cascade do |t|
+    t.bigint "approved_version_id"
+    t.integer "base_entry_lock_version", null: false
+    t.bigint "base_version_id"
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.date "effective_on", null: false
+    t.string "funding_source", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "reason", limit: 500, default: "", null: false
+    t.bigint "savings_entry_id", null: false
+    t.bigint "signed_cents", null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_by_user_id"], name: "index_savings_entry_drafts_on_created_by_user_id"
+    t.index ["savings_entry_id"], name: "index_savings_entry_drafts_on_savings_entry_id"
+    t.check_constraint "(status::text = ANY (ARRAY['pending'::character varying, 'approved'::character varying]::text[])) AND base_entry_lock_version >= 0", name: "savings_entry_draft_state_valid"
+  end
+
+  create_table "savings_entry_versions", force: :cascade do |t|
+    t.integer "approval_sequence", null: false
+    t.datetime "approved_at", null: false
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.string "currency", default: "USD", null: false
+    t.date "effective_on", null: false
+    t.bigint "evidence_supported_cents", default: 0, null: false
+    t.string "funding_source", null: false
+    t.bigint "previous_version_id"
+    t.string "reason", limit: 500, default: "", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.bigint "savings_entry_id", null: false
+    t.bigint "signed_cents", null: false
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_savings_entry_versions_on_approved_by_user_id"
+    t.index ["id", "savings_entry_id"], name: "idx_savings_version_scope", unique: true
+    t.index ["savings_enrollment_id", "approval_sequence"], name: "idx_savings_entry_approval_sequence", unique: true
+    t.index ["savings_enrollment_id"], name: "index_savings_entry_versions_on_savings_enrollment_id"
+    t.index ["savings_entry_id", "version_number"], name: "idx_savings_entry_version_number", unique: true
+    t.index ["savings_entry_id"], name: "index_savings_entry_versions_on_savings_entry_id"
+    t.check_constraint "currency::text = 'USD'::text AND evidence_supported_cents = 0 AND version_number > 0 AND approval_sequence > 0 AND (funding_source::text = 'withdrawal'::text AND signed_cents <= 0 OR (funding_source::text = ANY (ARRAY['earned_income'::character varying, 'gift'::character varying, 'bonus'::character varying, 'new_money_reserved'::character varying, 'preexisting'::character varying, 'borrowed'::character varying, 'cash_advance'::character varying, 'existing_internal_money'::character varying]::text[])) AND signed_cents >= 0)", name: "savings_entry_version_values_valid"
+  end
+
+  create_table "savings_evidence_allocations", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "current_version_id"
+    t.bigint "household_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.bigint "savings_entry_version_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["household_id"], name: "index_savings_evidence_allocations_on_household_id"
+    t.index ["savings_enrollment_id"], name: "index_savings_evidence_allocations_on_savings_enrollment_id"
+    t.index ["savings_entry_version_id"], name: "index_savings_evidence_allocations_on_savings_entry_version_id", unique: true
+  end
+
+  create_table "savings_evidence_capacities", force: :cascade do |t|
+    t.bigint "capacity_cents", null: false
+    t.datetime "created_at", null: false
+    t.bigint "financial_source_event_id", null: false
+    t.bigint "reserved_cents", null: false
+    t.bigint "savings_evidence_version_id", null: false
+    t.bigint "source_review_version_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["financial_source_event_id"], name: "index_savings_evidence_capacities_on_financial_source_event_id"
+    t.index ["savings_evidence_version_id", "financial_source_event_id"], name: "savings_evidence_event_once", unique: true
+    t.index ["savings_evidence_version_id"], name: "idx_on_savings_evidence_version_id_cd330512e5"
+    t.index ["source_review_version_id"], name: "index_savings_evidence_capacities_on_source_review_version_id"
+    t.check_constraint "reserved_cents > 0 AND capacity_cents >= reserved_cents", name: "savings_evidence_capacity_values"
+  end
+
+  create_table "savings_evidence_versions", force: :cascade do |t|
+    t.integer "approval_sequence", null: false
+    t.datetime "approved_at", null: false
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.string "digest", null: false
+    t.boolean "new_money_reservation_accepted", null: false
+    t.boolean "participant_ownership_accepted", null: false
+    t.bigint "previous_version_id"
+    t.jsonb "proof_snapshot", default: [], null: false
+    t.string "reason", limit: 500, null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.bigint "savings_evidence_allocation_id", null: false
+    t.string "state", null: false
+    t.bigint "supported_cents", null: false
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_savings_evidence_versions_on_approved_by_user_id"
+    t.index ["id", "savings_evidence_allocation_id"], name: "savings_evidence_version_scope", unique: true
+    t.index ["savings_enrollment_id", "approval_sequence"], name: "savings_evidence_sequence", unique: true
+    t.index ["savings_enrollment_id"], name: "index_savings_evidence_versions_on_savings_enrollment_id"
+    t.index ["savings_evidence_allocation_id", "version_number"], name: "savings_evidence_version_number", unique: true
+    t.index ["savings_evidence_allocation_id"], name: "idx_on_savings_evidence_allocation_id_e637836c7f"
+    t.check_constraint "version_number > 0 AND approval_sequence > 0 AND char_length(reason::text) >= 1 AND char_length(reason::text) <= 500 AND digest::text ~ '^[0-9a-f]{64}$'::text AND jsonb_typeof(proof_snapshot) = 'array'::text AND (state::text = 'attached'::text AND supported_cents > 0 AND participant_ownership_accepted AND new_money_reservation_accepted AND jsonb_array_length(proof_snapshot) >= 1 AND jsonb_array_length(proof_snapshot) <= 20 OR state::text = 'revoked'::text AND supported_cents = 0 AND NOT participant_ownership_accepted AND NOT new_money_reservation_accepted AND proof_snapshot = '[]'::jsonb)", name: "savings_evidence_values"
+  end
+
+  create_table "savings_plan_drafts", force: :cascade do |t|
+    t.bigint "approved_plan_version_id"
+    t.bigint "base_plan_version_id"
+    t.string "baseline_digest"
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.bigint "financial_baseline_version_id"
+    t.integer "lock_version", default: 0, null: false
+    t.string "reason", limit: 500, default: "", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.jsonb "spending_changes", default: [], null: false
+    t.string "status", default: "pending", null: false
+    t.bigint "target_cents"
+    t.datetime "updated_at", null: false
+    t.index ["created_by_user_id"], name: "index_savings_plan_drafts_on_created_by_user_id"
+    t.index ["financial_baseline_version_id"], name: "index_savings_plan_drafts_on_financial_baseline_version_id"
+    t.index ["savings_enrollment_id"], name: "index_savings_plan_drafts_on_savings_enrollment_id"
+    t.check_constraint "(target_cents IS NULL OR target_cents > 0) AND (status::text = ANY (ARRAY['pending'::character varying, 'approved'::character varying]::text[]))", name: "savings_plan_draft_values_valid"
+    t.check_constraint "jsonb_typeof(spending_changes) = 'array'::text AND jsonb_array_length(spending_changes) <= 5 AND (financial_baseline_version_id IS NULL AND baseline_digest IS NULL OR financial_baseline_version_id IS NOT NULL AND baseline_digest::text ~ '^[0-9a-f]{64}$'::text)", name: "savings_plan_drafts_context_valid"
+  end
+
+  create_table "savings_plan_versions", force: :cascade do |t|
+    t.integer "approval_sequence", null: false
+    t.datetime "approved_at", null: false
+    t.bigint "approved_by_user_id", null: false
+    t.string "baseline_digest"
+    t.datetime "created_at", null: false
+    t.bigint "financial_baseline_version_id"
+    t.bigint "previous_version_id"
+    t.string "reason", limit: 500, default: "", null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.jsonb "spending_changes", default: [], null: false
+    t.bigint "target_cents"
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_savings_plan_versions_on_approved_by_user_id"
+    t.index ["financial_baseline_version_id"], name: "index_savings_plan_versions_on_financial_baseline_version_id"
+    t.index ["id", "savings_enrollment_id"], name: "idx_savings_plan_scope", unique: true
+    t.index ["savings_enrollment_id", "version_number"], name: "idx_savings_plan_number", unique: true
+    t.index ["savings_enrollment_id"], name: "index_savings_plan_versions_on_savings_enrollment_id"
+    t.check_constraint "(target_cents IS NULL OR target_cents > 0) AND version_number > 0 AND approval_sequence > 0", name: "savings_plan_values_valid"
+    t.check_constraint "jsonb_typeof(spending_changes) = 'array'::text AND jsonb_array_length(spending_changes) <= 5 AND (financial_baseline_version_id IS NULL AND baseline_digest IS NULL OR financial_baseline_version_id IS NOT NULL AND baseline_digest::text ~ '^[0-9a-f]{64}$'::text)", name: "savings_plan_versions_context_valid"
+  end
+
+  create_table "savings_zero_attestations", force: :cascade do |t|
+    t.integer "approval_sequence", null: false
+    t.datetime "approved_at", null: false
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.date "cutoff_on", null: false
+    t.bigint "previous_attestation_id"
+    t.bigint "savings_enrollment_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["approved_by_user_id"], name: "index_savings_zero_attestations_on_approved_by_user_id"
+    t.index ["savings_enrollment_id", "approval_sequence"], name: "idx_savings_zero_approval_sequence", unique: true
+    t.index ["savings_enrollment_id"], name: "index_savings_zero_attestations_on_savings_enrollment_id"
   end
 
   create_table "solid_cache_entries", force: :cascade do |t|
@@ -2371,6 +3130,210 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["key"], name: "index_solid_queue_semaphores_on_key", unique: true
   end
 
+  create_table "source_account_identity_versions", force: :cascade do |t|
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.string "digest", null: false
+    t.bigint "household_id", null: false
+    t.text "reason", null: false
+    t.bigint "source_account_review_head_id", null: false
+    t.bigint "source_tracked_account_id", null: false
+    t.jsonb "statement_facts", default: {}, null: false
+    t.bigint "supersedes_id"
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_source_account_identity_versions_on_approved_by_user_id"
+    t.index ["household_id"], name: "index_source_account_identity_versions_on_household_id"
+    t.index ["id", "household_id"], name: "source_account_identity_versions_household_identity", unique: true
+    t.index ["id", "source_account_review_head_id", "household_id"], name: "source_account_identity_versions_head_identity", unique: true
+    t.index ["source_account_review_head_id", "version_number"], name: "source_account_identity_versions_sequence", unique: true
+    t.index ["source_account_review_head_id"], name: "idx_on_source_account_review_head_id_e2c9b31699"
+    t.index ["source_tracked_account_id"], name: "idx_on_source_tracked_account_id_819c892e5d"
+  end
+
+  create_table "source_account_review_heads", force: :cascade do |t|
+    t.bigint "approved_version_id"
+    t.datetime "created_at", null: false
+    t.bigint "financial_source_account_id", null: false
+    t.bigint "household_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "updated_at", null: false
+    t.index ["financial_source_account_id"], name: "idx_on_financial_source_account_id_2d4c199d7c", unique: true
+    t.index ["household_id"], name: "index_source_account_review_heads_on_household_id"
+    t.index ["id", "household_id"], name: "source_account_review_heads_household_identity", unique: true
+  end
+
+  create_table "source_economic_group_versions", force: :cascade do |t|
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.string "digest", null: false
+    t.bigint "household_id", null: false
+    t.string "kind", null: false
+    t.text "reason", null: false
+    t.bigint "source_economic_group_id", null: false
+    t.bigint "supersedes_id"
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_source_economic_group_versions_on_approved_by_user_id"
+    t.index ["household_id"], name: "index_source_economic_group_versions_on_household_id"
+    t.index ["id", "household_id"], name: "source_economic_group_versions_household_identity", unique: true
+    t.index ["id", "source_economic_group_id", "household_id"], name: "source_economic_group_versions_head_identity", unique: true
+    t.index ["source_economic_group_id", "version_number"], name: "source_economic_group_versions_sequence", unique: true
+    t.index ["source_economic_group_id"], name: "idx_on_source_economic_group_id_d237f224b8"
+    t.check_constraint "kind::text = ANY (ARRAY['transfer'::character varying, 'purchase_funding'::character varying, 'refund'::character varying]::text[])", name: "source_economic_kind"
+  end
+
+  create_table "source_economic_groups", force: :cascade do |t|
+    t.bigint "approved_version_id"
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "updated_at", null: false
+    t.index ["household_id"], name: "index_source_economic_groups_on_household_id"
+    t.index ["id", "household_id"], name: "source_economic_groups_household_identity", unique: true
+  end
+
+  create_table "source_economic_memberships", force: :cascade do |t|
+    t.bigint "allocation_cents", null: false
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.string "role", null: false
+    t.bigint "source_economic_group_version_id", null: false
+    t.bigint "source_review_version_id", null: false
+    t.index ["household_id"], name: "index_source_economic_memberships_on_household_id"
+    t.index ["id", "household_id"], name: "source_economic_memberships_household_identity", unique: true
+    t.index ["source_economic_group_version_id", "source_review_version_id", "role"], name: "source_economic_members_unique", unique: true
+    t.index ["source_economic_group_version_id"], name: "idx_on_source_economic_group_version_id_9d85718370"
+    t.index ["source_review_version_id"], name: "index_source_economic_memberships_on_source_review_version_id"
+    t.check_constraint "allocation_cents > 0", name: "source_economic_allocation"
+  end
+
+  create_table "source_projection_revisions", force: :cascade do |t|
+    t.string "action", null: false
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.string "digest", null: false
+    t.bigint "household_id", null: false
+    t.string "previous_snapshot_digest"
+    t.bigint "previous_transaction_id"
+    t.text "reason", null: false
+    t.bigint "replacement_transaction_id"
+    t.bigint "source_review_version_id", null: false
+    t.index ["approved_by_user_id"], name: "index_source_projection_revisions_on_approved_by_user_id"
+    t.index ["household_id"], name: "index_source_projection_revisions_on_household_id"
+    t.index ["id", "household_id"], name: "source_projection_revisions_household_identity", unique: true
+    t.index ["previous_transaction_id"], name: "index_source_projection_revisions_on_previous_transaction_id"
+    t.index ["replacement_transaction_id"], name: "idx_on_replacement_transaction_id_b16ab0c6b9"
+    t.index ["source_review_version_id"], name: "index_source_projection_revisions_on_source_review_version_id", unique: true
+    t.check_constraint "action::text = ANY (ARRAY['create'::character varying, 'replace'::character varying, 'void'::character varying]::text[])", name: "source_projection_action"
+  end
+
+  create_table "source_review_drafts", force: :cascade do |t|
+    t.integer "base_head_lock_version", null: false
+    t.bigint "base_version_id"
+    t.datetime "created_at", null: false
+    t.string "digest", null: false
+    t.jsonb "facts", null: false
+    t.bigint "household_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.jsonb "projection", default: {}, null: false
+    t.text "reason", null: false
+    t.bigint "source_review_head_id", null: false
+    t.bigint "staged_by_user_id", null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["household_id"], name: "index_source_review_drafts_on_household_id"
+    t.index ["id", "household_id"], name: "source_review_drafts_household_identity", unique: true
+    t.index ["source_review_head_id"], name: "index_source_review_drafts_on_source_review_head_id"
+    t.index ["source_review_head_id"], name: "source_one_pending_draft", unique: true, where: "((status)::text = 'pending'::text)"
+    t.index ["staged_by_user_id"], name: "index_source_review_drafts_on_staged_by_user_id"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'approved'::character varying, 'cancelled'::character varying]::text[])", name: "source_review_draft_status"
+  end
+
+  create_table "source_review_heads", force: :cascade do |t|
+    t.bigint "approved_version_id"
+    t.datetime "created_at", null: false
+    t.bigint "financial_source_event_id", null: false
+    t.bigint "household_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "updated_at", null: false
+    t.index ["financial_source_event_id"], name: "index_source_review_heads_on_financial_source_event_id", unique: true
+    t.index ["household_id"], name: "index_source_review_heads_on_household_id"
+    t.index ["id", "household_id"], name: "source_review_heads_household_identity", unique: true
+  end
+
+  create_table "source_review_versions", force: :cascade do |t|
+    t.bigint "approved_by_user_id", null: false
+    t.date "authorized_on"
+    t.bigint "budget_category_id"
+    t.jsonb "category_snapshot", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.string "digest", null: false
+    t.string "disposition", null: false
+    t.string "event_type", null: false
+    t.string "external_reference"
+    t.bigint "household_id", null: false
+    t.bigint "matched_version_id"
+    t.string "merchant"
+    t.string "overlap_disposition", null: false
+    t.date "posted_on"
+    t.jsonb "projection", default: {}, null: false
+    t.bigint "purchase_amount_cents"
+    t.text "reason", null: false
+    t.bigint "signed_amount_cents"
+    t.bigint "source_account_identity_version_id", null: false
+    t.string "source_artifact_digest"
+    t.bigint "source_review_head_id", null: false
+    t.bigint "supersedes_id"
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_source_review_versions_on_approved_by_user_id"
+    t.index ["budget_category_id"], name: "index_source_review_versions_on_budget_category_id"
+    t.index ["household_id"], name: "index_source_review_versions_on_household_id"
+    t.index ["id", "household_id"], name: "source_review_versions_household_identity", unique: true
+    t.index ["id", "source_review_head_id", "household_id"], name: "source_review_versions_head_identity", unique: true
+    t.index ["source_account_identity_version_id"], name: "idx_on_source_account_identity_version_id_48cebccb51"
+    t.index ["source_review_head_id", "version_number"], name: "source_review_versions_sequence", unique: true
+    t.index ["source_review_head_id"], name: "index_source_review_versions_on_source_review_head_id"
+    t.check_constraint "(disposition::text <> ALL (ARRAY['include'::character varying, 'match'::character varying]::text[])) OR signed_amount_cents IS NOT NULL AND signed_amount_cents <> 0 AND posted_on IS NOT NULL AND event_type::text <> 'unknown'::text", name: "source_review_posted_facts"
+    t.check_constraint "disposition::text = ANY (ARRAY['include'::character varying, 'match'::character varying, 'exclude'::character varying, 'informational'::character varying]::text[])", name: "source_review_disposition"
+    t.check_constraint "event_type::text = ANY (ARRAY['purchase'::character varying, 'fee'::character varying, 'refund'::character varying, 'income'::character varying, 'transfer'::character varying, 'debt_payment'::character varying, 'cash_withdrawal'::character varying, 'interest'::character varying, 'adjustment'::character varying, 'unknown'::character varying]::text[])", name: "source_review_event_type"
+  end
+
+  create_table "source_revision_approvals", force: :cascade do |t|
+    t.jsonb "account_version_ids", default: [], null: false
+    t.bigint "approved_by_user_id", null: false
+    t.jsonb "coverage_attestation", null: false
+    t.string "coverage_status", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "deficiencies", default: [], null: false
+    t.jsonb "dependencies", default: {}, null: false
+    t.string "digest", null: false
+    t.bigint "financial_extraction_revision_id", null: false
+    t.bigint "household_id", null: false
+    t.text "reason", null: false
+    t.jsonb "source_version_ids", default: [], null: false
+    t.bigint "supersedes_id"
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_source_revision_approvals_on_approved_by_user_id"
+    t.index ["financial_extraction_revision_id", "version_number"], name: "source_revision_approval_sequence", unique: true
+    t.index ["financial_extraction_revision_id"], name: "idx_on_financial_extraction_revision_id_131641a13b"
+    t.index ["household_id"], name: "index_source_revision_approvals_on_household_id"
+    t.index ["id", "household_id"], name: "source_revision_approvals_household_identity", unique: true
+    t.check_constraint "coverage_status::text = ANY (ARRAY['complete'::character varying, 'qualified'::character varying]::text[])", name: "source_revision_coverage"
+  end
+
+  create_table "source_tracked_accounts", force: :cascade do |t|
+    t.string "account_basis", null: false
+    t.bigint "account_id"
+    t.bigint "approved_by_user_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.string "label", null: false
+    t.index ["account_id"], name: "index_source_tracked_accounts_on_account_id"
+    t.index ["approved_by_user_id"], name: "index_source_tracked_accounts_on_approved_by_user_id"
+    t.index ["household_id"], name: "index_source_tracked_accounts_on_household_id"
+    t.index ["id", "household_id"], name: "source_tracked_accounts_household_identity", unique: true
+    t.check_constraint "account_basis::text = ANY (ARRAY['asset'::character varying, 'liability'::character varying]::text[])", name: "source_tracked_basis"
+  end
+
   create_table "transaction_draft_matches", force: :cascade do |t|
     t.decimal "confidence", precision: 5, scale: 2
     t.datetime "created_at", null: false
@@ -2384,7 +3347,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_transaction_id"], name: "index_transaction_draft_matches_on_household_transaction_id"
     t.index ["transaction_draft_id", "household_transaction_id"], name: "index_draft_matches_on_draft_and_transaction", unique: true
     t.index ["transaction_draft_id"], name: "index_transaction_draft_matches_on_transaction_draft_id"
-    t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying::text, 'accepted'::character varying::text, 'rejected'::character varying::text])", name: "transaction_draft_matches_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying, 'accepted'::character varying, 'rejected'::character varying]::text[])", name: "transaction_draft_matches_status_valid"
   end
 
   create_table "transaction_draft_splits", force: :cascade do |t|
@@ -2402,7 +3365,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["transaction_draft_id", "budget_category_id"], name: "index_draft_splits_on_draft_and_category"
     t.index ["transaction_draft_id"], name: "index_transaction_draft_splits_on_transaction_draft_id"
     t.check_constraint "amount_cents > 0", name: "transaction_draft_splits_amount_positive"
-    t.check_constraint "stack_key IS NULL OR (stack_key::text = ANY (ARRAY['non_discretionary'::character varying::text, 'discretionary'::character varying::text, 'sinking_expected'::character varying::text, 'sinking_unexpected'::character varying::text]))", name: "transaction_draft_splits_stack_key_valid"
+    t.check_constraint "stack_key IS NULL OR (stack_key::text = ANY (ARRAY['non_discretionary'::character varying, 'discretionary'::character varying, 'sinking_expected'::character varying, 'sinking_unexpected'::character varying]::text[]))", name: "transaction_draft_splits_stack_key_valid"
   end
 
   create_table "transaction_drafts", force: :cascade do |t|
@@ -2430,8 +3393,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_id", "status", "created_at"], name: "idx_on_household_id_status_created_at_cf0ad72279"
     t.index ["household_id"], name: "index_transaction_drafts_on_household_id"
     t.index ["matched_transaction_id"], name: "index_transaction_drafts_on_matched_transaction_id"
-    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying::text, 'manual_ui'::character varying::text, 'receipt'::character varying::text, 'screenshot'::character varying::text, 'statement'::character varying::text, 'import'::character varying::text, 'plaid'::character varying::text])", name: "transaction_drafts_source_type_valid"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'confirmed'::character varying::text, 'corrected'::character varying::text, 'ignored'::character varying::text, 'matched'::character varying::text])", name: "transaction_drafts_status_valid"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying, 'plaid'::character varying]::text[])", name: "transaction_drafts_source_type_valid"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'confirmed'::character varying, 'corrected'::character varying, 'ignored'::character varying, 'matched'::character varying]::text[])", name: "transaction_drafts_status_valid"
     t.check_constraint "total_amount_cents > 0", name: "transaction_drafts_amount_positive"
   end
 
@@ -2474,7 +3437,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["invited_by_user_id"], name: "index_users_on_invited_by_user_id"
     t.index ["last_invite_email_sent_by_user_id"], name: "index_users_on_last_invite_email_sent_by_user_id"
     t.index ["role"], name: "index_users_on_role"
-    t.check_constraint "invitation_email_status::text = ANY (ARRAY['not_sent'::character varying::text, 'skipped'::character varying::text, 'sent'::character varying::text, 'failed'::character varying::text])", name: "users_invitation_email_status_valid"
+    t.check_constraint "invitation_email_status::text = ANY (ARRAY['not_sent'::character varying, 'skipped'::character varying, 'sent'::character varying, 'failed'::character varying]::text[])", name: "users_invitation_email_status_valid"
   end
 
   create_table "workspace_brand_configurations", force: :cascade do |t|
@@ -2517,7 +3480,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["workspace_brand_configuration_id"], name: "idx_workspace_brand_events_configuration"
     t.index ["workspace_brand_version_id"], name: "idx_workspace_brand_events_version"
     t.check_constraint "char_length(idempotency_key::text) >= 1 AND char_length(idempotency_key::text) <= 255", name: "workspace_brand_publication_events_idempotency_length"
-    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying::text, 'rollback'::character varying::text])", name: "workspace_brand_publication_events_type"
+    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "workspace_brand_publication_events_type"
     t.check_constraint "request_fingerprint::text ~ '^[0-9a-f]{64}$'::text", name: "workspace_brand_publication_events_request_fingerprint"
   end
 
@@ -2549,11 +3512,46 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
   add_foreign_key "budget_categories", "households"
   add_foreign_key "budget_periods", "budget_years"
   add_foreign_key "budget_years", "households"
+  add_foreign_key "challenge_privacy_events", "households"
+  add_foreign_key "challenge_privacy_events", "savings_enrollments"
+  add_foreign_key "challenge_privacy_events", "users", column: "actor_user_id"
+  add_foreign_key "challenge_privacy_events", "users", column: "participant_user_id"
+  add_foreign_key "challenge_privacy_grants", "households"
+  add_foreign_key "challenge_privacy_grants", "savings_enrollments"
+  add_foreign_key "challenge_privacy_grants", "users", column: "participant_user_id"
+  add_foreign_key "challenge_privacy_grants", "users", column: "recipient_user_id"
+  add_foreign_key "challenge_privacy_reads", "households"
+  add_foreign_key "challenge_privacy_reads", "savings_enrollments"
+  add_foreign_key "challenge_privacy_reads", "users", column: "actor_user_id"
+  add_foreign_key "challenge_privacy_reads", "users", column: "participant_user_id"
+  add_foreign_key "challenge_reminder_events", "households"
+  add_foreign_key "challenge_reminder_events", "savings_enrollments"
+  add_foreign_key "challenge_reminder_events", "users", column: "actor_user_id"
+  add_foreign_key "challenge_reminder_events", "users", column: "participant_user_id"
+  add_foreign_key "challenge_reminder_preferences", "households"
+  add_foreign_key "challenge_reminder_preferences", "savings_enrollments"
+  add_foreign_key "challenge_reminder_preferences", "users", column: "participant_user_id"
+  add_foreign_key "challenge_reminders", "challenge_reminder_preferences"
+  add_foreign_key "challenge_reminders", "households"
+  add_foreign_key "challenge_reminders", "savings_enrollments"
+  add_foreign_key "challenge_reminders", "users", column: "participant_user_id"
+  add_foreign_key "challenge_sponsor_exports", "cohorts"
+  add_foreign_key "challenge_sponsor_exports", "users", column: "approved_by_user_id"
+  add_foreign_key "challenge_support_accesses", "challenge_support_tickets"
+  add_foreign_key "challenge_support_accesses", "households"
+  add_foreign_key "challenge_support_accesses", "savings_enrollments"
+  add_foreign_key "challenge_support_accesses", "users", column: "participant_user_id"
+  add_foreign_key "challenge_support_accesses", "users", column: "recipient_user_id"
+  add_foreign_key "challenge_support_tickets", "households"
+  add_foreign_key "challenge_support_tickets", "savings_enrollments"
+  add_foreign_key "challenge_support_tickets", "users", column: "participant_user_id"
+  add_foreign_key "challenge_support_tickets", "users", column: "recipient_user_id"
   add_foreign_key "chat_messages", "chat_sessions"
   add_foreign_key "chat_messages", "coach_persona_versions"
   add_foreign_key "chat_messages", "cohort_releases", column: ["cohort_release_id", "cohort_id"], primary_key: ["id", "cohort_id"], name: "fk_chat_messages_release_cohort", on_delete: :restrict
   add_foreign_key "chat_messages", "cohort_releases", on_delete: :restrict
   add_foreign_key "chat_messages", "cohorts", on_delete: :restrict
+  add_foreign_key "chat_sessions", "cohorts", on_delete: :restrict
   add_foreign_key "chat_sessions", "households"
   add_foreign_key "chat_sessions", "users"
   add_foreign_key "coach_content_citations", "chat_messages", on_delete: :cascade
@@ -2776,6 +3774,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
   add_foreign_key "cohorts", "users", column: "created_by_user_id"
   add_foreign_key "debts", "households"
   add_foreign_key "expense_items", "households"
+  add_foreign_key "financial_baseline_heads", "financial_baseline_versions", column: ["approved_version_id", "id", "household_id"], primary_key: ["id", "financial_baseline_head_id", "household_id"], name: "financial_baseline_approved_head_scope"
+  add_foreign_key "financial_baseline_heads", "households"
+  add_foreign_key "financial_baseline_heads", "users", column: "participant_user_id"
+  add_foreign_key "financial_baseline_versions", "financial_baseline_heads"
+  add_foreign_key "financial_baseline_versions", "financial_baseline_heads", column: ["financial_baseline_head_id", "approved_by_user_id", "household_id"], primary_key: ["id", "participant_user_id", "household_id"], name: "financial_baseline_version_actual_participant"
+  add_foreign_key "financial_baseline_versions", "financial_baseline_heads", column: ["financial_baseline_head_id", "household_id"], primary_key: ["id", "household_id"], name: "financial_baseline_version_household_scope"
+  add_foreign_key "financial_baseline_versions", "financial_baseline_versions", column: ["supersedes_id", "financial_baseline_head_id", "household_id"], primary_key: ["id", "financial_baseline_head_id", "household_id"], name: "financial_baseline_supersedes_head_scope"
+  add_foreign_key "financial_baseline_versions", "households"
+  add_foreign_key "financial_baseline_versions", "users", column: "approved_by_user_id"
   add_foreign_key "financial_document_import_attempts", "financial_document_imports"
   add_foreign_key "financial_document_import_items", "financial_document_imports"
   add_foreign_key "financial_document_import_items", "users", column: "applied_by_user_id"
@@ -2801,6 +3808,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
   add_foreign_key "financial_source_evidences", "financial_source_events", column: ["financial_source_event_id", "household_id"], primary_key: ["id", "household_id"], name: "source_evidence_event_household_fk", on_delete: :cascade
   add_foreign_key "financial_source_evidences", "financial_source_events", on_delete: :cascade
   add_foreign_key "financial_source_evidences", "households"
+  add_foreign_key "financial_source_uses", "financial_document_imports", on_delete: :nullify
+  add_foreign_key "financial_source_uses", "households"
+  add_foreign_key "financial_source_uses", "savings_enrollments"
+  add_foreign_key "financial_source_uses", "users", column: "participant_user_id"
   add_foreign_key "goals", "households"
   add_foreign_key "household_audit_events", "households"
   add_foreign_key "household_audit_events", "users"
@@ -2846,12 +3857,179 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
   add_foreign_key "plaid_transactions", "plaid_accounts"
   add_foreign_key "plaid_transactions", "plaid_items"
   add_foreign_key "plaid_transactions", "transaction_drafts", on_delete: :nullify
+  add_foreign_key "savings_checkpoint_drafts", "savings_checkpoint_versions", column: ["approved_version_id", "savings_checkpoint_id"], primary_key: ["id", "savings_checkpoint_id"], name: "savings_checkpoint_drafts_approved_version_id", on_delete: :restrict
+  add_foreign_key "savings_checkpoint_drafts", "savings_checkpoint_versions", column: ["base_version_id", "savings_checkpoint_id"], primary_key: ["id", "savings_checkpoint_id"], name: "savings_checkpoint_drafts_base_version_id", on_delete: :restrict
+  add_foreign_key "savings_checkpoint_drafts", "savings_checkpoints"
+  add_foreign_key "savings_checkpoint_drafts", "savings_checkpoints", column: ["savings_checkpoint_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "savings_checkpoint_drafts_scope", on_delete: :restrict
+  add_foreign_key "savings_checkpoint_drafts", "savings_enrollments"
+  add_foreign_key "savings_checkpoint_drafts", "users", column: "created_by_user_id"
+  add_foreign_key "savings_checkpoint_versions", "savings_checkpoint_versions", column: ["previous_version_id", "savings_checkpoint_id"], primary_key: ["id", "savings_checkpoint_id"], name: "savings_checkpoint_versions_previous_scope", on_delete: :restrict
+  add_foreign_key "savings_checkpoint_versions", "savings_checkpoints"
+  add_foreign_key "savings_checkpoint_versions", "savings_checkpoints", column: ["savings_checkpoint_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "savings_checkpoint_versions_parent_scope", on_delete: :restrict
+  add_foreign_key "savings_checkpoint_versions", "savings_enrollments"
+  add_foreign_key "savings_checkpoint_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "savings_checkpoints", "savings_checkpoint_versions", column: ["current_version_id", "id"], primary_key: ["id", "savings_checkpoint_id"], name: "savings_checkpoints_current_scope", on_delete: :restrict
+  add_foreign_key "savings_checkpoints", "savings_enrollments"
+  add_foreign_key "savings_daily_check_in_versions", "savings_daily_check_in_versions", column: ["previous_version_id", "savings_daily_check_in_id"], primary_key: ["id", "savings_daily_check_in_id"], name: "savings_daily_check_in_versions_previous_scope", on_delete: :restrict
+  add_foreign_key "savings_daily_check_in_versions", "savings_daily_check_ins"
+  add_foreign_key "savings_daily_check_in_versions", "savings_daily_check_ins", column: ["savings_daily_check_in_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "savings_daily_check_in_versions_parent_scope", on_delete: :restrict
+  add_foreign_key "savings_daily_check_in_versions", "savings_enrollments"
+  add_foreign_key "savings_daily_check_in_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "savings_daily_check_ins", "savings_daily_check_in_versions", column: ["current_version_id", "id"], primary_key: ["id", "savings_daily_check_in_id"], name: "savings_daily_check_ins_current_scope", on_delete: :restrict
+  add_foreign_key "savings_daily_check_ins", "savings_enrollments"
+  add_foreign_key "savings_daily_ledgers", "savings_enrollments"
+  add_foreign_key "savings_daily_purchase_drafts", "household_transactions", column: "linked_transaction_id"
+  add_foreign_key "savings_daily_purchase_drafts", "savings_daily_purchase_versions", column: ["approved_version_id", "savings_daily_purchase_id"], primary_key: ["id", "savings_daily_purchase_id"], name: "savings_daily_purchase_drafts_approved_version_id", on_delete: :restrict
+  add_foreign_key "savings_daily_purchase_drafts", "savings_daily_purchase_versions", column: ["base_version_id", "savings_daily_purchase_id"], primary_key: ["id", "savings_daily_purchase_id"], name: "savings_daily_purchase_drafts_base_version_id", on_delete: :restrict
+  add_foreign_key "savings_daily_purchase_drafts", "savings_daily_purchases"
+  add_foreign_key "savings_daily_purchase_drafts", "savings_daily_purchases", column: ["savings_daily_purchase_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "savings_daily_purchase_drafts_scope", on_delete: :restrict
+  add_foreign_key "savings_daily_purchase_drafts", "savings_enrollments"
+  add_foreign_key "savings_daily_purchase_drafts", "users", column: "created_by_user_id"
+  add_foreign_key "savings_daily_purchase_versions", "household_transactions"
+  add_foreign_key "savings_daily_purchase_versions", "savings_daily_purchase_versions", column: ["previous_version_id", "savings_daily_purchase_id"], primary_key: ["id", "savings_daily_purchase_id"], name: "savings_daily_purchase_versions_previous_scope", on_delete: :restrict
+  add_foreign_key "savings_daily_purchase_versions", "savings_daily_purchases"
+  add_foreign_key "savings_daily_purchase_versions", "savings_daily_purchases", column: ["savings_daily_purchase_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "savings_daily_purchase_versions_parent_scope", on_delete: :restrict
+  add_foreign_key "savings_daily_purchase_versions", "savings_enrollments"
+  add_foreign_key "savings_daily_purchase_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "savings_daily_purchases", "savings_daily_purchase_versions", column: ["current_version_id", "id"], primary_key: ["id", "savings_daily_purchase_id"], name: "savings_daily_purchases_current_scope", on_delete: :restrict
+  add_foreign_key "savings_daily_purchases", "savings_enrollments"
+  add_foreign_key "savings_daily_reflection_versions", "savings_daily_reflection_versions", column: ["previous_version_id", "savings_daily_reflection_id"], primary_key: ["id", "savings_daily_reflection_id"], name: "savings_daily_reflection_versions_previous_scope", on_delete: :restrict
+  add_foreign_key "savings_daily_reflection_versions", "savings_daily_reflections"
+  add_foreign_key "savings_daily_reflection_versions", "savings_daily_reflections", column: ["savings_daily_reflection_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "savings_daily_reflection_versions_parent_scope", on_delete: :restrict
+  add_foreign_key "savings_daily_reflection_versions", "savings_enrollments"
+  add_foreign_key "savings_daily_reflection_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "savings_daily_reflection_versions", "users", column: "erased_by_user_id"
+  add_foreign_key "savings_daily_reflections", "savings_daily_purchases"
+  add_foreign_key "savings_daily_reflections", "savings_daily_purchases", column: ["savings_daily_purchase_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "daily_reflection_purchase_scope", on_delete: :restrict
+  add_foreign_key "savings_daily_reflections", "savings_daily_reflection_versions", column: ["current_version_id", "id"], primary_key: ["id", "savings_daily_reflection_id"], name: "savings_daily_reflections_current_scope", on_delete: :restrict
+  add_foreign_key "savings_daily_reflections", "savings_enrollments"
+  add_foreign_key "savings_debt_cards", "households"
+  add_foreign_key "savings_debt_cards", "savings_debt_versions", column: ["current_version_id", "id"], primary_key: ["id", "savings_debt_card_id"], name: "savings_debt_current_scope"
+  add_foreign_key "savings_debt_cards", "savings_enrollments"
+  add_foreign_key "savings_debt_cards", "source_tracked_accounts"
+  add_foreign_key "savings_debt_cards", "users"
+  add_foreign_key "savings_debt_drafts", "savings_debt_cards"
+  add_foreign_key "savings_debt_drafts", "savings_debt_versions", column: ["approved_version_id", "savings_debt_card_id"], primary_key: ["id", "savings_debt_card_id"], name: "savings_debt_approved_scope"
+  add_foreign_key "savings_debt_drafts", "savings_debt_versions", column: ["base_version_id", "savings_debt_card_id"], primary_key: ["id", "savings_debt_card_id"], name: "savings_debt_base_scope"
+  add_foreign_key "savings_debt_drafts", "savings_enrollments"
+  add_foreign_key "savings_debt_drafts", "source_account_identity_versions"
+  add_foreign_key "savings_debt_drafts", "source_revision_approvals"
+  add_foreign_key "savings_debt_drafts", "source_tracked_accounts"
+  add_foreign_key "savings_debt_drafts", "users", column: "created_by_user_id"
+  add_foreign_key "savings_debt_versions", "savings_debt_cards"
+  add_foreign_key "savings_debt_versions", "savings_debt_versions", column: ["previous_version_id", "savings_debt_card_id"], primary_key: ["id", "savings_debt_card_id"], name: "savings_debt_previous_scope"
+  add_foreign_key "savings_debt_versions", "savings_enrollments"
+  add_foreign_key "savings_debt_versions", "source_account_identity_versions"
+  add_foreign_key "savings_debt_versions", "source_revision_approvals"
+  add_foreign_key "savings_debt_versions", "source_tracked_accounts"
+  add_foreign_key "savings_debt_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "savings_enrollments", "cohort_releases", column: "accepted_cohort_release_id"
+  add_foreign_key "savings_enrollments", "cohorts"
+  add_foreign_key "savings_enrollments", "households"
+  add_foreign_key "savings_enrollments", "savings_plan_versions", column: ["current_accepted_plan_version_id", "id"], primary_key: ["id", "savings_enrollment_id"], name: "savings_enrollment_plan_scope", on_delete: :restrict
+  add_foreign_key "savings_enrollments", "users"
+  add_foreign_key "savings_entries", "savings_enrollments"
+  add_foreign_key "savings_entries", "savings_entry_versions", column: ["current_approved_version_id", "id"], primary_key: ["id", "savings_entry_id"], name: "savings_entry_head_scope", on_delete: :restrict
+  add_foreign_key "savings_entry_drafts", "savings_entries"
+  add_foreign_key "savings_entry_drafts", "savings_entry_versions", column: ["approved_version_id", "savings_entry_id"], primary_key: ["id", "savings_entry_id"], name: "savings_draft_approved_version_id_scope", on_delete: :restrict
+  add_foreign_key "savings_entry_drafts", "savings_entry_versions", column: ["base_version_id", "savings_entry_id"], primary_key: ["id", "savings_entry_id"], name: "savings_draft_base_version_id_scope", on_delete: :restrict
+  add_foreign_key "savings_entry_drafts", "users", column: "created_by_user_id"
+  add_foreign_key "savings_entry_versions", "savings_enrollments"
+  add_foreign_key "savings_entry_versions", "savings_entries"
+  add_foreign_key "savings_entry_versions", "savings_entries", column: ["savings_entry_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "savings_version_enrollment_scope", on_delete: :restrict
+  add_foreign_key "savings_entry_versions", "savings_entry_versions", column: ["previous_version_id", "savings_entry_id"], primary_key: ["id", "savings_entry_id"], name: "savings_version_previous_scope", on_delete: :restrict
+  add_foreign_key "savings_entry_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "savings_evidence_allocations", "households"
+  add_foreign_key "savings_evidence_allocations", "savings_enrollments"
+  add_foreign_key "savings_evidence_allocations", "savings_entry_versions"
+  add_foreign_key "savings_evidence_allocations", "savings_evidence_versions", column: ["current_version_id", "id"], primary_key: ["id", "savings_evidence_allocation_id"], name: "savings_evidence_head_scope"
+  add_foreign_key "savings_evidence_capacities", "financial_source_events"
+  add_foreign_key "savings_evidence_capacities", "savings_evidence_versions"
+  add_foreign_key "savings_evidence_capacities", "source_review_versions"
+  add_foreign_key "savings_evidence_versions", "savings_enrollments"
+  add_foreign_key "savings_evidence_versions", "savings_evidence_allocations"
+  add_foreign_key "savings_evidence_versions", "savings_evidence_versions", column: ["previous_version_id", "savings_evidence_allocation_id"], primary_key: ["id", "savings_evidence_allocation_id"], name: "savings_evidence_prior_scope"
+  add_foreign_key "savings_evidence_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "savings_plan_drafts", "financial_baseline_versions"
+  add_foreign_key "savings_plan_drafts", "savings_enrollments"
+  add_foreign_key "savings_plan_drafts", "savings_plan_versions", column: ["approved_plan_version_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "savings_draft_approved_plan_version_id_scope", on_delete: :restrict
+  add_foreign_key "savings_plan_drafts", "savings_plan_versions", column: ["base_plan_version_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "savings_draft_base_plan_version_id_scope", on_delete: :restrict
+  add_foreign_key "savings_plan_drafts", "users", column: "created_by_user_id"
+  add_foreign_key "savings_plan_versions", "financial_baseline_versions"
+  add_foreign_key "savings_plan_versions", "savings_enrollments"
+  add_foreign_key "savings_plan_versions", "savings_plan_versions", column: ["previous_version_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "savings_plan_previous_scope", on_delete: :restrict
+  add_foreign_key "savings_plan_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "savings_zero_attestations", "savings_enrollments"
+  add_foreign_key "savings_zero_attestations", "savings_zero_attestations", column: "previous_attestation_id"
+  add_foreign_key "savings_zero_attestations", "users", column: "approved_by_user_id"
   add_foreign_key "solid_queue_blocked_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_claimed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_failed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_ready_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_recurring_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_scheduled_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
+  add_foreign_key "source_account_identity_versions", "households"
+  add_foreign_key "source_account_identity_versions", "source_account_identity_versions", column: "supersedes_id"
+  add_foreign_key "source_account_identity_versions", "source_account_identity_versions", column: ["supersedes_id", "source_account_review_head_id", "household_id"], primary_key: ["id", "source_account_review_head_id", "household_id"], name: "source_account_identity_versions_supersedes_head_scope"
+  add_foreign_key "source_account_identity_versions", "source_account_review_heads"
+  add_foreign_key "source_account_identity_versions", "source_account_review_heads", column: ["source_account_review_head_id", "household_id"], primary_key: ["id", "household_id"], name: "source_account_identity_versions_source_account_review_head_sc"
+  add_foreign_key "source_account_identity_versions", "source_tracked_accounts"
+  add_foreign_key "source_account_identity_versions", "source_tracked_accounts", column: ["source_tracked_account_id", "household_id"], primary_key: ["id", "household_id"], name: "source_account_identity_versions_source_tracked_account_scope"
+  add_foreign_key "source_account_identity_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "source_account_review_heads", "financial_source_accounts"
+  add_foreign_key "source_account_review_heads", "financial_source_accounts", column: ["financial_source_account_id", "household_id"], primary_key: ["id", "household_id"], name: "source_account_review_heads_financial_source_account_scope"
+  add_foreign_key "source_account_review_heads", "households"
+  add_foreign_key "source_account_review_heads", "source_account_identity_versions", column: ["approved_version_id", "id", "household_id"], primary_key: ["id", "source_account_review_head_id", "household_id"], name: "source_account_review_heads_approved_head_scope"
+  add_foreign_key "source_economic_group_versions", "households"
+  add_foreign_key "source_economic_group_versions", "source_economic_group_versions", column: "supersedes_id"
+  add_foreign_key "source_economic_group_versions", "source_economic_group_versions", column: ["supersedes_id", "source_economic_group_id", "household_id"], primary_key: ["id", "source_economic_group_id", "household_id"], name: "source_economic_group_versions_supersedes_head_scope"
+  add_foreign_key "source_economic_group_versions", "source_economic_groups"
+  add_foreign_key "source_economic_group_versions", "source_economic_groups", column: ["source_economic_group_id", "household_id"], primary_key: ["id", "household_id"], name: "source_economic_group_versions_source_economic_group_scope"
+  add_foreign_key "source_economic_group_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "source_economic_groups", "households"
+  add_foreign_key "source_economic_groups", "source_economic_group_versions", column: ["approved_version_id", "id", "household_id"], primary_key: ["id", "source_economic_group_id", "household_id"], name: "source_economic_groups_approved_head_scope"
+  add_foreign_key "source_economic_memberships", "households"
+  add_foreign_key "source_economic_memberships", "source_economic_group_versions"
+  add_foreign_key "source_economic_memberships", "source_economic_group_versions", column: ["source_economic_group_version_id", "household_id"], primary_key: ["id", "household_id"], name: "source_economic_memberships_source_economic_group_version_scop"
+  add_foreign_key "source_economic_memberships", "source_review_versions"
+  add_foreign_key "source_economic_memberships", "source_review_versions", column: ["source_review_version_id", "household_id"], primary_key: ["id", "household_id"], name: "source_economic_memberships_source_review_version_scope"
+  add_foreign_key "source_projection_revisions", "household_transactions", column: "previous_transaction_id"
+  add_foreign_key "source_projection_revisions", "household_transactions", column: "replacement_transaction_id"
+  add_foreign_key "source_projection_revisions", "household_transactions", column: ["previous_transaction_id", "household_id"], primary_key: ["id", "household_id"], name: "source_projection_revisions_previous_transaction_scope"
+  add_foreign_key "source_projection_revisions", "household_transactions", column: ["replacement_transaction_id", "household_id"], primary_key: ["id", "household_id"], name: "source_projection_revisions_replacement_transaction_scope"
+  add_foreign_key "source_projection_revisions", "households"
+  add_foreign_key "source_projection_revisions", "source_review_versions"
+  add_foreign_key "source_projection_revisions", "source_review_versions", column: ["source_review_version_id", "household_id"], primary_key: ["id", "household_id"], name: "source_projection_revisions_source_review_version_scope"
+  add_foreign_key "source_projection_revisions", "users", column: "approved_by_user_id"
+  add_foreign_key "source_review_drafts", "households"
+  add_foreign_key "source_review_drafts", "source_review_heads"
+  add_foreign_key "source_review_drafts", "source_review_heads", column: ["source_review_head_id", "household_id"], primary_key: ["id", "household_id"], name: "source_review_drafts_source_review_head_scope"
+  add_foreign_key "source_review_drafts", "source_review_versions", column: ["base_version_id", "source_review_head_id", "household_id"], primary_key: ["id", "source_review_head_id", "household_id"], name: "source_review_drafts_base_head_scope"
+  add_foreign_key "source_review_drafts", "users", column: "staged_by_user_id"
+  add_foreign_key "source_review_heads", "financial_source_events"
+  add_foreign_key "source_review_heads", "financial_source_events", column: ["financial_source_event_id", "household_id"], primary_key: ["id", "household_id"], name: "source_review_heads_financial_source_event_scope"
+  add_foreign_key "source_review_heads", "households"
+  add_foreign_key "source_review_heads", "source_review_versions", column: ["approved_version_id", "id", "household_id"], primary_key: ["id", "source_review_head_id", "household_id"], name: "source_review_heads_approved_head_scope"
+  add_foreign_key "source_review_versions", "budget_categories"
+  add_foreign_key "source_review_versions", "budget_categories", column: ["budget_category_id", "household_id"], primary_key: ["id", "household_id"], name: "source_review_versions_budget_category_scope"
+  add_foreign_key "source_review_versions", "households"
+  add_foreign_key "source_review_versions", "source_account_identity_versions"
+  add_foreign_key "source_review_versions", "source_account_identity_versions", column: ["source_account_identity_version_id", "household_id"], primary_key: ["id", "household_id"], name: "source_review_versions_source_account_identity_version_scope"
+  add_foreign_key "source_review_versions", "source_review_heads"
+  add_foreign_key "source_review_versions", "source_review_heads", column: ["source_review_head_id", "household_id"], primary_key: ["id", "household_id"], name: "source_review_versions_source_review_head_scope"
+  add_foreign_key "source_review_versions", "source_review_versions", column: "supersedes_id"
+  add_foreign_key "source_review_versions", "source_review_versions", column: ["matched_version_id", "household_id"], primary_key: ["id", "household_id"], name: "source_review_versions_matched_version_scope"
+  add_foreign_key "source_review_versions", "source_review_versions", column: ["supersedes_id", "source_review_head_id", "household_id"], primary_key: ["id", "source_review_head_id", "household_id"], name: "source_review_versions_supersedes_head_scope"
+  add_foreign_key "source_review_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "source_revision_approvals", "financial_extraction_revisions"
+  add_foreign_key "source_revision_approvals", "financial_extraction_revisions", column: ["financial_extraction_revision_id", "household_id"], primary_key: ["id", "household_id"], name: "source_revision_approvals_financial_extraction_revision_scope"
+  add_foreign_key "source_revision_approvals", "households"
+  add_foreign_key "source_revision_approvals", "source_revision_approvals", column: "supersedes_id"
+  add_foreign_key "source_revision_approvals", "users", column: "approved_by_user_id"
+  add_foreign_key "source_tracked_accounts", "accounts", column: ["account_id", "household_id"], primary_key: ["id", "household_id"], name: "source_tracked_accounts_account_scope", deferrable: :deferred
+  add_foreign_key "source_tracked_accounts", "accounts", on_delete: :nullify
+  add_foreign_key "source_tracked_accounts", "households"
+  add_foreign_key "source_tracked_accounts", "users", column: "approved_by_user_id"
   add_foreign_key "transaction_draft_matches", "household_transactions"
   add_foreign_key "transaction_draft_matches", "transaction_drafts"
   add_foreign_key "transaction_draft_splits", "budget_categories"
@@ -2879,6 +4057,605 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
   add_foreign_key "workspace_brand_versions", "workspace_brand_configurations", column: ["workspace_brand_configuration_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_workspace_brand_versions_configuration", on_delete: :restrict
   add_foreign_key "workspace_brand_versions", "workspace_brand_versions", column: "source_version_id"
   add_foreign_key "workspace_brand_versions", "workspace_brand_versions", column: ["source_version_id", "workspace_brand_configuration_id"], primary_key: ["id", "workspace_brand_configuration_id"], name: "fk_workspace_brand_versions_source", on_delete: :restrict
+  execute <<~SQL
+    CREATE OR REPLACE FUNCTION public.source_review_facts_immutable()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'Approved source facts cannot be deleted'; END IF;
+      IF TG_TABLE_NAME = 'source_tracked_accounts' AND NEW.account_id IS NULL AND
+         (to_jsonb(NEW) - 'account_id') = (to_jsonb(OLD) - 'account_id') THEN RETURN NEW; END IF;
+      IF to_jsonb(NEW) <> to_jsonb(OLD) THEN RAISE EXCEPTION 'Approved source facts are immutable; append a version'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_privacy_events_immutable BEFORE DELETE OR UPDATE ON public.challenge_privacy_events FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_privacy_reads_immutable BEFORE DELETE OR UPDATE ON public.challenge_privacy_reads FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_reminder_events_immutable BEFORE DELETE OR UPDATE ON public.challenge_reminder_events FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_sponsor_exports_immutable BEFORE DELETE OR UPDATE ON public.challenge_sponsor_exports FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER financial_baseline_versions_immutable BEFORE DELETE OR UPDATE ON public.financial_baseline_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_account_identity_versions_immutable BEFORE DELETE OR UPDATE ON public.source_account_identity_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_economic_group_versions_immutable BEFORE DELETE OR UPDATE ON public.source_economic_group_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_economic_memberships_immutable BEFORE DELETE OR UPDATE ON public.source_economic_memberships FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_projection_revisions_immutable BEFORE DELETE OR UPDATE ON public.source_projection_revisions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_review_versions_immutable BEFORE DELETE OR UPDATE ON public.source_review_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_revision_approvals_immutable BEFORE DELETE OR UPDATE ON public.source_revision_approvals FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_tracked_accounts_immutable BEFORE DELETE OR UPDATE ON public.source_tracked_accounts FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE OR REPLACE FUNCTION public.source_review_heads_scope_immutable()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'Source review heads cannot be deleted'; END IF;
+      IF (to_jsonb(NEW) - ARRAY['approved_version_id', 'lock_version', 'updated_at']) <>
+         (to_jsonb(OLD) - ARRAY['approved_version_id', 'lock_version', 'updated_at']) THEN
+        RAISE EXCEPTION 'Source review head identity is immutable';
+      END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER financial_baseline_heads_scope_immutable BEFORE DELETE OR UPDATE ON public.financial_baseline_heads FOR EACH ROW EXECUTE FUNCTION source_review_heads_scope_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_account_review_heads_scope_immutable BEFORE DELETE OR UPDATE ON public.source_account_review_heads FOR EACH ROW EXECUTE FUNCTION source_review_heads_scope_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_economic_groups_scope_immutable BEFORE DELETE OR UPDATE ON public.source_economic_groups FOR EACH ROW EXECUTE FUNCTION source_review_heads_scope_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_review_heads_scope_immutable BEFORE DELETE OR UPDATE ON public.source_review_heads FOR EACH ROW EXECUTE FUNCTION source_review_heads_scope_immutable();
+  SQL
+  execute <<~SQL
+    CREATE OR REPLACE FUNCTION public.savings_plan_context_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF NEW.financial_baseline_version_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM financial_baseline_versions v JOIN financial_baseline_heads h ON h.id = v.financial_baseline_head_id
+        JOIN savings_enrollments e ON e.id = NEW.savings_enrollment_id
+        WHERE v.id = NEW.financial_baseline_version_id AND v.household_id = e.household_id AND h.participant_user_id = e.user_id AND v.digest = NEW.baseline_digest
+      ) THEN RAISE EXCEPTION 'plan baseline participant boundary'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER savings_plan_drafts_context BEFORE INSERT OR UPDATE ON public.savings_plan_drafts FOR EACH ROW EXECUTE FUNCTION savings_plan_context_guard();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER savings_plan_versions_context BEFORE INSERT ON public.savings_plan_versions FOR EACH ROW EXECUTE FUNCTION savings_plan_context_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_evidence_head_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE enrollment savings_enrollments; entry savings_entry_versions; version savings_evidence_versions; row RECORD; total numeric; expected_bindings jsonb; actual_bindings jsonb;
+    BEGIN
+      IF TG_OP='DELETE' THEN RAISE EXCEPTION 'evidence identity cannot be deleted'; END IF;
+      IF TG_OP='UPDATE' AND ROW(NEW.household_id,NEW.savings_enrollment_id,NEW.savings_entry_version_id) IS DISTINCT FROM ROW(OLD.household_id,OLD.savings_enrollment_id,OLD.savings_entry_version_id) THEN RAISE EXCEPTION 'evidence identity is frozen'; END IF;
+      SELECT * INTO STRICT enrollment FROM savings_enrollments WHERE id=NEW.savings_enrollment_id;
+      SELECT * INTO STRICT entry FROM savings_entry_versions WHERE id=NEW.savings_entry_version_id;
+      IF enrollment.household_id <> NEW.household_id OR entry.savings_enrollment_id <> enrollment.id THEN RAISE EXCEPTION 'evidence household or entry scope invalid'; END IF;
+      PERFORM 1 FROM households WHERE id=NEW.household_id FOR UPDATE;
+      IF NEW.current_version_id IS NOT NULL THEN
+        SELECT * INTO STRICT version FROM savings_evidence_versions WHERE id=NEW.current_version_id;
+        IF version.savings_evidence_allocation_id <> NEW.id OR (TG_OP='UPDATE' AND NEW.current_version_id IS DISTINCT FROM OLD.current_version_id AND version.previous_version_id IS DISTINCT FROM OLD.current_version_id) THEN RAISE EXCEPTION 'evidence head must advance'; END IF;
+        IF version.state='attached' THEN
+          IF entry.signed_cents <= 0 OR entry.funding_source NOT IN ('earned_income','gift','bonus','new_money_reserved') OR version.supported_cents > entry.signed_cents OR entry.id IS DISTINCT FROM (SELECT current_approved_version_id FROM savings_entries WHERE id=entry.savings_entry_id) THEN RAISE EXCEPTION 'evidence must support current eligible contribution'; END IF;
+          IF (SELECT SUM((proof->>'amount_cents')::bigint) FROM jsonb_array_elements(version.proof_snapshot) proof) <> version.supported_cents THEN RAISE EXCEPTION 'evidence proof total invalid'; END IF;
+          SELECT jsonb_agg(binding ORDER BY (binding->>'event_id')::bigint) INTO expected_bindings FROM jsonb_array_elements(version.proof_snapshot) proof, jsonb_array_elements(proof->'bindings') binding;
+          SELECT jsonb_agg(jsonb_build_object('event_id',financial_source_event_id,'source_review_version_id',source_review_version_id,'capacity_cents',capacity_cents,'reserved_cents',reserved_cents) ORDER BY financial_source_event_id)
+            INTO actual_bindings FROM savings_evidence_capacities WHERE savings_evidence_version_id=version.id;
+          IF actual_bindings IS DISTINCT FROM expected_bindings THEN RAISE EXCEPTION 'evidence capacity bindings do not match reviewed proof'; END IF;
+          FOR row IN SELECT c.*, e.household_id AS event_household, h.financial_source_event_id AS reviewed_event, abs(v.signed_amount_cents) AS reviewed_capacity
+            FROM savings_evidence_capacities c JOIN financial_source_events e ON e.id=c.financial_source_event_id
+            JOIN source_review_versions v ON v.id=c.source_review_version_id JOIN source_review_heads h ON h.id=v.source_review_head_id WHERE c.savings_evidence_version_id=version.id LOOP
+            IF row.event_household <> NEW.household_id OR row.reviewed_event <> row.financial_source_event_id OR row.capacity_cents > row.reviewed_capacity THEN RAISE EXCEPTION 'canonical evidence capacity scope invalid'; END IF;
+            SELECT COALESCE(SUM(c.reserved_cents),0) INTO total FROM savings_evidence_capacities c JOIN savings_evidence_allocations a ON a.current_version_id=c.savings_evidence_version_id
+              WHERE a.id <> NEW.id AND c.financial_source_event_id=row.financial_source_event_id;
+            IF total + row.reserved_cents > row.capacity_cents THEN RAISE EXCEPTION 'canonical movement evidence capacity exceeded'; END IF;
+          END LOOP;
+          IF NOT EXISTS (SELECT 1 FROM savings_evidence_capacities WHERE savings_evidence_version_id=version.id) THEN RAISE EXCEPTION 'evidence requires canonical capacity bindings'; END IF;
+        END IF;
+      ELSIF TG_OP='UPDATE' AND OLD.current_version_id IS NOT NULL THEN RAISE EXCEPTION 'evidence cannot hide its history'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_evidence_identity BEFORE INSERT OR DELETE OR UPDATE ON public.savings_evidence_allocations FOR EACH ROW EXECUTE FUNCTION savings_evidence_head_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_evidence_version_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE enrollment savings_enrollments; head savings_evidence_allocations; prior savings_evidence_versions;
+    BEGIN
+      IF TG_OP <> 'INSERT' THEN RAISE EXCEPTION 'approved savings evidence is immutable'; END IF;
+      SELECT * INTO STRICT head FROM savings_evidence_allocations WHERE id=NEW.savings_evidence_allocation_id;
+      SELECT * INTO STRICT enrollment FROM savings_enrollments WHERE id=head.savings_enrollment_id;
+      PERFORM 1 FROM households WHERE id=head.household_id FOR UPDATE;
+      IF NEW.savings_enrollment_id <> enrollment.id OR NEW.approved_by_user_id <> enrollment.user_id OR enrollment.status <> 'active'
+        OR NEW.previous_version_id IS DISTINCT FROM head.current_version_id OR NEW.approval_sequence <> enrollment.approval_sequence THEN
+        RAISE EXCEPTION 'savings evidence approval scope or sequence invalid';
+      END IF;
+      IF NEW.previous_version_id IS NOT NULL THEN
+        SELECT * INTO STRICT prior FROM savings_evidence_versions WHERE id=NEW.previous_version_id;
+        IF NEW.version_number <> prior.version_number+1 THEN RAISE EXCEPTION 'evidence revision must advance'; END IF;
+      ELSIF NEW.version_number <> 1 THEN RAISE EXCEPTION 'invalid first evidence revision'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_evidence_version_immutable BEFORE INSERT OR DELETE OR UPDATE ON public.savings_evidence_versions FOR EACH ROW EXECUTE FUNCTION savings_evidence_version_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_evidence_published_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF (SELECT current_version_id FROM savings_evidence_allocations WHERE id=NEW.savings_evidence_allocation_id) IS DISTINCT FROM
+        (SELECT id FROM savings_evidence_versions WHERE savings_evidence_allocation_id=NEW.savings_evidence_allocation_id ORDER BY version_number DESC LIMIT 1)
+        THEN RAISE EXCEPTION 'evidence revision must publish atomically'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE CONSTRAINT TRIGGER savings_evidence_published AFTER INSERT ON public.savings_evidence_versions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION savings_evidence_published_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_evidence_sequence_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM savings_evidence_versions WHERE savings_enrollment_id=NEW.savings_enrollment_id AND approval_sequence=NEW.approval_sequence)
+        OR (TG_TABLE_NAME='savings_evidence_versions' AND EXISTS (
+          SELECT 1 FROM savings_entry_versions WHERE savings_enrollment_id=NEW.savings_enrollment_id AND approval_sequence=NEW.approval_sequence
+          UNION ALL SELECT 1 FROM savings_plan_versions WHERE savings_enrollment_id=NEW.savings_enrollment_id AND approval_sequence=NEW.approval_sequence
+          UNION ALL SELECT 1 FROM savings_zero_attestations WHERE savings_enrollment_id=NEW.savings_enrollment_id AND approval_sequence=NEW.approval_sequence
+        )) THEN RAISE EXCEPTION 'savings evidence sequence already allocated'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_entry_versions_evidence_sequence BEFORE INSERT ON public.savings_entry_versions FOR EACH ROW EXECUTE FUNCTION savings_evidence_sequence_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_evidence_versions_evidence_sequence BEFORE INSERT ON public.savings_evidence_versions FOR EACH ROW EXECUTE FUNCTION savings_evidence_sequence_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_plan_versions_evidence_sequence BEFORE INSERT ON public.savings_plan_versions FOR EACH ROW EXECUTE FUNCTION savings_evidence_sequence_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_zero_attestations_evidence_sequence BEFORE INSERT ON public.savings_zero_attestations FOR EACH ROW EXECUTE FUNCTION savings_evidence_sequence_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_evidence_capacity_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF TG_OP <> 'INSERT' THEN RAISE EXCEPTION 'evidence capacities are immutable'; END IF;
+      IF EXISTS (SELECT 1 FROM savings_evidence_versions v JOIN savings_evidence_allocations a ON a.id=v.savings_evidence_allocation_id
+        WHERE v.id=NEW.savings_evidence_version_id AND (a.current_version_id=v.id OR v.previous_version_id IS DISTINCT FROM a.current_version_id)) THEN RAISE EXCEPTION 'published capacity bindings are terminal'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_evidence_capacity_immutable BEFORE INSERT OR DELETE OR UPDATE ON public.savings_evidence_capacities FOR EACH ROW EXECUTE FUNCTION savings_evidence_capacity_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_debt_scope_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE enrollment savings_enrollments; card savings_debt_cards; version savings_debt_versions; prior savings_debt_versions; identity source_account_identity_versions; source_account financial_source_accounts; approval source_revision_approvals;
+    BEGIN
+      IF TG_OP='DELETE' THEN RAISE EXCEPTION 'participant card identity and history cannot be deleted'; END IF;
+      IF TG_TABLE_NAME='savings_debt_cards' THEN
+        SELECT * INTO STRICT enrollment FROM savings_enrollments WHERE id=NEW.savings_enrollment_id;
+        PERFORM 1 FROM households WHERE id=enrollment.household_id FOR UPDATE;
+        IF NEW.household_id <> enrollment.household_id OR NEW.user_id <> enrollment.user_id THEN RAISE EXCEPTION 'card participant scope invalid'; END IF;
+        IF TG_OP='UPDATE' AND ROW(NEW.savings_enrollment_id,NEW.household_id,NEW.user_id) IS DISTINCT FROM ROW(OLD.savings_enrollment_id,OLD.household_id,OLD.user_id) THEN RAISE EXCEPTION 'card identity is frozen'; END IF;
+        IF NEW.current_version_id IS NOT NULL THEN
+          SELECT * INTO STRICT version FROM savings_debt_versions WHERE id=NEW.current_version_id;
+          IF version.savings_debt_card_id <> NEW.id OR NEW.source_tracked_account_id IS DISTINCT FROM version.source_tracked_account_id OR (TG_OP='UPDATE' AND NEW.current_version_id IS DISTINCT FROM OLD.current_version_id AND version.previous_version_id IS DISTINCT FROM OLD.current_version_id) THEN RAISE EXCEPTION 'card approved head must advance'; END IF;
+        ELSIF NEW.source_tracked_account_id IS NOT NULL OR (TG_OP='UPDATE' AND OLD.current_version_id IS NOT NULL) THEN RAISE EXCEPTION 'approved card head cannot be cleared'; END IF;
+        RETURN NEW;
+      END IF;
+      SELECT * INTO STRICT card FROM savings_debt_cards WHERE id=NEW.savings_debt_card_id;
+      SELECT * INTO STRICT enrollment FROM savings_enrollments WHERE id=card.savings_enrollment_id;
+      PERFORM 1 FROM households WHERE id=enrollment.household_id FOR UPDATE;
+      IF NEW.savings_enrollment_id <> enrollment.id THEN RAISE EXCEPTION 'card review enrollment invalid'; END IF;
+      IF TG_OP='UPDATE' THEN
+        IF TG_TABLE_NAME='savings_debt_versions' THEN RAISE EXCEPTION 'approved card terms are immutable'; END IF;
+        IF (to_jsonb(NEW)-ARRAY['status','approved_version_id','lock_version','updated_at']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['status','approved_version_id','lock_version','updated_at']) OR OLD.status<>'pending' OR NEW.status<>'approved' THEN RAISE EXCEPTION 'reviewed card draft is frozen'; END IF;
+        SELECT * INTO STRICT version FROM savings_debt_versions WHERE id=NEW.approved_version_id;
+        IF version.id IS DISTINCT FROM card.current_version_id OR version.savings_debt_card_id<>card.id OR version.terms IS DISTINCT FROM NEW.terms OR version.previous_version_id IS DISTINCT FROM NEW.base_version_id OR ROW(version.source_tracked_account_id,version.source_account_identity_version_id,version.source_revision_approval_id,version.source_fingerprint,version.source_snapshot) IS DISTINCT FROM ROW(NEW.source_tracked_account_id,NEW.source_account_identity_version_id,NEW.source_revision_approval_id,NEW.source_fingerprint,NEW.source_snapshot) THEN RAISE EXCEPTION 'card approval does not match reviewed draft'; END IF;
+        RETURN NEW;
+      END IF;
+      IF enrollment.status<>'active' OR NOT EXISTS (SELECT 1 FROM users WHERE id=enrollment.user_id AND role='participant' AND invitation_status<>'revoked') THEN RAISE EXCEPTION 'card review participant unavailable'; END IF;
+      IF TG_TABLE_NAME='savings_debt_versions' THEN
+        IF NEW.approved_by_user_id<>enrollment.user_id OR NEW.previous_version_id IS DISTINCT FROM card.current_version_id THEN RAISE EXCEPTION 'card approval actor or prior head invalid'; END IF;
+        IF NEW.previous_version_id IS NULL THEN
+          IF NEW.version_number<>1 THEN RAISE EXCEPTION 'card first version invalid'; END IF;
+        ELSE
+          SELECT * INTO STRICT prior FROM savings_debt_versions WHERE id=NEW.previous_version_id;
+          IF NEW.version_number<>prior.version_number+1 OR btrim(NEW.reason)='' OR (NEW.terms->>'as_of_on')::date < (prior.terms->>'as_of_on')::date THEN RAISE EXCEPTION 'card revision must advance without older statement overwrite'; END IF;
+        END IF;
+      ELSE
+        IF NEW.created_by_user_id<>enrollment.user_id OR NEW.base_version_id IS DISTINCT FROM card.current_version_id OR NEW.base_head_lock_version<>card.lock_version OR NEW.status<>'pending' THEN RAISE EXCEPTION 'card draft actor or head invalid'; END IF;
+      END IF;
+      IF NEW.source_tracked_account_id IS NOT NULL THEN
+        SELECT * INTO STRICT identity FROM source_account_identity_versions WHERE id=NEW.source_account_identity_version_id;
+        SELECT a.* INTO STRICT source_account FROM source_account_review_heads h JOIN financial_source_accounts a ON a.id=h.financial_source_account_id WHERE h.id=identity.source_account_review_head_id AND h.approved_version_id=identity.id;
+        SELECT * INTO STRICT approval FROM source_revision_approvals WHERE id=NEW.source_revision_approval_id;
+        IF identity.household_id<>enrollment.household_id OR identity.source_tracked_account_id<>NEW.source_tracked_account_id OR approval.household_id<>enrollment.household_id OR approval.financial_extraction_revision_id<>source_account.financial_extraction_revision_id OR NOT EXISTS (SELECT 1 FROM source_tracked_accounts WHERE id=NEW.source_tracked_account_id AND household_id=enrollment.household_id AND account_basis='liability') OR NEW.terms->>'as_of_on' IS DISTINCT FROM identity.statement_facts->>'period_end_on' OR NEW.source_snapshot->>'identity_digest' IS DISTINCT FROM identity.digest OR NEW.source_snapshot->>'revision_digest' IS DISTINCT FROM approval.digest OR NEW.source_snapshot->'statement_closing_balance_cents' IS DISTINCT FROM identity.statement_facts->'closing_balance_cents' THEN RAISE EXCEPTION 'card source mapping scope or reviewed facts invalid'; END IF;
+      END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_debt_cards_guard BEFORE INSERT OR DELETE OR UPDATE ON public.savings_debt_cards FOR EACH ROW EXECUTE FUNCTION savings_debt_scope_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_debt_drafts_guard BEFORE INSERT OR DELETE OR UPDATE ON public.savings_debt_drafts FOR EACH ROW EXECUTE FUNCTION savings_debt_scope_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_debt_versions_guard BEFORE INSERT OR DELETE OR UPDATE ON public.savings_debt_versions FOR EACH ROW EXECUTE FUNCTION savings_debt_scope_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_daily_version_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE e savings_enrollments; h RECORD; prior RECORD; data jsonb;
+    BEGIN
+      IF TG_OP <> 'INSERT' THEN RAISE EXCEPTION 'daily approved history is immutable'; END IF;
+      SELECT * INTO STRICT e FROM savings_enrollments WHERE id = NEW.savings_enrollment_id;
+      IF NEW.approved_by_user_id <> e.user_id OR e.status NOT IN ('active','completed') THEN RAISE EXCEPTION 'daily participant boundary'; END IF;
+      data := to_jsonb(NEW);
+      EXECUTE format('SELECT * FROM %I WHERE id = $1', TG_ARGV[0]) INTO STRICT h USING (data->>TG_ARGV[1])::bigint;
+      IF NEW.previous_version_id IS DISTINCT FROM h.current_version_id THEN RAISE EXCEPTION 'daily stale predecessor'; END IF;
+      IF NEW.previous_version_id IS NULL THEN
+        IF NEW.version_number <> 1 THEN RAISE EXCEPTION 'daily first version'; END IF;
+      ELSE
+        EXECUTE format('SELECT * FROM %I WHERE id = $1', TG_TABLE_NAME) INTO STRICT prior USING NEW.previous_version_id;
+        IF NEW.version_number <> prior.version_number + 1 OR char_length(trim(NEW.reason)) = 0 THEN RAISE EXCEPTION 'daily correction needs reason'; END IF;
+      END IF;
+      IF data ? 'daily_sequence' AND NOT EXISTS (SELECT 1 FROM savings_daily_ledgers l WHERE l.savings_enrollment_id = e.id AND l.sequence = (data->>'daily_sequence')::integer) THEN RAISE EXCEPTION 'daily sequence boundary'; END IF;
+      IF TG_TABLE_NAME = 'savings_daily_purchase_versions' THEN
+        IF (data->>'purchased_on')::date NOT BETWEEN e.starts_on AND LEAST(e.ends_on,(NEW.approved_at AT TIME ZONE 'UTC' AT TIME ZONE e.time_zone)::date) OR NOT EXISTS (SELECT 1 FROM household_transactions tx WHERE tx.id = (data->>'household_transaction_id')::bigint AND tx.household_id = e.household_id) THEN RAISE EXCEPTION 'daily purchase scope'; END IF;
+        IF data->>'disposition' = 'void' THEN
+          IF NEW.previous_version_id IS NULL OR to_jsonb(prior)->>'disposition' <> 'purchase' OR to_jsonb(prior)->>'link_kind' <> 'manual_new' OR
+            data->>'household_transaction_id' IS DISTINCT FROM to_jsonb(prior)->>'household_transaction_id' OR
+            NOT EXISTS (SELECT 1 FROM household_transactions tx WHERE tx.id = (data->>'household_transaction_id')::bigint AND tx.financial_source_event_id IS NULL AND tx.status = 'ignored' AND (tx.metadata->>'savings_daily_purchase_id')::bigint = h.id) THEN RAISE EXCEPTION 'daily void ownership'; END IF;
+        ELSE
+          IF NOT EXISTS (SELECT 1 FROM household_transactions tx WHERE tx.id = (data->>'household_transaction_id')::bigint AND tx.total_amount_cents = (data->>'amount_cents')::bigint AND tx.merchant = data->>'merchant' AND tx.status IN ('confirmed','reconciled')) THEN RAISE EXCEPTION 'daily canonical facts'; END IF;
+        END IF;
+      ELSIF TG_TABLE_NAME = 'savings_daily_check_in_versions' THEN
+        IF (to_jsonb(h)->>'local_on')::date NOT BETWEEN e.starts_on AND LEAST(e.ends_on,(NEW.approved_at AT TIME ZONE 'UTC' AT TIME ZONE e.time_zone)::date) THEN RAISE EXCEPTION 'daily check-in calendar'; END IF;
+        IF data->>'spending_state' = 'no_spend' AND EXISTS (SELECT 1 FROM savings_daily_purchase_versions v JOIN savings_daily_purchases p ON p.current_version_id = v.id WHERE v.savings_enrollment_id = e.id AND v.purchased_on = (to_jsonb(h)->>'local_on')::date AND v.disposition = 'purchase') THEN RAISE EXCEPTION 'daily no-spend conflicts with approved purchase'; END IF;
+      ELSIF TG_TABLE_NAME = 'savings_checkpoint_versions' THEN
+        IF data->'snapshot'->>'calculation_version' <> 'savings_checkpoint_v1' OR
+          (data->'snapshot'->>'milestone_day')::integer IS DISTINCT FROM (to_jsonb(h)->>'milestone_day')::integer OR
+          (data->'snapshot'->>'cutoff_on')::date IS DISTINCT FROM e.starts_on + (to_jsonb(h)->>'milestone_day')::integer - 1 OR
+          (data->'snapshot'->>'cutoff_on')::date > (NEW.approved_at AT TIME ZONE 'UTC' AT TIME ZONE e.time_zone)::date OR
+          data->'snapshot'->>'time_zone' IS DISTINCT FROM e.time_zone OR
+          (data->'snapshot'->>'accepted_cohort_release_id')::bigint IS DISTINCT FROM e.accepted_cohort_release_id OR
+          (data->'snapshot'->>'financial_approval_sequence')::integer IS DISTINCT FROM e.approval_sequence OR
+          (data->'snapshot'->>'daily_approval_sequence')::integer IS DISTINCT FROM COALESCE((SELECT sequence FROM savings_daily_ledgers WHERE savings_enrollment_id=e.id),0) THEN RAISE EXCEPTION 'checkpoint frozen boundary'; END IF;
+      END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_checkpoint_versions_immutable BEFORE DELETE OR UPDATE ON public.savings_checkpoint_versions FOR EACH ROW EXECUTE FUNCTION savings_daily_version_guard('savings_checkpoints', 'savings_checkpoint_id');
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_checkpoint_versions_insert BEFORE INSERT ON public.savings_checkpoint_versions FOR EACH ROW EXECUTE FUNCTION savings_daily_version_guard('savings_checkpoints', 'savings_checkpoint_id');
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_daily_check_in_versions_immutable BEFORE DELETE OR UPDATE ON public.savings_daily_check_in_versions FOR EACH ROW EXECUTE FUNCTION savings_daily_version_guard('savings_daily_check_ins', 'savings_daily_check_in_id');
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_daily_check_in_versions_insert BEFORE INSERT ON public.savings_daily_check_in_versions FOR EACH ROW EXECUTE FUNCTION savings_daily_version_guard('savings_daily_check_ins', 'savings_daily_check_in_id');
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_daily_purchase_versions_immutable BEFORE DELETE OR UPDATE ON public.savings_daily_purchase_versions FOR EACH ROW EXECUTE FUNCTION savings_daily_version_guard('savings_daily_purchases', 'savings_daily_purchase_id');
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_daily_purchase_versions_insert BEFORE INSERT ON public.savings_daily_purchase_versions FOR EACH ROW EXECUTE FUNCTION savings_daily_version_guard('savings_daily_purchases', 'savings_daily_purchase_id');
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_daily_reflection_versions_insert BEFORE INSERT ON public.savings_daily_reflection_versions FOR EACH ROW EXECUTE FUNCTION savings_daily_version_guard('savings_daily_reflections', 'savings_daily_reflection_id');
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_daily_head_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE version RECORD; data jsonb;
+    BEGIN
+      IF NEW.savings_enrollment_id IS DISTINCT FROM OLD.savings_enrollment_id THEN RAISE EXCEPTION 'daily identity is frozen'; END IF;
+      IF NEW.current_version_id IS DISTINCT FROM OLD.current_version_id THEN
+        EXECUTE format('SELECT * FROM %I WHERE id = $1', TG_ARGV[0]) INTO STRICT version USING NEW.current_version_id;
+        data := to_jsonb(version);
+        IF (data->>TG_ARGV[1])::bigint <> NEW.id OR version.previous_version_id IS DISTINCT FROM OLD.current_version_id THEN RAISE EXCEPTION 'daily head must advance'; END IF;
+      END IF;
+      IF TG_TABLE_NAME = 'savings_daily_check_ins' AND (to_jsonb(NEW)->'local_on') IS DISTINCT FROM (to_jsonb(OLD)->'local_on') THEN RAISE EXCEPTION 'daily date is frozen'; END IF;
+      IF TG_TABLE_NAME = 'savings_checkpoints' AND (to_jsonb(NEW)->'milestone_day') IS DISTINCT FROM (to_jsonb(OLD)->'milestone_day') THEN RAISE EXCEPTION 'checkpoint milestone is frozen'; END IF;
+      IF TG_TABLE_NAME = 'savings_daily_reflections' AND (to_jsonb(NEW)->'savings_daily_purchase_id') IS DISTINCT FROM (to_jsonb(OLD)->'savings_daily_purchase_id') THEN RAISE EXCEPTION 'reflection purchase is frozen'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_checkpoints_head BEFORE UPDATE ON public.savings_checkpoints FOR EACH ROW EXECUTE FUNCTION savings_daily_head_guard('savings_checkpoint_versions', 'savings_checkpoint_id');
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_daily_check_ins_head BEFORE UPDATE ON public.savings_daily_check_ins FOR EACH ROW EXECUTE FUNCTION savings_daily_head_guard('savings_daily_check_in_versions', 'savings_daily_check_in_id');
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_daily_purchases_head BEFORE UPDATE ON public.savings_daily_purchases FOR EACH ROW EXECUTE FUNCTION savings_daily_head_guard('savings_daily_purchase_versions', 'savings_daily_purchase_id');
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_daily_reflections_head BEFORE UPDATE ON public.savings_daily_reflections FOR EACH ROW EXECUTE FUNCTION savings_daily_head_guard('savings_daily_reflection_versions', 'savings_daily_reflection_id');
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_daily_reflection_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE e savings_enrollments;
+    BEGIN
+      IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'reflection audit identity is retained'; END IF;
+      SELECT * INTO STRICT e FROM savings_enrollments WHERE id = NEW.savings_enrollment_id;
+      IF OLD.erased_at IS NOT NULL AND to_jsonb(NEW) IS DISTINCT FROM to_jsonb(OLD) THEN RAISE EXCEPTION 'reflection tombstone is immutable'; END IF;
+      IF (to_jsonb(NEW) - ARRAY['feeling_then','feeling_now','reason','erased_at','erased_by_user_id','updated_at']) IS DISTINCT FROM
+         (to_jsonb(OLD) - ARRAY['feeling_then','feeling_now','reason','erased_at','erased_by_user_id','updated_at']) OR NEW.feeling_then IS NOT NULL OR NEW.feeling_now IS NOT NULL OR NEW.reason <> '' OR NEW.erased_at IS NULL OR NEW.erased_by_user_id <> e.user_id THEN RAISE EXCEPTION 'reflection permits only private-text erasure'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_daily_reflection_versions_immutable BEFORE DELETE OR UPDATE ON public.savings_daily_reflection_versions FOR EACH ROW EXECUTE FUNCTION savings_daily_reflection_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_daily_draft_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF OLD.status <> 'pending' THEN RAISE EXCEPTION 'approved daily draft is immutable'; END IF;
+      IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+      IF NEW.savings_enrollment_id IS DISTINCT FROM OLD.savings_enrollment_id OR NEW.created_by_user_id IS DISTINCT FROM OLD.created_by_user_id THEN RAISE EXCEPTION 'daily draft identity is frozen'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_checkpoint_drafts_terminal BEFORE DELETE OR UPDATE ON public.savings_checkpoint_drafts FOR EACH ROW EXECUTE FUNCTION savings_daily_draft_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_daily_purchase_drafts_terminal BEFORE DELETE OR UPDATE ON public.savings_daily_purchase_drafts FOR EACH ROW EXECUTE FUNCTION savings_daily_draft_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_prevent_mutation()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN RAISE EXCEPTION 'approved savings history is immutable' USING ERRCODE = 'integrity_constraint_violation'; END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_scope_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE enrollment savings_enrollments; prior RECORD;
+    BEGIN
+      SELECT * INTO STRICT enrollment FROM savings_enrollments WHERE id = NEW.savings_enrollment_id;
+      IF NEW.approved_by_user_id <> enrollment.user_id OR enrollment.status <> 'active' THEN
+        RAISE EXCEPTION 'savings approval participant boundary' USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+      IF NEW.approval_sequence <> enrollment.approval_sequence OR EXISTS (
+        SELECT 1 FROM savings_entry_versions WHERE savings_enrollment_id = enrollment.id AND approval_sequence = NEW.approval_sequence
+        UNION ALL SELECT 1 FROM savings_plan_versions WHERE savings_enrollment_id = enrollment.id AND approval_sequence = NEW.approval_sequence
+        UNION ALL SELECT 1 FROM savings_zero_attestations WHERE savings_enrollment_id = enrollment.id AND approval_sequence = NEW.approval_sequence
+      ) THEN RAISE EXCEPTION 'savings approval sequence must advance exclusively'; END IF;
+      IF TG_TABLE_NAME = 'savings_entry_versions' THEN
+        IF NEW.previous_version_id IS DISTINCT FROM (SELECT current_approved_version_id FROM savings_entries WHERE id = NEW.savings_entry_id) THEN
+          RAISE EXCEPTION 'savings approval must replace the current approved head';
+        END IF;
+        IF NEW.effective_on NOT BETWEEN enrollment.starts_on AND enrollment.ends_on THEN
+          RAISE EXCEPTION 'savings effective date outside challenge' USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+        IF NEW.previous_version_id IS NOT NULL THEN
+          SELECT * INTO STRICT prior FROM savings_entry_versions WHERE id = NEW.previous_version_id;
+          IF NEW.version_number <> prior.version_number + 1 THEN RAISE EXCEPTION 'savings version sequence invalid'; END IF;
+        ELSIF NEW.version_number <> 1 THEN RAISE EXCEPTION 'savings initial version invalid'; END IF;
+      ELSIF TG_TABLE_NAME = 'savings_plan_versions' THEN
+        IF NEW.previous_version_id IS DISTINCT FROM enrollment.current_accepted_plan_version_id THEN RAISE EXCEPTION 'savings plan must replace current head'; END IF;
+        IF NEW.previous_version_id IS NOT NULL THEN
+          SELECT * INTO STRICT prior FROM savings_plan_versions WHERE id = NEW.previous_version_id;
+          IF NEW.version_number <> prior.version_number + 1 THEN RAISE EXCEPTION 'savings plan sequence invalid'; END IF;
+        ELSIF NEW.version_number <> 1 THEN RAISE EXCEPTION 'savings initial plan invalid'; END IF;
+      ELSE
+        IF NEW.cutoff_on NOT BETWEEN enrollment.starts_on AND enrollment.ends_on OR EXISTS (
+          SELECT 1 FROM savings_entries e JOIN savings_entry_versions v ON v.id = e.current_approved_version_id
+          WHERE e.savings_enrollment_id = enrollment.id AND v.effective_on <= NEW.cutoff_on
+            AND v.funding_source IN ('earned_income','gift','bonus','new_money_reserved','withdrawal')
+        ) THEN RAISE EXCEPTION 'savings zero attestation conflicts with ledger' USING ERRCODE = 'integrity_constraint_violation'; END IF;
+        IF NEW.previous_attestation_id IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM savings_zero_attestations z WHERE z.id = NEW.previous_attestation_id AND z.savings_enrollment_id = enrollment.id AND z.cutoff_on = NEW.cutoff_on
+        ) THEN RAISE EXCEPTION 'savings zero attestation scope invalid'; END IF;
+      END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_identity_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'savings identity cannot be deleted'; END IF;
+      IF TG_TABLE_NAME = 'savings_enrollments' THEN
+        IF ROW(NEW.user_id,NEW.household_id,NEW.cohort_id,NEW.accepted_cohort_membership_id,NEW.membership_started_at,NEW.accepted_at,NEW.accepted_local_on,NEW.starts_on,NEW.ends_on,NEW.time_zone,NEW.policy_version,NEW.late_start_accepted)
+          IS DISTINCT FROM ROW(OLD.user_id,OLD.household_id,OLD.cohort_id,OLD.accepted_cohort_membership_id,OLD.membership_started_at,OLD.accepted_at,OLD.accepted_local_on,OLD.starts_on,OLD.ends_on,OLD.time_zone,OLD.policy_version,OLD.late_start_accepted) THEN RAISE EXCEPTION 'savings enrollment identity is frozen'; END IF;
+        IF NEW.current_accepted_plan_version_id IS DISTINCT FROM OLD.current_accepted_plan_version_id AND NOT EXISTS (
+          SELECT 1 FROM savings_plan_versions v WHERE v.id = NEW.current_accepted_plan_version_id AND v.previous_version_id IS NOT DISTINCT FROM OLD.current_accepted_plan_version_id
+        ) THEN RAISE EXCEPTION 'savings plan head must advance'; END IF;
+      ELSE
+        IF NEW.savings_enrollment_id <> OLD.savings_enrollment_id THEN RAISE EXCEPTION 'savings entry identity is frozen'; END IF;
+        IF NEW.current_approved_version_id IS DISTINCT FROM OLD.current_approved_version_id AND NOT EXISTS (
+          SELECT 1 FROM savings_entry_versions v WHERE v.id = NEW.current_approved_version_id AND v.previous_version_id IS NOT DISTINCT FROM OLD.current_approved_version_id
+        ) THEN RAISE EXCEPTION 'savings entry head must advance'; END IF;
+      END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_draft_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN IF OLD.status = 'approved' THEN RAISE EXCEPTION 'approved savings draft is terminal'; END IF; IF TG_OP = 'DELETE' THEN RETURN OLD; END IF; RETURN NEW; END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_approval_head_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE head_number integer; latest_number integer;
+    BEGIN
+      IF TG_TABLE_NAME = 'savings_entry_versions' THEN
+        SELECT v.version_number INTO head_number FROM savings_entries e JOIN savings_entry_versions v ON v.id = e.current_approved_version_id WHERE e.id = NEW.savings_entry_id;
+        SELECT MAX(version_number) INTO latest_number FROM savings_entry_versions WHERE savings_entry_id = NEW.savings_entry_id;
+      ELSE
+        SELECT v.version_number INTO head_number FROM savings_enrollments e JOIN savings_plan_versions v ON v.id = e.current_accepted_plan_version_id WHERE e.id = NEW.savings_enrollment_id;
+        SELECT MAX(version_number) INTO latest_number FROM savings_plan_versions WHERE savings_enrollment_id = NEW.savings_enrollment_id;
+      END IF;
+      IF head_number IS DISTINCT FROM latest_number THEN RAISE EXCEPTION 'approved savings version must publish its current head atomically'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_enrollment_release_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF TG_OP = 'UPDATE' AND NEW.accepted_cohort_release_id IS DISTINCT FROM OLD.accepted_cohort_release_id THEN
+        RAISE EXCEPTION 'accepted savings release is frozen';
+      END IF;
+      IF TG_OP = 'INSERT' AND (NEW.accepted_cohort_release_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM cohort_releases r WHERE r.id = NEW.accepted_cohort_release_id AND r.cohort_id = NEW.cohort_id
+          AND r.tool_registry_version >= 3
+          AND r.experience_snapshot->'config'->>'experience_mode' = 'savings_challenge'
+      )) THEN RAISE EXCEPTION 'accepted savings release must match the challenge cohort'; END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_enrollments_identity ON savings_enrollments;
+    CREATE TRIGGER savings_enrollments_identity BEFORE DELETE OR UPDATE ON public.savings_enrollments FOR EACH ROW EXECUTE FUNCTION savings_identity_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_enrollments_release ON savings_enrollments;
+    CREATE TRIGGER savings_enrollments_release BEFORE INSERT OR UPDATE ON public.savings_enrollments FOR EACH ROW EXECUTE FUNCTION savings_enrollment_release_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_entries_identity ON savings_entries;
+    CREATE TRIGGER savings_entries_identity BEFORE DELETE OR UPDATE ON public.savings_entries FOR EACH ROW EXECUTE FUNCTION savings_identity_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_entry_drafts_terminal ON savings_entry_drafts;
+    CREATE TRIGGER savings_entry_drafts_terminal BEFORE DELETE OR UPDATE ON public.savings_entry_drafts FOR EACH ROW EXECUTE FUNCTION savings_draft_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_entry_versions_evidence_sequence ON savings_entry_versions;
+    CREATE TRIGGER savings_entry_versions_evidence_sequence BEFORE INSERT ON public.savings_entry_versions FOR EACH ROW EXECUTE FUNCTION savings_evidence_sequence_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_entry_versions_immutable ON savings_entry_versions;
+    CREATE TRIGGER savings_entry_versions_immutable BEFORE DELETE OR UPDATE ON public.savings_entry_versions FOR EACH ROW EXECUTE FUNCTION savings_prevent_mutation();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_entry_versions_published ON savings_entry_versions;
+    CREATE CONSTRAINT TRIGGER savings_entry_versions_published AFTER INSERT ON public.savings_entry_versions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION savings_approval_head_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_entry_versions_scope ON savings_entry_versions;
+    CREATE TRIGGER savings_entry_versions_scope BEFORE INSERT ON public.savings_entry_versions FOR EACH ROW EXECUTE FUNCTION savings_scope_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_plan_drafts_context ON savings_plan_drafts;
+    CREATE TRIGGER savings_plan_drafts_context BEFORE INSERT OR UPDATE ON public.savings_plan_drafts FOR EACH ROW EXECUTE FUNCTION savings_plan_context_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_plan_drafts_terminal ON savings_plan_drafts;
+    CREATE TRIGGER savings_plan_drafts_terminal BEFORE DELETE OR UPDATE ON public.savings_plan_drafts FOR EACH ROW EXECUTE FUNCTION savings_draft_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_plan_versions_context ON savings_plan_versions;
+    CREATE TRIGGER savings_plan_versions_context BEFORE INSERT ON public.savings_plan_versions FOR EACH ROW EXECUTE FUNCTION savings_plan_context_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_plan_versions_evidence_sequence ON savings_plan_versions;
+    CREATE TRIGGER savings_plan_versions_evidence_sequence BEFORE INSERT ON public.savings_plan_versions FOR EACH ROW EXECUTE FUNCTION savings_evidence_sequence_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_plan_versions_immutable ON savings_plan_versions;
+    CREATE TRIGGER savings_plan_versions_immutable BEFORE DELETE OR UPDATE ON public.savings_plan_versions FOR EACH ROW EXECUTE FUNCTION savings_prevent_mutation();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_plan_versions_published ON savings_plan_versions;
+    CREATE CONSTRAINT TRIGGER savings_plan_versions_published AFTER INSERT ON public.savings_plan_versions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION savings_approval_head_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_plan_versions_scope ON savings_plan_versions;
+    CREATE TRIGGER savings_plan_versions_scope BEFORE INSERT ON public.savings_plan_versions FOR EACH ROW EXECUTE FUNCTION savings_scope_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_zero_attestations_evidence_sequence ON savings_zero_attestations;
+    CREATE TRIGGER savings_zero_attestations_evidence_sequence BEFORE INSERT ON public.savings_zero_attestations FOR EACH ROW EXECUTE FUNCTION savings_evidence_sequence_guard();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_zero_attestations_immutable ON savings_zero_attestations;
+    CREATE TRIGGER savings_zero_attestations_immutable BEFORE DELETE OR UPDATE ON public.savings_zero_attestations FOR EACH ROW EXECUTE FUNCTION savings_prevent_mutation();
+  SQL
+  execute <<~'SQL'
+    DROP TRIGGER IF EXISTS savings_zero_attestations_scope ON savings_zero_attestations;
+    CREATE TRIGGER savings_zero_attestations_scope BEFORE INSERT ON public.savings_zero_attestations FOR EACH ROW EXECUTE FUNCTION savings_scope_guard();
+  SQL
   execute <<~SQL
     CREATE OR REPLACE FUNCTION public.source_accounting_facts_immutable()
      RETURNS trigger
@@ -4152,5 +5929,119 @@ SQL
   SQL
   execute <<~'SQL'
     CREATE TRIGGER workspace_membership_events_immutable BEFORE DELETE OR UPDATE ON public.coach_workspace_membership_events FOR EACH ROW EXECUTE FUNCTION prevent_workspace_membership_event_mutation();
+  SQL
+  execute <<~SQL
+    CREATE OR REPLACE FUNCTION public.challenge_reminder_identity_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF TG_TABLE_NAME = 'challenge_reminder_preferences' THEN
+        IF TG_OP = 'UPDATE' AND NEW.channel IS DISTINCT FROM OLD.channel THEN RAISE EXCEPTION 'reminder channel is immutable'; END IF;
+      ELSE
+        IF NOT EXISTS (SELECT 1 FROM challenge_reminder_preferences p WHERE p.id = NEW.challenge_reminder_preference_id AND p.savings_enrollment_id = NEW.savings_enrollment_id AND p.channel = NEW.channel) THEN RAISE EXCEPTION 'reminder preference scope mismatch'; END IF;
+        IF TG_OP = 'UPDATE' AND (NEW.channel, NEW.local_on, NEW.delivery_key, NEW.challenge_reminder_preference_id) IS DISTINCT FROM (OLD.channel, OLD.local_on, OLD.delivery_key, OLD.challenge_reminder_preference_id) THEN RAISE EXCEPTION 'reminder delivery identity is immutable'; END IF;
+        IF TG_OP = 'UPDATE' AND OLD.status IN ('delivered','cancelled','failed','unknown') AND NEW.status IS DISTINCT FROM OLD.status THEN RAISE EXCEPTION 'terminal reminder cannot be resent'; END IF;
+        IF TG_OP = 'UPDATE' AND OLD.provider_namespace IS NOT NULL AND (NEW.provider_namespace, NEW.provider_idempotent) IS DISTINCT FROM (OLD.provider_namespace, OLD.provider_idempotent) THEN RAISE EXCEPTION 'provider delivery identity is immutable'; END IF;
+      END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_reminder_preferences_identity BEFORE INSERT OR UPDATE ON public.challenge_reminder_preferences FOR EACH ROW EXECUTE FUNCTION challenge_reminder_identity_guard();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_reminders_identity BEFORE INSERT OR UPDATE ON public.challenge_reminders FOR EACH ROW EXECUTE FUNCTION challenge_reminder_identity_guard();
+  SQL
+  execute <<~SQL
+    CREATE OR REPLACE FUNCTION public.challenge_privacy_scope_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE enrollment savings_enrollments;
+    BEGIN
+      SELECT * INTO STRICT enrollment FROM savings_enrollments WHERE id = NEW.savings_enrollment_id;
+      IF NEW.household_id <> enrollment.household_id OR NEW.participant_user_id <> enrollment.user_id THEN
+        RAISE EXCEPTION 'challenge privacy participant scope' USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+      IF TG_OP = 'UPDATE' AND (NEW.household_id, NEW.participant_user_id, NEW.savings_enrollment_id) IS DISTINCT FROM (OLD.household_id, OLD.participant_user_id, OLD.savings_enrollment_id) THEN
+        RAISE EXCEPTION 'challenge privacy identity is immutable';
+      END IF;
+      IF TG_TABLE_NAME = 'challenge_privacy_grants' AND TG_OP = 'UPDATE' THEN
+        IF (NEW.kind, NEW.recipient_user_id) IS DISTINCT FROM (OLD.kind, OLD.recipient_user_id) THEN RAISE EXCEPTION 'sharing recipient and purpose are immutable'; END IF;
+      ELSIF TG_TABLE_NAME = 'challenge_support_tickets' AND TG_OP = 'UPDATE' THEN
+        IF (NEW.recipient_user_id, NEW.issue_kind, NEW.message, NEW.selected_records) IS DISTINCT FROM (OLD.recipient_user_id, OLD.issue_kind, OLD.message, OLD.selected_records) THEN RAISE EXCEPTION 'approved support request is immutable'; END IF;
+      ELSIF TG_TABLE_NAME = 'challenge_support_accesses' THEN
+        IF NOT EXISTS (SELECT 1 FROM challenge_support_tickets t WHERE t.id = NEW.challenge_support_ticket_id AND t.savings_enrollment_id = NEW.savings_enrollment_id AND t.recipient_user_id = NEW.recipient_user_id) THEN RAISE EXCEPTION 'support ticket scope mismatch'; END IF;
+        IF TG_OP = 'UPDATE' THEN
+          IF (NEW.challenge_support_ticket_id, NEW.recipient_user_id, NEW.selected_records, NEW.reason, NEW.expires_at) IS DISTINCT FROM (OLD.challenge_support_ticket_id, OLD.recipient_user_id, OLD.selected_records, OLD.reason, OLD.expires_at) THEN RAISE EXCEPTION 'approved support scope is immutable'; END IF;
+          IF OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS DISTINCT FROM OLD.revoked_at THEN RAISE EXCEPTION 'support access cannot be revived'; END IF;
+        END IF;
+      ELSIF TG_TABLE_NAME = 'financial_source_uses' AND TG_OP = 'UPDATE' THEN
+        IF NEW.financial_document_import_id IS DISTINCT FROM OLD.financial_document_import_id AND NEW.financial_document_import_id IS NOT NULL THEN RAISE EXCEPTION 'source use identity is immutable'; END IF;
+      END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_privacy_events_scope BEFORE INSERT OR UPDATE ON public.challenge_privacy_events FOR EACH ROW EXECUTE FUNCTION challenge_privacy_scope_guard();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_privacy_grants_scope BEFORE INSERT OR UPDATE ON public.challenge_privacy_grants FOR EACH ROW EXECUTE FUNCTION challenge_privacy_scope_guard();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_privacy_reads_scope BEFORE INSERT OR UPDATE ON public.challenge_privacy_reads FOR EACH ROW EXECUTE FUNCTION challenge_privacy_scope_guard();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_reminder_events_scope BEFORE INSERT OR UPDATE ON public.challenge_reminder_events FOR EACH ROW EXECUTE FUNCTION challenge_privacy_scope_guard();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_reminder_preferences_scope BEFORE INSERT OR UPDATE ON public.challenge_reminder_preferences FOR EACH ROW EXECUTE FUNCTION challenge_privacy_scope_guard();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_reminders_scope BEFORE INSERT OR UPDATE ON public.challenge_reminders FOR EACH ROW EXECUTE FUNCTION challenge_privacy_scope_guard();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_support_accesses_scope BEFORE INSERT OR UPDATE ON public.challenge_support_accesses FOR EACH ROW EXECUTE FUNCTION challenge_privacy_scope_guard();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER challenge_support_tickets_scope BEFORE INSERT OR UPDATE ON public.challenge_support_tickets FOR EACH ROW EXECUTE FUNCTION challenge_privacy_scope_guard();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER financial_source_uses_scope BEFORE INSERT OR UPDATE ON public.financial_source_uses FOR EACH ROW EXECUTE FUNCTION challenge_privacy_scope_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.challenge_chat_scope_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE session_cohort bigint;
+    BEGIN
+      IF TG_TABLE_NAME = 'chat_sessions' THEN
+        IF NEW.household_id IS DISTINCT FROM OLD.household_id OR NEW.user_id IS DISTINCT FROM OLD.user_id
+          OR NEW.cohort_id IS DISTINCT FROM OLD.cohort_id THEN
+          RAISE EXCEPTION 'conversation actor and program are immutable';
+        END IF;
+      ELSE
+        IF TG_OP = 'UPDATE' AND NEW.chat_session_id IS DISTINCT FROM OLD.chat_session_id THEN
+          RAISE EXCEPTION 'message conversation is immutable';
+        END IF;
+        SELECT cohort_id INTO session_cohort FROM chat_sessions WHERE id = NEW.chat_session_id;
+        IF TG_OP = 'UPDATE' AND session_cohort IS NOT NULL AND (
+          NEW.cohort_id IS DISTINCT FROM OLD.cohort_id OR NEW.cohort_release_id IS DISTINCT FROM OLD.cohort_release_id
+        ) THEN RAISE EXCEPTION 'challenge message release attribution is immutable'; END IF;
+        IF session_cohort IS NOT NULL AND (NEW.cohort_id IS DISTINCT FROM session_cohort OR NOT EXISTS (
+          SELECT 1 FROM cohort_releases r WHERE r.id = NEW.cohort_release_id AND r.cohort_id = session_cohort
+            AND r.tool_registry_version >= 3 AND r.experience_snapshot->'config'->>'experience_mode' = 'savings_challenge'
+        )) THEN RAISE EXCEPTION 'message must match its sealed challenge conversation'; END IF;
+      END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER chat_messages_scope BEFORE INSERT OR UPDATE ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION challenge_chat_scope_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER chat_sessions_scope BEFORE UPDATE ON public.chat_sessions FOR EACH ROW EXECUTE FUNCTION challenge_chat_scope_guard();
   SQL
 end

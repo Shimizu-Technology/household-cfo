@@ -50,7 +50,9 @@ class FinancialDocumentImport < ApplicationRecord
   end
 
   def source_available?
-    s3_key.present? && source_deleted_at.blank?
+    return false unless s3_key.present? && source_deleted_at.blank?
+    uses = FinancialSourceUse.where(financial_document_import_id: id)
+    !uses.exists? || uses.where(revoked_at: nil).where("expires_at > ?", Time.current).exists?
   end
 
   def terminal_without_source?

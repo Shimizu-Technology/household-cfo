@@ -6,7 +6,7 @@ module Api
         before_action :require_admin!
 
         def index
-          items = PlaidItem.connected.includes(:plaid_accounts, :household, :connected_by_user).order(created_at: :desc)
+          items = ChallengePrivacy::PrivateFinanceAccess.without_pilot_households(PlaidItem.connected).includes(:plaid_accounts, :household, :connected_by_user).order(created_at: :desc)
           rows = items.map { |item| serialize_item(item) }
 
           render json: {
