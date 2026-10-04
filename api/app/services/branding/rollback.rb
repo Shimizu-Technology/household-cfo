@@ -21,8 +21,7 @@ module Branding
         draft_revision: Integer(expected_draft_revision, exception: false)
       }))
 
-      configuration.with_lock do
-        ensure_publish_permission!
+      with_authority do
         replay = replay_for(idempotency_key, fingerprint)
         return replay if replay
 
@@ -57,18 +56,23 @@ module Branding
         restored
       end
     rescue ActiveRecord::RecordNotUnique
-      configuration.reload
-      replay_for(idempotency_key, fingerprint) || raise
+      with_authority do
+        replay_for(idempotency_key, fingerprint) || raise
+      end
     end
 
     private
 
     attr_reader :configuration, :target_version, :actor
 
-    def ensure_publish_permission!
-      return if Policy.new(actor, workspace: configuration.coach_workspace).publish?
-
-      raise RollbackError, "Only a workspace owner or reviewer can restore branding"
+    def with_authority
+      CoachWorkspaces::MutationAuthority.new(workspace: configuration.coach_workspace, actor: actor, permissions: :publish).call do |persisted_actor|
+        @actor = persisted_actor
+        configuration.lock!
+        yield
+      end
+    rescue ActiveRecord::RecordNotFound
+      raise RollbackError, "Your access changed; reload before restoring branding"
     end
 
     def normalized_id(value)

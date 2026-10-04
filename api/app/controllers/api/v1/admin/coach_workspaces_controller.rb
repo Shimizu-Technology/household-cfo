@@ -25,10 +25,11 @@ module Api
             attributes[:name].to_s.squish,
             profile_attributes(attributes).sort.to_h
           ]))
-          existing = replay_created(key, fingerprint)
-          return render json: { coach_workspace: detail(existing) } if existing
+          current_user.with_lock do
+            validate_creation_authority!
+            existing = replay_created(key, fingerprint)
+            return render json: { coach_workspace: detail(existing) } if existing
 
-          created = CoachWorkspace.transaction do
             record = CoachWorkspace.create!(
               name: attributes[:name],
               slug: "program-#{SecureRandom.uuid}",
@@ -39,27 +40,27 @@ module Api
             record.coach_workspace_memberships.create!(user: current_user, role: "owner")
             record.create_coach_profile!(profile_attributes(attributes).merge(last_edited_by_user: current_user))
             Branding::Provisioner.ensure_for!(workspace: record, actor: current_user)
-            record
+            render json: { coach_workspace: detail(record) }, status: :created
           end
-          render json: { coach_workspace: detail(created) }, status: :created
         rescue ActiveRecord::RecordNotUnique
-          existing = replay_created(key, fingerprint)
-          raise unless existing
+          current_user.with_lock do
+            validate_creation_authority!
+            existing = replay_created(key, fingerprint)
+            raise unless existing
 
-          render json: { coach_workspace: detail(existing) }
+            render json: { coach_workspace: detail(existing) }
+          end
         end
 
         def update
           record = workspace
-          return render_not_found unless can_manage?(record)
-
           attributes = settings_params
-          record.with_lock do
+          CoachWorkspaces::MutationAuthority.new(workspace: record, actor: current_user, permissions: :manage_members).call do |actor|
             return render_conflict unless Integer(attributes[:revision], exception: false) == record.lock_version
 
             record.update!(name: attributes[:name])
             profile = record.coach_profile || record.build_coach_profile
-            profile.update!(profile_attributes(attributes).merge(last_edited_by_user: current_user))
+            profile.update!(profile_attributes(attributes).merge(last_edited_by_user: actor))
             # Profile and workspace identity share one revision and transaction.
             record.touch
           end
@@ -67,6 +68,10 @@ module Api
         end
 
         private
+
+        def validate_creation_authority!
+          raise ActiveRecord::RecordNotFound unless current_user.admin? && current_user.invitation_accepted? && !current_user.revoked?
+        end
 
         def render_creation_conflict(*)
           render json: { error: "This creation request was already used for different program settings.", code: "coach_workspace_creation_conflict" }, status: :conflict

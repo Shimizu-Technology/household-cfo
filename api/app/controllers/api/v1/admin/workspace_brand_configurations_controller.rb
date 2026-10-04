@@ -20,11 +20,11 @@ module Api
           authorize!(:edit)
           next_config = submitted_config
           next_revision = expected_draft_revision
-          workspace.with_lock do
+          CoachWorkspaces::MutationAuthority.new(workspace: workspace, actor: current_user, permissions: :edit).call do |actor|
             configuration.lock!
             return render_conflict unless next_revision == configuration.draft_revision
 
-            configuration.update!(draft_config: next_config, last_edited_by_user: current_user)
+            configuration.update!(draft_config: next_config, last_edited_by_user: actor)
           end
           render_configuration
         rescue ActiveRecord::StaleObjectError

@@ -27,9 +27,8 @@ module CoachWorkspaces
         raise Invalid, "Enter a valid collaborator email address."
       end
 
-      with_authorized_workspace do
-        user = User.find_by(email: normalized_email)
-        user&.lock!
+      with_authorized_workspace(subject_ids: -> { User.where(email: normalized_email).pluck(:id) }) do |users|
+        user = users.values.find { |account| account.email == normalized_email }
         raise Invalid, "This account cannot be added as a collaborator. Ask a platform administrator for help." if user && (!user.staff? || user.revoked?)
         new_user = user.nil?
         user ||= User.create!(email: normalized_email, clerk_id: "pending_#{SecureRandom.uuid}", role: "coach",
@@ -53,9 +52,9 @@ module CoachWorkspaces
 
     def change(id:, role:, expected_role:)
       validate_role!(role)
-      with_authorized_workspace do
+      with_authorized_workspace(subject_ids: -> { [ workspace.coach_workspace_memberships.find(id).user_id ] }) do |users|
         membership = workspace.coach_workspace_memberships.lock.find(id)
-        membership.user.lock!
+        membership.user = users.fetch(membership.user_id)
         validate_current_role!(membership, expected_role)
         protect_access!(membership, next_role: role)
         before_role = membership.role
@@ -66,15 +65,18 @@ module CoachWorkspaces
     end
 
     def remove(id:, expected_role:)
-      with_authorized_workspace do
+      with_authorized_workspace(subject_ids: -> { [ workspace.coach_workspace_memberships.find(id).user_id ] }) do |users|
         membership = workspace.coach_workspace_memberships.lock.find(id)
-        membership.user.lock!
+        membership.user = users.fetch(membership.user_id)
         validate_current_role!(membership, expected_role)
         protect_access!(membership, next_role: nil)
         user = membership.user
         # Reconciliation must not recreate editor access from a coached cohort.
         membership.update!(cohort_managed: false)
-        CohortMembership.joins(:cohort).where(user: user, role: %w[coach admin], cohorts: { coach_workspace_id: workspace.id }).find_each(&:destroy!)
+        # Explicit workspace removal already supplies reconciliation. Calling
+        # destroy callbacks here would acquire advisory locks after membership
+        # locks, opposite the cohort reconciliation lock order.
+        CohortMembership.joins(:cohort).where(user: user, role: %w[coach admin], cohorts: { coach_workspace_id: workspace.id }).delete_all
         before_role = membership.role
         membership.destroy!
         record_event!(user, "removed", before_role: before_role)
@@ -101,10 +103,10 @@ module CoachWorkspaces
 
     attr_reader :workspace, :actor
 
-    def with_authorized_workspace
-      workspace.with_lock do
-        authorize!
-        yield
+    def with_authorized_workspace(subject_ids: nil)
+      MutationAuthority.new(workspace: workspace, actor: actor, permissions: :manage_members, subject_ids: subject_ids).call do |persisted_actor, users|
+        @actor = persisted_actor
+        yield users
       end
     end
 

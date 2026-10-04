@@ -84,6 +84,64 @@ class ApiV1AdminCoachWorkspacesControllerTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
   end
 
+  test "owner demotion between settings authorization and lock denies the whole save" do
+    owner = user("coach")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    original_name = workspace.name
+    original = CoachWorkspace.instance_method(:with_lock)
+    demoted = false
+    CoachWorkspace.define_method(:with_lock) do |*args, &block|
+      unless demoted || id != workspace.id
+        demoted = true
+        CoachWorkspaceMembership.find_by!(coach_workspace_id: id, user_id: owner.id).update!(role: "viewer")
+      end
+      original.bind_call(self, *args, &block)
+    end
+    patch endpoint(workspace), params: settings("Unauthorized change", revision: workspace.lock_version), headers: headers(owner), as: :json
+    assert_response :not_found
+    assert_equal original_name, workspace.reload.name
+    assert_equal "your coach", workspace.coach_profile.reload.display_name
+  ensure
+    CoachWorkspace.define_method(:with_lock, original) if original
+  end
+
+  test "admin revocation while settings save waits denies rename and profile changes" do
+    admin = user("admin")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(admin)
+    original_name = workspace.name
+    original = CoachWorkspace.instance_method(:with_lock)
+    revoked = false
+    CoachWorkspace.define_method(:with_lock) do |*args, &block|
+      unless revoked || id != workspace.id
+        revoked = true
+        User.find(admin.id).update!(invitation_status: "revoked")
+      end
+      original.bind_call(self, *args, &block)
+    end
+    patch endpoint(workspace), params: settings("Unauthorized admin rename", revision: workspace.lock_version), headers: headers(admin), as: :json
+    assert_response :not_found
+    assert_equal original_name, workspace.reload.name
+    assert_equal "your coach", workspace.coach_profile.reload.display_name
+  ensure
+    CoachWorkspace.define_method(:with_lock, original) if original
+  end
+
+  test "admin revocation after initial creation check denies creating a program" do
+    admin = user("admin")
+    controller = Api::V1::Admin::CoachWorkspacesController
+    original = controller.instance_method(:require_admin!)
+    controller.define_method(:require_admin!) do
+      original.bind_call(self)
+      User.find(current_user.id).update!(invitation_status: "revoked")
+    end
+    assert_no_difference [ "CoachWorkspace.count", "CoachProfile.count", "WorkspaceBrandVersion.count" ] do
+      post "/api/v1/admin/coach_workspaces", params: settings("Denied creation"), headers: headers(admin), as: :json
+      assert_response :not_found
+    end
+  ensure
+    controller&.send(:remove_method, :require_admin!)
+  end
+
   private
 
   def user(role)
