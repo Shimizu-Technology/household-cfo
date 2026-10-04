@@ -42,22 +42,28 @@ module HouseholdFinance
       debts = approved_debts + scenario_only_debts
       return missing_debts_answer if debts.empty?
 
-      avalanche = debts.select { |debt| debt_value(debt, :interest_rate_percent).present? }
-        .max_by { |debt| [ debt_value(debt, :interest_rate_percent).to_d, debt_value(debt, :balance_cents).to_i ] }
-      snowball = debts.select { |debt| debt_value_known?(debt, :balance) && debt_value(debt, :balance_cents).to_i.positive? }
-        .min_by { |debt| [ debt_value(debt, :balance_cents).to_i, -debt_value(debt, :interest_rate_percent).to_d ] }
+      balances_known = debts.all? { |debt| debt_value_known?(debt, :balance) }
+      outstanding_debts = debts.select { |debt| debt_value_known?(debt, :balance) && debt_value(debt, :balance_cents).to_i.positive? }
+      avalanche = if balances_known && outstanding_debts.all? { |debt| debt_value(debt, :interest_rate_percent).present? }
+        outstanding_debts.max_by { |debt| [ debt_value(debt, :interest_rate_percent).to_d, debt_value(debt, :balance_cents).to_i ] }
+      end
+      snowball = if balances_known
+        outstanding_debts.min_by { |debt| [ debt_value(debt, :balance_cents).to_i, -debt_value(debt, :interest_rate_percent).to_d ] }
+      end
       minimums = debts.select { |debt| debt_value_known?(debt, :minimum_payment) }.sum { |debt| debt_value(debt, :minimum_payment_cents).to_i }
       snapshot = SnapshotBuilder.new(household, ensure_plan: ensure_plan).call
       temporary_drop = temporary_income_drop_cents
       scenario_minimums = scenario_only_debts.sum { |debt| debt_value(debt, :minimum_payment_cents).to_i }
       adjusted_surplus = snapshot.fetch(:baseline_surplus_cents) - temporary_drop - scenario_minimums
       extra_amount = decision_amount_cents
-      cash_flow_known = portfolio.minimum_payment_known?
+      cash_flow_known = portfolio.minimum_payment_known? && debts.all? { |debt| debt_value_known?(debt, :minimum_payment) }
 
       lines = []
       lines << source_line(approved_debts, scenario_debts, scenario_only_debts, debts)
       lines << "Avalanche: #{strategy_target(avalanche, include_apr: true)}" if avalanche
-      lines << "Avalanche needs each APR before I can rank the debts honestly." unless avalanche
+      lines << "At least one balance is not entered. Confirm every balance before I rank avalanche or snowball or recommend extra principal; a missing balance is not $0." unless balances_known
+      lines << "Avalanche needs each outstanding debt's APR before I can rank the debts honestly." if balances_known && outstanding_debts.any? && !avalanche
+      lines << "All listed balances are confirmed at $0; there is no outstanding target for extra principal. Verify current statements before treating a debt as settled." if balances_known && outstanding_debts.empty?
       lines << "Snowball: #{strategy_target(snowball, include_apr: false)}" if snowball
       minimum_label = debts.length == 2 ? "Keep both minimums current first" : "Keep every required minimum current first"
       lines << "#{minimum_label} (#{money(minimums)} total across the debts listed)."
@@ -70,9 +76,9 @@ module HouseholdFinance
         end
       end
       lines << "The household's canonical monthly debt minimum is not fully entered, so I cannot calculate available extra principal from cash flow yet." unless cash_flow_known
-      lines << extra_money_line(extra_amount, avalanche, snowball, snapshot) if extra_amount.positive? && cash_flow_known
-      lines << numbered_plan(avalanche, snowball, adjusted_surplus, cash_flow_known: cash_flow_known)
-      lines << missing_apr_line(debts)
+      lines << extra_money_line(extra_amount, avalanche, snowball, snapshot) if extra_amount.positive? && cash_flow_known && (avalanche || snowball)
+      lines << numbered_plan(avalanche, snowball, adjusted_surplus, cash_flow_known: cash_flow_known, balances_known: balances_known)
+      lines << missing_apr_line(outstanding_debts)
       lines.compact_blank.join(" ")
     end
 
@@ -106,17 +112,27 @@ module HouseholdFinance
       "#{details.join(', ')}."
     end
 
-    def numbered_plan(avalanche, snowball, adjusted_surplus, cash_flow_known:)
+    def numbered_plan(avalanche, snowball, adjusted_surplus, cash_flow_known:, balances_known:)
       target = avalanche || snowball
       extra = [ adjusted_surplus, 0 ].max
       target_line = target ? "#{debt_label(target)}" : "the selected target debt"
       unless cash_flow_known
         return "1. Enter every required monthly minimum. 2. Protect essential bills and emergency runway. 3. After the baseline is complete, choose avalanche or snowball and set an extra payment that fits the verified surplus. No payment is made automatically."
       end
+      unless target
+        return "1. Protect essential bills. 2. Keep emergency runway and near-term expenses funded. 3. No extra principal is needed for the currently recorded $0 balances; verify statements before changing required payments. No payment is made automatically." if balances_known
+
+        return "1. Protect essential bills and every required minimum. 2. Verify current debt balances and APRs. 3. Choose a confirmed outstanding target before scheduling extra principal. No payment is made automatically."
+      end
       if extra.positive?
-        "1. Protect essential bills and every debt minimum. 2. Hold emergency runway and known near-term expenses aside. 3. Send a fixed amount of up to #{money(extra)} from the current monthly surplus to #{target_line}; choose avalanche for lower interest cost or snowball for the fastest closed balance. No payment is made automatically."
+        remaining_after_minimum = [ debt_value(target, :balance_cents).to_i - debt_value(target, :minimum_payment_cents).to_i, 0 ].max
+        extra = [ extra, remaining_after_minimum ].min
+        return "1. Protect essential bills and every debt minimum. 2. Verify the latest amount due on #{target_line}. 3. Its recorded minimum already covers its recorded balance, so do not add extra principal to it from this model. No payment is made automatically." if extra.zero?
+
+        strategy = avalanche ? "choose avalanche for lower interest cost or snowball for the fastest closed balance" : "this is a snowball target; confirm missing APRs before choosing avalanche"
+        "1. Protect essential bills and every debt minimum. 2. Hold emergency runway and known near-term expenses aside. 3. Send a fixed amount of up to #{money(extra)} from the current monthly surplus to #{target_line}; #{strategy}. This cap allows for its recorded minimum; verify the current statement or payoff amount because interest and new charges can change it. No payment is made automatically."
       else
-        "1. Protect essential bills and every debt minimum. 2. Hold emergency runway and pause new card spending. 3. Do not schedule extra principal while the adjusted baseline is negative; contact issuers before a due date if a minimum is at risk, then restart with #{target_line} when cash flow recovers. No payment is made automatically."
+        "1. Protect essential bills and every debt minimum. 2. Hold emergency runway and pause new card spending. 3. Do not schedule extra principal while the adjusted baseline is not positive; contact issuers before a due date if a minimum is at risk, then restart with #{target_line} when cash flow recovers. No payment is made automatically."
       end
     end
 

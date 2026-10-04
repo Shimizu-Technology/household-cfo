@@ -33,6 +33,95 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
     assert_includes answer, "Keep both minimums current"
   end
 
+  test "never targets a paid-off high APR debt" do
+    @household.debts.find_by!(label: "Card A").update!(balance_cents: 0)
+
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "Compare avalanche and snowball.").call
+
+    assert_includes answer, "Avalanche: Card B first"
+    assert_includes answer, "Snowball: Card B first"
+    refute_includes answer, "Card A first"
+    refute_match(/surplus to Card A/, answer)
+  end
+
+  test "caps extra principal after the target minimum without promising payoff" do
+    @household.debts.find_by!(label: "Card A").update!(balance_cents: 10_000, minimum_payment_cents: 2_500)
+
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.").call
+
+    assert_includes answer, "up to $75 from the current monthly surplus to Card A"
+    assert_includes answer, "verify the current statement or payoff amount"
+    refute_match(/paid off (?:in|by)/i, answer)
+  end
+
+  test "does not add principal when the recorded minimum covers the target balance" do
+    @household.debts.find_by!(label: "Card A").update!(balance_cents: 2_500, minimum_payment_cents: 2_500)
+
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.").call
+
+    assert_includes answer, "minimum already covers its recorded balance"
+    refute_includes answer, "3. Send"
+  end
+
+  test "unknown balances block rankings and numeric principal recommendations" do
+    @household.debts.find_by!(label: "Card A").update!(balance_cents: 0, balance_known: false)
+
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "Compare avalanche and snowball. I got a $2,000 bonus.").call
+
+    assert_includes answer, "a missing balance is not $0"
+    refute_includes answer, "Avalanche:"
+    refute_includes answer, "Snowball:"
+    refute_includes answer, "3. Send"
+    refute_includes answer, "After that guardrail"
+  end
+
+  test "missing APR prevents definitive avalanche ranking but allows known balance snowball" do
+    @household.debts.find_by!(label: "Card B").update!(interest_rate_percent: nil)
+
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "Compare avalanche and snowball.").call
+
+    refute_includes answer, "Avalanche: Card A first"
+    assert_includes answer, "Avalanche needs each outstanding debt's APR"
+    assert_includes answer, "Snowball: Card B first"
+    assert_includes answer, "this is a snowball target; confirm missing APRs"
+  end
+
+  test "coach debt versus savings guidance does not display incomplete debt as a known total" do
+    @household.debts.find_by!(label: "Card A").update!(balance_cents: 0, balance_known: false)
+
+    [ "Compare avalanche and snowball.", "Should I put extra money toward debt or savings?" ].each do |message|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(@household, message, ensure_plan: false).call
+
+      assert_includes answer, "missing debt balance as $0"
+      refute_includes answer, "Avalanche:"
+      refute_includes answer, "debt entered is"
+      refute_includes answer, "3. Send"
+    end
+    assert_equal 0, @household.budget_years.count
+  end
+
+  test "zero APR is a known rate and paid-off missing APR does not block the outstanding ranking" do
+    @household.debts.find_by!(label: "Card A").update!(balance_cents: 0, interest_rate_percent: nil)
+    @household.debts.find_by!(label: "Card B").update!(interest_rate_percent: 0)
+
+    answer = HouseholdFinance::DebtStrategyPlanner.new(@household, "Compare avalanche and snowball.").call
+
+    assert_includes answer, "Avalanche: Card B first"
+    assert_includes answer, "0% APR"
+    refute_includes answer, "APR is still missing"
+  end
+
+  test "confirmed zero portfolio has no outstanding target or extra payment instruction" do
+    @household.debts.each { |debt| debt.update!(balance_cents: 0, minimum_payment_cents: 0) }
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(@household, "Compare avalanche and snowball.").call
+
+    assert_includes answer, "All listed balances are confirmed at $0"
+    refute_includes answer, "Avalanche:"
+    refute_includes answer, "Snowball:"
+    refute_includes answer, "3. Send"
+  end
+
   test "read-only coaching answers accurately without materializing a cold budget plan" do
     assert_equal 0, @household.budget_years.count
     assert_equal 0, BudgetPeriod.joins(:budget_year).where(budget_years: { household_id: @household.id }).count

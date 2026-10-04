@@ -92,7 +92,7 @@ module HouseholdFinance
     end
 
     def guardrail_answer
-      capability_answer || investment_boundary_answer || incomplete_setup_answer || incomplete_debt_minimums_answer || incomplete_liquid_balances_answer
+      capability_answer || investment_boundary_answer || incomplete_setup_answer || incomplete_debt_minimums_answer || incomplete_debt_balances_answer || incomplete_liquid_balances_answer
     end
 
     private
@@ -139,6 +139,14 @@ module HouseholdFinance
         "From approved records, monthly income is #{money(snapshot.fetch(:monthly_income_cents))}, planned fixed essentials are #{money(snapshot.fetch(:stack_totals_cents).fetch('non_discretionary'))}, planned flexible spending is #{money(snapshot.fetch(:stack_totals_cents).fetch('discretionary'))}, and monthly debt minimums are #{money(snapshot.fetch(:debt_payments_cents))}. "
       end
       "#{overview}I cannot give a readiness, safe-to-spend, purchase, payoff, or runway verdict yet because the liquid account picture is incomplete. I will not treat a missing balance as $0. Next step: add at least one checking, savings, or emergency-fund account and enter every active liquid balance. No financial decision was made and no numbers changed."
+    end
+
+    def incomplete_debt_balances_answer
+      return unless setup_status.complete? && setup_dependent_coaching_request?
+      return unless normalized_message.match?(DEBT_TERM_PATTERN) || DebtStrategyPlanner.question?(message)
+      return if DebtPortfolio.new(household).balance_known?
+
+      "I cannot rank debts, give a payoff verdict, or recommend extra principal yet because the debt balance picture is incomplete. I will not treat a missing debt balance as $0. Next step: confirm every active debt balance under My Profile, or confirm a $0 household summary if there is no debt. Keep required minimums and essentials protected. No financial decision was made and no numbers changed."
     end
 
     def setup_dependent_coaching_request?
