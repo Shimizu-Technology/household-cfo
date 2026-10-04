@@ -40,6 +40,8 @@ async function openSection(page: Page, name: string) {
 }
 
 async function completePersonaReleaseChecks(page: Page) {
+  // A late font swap can move the mobile click target after scrolling it into view.
+  await page.evaluate(() => document.fonts.ready)
   await page.getByRole('button', { name: /Run checks for this draft|Run checks again/ }).click()
   await expect(page.getByRole('region', { name: 'Release check results' })).toContainText('All release checks passed')
   const phraseApprovalButtons = page.getByRole('button', { name: 'Approve for this audience' })
@@ -3576,6 +3578,8 @@ test('participant links preserve browser history, heading focus, and section scr
   const budgetHeading = page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })
   await expect(budgetHeading).toBeFocused()
 
+  // Measure after font layout settles; the app restores the scroll at departure.
+  await page.evaluate(() => document.fonts.ready)
   await page.evaluate(() => window.scrollTo(0, Math.min(900, document.documentElement.scrollHeight - window.innerHeight)))
   const budgetScrollTop = await page.evaluate(() => Math.round(window.scrollY))
   expect(budgetScrollTop).toBeGreaterThan(0)
