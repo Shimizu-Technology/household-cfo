@@ -109,7 +109,7 @@ module Api
           movement_legs: SourceReviewVersion.where(household: current_household, id: proof.fetch("bindings").map { |binding| binding.fetch("source_review_version_id") })
             .includes(source_account_identity_version: :source_tracked_account, source_review_head: { financial_source_event: { financial_extraction_revision: :financial_document_import } }).order(:id).map { |leg| movement_leg(leg) },
           movement_capacity_cents: proof.fetch("capacity_cents"), available_cents: [ available, entry.signed_cents ].min,
-          document_import_id: document.id, filename: document.filename, source_available: document.source_available? }
+          document_import_id: document&.id, filename: document&.filename, source_available: document&.source_available? == true }
       rescue ArgumentError, ActiveRecord::RecordNotFound
         nil
       end
@@ -117,7 +117,7 @@ module Api
       def movement_leg(version)
         document = version.financial_source_event.financial_extraction_revision.financial_document_import
         { merchant: version.merchant, posted_on: version.posted_on, signed_amount_cents: version.signed_amount_cents,
-          account_label: version.source_tracked_account.label, filename: document.filename, source_available: document.source_available? }
+          account_label: version.source_tracked_account.label, filename: document&.filename, source_available: document&.source_available? == true }
       end
 
       def cursor = params[:cursor].present? ? SavingsChallenge::Inputs.id!(params[:cursor]) : 0

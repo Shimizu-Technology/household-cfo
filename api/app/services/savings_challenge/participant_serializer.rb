@@ -36,7 +36,7 @@ module SavingsChallenge
           .includes(source_account_identity_version: :source_tracked_account, source_review_head: { financial_source_event: { financial_extraction_revision: :financial_document_import } }).order(:id).map do |version|
           document = version.financial_source_event.financial_extraction_revision.financial_document_import
           { "merchant" => version.merchant, "posted_on" => version.posted_on, "account_label" => version.source_tracked_account.label,
-            "filename" => document.filename, "source_available" => document.source_available?,
+            "filename" => document&.filename, "source_available" => document&.source_available? == true,
             "movement_kind" => proof["group_version_id"] ? "reviewed_asset_transfer" : "reviewed_income", "amount_cents" => proof["amount_cents"] }
         end
       end

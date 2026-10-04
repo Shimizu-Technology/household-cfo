@@ -121,6 +121,61 @@ class ApiV1SavingsEvidenceControllerTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
   end
 
+  test "full import deletion preserves approved evidence history and original-key recovery without a source display" do
+    key = "retained-evidence-#{SecureRandom.uuid}"
+    input = evidence_input(@entry, [ evidence_proof(@source, amount: 10_000) ])
+    post "#{path}/actions/attach", params: input, headers: headers(key: key), as: :json
+    assert_response :success
+    evidence = SavingsEvidenceVersion.find(response.parsed_body.dig("record", "id"))
+    frozen_facts = evidence.attributes
+    frozen_source = @source.attributes
+    capacity_ids = evidence.savings_evidence_capacities.pluck(:id)
+    revision = @source.financial_source_event.financial_extraction_revision
+    @document.destroy!
+    assert_nil revision.reload.financial_document_import_id
+
+    get path, params: { entry_version_id: @entry.id }, headers: headers
+    assert_response :success
+    assert_equal 10_000, response.parsed_body.dig("entry", "evidence_supported_cents")
+    [ response.parsed_body.fetch("current_version"), response.parsed_body.fetch("records").sole ].each do |record|
+      assert_retained_proof_display(record)
+    end
+    get "#{path}/request_status", params: { review_action: "attach", entry_version_id: @entry.id }, headers: headers(key: key)
+    assert_response :success
+    assert_equal "committed", response.parsed_body.fetch("state")
+    assert_retained_proof_display(response.parsed_body.fetch("record"))
+    post "#{path}/actions/attach", params: input, headers: headers(key: key), as: :json
+    assert_response :success
+    assert response.parsed_body.fetch("replayed")
+    assert_retained_proof_display(response.parsed_body.fetch("record"))
+    assert_equal frozen_facts, evidence.reload.attributes
+    assert_equal frozen_source, @source.reload.attributes
+    assert_equal capacity_ids, evidence.savings_evidence_capacities.pluck(:id)
+    assert_equal 20_000, savings_projection[:reported_cents]
+    assert_equal 10_000, savings_projection[:evidence_supported_cents]
+    assert_equal 0, @entry.reload.evidence_supported_cents
+  end
+
+  test "retained approved income remains a qualified candidate and can be reviewed after full import deletion" do
+    @document.destroy!
+    get "#{path}/candidates", params: { entry_version_id: @entry.id }, headers: headers
+    assert_response :success
+    candidate = response.parsed_body.fetch("records").sole
+    assert_equal @source.id, candidate.fetch("source_review_version_id")
+    assert_nil candidate.fetch("document_import_id")
+    assert_nil candidate.fetch("filename")
+    assert_equal false, candidate.fetch("source_available")
+    leg = candidate.fetch("movement_legs").sole
+    assert_nil leg.fetch("filename")
+    assert_equal false, leg.fetch("source_available")
+    assert_equal @source.merchant, leg.fetch("merchant")
+    post "#{path}/actions/attach", params: evidence_input(@entry, [ evidence_proof(@source, amount: 5_000) ]), headers: headers, as: :json
+    assert_response :success
+    assert_retained_proof_display(response.parsed_body.fetch("record"), amount: 5_000)
+    assert_equal 20_000, savings_projection[:reported_cents]
+    assert_equal 5_000, savings_projection[:evidence_supported_cents]
+  end
+
   test "paging keeps later valid movements reachable when ungrouped transfers fill the first page" do
     with_evidence_operations do
       50.times { evidence_source(1000, type: "transfer") }
@@ -139,6 +194,15 @@ class ApiV1SavingsEvidenceControllerTest < ActionDispatch::IntegrationTest
   end
 
   private
+  def assert_retained_proof_display(record, amount: 10_000)
+    display = record.fetch("proof_display").sole
+    assert_nil display.fetch("filename")
+    assert_equal false, display.fetch("source_available")
+    assert_equal @source.merchant, display.fetch("merchant")
+    assert_equal amount, display.fetch("amount_cents")
+    assert_equal @source.source_tracked_account.label, display.fetch("account_label")
+  end
+
   def path = "/api/v1/savings_challenge/evidence"
   def headers(user: @savings_user, key: SecureRandom.uuid)
     { "Authorization" => "Bearer test_token_#{user.id}", "X-Cohort-Id" => @savings_cohort.id.to_s, "Idempotency-Key" => key }
