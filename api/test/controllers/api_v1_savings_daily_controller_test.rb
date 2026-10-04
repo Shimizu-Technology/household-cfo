@@ -210,7 +210,78 @@ class ApiV1SavingsDailyControllerTest < ActionDispatch::IntegrationTest
     assert_equal({ user_id: @savings_user.id, household_id: @savings_household.id }, context.fetch(:actor_scope))
   end
 
+  test "same participant cannot recover another enrollment's daily request under the selected program envelope" do
+    with_daily_operations do
+      savings_enroll
+      original_cohort = @savings_cohort
+      original_enrollment = @savings_enrollment
+      @daily_category = @savings_household.budget_categories.create!(name: "Food", stack_key: "discretionary")
+      daily_post("purchase_stage", purchase_input, "original-daily-purchase")
+      assert_response :success
+      draft_id = response.parsed_body.dig("record", "id")
+      enroll_second_daily_program
+      refute_equal original_enrollment.id, @savings_enrollment.id
+      get "#{daily_path}/request_status", params: { review_action: "purchase_stage" }, headers: auth_headers("original-daily-purchase")
+      assert_response :not_found
+      refute response.parsed_body.key?("record")
+      refute_includes response.body, "Synthetic Cafe"
+      get "#{daily_path}/request_status", params: { review_action: "purchase_stage" },
+        headers: auth_headers("original-daily-purchase").merge("X-Cohort-Id" => original_cohort.id.to_s)
+      assert_response :success
+      assert_equal draft_id, response.parsed_body.dig("record", "id")
+      assert_equal original_enrollment.id, response.parsed_body.fetch("enrollment_id")
+      assert_equal original_cohort.id, response.parsed_body.fetch("cohort_id")
+    end
+  end
+
+  test "category request recovery uses the original durable program reference without retaining private input" do
+    with_daily_operations do
+      savings_enroll
+      original_cohort = @savings_cohort
+      original_enrollment = @savings_enrollment
+      daily_post("category_create", { name: "Reviewed household category", stack_key: "discretionary" }, "original-category-program")
+      assert_response :success
+      category_id = response.parsed_body.dig("record", "id")
+      execution = @savings_household.household_operation_executions.find_by!(operation_key: "savings.daily.category.create")
+      assert_equal "SavingsEnrollment", execution.reviewable_type
+      assert_equal original_enrollment.id, execution.reviewable_id
+      assert_equal({}, execution.normalized_input)
+      enroll_second_daily_program
+      get "#{daily_path}/request_status", params: { review_action: "category_create" }, headers: auth_headers("original-category-program")
+      assert_response :not_found
+      refute response.parsed_body.key?("record")
+      refute_includes response.body, "Reviewed household category"
+      get "#{daily_path}/request_status", params: { review_action: "category_create" },
+        headers: auth_headers("original-category-program").merge("X-Cohort-Id" => original_cohort.id.to_s)
+      assert_response :success
+      assert_equal category_id, response.parsed_body.dig("record", "id")
+      assert_equal original_enrollment.id, response.parsed_body.fetch("enrollment_id")
+      assert_equal original_cohort.id, response.parsed_body.fetch("cohort_id")
+    end
+  end
+
+  test "old category executions without a program reference are not assigned to the selected enrollment" do
+    with_daily_operations do
+      savings_enroll
+      result = savings_run("daily.category.create", { name: "Legacy household category", stack_key: "discretionary" }, token: "unbound-category-program")
+      assert_nil result.execution.reviewable_type
+      get "#{daily_path}/request_status", params: { review_action: "category_create" }, headers: auth_headers("unbound-category-program")
+      assert_response :not_found
+      refute response.parsed_body.key?("record")
+      get daily_path, headers: auth_headers
+      assert_response :success
+      assert_includes response.parsed_body.fetch("categories").map { |row| row.fetch("id") }, result.subject.id
+    end
+  end
+
   private
+  def enroll_second_daily_program
+    @savings_cohort = Cohort.create!(name: "Second synthetic daily program", status: "enrolling", created_by_user: @savings_owner,
+      starts_on: Date.new(2026, 11, 1), savings_challenge_enabled: true, savings_challenge_release_hold: false)
+    @savings_membership = @savings_cohort.cohort_memberships.create!(user: @savings_user, role: "participant")
+    @savings_release = nil
+    with_savings_runtime { savings_enroll }
+  end
   def assert_daily_identity
     body = response.parsed_body
     assert_equal @savings_enrollment.id, body.fetch("enrollment_id")

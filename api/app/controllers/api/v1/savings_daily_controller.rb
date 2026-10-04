@@ -46,7 +46,12 @@ module Api
         key = ACTIONS.fetch(params[:review_action].to_s) { raise ArgumentError, "Choose a supported daily action" }
         input = request.request_parameters.to_h.deep_symbolize_keys
         raise ArgumentError, "The server selects the program and participant" if input.key?(:cohort_id)
-        result = private_read { runner.run(operation_key: key, input: input.merge(cohort_id: @enrollment.cohort_id), idempotency_key: request_key) }
+        result = private_read do
+          # Categories belong to the household; the execution must separately
+          # retain the program in which this participant reviewed their creation.
+          reviewable = key == ACTIONS.fetch("category_create") ? @enrollment : nil
+          runner.run(operation_key: key, input: input.merge(cohort_id: @enrollment.cohort_id), idempotency_key: request_key, reviewable: reviewable)
+        end
         render json: { record: present(result.subject), replayed: result.replayed?, **actor_context }
       end
 
@@ -54,7 +59,12 @@ module Api
         key = ACTIONS.fetch(params[:review_action].to_s) { raise ArgumentError, "Choose a supported daily request" }
         result = private_read do
           resolved = runner.private_request_result(operation_key: key, idempotency_key: request_key)
-          resolved ? { state: "committed", record: present(resolved.subject), replayed: true } : { state: "unknown", can_retry: true }
+          if resolved
+            require_result_enrollment!(resolved, operation_key: key)
+            { state: "committed", record: present(resolved.subject), replayed: true }
+          else
+            { state: "unknown", can_retry: true }
+          end
         end
         render json: result.merge(actor_context)
       rescue ActiveRecord::LockWaitTimeout
@@ -134,6 +144,23 @@ module Api
         return nil if params[:local_on].blank? && @enrollment.local_today < @enrollment.starts_on
         SavingsChallenge::Daily::DayProjection.new(@enrollment, user: current_user, local_on: local_on).call
       end
+      def require_result_enrollment!(result, operation_key:)
+        subject = result.subject
+        case subject
+        when SavingsDailyPurchaseDraft, SavingsDailyPurchaseVersion, SavingsDailyReflectionVersion,
+          SavingsDailyCheckInVersion, SavingsCheckpointDraft, SavingsCheckpointVersion
+          raise ActiveRecord::RecordNotFound unless subject.savings_enrollment_id == @enrollment.id
+        when BudgetCategory
+          execution = result.execution
+          # Older redacted category executions have no program reference. They
+          # cannot be attributed to whichever program happens to be selected.
+          raise ActiveRecord::RecordNotFound unless execution.reviewable_type == "SavingsEnrollment" && execution.reviewable_id == @enrollment.id
+          CohortReleases::OperationAccess.require!(household: current_household, user: current_user, key: operation_key, cohort: @enrollment.cohort)
+        else
+          raise ActiveRecord::RecordNotFound
+        end
+      end
+
       def actor_context
         { actor_scope: { user_id: current_user.id, household_id: @enrollment&.household_id || current_household.id },
           enrollment_id: @enrollment&.id, cohort_id: @enrollment&.cohort_id }
