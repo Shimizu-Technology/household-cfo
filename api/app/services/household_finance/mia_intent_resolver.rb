@@ -276,9 +276,9 @@ module HouseholdFinance
     # scheduled changes and multi-domain requests need the validated planner.
     def ambiguous_setup_statement?
       text = normalized_user_message
-      return true if text.match?(/\b(?:weekly|biweekly|fortnightly|annually|yearly|per week|a week|every two weeks|next month|next year|will be|would be|used to|example|sample|daughter|son|friend|cousin|she|he|they)\b/i)
+      return true if text.match?(/\b(?:weekly|biweekly|fortnightly|annually|yearly|per week|a week|every two weeks|next month|next year|will be|would be|used to|example|sample|daughter|son|friend|cousin|she|he|they|her|his|gross|pre[- ]?tax|before tax(?:es)?)\b/i)
       return true if text.match?(/\b(?:do not|don['’]?t|never)\s+(?:change|save|update|record|set)|\b(?:just|only)\s+(?:asking|explain|calculate|compare)\b/i)
-      return true if text.match?(/\b(?:card balance|credit card balance|minimum payment|monthly minimum|checking|account balance)\b/i)
+      return true if text.match?(/\b(?:card balance|credit card balance|debt balance|minimum payment|monthly minimum|checking|account balance|owe|loan)\b/i)
       return true if text.match?(/\b(?:set|change|update|increase|decrease|move|add|create)\b.{0,60}\b(?:category|allocation|dining|groceries|debt|account|goal)\b/i)
 
       primary = DETERMINISTIC_SETUP_MONEY_PATTERNS.fetch(:primary_income)

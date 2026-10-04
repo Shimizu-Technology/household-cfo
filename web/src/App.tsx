@@ -2946,6 +2946,7 @@ function App() {
               {isFirstSessionSetup && (
                 <FirstSessionSetupProgress
                   status={data.workspace.setup_status}
+                  hasConversation={currentMessages.length > 0}
                   onStartChat={startChatFirstSession}
                   onShareAll={shareAllFirstSession}
                   onManual={startManualFirstSession}
@@ -3864,8 +3865,10 @@ function FirstSessionCard({ onChat, onShareAll, onManual, onUpload, onGuide }: {
   )
 }
 
-function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }: { status: WorkspaceSetupStatus; onStartChat: () => void; onShareAll: () => void; onManual: () => void }) {
+function FirstSessionSetupProgress({ status, hasConversation, onStartChat, onShareAll, onManual }: { status: WorkspaceSetupStatus; hasConversation: boolean; onStartChat: () => void; onShareAll: () => void; onManual: () => void }) {
   const { assistantName } = useBrand()
+  const [showOptions, setShowOptions] = useState(false)
+  const optionsVisible = !hasConversation || showOptions
   return (
     <section className="first-session-setup-progress" aria-labelledby="first-session-progress-title" aria-live="polite">
       <div className="first-session-progress-heading">
@@ -3876,6 +3879,8 @@ function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }
         <span>{Math.round((status.completed_count / Math.max(status.required_count, 1)) * 100)}%</span>
       </div>
       <div className="first-session-progress-bar" aria-hidden="true"><span style={{ width: `${(status.completed_count / Math.max(status.required_count, 1)) * 100}%` }} /></div>
+      {hasConversation && <button type="button" className="first-session-options-toggle secondary-button" aria-expanded={optionsVisible} aria-controls="first-session-setup-options" onClick={() => setShowOptions((visible) => !visible)}>{optionsVisible ? 'Hide setup options' : 'Show setup options'}</button>}
+      {optionsVisible && <div id="first-session-setup-options" className="first-session-setup-options">
       <ul>
         {status.required_fields.map((field) => (
           <li key={field.key} className={field.confirmed ? 'is-confirmed' : ''}>
@@ -3891,6 +3896,7 @@ function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }
         <button type="button" className="secondary-button" onClick={onShareAll}>Share everything at once</button>
         <button type="button" className="secondary-button" onClick={onManual}>Enter manually</button>
       </div>
+      </div>}
     </section>
   )
 }
@@ -7353,10 +7359,11 @@ function MiaActionDraftReviewCard({
     .filter(Boolean))
   const touchesStartingPicture = Boolean(draft.setup_coverage_after_apply?.required_fields.some((field) => proposedSetupKeys.has(field.key)))
   const setupCoverage = draft.draft_type === 'household_setup' && touchesStartingPicture ? draft.setup_coverage_after_apply : null
+  const reviewValueCount = proposedSetupKeys.size || draft.items.length
   const applyLabel = setupCoverage?.complete
     ? 'Apply starting picture'
     : setupCoverage
-      ? `Apply these ${draft.items.length} value${draft.items.length === 1 ? '' : 's'}`
+      ? `Apply ${reviewValueCount} value${reviewValueCount === 1 ? '' : 's'}`
       : 'Apply reviewed change'
   const planApplyLabel = !isChoosingChanges || selectedIds.size === remainingItems.length
     ? `Apply all ${remainingItems.length} ${remainingItems.length === 1 ? 'change' : 'changes'}`
@@ -7435,7 +7442,7 @@ function MiaActionDraftReviewCard({
           <section className={`mia-setup-coverage${setupCoverage.complete ? ' is-complete' : ''}`} aria-label="Starting picture coverage after applying this review">
             <div>
               <strong>{setupCoverage.complete ? 'Starting picture complete after approval' : `${setupCoverage.completed_count} of ${setupCoverage.required_count} essentials after approval`}</strong>
-              <span>This review includes {draft.items.length} confirmed value{draft.items.length === 1 ? '' : 's'}.</span>
+              <span>This review includes {reviewValueCount} confirmed value{reviewValueCount === 1 ? '' : 's'}.</span>
             </div>
             {setupCoverage.missing_fields.length > 0 && (
               <p><strong>Still needed:</strong> {setupCoverage.missing_fields.map((field) => field.label).join(', ')}.</p>

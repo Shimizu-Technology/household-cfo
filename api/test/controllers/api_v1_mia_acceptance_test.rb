@@ -36,6 +36,7 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
       "I am thinking of h\u200burting myself.",
       "I am thinking about taking my own life.",
       "I want to end it all.",
+      "I do not want to live.",
       "I don't think I can keep living.",
       "I can't go on with this anymore."
     ].each do |message|
@@ -60,6 +61,10 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
   test "ambiguous setup facts never become a partial current household review" do
     user, household = participant
     [
+      "My monthly income is $6,200 gross.",
+      "My monthly income is $6,200 but that is before tax.",
+      "My monthly income is 6200 and I owe 3100 on my car loan.",
+      "My monthly income is $6,200 and I owe $6,200 on my car loan.",
       "My take-home pay is now $6,200 weekly.",
       "My take-home pay is now $6,200 next month.",
       "My take-home pay is now $6,200 a month but do not change anything.",

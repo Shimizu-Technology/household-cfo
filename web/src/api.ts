@@ -4313,22 +4313,24 @@ export async function transcribeMiaVoice(audio: Blob): Promise<string> {
   const extension = contentType.includes('mp4') ? 'm4a' : contentType.includes('mpeg') ? 'mp3' : contentType.includes('ogg') ? 'ogg' : 'webm'
   formData.append('audio', new File([audio], `mia-voice.${extension}`, { type: contentType }))
 
-  let response: Response
-  try {
-    response = await apiFetch('/api/v1/mia/transcriptions', {
-      method: 'POST',
-      body: formData,
-    })
-  } catch (error) {
-    throw new Error(apiNetworkErrorMessage('Voice transcription could not reach the API'), { cause: error })
-  }
+  return withDeadline(async (signal) => {
+    let response: Response
+    try {
+      response = await apiFetch('/api/v1/mia/transcriptions', {
+        method: 'POST',
+        body: formData,
+      }, signal)
+    } catch (error) {
+      throw new Error(apiNetworkErrorMessage('Voice transcription could not reach the API'), { cause: error })
+    }
 
-  if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, 'Voice transcription failed'))
-  }
+    if (!response.ok) {
+      throw new Error(await responseErrorMessage(response, 'Voice transcription failed'))
+    }
 
-  const payload = (await response.json()) as { transcript: string }
-  return payload.transcript
+    const payload = (await response.json()) as { transcript: string }
+    return payload.transcript
+  }, FILE_UPLOAD_TIMEOUT_MS, 'Voice transcription took too long.', undefined, 'Record again or type your note.')
 }
 
 export async function fetchDocumentImports(): Promise<FinancialDocumentImport[]> {

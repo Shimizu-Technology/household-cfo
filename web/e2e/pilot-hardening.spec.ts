@@ -2536,7 +2536,7 @@ test('first-session review states what it completes and what Mia still needs', a
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Add monthly income to your starting picture' })
   await expect(card).toContainText('1 of 5 essentials after approval')
   await expect(card).toContainText('Still needed: Household name, Primary goal, Fixed essentials, Flexible spending.')
-  await expect(card.getByRole('button', { name: 'Apply these 1 value' })).toBeEnabled()
+  await expect(card.getByRole('button', { name: 'Apply 1 value' })).toBeEnabled()
 })
 
 test('a confirmed zero remains available when the rest of setup is completed manually', async ({ page }) => {
@@ -2650,13 +2650,14 @@ test('a confirmed zero remains available when the rest of setup is completed man
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Confirm zero flexible spending' })
-  const applyButton = card.getByRole('button', { name: 'Apply these 1 value' })
+  const applyButton = card.getByRole('button', { name: 'Apply 1 value' })
   await applyButton.focus()
   await applyButton.press('Enter')
 
   const progress = page.locator('.first-session-setup-progress')
   await expect(progress.getByRole('listitem').filter({ hasText: 'Flexible spending' }).locator('.sr-only')).toHaveText('— Confirmed')
   await expect(progress.getByRole('listitem').filter({ hasText: 'Primary monthly income' }).locator('.sr-only')).toHaveText('— Still needed')
+  await progress.getByRole('button', { name: 'Show setup options' }).click()
   await progress.getByRole('button', { name: 'Enter manually' }).click()
 
   await expect(page.getByLabel('Flexible spending')).toHaveValue('0')
@@ -4093,6 +4094,7 @@ test('incomplete participants get a short first session, private feedback, and a
   expect(guidedSetupRequest.postDataJSON().message).toBe(guidedSetupPrompt)
   await expect(page.getByText(guidedSetupReply, { exact: true })).toBeVisible()
 
+  await page.getByRole('button', { name: 'Show setup options' }).click()
   await page.getByRole('button', { name: 'Share everything at once' }).click()
   await expect(guidedComposer).toHaveValue(/Here is everything I know so far: our household is called ___/)
   await page.getByRole('button', { name: 'Ask me one question at a time' }).click()
@@ -7344,4 +7346,35 @@ test('an empty Profile upload is rejected before private upload work begins', as
   await expect(page.getByRole('alert')).toHaveText('empty-receipt.png is empty. Choose the original file and try again.')
   await expect(receiptCard.getByText('Choose file', { exact: true })).toBeVisible()
   expect(presignRequests).toBe(0)
+})
+
+
+test('Ask Mia retains an oversized voice transcript and requires shortening before send', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } })
+    class SyntheticRecorder {
+      static isTypeSupported() { return true }
+      state = 'inactive'
+      mimeType = 'audio/webm'
+      ondataavailable: ((event: { data: Blob }) => void) | null = null
+      onstop: (() => void) | null = null
+      start() { this.state = 'recording' }
+      stop() {
+        this.state = 'inactive'
+        this.ondataavailable?.({ data: new Blob(['synthetic QA recording'], { type: 'audio/webm' }) })
+        this.onstop?.()
+      }
+    }
+    Object.defineProperty(window, 'MediaRecorder', { configurable: true, value: SyntheticRecorder })
+  })
+  await page.route('http://api.test/api/v1/mia/transcriptions', (route) => route.fulfill({ status: 200, json: { transcript: 'x'.repeat(8_025) } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.getByRole('button', { name: 'Record voice note for Mia' }).click()
+  await page.getByRole('button', { name: 'Stop voice recording' }).click()
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await expect(composer).toHaveValue('x'.repeat(8_025))
+  await expect(page.locator('#mia-composer-count')).toHaveText('Remove 25 characters to send.')
+  await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeDisabled()
+  await composer.fill('A shorter, reviewed transcript.')
+  await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
 })

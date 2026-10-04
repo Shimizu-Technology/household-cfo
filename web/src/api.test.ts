@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AdminApprovedPhrase, AdminPhraseProposal } from './api'
 import {
   ApiRequestError,
+  transcribeMiaVoice,
   archiveAdminPersona,
   approveAdminContentItem,
   createAdminContentItem,
@@ -1215,5 +1216,21 @@ describe('private document upload', () => {
     const presignBody = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
     expect(presignBody.content_type).toBe('text/csv')
     expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toEqual({ 'Content-Type': 'text/csv' })
+  })
+})
+
+
+describe('voice transcription deadlines', () => {
+  it('aborts a stalled transcription and returns a usable recovery message', async () => {
+    vi.useFakeTimers()
+    let signal: AbortSignal | null | undefined
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal
+      return new Promise<Response>(() => undefined)
+    }))
+    const result = expect(transcribeMiaVoice(new Blob(['synthetic audio'], { type: 'audio/webm' }))).rejects.toThrow('Voice transcription took too long. Record again or type your note.')
+    await vi.advanceTimersByTimeAsync(180_000)
+    await result
+    expect(signal?.aborted).toBe(true)
   })
 })
