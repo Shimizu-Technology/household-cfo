@@ -4543,7 +4543,7 @@ test('admin cohort rows show only safe pilot progress signals', async ({ page })
 test('Coach Studio waits for its initial library before opening a create form', async ({ page }) => {
   let releaseList: (() => void) | undefined
   let releaseDetail: (() => void) | undefined
-  const listGate = new Promise<void>((resolve) => { releaseList = resolve })
+  let listGate = new Promise<void>((resolve) => { releaseList = resolve })
   const detailGate = new Promise<void>((resolve) => { releaseDetail = resolve })
   await page.route('http://api.test/api/v1/admin/personas', async (route) => {
     if (route.request().method() === 'GET') await listGate
@@ -4569,6 +4569,12 @@ test('Coach Studio waits for its initial library before opening a create form', 
   await create.click()
   await page.locator('.coach-create-form').getByLabel('Assistant name').fill('A ready creation form')
   await expect(page.locator('.coach-create-form').getByLabel('Assistant name')).toHaveValue('A ready creation form')
+  listGate = new Promise<void>((resolve) => { releaseList = resolve })
+  await page.getByRole('combobox', { name: /Coach workspace/ }).selectOption('2')
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'true')
+  await expect(page.locator('.coach-create-form').getByRole('button', { name: 'Create safe draft' })).toBeDisabled()
+  releaseList?.()
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
 })
 
 test('Coach Studio creates a persona through private setup chat and reviewed changes', async ({ page }) => {
