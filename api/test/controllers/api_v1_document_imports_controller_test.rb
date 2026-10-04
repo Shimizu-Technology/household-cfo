@@ -1303,6 +1303,39 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal({ "upload_request_id" => "keep-me" }, document_import.metadata)
   end
 
+  test "reprocess retains source-linked pending history and removes only unlinked pending drafts" do
+    document_import = create_import!(status: "needs_review")
+    attempt = document_import.attempts.create!(provider: "synthetic", model: "synthetic", status: "processing", prompt_version: "synthetic", schema_version: "synthetic", started_at: Time.current)
+    accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+      accounts: [ { account_key: "synthetic-account", account_basis: "asset" } ],
+      events: [ { account_key: "synthetic-account", row_kind: "posted", event_type: "purchase", signed_amount_cents: -1_000,
+        posted_on: "2026-07-07", locator: { page: 1, row: 1 }, merchant: "Synthetic merchant" } ] })
+    source = FinancialDocuments::SourceAccountingPersister.new(document_import, attempt: attempt, accounting: accounting).call
+    HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, source[:transaction_drafts]).call
+    linked = document_import.transaction_drafts.sole
+    split_ids = linked.transaction_draft_splits.pluck(:id)
+    assert_not_empty split_ids
+    unlinked = document_import.transaction_drafts.create!(household: @household, occurred_on: Date.new(2026, 7, 7), merchant: "Legacy synthetic merchant",
+      total_amount_cents: 500, source_type: "statement", status: "pending")
+
+    with_s3_stubs(configured?: true) do
+      assert_enqueued_with(job: FinancialDocumentExtractionJob, args: [ document_import.id ]) do
+        post "/api/v1/document_imports/#{document_import.id}/reprocess", headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :success
+    assert_equal "uploaded", document_import.reload.status
+    assert_equal "ignored", linked.reload.status
+    assert_equal source[:events].sole.id, linked.financial_source_event_id
+    assert_equal split_ids, linked.transaction_draft_splits.pluck(:id)
+    assert_equal(-1_000, linked.financial_source_event.reload.signed_amount_cents)
+    assert_equal source[:revision].id, linked.financial_source_event.financial_extraction_revision_id
+    refute TransactionDraft.exists?(unlinked.id)
+    assert_empty document_import.transaction_drafts.pending
+    assert_empty @household.household_transactions
+  end
+
   test "reprocess rejects imports that already applied household values" do
     document_import = create_import!(status: "applied", s3_key: "household-cfo/test/source.pdf", applied_at: Time.current, applied_by_user: @user)
     document_import.items.create!(

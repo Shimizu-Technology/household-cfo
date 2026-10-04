@@ -218,7 +218,9 @@ module Api
           end
 
           @document_import.items.where(applied_at: nil).delete_all
-          @document_import.transaction_drafts.pending.destroy_all
+          @document_import.transaction_drafts.pending.find_each do |draft|
+            draft.financial_source_event_id ? draft.update!(status: "ignored") : draft.destroy!
+          end
           @document_import.update!(
             status: "uploaded",
             extraction_error: nil,
