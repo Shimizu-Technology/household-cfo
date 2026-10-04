@@ -1,6 +1,7 @@
 import { useCallback, useState, type KeyboardEvent } from 'react'
 import type { AdminPersonaAssignableCohort } from '../api'
 import { CohortReleaseStudio } from './CohortReleaseStudio'
+import { InitialCohortLaunch } from './InitialCohortLaunch'
 import { CohortRolloutStudio } from './CohortRolloutStudio'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
@@ -24,6 +25,7 @@ export function ReleaseAndRolloutStudio({
   const [view, setView] = useState<View>('release')
   const [rolloutDirty, setRolloutDirty] = useState(false)
   const [rolloutRefresh, setRolloutRefresh] = useState(0)
+  const [launchRefresh, setLaunchRefresh] = useState(0)
   const handleDirtyChange = useCallback((dirty: boolean) => {
     setRolloutDirty(dirty)
     onDirtyChange(dirty)
@@ -32,6 +34,12 @@ export function ReleaseAndRolloutStudio({
     !rolloutDirty || window.confirm('Recording a new release will reset the rollout plan you have not recorded. Continue and discard that plan after the release is sealed?')
   ), [rolloutDirty])
   const handleReleaseChange = useCallback(() => {
+    setRolloutDirty(false)
+    onDirtyChange(false)
+    setRolloutRefresh((value) => value + 1)
+    setLaunchRefresh((value) => value + 1)
+  }, [onDirtyChange])
+  const handleLaunchChange = useCallback(() => {
     setRolloutDirty(false)
     onDirtyChange(false)
     setRolloutRefresh((value) => value + 1)
@@ -72,8 +80,8 @@ export function ReleaseAndRolloutStudio({
       <div className="cohort-release-truth" role="note">
         <span className="cohort-release-truth-icon" aria-hidden="true"><EvidenceIcon /></span>
         <div>
-          <strong>Seal first. Then activate in controlled waves.</strong>
-          <p>Sealing or restoring only prepares a release. In a runtime-enabled rollout, starting and advancing move that wave immediately, completion makes the release the cohort default, and rollback restores the captured baseline for still-current exposed enrollments. A rollout labeled pre-cutover remains record-only until it is closed.</p>
+          <strong>Seal your settings. Launch once. Update through controlled waves.</strong>
+          <p>Sealing or restoring only prepares a release. Launch your first sealed release below; after launch, starting and advancing move that wave immediately, completion makes the release the cohort default, and rollback restores the captured baseline for still-current exposed enrollments. A rollout labeled pre-cutover remains record-only until it is closed.</p>
           <small>Every action is reviewed, recorded, and safe to retry.</small>
         </div>
       </div>
@@ -82,7 +90,7 @@ export function ReleaseAndRolloutStudio({
         <div>
           <p className="eyebrow">Release &amp; rollout</p>
           <h3>Prepare one cohort from evidence to completion</h3>
-          <p>Seal the brand, assistant, and tools together, then choose how participants move through the rollout.</p>
+          <p>Seal the brand, assistant, and tools together. Review the first launch below, then use rollouts for later updates.</p>
         </div>
         <label>
           <span>Cohort</span>
@@ -91,6 +99,14 @@ export function ReleaseAndRolloutStudio({
           </select>
         </label>
       </article>
+
+      <InitialCohortLaunch
+        key={`${selectedCohortId ?? 'none'}-${launchRefresh}`}
+        cohortId={selectedCohortId}
+        mutationLifecycle={mutationLifecycle}
+        onLaunch={handleLaunchChange}
+        beforeLaunchAction={() => !rolloutDirty || window.confirm('Launching will discard the rollout plan you have not recorded. Continue?')}
+      />
 
       <div className="release-rollout-tabs" role="tablist" aria-label="Release and rollout steps">
         <button type="button" role="tab" id="release-rollout-tab-release" aria-controls="release-rollout-panel-release" aria-selected={view === 'release'} tabIndex={view === 'release' ? 0 : -1} onKeyDown={handleViewKeyDown} onClick={() => setView('release')} disabled={mutationLifecycle.pending}>

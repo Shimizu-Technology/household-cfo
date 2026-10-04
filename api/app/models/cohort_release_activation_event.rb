@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class CohortReleaseActivationEvent < ApplicationRecord
-  EVENT_TYPES = %w[backfill rollout_completed].freeze
+  EVENT_TYPES = %w[backfill initial_launch rollout_completed].freeze
 
   belongs_to :coach_workspace
   belongs_to :cohort
@@ -36,6 +36,11 @@ class CohortReleaseActivationEvent < ApplicationRecord
     if event_type == "backfill"
       if cohort_rollout || cohort_rollout_transition || actor_user || actor_role_snapshot
         errors.add(:base, "backfill activation cannot claim a rollout or user actor")
+      end
+    elsif event_type == "initial_launch"
+      if from_cohort_release || cohort_rollout || cohort_rollout_transition || actor_user.nil? ||
+          !actor_role_snapshot.in?(CohortRollout::ACTOR_ROLES)
+        errors.add(:base, "initial launch requires a user actor and no previous release or rollout")
       end
     elsif cohort_rollout.nil? || cohort_rollout_transition.nil? || actor_user.nil? ||
         !actor_role_snapshot.in?(CohortRollout::ACTOR_ROLES)

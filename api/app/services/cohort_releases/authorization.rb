@@ -11,7 +11,9 @@ module CohortReleases
 
     def call!
       persisted_actor = User.lock.find_by(id: actor&.id)
-      raise NotAuthorized, "Only a workspace owner or reviewer can seal a cohort release" unless persisted_actor
+      unless persisted_actor&.staff? && !persisted_actor.revoked?
+        raise NotAuthorized, "Only an active workspace owner or reviewer can publish a cohort release"
+      end
 
       return [ persisted_actor, "platform_admin" ] if persisted_actor.admin?
 

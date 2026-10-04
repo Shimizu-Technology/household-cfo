@@ -1340,6 +1340,15 @@ test('an unavailable sealed workspace brand fails closed to neutral VERA and ret
 })
 
 test('Coach Studio release and rollout stays truthful, keyboard usable, and responsive', async ({ page }, testInfo) => {
+  await page.route('http://api.test/api/v1/admin/cohorts/41/launch', (route) => route.fulfill({
+    status: 200,
+    json: { launch: {
+      cohort: { id: 41, name: 'Household CFO pilot', participant_count: 2 },
+      active_release_id: 404, release: { id: 404, release_number: 4 }, can_launch: false,
+      blockers: ['This cohort is already launched. Use a rollout for later changes.'],
+      preview_digest: 'a'.repeat(64), message: 'Later changes use a controlled rollout.',
+    } },
+  }))
   let latestReleaseMatch = false
   let releaseNumber = 4
   let rolloutStatus: 'none' | 'planned' | 'active' = 'none'
@@ -1477,7 +1486,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   const releaseTab = page.getByRole('tab', { name: /Release & rollout/ })
   await releaseTab.click()
   await expect(page.getByRole('heading', { name: 'Prepare one cohort from evidence to completion' })).toBeVisible()
-  await expect(page.getByText('Seal first. Then activate in controlled waves.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Seal your settings. Launch once. Update through controlled waves.', { exact: true })).toBeVisible()
   await expect(page.getByText(/A rollout labeled pre-cutover remains record-only until it is closed/)).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Ready to seal' })).toBeVisible()
   await expect(page.getByText('Latest sealed record')).toBeVisible()
@@ -7460,4 +7469,43 @@ test('Ask Mia retains an oversized voice transcript and requires shortening befo
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeDisabled()
   await composer.fill('A shorter, reviewed transcript.')
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
+})
+
+test('Coach Studio first launch requires impact review and stays usable on phone and desktop', async ({ page }) => {
+  let launched = false
+  let launchRequests = 0
+  const preview = () => ({
+    cohort: { id: 41, name: 'Mrs. Mel launch cohort', participant_count: 6 },
+    active_release_id: launched ? 405 : null,
+    release: { id: 405, release_number: 1 }, can_launch: !launched,
+    blockers: launched ? ['This cohort is already launched. Use a rollout for later changes.'] : [],
+    preview_digest: 'a'.repeat(64),
+    message: 'Launching makes this sealed brand, assistant, and tools the default for every participant in this cohort.',
+  })
+  await page.route('http://api.test/api/v1/admin/cohorts/41/launch', async (route) => {
+    if (route.request().method() === 'POST') {
+      launchRequests += 1
+      expect(route.request().headers()['idempotency-key']).toBeTruthy()
+      expect(route.request().postDataJSON().launch).toEqual({ release_id: 405, preview_digest: 'a'.repeat(64) })
+      launched = true
+      return route.fulfill({ status: 201, json: { launch: preview(), replayed: false } })
+    }
+    return route.fulfill({ status: 200, json: { launch: preview() } })
+  })
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByRole('tab', { name: /Release & rollout/ }).click()
+  const card = page.locator('.initial-cohort-launch')
+  await card.getByRole('button', { name: 'Review first launch' }).click()
+  await expect(card.getByRole('heading', { name: 'Review first cohort launch' })).toBeFocused()
+  await expect(card.getByText(/6 current participants will use this release/)).toBeVisible()
+  expect(launchRequests).toBe(0)
+  await card.getByRole('button', { name: 'Cancel' }).click()
+  await expect(card.getByRole('button', { name: 'Review first launch' })).toBeFocused()
+  expect(launchRequests).toBe(0)
+  await card.getByRole('button', { name: 'Review first launch' }).click()
+  await card.getByRole('button', { name: 'Launch cohort now' }).click()
+  await expect(card.getByRole('heading', { name: 'This cohort is launched' })).toBeVisible()
+  expect(launchRequests).toBe(1)
+  await expect(card.getByRole('button', { name: 'Launch cohort now' })).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })

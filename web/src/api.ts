@@ -4614,3 +4614,30 @@ export async function sendWorkspaceCollaboratorEmail(workspaceId: number, member
     method: 'POST', headers: { 'X-Coach-Workspace-Id': String(workspaceId) },
   })
 }
+
+export type CohortInitialLaunch = {
+  cohort: { id: number; name: string; participant_count: number }
+  active_release_id: number | null
+  release: { id: number; release_number: number } | null
+  can_launch: boolean
+  blockers: string[]
+  preview_digest: string
+  message: string
+}
+
+export async function fetchCohortInitialLaunch(cohortId: number, signal?: AbortSignal): Promise<CohortInitialLaunch> {
+  const result = await fetchJson<{ launch: CohortInitialLaunch }>(`/api/v1/admin/cohorts/${cohortId}/launch`, { signal })
+  return result.launch
+}
+
+export async function launchCohortRelease(
+  cohortId: number,
+  values: { release_id: number; preview_digest: string },
+  requestId: string,
+): Promise<{ launch: CohortInitialLaunch; replayed: boolean }> {
+  return fetchJson(`/api/v1/admin/cohorts/${cohortId}/launch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
+    body: JSON.stringify({ launch: values }),
+  })
+}
