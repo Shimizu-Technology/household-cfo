@@ -178,6 +178,7 @@ Rails.application.routes.draw do
         end
         resources :cohorts, only: %i[index show create update] do
           resource :launch, controller: "cohort_release_launches", only: %i[show create]
+          delete "participants/:user_id", action: :remove_participant, on: :member
           resources :releases, controller: "cohort_releases", only: %i[index create] do
             post :restore, on: :member
           end

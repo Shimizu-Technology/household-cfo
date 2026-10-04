@@ -33,6 +33,10 @@ module Api
           email = normalized_email(attributes[:email])
           existing_user = User.find_by("LOWER(email) = ?", email) if email.present?
           if existing_user
+            if !current_user.admin? && coach_workspace_for_policy&.allows?(current_user, :manage_members)
+              return render_forbidden("Choose a program before adding a participant") if request.headers["X-Coach-Workspace-Id"].blank?
+              return attach_existing_participant(existing_user, attributes: attributes, role: role, cohort_ids: cohort_ids)
+            end
             create_or_reactivate_existing_user(existing_user, attributes:, role:, cohort_ids:)
           else
             create_new_invited_user(attributes:, role:, cohort_ids:)
@@ -188,6 +192,23 @@ module Api
         end
 
         private
+
+        def attach_existing_participant(user, attributes:, role:, cohort_ids:)
+          guard_error = nil
+          with_stable_invitation_membership_locks(user, requested_cohort_ids: cohort_ids, replace_memberships: false) do |target_cohort_ids|
+            unless role == "participant" && user.participant? && !user.revoked? && !global_user_change_requested?(user, attributes, role: role)
+              guard_error = "This participant could not be added. Ask a platform administrator to check their account."
+              raise ActiveRecord::Rollback
+            end
+            Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: target_cohort_ids)
+            add_cohort_memberships(user, cohort_ids, role: "participant")
+          end
+          return render_forbidden(guard_error) if guard_error
+
+          render json: invite_response_payload(user.reload,
+            { sent: false, status: "skipped", error: "Existing participant added. No account details changed and no invitation email was sent." },
+            created: false, reactivated: false)
+        end
 
         def create_new_invited_user(attributes:, role:, cohort_ids:)
           user = nil
@@ -721,6 +742,8 @@ module Api
           serialized_user_identity(user).merge(
             invited_by: workspace_scoped_mode? ? nil : serialize_inviter(user.invited_by_user),
             invite_email: serialize_invite_email(user),
+            can_resend_invitation: user.participant? && !user.invitation_accepted? && !user.revoked? &&
+              !(workspace_scoped_mode? && user_shared_outside_active_workspace?(user)),
             cohorts: serialized_memberships(user),
             workspace: progress
           )

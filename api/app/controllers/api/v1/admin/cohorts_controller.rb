@@ -3,8 +3,9 @@ module Api
     module Admin
       class CohortsController < BaseController
         before_action :authenticate_user!
-        before_action :require_admin!
-        before_action :require_selected_coach_workspace!, only: :create
+        before_action :require_staff!
+        before_action :require_group_management!
+        before_action :require_selected_coach_workspace!, only: %i[create remove_participant]
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
         rescue_from Mia::PersonaAssignmentCompatibility::Conflict, with: :render_persona_assignment_conflict
 
@@ -30,6 +31,12 @@ module Api
           cohort = workspace_cohorts.find(params[:id])
           Cohort.transaction do
             cohort.lock!
+            if params.dig(:cohort, :expected_updated_at).present? && params.dig(:cohort, :expected_updated_at).to_s != cohort.updated_at.iso8601(6)
+              return render json: { error: "This group changed. Reload it before saving.", code: "group_conflict" }, status: :conflict
+            end
+            if !current_user.admin? && params.dig(:cohort, :expected_updated_at).blank?
+              return render json: { error: "Reload this group before saving.", code: "group_conflict" }, status: :conflict
+            end
             if activating_persona_assignment?(cohort)
               participant_ids = Mia::PersonaAssignmentCompatibility.participant_ids_for(cohort: cohort)
               Mia::PersonaAssignmentCompatibility.lock_participants!(user_ids: participant_ids)
@@ -43,7 +50,37 @@ module Api
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
         end
 
+        # Enrollment belongs to a program; removing it must never revoke the
+        # participant's global account or their access to other programs.
+        def remove_participant
+          cohort = workspace_cohorts.find(params[:id])
+          removed = false
+          Cohort.transaction do
+            cohort.lock!
+            membership = cohort.cohort_memberships.find_by(user_id: params[:user_id], role: "participant")
+            # An already absent enrollment is a safe replay. Do not inspect an
+            # unrelated account or disclose whether that global user exists.
+            next unless membership
+            user = User.lock.find(membership.user_id)
+            raise ActiveRecord::RecordNotFound unless user.participant?
+            if membership.id.to_s != params[:expected_membership_id].to_s
+              return render json: { error: "This enrollment changed. Reload the roster before removing it.", code: "enrollment_conflict" }, status: :conflict
+            end
+            membership.destroy!
+            removed = true
+          end
+          render json: { removed: removed, cohort_id: cohort.id }
+        end
+
         private
+
+        def require_group_management!
+          return if current_user.admin?
+          if request.headers["X-Coach-Workspace-Id"].blank?
+            return render json: { error: "Choose a program before managing groups.", code: "coach_workspace_required" }, status: :unprocessable_entity
+          end
+          render_forbidden("Program owner access required") unless coach_workspace_for_policy&.allows?(current_user, :manage_members)
+        end
 
         def cohort_params
           params.require(:cohort).permit(:name, :status, :starts_on, :ends_on, :notes)
@@ -99,7 +136,7 @@ module Api
             setup_complete_count: setup_complete_count,
             operational_summary: operational_summary(cohort, participant_users),
             created_at: cohort.created_at,
-            updated_at: cohort.updated_at,
+            updated_at: cohort.updated_at.iso8601(6),
             created_by: {
               id: cohort.created_by_user.id,
               email: cohort.created_by_user.email,

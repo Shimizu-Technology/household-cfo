@@ -1,0 +1,18 @@
+.coach-groups { display: grid; gap: 1.25rem; max-width: 72rem; min-width: 0; }
+.coach-groups h2, .coach-groups h3 { margin: 0; }
+.coach-groups p { line-height: 1.6; overflow-wrap: anywhere; }
+.coach-groups-header, .coach-groups-actions { display: flex; gap: .75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.coach-groups-actions { justify-content: flex-start; }
+.coach-groups-card { display: grid; gap: 1rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--paper); padding: 1.25rem; min-width: 0; }
+.coach-groups-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.coach-groups label { display: grid; gap: .5rem; font-weight: 600; min-width: 0; }
+.coach-groups input, .coach-groups select, .coach-groups textarea { width: 100%; min-width: 0; min-height: 44px; padding: .75rem; border: 1px solid var(--line); border-radius: .5rem; color: var(--ink); background: var(--paper); font: inherit; }
+.coach-groups .coach-groups-check { display: flex; align-items: center; font-weight: 400; }
+.coach-groups-check input { width: 22px; min-height: 22px; flex-shrink: 0; }
+.coach-groups-error, .coach-groups-notice { padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; overflow-wrap: anywhere; }
+.coach-groups-error { border-color: var(--status-red); }
+.coach-participants-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; }
+.coach-participants-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--line); min-width: 0; }
+.coach-participants-list li > div:first-child { display: grid; gap: .4rem; min-width: 0; overflow-wrap: anywhere; }
+.coach-participant-confirm { width: 100%; padding: 1rem; background: var(--paper-warm); border-radius: .5rem; }
+@media (max-width: 640px) { .coach-groups-grid { grid-template-columns: 1fr; } .coach-groups-card { padding: 1rem; } .coach-groups-header { align-items: flex-start; } .coach-groups-actions { width: 100%; } .coach-groups-actions button { flex: 1 1 auto; } }

@@ -2050,6 +2050,7 @@ export type CohortRolloutMutationResponse = {
 export type AdminInviteEmailStatus = 'hidden' | 'not_sent' | 'skipped' | 'sent' | 'failed'
 
 export type AdminUser = CurrentUser & {
+  can_resend_invitation?: boolean
   invited_by: null | {
     id: number
     email: string
@@ -2101,6 +2102,7 @@ export type AdminCohortInput = {
   starts_on?: string
   ends_on?: string
   notes?: string
+  expected_updated_at?: string
 }
 
 export type AdminUserMutationResponse = {
@@ -4639,5 +4641,14 @@ export async function launchCohortRelease(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
     body: JSON.stringify({ launch: values }),
+  })
+}
+
+/** Withdraw one program enrollment, preserving the participant's global account. */
+export async function removeCoachGroupParticipant(cohortId: number, userId: number, membershipId: number): Promise<{ removed: boolean; cohort_id: number }> {
+  return fetchJson(`/api/v1/admin/cohorts/${cohortId}/participants/${userId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expected_membership_id: membershipId }),
   })
 }
