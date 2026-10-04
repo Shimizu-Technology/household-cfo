@@ -67,7 +67,7 @@ assert.ok(home.includes('selectedMonthIndex={currentMonthIndex}'), 'home cash fl
 assert.ok(budgetVisuals.includes('cash-flow-detail-panel'), 'shared cash-flow charts should expose a readable exact-value panel')
 assert.ok(budgetVisuals.includes("activeMonth.period_id === reportPeriodId ? 'Report month' : 'Chart preview'"), 'cash-flow detail should distinguish the report month from an interactive chart preview')
 assert.ok(budgetVisuals.includes("aria-current={month.period_id === reportPeriodId ? 'date' : undefined}"), 'cash-flow charts should expose the report month to assistive technology')
-assert.ok(app.includes('selectedBudgetOutlookMonth?.planned_outflow ?? data.budget.total_monthly_outflow'), 'Budget headline outflow must follow the selected report month')
+assert.ok(app.includes('selectedBudgetOutlookMonth?.planned_outflow ?? budgetForView.total_monthly_outflow'), 'Budget headline outflow must follow the selected report month')
 assert.ok(app.includes('<AnnualOutlookPanel plan={plan} selectedMonthIndex={currentMonthIndex} />'), 'Budget annual cash flow should stay synchronized with the report selector')
 assert.ok(css.includes('.budget-period-summary .metric-row'), 'Budget report-month metrics should use a complete three-column hierarchy')
 assert.ok(css.includes('.cash-flow-month.is-report-month'), 'cash-flow charts should visibly mark the report month')
@@ -190,10 +190,8 @@ assert.ok(app.includes('Send invite email now'), 'admin invite form should make 
 assert.ok(app.includes('filterAndSortAdminUsers'), 'admin users should have filter/sort controls')
 assert.ok(app.includes('serverCohortIdsForUser(user).filter'), 'admin quick actions should use server-confirmed cohort state, not unsaved drafts')
 assert.ok(!app.includes('setup_complete_count: memberships.filter'), 'admin cohort cards should not override server setup-complete counts client-side')
-assert.ok(
-  app.includes('const previousBudgetView = budgetView') && app.includes('setBudgetView((current) => (') && app.includes('? previousBudgetView'),
-  'budget year navigation must restore the previous view when loading a different year fails',
-)
+// Delayed/failing year selection and stale workspace responses are exercised in
+// the BOG UI budget-year browser regressions rather than pinning rollback syntax.
 assert.ok(app.includes('Search merchant, category, date, or amount'), 'large transaction review queues should be searchable')
 assert.ok(app.includes('Remove original file keeps this history and extracted results.'), 'source deletion should clearly preserve the import record')
 assert.ok(app.includes('Delete upload & record removes the original file and this entire import history.'), 'full import deletion should clearly describe its larger scope')

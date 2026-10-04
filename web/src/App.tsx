@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import './App.css'
 import { HomeScreen } from './components/HomeScreen'
 import { ActivityPreview } from './components/ActivityPreview'
@@ -32,6 +32,8 @@ import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/f
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import { guamTodayIso } from './lib/householdDate'
+import { workspaceViewReducer } from './lib/workspaceView'
+import { documentNeedsReview, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
   applyDocumentImport,
@@ -98,7 +100,6 @@ import type {
   AdminUserInput,
   AdminUserMutationResponse,
   AnnualBudgetPlan,
-  AppData,
   BrandConfig,
   BudgetCategoryMonth,
   BudgetCategoryRow,
@@ -473,7 +474,7 @@ function App() {
   const auth = useAuthContext()
   const publicBrand = useBrand()
   const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isClerkEnabled || Boolean(auth.currentUser))
-  const [data, setData] = useState<AppData | null>(null)
+  const [{ data, homeBudget, budgets }, setData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
   const [workspaceLoadAttempt, setWorkspaceLoadAttempt] = useState(0)
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupDraft | null>(null)
   const [isProfileEditing, setIsProfileEditing] = useState(false)
@@ -505,6 +506,9 @@ function App() {
   const [budgetError, setBudgetError] = useState<string | null>(null)
   const [hasUnsavedBudgetChanges, setHasUnsavedBudgetChanges] = useState(false)
   const [hasUnsavedCoachChanges, setHasUnsavedCoachChanges] = useState(false)
+  const [pendingBudgetView, setPendingBudgetView] = useState<{ requestId: number; scope: string; year: number } | null>(null)
+  const budgetViewRequestRef = useRef(0)
+  const budgetViewScopeRef = useRef('')
   const [budgetView, setBudgetView] = useState<{ year: number; monthIndex: number } | null>(null)
   const [spendingReport, setSpendingReport] = useState<SpendingReport | null>(null)
   const [spendingReportLoading, setSpendingReportLoading] = useState(false)
@@ -590,6 +594,21 @@ function App() {
   const isFirstSessionUpload = isFirstSessionSetup && firstSessionUploadOpen
   const isFocusedFirstSessionSetup = isFirstSessionSetup && !isFirstSessionUpload
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
+  const budgetViewScope = `${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'preview'}:${auth.activeCoachWorkspaceId ?? 'participant'}:${workspaceLoadKey}:${data?.workspace.cohort?.id ?? 'none'}:${workspaceLoadAttempt}`
+  budgetViewScopeRef.current = budgetViewScope
+  const budgetYearLoading = pendingBudgetView?.scope === budgetViewScope
+  const budgetContextAction = budgetYearLoading ? 'load-budget-year' : budgetAction
+  useEffect(() => {
+    budgetViewRequestRef.current += 1
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setBudgetView(null)
+      setPendingBudgetView(null)
+      setBudgetError(null)
+    })
+    return () => { cancelled = true; budgetViewRequestRef.current += 1 }
+  }, [budgetViewScope])
   const visibleSections = useMemo(() => {
     const enabledParticipantSections = data
       ? sections.filter((section) => data.workspace.capabilities.modules.some((module) => module.id === sectionCapabilityIds[section] && module.enabled))
@@ -601,25 +620,30 @@ function App() {
   const activeSection = !visibleSections.includes(active) ? sections[0] : active
   const selectedImport = useMemo(() => {
     const explicitImport = selectedImportId ? documentImports.find((documentImport) => documentImport.id === selectedImportId) : null
-    return explicitImport ?? documentImports.find((documentImport) => documentImport.status === 'needs_review') ?? documentImports[0] ?? null
+    return explicitImport ?? documentImports.find(documentNeedsReview) ?? documentImports[0] ?? null
   }, [documentImports, selectedImportId])
   const pendingImportsCount = useMemo(
-    () => documentImports.filter((documentImport) => documentImport.status === 'needs_review').length,
+    () => documentImports.filter(documentNeedsReview).length,
     [documentImports],
   )
   const processingImportsCount = useMemo(
     () => documentImports.filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
     [documentImports],
   )
-  const pendingTransactionDrafts = data?.budget.annual_plan?.pending_transaction_drafts ?? []
+  const budgetForView = budgetView
+    ? budgets[budgetView.year] ?? (data?.budget.annual_plan?.year === budgetView.year ? data.budget : null)
+    : data?.budget
+  const usesSelectedBudgetContext = activeSection === 'Budget' || activeSection === 'Ask Mia'
+  const reviewBudget = usesSelectedBudgetContext ? budgetForView : homeBudget
+  const pendingTransactionDrafts = reviewBudget?.annual_plan?.pending_transaction_drafts ?? []
   const pendingPlaidDrafts = pendingTransactionDrafts.filter((draft) => draft.source_type === 'plaid')
   const plaidActivityRefreshKey = pendingPlaidDrafts
     .map((draft) => `${draft.id}:${draft.status}:${draft.category_id ?? 'none'}:${draft.category_name ?? ''}:${JSON.stringify(draft.splits ?? [])}`)
     .join('|')
-  const pendingMiaActionDrafts = data?.budget.annual_plan?.pending_mia_action_drafts ?? []
-  const activeBudgetPlan = data?.budget.annual_plan
-  const selectedBudgetYear = budgetView?.year ?? activeBudgetPlan?.year ?? new Date().getFullYear()
-  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, budgetView?.monthIndex ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
+  const pendingMiaActionDrafts = reviewBudget?.annual_plan?.pending_mia_action_drafts ?? []
+  const activeBudgetPlan = reviewBudget?.annual_plan
+  const selectedBudgetYear = (usesSelectedBudgetContext ? budgetView?.year : null) ?? activeBudgetPlan?.year ?? new Date().getFullYear()
+  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, (usesSelectedBudgetContext ? budgetView?.monthIndex : null) ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const selectedBudgetOutlookMonth = selectedBudgetMonth
     ? activeBudgetPlan?.annual_outlook.months.find((month) => month.period_id === selectedBudgetMonth.id) ?? null
@@ -1539,6 +1563,13 @@ function App() {
     window.setTimeout(() => composerRef.current?.focus({ preventScroll: true }), 80)
   }
 
+  function openDocumentReview(documentImportId?: number) {
+    if (!switchSection('My Profile')) return
+    if (documentImportId !== undefined) setSelectedImportId(documentImportId)
+    if (isFirstSessionSetup) setFirstSessionUploadOpen(true)
+    requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
   function startUploadFirstSession() {
     switchSection('My Profile')
     setFirstSessionUploadOpen(true)
@@ -1548,7 +1579,7 @@ function App() {
   async function handleAskMia(prompt = question) {
     const cleanPrompt = prompt.trim()
     const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
-    if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading) return
+    if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading || budgetYearLoading) return
     if (cleanPrompt.length > MIA_MESSAGE_MAX_LENGTH) {
       setMiaError(`${assistantName} messages must stay under ${MIA_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`)
       return
@@ -1781,6 +1812,7 @@ function App() {
 
   async function handleCreateBudgetCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) {
       setBudgetError('Sign in to a real workspace before editing the annual budget.')
       return
@@ -1844,6 +1876,7 @@ function App() {
   }
 
   async function handleSaveIncomeScheduleEntry(values: IncomeScheduleEntryInput, entryId?: number) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) {
       setBudgetError('Sign in to a real workspace before editing the income timeline.')
       return
@@ -1868,6 +1901,7 @@ function App() {
   }
 
   async function handleDeleteIncomeScheduleEntry(entry: IncomeScheduleEntry) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
     setBudgetAction(`delete-income:${entry.id}`)
@@ -1886,6 +1920,7 @@ function App() {
   }
 
   async function handleSaveIncomeSource(values: IncomeSourceInput, sourceId?: number) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) {
       setSetupError('Sign in to a real workspace before editing income sources.')
       return
@@ -1911,6 +1946,7 @@ function App() {
   }
 
   async function handleArchiveIncomeSource(source: IncomeTimelineSource, endsOn: string) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
     const signature = `archive-income-source:${selectedBudgetYear}:${source.id}:${endsOn}`
@@ -1930,6 +1966,7 @@ function App() {
   }
 
   async function handleRestoreIncomeSource(source: IncomeTimelineSource) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
     const signature = `restore-income-source:${selectedBudgetYear}:${source.id}`
@@ -1948,30 +1985,38 @@ function App() {
   }
 
   async function handleBudgetViewChange(year: number, monthIndex: number) {
+    if (budgetYearLoading || budgetAction) return
     const normalizedYear = Math.max(2000, Math.min(2100, year))
     const normalizedMonthIndex = Math.max(0, Math.min(11, monthIndex))
-    const previousBudgetView = budgetView
-    setBudgetView({ year: normalizedYear, monthIndex: normalizedMonthIndex })
-    if (!isRealWorkspace || !data || data.budget.annual_plan?.year === normalizedYear) return
+    const requestedView = { year: normalizedYear, monthIndex: normalizedMonthIndex }
+    if (!data) return
+    if (!isRealWorkspace && data.budget.annual_plan?.year !== normalizedYear) return
+    if (!isRealWorkspace || budgets[normalizedYear]?.annual_plan?.year === normalizedYear) {
+      setBudgetView(requestedView)
+      setBudgetError(null)
+      return
+    }
 
-    setBudgetAction('load-budget-year')
+    const requestId = ++budgetViewRequestRef.current
+    const scope = budgetViewScope
+    const isCurrent = () => requestId === budgetViewRequestRef.current && scope === budgetViewScopeRef.current
+    setPendingBudgetView({ requestId, scope, year: normalizedYear })
     setBudgetError(null)
     try {
       const budget = await fetchBudget(normalizedYear)
+      if (!isCurrent()) return
+      if (budget.annual_plan?.year !== normalizedYear) throw new Error('The server returned a different budget year. Your previous period remains selected.')
       setData((current) => current ? { ...current, budget } : current)
+      setBudgetView(requestedView)
     } catch (caught) {
-      setBudgetView((current) => (
-        current?.year === normalizedYear && current.monthIndex === normalizedMonthIndex
-          ? previousBudgetView
-          : current
-      ))
-      setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded.')
+      if (isCurrent()) setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded. Your previous period remains selected.')
     } finally {
-      setBudgetAction(null)
+      if (isCurrent()) setPendingBudgetView(null)
     }
   }
 
   async function handleBudgetEditSave(changes: BudgetEditChanges) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data || (changes.allocations.length === 0 && changes.categories.length === 0)) return
 
     setBudgetAction('save-budget-edits')
@@ -2020,6 +2065,7 @@ function App() {
   }
 
   async function handleArchiveBudgetCategory(row: BudgetCategoryRow) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
     const confirmed = window.confirm(`Archive ${row.name}? It will leave active planning, but confirmed transaction history will not be deleted.`)
@@ -2042,6 +2088,7 @@ function App() {
   }
 
   async function handleRestoreBudgetCategory(categoryId: number) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
     setBudgetAction(`restore-category:${categoryId}`)
@@ -2061,6 +2108,7 @@ function App() {
   }
 
   async function handleApplyMiaActionDraft(draft: MiaActionDraft, itemIds?: number[]) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`apply-mia-action:${draft.id}`)
@@ -2094,6 +2142,7 @@ function App() {
   }
 
   async function handleCancelMiaActionDraft(draft: MiaActionDraft) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`cancel-mia-action:${draft.id}`)
@@ -2123,6 +2172,7 @@ function App() {
   }
 
   async function handleCreateTransactionDraft(values: TransactionDraftCreateInput) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     const signature = `transaction:create:${JSON.stringify(values)}`
@@ -2147,6 +2197,7 @@ function App() {
   }
 
   async function handleUpdateTransactionDraft(draft: TransactionDraft, values: TransactionDraftUpdateInput) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`update-draft:${draft.id}`)
@@ -2173,6 +2224,7 @@ function App() {
   }
 
   async function handleConfirmTransactionDraft(draft: TransactionDraft) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`confirm-draft:${draft.id}`)
@@ -2203,6 +2255,7 @@ function App() {
   }
 
   async function handleIgnoreTransactionDraft(draft: TransactionDraft) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`ignore-draft:${draft.id}`)
@@ -2233,6 +2286,7 @@ function App() {
   }
 
   async function handleBulkTransactionDrafts(drafts: TransactionDraft[], resolution: 'confirm' | 'ignore') {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     const pendingDrafts = drafts.filter((draft) => draft.status === 'pending')
@@ -2280,6 +2334,7 @@ function App() {
   }
 
   async function handleMatchTransactionDraft(draft: TransactionDraft, matchId?: number) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     setBudgetAction(`match-draft:${draft.id}`)
@@ -2308,6 +2363,7 @@ function App() {
   }
 
   async function handleReopenTransactionDraft(draft: TransactionDraft) {
+    if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
     const confirmed = window.confirm('Reopen this draft for correction? If it created an actual transaction, that actual will be removed from month-to-date totals and the draft will return to pending review.')
@@ -2398,7 +2454,7 @@ function App() {
     const room = Math.max(MAX_CHAT_ATTACHMENTS - pendingMiaAttachments.length, 0)
     const accepted = acceptedFiles.slice(0, room).map(pendingMiaAttachment)
     if (firstRejection && !firstRejection.validation.valid) setMiaError(firstRejection.validation.message)
-    else if (acceptedFiles.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time.`)
+    else if (acceptedFiles.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time. Not added: ${acceptedFiles.slice(room).map((file) => file.name).join(', ')}. Send this batch, then attach the remaining files.`)
     else setMiaError(null)
 
     if (accepted.length > 0) setPendingMiaAttachments((current) => [...current, ...accepted])
@@ -2832,6 +2888,8 @@ function App() {
         <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
       )}
 
+      {budgetYearLoading && <p className="document-alert" role="status">Loading the {pendingBudgetView?.year} plan. Your previous period remains selected; Send and plan changes pause until it loads.</p>}
+
       {activeSection === 'Home' && (
         <>
           {unavailableModuleNotice && (
@@ -2853,10 +2911,12 @@ function App() {
           {data.workspace.setup_complete && (
             <HomeScreen
               dashboard={data.dashboard}
-              budget={data.budget}
+              budget={homeBudget ?? data.budget}
               onAskMia={() => switchSection('Ask Mia')}
               onReviewTransactions={() => switchSection('Review')}
               onReviewMiaActions={() => switchSection('Ask Mia')}
+              pendingImportCount={pendingImportsCount}
+              onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
             />
           )}
         </>
@@ -2888,7 +2948,7 @@ function App() {
                   imports={documentImports}
                   pendingCount={pendingImportsCount}
                   processingCount={processingImportsCount}
-                  onOpenProfile={() => switchSection('My Profile')}
+                  onOpenProfile={() => openDocumentReview()}
                   onAttach={() => miaAttachmentInputRef.current?.click()}
                   uploading={Boolean(uploadingKind)}
                 />
@@ -2925,7 +2985,7 @@ function App() {
                 <span className="message-avatar" aria-hidden="true">{assistantInitial(assistantName)}</span>
                 <div className="chat-shell-copy">
                   <h3 id="mia-chat-title">Ask {assistantName}</h3>
-                  <p>Talk it through or update the plan while you stay the CFO.</p>
+                  <p className="chat-period-context">Plan context: {selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
                 </div>
                 <div className="chat-actions">
                   {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <button type="button" className="chat-memory-button" onClick={() => {
@@ -2966,7 +3026,6 @@ function App() {
               {isFirstSessionSetup && (
                 <FirstSessionSetupProgress
                   status={data.workspace.setup_status}
-                  hasConversation={currentMessages.length > 0}
                   onStartChat={startChatFirstSession}
                   onShareAll={shareAllFirstSession}
                   onManual={startManualFirstSession}
@@ -3033,17 +3092,13 @@ function App() {
                   }}
                   onOpenImport={handleOpenDocumentSource}
                   onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
-                  onReviewImportId={(id) => {
-                    setSelectedImportId(id)
-                    switchSection('My Profile')
-                    requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-                  }}
+                  onReviewImportId={openDocumentReview}
                   reviewContent={<>
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack
                         drafts={pendingMiaActionDrafts}
                         isRealWorkspace={Boolean(isRealWorkspace)}
-                        action={budgetAction}
+                        action={budgetContextAction}
                         compact
                         onApply={handleApplyMiaActionDraft}
                         onCancel={handleCancelMiaActionDraft}
@@ -3054,8 +3109,9 @@ function App() {
                     {pendingTransactionDrafts.length > 0 && (
                       <TransactionDraftReviewStack
                         drafts={pendingTransactionDrafts}
+                        draftActionsDisabled={budgetYearLoading}
                         isRealWorkspace={Boolean(isRealWorkspace)}
-                        action={budgetAction}
+                        action={budgetContextAction}
                         compact
                         categories={activeBudgetPlan?.rows ?? []}
                         plan={activeBudgetPlan}
@@ -3072,6 +3128,7 @@ function App() {
                   </>}
                 />
 
+              {!budgetYearLoading && budgetError && <p className="chat-error" role="alert">{budgetError}</p>}
               {miaError && <p className="chat-error" role="alert">{miaError}</p>}
               {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
               {voiceNotice && <p className={`voice-status${voiceRecording ? ' is-recording' : ''}`} role="status">{voiceNotice}</p>}
@@ -3090,6 +3147,7 @@ function App() {
                 />
                 {pendingMiaAttachments.length > 0 && (
                   <div className="composer-attachment-workflow">
+                    <strong>{pendingMiaAttachments.length} file{pendingMiaAttachments.length === 1 ? '' : 's'} ready to send</strong>
                     <p>Tell {assistantName} what each file is, or describe it in your message. Your assistant will verify the type and route only draft results for your review.</p>
                     <p className="attachment-size-guidance">{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</p>
                     <PendingAttachmentTray
@@ -3150,7 +3208,7 @@ function App() {
                 <button
                   className="send-button"
                   type="submit"
-                  disabled={miaLoading || voiceRecording || voiceTranscribing || question.trim().length > MIA_MESSAGE_MAX_LENGTH || (!question.trim() && pendingMiaAttachments.length === 0)}
+                  disabled={budgetYearLoading || miaLoading || voiceRecording || voiceTranscribing || question.trim().length > MIA_MESSAGE_MAX_LENGTH || (!question.trim() && pendingMiaAttachments.length === 0)}
                   aria-label={miaLoading ? `${assistantName} is thinking` : `Send message to ${assistantName}`}
                 >
                   <span>{miaLoading ? 'Thinking' : 'Send'}</span>
@@ -3174,17 +3232,19 @@ function App() {
           {isRealWorkspace && auth.currentUser ? (
             <>
               <article className="panel activity-review-panel">
+                <fieldset className="budget-loading-boundary" disabled={budgetYearLoading}><legend className="sr-only">Manual transaction controls</legend>
                 <ManualTransactionCapture
                   categories={activeBudgetPlan?.rows ?? []}
                   busy={budgetAction === 'create-transaction-draft'}
                   onCreate={handleCreateTransactionDraft}
                 />
+                </fieldset>
                 {pendingTransactionDrafts.length > 0 && (
                   <TransactionDraftReviewStack
                     drafts={pendingTransactionDrafts}
                     isRealWorkspace
                     compact
-                    action={budgetAction}
+                    action={budgetContextAction}
                     categories={activeBudgetPlan?.rows ?? []}
                     plan={activeBudgetPlan}
                     queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
@@ -3277,10 +3337,11 @@ function App() {
           )}
 
           {isRealWorkspace && !isFirstSessionSetup && data.budget.annual_plan && (
+            <fieldset className="budget-loading-boundary" disabled={budgetYearLoading}><legend className="sr-only">Income plan controls</legend>
             <IncomeSourceManager
               sectionRef={incomeSourcesRef}
               sources={data.workspace.income_sources ?? data.budget.annual_plan.income_sources}
-              action={budgetAction}
+              action={budgetContextAction}
               error={setupError}
               onSave={handleSaveIncomeSource}
               onArchive={handleArchiveIncomeSource}
@@ -3288,6 +3349,7 @@ function App() {
               focusRequest={incomeFocusRequest}
               onFocusRequestHandled={() => setIncomeFocusRequest(null)}
             />
+            </fieldset>
           )}
 
 
@@ -3351,7 +3413,7 @@ function App() {
             uploadingKind={uploadingKind}
             itemSavingIds={itemSavingIds}
             action={documentAction}
-            draftAction={budgetAction}
+            draftAction={budgetContextAction}
             expandedAppliedImportId={expandedAppliedImportId}
             onExpandedAppliedImportIdChange={setExpandedAppliedImportId}
             demoUploads={data.profile.uploads}
@@ -3392,12 +3454,12 @@ function App() {
         </section>
       )}
 
-      {activeSection === 'Budget' && (
+      {activeSection === 'Budget' && budgetForView && (
         <section className="screen-grid budget-screen">
           <ScreenHeading
             eyebrow="Budget"
             title="Know what came in, what went out, and what is left."
-            copy={data.budget.intro}
+            copy={budgetForView.intro}
           />
 
           <div className="budget-period-summary" key={selectedBudgetOutlookMonth?.period_id ?? 'current-baseline'}>
@@ -3409,20 +3471,21 @@ function App() {
               <p>{selectedBudgetOutlookMonth ? 'These headline figures follow the month selected in the annual plan below.' : 'These figures use the currently approved recurring household baseline.'}</p>
             </div>
             <div className="metric-row">
-              <Metric label="Income" value={currency.format(selectedBudgetOutlookMonth?.income ?? data.budget.monthly_income)} />
-              <Metric label="Planned outflow" value={debtMinimumsKnown ? currency.format(selectedBudgetOutlookMonth?.planned_outflow ?? data.budget.total_monthly_outflow) : 'Not available'} />
+              <Metric label="Income" value={currency.format(selectedBudgetOutlookMonth?.income ?? budgetForView.monthly_income)} />
+              <Metric label="Planned outflow" value={debtMinimumsKnown ? currency.format(selectedBudgetOutlookMonth?.planned_outflow ?? budgetForView.total_monthly_outflow) : 'Not available'} />
               <Metric
-                label={debtMinimumsKnown && (selectedBudgetOutlookMonth?.baseline_surplus ?? data.budget.baseline_surplus) < 0 ? 'Baseline shortfall' : 'Baseline surplus'}
-                value={debtMinimumsKnown ? currency.format(Math.abs(selectedBudgetOutlookMonth?.baseline_surplus ?? data.budget.baseline_surplus)) : 'Not available'}
+                label={debtMinimumsKnown && (selectedBudgetOutlookMonth?.baseline_surplus ?? budgetForView.baseline_surplus) < 0 ? 'Baseline shortfall' : 'Baseline surplus'}
+                value={debtMinimumsKnown ? currency.format(Math.abs(selectedBudgetOutlookMonth?.baseline_surplus ?? budgetForView.baseline_surplus)) : 'Not available'}
               />
             </div>
           </div>
 
-          {data.budget.annual_plan ? (
+          {budgetForView.annual_plan ? (
+            <fieldset className="budget-loading-boundary" disabled={budgetYearLoading} aria-busy={budgetYearLoading}><legend className="sr-only">Annual budget controls</legend>
             <AnnualBudgetPlanner
-              plan={data.budget.annual_plan}
+              plan={budgetForView.annual_plan}
               isRealWorkspace={Boolean(isRealWorkspace)}
-              action={budgetAction}
+              action={budgetContextAction}
               error={budgetError}
               selectedMonthIndex={selectedBudgetMonthIndex}
               spendingReport={spendingReport}
@@ -3456,6 +3519,7 @@ function App() {
               focusRequest={budgetFocusRequest}
               onFocusRequestHandled={() => setBudgetFocusRequest(null)}
             />
+            </fieldset>
           ) : (
             <article className="panel coach-panel">
               <h3>Annual budget foundation</h3>
@@ -3640,12 +3704,12 @@ function PendingAttachmentTray({
   onKindChange: (id: string, documentKind: DocumentImportKind) => void
 }) {
   return (
-    <div className="composer-attachment-tray" aria-label="Attachments waiting to send">
+    <div className="composer-attachment-tray" aria-label="Attachments waiting to send" tabIndex={0}>
       {attachments.map((attachment) => (
         <div className="composer-attachment-card" key={attachment.id}>
           <button type="button" className="attachment-preview-button" onClick={() => onPreview(attachment)}>
             {pendingAttachmentHasImagePreview(attachment) ? <img src={attachment.previewUrl} alt="" /> : <AttachmentIcon />}
-            <span>{attachmentDisplayName(attachment)}</span>
+            <span>{attachment.filename}</span>
           </button>
           <label className="attachment-kind-picker">
             <span className="sr-only">Document type for {attachment.filename}</span>
@@ -3657,7 +3721,7 @@ function PendingAttachmentTray({
               <option value="other">Supporting document</option>
             </select>
           </label>
-          <button type="button" className="attachment-remove-button" aria-label={`Remove ${attachmentDisplayName(attachment)}`} onClick={() => onRemove(attachment.id)}>
+          <button type="button" className="attachment-remove-button" aria-label={`Remove ${attachment.filename}`} onClick={() => onRemove(attachment.id)}>
             <CloseIcon />
           </button>
         </div>
@@ -3885,10 +3949,10 @@ function FirstSessionCard({ onChat, onShareAll, onManual, onUpload, onGuide }: {
   )
 }
 
-function FirstSessionSetupProgress({ status, hasConversation, onStartChat, onShareAll, onManual }: { status: WorkspaceSetupStatus; hasConversation: boolean; onStartChat: () => void; onShareAll: () => void; onManual: () => void }) {
+function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }: { status: WorkspaceSetupStatus; onStartChat: () => void; onShareAll: () => void; onManual: () => void }) {
   const { assistantName } = useBrand()
   const [showOptions, setShowOptions] = useState(false)
-  const optionsVisible = !hasConversation || showOptions
+  const optionsVisible = showOptions
   return (
     <section className="first-session-setup-progress" aria-labelledby="first-session-progress-title" aria-live="polite">
       <div className="first-session-progress-heading">
@@ -3899,7 +3963,7 @@ function FirstSessionSetupProgress({ status, hasConversation, onStartChat, onSha
         <span>{Math.round((status.completed_count / Math.max(status.required_count, 1)) * 100)}%</span>
       </div>
       <div className="first-session-progress-bar" aria-hidden="true"><span style={{ width: `${(status.completed_count / Math.max(status.required_count, 1)) * 100}%` }} /></div>
-      {hasConversation && <button type="button" className="first-session-options-toggle secondary-button" aria-expanded={optionsVisible} aria-controls="first-session-setup-options" onClick={() => setShowOptions((visible) => !visible)}>{optionsVisible ? 'Hide setup options' : 'Show setup options'}</button>}
+      <button type="button" className="first-session-options-toggle secondary-button" aria-expanded={optionsVisible} aria-controls="first-session-setup-options" onClick={() => setShowOptions((visible) => !visible)}>{optionsVisible ? 'Hide setup options' : 'Show setup options'}</button>
       {optionsVisible && <div id="first-session-setup-options" className="first-session-setup-options">
       <ul>
         {status.required_fields.map((field) => (
@@ -4258,7 +4322,7 @@ function DocumentImportWorkspace({
   onOpenSource: (documentImport: FinancialDocumentImport) => void
 }) {
   const { assistantName } = useBrand()
-  const pendingCount = imports.filter((documentImport) => documentImport.status === 'needs_review').length
+  const pendingCount = imports.filter(documentNeedsReview).length
   const latestApplied = latestAppliedImport(imports)
 
   if (!isRealWorkspace) {
@@ -4428,7 +4492,7 @@ function DocumentImportHistory({
   const filteredImports = useMemo(() => {
     const query = search.trim().toLowerCase()
     return imports
-      .filter((documentImport) => statusFilter === 'all' || documentImport.status === statusFilter)
+      .filter((documentImport) => statusFilter === 'all' || (statusFilter === 'needs_review' ? documentNeedsReview(documentImport) : documentImport.status === statusFilter))
       .filter((documentImport) => kindFilter === 'all' || documentImport.document_kind === kindFilter)
       .filter((documentImport) => {
         if (!query) return true
@@ -4446,8 +4510,8 @@ function DocumentImportHistory({
       .sort((left, right) => {
         if (sort === 'oldest') return importTimestamp(left) - importTimestamp(right) || left.id - right.id
         if (sort === 'needs_review') {
-          const leftRank = left.status === 'needs_review' ? 0 : PROCESSING_IMPORT_STATUSES.has(left.status) ? 1 : 2
-          const rightRank = right.status === 'needs_review' ? 0 : PROCESSING_IMPORT_STATUSES.has(right.status) ? 1 : 2
+          const leftRank = documentNeedsReview(left) ? 0 : PROCESSING_IMPORT_STATUSES.has(left.status) ? 1 : 2
+          const rightRank = documentNeedsReview(right) ? 0 : PROCESSING_IMPORT_STATUSES.has(right.status) ? 1 : 2
           return leftRank - rightRank || importTimestamp(right) - importTimestamp(left) || right.id - left.id
         }
         return importTimestamp(right) - importTimestamp(left) || right.id - left.id
@@ -4631,6 +4695,7 @@ function DocumentReviewPanel({
 
   const warnings = metadataWarnings(documentImport)
   const groupedItems = groupedImportItems(documentImport.items)
+  const coverage = transactionReviewCoverage(documentImport)
   const selectedCount = selectedApplyItemIds(documentImport).length
   const reviewable = REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
   const processing = PROCESSING_IMPORT_STATUSES.has(documentImport.status)
@@ -4715,8 +4780,9 @@ function DocumentReviewPanel({
         <section className="document-transaction-drafts" aria-label="Extracted transaction drafts">
           <div className="document-item-group-heading">
             <h5>Transaction drafts</h5>
-            <span>{(documentImport.transaction_drafts ?? []).length} proposed row{(documentImport.transaction_drafts ?? []).length === 1 ? '' : 's'}</span>
+            <span>{coverage.total} proposed row{coverage.total === 1 ? '' : 's'}</span>
           </div>
+          <p className="document-review-coverage" role="status">{coverage.pending} transaction review{coverage.pending === 1 ? '' : 's'} remaining · {coverage.resolved} resolved. {coverage.pending > 0 ? 'This source still needs review; pending rows do not change actuals.' : 'All transaction rows have a review decision.'}</p>
           <TransactionDraftReviewStack
             drafts={documentImport.transaction_drafts ?? []}
             isRealWorkspace
@@ -5283,7 +5349,7 @@ function attachmentDisplayName(attachment: PendingMiaAttachment) {
   if (attachment.document_kind === 'statement' && attachment.content_type.startsWith('image/')) return 'Statement screenshot'
   if (attachment.content_type.startsWith('image/')) return 'Screenshot'
 
-  return documentKindLabel(attachment.document_kind)
+  return attachment.filename
 }
 
 function documentImportDisplayName(documentImport: FinancialDocumentImport) {
@@ -7330,7 +7396,7 @@ function MiaActionDraftReviewCard({
 }) {
   const { brand } = useBrand()
   const isPending = draft.status === 'pending' || draft.status === 'partially_applied'
-  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || action === 'load-budget-year'
   const remainingItems = draft.items.filter((item) => !item.applied_at && !item.canceled_at)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set(
     draft.suggested_selected_item_ids?.length ? draft.suggested_selected_item_ids : remainingItems.map((item) => item.id),
@@ -7834,7 +7900,7 @@ function TransactionDraftReviewStack({
           draft={draft}
           isRealWorkspace={isRealWorkspace}
           action={action}
-          draftActionsDisabled={draftActionsDisabled || bulkBusy}
+          draftActionsDisabled={draftActionsDisabled || bulkBusy || action === 'load-budget-year'}
           categories={categories}
           plan={plan}
           onUpdate={onUpdate}
@@ -7921,7 +7987,7 @@ function TransactionDraftReviewCard({
   const splitMismatch = moneyCents(splitTotal) !== moneyCents(targetAmount)
   const saving = action === `update-draft:${draft.id}`
   const reopening = action === `reopen-draft:${draft.id}`
-  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || action === 'load-budget-year'
   const splitsNeedingCategory = (draft.splits ?? []).filter(transactionDraftSplitNeedsCategory)
   const needsCategoryReview = splitsNeedingCategory.length > 0
   const categoryWarningId = `transaction-draft-${draft.id}-category-warning`

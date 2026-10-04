@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_04_200000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_04_210000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -1655,6 +1655,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_200000) do
     t.check_constraint "status::text = ANY (ARRAY['uploaded'::character varying::text, 'processing'::character varying::text, 'needs_review'::character varying::text, 'applied'::character varying::text, 'partially_applied'::character varying::text, 'failed'::character varying::text, 'source_deleted'::character varying::text])", name: "financial_document_imports_status_valid"
   end
 
+  create_table "financial_document_source_cleanups", force: :cascade do |t|
+    t.integer "attempts", default: 0, null: false
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.string "error_code"
+    t.bigint "financial_document_import_id"
+    t.bigint "household_id"
+    t.datetime "lease_expires_at"
+    t.string "lease_token"
+    t.datetime "next_attempt_at", null: false
+    t.bigint "requested_by_user_id"
+    t.string "s3_key", limit: 1024
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["financial_document_import_id"], name: "idx_document_cleanup_import"
+    t.index ["household_id"], name: "index_financial_document_source_cleanups_on_household_id"
+    t.index ["requested_by_user_id"], name: "idx_on_requested_by_user_id_961d281d8f"
+    t.index ["s3_key"], name: "idx_document_cleanup_key", unique: true
+    t.index ["status", "next_attempt_at"], name: "idx_document_cleanup_due"
+    t.check_constraint "attempts >= 0", name: "document_cleanup_attempts_nonnegative"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'failed'::character varying, 'completed'::character varying]::text[])", name: "document_cleanup_status_valid"
+  end
+
   create_table "goals", force: :cascade do |t|
     t.boolean "active", default: true, null: false
     t.datetime "archived_at"
@@ -2675,6 +2698,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_200000) do
   add_foreign_key "financial_document_imports", "users", column: "applied_by_user_id"
   add_foreign_key "financial_document_imports", "users", column: "source_deleted_by_user_id"
   add_foreign_key "financial_document_imports", "users", column: "uploaded_by_user_id"
+  add_foreign_key "financial_document_source_cleanups", "financial_document_imports", on_delete: :nullify
+  add_foreign_key "financial_document_source_cleanups", "households", on_delete: :nullify
+  add_foreign_key "financial_document_source_cleanups", "users", column: "requested_by_user_id", on_delete: :nullify
   add_foreign_key "goals", "households"
   add_foreign_key "household_audit_events", "households"
   add_foreign_key "household_audit_events", "users"

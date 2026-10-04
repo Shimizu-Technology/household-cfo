@@ -181,7 +181,7 @@ function attachmentDisplayName(attachment: MiaMessageAttachment) {
   if (attachment.document_kind === 'receipt' && attachment.content_type.startsWith('image/')) return 'Receipt screenshot'
   if (attachment.document_kind === 'statement' && attachment.content_type.startsWith('image/')) return 'Statement screenshot'
   if (attachment.content_type.startsWith('image/')) return 'Screenshot'
-  return attachment.document_kind.replace('_', ' ').replace(/^./, (letter) => letter.toUpperCase())
+  return attachment.filename
 }
 
 function browserPreviewableImage(contentType: string) {

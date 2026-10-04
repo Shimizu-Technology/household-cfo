@@ -92,7 +92,7 @@ module HouseholdFinance
     SETUP_NUMBER_SOURCE = "((?:\\d{1,3}(?:,\\d{3})+|\\d{1,9})(?:\\.\\d{1,2})?)(?!\\d|,\\d)"
     SETUP_AMOUNT_PREFIX_SOURCE = "(?:\\s+(?:is|are|equals?|totals?|comes\\s+to))?(?:\\s+now)?\\s*(?:about|around|approximately|roughly)?\\s*\\$?\\s*"
     DETERMINISTIC_SETUP_MONEY_PATTERNS = {
-      primary_income: Regexp.new("\\b(?:we\\s+)?(?:bring\\s+home|take[ -]?home(?:\\s+pay)?|primary(?:\\s+monthly)?\\s+income|monthly\\s+income)\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
+      primary_income: Regexp.new("\\b(?:we\\s+)?(?:bring\\s+home|(?:monthly\\s+)?take[ -]?home(?:\\s+(?:pay|income))?|primary(?:\\s+monthly)?\\s+income|monthly\\s+income)\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
       fixed_expenses: Regexp.new("\\bfixed(?:\\s+(?:expenses|essentials|bills))\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
       flexible_spend: Regexp.new("\\b(?:flexible(?:\\s+(?:spend|spending))|discretionary\\s+spending)\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
       emergency_fund: Regexp.new("\\b(?:emergency fund|emergency savings)\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
@@ -103,7 +103,7 @@ module HouseholdFinance
     }.freeze
     DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS = [
       /\b(?:our\s+)?household\s+(?:name\s+)?(?:is\s+)?(?:called|named)\s+(.+?)(?=[.;,]|\z)/i,
-      /\bcall\s+(?:us|our\s+household)\s+(.+?)(?=[.;,]|\z)/i
+      /\bcall\s+(?:us|(?:my|our)\s+household)\s+(.+?)(?=[.;,]|\z)/i
     ].freeze
     DETERMINISTIC_PRIMARY_GOAL_PATTERN = /\b(?:our\s+)?(?:(?:main|primary|financial|household)\s+)?goal\s+(?:is|:)\s+(.+?)(?=[.;]|\s*,\s*(?:and\s+)?(?:our\s+household|we\s+bring\s+home|fixed\s+(?:expenses|essentials|bills)|flexible\s+(?:spend|spending))\b|\z)/i.freeze
     DETERMINISTIC_RUNWAY_PATTERN = /\b(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[-\s]+months?(?:\s+of)?\s+(?:emergency\s+(?:fund|savings)|runway)\b/i.freeze
@@ -264,7 +264,10 @@ module HouseholdFinance
             normalized_user_message.match?(DETERMINISTIC_SETUP_READ_ONLY_PATTERN) ||
             ambiguous_setup_statement?
           values, conflicts = deterministic_setup_values
-          if conflicts.any?
+          oversized_field = oversized_setup_text_field
+          if oversized_field
+            deterministic_setup_clarification(oversized_field, clarification: "Please shorten the #{MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(oversized_field).downcase} to #{setup_text_limit(oversized_field)} characters or fewer so I can prepare it without truncating your words.")
+          elsif conflicts.any?
             deterministic_setup_clarification(conflicts.first)
           elsif values.any? && complete_setup_statement?
             action = normalize_action(default_action_payload.merge(type: "update_household_setup", setup_updates: values))
@@ -297,7 +300,7 @@ module HouseholdFinance
       return true if text.match?(/\b(?:set|change|update|increase|decrease|move|add|create)\b.{0,60}\b(?:category|allocation|dining|groceries|debt|account|goal)\b/i)
 
       primary = DETERMINISTIC_SETUP_MONEY_PATTERNS.fetch(:primary_income)
-      text.match?(primary) && !text.match?(/\b(?:monthly\s+income|primary\s+monthly\s+income)\b|#{primary.source}\s*(?:(?:a|each|per)\s+month|monthly)\b/i)
+      text.match?(primary) && !text.match?(/\b(?:monthly\s+(?:take[ -]?home(?:\s+(?:pay|income))?|income)|primary\s+monthly\s+income)\b|#{primary.source}\s*(?:(?:a|each|per)\s+month|monthly)\b/i)
     end
 
     def complete_setup_statement?
@@ -372,7 +375,17 @@ module HouseholdFinance
       (BigDecimal(cents.to_s) / 100).to_s("F").sub(/\.0+\z/, "")
     end
 
-    def deterministic_setup_clarification(field)
+    def setup_text_limit(field)
+      field.to_s == "household_name" ? 120 : 500
+    end
+
+    def oversized_setup_text_field
+      names = DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS.flat_map { |pattern| user_message.scan(pattern).flatten }
+      return :household_name if names.any? { |name| normalized_bounded_text(name).length > setup_text_limit(:household_name) }
+      :primary_goal if user_message.scan(DETERMINISTIC_PRIMARY_GOAL_PATTERN).flatten.any? { |goal| normalized_bounded_text(goal).length > setup_text_limit(:primary_goal) }
+    end
+
+    def deterministic_setup_clarification(field, clarification: nil)
       label = MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(field)
       Result.new(
         intent: "clarification",
@@ -380,7 +393,7 @@ module HouseholdFinance
         continuation: false,
         resolved_message: user_message,
         needs_clarification: true,
-        clarification: "I found more than one #{label.downcase}. Which value should I prepare for review?",
+        clarification: clarification || "I found more than one #{label.downcase}. Which value should I prepare for review?",
         topic: { type: "household_setup", title: "Starting household picture", subject: label },
         action: { type: "none" },
         read_only_plan: {},
@@ -413,7 +426,7 @@ module HouseholdFinance
     end
 
     def guided_setup_value(field)
-      return guided_text_setup_value if field.in?(GUIDED_TEXT_SETUP_FIELDS)
+      return guided_text_setup_value(field) if field.in?(GUIDED_TEXT_SETUP_FIELDS)
       return unless field.in?(REQUIRED_ZERO_SETUP_FIELDS)
       return if guided_setup_non_answer?
 
@@ -426,8 +439,19 @@ module HouseholdFinance
       (BigDecimal(cents.to_s) / 100).to_s("F").sub(/\.0+\z/, "")
     end
 
-    def guided_text_setup_value
-      return if user_message.length > 240 || guided_setup_non_answer?
+    def guided_text_setup_value(field)
+      return if normalized_bounded_text(user_message).length > setup_text_limit(field) || guided_setup_non_answer?
+      return if normalized_user_message.match?(HYPOTHETICAL_PATTERN) ||
+        normalized_user_message.match?(PURCHASE_SCENARIO_PATTERN) ||
+        normalized_user_message.match?(DETERMINISTIC_SETUP_READ_ONLY_PATTERN)
+      return if normalized_user_message.match?(/\b(?:do not|don['’]?t|never)\s+(?:change|save|update|record|set)\b/i)
+      return if field == "household_name" && ambiguous_setup_statement?
+      # A compound or incompletely understood factual reply belongs to the
+      # validated planner. It must never be saved whole as the requested name.
+      values, conflicts = deterministic_setup_values
+      return if values.any? || conflicts.any? || user_message.match?(/[.;]\s*\S/)
+      return if field == "household_name" && user_message.match?(/,\s*(?:(?:my|our)\s+|(?:i|we)\s+(?:have|bring|make|take|want|need|pay|spent)\b|(?:please|also)\b)/i)
+      return if field == "household_name" && user_message.include?("$")
 
       user_message
     end
@@ -2679,7 +2703,11 @@ module HouseholdFinance
     end
 
     def bounded(value, limit)
-      value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").gsub(/[<>`]/, "").squish.truncate(limit, omission: "…")
+      normalized_bounded_text(value).truncate(limit, omission: "…")
+    end
+
+    def normalized_bounded_text(value)
+      value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").gsub(/[<>`]/, "").squish
     end
   end
 end

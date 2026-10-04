@@ -174,10 +174,11 @@ class S3Service
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
       return true if key.blank?
 
-      s3_client.delete_object(bucket: bucket_name, key: key)
+      # Requests perform one bounded first attempt; the durable outbox owns retries.
+      cleanup_s3_client.delete_object(bucket: bucket_name, key: key)
       true
     rescue Aws::S3::Errors::ServiceError => e
-      Rails.logger.error("[S3Service] Delete failed for #{key}: #{e.message}")
+      Rails.logger.error("[S3Service] Delete failed error_class=#{e.class}")
       false
     end
 
@@ -190,6 +191,18 @@ class S3Service
     end
 
     private
+
+    def cleanup_s3_client
+      Aws::S3::Client.new(
+        region: region,
+        access_key_id: ENV.fetch("AWS_ACCESS_KEY_ID"),
+        secret_access_key: ENV.fetch("AWS_SECRET_ACCESS_KEY"),
+        http_open_timeout: 3,
+        http_read_timeout: 8,
+        retry_mode: "legacy",
+        retry_limit: 0
+      )
+    end
 
     def default_prefix
       "household-cfo/#{Rails.env}"

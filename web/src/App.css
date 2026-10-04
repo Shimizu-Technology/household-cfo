@@ -5858,7 +5858,8 @@ h3 {
   inset: 18px;
   z-index: 60;
   max-width: 1040px;
-  max-height: calc(100vh - 36px);
+  height: calc(100dvh - 36px);
+  max-height: calc(100dvh - 36px);
   margin: auto;
   box-shadow: 0 28px 72px rgba(24, 27, 24, 0.28);
 }
@@ -6094,7 +6095,7 @@ h3 {
 }
 
 .chat-suggestions-button {
-  display: none;
+  display: inline-flex;
   min-height: 40px;
   padding: 7px 10px;
   background: white;
@@ -6204,7 +6205,23 @@ h3 {
 }
 
 .mia-suggestions-panel {
-  display: contents;
+  position: absolute;
+  z-index: 6;
+  top: 76px;
+  right: 12px;
+  left: 12px;
+  display: none;
+  max-height: calc(100% - 150px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: 0 18px 42px rgba(47, 38, 28, 0.18);
+  overscroll-behavior: contain;
+}
+
+.mia-suggestions-panel.is-open {
+  display: grid;
 }
 
 .chat-prompts {
@@ -6662,6 +6679,10 @@ h3 {
 .composer-attachment-tray {
   grid-column: 1 / -1;
   display: flex;
+  max-height: 112px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   flex-wrap: wrap;
   gap: 8px;
 }
@@ -6671,6 +6692,11 @@ h3 {
   display: grid;
   gap: 7px;
   min-width: 0;
+}
+
+.composer-attachment-workflow > strong {
+  color: var(--ink);
+  font-size: 0.78rem;
 }
 
 .composer-attachment-workflow > p {
@@ -6702,6 +6728,12 @@ h3 {
 .composer-attachment-card {
   padding: 6px;
   flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.attachment-preview-button span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .attachment-kind-picker select {
@@ -6999,6 +7031,12 @@ h3 {
   fill: currentColor;
 }
 
+@media (max-width: 900px) {
+  .mia-layout { grid-template-columns: minmax(0, 1fr); }
+  .mia-context.panel { grid-column: 1; grid-row: 2; position: static; }
+  .mia-chat-shell { grid-column: 1; grid-row: 1; }
+}
+
 @media (max-width: 620px) {
   .account-pill :where(.cl-userButtonBox, .cl-userButtonTrigger, .cl-userButtonAvatarBox, .cl-avatarBox) {
     width: 28px !important;
@@ -7023,7 +7061,7 @@ h3 {
   .mia-chat-shell {
     order: 1;
     width: 100%;
-    height: max(540px, calc(100svh - 148px));
+    height: max(440px, calc(100dvh - 148px));
     min-height: 0;
     border-radius: 20px;
   }
@@ -10015,3 +10053,69 @@ h3 {
   .admin-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .admin-stat-row .metric-card { min-height: 0; padding: 14px; }
 }
+
+.first-session-setup-progress { position: relative; }
+.first-session-setup-options {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% - 6px);
+  left: 12px;
+  right: 12px;
+  display: grid;
+  gap: 10px;
+  max-height: min(260px, 35dvh);
+  overflow-y: auto;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper);
+  box-shadow: 0 18px 42px rgba(47, 38, 28, 0.18);
+  overscroll-behavior: contain;
+}
+.document-review-coverage { margin: 10px 0; color: var(--muted); font-size: 0.86rem; }
+.document-upload-card:focus-within label { outline: 3px solid var(--brand-focus); outline-offset: 3px; }
+
+@media (max-width: 620px) {
+  .composer-attachment-workflow > p { display: none; }
+  .composer-attachment-tray { max-height: 92px; }
+  .chat-error, .voice-status { max-height: 64px; overflow-y: auto; }
+}
+
+/* Setup assistance stays available without competing with the conversation. */
+.first-session-setup-progress {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  padding: 10px 14px;
+}
+.first-session-progress-heading { grid-column: 1; grid-row: 1; align-items: center; }
+.first-session-progress-heading .eyebrow,
+.first-session-progress-heading > span { display: none; }
+.first-session-progress-heading strong { font-size: 0.8rem; }
+.first-session-progress-bar { grid-column: 1 / -1; grid-row: 2; }
+.first-session-options-toggle { grid-column: 2; grid-row: 1; min-height: 34px; padding: 6px 9px; font-size: 0.72rem; }
+@media (max-width: 420px) {
+  .chat-shell-header { grid-template-columns: minmax(0, 1fr) auto; }
+  .chat-shell-header > .message-avatar { display: none; }
+  .chat-shell-header .chat-actions { grid-column: 2; width: auto; }
+}
+
+@media (max-width: 420px) {
+  .mia-chat-shell:not(.is-expanded) { height: max(520px, calc(100dvh - 148px)); }
+  .mia-chat-shell .ask-row .composer-message-field { grid-column: 1 / -1; grid-row: 2; }
+  .mia-chat-shell .ask-row textarea { max-height: 72px; }
+  .mia-chat-shell .ask-row .composer-attach { grid-column: 1; grid-row: 3; }
+  .mia-chat-shell .ask-row .composer-voice { grid-column: 2; grid-row: 3; }
+  .mia-chat-shell .ask-row .send-button { grid-column: 4; grid-row: 3; }
+}
+
+@media (max-width: 620px) {
+  .chat-shell-header { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 9px; padding: 10px 14px 8px; }
+  .chat-shell-header > .message-avatar { display: none; }
+  .chat-shell-copy { display: contents; }
+  .chat-shell-copy h3 { grid-column: 1; grid-row: 1; min-width: 0; }
+  .chat-shell-header .chat-actions { grid-column: 2; grid-row: 1; width: auto; }
+  .chat-shell-header .chat-period-context { display: block; grid-column: 1 / -1; grid-row: 2; margin-top: 0; font-size: 0.68rem; line-height: 1.3; }
+  .mia-suggestions-panel { top: 100px; max-height: calc(100% - 170px); }
+}
+
+.budget-loading-boundary { min-width: 0; margin: 0; padding: 0; border: 0; }

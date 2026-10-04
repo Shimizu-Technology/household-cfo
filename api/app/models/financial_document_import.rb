@@ -25,7 +25,7 @@ class FinancialDocumentImport < ApplicationRecord
   validate :source_present_for_active_import
 
   scope :recent_first, -> { order(created_at: :desc, id: :desc) }
-  scope :pending_review, -> { where(status: "needs_review") }
+  scope :pending_review, -> { where(status: %w[needs_review partially_applied]) }
   scope :applied_recent_first, -> { where(status: %w[applied partially_applied]).order(Arel.sql("COALESCE(applied_at, updated_at) DESC"), id: :desc) }
 
   def image?

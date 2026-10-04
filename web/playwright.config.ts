@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173)
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -7,14 +9,14 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: `http://127.0.0.1:${port}`,
     trace: 'retain-on-failure',
   },
   projects: [
     { name: 'desktop-chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
     {
       name: 'tablet-768-chrome',
-      grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory/,
+      grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory|BOG UI/,
       use: {
         channel: 'chrome',
         viewport: { width: 768, height: 1024 },
@@ -24,7 +26,7 @@ export default defineConfig({
     },
     {
       name: 'tablet-1024-chrome',
-      grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory/,
+      grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory|BOG UI/,
       use: {
         channel: 'chrome',
         viewport: { width: 1024, height: 768 },
@@ -54,7 +56,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-webkit',
-      grep: /large financial values|Ask Mia renders bounded history|compact phone layouts|mobile Ask Mia|PDF document preview|Coach Studio|Mia memory/,
+      grep: /large financial values|Ask Mia renders bounded history|compact phone layouts|mobile Ask Mia|PDF document preview|Coach Studio|Mia memory|BOG UI/,
       use: {
         browserName: 'webkit',
         viewport: { width: 390, height: 844 },
@@ -65,9 +67,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 4173',
-    url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
+    command: `npm run dev -- --host 127.0.0.1 --port ${port} --strictPort`,
+    url: `http://127.0.0.1:${port}`,
+    reuseExistingServer: !process.env.CI && !process.env.PLAYWRIGHT_PORT,
     env: {
       VITE_API_BASE_URL: 'http://api.test',
       VITE_CLERK_PUBLISHABLE_KEY: '',

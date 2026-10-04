@@ -1,6 +1,24 @@
 require "test_helper"
 
 class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
+  test "known zero debt never bypasses the missing cash guard for a combined purchase question" do
+    household = create_yellow_household
+    household.debts.destroy_all
+    mark_setup_confirmed(household)
+    household.accounts.destroy_all
+
+    [
+      "Can I buy a $200 television and pay off my $500 credit card?",
+      "Can I pay off my loan and buy a $200 television?",
+      "Can I take a $900 trip and make a $750 extra debt payment this month?"
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+      assert_includes answer, "liquid account picture is incomplete", prompt
+      refute_includes answer, "no outstanding debt", prompt
+      assert_includes answer, "No financial decision was made", prompt
+    end
+  end
+
   test "an explicitly read only amount edit is not interpreted as a purchase" do
     household = create_yellow_household
     [
