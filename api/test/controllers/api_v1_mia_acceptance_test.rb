@@ -61,6 +61,11 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
   test "ambiguous setup facts never become a partial current household review" do
     user, household = participant
     [
+      "Can you explain why my monthly income is $6,200?",
+      "My monthly income is $6,200 starting in November.",
+      "Pretend my monthly income is $6,200.",
+      "My monthly income is $6,200 and fixed expenses are 1200 and I paid 100 at Walmart yesterday.",
+      "My monthly income is $6,200; please leave my records unchanged.",
       "My monthly income is $6,200 gross.",
       "My monthly income is $6,200 but that is before tax.",
       "My monthly income is 6200 and I owe 3100 on my car loan.",

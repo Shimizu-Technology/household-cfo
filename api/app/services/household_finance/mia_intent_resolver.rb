@@ -251,7 +251,7 @@ module HouseholdFinance
           values, conflicts = deterministic_setup_values
           if conflicts.any?
             deterministic_setup_clarification(conflicts.first)
-          elsif values.any? && complete_setup_amounts?(values)
+          elsif values.any? && complete_setup_statement?
             action = normalize_action(default_action_payload.merge(type: "update_household_setup", setup_updates: values))
             prior_action = validated_prior_action(action, continuation: true)
             action = merge_prior_action(action, prior_action)
@@ -285,10 +285,16 @@ module HouseholdFinance
       text.match?(primary) && !text.match?(/\b(?:monthly\s+income|primary\s+monthly\s+income)\b|#{primary.source}\s*(?:(?:a|each|per)\s+month|monthly)\b/i)
     end
 
-    def complete_setup_amounts?(values)
-      # Do not silently omit another dollar amount from a compound request.
-      stated = user_message.scan(MONEY_TEXT_PATTERN).flatten.filter_map { |raw| normalized_setup_money(raw) }.uniq
-      stated.all? { |value| values.values.include?(value) }
+    def complete_setup_statement?
+      # The shortcut must account for the whole message, including bare numbers.
+      # Unrecognized clauses belong to the validated planner, not a partial draft.
+      remainder = normalized_user_message.dup
+      remainder.sub!(/\A(?:here is everything i know so far(?: for the starting household picture)?|for (?:our )?(?:starting picture|setup))[.:,]\s*/i, "")
+      remainder.sub!(/\APlease keep these as proposed values for review because I want to verify every number before anything changes\.\s*/i, "")
+      patterns = DETERMINISTIC_SETUP_MONEY_PATTERNS.values +
+        DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS + [ DETERMINISTIC_PRIMARY_GOAL_PATTERN ]
+      patterns.each { |pattern| remainder.gsub!(pattern, " ") }
+      remainder.match?(/\A(?:[\s,.;]|\b(?:my|our|and|we|i|monthly|a month|each month|per month)\b)*\z/i)
     end
 
     def deterministic_setup_values
