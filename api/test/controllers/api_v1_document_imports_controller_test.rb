@@ -671,6 +671,30 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_response :no_content
     assert_not FinancialDocumentImport.exists?(document_import.id)
     assert_equal [ false ], record_existed_when_s3_deleted
+    cleanup = FinancialDocumentSourceCleanup.last
+    assert_equal "completed", cleanup.status
+    assert_nil cleanup.s3_key
+  end
+
+  test "destroy persists storage cleanup even when storage and retry queue fail" do
+    document_import = create_import!(s3_key: "household-cfo/test/cleanup-retry.pdf")
+    queue = Object.new
+    queue.define_singleton_method(:perform_later) { |_| raise ActiveJob::EnqueueError, "queue unavailable" }
+
+    with_s3_stubs(configured?: true, delete: ->(_key) { false }) do
+      with_singleton_stub(FinancialDocumentSourceCleanupJob, :set, ->(*) { queue }) do
+        assert_difference("FinancialDocumentSourceCleanup.count", 1) do
+          delete "/api/v1/document_imports/#{document_import.id}", headers: auth_headers(@user)
+        end
+      end
+    end
+    assert_response :accepted
+    assert_not FinancialDocumentImport.exists?(document_import.id)
+    cleanup = FinancialDocumentSourceCleanup.last
+    assert_equal "failed", cleanup.status
+    assert_equal "household-cfo/test/cleanup-retry.pdf", cleanup.s3_key
+    assert_not_includes response.body, cleanup.s3_key
+    assert_equal true, JSON.parse(response.body).dig("source_cleanup", "retrying")
   end
 
   test "destroy blocks imports with resolved transaction drafts" do
@@ -725,6 +749,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
     assert FinancialDocumentImport.exists?(document_import.id)
     assert_empty deleted_keys
+    assert_not FinancialDocumentSourceCleanup.exists?(s3_key: document_import.s3_key)
   ensure
     FinancialDocumentImportItem.skip_callback(:destroy, :before, callback)
   end
@@ -801,6 +826,8 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_not document_import.source_available?
     assert_equal "source_deleted", document_import.status
     assert_equal "household-cfo/test/source.pdf", document_import.s3_key
+    assert_equal "failed", FinancialDocumentSourceCleanup.last.status
+    assert_enqueued_with(job: FinancialDocumentSourceCleanupJob)
   end
 
   test "item update accepts dollar-form amount balance and payment parameters" do

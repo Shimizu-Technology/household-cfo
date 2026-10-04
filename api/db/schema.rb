@@ -1281,8 +1281,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["from_cohort_release_id"], name: "idx_on_from_cohort_release_id_13d9f68065"
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_release_activation_events_scope", unique: true
     t.index ["to_cohort_release_id"], name: "index_cohort_release_activation_events_on_to_cohort_release_id"
-    t.check_constraint "event_type::text = 'backfill'::text AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NULL AND actor_role_snapshot IS NULL OR event_type::text = 'initial_launch'::text AND from_cohort_release_id IS NULL AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[])) OR event_type::text = 'rollout_completed'::text AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[]))", name: "release_activation_events_shape"
-    t.check_constraint "event_type::text = ANY (ARRAY['backfill'::character varying, 'initial_launch'::character varying, 'rollout_completed'::character varying]::text[])", name: "release_activation_events_type_valid"
+    t.check_constraint "event_type::text = 'backfill'::text AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NULL AND actor_role_snapshot IS NULL OR event_type::text = 'initial_launch'::text AND from_cohort_release_id IS NULL AND cohort_rollout_id IS NULL AND cohort_rollout_transition_id IS NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text])) OR event_type::text = 'rollout_completed'::text AND cohort_rollout_id IS NOT NULL AND cohort_rollout_transition_id IS NOT NULL AND actor_user_id IS NOT NULL AND actor_role_snapshot IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying::text, 'owner'::character varying::text, 'reviewer'::character varying::text]))", name: "release_activation_events_shape"
+    t.check_constraint "event_type::text = ANY (ARRAY['backfill'::character varying::text, 'initial_launch'::character varying::text, 'rollout_completed'::character varying::text])", name: "release_activation_events_type_valid"
     t.check_constraint "request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "release_activation_events_request_valid"
   end
 
@@ -1655,6 +1655,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.check_constraint "status::text = ANY (ARRAY['uploaded'::character varying::text, 'processing'::character varying::text, 'needs_review'::character varying::text, 'applied'::character varying::text, 'partially_applied'::character varying::text, 'failed'::character varying::text, 'source_deleted'::character varying::text])", name: "financial_document_imports_status_valid"
   end
 
+  create_table "financial_document_source_cleanups", force: :cascade do |t|
+    t.integer "attempts", default: 0, null: false
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.string "error_code"
+    t.bigint "financial_document_import_id"
+    t.bigint "household_id"
+    t.datetime "lease_expires_at"
+    t.string "lease_token"
+    t.datetime "next_attempt_at", null: false
+    t.bigint "requested_by_user_id"
+    t.string "s3_key", limit: 1024
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["financial_document_import_id"], name: "idx_document_cleanup_import"
+    t.index ["household_id"], name: "index_financial_document_source_cleanups_on_household_id"
+    t.index ["requested_by_user_id"], name: "idx_on_requested_by_user_id_961d281d8f"
+    t.index ["s3_key"], name: "idx_document_cleanup_key", unique: true
+    t.index ["status", "next_attempt_at"], name: "idx_document_cleanup_due"
+    t.check_constraint "attempts >= 0", name: "document_cleanup_attempts_nonnegative"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'failed'::character varying, 'completed'::character varying]::text[])", name: "document_cleanup_status_valid"
+  end
+
   create_table "financial_extraction_revisions", force: :cascade do |t|
     t.string "contract_version", null: false
     t.jsonb "coverage", default: {}, null: false
@@ -1692,7 +1715,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["household_id"], name: "index_financial_source_accounts_on_household_id"
     t.index ["id", "financial_extraction_revision_id", "household_id"], name: "index_source_accounts_scoped_identity", unique: true
     t.index ["id", "household_id"], name: "index_source_accounts_household_identity", unique: true
-    t.check_constraint "account_basis::text = ANY (ARRAY['asset'::character varying, 'liability'::character varying, 'unknown'::character varying]::text[])", name: "source_account_basis_valid"
+    t.check_constraint "account_basis::text = ANY (ARRAY['asset'::character varying::text, 'liability'::character varying::text, 'unknown'::character varying::text])", name: "source_account_basis_valid"
   end
 
   create_table "financial_source_events", force: :cascade do |t|
@@ -1717,10 +1740,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
     t.index ["financial_source_account_id"], name: "index_financial_source_events_on_financial_source_account_id"
     t.index ["household_id"], name: "index_financial_source_events_on_household_id"
     t.index ["id", "household_id"], name: "index_source_events_household_identity", unique: true
-    t.check_constraint "event_type::text = ANY (ARRAY['purchase'::character varying, 'fee'::character varying, 'refund'::character varying, 'income'::character varying, 'transfer'::character varying, 'debt_payment'::character varying, 'cash_withdrawal'::character varying, 'interest'::character varying, 'adjustment'::character varying, 'unknown'::character varying]::text[])", name: "source_event_type_valid"
+    t.check_constraint "event_type::text = ANY (ARRAY['purchase'::character varying::text, 'fee'::character varying::text, 'refund'::character varying::text, 'income'::character varying::text, 'transfer'::character varying::text, 'debt_payment'::character varying::text, 'cash_withdrawal'::character varying::text, 'interest'::character varying::text, 'adjustment'::character varying::text, 'unknown'::character varying::text])", name: "source_event_type_valid"
     t.check_constraint "expense_amount_cents IS NULL OR expense_amount_cents > 0", name: "source_event_expense_positive"
-    t.check_constraint "expense_amount_cents IS NULL OR row_kind::text = 'posted'::text AND (event_type::text = ANY (ARRAY['purchase'::character varying, 'fee'::character varying, 'interest'::character varying]::text[])) AND signed_amount_cents < 0 AND posted_on IS NOT NULL", name: "source_event_expense_eligible"
-    t.check_constraint "row_kind::text = ANY (ARRAY['posted'::character varying, 'informational'::character varying, 'unresolved'::character varying]::text[])", name: "source_event_kind_valid"
+    t.check_constraint "expense_amount_cents IS NULL OR row_kind::text = 'posted'::text AND (event_type::text = ANY (ARRAY['purchase'::character varying::text, 'fee'::character varying::text, 'interest'::character varying::text])) AND signed_amount_cents < 0 AND posted_on IS NOT NULL", name: "source_event_expense_eligible"
+    t.check_constraint "row_kind::text = ANY (ARRAY['posted'::character varying::text, 'informational'::character varying::text, 'unresolved'::character varying::text])", name: "source_event_kind_valid"
   end
 
   create_table "financial_source_evidences", force: :cascade do |t|
@@ -2760,6 +2783,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_220000) do
   add_foreign_key "financial_document_imports", "users", column: "applied_by_user_id"
   add_foreign_key "financial_document_imports", "users", column: "source_deleted_by_user_id"
   add_foreign_key "financial_document_imports", "users", column: "uploaded_by_user_id"
+  add_foreign_key "financial_document_source_cleanups", "financial_document_imports", on_delete: :nullify
+  add_foreign_key "financial_document_source_cleanups", "households", on_delete: :nullify
+  add_foreign_key "financial_document_source_cleanups", "users", column: "requested_by_user_id", on_delete: :nullify
   add_foreign_key "financial_extraction_revisions", "financial_document_import_attempts", on_delete: :nullify
   add_foreign_key "financial_extraction_revisions", "financial_document_imports", on_delete: :nullify
   add_foreign_key "financial_extraction_revisions", "households"

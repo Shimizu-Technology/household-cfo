@@ -10,6 +10,7 @@ module CohortReleases
     CURRENT_SCHEMA = V2_SCHEMA
     MANIFEST_SCHEMA = CURRENT_SCHEMA
     SUPPORTED_SCHEMAS = [ V1_SCHEMA, V2_SCHEMA ].freeze
+    # Legacy default, not a global requirement for every sealed release.
     TOOL_REGISTRY_VERSION = 1
 
     def self.deep_freeze(value)
@@ -154,11 +155,17 @@ module CohortReleases
       )
     end
 
-    def tool_registry_snapshot
+    def tool_registry_snapshot(version: TOOL_REGISTRY_VERSION)
+      canonicalize(ToolContracts.fetch(version))
+    end
+
+    def runtime_tool_registry_snapshot
       canonicalize(
         "schema_version" => TOOL_REGISTRY_VERSION,
         "modules" => CohortExperience::ModuleRegistry::MODULES.map { |entry| entry.deep_stringify_keys },
         "operations" => HouseholdFinance::Operations::Registry.operations.sort_by { |key, _operation| key }.map do |key, operation|
+          raise ArgumentError, "operation registry key does not match its handler" unless key == operation::KEY
+
           { "key" => key, "version" => operation::VERSION }
         end
       )
@@ -195,7 +202,7 @@ module CohortReleases
         "persona" => component(persona_snapshot),
         "experience" => component(experience_snapshot),
         "tool_registry" => {
-          "version" => TOOL_REGISTRY_VERSION,
+          "version" => tool_registry_snapshot.fetch("schema_version"),
           "snapshot" => tool_registry_snapshot,
           "snapshot_digest" => digest(tool_registry_snapshot)
         }
@@ -212,7 +219,7 @@ module CohortReleases
         "persona" => component(persona_snapshot),
         "experience" => component(experience_snapshot),
         "tool_registry" => {
-          "version" => TOOL_REGISTRY_VERSION,
+          "version" => tool_registry_snapshot.fetch("schema_version"),
           "snapshot" => tool_registry_snapshot,
           "snapshot_digest" => digest(tool_registry_snapshot)
         }

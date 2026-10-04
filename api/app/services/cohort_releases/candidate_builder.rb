@@ -30,7 +30,9 @@ module CohortReleases
       assignment, persona, persona_version, persona_snapshot, persona_blockers, persona_warnings = persona_component
       configuration, experience_version, experience_snapshot, experience_blockers, experience_warnings = experience_component
       brand_version, brand_snapshot, brand_blockers, brand_warnings = brand_component
-      registry = Contract.tool_registry_snapshot
+      registry = Contract.tool_registry_snapshot(
+        version: ToolContracts.version_for_experience(experience_snapshot.fetch("config"))
+      )
       release_bundle = Contract.bundle(
         schema: Contract::CURRENT_SCHEMA,
         cohort: cohort,
@@ -56,7 +58,7 @@ module CohortReleases
         tool_registry_snapshot: registry,
         bundle: release_bundle,
         bundle_digest: Contract.digest(release_bundle),
-        blockers: persona_blockers + experience_blockers + brand_blockers +
+        blockers: persona_blockers + experience_blockers + brand_blockers + tool_contract_blockers(registry) +
           (strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
         warnings: persona_warnings + experience_warnings + brand_warnings +
           (!strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
@@ -67,6 +69,14 @@ module CohortReleases
     private
 
     attr_reader :cohort, :strict
+
+    def tool_contract_blockers(registry)
+      compatible = ToolContracts.runtime_compatible?(registry, version: registry.fetch("schema_version"),
+        runtime_snapshot: Contract.runtime_tool_registry_snapshot)
+      compatible ? [] : [ "The selected tool contract requires supported operation versions and module definitions." ]
+    rescue ArgumentError, NameError
+      [ "The selected tool contract could not validate its registered operation handlers." ]
+    end
 
     def persona_component
       assignment = cohort.cohort_persona_assignment

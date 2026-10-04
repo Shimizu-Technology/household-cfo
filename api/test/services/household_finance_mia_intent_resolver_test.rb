@@ -1860,6 +1860,91 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     )
   end
 
+  test "parses the natural compound guided setup reply into all five reviewed fields" do
+    message = "Call my household BOG QA Household. My primary goal is to reduce debt over 90 days. My monthly take-home income is $4,000. Fixed essentials are $2,000 per month and flexible spending is $800 per month."
+    provider_called = false
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: setup_zero_context("household_name"),
+      api_key: "test-key",
+      transport: ->(_payload) { provider_called = true; nil }
+    ).call
+
+    refute provider_called
+    assert result.actionable?
+    assert_equal "deterministic", result.source
+    assert_equal(
+      { household_name: "BOG QA Household", primary_goal: "Reduce debt over 90 days", primary_income: "4000", fixed_expenses: "2000", flexible_spend: "800" },
+      result.action.fetch(:setup_updates)
+    )
+  end
+
+  test "does not save an incomplete compound setup reply as the entire household name" do
+    [
+      "Call my household BOG QA Household. My rent changed but I do not know the amount.",
+      "BOG QA Household. I take home $4,000 but I do not know whether that is monthly.",
+      "BOG QA Household; please add an account too.",
+      "BOG QA Household, my rent changed",
+      "BOG QA Household, we need help with bills"
+    ].each do |message|
+      result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: setup_zero_context("household_name"), api_key: nil).call
+
+      assert_nil result, message
+    end
+  end
+
+  test "asks for a shorter explicit household name rather than truncating it" do
+    message = "Call my household #{'N' * 121}. My monthly take-home income is $4,000."
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: setup_zero_context("household_name"), api_key: nil).call
+
+    assert result.clarification?
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "120 characters"
+  end
+
+  test "normalized setup text limits reject expanding ligatures instead of silently truncating" do
+    {
+      household_name: "Call my household #{'ﬃ' * 41}.",
+      primary_goal: "My primary goal is #{'ﬃ' * 167}."
+    }.each do |field, message|
+      result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: setup_zero_context(field.to_s), api_key: nil).call
+      assert result.clarification?, field
+      refute result.actionable?, field
+      assert_includes result.clarification, "#{field == :household_name ? 120 : 500} characters"
+    end
+    guided = HouseholdFinance::MiaIntentResolver.new(user_message: "ﬃ" * 41, context: setup_zero_context("household_name"), api_key: nil).call
+    assert_nil guided
+    ordinary = HouseholdFinance::MiaIntentResolver.new(user_message: "Leon, Ana and Kids", context: setup_zero_context("household_name"), api_key: nil).call
+    assert_equal "Leon, Ana and Kids", ordinary.action.dig(:setup_updates, :household_name)
+  end
+
+  test "guided name replies cannot bypass hypothetical no-save or third-party boundaries" do
+    [
+      "What if our household is called BOG QA Household and monthly income is $4,000?",
+      "Do not save this. Call my household BOG QA Household. My monthly income is $4,000.",
+      "My friend has monthly take-home income of $4,000.",
+      "My monthly take-home income is $4,000 weekly."
+    ].each do |message|
+      result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: setup_zero_context("household_name"), api_key: nil).call
+
+      refute result&.actionable?, message
+    end
+  end
+
+  test "compound name and income contradictions require clarification without partial drafts" do
+    [
+      "Call my household First Family. Call my household Second Family. My monthly take-home income is $4,000.",
+      "Call my household BOG QA Household. My monthly take-home income is $4,000. My monthly take-home income is $4,100."
+    ].each do |message|
+      result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: setup_zero_context("household_name"), api_key: nil).call
+
+      assert result.clarification?, message
+      refute result.actionable?
+      assert_equal "none", result.action.fetch(:type)
+    end
+  end
+
   test "does not let a long setup summary fall through to purchase routing" do
     message = <<~TEXT.squish
       Here is everything I know so far for the starting household picture. Please keep these as proposed values for review because I want to verify every number before anything changes.
@@ -2093,7 +2178,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
 
   test "accepts ordinary guided text answers whose first word can also appear in questions or refusals" do
     {
-      primary_goal: [ "Help my kids graduate debt-free", "No debt" ],
+      primary_goal: [ "Help my kids graduate debt-free", "Help my daughter graduate debt-free", "Save $500 over 90 days", "Pay off my loan", "No debt" ],
       household_name: [ "Will & Grace Household", "May Family" ]
     }.each do |field, messages|
       messages.each do |message|
