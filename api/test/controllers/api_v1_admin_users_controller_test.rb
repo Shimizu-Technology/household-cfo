@@ -43,7 +43,6 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     admin = create_user(email: "coach-admin@example.com", role: "admin")
     coach = create_user(email: "coach@example.com", role: "coach")
     cohort = Cohort.create!(name: "Participant Pilot", status: "enrolling", created_by_user: admin)
-    cohort.coach_workspace.coach_workspace_memberships.create!(user: coach, role: "editor")
     coach.cohort_memberships.create!(cohort: cohort, role: "coach")
 
     post "/api/v1/admin/users",
@@ -66,6 +65,130 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal "pending", body.fetch("invitation_status")
   end
 
+  test "explicit workspace roles cannot access participant roster despite a coach cohort membership" do
+    admin = create_user(email: "roster-role-admin@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Explicit roster roles", status: "active", created_by_user: admin)
+    participant = create_user(email: "roster-protected-participant@example.com", role: "participant")
+    participant.cohort_memberships.create!(cohort: cohort, role: "participant")
+
+    %w[editor reviewer viewer].each do |role|
+      coach = create_user(email: "roster-#{role}@example.com", role: "coach")
+      cohort.coach_workspace.coach_workspace_memberships.create!(user: coach, role: role)
+      coach.cohort_memberships.create!(cohort: cohort, role: "coach")
+      headers = workspace_auth_headers(coach, cohort.coach_workspace)
+
+      get "/api/v1/admin/users", headers: headers
+      assert_response :forbidden, "#{role} could read roster"
+      refute_includes response.body, participant.email
+
+      assert_no_difference -> { User.count } do
+        post "/api/v1/admin/users", params: {
+          user: { email: "roster-invite-#{role}@example.com", role: "participant", cohort_id: cohort.id, send_invitation_email: false }
+        }, headers: headers, as: :json
+      end
+      assert_response :forbidden, "#{role} could invite"
+
+      patch "/api/v1/admin/users/#{participant.id}", params: { user: { first_name: "Changed" } }, headers: headers, as: :json
+      assert_response :forbidden, "#{role} could change participant"
+      assert_nil participant.reload.first_name
+
+      assert_no_difference -> { participant.invitation_email_attempts.count } do
+        post "/api/v1/admin/users/#{participant.id}/resend_invitation", headers: headers
+      end
+      assert_response :forbidden, "#{role} could resend invitation"
+    end
+  end
+
+  test "explicit owner demotion removes roster access while cohort coach assignment remains" do
+    coach = create_user(email: "demoted-roster-owner@example.com", role: "coach")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(coach)
+    cohort = Cohort.create!(name: "Demoted owner cohort", status: "active", created_by_user: coach, coach_workspace: workspace)
+    coach.cohort_memberships.create!(cohort: cohort, role: "coach")
+
+    get "/api/v1/admin/users", headers: workspace_auth_headers(coach, workspace)
+    assert_response :success
+    workspace.membership_for(coach).update!(role: "viewer")
+    get "/api/v1/admin/users", headers: workspace_auth_headers(coach, workspace)
+    assert_response :forbidden
+  end
+
+  test "workspace owner manages participants without a cohort coach assignment" do
+    owner = create_user(email: "roster-owner@example.com", role: "coach")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    cohort = Cohort.create!(name: "Owner roster cohort", status: "enrolling", created_by_user: owner, coach_workspace: workspace)
+    headers = workspace_auth_headers(owner, workspace)
+    assert_empty owner.cohort_memberships
+
+    post "/api/v1/admin/users", params: {
+      user: { email: "owner-invited-participant@example.com", role: "participant", cohort_id: cohort.id, send_invitation_email: false }
+    }, headers: headers, as: :json
+    assert_response :created
+    participant = User.find_by!(email: "owner-invited-participant@example.com")
+
+    get "/api/v1/admin/users", headers: headers
+    assert_response :success
+    assert_equal [ participant.id ], response.parsed_body.fetch("users").pluck("id")
+
+    patch "/api/v1/admin/users/#{participant.id}", params: { user: { first_name: "Participant" } }, headers: headers, as: :json
+    assert_response :success
+    assert_equal "Participant", participant.reload.first_name
+  end
+
+  test "workspace owner roster cannot escape tenant or rewrite a shared participant identity" do
+    owner = create_user(email: "roster-boundary-owner@example.com", role: "coach")
+    other_owner = create_user(email: "roster-boundary-other@example.com", role: "coach")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    other_workspace = CoachWorkspaces::Provisioner.ensure_for!(other_owner)
+    cohort = Cohort.create!(name: "Owned roster cohort", status: "active", created_by_user: owner, coach_workspace: workspace)
+    other_cohort = Cohort.create!(name: "Other roster cohort", status: "active", created_by_user: other_owner, coach_workspace: other_workspace)
+    participant = create_user(email: "roster-boundary-participant@example.com", role: "participant")
+    participant.cohort_memberships.create!(cohort: cohort, role: "participant")
+    participant.cohort_memberships.create!(cohort: other_cohort, role: "participant")
+    outside = create_user(email: "roster-outside-participant@example.com", role: "participant")
+    outside.cohort_memberships.create!(cohort: other_cohort, role: "participant")
+    headers = workspace_auth_headers(owner, workspace)
+
+    get "/api/v1/admin/users", headers: headers
+    assert_response :success
+    assert_equal [ participant.id ], response.parsed_body.fetch("users").pluck("id")
+    assert_equal [ cohort.id ], response.parsed_body.fetch("users").sole.fetch("cohorts").map { |row| row.dig("cohort", "id") }
+
+    patch "/api/v1/admin/users/#{participant.id}", params: { user: { first_name: "Shared change" } }, headers: headers, as: :json
+    assert_response :forbidden
+    assert_nil participant.reload.first_name
+
+    patch "/api/v1/admin/users/#{outside.id}", params: { user: { first_name: "Outside change" } }, headers: headers, as: :json
+    assert_response :forbidden
+    assert_nil outside.reload.first_name
+
+    assert_no_difference -> { User.count } do
+      post "/api/v1/admin/users", params: {
+        user: { email: "roster-cross-tenant-invite@example.com", role: "participant", cohort_id: other_cohort.id, send_invitation_email: false }
+      }, headers: headers, as: :json
+    end
+    assert_response :forbidden
+
+    patch "/api/v1/admin/users/#{participant.id}", params: { user: { cohort_ids: [] } }, headers: headers, as: :json
+    assert_response :success
+    assert_equal [ other_cohort.id ], participant.reload.cohort_memberships.pluck(:cohort_id)
+  end
+
+  test "legacy cohort manager loses roster access after explicit role demotion" do
+    admin = create_user(email: "legacy-roster-admin@example.com", role: "admin")
+    coach = create_user(email: "legacy-roster-coach@example.com", role: "coach")
+    cohort = Cohort.create!(name: "Legacy managed cohort", status: "active", created_by_user: admin)
+    coach.cohort_memberships.create!(cohort: cohort, role: "coach")
+    membership = cohort.coach_workspace.membership_for(coach)
+    assert_predicate membership, :cohort_managed?
+
+    get "/api/v1/admin/users", headers: workspace_auth_headers(coach, cohort.coach_workspace)
+    assert_response :success
+    membership.update!(role: "viewer")
+    refute_predicate membership, :cohort_managed?
+    get "/api/v1/admin/users", headers: workspace_auth_headers(coach, cohort.coach_workspace)
+    assert_response :forbidden
+  end
+
   test "coach cannot create admin invited users" do
     coach = create_user(email: "limited-coach@example.com", role: "coach")
 
@@ -86,7 +209,6 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     other_cohort = Cohort.create!(name: "Other Pilot", status: "active", created_by_user: admin)
     assigned_participant = create_user(email: "assigned-participant@example.com", role: "participant")
     other_participant = create_user(email: "other-participant@example.com", role: "participant")
-    assigned_cohort.coach_workspace.coach_workspace_memberships.create!(user: coach, role: "editor")
     coach.cohort_memberships.create!(cohort: assigned_cohort, role: "coach")
     assigned_participant.cohort_memberships.create!(cohort: assigned_cohort, role: "participant")
     other_participant.cohort_memberships.create!(cohort: other_cohort, role: "participant")
@@ -811,7 +933,6 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
     first_cohort = Cohort.create!(name: "Coach managed cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
     second_cohort = Cohort.create!(name: "Other tenant cohort", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
-    first_workspace.coach_workspace_memberships.create!(user: coach, role: "editor")
     coach.cohort_memberships.create!(cohort: first_cohort, role: "coach")
     participant = create_user(email: "coach-shared-participant@example.com", role: "participant")
     participant.cohort_memberships.create!(cohort: first_cohort, role: "participant")
@@ -837,7 +958,6 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
     first_cohort = Cohort.create!(name: "Invite managed cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
     second_cohort = Cohort.create!(name: "Invite other tenant", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
-    first_workspace.coach_workspace_memberships.create!(user: coach, role: "editor")
     coach.cohort_memberships.create!(cohort: first_cohort, role: "coach")
     participant = User.create!(clerk_id: "pending_#{SecureRandom.hex(6)}", email: "coach-existing-shared@example.com", role: "participant", invitation_status: "pending")
     participant.cohort_memberships.create!(cohort: first_cohort, role: "participant")
