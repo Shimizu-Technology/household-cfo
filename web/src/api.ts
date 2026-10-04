@@ -1793,7 +1793,7 @@ export type CohortExperienceConfiguration = {
   preview: null | { digest: string; draft_revision: number; generated_at: string }
   published_version: CohortExperienceVersion | null
   versions: CohortExperienceVersion[]
-  permissions: { edit: boolean; publish: boolean; rollback: boolean }
+  permissions: { edit: boolean; review: boolean; publish: boolean; rollback: boolean }
 }
 
 export type CohortExperiencePreview = {

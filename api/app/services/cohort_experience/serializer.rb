@@ -2,8 +2,9 @@
 
 module CohortExperience
   class Serializer
-    def initialize(configuration:)
+    def initialize(configuration:, actor:)
       @configuration = configuration
+      @actor = actor
     end
 
     def detail
@@ -25,9 +26,10 @@ module CohortExperience
         published_version: serialize_version(configuration.current_published_version),
         versions: configuration.versions.order(version_number: :desc).map { |version| serialize_version(version, include_source: true) },
         permissions: {
-          edit: cohort.status.in?(%w[draft enrolling active]),
-          publish: cohort.status.in?(%w[draft enrolling active]),
-          rollback: cohort.status.in?(%w[draft enrolling active])
+          edit: mutable? && workspace.allows?(actor, :edit),
+          review: mutable? && (workspace.allows?(actor, :edit) || workspace.allows?(actor, :review)),
+          publish: mutable? && workspace.allows?(actor, :publish),
+          rollback: mutable? && workspace.allows?(actor, :publish)
         }
       }
     end
@@ -54,7 +56,15 @@ module CohortExperience
 
     private
 
-    attr_reader :configuration
+    attr_reader :configuration, :actor
+
+    def workspace
+      configuration.coach_workspace
+    end
+
+    def mutable?
+      cohort.status.in?(%w[draft enrolling active])
+    end
 
     def cohort
       configuration.cohort

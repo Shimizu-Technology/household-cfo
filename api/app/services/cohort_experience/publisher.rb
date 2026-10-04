@@ -12,7 +12,7 @@ module CohortExperience
     end
 
     def preview!(expected_draft_revision:)
-      with_locked_editable_configuration do
+      with_locked_editable_configuration(permission: :review) do
         validate_revision!(expected_draft_revision)
         digest = preview_digest
         configuration.update!(
@@ -58,18 +58,29 @@ module CohortExperience
 
     attr_reader :configuration, :actor
 
-    def with_locked_editable_configuration
+    def with_locked_editable_configuration(permission: :publish)
       cohort = configuration.cohort
       cohort.with_lock do
         configuration.lock!
-        ensure_editable!(cohort)
+        ensure_editable!(cohort, permission: permission)
         yield
       end
     end
 
-    def ensure_editable!(cohort)
-      unless configuration.coach_workspace&.allows?(actor, :publish)
-        raise PublicationError, "Only a workspace owner or reviewer can publish participant tools"
+    def ensure_editable!(cohort, permission:)
+      workspace = configuration.coach_workspace
+      allowed = if permission == :review
+        workspace&.allows?(actor, :edit) || workspace&.allows?(actor, :review)
+      else
+        workspace&.allows?(actor, :publish)
+      end
+      unless allowed
+        message = if permission == :review
+          "Only a workspace owner, editor, or reviewer can preview participant tools"
+        else
+          "Only a workspace owner or reviewer can publish participant tools"
+        end
+        raise PublicationError, message
       end
       raise ReadOnlyError, "Completed and archived cohorts are read-only" unless cohort.status.in?(%w[draft enrolling active])
     end

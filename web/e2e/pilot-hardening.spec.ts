@@ -760,7 +760,7 @@ async function mockDemoApi(page: Page) {
     preview: experiencePreview,
     published_version: experiencePublishedVersion,
     versions: experienceVersions,
-    permissions: { edit: true, publish: true, rollback: true },
+    permissions: { edit: true, review: true, publish: true, rollback: true },
   })
   const responses: Record<string, unknown> = {
     '/api/demo/profile': profile,
@@ -4871,7 +4871,8 @@ test('Coach Studio participant tools preview publish and restore the exact cohor
   await expect(preview).toContainText('Not included: CFO Filter')
 
   page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('1 participant in Household CFO pilot')
+    expect(dialog.message()).toContain('1 participant will keep the tools in their current sealed release')
+    expect(dialog.message()).toContain('until a new release is activated or rolled out')
     await dialog.accept()
   })
   await page.getByRole('button', { name: 'Publish to cohort' }).click()
@@ -4892,6 +4893,50 @@ test('Coach Studio participant tools preview publish and restore the exact cohor
   await expect(page.getByLabel('Include CFO Filter')).not.toBeChecked()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
+
+for (const role of ['editor', 'reviewer', 'viewer'] as const) {
+  test(`Coach Studio participant tools honor ${role} capabilities`, async ({ page }) => {
+    const permissions = {
+      edit: role === 'editor', review: role !== 'viewer', publish: role === 'reviewer', rollback: role === 'reviewer',
+    }
+    const oldVersion = { id: 100, number: 1, digest: 'old', published_at: '2026-10-01T00:00:00Z', published_by: { id: 1, full_name: 'Owner' } }
+    const currentVersion = { ...oldVersion, id: 101, number: 2, digest: 'current' }
+    const configuration = {
+      cohort: { id: 41, name: 'Household CFO pilot', status: 'active', participant_count: 1 },
+      draft: { schema_version: 1, optional_modules: { cfo_filter: true, optionality: true } },
+      draft_revision: 1, preview_required: true, preview: null as null | { digest: string; draft_revision: number; generated_at: string },
+      published_version: currentVersion, versions: [currentVersion, oldVersion], permissions,
+    }
+    let previewRequests = 0
+    await page.route('**/api/v1/admin/cohorts/41/experience_configuration', (route) => route.fulfill({ status: 200, json: { experience_configuration: configuration } }))
+    await page.route('**/api/v1/admin/cohorts/41/experience_configuration/preview', (route) => {
+      previewRequests += 1
+      configuration.preview = { digest: 'role-preview', draft_revision: 1, generated_at: '2026-10-01T00:00:00Z' }
+      return route.fulfill({ status: 200, json: { experience_configuration: configuration, preview: { ...configuration.preview, modules: [] } } })
+    })
+    await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
+    await page.getByRole('tab', { name: /Participant tools/ }).click()
+    await expect(page.getByLabel('Include CFO Filter')).toBeVisible()
+    if (permissions.edit) await expect(page.getByLabel('Include CFO Filter')).toBeEnabled()
+    else await expect(page.getByLabel('Include CFO Filter')).toBeDisabled()
+    const preview = page.getByRole('button', { name: 'Preview navigation' })
+    if (permissions.review) {
+      await expect(preview).toBeEnabled()
+      await preview.click()
+      await expect(page.getByRole('status')).toContainText('Exact participant navigation preview is ready')
+      expect(previewRequests).toBe(1)
+    } else {
+      await expect(preview).toBeDisabled()
+      await expect(page.getByText('Your workspace role can view these tools but cannot change or publish them.')).toBeVisible()
+    }
+    if (permissions.publish) await expect(page.getByRole('button', { name: 'Publish to cohort' })).toBeEnabled()
+    else await expect(page.getByRole('button', { name: 'Publish to cohort' })).toBeDisabled()
+    await page.getByText('Version history (2)').click()
+    if (permissions.rollback) await expect(page.getByRole('button', { name: 'Restore as new version' })).toBeEnabled()
+    else await expect(page.getByRole('button', { name: 'Restore as new version' })).toBeDisabled()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  })
+}
 
 test('Coach Studio shows participant cohorts loading before an empty state', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chrome', 'loading-state regression')
@@ -4943,7 +4988,7 @@ test('Coach Studio ignores a delayed participant-tool response after switching c
           preview: null,
           published_version: null,
           versions: [],
-          permissions: { edit: true, publish: true, rollback: true },
+          permissions: { edit: true, review: true, publish: true, rollback: true },
         },
       },
     })
@@ -5217,7 +5262,7 @@ test('Coach Studio locks workspace selection through a delayed Participant Tools
         cohort: { id: 41, name: 'Household CFO pilot', status: 'active', participant_count: 1 },
         draft: route.request().postDataJSON().experience_configuration.draft_config,
         draft_revision: 2, preview_required: true, preview: null, published_version: null, versions: [],
-        permissions: { edit: true, publish: true, rollback: true },
+        permissions: { edit: true, review: true, publish: true, rollback: true },
       } },
     })
   })

@@ -54,7 +54,7 @@ module Api
         end
 
         def serializer
-          CohortExperience::Serializer.new(configuration: configuration.reload)
+          CohortExperience::Serializer.new(configuration: configuration.reload, actor: current_user)
         end
 
         def rollback_params
