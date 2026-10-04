@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceCollaborators } from './WorkspaceCollaborators'
-import { addWorkspaceCollaborator, changeWorkspaceCollaborator, fetchWorkspaceCollaborators, ApiRequestError, type WorkspaceCollaborator, type WorkspaceCollaboratorsPayload } from '../api'
+import { addWorkspaceCollaborator, changeWorkspaceCollaborator, fetchWorkspaceCollaborators, removeWorkspaceCollaborator, sendWorkspaceCollaboratorEmail, ApiRequestError, type WorkspaceCollaborator, type WorkspaceCollaboratorsPayload } from '../api'
 
 vi.mock('../api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../api')>(),
@@ -16,10 +16,68 @@ const editor: WorkspaceCollaborator = { ...owner, id: 2, user_id: 11, email: 'ed
 const payload = (): WorkspaceCollaboratorsPayload => ({ workspace_id: 1, permissions: { manage: true }, members: [owner, editor], sign_in_url: 'https://coach.example.test' })
 const lifecycle = { pending: false, begin: vi.fn(() => ({ id: 1, workspaceId: 1 })), isCurrent: vi.fn(() => true), finish: vi.fn() }
 
-beforeEach(() => { vi.clearAllMocks(); vi.mocked(fetchWorkspaceCollaborators).mockResolvedValue(payload()) })
+beforeEach(() => { vi.clearAllMocks(); lifecycle.isCurrent.mockReturnValue(true); vi.mocked(fetchWorkspaceCollaborators).mockResolvedValue(payload()) })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('WorkspaceCollaborators', () => {
+  it.each(['add', 'role', 'remove', 'email'] as const)('ignores stale %s success and clears only its owned pending operation', async (action) => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    let complete!: (value: never) => void
+    const response = new Promise<never>((resolve) => { complete = resolve })
+    vi.mocked(addWorkspaceCollaborator).mockReturnValue(response)
+    vi.mocked(changeWorkspaceCollaborator).mockReturnValue(response)
+    vi.mocked(removeWorkspaceCollaborator).mockReturnValue(response)
+    vi.mocked(sendWorkspaceCollaboratorEmail).mockReturnValue(response)
+    render(<WorkspaceCollaborators workspaceId={1} mutationLifecycle={lifecycle} />)
+    const card = await screen.findByRole('region', { name: 'editor@example.test team access' })
+    if (action === 'add') {
+      await user.type(screen.getByRole('textbox', { name: 'Collaborator email' }), 'new@example.test')
+      await user.click(screen.getByRole('button', { name: 'Add collaborator' }))
+    } else if (action === 'role') {
+      await user.selectOptions(within(card).getByRole('combobox'), 'reviewer')
+      await user.click(within(card).getByRole('button', { name: 'Save role' }))
+    } else await user.click(within(card).getByRole('button', { name: action === 'remove' ? 'Remove' : 'Send access email' }))
+    lifecycle.isCurrent.mockReturnValue(false)
+    await act(async () => complete({
+      member: { ...editor, role: 'owner', email: 'stale@example.test' }, added: true,
+      delivery: { sent: true, status: 'sent', provider_message_id: 'accepted' }, platform_admin: false,
+    } as never))
+    await waitFor(() => expect(lifecycle.finish).toHaveBeenCalledOnce())
+    expect(screen.getByRole('button', { name: 'Refresh team' })).toHaveProperty('disabled', false)
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText('stale@example.test')).toBeNull()
+    expect(screen.getByRole('region', { name: 'editor@example.test team access' })).toBeTruthy()
+    if (action === 'add') expect(screen.getByRole('textbox', { name: 'Collaborator email' })).toHaveProperty('value', 'new@example.test')
+    if (action === 'role') expect(within(card).getByRole('combobox')).toHaveProperty('value', 'reviewer')
+  })
+
+  it('does not release a new panel mutation when the previous program operation settles late', async () => {
+    const user = userEvent.setup()
+    let finishOld!: (value: Awaited<ReturnType<typeof addWorkspaceCollaborator>>) => void
+    let finishNew!: (value: Awaited<ReturnType<typeof addWorkspaceCollaborator>>) => void
+    vi.mocked(addWorkspaceCollaborator)
+      .mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { finishNew = resolve }))
+    const view = render(<WorkspaceCollaborators workspaceId={1} mutationLifecycle={lifecycle} />)
+    await screen.findByRole('region', { name: 'owner@example.test team access' })
+    await user.type(screen.getByRole('textbox', { name: 'Collaborator email' }), 'old@example.test')
+    await user.click(screen.getByRole('button', { name: 'Add collaborator' }))
+    vi.mocked(fetchWorkspaceCollaborators).mockResolvedValueOnce({ ...payload(), workspace_id: 2 })
+    view.rerender(<WorkspaceCollaborators workspaceId={2} mutationLifecycle={lifecycle} />)
+    await screen.findByRole('region', { name: 'owner@example.test team access' })
+    await user.type(screen.getByRole('textbox', { name: 'Collaborator email' }), 'new@example.test')
+    await user.click(screen.getByRole('button', { name: 'Add collaborator' }))
+    const response = { member: { ...editor, id: 3, email: 'old@example.test' }, added: true, new_user: false, delivery: null, sign_in_url: null }
+    await act(async () => { finishOld(response) })
+    expect(screen.getByRole('button', { name: 'Saving access' })).toHaveProperty('disabled', true)
+    expect(screen.queryByRole('region', { name: 'old@example.test team access' })).toBeNull()
+    await act(async () => { finishNew({ ...response, member: { ...response.member, email: 'new@example.test' } }) })
+    await screen.findByRole('region', { name: 'new@example.test team access' })
+    expect(screen.getByRole('button', { name: 'Add collaborator' })).toHaveProperty('disabled', true)
+  })
+
   it('protects your own owner access and explains roles without exposing financial records', async () => {
     render(<WorkspaceCollaborators workspaceId={1} mutationLifecycle={lifecycle} />)
     const card = await screen.findByRole('region', { name: 'owner@example.test team access' })

@@ -19,11 +19,15 @@ const actor = { is_admin: false, full_name: 'Mrs. Mel' } as CurrentUser
 const draft = { ...NEUTRAL_BRAND, product_name: 'Island Money', short_name: 'Island', organization_name: 'Mel', welcome_heading: 'Welcome', welcome_description: 'One step at a time.' }
 const configuration: WorkspaceBrandConfiguration = { workspace: { id: 1, name: workspace.name, slug: workspace.slug }, draft, draft_revision: 1, preview_required: true, preview: null, published_version: { id: 1, number: 1, digest: 'initial', published_at: '2026-10-01T00:00:00Z', published_by: { id: 1, full_name: 'Mrs. Mel' } }, versions: [], permissions: { edit: true, preview: true, publish: true, rollback: true } }
 const lifecycle = { pending: false, begin: vi.fn(() => ({ id: 1, workspaceId: 1 })), isCurrent: vi.fn(() => true), finish: vi.fn() }
+const refreshCurrentUser = vi.hoisted(() => vi.fn())
+vi.mock('../contexts/authContextValue', () => ({ useAuthContext: () => ({ refreshCurrentUser }) }))
 function renderSettings() { render(<CoachProgramSettings workspaceId={1} currentUser={actor} mutationLifecycle={lifecycle} onDirtyChange={vi.fn()} />) }
 
 describe('program settings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    refreshCurrentUser.mockResolvedValue(undefined)
+    lifecycle.isCurrent.mockReturnValue(true)
     vi.mocked(api.fetchCoachWorkspaceSettings).mockResolvedValue(workspace)
     vi.mocked(api.fetchWorkspaceBrand).mockResolvedValue(configuration)
     vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -102,5 +106,43 @@ describe('program settings', () => {
     await user.click(screen.getByRole('button', { name: 'Create program' }))
     await screen.findByRole('status')
     expect(vi.mocked(api.createCoachWorkspace).mock.calls[0][1]).toBe(vi.mocked(api.createCoachWorkspace).mock.calls[1][1])
+  })
+
+  it('keeps a confirmed program creation successful when only account refresh fails', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.createCoachWorkspace).mockResolvedValue(workspace)
+    refreshCurrentUser.mockRejectedValue(new Error('Refresh unavailable'))
+    const created = vi.fn()
+    render(<CreateCoachProgram onCreated={created} />)
+    await user.click(screen.getByRole('button', { name: 'Create program' }))
+    await user.type(screen.getByLabelText('Workspace name'), 'Island program')
+    await user.type(screen.getByLabelText('Coach display name'), 'Mrs. Mel')
+    await user.click(screen.getByRole('button', { name: 'Create program' }))
+    expect((await screen.findByRole('status')).textContent).toContain('was created')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('do not create it again'))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByLabelText('Workspace name')).toBeNull()
+    expect(created).toHaveBeenCalledWith(workspace)
+    expect(api.createCoachWorkspace).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the saved identity revision and dirty state when only account refresh fails', async () => {
+    const user = userEvent.setup()
+    const saved = { ...workspace, name: 'Updated program', revision: 1 }
+    vi.mocked(api.updateCoachWorkspaceSettings).mockResolvedValue(saved)
+    refreshCurrentUser.mockRejectedValue(new Error('Refresh unavailable'))
+    const dirty = vi.fn()
+    render(<CoachProgramSettings workspaceId={1} currentUser={actor} mutationLifecycle={lifecycle} onDirtyChange={dirty} />)
+    const name = await screen.findByLabelText('Workspace name')
+    await user.clear(name); await user.type(name, saved.name)
+    await user.click(screen.getByRole('button', { name: 'Save program identity' }))
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Program identity saved, but'))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByLabelText('Workspace name')).toHaveProperty('value', saved.name)
+    expect(screen.getByRole('button', { name: 'Save program identity' })).toHaveProperty('disabled', true)
+    expect(dirty).toHaveBeenLastCalledWith(false)
+    await user.type(screen.getByLabelText('Workspace name'), ' again')
+    await user.click(screen.getByRole('button', { name: 'Save program identity' }))
+    expect(vi.mocked(api.updateCoachWorkspaceSettings).mock.calls[1][1].revision).toBe(1)
   })
 })

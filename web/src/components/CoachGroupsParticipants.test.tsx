@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminCohort, AdminUser, CurrentUser } from '../api'
@@ -24,6 +24,45 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 describe('Coach group essentials', () => {
+  it('clears roster and unsaved input synchronously when another program loads', async () => {
+    const user = userEvent.setup()
+    const view = harness()
+    await screen.findByText('participant@example.com')
+    await user.type(screen.getByLabelText('Participant email'), 'unsaved@example.com')
+    let resolveGroups!: (value: AdminCohort[]) => void
+    let resolveUsers!: (value: AdminUser[]) => void
+    mocks.fetchAdminCohorts.mockImplementationOnce(() => new Promise((resolve) => { resolveGroups = resolve }))
+    mocks.fetchAdminUsers.mockImplementationOnce(() => new Promise((resolve) => { resolveUsers = resolve }))
+    const nextOwner = { ...owner, coach_workspaces: [{ id: 3, membership_role: 'owner' }] } as CurrentUser
+    view.rerender(<CoachGroupsParticipants {...view.props} currentUser={nextOwner} workspaceId={3} />)
+    expect(screen.queryByText('participant@example.com')).toBeNull()
+    expect(screen.queryByLabelText('Participant email')).toBeNull()
+    expect(screen.getByText('Loading groups and participants…')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'New group' })).toHaveProperty('disabled', true)
+    await act(async () => { resolveGroups([{ ...group, id: 30, name: 'Another program group' }]); resolveUsers([]) })
+    await screen.findByText('Participants in Another program group')
+    expect(screen.getByLabelText('Participant email')).toHaveProperty('value', '')
+    expect(mocks.removeCoachGroupParticipant).not.toHaveBeenCalled()
+    expect(mocks.resendAdminUserInvitation).not.toHaveBeenCalled()
+  })
+
+  it('drops roster data after role denial and waits for a fresh load when access returns', async () => {
+    const view = harness()
+    await screen.findByText('participant@example.com')
+    const viewer = { ...owner, coach_workspaces: [{ id: 2, membership_role: 'viewer' }] } as CurrentUser
+    view.rerender(<CoachGroupsParticipants {...view.props} currentUser={viewer} />)
+    expect(screen.queryByText('participant@example.com')).toBeNull()
+    expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(1)
+    let resolveGroups!: (value: AdminCohort[]) => void
+    mocks.fetchAdminCohorts.mockImplementationOnce(() => new Promise((resolve) => { resolveGroups = resolve }))
+    mocks.fetchAdminUsers.mockResolvedValueOnce([])
+    view.rerender(<CoachGroupsParticipants {...view.props} />)
+    expect(screen.queryByText('participant@example.com')).toBeNull()
+    expect(screen.getByText('Loading groups and participants…')).toBeTruthy()
+    await act(async () => { resolveGroups([]) })
+    await screen.findByText('Create your first group to invite participants.')
+  })
+
   it('blocks collaborators and platform mode without fetching participant identities', async () => {
     for (const role of ['editor', 'reviewer', 'viewer']) {
       const view = harness({ ...owner, coach_workspaces: [{ id: 2, membership_role: role }] } as CurrentUser)

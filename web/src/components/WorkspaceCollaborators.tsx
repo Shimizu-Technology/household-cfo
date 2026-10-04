@@ -37,6 +37,8 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
   const [pending, setPending] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const mounted = useRef(true)
+  const nextOperation = useRef(0)
+  const pendingOperation = useRef<number | null>(null)
   const roleHelpId = useId()
   const dirty = Boolean(email.trim()) || Boolean(data?.members.some((member) => draftRoles[member.id] && draftRoles[member.id] !== member.role))
 
@@ -69,18 +71,24 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
     }
   }, [attempt, workspaceId])
 
-  async function mutate(key: string, operation: () => Promise<void>) {
-    if (pending || !data?.permissions.manage) return
+  async function mutate(key: string, operation: (isCurrent: () => boolean) => Promise<void>) {
+    if (pendingOperation.current !== null || !data?.permissions.manage) return
+    const operationId = ++nextOperation.current
+    pendingOperation.current = operationId
     const ticket = mutationLifecycle.begin()
+    const isCurrent = () => mounted.current && pendingOperation.current === operationId && mutationLifecycle.isCurrent(ticket)
     setPending(key)
     setError(null)
     setNotice(null)
     try {
-      await operation()
+      await operation(isCurrent)
     } catch (caught) {
-      if (mounted.current && mutationLifecycle.isCurrent(ticket)) setError(message(caught, 'That team change could not be confirmed.'))
+      if (isCurrent()) setError(message(caught, 'That team change could not be confirmed.'))
     } finally {
-      if (mounted.current && mutationLifecycle.isCurrent(ticket)) setPending(null)
+      if (pendingOperation.current === operationId) {
+        pendingOperation.current = null
+        if (mounted.current) setPending(null)
+      }
       mutationLifecycle.finish(ticket)
     }
   }
@@ -94,9 +102,9 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
 
   function add(event: FormEvent) {
     event.preventDefault()
-    void mutate('add', async () => {
+    void mutate('add', async (isCurrent) => {
       const result = await addWorkspaceCollaborator(workspaceId, email.trim(), role, sendEmail)
-      if (!mounted.current) return
+      if (!isCurrent()) return
       replaceMember(result.member)
       setEmail('')
       setNotice(result.added ? `Workspace access saved for ${result.member.email}. ${deliveryNotice(result.delivery)}` : 'This person already has the same workspace access. No new email was sent.')
@@ -107,9 +115,9 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
     const nextRole = draftRoles[member.id]
     if (!nextRole || nextRole === member.role) return
     if (!window.confirm(`Change ${member.email} from ${member.role} to ${nextRole}? ${roleDescriptions[nextRole]}`)) return
-    void mutate(`role:${member.id}`, async () => {
+    void mutate(`role:${member.id}`, async (isCurrent) => {
       const result = await changeWorkspaceCollaborator(workspaceId, member, nextRole)
-      if (!mounted.current) return
+      if (!isCurrent()) return
       replaceMember(result.member)
       setNotice(`Saved ${result.member.email} as ${result.member.role}.`)
     })
@@ -117,18 +125,18 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
 
   function remove(member: WorkspaceCollaborator) {
     if (!window.confirm(`Remove ${member.email} from this coaching workspace and its staff cohort assignments? Their participant enrollments and access to other programs will stay intact.${member.platform_admin ? ' Platform administrators retain platform access.' : ''}`)) return
-    void mutate(`remove:${member.id}`, async () => {
+    void mutate(`remove:${member.id}`, async (isCurrent) => {
       const result = await removeWorkspaceCollaborator(workspaceId, member)
-      if (!mounted.current) return
+      if (!isCurrent()) return
       setData((current) => current ? { ...current, members: current.members.filter((item) => item.id !== member.id) } : current)
       setNotice(`Workspace membership removed.${result.platform_admin ? ' This platform administrator retains platform access.' : ''}`)
     })
   }
 
   function sendAccessEmail(member: WorkspaceCollaborator) {
-    void mutate(`email:${member.id}`, async () => {
+    void mutate(`email:${member.id}`, async (isCurrent) => {
       const result = await sendWorkspaceCollaboratorEmail(workspaceId, member.id)
-      if (mounted.current) setNotice(deliveryNotice(result.delivery))
+      if (isCurrent()) setNotice(deliveryNotice(result.delivery))
     })
   }
 

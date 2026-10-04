@@ -52,9 +52,11 @@ export function CreateCoachProgram({ disabled = false, onDirtyChange, onPendingC
       if (!mounted.current) return
       creationKeys.current.clear()
       setValues(blankIdentity); setOpen(false)
-      setNotice(`${created.name} was created. Choose it in the workspace selector to finish its assistant and branding.`)
-      await refreshCurrentUser()
-      onCreated?.(created)
+      const savedNotice = `${created.name} was created. Choose it in the workspace selector to finish its assistant and branding.`
+      setNotice(savedNotice)
+      try { await refreshCurrentUser() }
+      catch { if (mounted.current) setNotice(`${created.name} was created, but the workspace selector could not refresh. Reload to find this program; do not create it again.`) }
+      if (mounted.current) onCreated?.(created)
     } catch (caught) { if (mounted.current) setError(message(caught)) }
     finally { if (mounted.current) setBusy(false) }
   }
@@ -141,7 +143,8 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
       const next = await updateCoachWorkspaceSettings(workspace.id, { ...identity, revision: workspace.revision })
       if (!isCurrent()) return
       setWorkspace(next); setIdentity(identityValues(next)); setNotice('Program identity saved. Assistant voice and published branding are managed separately below.')
-      await refreshCurrentUser()
+      try { await refreshCurrentUser() }
+      catch { if (isCurrent()) setNotice('Program identity saved, but the workspace selector could not refresh. Reload to see the updated name. Do not save this change again.') }
     })
   }
   function updateBrand(next: BrandConfig) { setDraft(next); setPreview(null); setNotice(null) }

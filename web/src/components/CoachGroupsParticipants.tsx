@@ -15,15 +15,21 @@ function invitationNotice(result: AdminUserMutationResponse): string {
   return result.invitation_error || 'Participant added. No invitation email was sent.'
 }
 
-export function CoachGroupsParticipants({ currentUser, workspaceId, mutationLifecycle, onDirtyChange, onGroupsChanged }: {
+type Props = {
   currentUser: CurrentUser
   workspaceId: number | null
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
   onGroupsChanged?: () => void
-}) {
-  const membership = currentUser.coach_workspaces?.find((workspace) => workspace.id === workspaceId)
-  const allowed = workspaceId !== null && (currentUser.is_admin || membership?.membership_role === 'owner')
+}
+
+export function CoachGroupsParticipants(props: Props) {
+  const membership = props.currentUser.coach_workspaces?.find((workspace) => workspace.id === props.workspaceId)
+  const allowed = props.workspaceId !== null && (props.currentUser.is_admin || membership?.membership_role === 'owner')
+  return <GroupsPanel key={`${props.workspaceId ?? 'platform'}:${allowed}`} {...props} allowed={allowed} />
+}
+
+function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsChanged, allowed }: Props & { allowed: boolean }) {
   const [groups, setGroups] = useState<AdminCohort[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)

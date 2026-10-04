@@ -185,6 +185,8 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
     } catch (error) {
       if (!liveMounted.current || request !== liveRequest.current) return
       setApiUser(null)
+      setActiveCoachWorkspaceState(null)
+      setActiveCoachWorkspaceId(null)
       setAuthError(error instanceof Error ? error.message : 'Unable to verify QA program access')
     } finally {
       if (liveMounted.current && request === liveRequest.current) setRefreshing(false)
