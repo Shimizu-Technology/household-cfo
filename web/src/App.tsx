@@ -613,7 +613,8 @@ function App() {
     [documentImports],
   )
   const budgetForView = (budgetView ? budgets[budgetView.year] : null) ?? data?.budget
-  const reviewBudget = activeSection === 'Budget' ? budgetForView : homeBudget
+  const usesSelectedBudgetContext = activeSection === 'Budget' || activeSection === 'Ask Mia'
+  const reviewBudget = usesSelectedBudgetContext ? budgetForView : homeBudget
   const pendingTransactionDrafts = reviewBudget?.annual_plan?.pending_transaction_drafts ?? []
   const pendingPlaidDrafts = pendingTransactionDrafts.filter((draft) => draft.source_type === 'plaid')
   const plaidActivityRefreshKey = pendingPlaidDrafts
@@ -621,8 +622,8 @@ function App() {
     .join('|')
   const pendingMiaActionDrafts = reviewBudget?.annual_plan?.pending_mia_action_drafts ?? []
   const activeBudgetPlan = reviewBudget?.annual_plan
-  const selectedBudgetYear = (activeSection === 'Budget' ? budgetView?.year : null) ?? activeBudgetPlan?.year ?? new Date().getFullYear()
-  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, (activeSection === 'Budget' ? budgetView?.monthIndex : null) ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
+  const selectedBudgetYear = (usesSelectedBudgetContext ? budgetView?.year : null) ?? activeBudgetPlan?.year ?? new Date().getFullYear()
+  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, (usesSelectedBudgetContext ? budgetView?.monthIndex : null) ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const selectedBudgetOutlookMonth = selectedBudgetMonth
     ? activeBudgetPlan?.annual_outlook.months.find((month) => month.period_id === selectedBudgetMonth.id) ?? null
@@ -1540,6 +1541,13 @@ function App() {
     setMiaError(null)
     setVoiceNotice(null)
     window.setTimeout(() => composerRef.current?.focus({ preventScroll: true }), 80)
+  }
+
+  function openDocumentReview(documentImportId?: number) {
+    if (!switchSection('My Profile')) return
+    if (documentImportId !== undefined) setSelectedImportId(documentImportId)
+    if (isFirstSessionSetup) setFirstSessionUploadOpen(true)
+    requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
   function startUploadFirstSession() {
@@ -2861,11 +2869,7 @@ function App() {
               onReviewTransactions={() => switchSection('Review')}
               onReviewMiaActions={() => switchSection('Ask Mia')}
               pendingImportCount={pendingImportsCount}
-              onReviewImports={() => {
-                setSelectedImportId(documentImports.find(documentNeedsReview)?.id ?? null)
-                switchSection('My Profile')
-                requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-              }}
+              onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
             />
           )}
         </>
@@ -2897,7 +2901,7 @@ function App() {
                   imports={documentImports}
                   pendingCount={pendingImportsCount}
                   processingCount={processingImportsCount}
-                  onOpenProfile={() => switchSection('My Profile')}
+                  onOpenProfile={() => openDocumentReview()}
                   onAttach={() => miaAttachmentInputRef.current?.click()}
                   uploading={Boolean(uploadingKind)}
                 />
@@ -2934,7 +2938,7 @@ function App() {
                 <span className="message-avatar" aria-hidden="true">{assistantInitial(assistantName)}</span>
                 <div className="chat-shell-copy">
                   <h3 id="mia-chat-title">Ask {assistantName}</h3>
-                  <p>Talk it through or update the plan while you stay the CFO.</p>
+                  <p className="chat-period-context">Plan context: {selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
                 </div>
                 <div className="chat-actions">
                   {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <button type="button" className="chat-memory-button" onClick={() => {
@@ -3041,11 +3045,7 @@ function App() {
                   }}
                   onOpenImport={handleOpenDocumentSource}
                   onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
-                  onReviewImportId={(id) => {
-                    setSelectedImportId(id)
-                    switchSection('My Profile')
-                    requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-                  }}
+                  onReviewImportId={openDocumentReview}
                   reviewContent={<>
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack

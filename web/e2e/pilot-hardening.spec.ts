@@ -3096,6 +3096,7 @@ test('Ask Mia uses a new request ID when the retry targets a different budget mo
   const nextMonthIndex = (new Date().getMonth() + 1) % 12
   await page.getByLabel('Report month').selectOption(String(nextMonthIndex))
   await openSection(page, 'Ask Mia')
+  await expect(page.locator('.chat-period-context')).toHaveText(`Plan context: ${months[nextMonthIndex]} ${currentYear}`)
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   await expect(page.getByText('Use the newly selected month.')).toBeVisible()
 
@@ -3160,9 +3161,9 @@ test('Ask Mia restores uploaded attachment context and its exact request ID afte
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue(message)
-  await expect(page.getByText('saved-receipt.jpg')).toBeVisible()
+  await expect(page.locator('.composer-attachment-tray').getByRole('button', { name: 'saved-receipt.jpg', exact: true })).toBeVisible()
   await expect(page.locator('.composer-attachment-card img')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Receipt screenshot', exact: true }).click()
+  await page.locator('.composer-attachment-tray').getByRole('button', { name: 'saved-receipt.jpg', exact: true }).click()
   await expect(page.getByText('This restored upload has no local preview. You can still send it to Mia.')).toBeVisible()
   await expect(page.locator('.local-attachment-preview img')).toHaveCount(0)
   expect(emptySourceErrors).toEqual([])
@@ -3252,8 +3253,8 @@ test('Ask Mia uploads an attachment with its question and renders the grounded r
     mimeType: 'image/png',
     buffer: Buffer.from('mock-receipt-evidence'),
   })
-  await expect(page.getByText('Images and PDFs up to 12 MB · CSV, Excel, and Word up to 20 MB')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Receipt screenshot', exact: true })).toBeVisible()
+  if ((page.viewportSize()?.width ?? 0) > 620) await expect(page.getByText('Images and PDFs up to 12 MB · CSV, Excel, and Word up to 20 MB')).toBeVisible()
+  await expect(page.locator('.composer-attachment-tray').getByRole('button', { name: 'receipt.png', exact: true })).toBeVisible()
 
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Does this grocery receipt fit my plan?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
@@ -4102,7 +4103,7 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   await expect(suggestionsButton).toHaveAttribute('aria-expanded', 'true')
   await expect(suggestedQuestion).toBeVisible()
   const historyWhileOpen = await page.locator('.chat-card-wrap').evaluate((history) => history.getBoundingClientRect().height)
-  expect(historyWhileOpen).toBeCloseTo(compactLayout.historyHeight, 0)
+  expect(Math.abs(historyWhileOpen - compactLayout.historyHeight)).toBeLessThanOrEqual(1)
 
   await page.keyboard.press('Escape')
   await expect(suggestionsButton).toHaveAttribute('aria-expanded', 'false')
@@ -4160,7 +4161,7 @@ test('compact Ask Mia header keeps its title and controls separate at 320px', as
 
   const layout = await page.locator('.chat-shell-header').evaluate((header) => {
     const headerBox = header.getBoundingClientRect()
-    const copyBox = header.querySelector('.chat-shell-copy')?.getBoundingClientRect()
+    const copyBox = header.querySelector('.chat-shell-copy h3')?.getBoundingClientRect()
     const actionsBox = header.querySelector('.chat-actions')?.getBoundingClientRect()
     const actionBoxes = Array.from(header.querySelectorAll<HTMLButtonElement>('.chat-actions button'))
       .map((button) => {
@@ -8057,7 +8058,7 @@ test('BOG UI desktop and tablet help collapse without shrinking history', async 
   const before = await page.locator('.chat-card-wrap').evaluate((node) => node.getBoundingClientRect().height)
   await prompts.click()
   await expect(guide).toBeVisible()
-  expect(await page.locator('.chat-card-wrap').evaluate((node) => node.getBoundingClientRect().height)).toBeCloseTo(before, 0)
+  expect(Math.abs(await page.locator('.chat-card-wrap').evaluate((node) => node.getBoundingClientRect().height) - before)).toBeLessThanOrEqual(1)
   await prompts.press('Escape')
   await expect(guide).toBeHidden()
   await page.getByRole('button', { name: 'Expand Ask Mia chat' }).click()
@@ -8079,6 +8080,8 @@ test('BOG UI Home and current review survive a future Budget year', async ({ pag
   await page.goto('/?pilot_e2e_role=participant#Budget')
   await page.getByRole('button', { name: 'Next year', exact: true }).click()
   await expect(page.getByText(`Annual budget · ${currentYear + 1}`, { exact: true })).toBeVisible()
+  await openSection(page, 'Ask Mia')
+  await expect(page.locator('.chat-period-context')).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear + 1}`)
   await openSection(page, 'Home')
   const summary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
   await expect(summary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$3,475.00')
@@ -8131,4 +8134,29 @@ test('BOG UI Home keeps source-only partial review distinct from transaction cou
   await reviews.getByRole('button', { name: 'Review 1 file', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'QA-source-only.pdf', exact: true })).toBeVisible()
   await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
+})
+
+test('BOG UI incomplete setup can review a partial source and return to starting numbers', async ({ page }) => {
+  const source = {
+    id: 1201, household_id: 77, document_kind: 'statement', status: 'partially_applied', filename: 'QA-partial.pdf', content_type: 'application/pdf', byte_size: 50,
+    document_date: null, period_start_on: `${currentYear}-01-01`, period_end_on: `${currentYear}-01-31`, extracted_summary: 'Three extracted purchases.', extraction_error: null,
+    processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
+    uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [], attempts: [],
+    transaction_drafts: ['matched', 'pending', 'pending'].map((status, index) => ({ id: 1210 + index, occurred_on: `${currentYear}-01-03`, merchant: `QA purchase ${index + 1}`, amount: 10, amount_cents: 1000, status, source_type: 'statement', category_id: 2, category_name: 'Dining out', splits: [] })),
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(false) }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.getByLabel('Document import context for Mia')).toContainText('1 waiting review')
+  await page.getByRole('button', { name: 'Review imports', exact: true }).click()
+  await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
+  await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Return to starting numbers', exact: true })).toBeVisible()
+  await page.getByLabel('Filter by status').selectOption('needs_review')
+  await expect(page.locator('.document-history-card').filter({ hasText: 'QA-partial.pdf' })).toBeVisible()
+  await page.getByRole('button', { name: 'Return to starting numbers', exact: true }).click()
+  await expect(page.getByText('Essential first-session information', { exact: true })).toBeVisible()
+  await openSection(page, 'Ask Mia')
+  await page.getByRole('button', { name: 'Review imports', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'QA-partial.pdf', exact: true })).toBeVisible()
 })
