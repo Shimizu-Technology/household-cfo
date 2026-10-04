@@ -46,7 +46,7 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
   const targetInputRef = useRef<HTMLInputElement | null>(null)
   const progressInputRef = useRef<HTMLInputElement | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
-  const [returnFocusRequest, setReturnFocusRequest] = useState<{ key: number; selector?: string } | null>(null)
+  const [returnFocusRequest, setReturnFocusRequest] = useState<{ key: number; selector?: string; origin: HTMLElement | null } | null>(null)
   const handledReturnFocusKeyRef = useRef<number | null>(null)
   const handledFocusKeyRef = useRef<number | null>(null)
   const active = goals.filter((goal) => goal.active)
@@ -82,12 +82,13 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
 
   function rememberFocus(element?: HTMLElement | null) { returnFocusRef.current = element ?? document.activeElement as HTMLElement | null }
   function focusLater(selector?: string) {
-    setReturnFocusRequest((current) => ({ key: (current?.key ?? 0) + 1, selector }))
+    const origin = returnFocusRef.current
+    setReturnFocusRequest((current) => ({ key: (current?.key ?? 0) + 1, selector, origin }))
   }
   useLayoutEffect(() => {
     if (!returnFocusRequest || handledReturnFocusKeyRef.current === returnFocusRequest.key || saving || editing !== null) return
     const activeElement = document.activeElement
-    if (activeElement && activeElement !== document.body && activeElement !== returnFocusRef.current) {
+    if (activeElement && activeElement !== document.body && activeElement !== returnFocusRequest.origin) {
       // A deliberate focus move while the refreshed list is pending takes priority.
       handledReturnFocusKeyRef.current = returnFocusRequest.key
       return
@@ -96,7 +97,7 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
     // The refresh Promise may resolve before its parent commits the updated list.
     // Keep an exact destination pending until that control exists in committed DOM.
     if (returnFocusRequest.selector && !target) return
-    const fallback = returnFocusRef.current?.isConnected ? returnFocusRef.current : addButtonRef.current
+    const fallback = returnFocusRequest.origin?.isConnected ? returnFocusRequest.origin : addButtonRef.current
     const focusTarget = target ?? fallback
     if (!focusTarget) return
     handledReturnFocusKeyRef.current = returnFocusRequest.key

@@ -131,6 +131,39 @@ describe('GoalManager', () => {
     expect(apiMocks.archiveGoal).toHaveBeenCalledOnce()
   })
 
+  it('preserves a second row archive confirmation while the first archive list is pending', async () => {
+    const user = userEvent.setup()
+    const first = goal({ id: 1, label: 'First record' })
+    const second = goal({ id: 2, label: 'Second record' })
+    const firstArchived = { ...first, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    const secondArchived = { ...second, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    apiMocks.archiveGoal.mockResolvedValueOnce(firstArchived).mockResolvedValueOnce(secondArchived)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<GoalManager goals={[first, second]} portfolio={{ ...portfolio, active_count: 2 }} onChanged={onChanged} />)
+    await user.click(view.container.querySelector<HTMLButtonElement>('[data-goal-id="1"] [data-goal-action="archive"]')!)
+    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+
+    // Starting another confirmation remembers a new trigger, but must not change
+    // the earlier pending action's permission to move focus.
+    await user.click(view.container.querySelector<HTMLButtonElement>('[data-goal-id="2"] [data-goal-action="archive"]')!)
+    const secondConfirmation = screen.getByRole('button', { name: 'Confirm archive' })
+    expect(document.activeElement).toBe(secondConfirmation)
+    view.rerender(<GoalManager goals={[firstArchived, second]} portfolio={{ ...portfolio, active_count: 1, archived_count: 1 }} onChanged={onChanged} />)
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(document.activeElement).toBe(secondConfirmation)
+    expect((view.container.querySelector('details.debt-archive') as HTMLDetailsElement).open).toBe(false)
+    expect(apiMocks.archiveGoal).toHaveBeenCalledOnce()
+
+    // The newly confirmed action still receives its own return-focus request.
+    await user.click(secondConfirmation)
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2))
+    view.rerender(<GoalManager goals={[firstArchived, secondArchived]} portfolio={{ ...portfolio, active_count: 0, archived_count: 2 }} onChanged={onChanged} />)
+    await waitFor(() => expect(document.activeElement).toBe(view.container.querySelector('[data-goal-id="2"] [data-goal-action="restore"]')))
+    expect(apiMocks.archiveGoal).toHaveBeenCalledTimes(2)
+  })
+
   it('waits for archived and restored goal lists to commit before returning focus', async () => {
     const user = userEvent.setup()
     const original = goal({ target_amount: 5_000, current_amount: 500 })

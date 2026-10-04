@@ -257,6 +257,39 @@ describe('AccountManager', () => {
     expect(apiMocks.archiveAccount).toHaveBeenCalledOnce()
   })
 
+  it('preserves a second row archive confirmation while the first archive list is pending', async () => {
+    const user = userEvent.setup()
+    const first = account({ id: 1, label: 'First record' })
+    const second = account({ id: 2, label: 'Second record' })
+    const firstArchived = { ...first, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    const secondArchived = { ...second, active: false, archived_at: '2026-10-02T00:00:00Z' }
+    apiMocks.archiveAccount.mockResolvedValueOnce(firstArchived).mockResolvedValueOnce(secondArchived)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    const view = render(<AccountManager accounts={[first, second]} portfolio={{ ...portfolio, active_count: 2 }} onChanged={onChanged} />)
+    await user.click(view.container.querySelector<HTMLButtonElement>('[data-account-id="1"] [data-account-action="archive"]')!)
+    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+
+    // Starting another confirmation remembers a new trigger, but must not change
+    // the earlier pending action's permission to move focus.
+    await user.click(view.container.querySelector<HTMLButtonElement>('[data-account-id="2"] [data-account-action="archive"]')!)
+    const secondConfirmation = screen.getByRole('button', { name: 'Confirm archive' })
+    expect(document.activeElement).toBe(secondConfirmation)
+    view.rerender(<AccountManager accounts={[firstArchived, second]} portfolio={{ ...portfolio, active_count: 1, archived_count: 1 }} onChanged={onChanged} />)
+    await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
+    expect(document.activeElement).toBe(secondConfirmation)
+    expect((view.container.querySelector('details.debt-archive') as HTMLDetailsElement).open).toBe(false)
+    expect(apiMocks.archiveAccount).toHaveBeenCalledOnce()
+
+    // The newly confirmed action still receives its own return-focus request.
+    await user.click(secondConfirmation)
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2))
+    view.rerender(<AccountManager accounts={[firstArchived, secondArchived]} portfolio={{ ...portfolio, active_count: 0, archived_count: 2 }} onChanged={onChanged} />)
+    await waitFor(() => expect(document.activeElement).toBe(view.container.querySelector('[data-account-id="2"] [data-account-action="restore"]')))
+    expect(apiMocks.archiveAccount).toHaveBeenCalledTimes(2)
+  })
+
   it('waits for archived and restored account lists to commit before returning focus', async () => {
     const user = userEvent.setup()
     const original = account({ balance: 125, balance_as_of_on: '2026-10-01' })
