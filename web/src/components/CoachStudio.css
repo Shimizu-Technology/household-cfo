@@ -2690,3 +2690,24 @@
     padding: 0.8rem;
   }
 }
+
+/* Staff screens lead with the current task rather than a repeated introduction. */
+.coach-studio-heading { gap: 1rem; align-items: start; }
+.coach-studio-heading h2 { font-size: clamp(1.7rem, 3vw, 2.4rem); }
+.coach-workspace-heading-tools { max-width: 34rem; }
+.coach-workspace-heading-tools > p { margin: 0 0 .65rem; }
+.coach-studio-section-tabs { display: flex; flex-wrap: wrap; gap: .45rem; }
+.coach-studio-section-tabs button { min-height: 44px; padding: .65rem .85rem; flex: 0 1 auto; }
+.coach-studio-section-tabs button small { display: none; }
+.coach-assistant-stages { display: flex; flex-wrap: wrap; gap: .4rem; }
+.coach-assistant-stages button { min-height: 44px; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: .75rem; background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; }
+.coach-assistant-stages button[aria-pressed="true"] { background: var(--emerald); color: var(--brand-on-primary, var(--paper)); border-color: var(--emerald); }
+.coach-editor-column [hidden] { display: none; }
+.coach-group-context { display: grid; max-width: 42rem; gap: .4rem; font-weight: 800; }
+.coach-group-context select { min-width: 0; width: 100%; min-height: 44px; padding: .65rem; border: 1px solid var(--line-strong); border-radius: .75rem; color: var(--ink); background: var(--paper); font: inherit; }
+@media (max-width: 900px) { .coach-studio-heading { display: grid; grid-template-columns: 1fr; } .coach-workspace-heading-tools { max-width: none; } }
+@media (max-width: 620px) { .coach-studio-section-tabs button { flex: 1 1 8rem; } .coach-assistant-stages button { flex: 1 1 7rem; } }
+.coach-access-disclosure { min-width: 0; border: 1px solid var(--line); border-radius: .9rem; background: var(--paper); }
+.coach-access-disclosure > summary { min-height: 44px; padding: .75rem 1rem; cursor: pointer; font-weight: 800; }
+.coach-access-disclosure > section { padding: 1rem; }
+.coach-assistant-policy { color: var(--muted); font-size: .85rem; }

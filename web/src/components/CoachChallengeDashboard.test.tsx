@@ -46,6 +46,37 @@ async function open() {
   fireEvent.click(screen.getByRole('button', { name: 'Open permitted help & sharing' }))
 }
 describe('coach challenge permission boundaries', () => {
+  it('pages thirty enrolled participants and searches the loaded roster without extra private reads', async () => {
+    vi.mocked(coachChallengeApi.participants).mockResolvedValueOnce({ actor_scope: scope, cohort_id: 1, records: Array.from({ length: 30 }, (_, index) => ({ ...row, enrollment_id: index + 1, participant: { id: index + 40, name: `Fictional participant ${String(index).padStart(2, '0')}` } })), next_cursor: null })
+    render(<CoachChallengeDashboard {...props} selectedCohortId={1} />)
+    await screen.findByText('Fictional participant 00')
+    expect(document.querySelectorAll('.coach-challenge-roster > li')).toHaveLength(10)
+    expect(screen.queryByText('Fictional participant 29')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Next check-ins' }))
+    expect(screen.getByText('Fictional participant 10')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Find an enrolled participant'), { target: { value: 'participant 29' } })
+    expect(screen.getByText('Fictional participant 29')).toBeTruthy()
+    expect(document.querySelectorAll('.coach-challenge-roster > li')).toHaveLength(1)
+    expect(coachChallengeApi.participants).toHaveBeenCalledTimes(1)
+    expect(coachChallengeApi.summary).not.toHaveBeenCalled()
+    expect(coachChallengeApi.ticket).not.toHaveBeenCalled()
+  })
+
+  it('uses the single selected cohort and searches participation without revealing money', async () => {
+    const view = render(<CoachChallengeDashboard {...props} selectedCohortId={1} />)
+    await screen.findByText('Synthetic participant')
+    expect(screen.queryByLabelText('Challenge group')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Previous participants' })).toBeNull()
+    fireEvent.change(screen.getByLabelText('Find an enrolled participant'), { target: { value: 'another name' } })
+    expect(screen.queryByText('Synthetic participant')).toBeNull()
+    expect(coachChallengeApi.summary).not.toHaveBeenCalled()
+    vi.mocked(coachChallengeApi.participants).mockResolvedValueOnce({ actor_scope: scope, cohort_id: 9, records: [], next_cursor: null })
+    view.rerender(<CoachChallengeDashboard {...props} cohorts={[{ id: 9, name: 'Another challenge' }]} selectedCohortId={9} />)
+    expect(screen.queryByText('Synthetic participant')).toBeNull()
+    await waitFor(() => expect(coachChallengeApi.participants).toHaveBeenLastCalledWith(9, null, expect.any(AbortSignal)))
+    await screen.findByText(/No enrolled participants on this page/)
+  })
+
   it('keeps exactly one participant panel when enrollment and cohort IDs coincide', async () => {
     vi.mocked(coachChallengeApi.participants).mockResolvedValue({
       actor_scope: scope, cohort_id: 1, records: [{ ...row, enrollment_id: 1 }], next_cursor: null,

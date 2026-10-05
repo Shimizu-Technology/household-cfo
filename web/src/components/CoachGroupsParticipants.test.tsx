@@ -24,6 +24,21 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 describe('Coach group essentials', () => {
+  it('shares one cohort context and leaves roster actions collapsed until requested', async () => {
+    const second = { ...group, id: 11, name: 'Second program group' }
+    mocks.fetchAdminCohorts.mockResolvedValue([group, second])
+    mocks.fetchAdminUsers.mockResolvedValue([{ ...participant, cohorts: [{ ...participant.cohorts[0], cohort: { ...participant.cohorts[0].cohort, id: 11 } }] }])
+    const changed = vi.fn()
+    const lifecycle = { pending: false, begin: vi.fn(() => ({ id: 1, workspaceId: 2 })), isCurrent: vi.fn(() => true), finish: vi.fn() }
+    render(<CoachGroupsParticipants currentUser={owner} workspaceId={2} mutationLifecycle={lifecycle} onDirtyChange={() => undefined} selectedCohortId={11} onSelectedCohortIdChange={changed} />)
+    await screen.findByText('Participants in Second program group')
+    expect(screen.queryByLabelText('Group')).toBeNull()
+    expect(changed).toHaveBeenCalledWith(11)
+    expect(document.querySelector('.coach-participant-access')?.hasAttribute('open')).toBe(false)
+    expect(screen.getByText(/Optional household setup: not complete/)).toBeTruthy()
+    expect(screen.queryByText(/Budget setup incomplete/)).toBeNull()
+  })
+
   it('clears roster and unsaved input synchronously when another program loads', async () => {
     const user = userEvent.setup()
     const view = harness()

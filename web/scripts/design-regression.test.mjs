@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = readFileSync(resolve(__dirname, '../src/App.tsx'), 'utf8')
+const adminConsole = readFileSync(resolve(__dirname, '../src/components/AdminConsole.tsx'), 'utf8')
 const css = readFileSync(resolve(__dirname, '../src/App.css'), 'utf8')
 const api = readFileSync(resolve(__dirname, '../src/api.ts'), 'utf8')
 const home = readFileSync(resolve(__dirname, '../src/components/HomeScreen.tsx'), 'utf8')
@@ -182,14 +183,14 @@ assert.ok(coachSourcesCss.includes('.coach-url-intake-actions .button') && coach
 assert.ok(api.includes('budget'), 'API client type should expose budget data')
 assert.ok(api.includes('wealth'), 'API client type should expose wealth data')
 assert.ok(
-  app.includes('requestedCohortId === null') && app.includes('selectedCohortIdRef = useRef<number | null | undefined>'),
+  adminConsole.includes('requestedCohortId === null') && adminConsole.includes('selectedCohortIdRef = useRef<number | null | undefined>'),
   'admin All users selection should survive reloads after save/resend actions',
 )
-assert.ok(app.includes("useState<UserStatusFilter>('active')"), 'admin users should default to active-only filtering')
-assert.ok(app.includes('Send invite email now'), 'admin invite form should make email delivery explicit')
-assert.ok(app.includes('filterAndSortAdminUsers'), 'admin users should have filter/sort controls')
-assert.ok(app.includes('serverCohortIdsForUser(user).filter'), 'admin quick actions should use server-confirmed cohort state, not unsaved drafts')
-assert.ok(!app.includes('setup_complete_count: memberships.filter'), 'admin cohort cards should not override server setup-complete counts client-side')
+assert.ok(adminConsole.includes("useState<UserStatusFilter>('active')"), 'admin users should default to active-only filtering')
+assert.ok(adminConsole.includes('Send invite email now'), 'admin invite form should make email delivery explicit')
+assert.ok(adminConsole.includes('filterAndSortAdminUsers'), 'admin users should have filter/sort controls')
+assert.ok(adminConsole.includes('serverCohortIdsForUser(user).filter'), 'admin quick actions should use server-confirmed cohort state, not unsaved drafts')
+assert.ok(!adminConsole.includes('setup_complete_count: memberships.filter'), 'admin cohort cards should not override server setup-complete counts client-side')
 // Delayed/failing year selection and stale workspace responses are exercised in
 // the BOG UI budget-year browser regressions rather than pinning rollback syntax.
 assert.ok(app.includes('Search merchant, category, date, or amount'), 'large transaction review queues should be searchable')

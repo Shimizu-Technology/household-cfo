@@ -12,12 +12,13 @@ import {
 import { savingsDollars } from '../lib/savingsChallenge'
 import './CoachChallengeDashboard.css'
 
-type Props = { userId: number; workspaceId: number; cohorts: Array<{ id: number; name: string }> }
+type Props = { userId: number; workspaceId: number; cohorts: Array<{ id: number; name: string }>; selectedCohortId?: number | null }
 export function CoachChallengeDashboard(props: Props) {
   return <Dashboard key={`${props.userId}:${props.workspaceId}`} {...props} />
 }
-function Dashboard({ userId, workspaceId, cohorts }: Props) {
-  const [cohortId, setCohortId] = useState<number | null>(null)
+function Dashboard({ userId, workspaceId, cohorts, selectedCohortId }: Props) {
+  const [localCohortId, setCohortId] = useState<number | null>(null)
+  const cohortId = selectedCohortId === undefined ? localCohortId : selectedCohortId
   return (
     <section className="coach-challenge">
       <h2>Challenge check-ins & help</h2>
@@ -25,7 +26,7 @@ function Dashboard({ userId, workspaceId, cohorts }: Props) {
         Participation and completed daily reports are visible here. Money and exact private records require the
         participant’s separate sharing permission.
       </p>
-      <label>
+      {selectedCohortId === undefined && <label>
         Challenge group
         <select
           value={cohortId ?? ''}
@@ -38,7 +39,8 @@ function Dashboard({ userId, workspaceId, cohorts }: Props) {
             </option>
           ))}
         </select>
-      </label>
+      </label>}
+      {selectedCohortId !== undefined && <p className="coach-current-group">{cohorts.find((row) => row.id === cohortId)?.name ?? 'Choose a group below to see check-ins and help.'}</p>}
       {cohortId && (
         <Group key={cohortId} scope={{ user_id: userId, coach_workspace_id: workspaceId }} cohortId={cohortId} />
       )}
@@ -53,7 +55,9 @@ function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: numb
     [selected, setSelected] = useState<CoachParticipant | null>(null),
     [revision, setRevision] = useState(0),
     [busy, setBusy] = useState(true),
-    [error, setError] = useState<string | null>(null)
+    [error, setError] = useState<string | null>(null),
+    [search, setSearch] = useState(''),
+    [rowPage, setRowPage] = useState(0)
   useEffect(() => {
     let live = true
     const controller = new AbortController()
@@ -90,8 +94,12 @@ function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: numb
     setSelected(null)
     setBusy(true)
     setError(null)
+    setRowPage(0)
     setRevision((value) => value + 1)
   }
+  const matchingRows = rows.filter((row) => row.participant.name.toLowerCase().includes(search.trim().toLowerCase()))
+  const rowPages = Math.ceil(matchingRows.length / 10)
+  const visibleRows = matchingRows.slice(rowPage * 10, (rowPage + 1) * 10)
   return (
     <>
       <button type="button" onClick={reload} disabled={busy}>
@@ -99,8 +107,14 @@ function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: numb
       </button>
       {error && <p role="alert">{error}</p>}
       {busy && <p role="status">Loading permitted participation metadata…</p>}
+      {!busy && rows.length > 0 && <>
+        <p className="coach-page-scope">Current page only. Search filters these enrolled participants; use More participants when available.</p><div className="coach-challenge-summary"><span><strong>{rows.filter((row) => row.check_in.completed === true).length}</strong> daily reports complete</span><span><strong>{rows.filter((row) => row.check_in.completed === false).length}</strong> reports not completed</span><span><strong>{rows.filter((row) => row.help_requests.some((request) => request.status !== 'resolved')).length}</strong> participants with visible open help</span></div>
+        <label>Find an enrolled participant<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setRowPage(0); setSelected(null) }} /></label>
+      </>}
+      {!busy && !error && rows.length === 0 && <p>No enrolled participants on this page. Invitations and group access are listed below.</p>}
+      {!busy && rows.length > 0 && visibleRows.length === 0 && <p>No enrolled participants on this page match your search.</p>}
       <ul className="coach-challenge-roster">
-        {rows.map((row) => (
+        {visibleRows.map((row) => (
           <li key={row.enrollment_id}>
             <strong>{row.participant.name}</strong>
             <p>
@@ -121,11 +135,13 @@ function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: numb
           </li>
         ))}
       </ul>
-      <div className="coach-challenge-actions">
+      {rowPages > 1 && <div className="coach-challenge-actions" aria-label="Check-in pages"><button disabled={rowPage === 0} onClick={() => { setRowPage(rowPage - 1); setSelected(null) }}>Previous check-ins</button><span>Page {rowPage + 1} of {rowPages} · {matchingRows.length} enrolled participants loaded</span><button disabled={rowPage + 1 >= rowPages} onClick={() => { setRowPage(rowPage + 1); setSelected(null) }}>Next check-ins</button></div>}
+      {(pages.length > 0 || next !== null) && <div className="coach-challenge-actions">
         <button
           disabled={busy || !pages.length}
           onClick={() => {
             setSelected(null)
+            setRowPage(0)
             setRows([])
             setBusy(true)
             setCursor(pages.at(-1)!)
@@ -138,6 +154,7 @@ function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: numb
           disabled={busy || next === null}
           onClick={() => {
             setSelected(null)
+            setRowPage(0)
             setRows([])
             setBusy(true)
             setPages([...pages, cursor])
@@ -146,11 +163,11 @@ function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: numb
         >
           More participants
         </button>
-      </div>
+      </div>}
       {selected && (
         <Participant key={`participant:${selected.enrollment_id}:${revision}`} row={selected} onClose={() => setSelected(null)} />
       )}
-      <SponsorReports key={`sponsor:${cohortId}:${revision}`} scope={scope} cohortId={cohortId} />
+      <details className="coach-report-disclosure"><summary>Checkpoint reports</summary><SponsorReports key={`sponsor:${cohortId}:${revision}`} scope={scope} cohortId={cohortId} /></details>
     </>
   )
 }

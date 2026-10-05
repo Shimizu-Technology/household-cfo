@@ -66,3 +66,17 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.coach-challenge { margin-top: 0; padding: 1rem; }
+.coach-challenge h2 { margin-top: 0; }
+.coach-challenge input[type="search"], .coach-challenge select { min-height: 44px; width: 100%; min-width: 0; border: 1px solid var(--line-strong); border-radius: .75rem; padding: .65rem; font: inherit; background: var(--paper); color: var(--ink); }
+.coach-challenge-summary { display: flex; flex-wrap: wrap; gap: .6rem; }
+.coach-challenge-summary > span { padding: .6rem .8rem; border-radius: .75rem; background: var(--paper-warm); }
+.coach-challenge-roster { grid-template-columns: 1fr; gap: .5rem; }
+.coach-challenge-roster > li { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(9rem, 1fr) minmax(12rem, 1fr) auto; align-items: center; gap: .6rem; padding: .7rem; margin: 0; border-radius: .8rem; }
+.coach-challenge-roster > li p { margin: 0; font-size: .85rem; }
+.coach-challenge-roster > li button { margin: 0; }
+.coach-report-disclosure > summary { min-height: 44px; padding: .75rem; cursor: pointer; font-weight: 800; }
+.coach-current-group { font-weight: 800; }
+@media (max-width: 900px) { .coach-challenge-roster > li { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 620px) { .coach-challenge-roster > li { grid-template-columns: 1fr; gap: .35rem; } .coach-challenge-summary > span { flex: 1 1 9rem; } }
