@@ -56,6 +56,12 @@ async function openDetails(page: Page, label: string | RegExp) {
   if (!(await disclosure.evaluate((node: HTMLDetailsElement) => node.open))) await summary.click()
 }
 
+async function selectBudgetEditMonth(page: Page, index: number) {
+  if ((page.viewportSize()?.width ?? 1_000) <= 620) {
+    await page.getByRole('combobox', { name: 'Edit month', exact: true }).selectOption(String(index))
+  }
+}
+
 async function openAccountHelp(page: Page) {
   const disclosure = page.locator('.shell-account-menu')
   if (!(await disclosure.evaluate((node: HTMLDetailsElement) => node.open))) await disclosure.locator('summary').click()
@@ -3737,6 +3743,7 @@ test('focused manual budget tools expose exact controls without a page hunt and 
   await page.getByRole('button', { name: 'Edit monthly plan' }).click()
   const table = page.getByRole('region', { name: 'Annual budget table' })
   await expect(table).toBeVisible()
+  await selectBudgetEditMonth(page, 0)
   const januaryDining = page.getByLabel('Dining out planned for Jan')
   await januaryDining.fill('650')
   await expect(manager).toContainText('1 unsaved change. Save or cancel before switching tools.')
@@ -3797,12 +3804,16 @@ test('a partially saved budget keeps the approved change and protects unapplied 
   const manager = page.locator('.budget-manual-manager')
   const januaryDining = page.getByLabel('Dining out planned for Jan')
   const februaryDining = page.getByLabel('Dining out planned for Feb')
+  await selectBudgetEditMonth(page, 0)
   await januaryDining.fill('650')
+  await selectBudgetEditMonth(page, 1)
   await februaryDining.fill('700')
   await page.getByRole('button', { name: 'Save 2 changes' }).click()
 
   await expect(manager.getByRole('alert')).toContainText('Earlier changes were saved; your remaining edits are still available to retry.')
+  await selectBudgetEditMonth(page, 0)
   await expect(januaryDining).toHaveValue('650')
+  await selectBudgetEditMonth(page, 1)
   await expect(februaryDining).toHaveValue('700')
   await expect(manager).toContainText('1 unsaved change. Save or cancel before switching tools.')
   await expect(page.getByLabel('Report month')).toBeDisabled()
