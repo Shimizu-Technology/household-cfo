@@ -46,9 +46,12 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
       assert_equal "2026-11-01", answer("Show my income next month", year: 2025, month: 2).metadata[:reference_month]
       assert_equal 2000.0, answer("Show my income next month", year: 2025, month: 2).metadata[:selected_month_amount]
       assert_equal "2026-10-01", answer("Show my income this month", year: 2025, month: 2).metadata[:reference_month]
+      assert_equal "2026-10-01", answer("Show my income today", year: 2025, month: 2).metadata[:reference_month]
       assert_equal "2027-01-01", answer("Show my income for January 2027").metadata[:reference_month]
       assert_nil answer("Compare my income in October and November")
       assert_nil answer("Show my income this month and next month")
+      assert_nil answer("Show my income next year")
+      assert_nil answer("Show my annual income")
     end
   end
 

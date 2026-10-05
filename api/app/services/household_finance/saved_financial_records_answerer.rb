@@ -33,6 +33,7 @@ module HouseholdFinance
       return unless topics.one?
       # Exclude recommendations framed as questions even when a topic matches.
       return if text.match?(/\b(?:best|better|strategy|pay off|pay first|can i|can we|will i|will we)\b/i)
+      return if text.match?(/\b(?:annual|yearly|(?:this|current|next|last)\s+year|all year)\b/i)
 
       reference = requested_reference_date(text)
       return if reference == false
@@ -43,7 +44,7 @@ module HouseholdFinance
     private
 
     def requested_reference_date(text)
-      relative = text.scan(/\b(?:this|current|next|last)\s+month\b/i).uniq
+      relative = text.scan(/\b(?:(?:this|current|next|last)\s+month|today|now)\b/i).map(&:downcase).uniq
       month_names = Date::MONTHNAMES.compact + Date::ABBR_MONTHNAMES.compact
       named = text.scan(/\b(?:#{month_names.join('|')})\b/i).map { |name| Date::ABBR_MONTHNAMES.index { |item| item&.casecmp?(name.first(3)) } }.uniq
       years = text.scan(/\b(?:20\d{2}|2100)\b/).map(&:to_i).uniq
@@ -64,6 +65,7 @@ module HouseholdFinance
       end
       lines = [ "Saved household income for #{month_label}: #{money(inventory[:selected_month_amount])} in the monthly plan, including one-time scheduled income. Recurring monthly equivalent: #{money(inventory[:recurring_monthly_amount])}." ]
       lines << coverage_sentence(inventory[:total_count], inventory[:shown_count])
+      lines << "Monthly totals include all saved sources, including sources omitted below." if inventory[:total_count] > inventory[:shown_count]
       inventory[:records].each do |source|
         effective = source[:effective_amount].nil? ? "not effective in this month" : "effective #{money(source[:effective_amount])} #{cadence(source[:effective_cadence])}"
         line = "#{label(source[:label])} (#{source[:source_type].humanize}): base #{money(source[:base_amount])} #{cadence(source[:base_cadence])}; #{effective}; #{money(source[:selected_month_amount])} in #{month_label}. Status: #{source[:timeline_status]}."
@@ -121,7 +123,7 @@ module HouseholdFinance
     end
 
     def coverage_sentence(total, shown)
-      total > shown ? "Showing #{shown} of #{total} saved records; open My Money for the rest. Totals include all saved sources." : "Showing all #{total} saved #{'record'.pluralize(total)}."
+      total > shown ? "Showing #{shown} of #{total} saved records; open My Money for the rest." : "Showing all #{total} saved #{'record'.pluralize(total)}."
     end
 
     def label(value) = value.to_s.gsub(/[[:cntrl:]]/, " ").squish
