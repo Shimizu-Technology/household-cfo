@@ -2,6 +2,8 @@
 
 This short guide is for the focused four-person Household CFO validation before FinCon. Plaid or a bank connection is not required. The goal is to see whether you can get from a few numbers to one useful Mia conversation without learning every part of the app.
 
+For the 30-person BOG savings challenge and current participant/coach/admin navigation, use [BOG pilot interface and acceptance checks](bog-pilot-ui.md). The kickoff below describes the ordinary household-coaching program.
+
 ## Your first session
 
 1. Open your email invitation on your phone or computer. Create or sign in to your Clerk account with the invited email. Your display name comes from Clerk; the coach or admin does not enter it for you.
@@ -61,7 +63,7 @@ Ignoring every extracted transaction does not make that document an approved sou
 
 - A failed upload remains available to retry. Check the file type and size, then try again without re-entering your household setup.
 - If Mia or a review step fails, your approved numbers remain unchanged. Retry the step or report the problem.
-- Use **Report a problem** at the bottom of the app. Include the screen, what you attempted, what you expected, and what happened.
+- Open **Account & help → Report a problem**. Include the screen, what you attempted, what you expected, and what happened. Pilot reports require explicit permission for technical support to read the report and its optional screenshot; this does not grant access to private financial records. Report history lets you withdraw future support access.
 - A screenshot is optional. Crop it to the smallest useful area before attaching it.
 
 Do not put financial values, account or card numbers, document contents, passwords, or private Mia messages in a feedback report or screenshot. Feedback is stored privately for technical follow-up and is not sent to product analytics.
