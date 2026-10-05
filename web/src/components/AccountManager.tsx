@@ -104,7 +104,12 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
     })
   }, [accounts, focusRequest, onFocusRequestHandled, unlinked])
 
-  function rememberFocus(element?: HTMLElement | null) { returnFocusRef.current = element ?? document.activeElement as HTMLElement | null }
+  function rememberFocus(element?: HTMLElement | null) {
+    // Safari pointer activation may keep focus on the previous control. Claim
+    // the action's origin before waiting, so only a later deliberate move wins.
+    element?.focus({ preventScroll: true })
+    returnFocusRef.current = element ?? document.activeElement as HTMLElement | null
+  }
   function focusLater(selector?: string) {
     const origin = returnFocusRef.current
     setReturnFocusRequest((current) => ({ key: (current?.key ?? 0) + 1, selector, origin }))

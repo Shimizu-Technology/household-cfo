@@ -2540,7 +2540,15 @@ for (const decision of ['keep_saved', 'accept_observed'] as const) {
       return route.fulfill({ status: 200, json: { account: currentAccount() } })
     })
     await page.goto('/?pilot_e2e_role=participant#My%20Profile')
-  await openDetails(page, 'Accounts and assets')
+    await page.evaluate(() => document.fonts.ready)
+    const accountSummary = page.locator('details > summary').filter({ hasText: 'Accounts and assets' })
+    const accountDetails = accountSummary.locator('..')
+    await expect(accountSummary).toBeVisible()
+    if (await accountDetails.getAttribute('open') === null) {
+      await accountSummary.focus()
+      await accountSummary.press('Enter')
+    }
+    await expect(accountDetails).toHaveAttribute('open', '')
     const manager = page.locator('.account-manager')
     await manager.getByRole('button', { name: decision === 'keep_saved' ? 'Keep saved' : 'Accept bank balance' }).click()
     await expect(manager.getByRole('button', { name: 'Edit', exact: true })).toBeFocused()

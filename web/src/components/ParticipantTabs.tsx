@@ -157,7 +157,7 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
   return (
     <div className={`tabs-shell${savingsChallenge ? ' is-savings-navigation' : ''}${moreOpen ? ' is-tools-open' : ''}`} ref={shellRef}>
       <nav className="tabs" aria-label={`${brand.short_name} participant sections`}>
-        {savingsChallenge && onToday && <button type="button" className="tabs-today-action" onClick={onToday}>Today</button>}
+        {savingsChallenge && onToday && <button type="button" className="tabs-today-action" onClick={event => { event.currentTarget.focus({ preventScroll: true }); onToday() }}>Today</button>}
         {primary.map((section) => (
           <a
             key={section}
