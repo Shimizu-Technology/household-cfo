@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, u
 import './App.css'
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
 import { usePilotDialog } from './lib/usePilotDialog'
+import { useDialogViewport } from './lib/useDialogViewport'
 import { StatementSourceReview } from './components/StatementSourceReview'
 import { setStatementReviewExpectedUser } from './lib/statementReviewRecovery'
 import { sourceReviewMode } from './lib/sourceReview'
@@ -482,6 +483,7 @@ function BrandFooter() {
 }
 
 function App() {
+  useDialogViewport()
   const auth = useAuthContext()
   const identity = `${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
   return <ParticipantProgramSession identity={identity} authIdentityId={auth.authIdentityId} actorId={auth.currentUser?.id} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)}>
@@ -1830,9 +1832,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     void handleAskMia()
   }
 
-  function handleClearMessagesRequest() {
+  function handleClearMessagesRequest(event: { currentTarget: HTMLButtonElement }) {
     if (miaClearing || miaLoading || currentMessages.length === 0) return
 
+    clearChatTriggerRef.current = event.currentTarget
+    event.currentTarget.focus({ preventScroll: true })
     setConfirmClearChat(true)
   }
 
@@ -3112,6 +3116,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 )}
               </article>
               {isRealWorkspace && <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />}
+              {currentMessages.length > 0 && <Button className="mia-context-clear" variant="secondary" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>Clear chat</Button>}
               <BrandFooter />
             </ChatContextDisclosure>
           </div>

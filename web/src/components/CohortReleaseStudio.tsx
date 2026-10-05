@@ -403,7 +403,8 @@ function ReleaseConfirmationDialog({
   const cancelRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
-    cancelRef.current?.focus()
+    dialogRef.current?.focus({ preventScroll: true })
+    if (dialogRef.current) dialogRef.current.scrollTop = 0
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = previousOverflow }
@@ -423,7 +424,8 @@ function ReleaseConfirmationDialog({
     if (focusable.length === 0) return
     const first = focusable[0]
     const last = focusable[focusable.length - 1]
-    if (event.shiftKey && document.activeElement === first) {
+    if (document.activeElement === dialogRef.current) { event.preventDefault(); (event.shiftKey ? last : first).focus() }
+    else if (event.shiftKey && document.activeElement === first) {
       event.preventDefault()
       last.focus()
     } else if (!event.shiftKey && document.activeElement === last) {
@@ -435,7 +437,7 @@ function ReleaseConfirmationDialog({
   const restoring = confirmation.kind === 'restore'
   return (
     <div className="cohort-release-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !pending) onCancel() }}>
-      <section ref={dialogRef} className="cohort-release-modal" role="dialog" aria-modal="true" aria-labelledby="cohort-release-modal-title" aria-describedby="cohort-release-modal-copy" onKeyDown={trapFocus}>
+      <section ref={dialogRef} className="cohort-release-modal" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="cohort-release-modal-title" aria-describedby="cohort-release-modal-copy" onKeyDown={trapFocus}>
         <p className="eyebrow">Final review</p>
         <h3 id="cohort-release-modal-title">{restoring ? `Restore record #${confirmation.release?.release_number}` : 'Seal this release record?'}</h3>
         <p id="cohort-release-modal-copy">This creates immutable audit evidence for {cohortName}. It does not change the brand, assistant, or tools participants use.</p>

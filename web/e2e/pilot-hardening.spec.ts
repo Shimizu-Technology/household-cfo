@@ -1567,11 +1567,18 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   const sealButton = page.getByRole('button', { name: 'Review and seal record' })
   await sealButton.click()
   const dialog = page.getByRole('dialog', { name: 'Seal this release record?' })
+  const regularViewport = page.viewportSize()!
+  await page.setViewportSize({ width: 640, height: 360 })
+  await assertDialogVisibleHeight(dialog)
+  await expect(dialog).toBeFocused()
+  await expect(dialog).toHaveJSProperty('scrollTop', 0)
+  await page.keyboard.press('Tab')
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   await expect(dialog.getByText('Brand version', { exact: true })).toBeVisible()
   await expect(dialog.getByText('9', { exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: 'Seal release record' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Participant runtime did not change.' })).toBeVisible()
+  await page.setViewportSize(regularViewport)
   await expect(page.getByRole('heading', { name: 'Ready to seal' })).toBeFocused()
   await expect(page.getByRole('button', { name: 'Latest evidence already sealed' })).toBeDisabled()
   await expect(page.getByText('The latest sealed record already matches this exact brand, assistant, and tool bundle.')).toBeVisible()
@@ -1591,6 +1598,11 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await page.getByRole('combobox', { name: 'Wave for Ben Santos' }).selectOption('wave-2')
   await page.getByRole('button', { name: 'Review rollout plan' }).click()
   const planDialog = page.getByRole('dialog', { name: 'Record this rollout plan?' })
+  await page.setViewportSize({ width: 640, height: 360 })
+  await assertDialogVisibleHeight(planDialog)
+  await expect(planDialog).toBeFocused()
+  await expect(planDialog).toHaveJSProperty('scrollTop', 0)
+  await page.keyboard.press('Tab')
   await expect(planDialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   await expect(planDialog.getByText('Release #5', { exact: true })).toBeVisible()
   await expect(planDialog.getByText('Target brand', { exact: true })).toBeVisible()
@@ -1599,6 +1611,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await expect(planDialog.getByText('Later group · 1 participant', { exact: true })).toBeVisible()
   await expect(planDialog.getByText('None until the first wave starts', { exact: true })).toBeVisible()
   await planDialog.getByRole('button', { name: 'Record rollout plan' }).click()
+  await page.setViewportSize(regularViewport)
   await expect(page.getByRole('heading', { name: 'Release #5' })).toBeFocused()
   await expect(page.getByText('Planned', { exact: true }).first()).toBeVisible()
   await page.getByRole('button', { name: 'Review and start rollout' }).click()
@@ -8581,9 +8594,9 @@ test('BOG UI typed statement revision conflicts hide stale rows and retain a ret
 })
 
 
-async function openAuthenticatedSource(page: Page, type: 'image' | 'pdf', settings: { metadataRevoked?: () => boolean; contentRevoked?: () => boolean; delayContent?: Promise<void> } = {}) {
+async function openAuthenticatedSource(page: Page, type: 'image' | 'pdf', settings: { metadataRevoked?: () => boolean; contentRevoked?: () => boolean; delayContent?: Promise<void>; filename?: string } = {}) {
   const mime = type === 'image' ? 'image/png' : 'application/pdf'
-  const filename = type === 'image' ? 'fictional-private-receipt.png' : 'fictional-private-statement.pdf'
+  const filename = settings.filename ?? (type === 'image' ? 'fictional-private-receipt.png' : 'fictional-private-statement.pdf')
   const source = { id: 1610, household_id: 77, document_kind: 'statement', status: 'needs_review', filename, content_type: mime, byte_size: 500, document_date: null, period_start_on: null, period_end_on: null, extracted_summary: 'Fictional private source.', extraction_error: null, processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true, uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [], attempts: [], transaction_drafts: [] }
   await page.addInitScript(() => {
     const state = { created: [] as string[], revoked: [] as string[] }
@@ -9146,7 +9159,10 @@ test('BOG UI failed budget year preserves previous rows and context across brows
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
   await page.route('http://api.test/api/v1/budget?**', async (route) => { await gate; return route.fulfill({ status: 503, json: { error: 'Fictional year request failed.' } }) })
   await page.goto('/?pilot_e2e_role=participant#Budget')
+  await expect(page.getByRole('button', { name: 'Manage manually' })).toBeEnabled()
+  const requestedYear = page.waitForRequest('http://api.test/api/v1/budget?**')
   await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  await requestedYear
   await openSection(page, 'Ask Mia')
   release()
   await expect(page.getByRole('alert').filter({ hasText: 'Fictional year request failed.' })).toBeVisible()
@@ -9574,4 +9590,176 @@ test('BOG UI pilot support stays vertically aligned on narrow phones and account
   await menu.getByRole('button', { name: 'Guide', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Open Mia', exact: true })).toBeHidden()
+})
+
+async function assertDialogVisibleHeight(dialog: ReturnType<Page['getByRole']>) {
+  const bounds = await dialog.evaluate(node => {
+    const rect = node.getBoundingClientRect()
+    const viewport = window.visualViewport
+    return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: innerWidth, visibleTop: viewport?.offsetTop ?? 0, visibleBottom: (viewport?.offsetTop ?? 0) + (viewport?.height ?? innerHeight), scroll: node.scrollWidth, client: node.clientWidth }
+  })
+  expect(bounds.top, JSON.stringify(bounds)).toBeGreaterThanOrEqual(bounds.visibleTop)
+  expect(bounds.bottom, JSON.stringify(bounds)).toBeLessThanOrEqual(bounds.visibleBottom)
+  expect(bounds.left).toBeGreaterThanOrEqual(0)
+  expect(bounds.right).toBeLessThanOrEqual(bounds.width)
+  expect(bounds.scroll).toBeLessThanOrEqual(bounds.client + 1)
+}
+
+test('BOG UI route headings stay semantic without decorative outlines and keyboard controls keep focus', async ({ page }) => {
+  await page.goto('/#Home')
+  for (const section of ['Review', 'Ask Mia', 'Budget', 'Home']) {
+    const link = page.getByRole('link', { name: section, exact: true })
+    await link.click()
+    const heading = page.locator('[data-page-heading]').first()
+    await expect(heading).toBeFocused()
+    await expect(heading).toHaveCSS('outline-style', 'none')
+    await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(`${section} screen loaded.`)
+  }
+  const budgetLink = page.getByRole('link', { name: 'Budget', exact: true })
+  await budgetLink.focus()
+  await page.keyboard.press('Tab')
+  const focus = await page.evaluate(() => ({ tag: document.activeElement?.tagName, style: getComputedStyle(document.activeElement!).outlineStyle, width: getComputedStyle(document.activeElement!).outlineWidth }))
+  expect(['BUTTON', 'A', 'SUMMARY']).toContain(focus.tag)
+  expect(focus.style).toBe('solid')
+  expect(parseFloat(focus.width)).toBeGreaterThanOrEqual(2)
+  await budgetLink.press('Enter')
+  await expect(page.locator('[data-page-heading]').first()).toBeFocused()
+})
+
+test('BOG UI guide and feedback keep both ends reachable on short phones landscape and desktop', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=participant')
+  for (const size of [{ width: 320, height: 568 }, { width: 390, height: 660 }, { width: 640, height: 280 }, { width: 1280, height: 720 }]) {
+    await page.setViewportSize(size)
+    const guideButton = page.getByRole('button', { name: 'Guide', exact: true })
+    await guideButton.focus()
+    await guideButton.press('Enter')
+    const guide = page.getByRole('dialog')
+    await assertDialogVisibleHeight(guide)
+    await expect(guide).toHaveJSProperty('scrollTop', 0)
+    await expect(guide.getByRole('heading')).toBeInViewport()
+    await guide.locator('footer').scrollIntoViewIfNeeded()
+    await expect(guide.locator('footer')).toBeInViewport()
+    await page.keyboard.press('Escape')
+    await expect(guideButton).toBeFocused()
+    const feedbackButton = page.getByRole('button', { name: 'Feedback', exact: true })
+    await feedbackButton.focus()
+    await feedbackButton.press('Enter')
+    const feedback = page.getByRole('dialog')
+    await assertDialogVisibleHeight(feedback)
+    await expect(feedback).toHaveJSProperty('scrollTop', 0)
+    await expect(feedback.getByRole('heading')).toBeInViewport()
+    await feedback.getByLabel('What did you attempt?').fill('Fictional UI test')
+    await feedback.getByLabel('What did you expect?').fill('A readable report form')
+    await feedback.getByLabel('What happened instead?').fill('Testing the constrained viewport')
+    await feedback.getByRole('checkbox').check()
+    const submit = feedback.getByRole('button', { name: 'Submit report', exact: true })
+    await submit.focus()
+    await expect(submit).toBeInViewport()
+    await expect(submit).toBeEnabled()
+    await page.keyboard.press('Tab')
+    await expect(feedback.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
+    await expect(feedback.getByRole('heading')).toBeInViewport()
+    await page.keyboard.press('Escape')
+    await expect(feedbackButton).toBeFocused()
+  }
+})
+
+test('BOG UI visual viewport reduction keeps feedback above the keyboard and follows a pan', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  // A keyboard reduces the visual viewport while the layout viewport stays tall.
+  await page.addInitScript(() => {
+    const viewport = window.visualViewport!
+    Object.defineProperty(viewport, 'height', { configurable: true, get: () => Number(document.documentElement.dataset.testViewportHeight ?? 844) })
+    Object.defineProperty(viewport, 'offsetTop', { configurable: true, get: () => Number(document.documentElement.dataset.testViewportTop ?? 0) })
+  })
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Feedback', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('What did you attempt?').fill('Fictional keyboard test')
+  await page.evaluate(() => {
+    document.documentElement.dataset.testViewportHeight = '320'
+    document.documentElement.dataset.testViewportTop = '70'
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+    window.visualViewport!.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--dialog-viewport-height'))).toBe('320px')
+  await assertDialogVisibleHeight(dialog)
+  await expect(dialog.getByLabel('What did you attempt?')).toBeFocused()
+  await expect.poll(() => dialog.getByLabel('What did you attempt?').evaluate(el => { const control = el.getBoundingClientRect(); const panel = el.closest('[role="dialog"]')!.getBoundingClientRect(); return control.top >= panel.top && control.bottom <= panel.bottom })).toBe(true)
+  await dialog.getByLabel('What happened instead?').fill('Fictional lower field keyboard test')
+  await page.evaluate(() => {
+    document.documentElement.dataset.testViewportHeight = '260'
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+  })
+  await expect.poll(() => dialog.getByLabel('What happened instead?').evaluate(el => { const control = el.getBoundingClientRect(); const panel = el.closest('[role="dialog"]')!.getBoundingClientRect(); return control.top >= panel.top && control.bottom <= panel.bottom })).toBe(true)
+  await expect(dialog.getByLabel('What happened instead?')).toBeFocused()
+  await dialog.getByRole('button', { name: 'Close', exact: true }).focus()
+  await expect(dialog.getByRole('heading')).toBeInViewport()
+  await page.evaluate(() => {
+    document.documentElement.dataset.testViewportHeight = '660'
+    document.documentElement.dataset.testViewportTop = '0'
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+  })
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--dialog-viewport-height'))).toBe('660px')
+  await assertDialogVisibleHeight(dialog)
+})
+
+test('BOG UI local preview and clear chat keep their content and actions inside a short viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 280 })
+  await page.goto('/#Ask%20Mia')
+  await page.getByRole('button', { name: 'Preview Receipt screenshot' }).click()
+  const preview = page.getByRole('dialog', { name: 'Receipt screenshot', exact: true })
+  await assertDialogVisibleHeight(preview)
+  await expect(preview).toHaveJSProperty('scrollTop', 0)
+  await expect(preview.locator('.document-preview-header')).toBeInViewport()
+  await page.keyboard.press('Escape')
+  await openChatContext(page)
+  await page.getByRole('button', { name: 'Clear chat', exact: true }).click()
+  const clear = page.getByRole('dialog', { name: 'Clear this chat?', exact: true })
+  await assertDialogVisibleHeight(clear)
+  await expect(clear).toHaveJSProperty('scrollTop', 0)
+  await expect(clear.getByRole('heading')).toBeInViewport()
+  await clear.getByRole('button', { name: 'Clear chat', exact: true }).focus()
+  await expect(clear.getByRole('button', { name: 'Clear chat', exact: true })).toBeInViewport()
+  await page.keyboard.press('Escape')
+  await expect(clear).toHaveCount(0)
+})
+
+test('BOG UI baseline and Today dialogs fit a short visible viewport and retain scroll access', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 360 })
+  const baseline = await openBaseline(page, { home: true })
+  await assertDialogVisibleHeight(baseline.dialog)
+  await expect(baseline.dialog).toHaveJSProperty('scrollTop', 0)
+  await baseline.dialog.getByRole('button', { name: 'Preview baseline and limitations', exact: true }).focus()
+  await expect(baseline.dialog.getByRole('button', { name: 'Preview baseline and limitations', exact: true })).toBeInViewport()
+  await page.keyboard.press('Escape')
+})
+
+test('BOG UI Today keeps actions reachable in a short viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 360 })
+  const daily = await openDaily(page)
+  await assertDialogVisibleHeight(daily.dialog)
+  await expect(daily.dialog).toHaveJSProperty('scrollTop', 0)
+  await daily.dialog.getByRole('button', { name: 'Upload or review a receipt in Statements', exact: true }).focus()
+  await expect(daily.dialog.getByRole('button', { name: 'Upload or review a receipt in Statements', exact: true })).toBeInViewport()
+  await page.keyboard.press('Escape')
+})
+
+test('BOG UI source preview keeps a long filename and final help reachable with enlarged text', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 360 })
+  const filename = `Fictional-${'long-statement-period-and-account-label-'.repeat(5)}.pdf`
+  const { dialog } = await openAuthenticatedSource(page, 'pdf', { filename })
+  await page.addStyleTag({ content: 'html { font-size: 200%; }' })
+  await assertDialogVisibleHeight(dialog)
+  await expect(dialog).toHaveJSProperty('scrollTop', 0)
+  await expect(dialog.getByRole('heading', { name: filename })).toBeInViewport()
+  const finalHelp = dialog.locator('.document-retention-help')
+  await finalHelp.scrollIntoViewIfNeeded()
+  await expect(finalHelp).toBeInViewport()
+  await dialog.getByRole('button', { name: 'Close', exact: true }).focus()
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
 })

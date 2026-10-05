@@ -127,7 +127,7 @@ describe('CohortReleaseStudio', () => {
     }
   })
 
-  it('focuses Cancel first, traps focus, closes on Escape, and returns focus', async () => {
+  it('focuses the review from the top, traps focus, closes on Escape, and returns focus', async () => {
     const user = userEvent.setup()
     renderStudio()
     const sealButton = await screen.findByRole('button', { name: 'Review and seal record' })
@@ -138,7 +138,8 @@ describe('CohortReleaseStudio', () => {
     expect(within(dialog).getByText('9')).toBeTruthy()
     const cancel = within(dialog).getByRole('button', { name: 'Cancel' })
     const confirm = within(dialog).getByRole('button', { name: 'Seal release record' })
-    expect(document.activeElement).toBe(cancel)
+    expect(document.activeElement).toBe(dialog)
+    await user.tab(); expect(document.activeElement).toBe(cancel)
     await user.tab({ shift: true })
     expect(document.activeElement).toBe(confirm)
     await user.keyboard('{Escape}')
@@ -170,7 +171,7 @@ describe('CohortReleaseStudio', () => {
     renderStudio()
     await user.click(await screen.findByRole('button', { name: 'Review restore record' }))
     const dialog = screen.getByRole('dialog', { name: 'Restore record #4' })
-    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(document.activeElement).toBe(dialog)
     await user.click(within(dialog).getByRole('button', { name: 'Seal restore record' }))
 
     await waitFor(() => expect(apiMocks.restoreCohortRelease).toHaveBeenCalledWith(12, 44, {
