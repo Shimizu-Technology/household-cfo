@@ -586,13 +586,30 @@ module HouseholdFinance
           json_schema: {
             name: "mia_intent_resolution",
             strict: true,
-            schema: compound_response_schema
+            schema: model.to_s.start_with?("google/") ? provider_response_schema(compound_response_schema) : compound_response_schema
           }
         },
         provider: { require_parameters: true },
         max_tokens: MAX_OUTPUT_TOKENS,
         temperature: 0
       }
+    end
+
+    # Providers compile this schema into a generation grammar. The compound
+    # catalog's nested length/range constraints exceed Gemini's grammar limit.
+    # Keep types, required fields, enums and closed objects; Rails remains the
+    # authority for item limits, ids, amounts, dates and participant-authored
+    # source spans. Do not relax those validators to accommodate a provider.
+    def provider_response_schema(value)
+      case value
+      when Hash
+        value.except(:minLength, :maxLength, :minimum, :maximum, :minItems, :maxItems, :pattern, :format)
+          .transform_values { |child| provider_response_schema(child) }
+      when Array
+        value.map { |child| provider_response_schema(child) }
+      else
+        value
+      end
     end
 
     def resolver_contract

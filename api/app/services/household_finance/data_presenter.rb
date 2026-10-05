@@ -605,7 +605,8 @@ module HouseholdFinance
       current_year = Date.current.year
       current_year_range = Date.new(current_year, 1, 1)..Date.new(current_year, 12, 31)
       transaction_reviews = household.transaction_drafts.pending.where(occurred_on: current_year_range).count
-      action_reviews = household.mia_action_drafts.reviewable.for_budget_year(current_year).count
+      action_reviews = ::Mia::ActionDraftScope.records(household.mia_action_drafts.reviewable.for_budget_year(current_year),
+        user: user, membership: cohort_membership).count
 
       {
         transaction_review_count: transaction_reviews,

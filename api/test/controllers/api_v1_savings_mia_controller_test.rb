@@ -203,6 +203,52 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "named household records route to reviewed edits without requiring a financial keyword" do
+    category = @savings_household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary")
+    assert_equal :household, Mia::HouseholdPlanRequest.classify("Set Dining Out to $200 next month", household: @savings_household)
+    assert_equal :household, Mia::HouseholdPlanRequest.classify("Rename Dining Out to Restaurants", household: @savings_household)
+    @savings_household.income_sources.create!(label: "Primary salary", source_type: "job", cadence: "monthly", amount_cents: 400_000)
+    assert_equal :household, Mia::HouseholdPlanRequest.classify("Archive Primary salary", household: @savings_household)
+    HouseholdFinance::AnnualBudgetManager.new(@savings_household, year: 2026).ensure_plan!
+    assert_no_difference [ "BudgetAllocation.count", "SavingsEntryVersion.count", "HouseholdTransaction.count" ] do
+      post "/api/v1/mia/messages", params: { message: "Set Dining Out to $200 next month", year: 2026, month: 11, request_id: "named-category" }, headers: auth, as: :json
+      assert_response :created
+      assert_equal category.id, response.parsed_body.dig("mia_action_draft", "items", 0, "target_record_id")
+    end
+  end
+
+  test "scoping before review limits preserves each program queue and its count" do
+    ordinary = Cohort.create!(name: "Ordinary queue", status: "active", created_by_user: @savings_owner)
+    membership = ordinary.cohort_memberships.create!(user: @savings_user, role: "participant")
+    old = @savings_household.mia_action_drafts.create!(requested_by_user: @savings_user, draft_type: "budget_edit", year: 2026,
+      title: "Ordinary review", summary: "Ordinary plan review", metadata: { review_program_scope: { cohort_id: nil, user_id: @savings_user.id } })
+    11.times do |index|
+      @savings_household.mia_action_drafts.create!(requested_by_user: @savings_user, draft_type: "budget_edit", year: 2026,
+        title: "Challenge household review #{index}", summary: "Challenge household plan review",
+        metadata: { review_program_scope: { cohort_id: @savings_cohort.id, user_id: @savings_user.id } })
+    end
+    ordinary_presenter = HouseholdFinance::DataPresenter.new(@savings_household, user: @savings_user, cohort_membership: membership)
+    assert_equal [ old.id ], ordinary_presenter.budget.fetch(:annual_plan).fetch(:pending_mia_action_drafts).map { |draft| draft[:id] }
+    assert_equal 1, ordinary_presenter.dashboard.fetch(:action_center).fetch(:mia_action_review_count)
+    challenge_presenter = HouseholdFinance::DataPresenter.new(@savings_household, user: @savings_user, cohort_membership: @savings_membership)
+    assert_equal 10, challenge_presenter.budget.fetch(:annual_plan).fetch(:pending_mia_action_drafts).length
+    assert_equal 11, challenge_presenter.dashboard.fetch(:action_center).fetch(:mia_action_review_count)
+    refute_includes challenge_presenter.budget.fetch(:annual_plan).fetch(:pending_mia_action_drafts).map { |draft| draft[:id] }, old.id
+  end
+
+  test "unsupported read periods clarify without creating a monthly plan in either program" do
+    ordinary = Cohort.create!(name: "Ordinary reads", status: "active", created_by_user: @savings_owner)
+    ordinary.cohort_memberships.create!(user: @savings_user, role: "participant")
+    [ @savings_cohort.id, ordinary.id ].each do |cohort_id|
+      assert_no_difference [ "BudgetYear.count", "BudgetAllocation.count", "MiaActionDraft.count" ] do
+        post "/api/v1/mia/messages", params: { message: "Show my income for 2026-13", request_id: "invalid-read-#{cohort_id}" }, headers: auth.merge("X-Cohort-Id" => cohort_id.to_s), as: :json
+        assert_response :created
+        assert_includes response.parsed_body.dig("assistant_message", "content"), "one valid month"
+        assert_nil response.parsed_body.fetch("budget")
+      end
+    end
+  end
+
   private
   def with_intent_resolver(resolver)
     singleton = class << HouseholdFinance::MiaIntentResolver; self; end

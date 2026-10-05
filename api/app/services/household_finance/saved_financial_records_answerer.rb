@@ -6,6 +6,7 @@ module HouseholdFinance
   # with the appropriate household/challenge coaching route.
   class SavedFinancialRecordsAnswerer
     Result = Struct.new(:answer, :metadata, keyword_init: true)
+    attr_reader :decline_reason
     MAX_RECORDS = 20
     MAX_SCHEDULE_ENTRIES = 6
     TOPICS = {
@@ -37,7 +38,10 @@ module HouseholdFinance
       return if text.match?(/\b(?:annual|yearly|(?:this|current|next|last)\s+year|all year)\b/i)
 
       reference = requested_reference_date(text)
-      return if reference == false
+      if reference == false
+        @decline_reason = :ambiguous_period
+        return
+      end
       @reference_date = reference || @reference_date
       @read_text = text
       send("answer_#{topics.sole}")

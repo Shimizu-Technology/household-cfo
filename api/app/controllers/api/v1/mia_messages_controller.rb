@@ -83,8 +83,14 @@ module Api
         end
 
         if attached_imports.empty? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
-          saved_answer = HouseholdFinance::SavedFinancialRecordsAnswerer.new(current_household,
-            message: content, year: budget_year_param, month: budget_month_param).call
+          saved_reader = HouseholdFinance::SavedFinancialRecordsAnswerer.new(current_household,
+            message: content, year: budget_year_param, month: budget_month_param)
+          saved_answer = saved_reader.call
+          if saved_reader.decline_reason == :ambiguous_period
+            return render_household_read_response(session, content,
+              "I could not identify one valid month for that saved-record question. Use a month and year, such as October 2026 or 2026-10. No financial records or plans changed.",
+              message_request: message_request)
+          end
           if saved_answer
             if savings_program_selected? && saved_answer.metadata[:topic].in?(%w[debts goals]) && !content.match?(/\b(?:household|tracked)\b/i)
               return render_household_scope_clarification(session, content, message_request: message_request)
@@ -94,7 +100,7 @@ module Api
         end
 
         if savings_program_selected?
-          household_request = attached_imports.empty? ? ::Mia::HouseholdPlanRequest.classify(content) : :challenge
+          household_request = attached_imports.empty? ? ::Mia::HouseholdPlanRequest.classify(content, household: current_household) : :challenge
           if household_request == :ambiguous
             return render_household_scope_clarification(session, content, message_request: message_request)
           end

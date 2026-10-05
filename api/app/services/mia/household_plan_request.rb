@@ -4,7 +4,7 @@ module Mia
   # A challenge entry and a household plan edit are different facts. Choose the
   # surface before asking the model to interpret the edit, never from its output.
   class HouseholdPlanRequest
-    WRITE = /\b(?:set|change|update|adjust|make|create|add|rename|archive|restore|remove|delete|schedule|end|stop|increase|decrease|lower|raise|move|reclassify|recategorize|link|unlink|reconcile)\b/i.freeze
+    WRITE = /\b(?:set|change|update|adjust|make|edit|reduce|transfer|shift|create|add|rename|archive|restore|remove|delete|schedule|end|stop|increase|decrease|lower|raise|move|reclassify|recategorize|link|unlink|reconcile)\b/i.freeze
     INCOME_REPORT = /\b(?:my|our)\s+(?:primary\s+|business\s+|monthly\s+)?(?:income|salary|take[ -]?home pay|paycheck)\s+(?:(?:is|will be|changed to|has changed to)\s+)?(?:now\s+)?\$\s*\d/i.freeze
     CHALLENGE = /\b(?:challenge|bog|90[ -]day|baseline|check[ -]?in|reserved|contribution|withdrawal|optional (?:card|debt)|card review|savings (?:target|goal|progress|plan))\b/i.freeze
     HOUSEHOLD = /\b(?:household|budget|category|categories|allocation|income|salary|paycheck|income source|account|asset|tracked goal|expense stack|runway)\b/i.freeze
@@ -12,16 +12,27 @@ module Mia
     ACTION_INTENTS = %w[action_plan budget_action household_action income_action debt_action asset_action goal_action pending_drafts].freeze
     ACTION_TYPES = (HouseholdFinance::MiaIntentResolver::ACTION_TYPES - %w[none create_transaction_draft update_transaction_draft ignore_transaction_drafts]).freeze
 
-    def self.classify(message)
+    def self.classify(message, household: nil)
       text = message.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").squish
       return :challenge unless text.match?(WRITE) || text.match?(INCOME_REPORT)
       return :challenge if FinancialReadOnlyRequest.matches?(text)
       return :ambiguous if text.match?(CHALLENGE) && text.match?(/\bhousehold\b/i)
-      return :challenge if text.match?(CHALLENGE)
+      matched_topics = household ? saved_topics(household, text) : []
+      return matched_topics.any? ? :ambiguous : :challenge if text.match?(CHALLENGE)
       return :household if text.match?(HOUSEHOLD) || text.match?(INCOME_REPORT)
+      return :household if matched_topics.one? && matched_topics.first != :debt
+      return :ambiguous if matched_topics.any?
       return :ambiguous if text.match?(AMBIGUOUS)
 
       :challenge
+    end
+
+    def self.saved_topics(household, text)
+      { spending: household.budget_categories.pluck(:name), income: household.income_sources.pluck(:label),
+        accounts: household.accounts.pluck(:label), goals: household.goals.tracked.pluck(:label),
+        debt: household.debts.pluck(:label) }.filter_map do |topic, labels|
+        topic if labels.any? { |label| label.present? && text.match?(/(?<!\w)#{Regexp.escape(label)}(?!\w)/i) }
+      end
     end
 
     def self.allowed_intent?(result)
