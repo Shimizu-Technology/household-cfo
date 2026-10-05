@@ -110,4 +110,8 @@
 
 /* WebKit can include native option text in a parent scroll extent even when
    the select itself fits; its native picker remains independently usable. */
-.challenge-privacy-dialog select { overflow: hidden; text-overflow: ellipsis; }
+.challenge-privacy-dialog select {
+  contain: inline-size paint;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -9576,9 +9576,10 @@ test('BOG UI pilot support stays vertically aligned on narrow phones and account
     expect(alignment.overflow).toBeLessThanOrEqual(1)
   }
   const launcher = page.getByRole('button', { name: 'Open Mia', exact: true })
+  await page.evaluate(() => document.fonts.ready)
   await page.locator('.brand-footer').scrollIntoViewIfNeeded()
   await page.keyboard.press('End')
-  expect(await page.locator('.brand-footer').evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual((await launcher.boundingBox())!.y)
+  await expect.poll(async () => (await page.locator('.brand-footer').evaluate(node => node.getBoundingClientRect().bottom)) - (await launcher.boundingBox())!.y).toBeLessThanOrEqual(0)
   await page.getByRole('button', { name: 'Tools', exact: true }).click()
   await expect(launcher).toBeHidden()
   await page.getByRole('dialog').getByRole('button', { name: 'Close tools', exact: true }).click()
