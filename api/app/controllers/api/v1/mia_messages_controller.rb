@@ -101,12 +101,18 @@ module Api
 
         if savings_program_selected?
           household_request = attached_imports.empty? ? ::Mia::HouseholdPlanRequest.classify(content, household: current_household) : :challenge
+          if household_request == :challenge && attached_imports.empty? && household_plan_continuation?(session, content)
+            household_request = :household
+          end
           if household_request == :ambiguous
             return render_household_scope_clarification(session, content, message_request: message_request)
           end
-          return render_savings_response(session, content, attached_imports, message_request: message_request) unless household_request == :household
+          unless household_request.in?(%i[household household_read])
+            return render_savings_response(session, content, attached_imports, message_request: message_request)
+          end
 
           @savings_household_request = true
+          @savings_household_read = household_request == :household_read
         end
 
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
@@ -122,7 +128,7 @@ module Api
 
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
         intent_plan = annual_budget_manager.read_only_plan_data
-        global_read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(content)
+        global_read_only_request = @savings_household_read || ::Mia::FinancialReadOnlyRequest.matches?(content)
         conversation_context = HouseholdFinance::ConversationContextBuilder.new(
           session,
           household: current_household,
@@ -172,7 +178,8 @@ module Api
             topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic"
           )
         end
-        if @savings_household_request && intent_result && !::Mia::HouseholdPlanRequest.allowed_intent?(intent_result)
+        allowed_household_intent = @savings_household_read ? ::Mia::HouseholdPlanRequest.allowed_read_intent?(intent_result) : ::Mia::HouseholdPlanRequest.allowed_intent?(intent_result)
+        if @savings_household_request && intent_result && !allowed_household_intent
           return render_household_scope_clarification(session, content, message_request: message_request)
         end
         if attached_imports.any?
@@ -298,6 +305,9 @@ module Api
           )
         end
         retire_document_evidence_state(session) if retire_prior_document_evidence
+        if @savings_household_request
+          session.update!(active_topic: session.reload.active_topic.to_h.merge("record_scope" => "household_plan"))
+        end
 
         response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
@@ -340,6 +350,14 @@ module Api
 
       private
 
+      def household_plan_continuation?(session, content)
+        return false unless session.active_topic.to_h["record_scope"] == "household_plan"
+        text = content.to_s.squish
+        confirmation = text.match?(/\A(?:yes|yeah|yep|okay|ok|please do that|apply it|go ahead)\b/i)
+        correction = text.match?(/\b(?:that|it|same|those)\b/i) && text.match?(::Mia::HouseholdPlanRequest::WRITE)
+        confirmation || correction
+      end
+
       def detach_action_reviews_before_clearing(session)
         message_ids = session.chat_messages.select(:id)
         scope = current_household.mia_action_drafts
@@ -356,7 +374,12 @@ module Api
       end
 
       def render_saved_records_response(session, content, result, message_request:)
-        render_household_read_response(session, content, result.answer, message_request: message_request)
+        records = Array(result.metadata[:records])
+        record = records.one? && result.metadata[:total_count] == 1 ? records.first : nil
+        topic = { "schema_version" => 2, "type" => "household_inventory", "record_scope" => "household_plan",
+          "subject" => record&.fetch(:name, record[:label]), "title" => "Saved household #{result.metadata[:topic]}",
+          "persona_context_id" => current_participant_runtime.continuity_id }
+        render_household_read_response(session, content, result.answer, message_request: message_request, topic: topic)
       end
 
       def route_household_plan_without_provider(content, conversation_context:, annual_budget_manager:)
@@ -374,12 +397,13 @@ module Api
           message_request: message_request)
       end
 
-      def render_household_read_response(session, content, answer, message_request:)
+      def render_household_read_response(session, content, answer, message_request:, topic: {})
         ApplicationRecord.transaction do
           current_household.lock!
           chat_session_scope.authorize!
           user_message, assistant_message = persist_chat_messages(session, content, [], answer)
           retire_document_evidence_state(session) if document_evidence_topic_present?(session)
+          session.update!(active_topic: topic)
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
             assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil,
             transaction_draft: nil, budget: nil, spending_report: nil }
@@ -418,6 +442,7 @@ module Api
           current_household.lock!
           require_savings_chat_access!
           user_message, assistant_message = persist_chat_messages(session, content, attached_imports, answer)
+          session.update!(active_topic: {})
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
             assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil, transaction_draft: nil,
             budget: nil, spending_report: nil,
@@ -1622,9 +1647,10 @@ module Api
 
       def read_only_answer_plan(intent_result, content)
         return intent_result.read_only_plan if intent_result.read_only_plan?
-        return unless ::Mia::FinancialReadOnlyRequest.matches?(content)
+        return unless @savings_household_read || ::Mia::FinancialReadOnlyRequest.matches?(content)
 
         kind = intent_result.intent.in?(HouseholdFinance::MiaIntentResolver::READ_ONLY_KINDS) ? intent_result.intent : "coaching"
+        kind = "budget_question" if @savings_household_read && HouseholdFinance::BudgetQuestionAnswerer.budget_question?(content)
         question = intent_result.resolved_message.presence || content
         question = content if content.match?(HouseholdFinance::MiaCoachAnswerer::READ_ONLY_AMOUNT_EDIT_PATTERN)
         {

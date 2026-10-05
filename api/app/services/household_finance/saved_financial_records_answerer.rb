@@ -35,6 +35,9 @@ module HouseholdFinance
       return unless topics.one?
       # Exclude recommendations framed as questions even when a topic matches.
       return if text.match?(/\b(?:best|better|strategy|pay off|pay first|can i|can we|will i|will we)\b/i)
+      # Ranking and analysis retain the established budget answerer and its
+      # conversation references; this reader is an inventory/record lookup.
+      return if text.match?(/\b(?:largest|biggest|highest|smallest|lowest|top|compare|comparison|on track|over budget|under budget)\b/i)
       return if text.match?(/\b(?:annual|yearly|(?:this|current|next|last)\s+year|all year)\b/i)
 
       reference = requested_reference_date(text)

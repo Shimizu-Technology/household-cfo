@@ -45,10 +45,11 @@ module HouseholdFinance
       value.to_s.downcase.gsub(/[^a-z0-9\s]/, " ").squish
     end
 
-    def initialize(message, annual_plan:, today: Date.current)
+    def initialize(message, annual_plan:, today: Date.current, reference_month: nil)
       @message = message.to_s.squish
       @annual_plan = annual_plan.deep_symbolize_keys
       @today = today
+      @reference_month = reference_month&.to_i&.clamp(1, 12)
     end
 
     def call
@@ -248,6 +249,7 @@ module HouseholdFinance
     end
 
     def default_month_index
+      return @reference_month - 1 if @reference_month
       return unless annual_plan_year == today.year
 
       today.month - 1

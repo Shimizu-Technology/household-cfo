@@ -14,6 +14,17 @@ module Mia
 
     def self.classify(message, household: nil)
       text = message.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").squish
+      # Reporting a purchase/reservation keeps the challenge intake even when a
+      # merchant, goal or account happens to share a household record's label.
+      return :challenge if text.match?(/\A(?:i|we)\s+(?:have\s+)?(?:set aside|saved|spent|bought|paid|withdrew|withdrawn|contributed)\b/i)
+      if text.match?(HouseholdFinance::MiaIntentResolver::HYPOTHETICAL_PATTERN) &&
+          text.match?(/\bhousehold\b/i) && text.match?(HOUSEHOLD) && !text.match?(CHALLENGE)
+        return :household_read
+      end
+      if text.match?(/\A(?:please\s+)?(?:show|tell me|what|which|how|explain)\b/i) && !text.match?(WRITE) &&
+          text.match?(/\bhousehold\b/i) && text.match?(/\b(?:budget|categories|category|spending|plan)\b/i) && !text.match?(CHALLENGE)
+        return :household_read
+      end
       return :challenge unless text.match?(WRITE) || text.match?(INCOME_REPORT)
       return :challenge if FinancialReadOnlyRequest.matches?(text)
       return :ambiguous if text.match?(CHALLENGE) && text.match?(/\bhousehold\b/i)
@@ -44,6 +55,10 @@ module Mia
       end
 
       ACTION_TYPES.include?(result.action.to_h[:type].to_s)
+    end
+
+    def self.allowed_read_intent?(result)
+      result && !result.actionable? && result.intent.in?(HouseholdFinance::MiaIntentResolver::READ_ONLY_INTENTS)
     end
 
     def self.clarification

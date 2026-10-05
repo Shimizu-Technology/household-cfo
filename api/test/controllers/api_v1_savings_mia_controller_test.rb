@@ -249,6 +249,52 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "explicit household budget analysis stays read only and a model cannot turn it into an edit" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@savings_household, year: 2026)
+    dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 200)
+    manager.create_category!(name: "Housing", stack_key: "non_discretionary", monthly_amount: 300)
+    dining.budget_allocations.joins(:budget_period).find_by!(budget_periods: { starts_on: Date.new(2026, 7, 1) }).update!(planned_amount_cents: 50_000)
+    assert_no_difference [ "BudgetYear.count", "BudgetAllocation.count", "MiaActionDraft.count", "HouseholdTransaction.count", "SavingsEntryVersion.count" ] do
+      post "/api/v1/mia/messages", params: { message: "What is my largest household budget category?", year: 2026, month: 7, request_id: "household-analysis" }, headers: auth, as: :json
+      assert_response :created
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Dining Out"
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "$500 planned"
+      assert_nil response.parsed_body.fetch("budget")
+      assert_nil response.parsed_body.fetch("mia_action_draft")
+    end
+    category = @savings_household.budget_categories.find_by!(name: "Dining Out")
+    result = HouseholdFinance::MiaIntentResolver::Result.new(intent: "budget_action", confidence: 1.0,
+      action: { type: "set_allocation", category_id: category.id, category_name: category.name, amount: "500", months: [ 11 ], year: 2026 },
+      read_only_plan: {}, resolved_message: "Set Dining Out to $500")
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { result }
+    with_intent_resolver(resolver) do
+      assert_no_difference [ "MiaActionDraft.count", "BudgetAllocation.count" ] do
+        post "/api/v1/mia/messages", params: { message: "What is my largest household budget category?", request_id: "read-misclassified" }, headers: auth, as: :json
+        assert_response :created
+        assert_nil response.parsed_body.fetch("mia_action_draft")
+      end
+    end
+  end
+
+  test "household pronoun corrections continue the selected thread and challenge reports retire it" do
+    @savings_household.goals.create!(label: "Today", goal_type: "savings", record_kind: "tracked", target_amount_cents: 100_000)
+    post "/api/v1/mia/messages", params: { message: "Create a discretionary category called Books with $25 for November 2026", year: 2026, month: 11, request_id: "thread-create" }, headers: auth, as: :json
+    assert_response :created
+    assert response.parsed_body.fetch("mia_action_draft")
+    session = @savings_household.chat_sessions.find_by!(user: @savings_user, cohort: @savings_cohort)
+    assert_equal "household_plan", session.reload.active_topic["record_scope"]
+    post "/api/v1/mia/messages", params: { message: "Change it to $30", year: 2026, month: 11, request_id: "thread-correct" }, headers: auth, as: :json
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "Household plan:"
+    assert_nil response.parsed_body.fetch("transaction_draft")
+    post "/api/v1/mia/messages", params: { message: "I set aside $20 today", request_id: "thread-challenge" }, headers: auth, as: :json
+    assert_response :created
+    assert_equal "contribution", response.parsed_body.dig("savings_intake", "kind")
+    assert_nil response.parsed_body.fetch("mia_action_draft")
+    assert_empty session.reload.active_topic
+  end
+
   private
   def with_intent_resolver(resolver)
     singleton = class << HouseholdFinance::MiaIntentResolver; self; end

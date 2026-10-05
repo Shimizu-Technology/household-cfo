@@ -9,6 +9,26 @@ class SavingsHouseholdDebtLinkTest < ActiveSupport::TestCase
   end
   teardown { travel_back }
 
+  test "an older client cannot silently unlink an approved household identity" do
+    with_savings_runtime do
+      savings_enroll
+      debt = household_card
+      first = debt_approve(linked_stage(debt_terms, debt: debt))
+      card = first.savings_debt_card.reload
+      assert_no_difference [ "SavingsDebtDraft.count", "SavingsDebtVersion.count", "HouseholdOperationExecution.count" ] do
+        error = assert_raises(ArgumentError) do
+          savings_run("debt.stage", { card_id: card.id, terms: debt_terms(balance_cents: 40_000),
+            expected_version_id: first.id, expected_head_lock_version: card.lock_version,
+            reason: "Manual correction from an older client", source_mapping: nil })
+        end
+        assert_includes error.message, "Refresh the app"
+      end
+      assert_equal debt.id, card.reload.household_debt_id
+      assert_equal first.id, card.current_version_id
+      assert_equal first.household_debt_snapshot, first.reload.household_debt_snapshot
+    end
+  end
+
   test "link approval preserves exact unknown and zero values without modifying household debt budget or savings" do
     with_savings_runtime do
       savings_enroll
@@ -99,7 +119,11 @@ class SavingsHouseholdDebtLinkTest < ActiveSupport::TestCase
       savings_enroll
       debt = household_card
       first = debt_approve(linked_stage(debt_terms, debt: debt))
-      second = debt_approve(debt_stage(debt_terms(balance_cents: nil), card: first.savings_debt_card))
+      card = first.savings_debt_card.reload
+      pending = savings_run("debt.stage", { card_id: card.id, terms: debt_terms(balance_cents: nil),
+        source_mapping: nil, household_debt_mapping: nil, expected_version_id: first.id,
+        expected_head_lock_version: card.lock_version, reason: "Explicitly unlink this correction" }).subject
+      second = debt_approve(pending)
       assert_nil second.savings_debt_card.reload.household_debt_id
       assert_nil second.household_debt_id
       assert_equal debt.id, first.reload.household_debt_id
