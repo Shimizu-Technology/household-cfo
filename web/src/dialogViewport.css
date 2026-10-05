@@ -1,0 +1,117 @@
+/* A shared visible viewport for participant, coach, and admin dialogs. */
+:root {
+  --dialog-gap: 16px;
+  --dialog-space-top: max(var(--dialog-gap), env(safe-area-inset-top));
+  --dialog-space-bottom: max(var(--dialog-gap), env(safe-area-inset-bottom));
+  --dialog-available-height: calc(var(--dialog-viewport-height, 100dvh) - var(--dialog-space-top) - var(--dialog-space-bottom));
+}
+
+/* These headings are noninteractive screen-reader destinations after routing.
+   Interactive controls retain their normal keyboard focus indicators. */
+:is(h1, h2, h3)[data-page-heading][tabindex="-1"]:focus {
+  outline: none;
+}
+
+.pilot-dialog-overlay,
+.document-preview-overlay,
+.clear-chat-overlay,
+.cohort-release-modal-backdrop,
+.daily-overlay,
+.baseline-overlay,
+.evidence-overlay,
+.optional-debt-overlay {
+  top: var(--dialog-viewport-top, 0px);
+  bottom: auto;
+  height: var(--dialog-viewport-height, 100dvh);
+  min-height: 0;
+  padding: var(--dialog-space-top) max(var(--dialog-gap), env(safe-area-inset-right)) var(--dialog-space-bottom) max(var(--dialog-gap), env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pilot-dialog,
+.clear-chat-dialog,
+.cohort-release-modal,
+.daily-dialog,
+.baseline-dialog,
+.evidence-dialog,
+.optional-debt-dialog {
+  min-height: 0;
+  max-height: var(--dialog-available-height);
+  overscroll-behavior: contain;
+}
+
+.pilot-dialog { max-height: min(820px, var(--dialog-available-height)); }
+.clear-chat-dialog { overflow-y: auto; }
+.cohort-release-modal { max-height: min(42rem, var(--dialog-available-height)); }
+.cohort-release-modal:focus,
+.document-preview-modal:focus,
+.local-attachment-preview:focus { outline: none; }
+
+.pilot-dialog > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+.pilot-dialog h2 { font-size: clamp(1.5rem, 3vw, 2rem); }
+.pilot-dialog > header button { width: auto; }
+
+/* One vertical scroll owner lets long filenames and enlarged headers stay
+   reachable instead of squeezing the preview body to zero height. */
+.document-preview-modal,
+.local-attachment-preview {
+  display: block;
+  width: min(1120px, 100%);
+  height: min(820px, var(--dialog-available-height));
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.local-attachment-preview { width: min(760px, 100%); height: min(760px, var(--dialog-available-height)); }
+.document-preview-body { overflow: visible; min-height: min(240px, var(--dialog-available-height)); }
+.document-preview-body img,
+.local-attachment-preview .document-preview-body img {
+  height: auto;
+  max-height: max(120px, calc(var(--dialog-available-height) - 160px));
+}
+.document-preview-actions { flex-wrap: wrap; }
+.document-preview-header :is(h3, p) { overflow-wrap: anywhere; }
+
+.challenge-privacy-dialog {
+  top: var(--dialog-viewport-top, 0px);
+  bottom: auto;
+  max-height: var(--dialog-available-height);
+  margin-top: var(--dialog-space-top);
+}
+
+.mia-context-clear { display: none; }
+
+@media (max-width: 620px) {
+  .mia-context-clear { display: inline-flex; }
+  :root { --dialog-gap: 12px; }
+  .document-preview-actions,
+  .document-preview-actions :is(a, button) { width: auto; }
+}
+
+@media (max-height: 450px) {
+  /* Let the page grow around the minimum useful conversation height. */
+  .is-chat-page > .mia-screen,
+  .is-chat-page .mia-layout { flex: 0 0 auto; }
+}
+
+/* Keep the entire privacy/card panel reachable when its header wraps or a
+   keyboard shrinks the visible viewport; avoid competing inner scroll areas. */
+.challenge-privacy-dialog,
+.optional-debt-dialog { overflow-y: auto; }
+.privacy-scroll,
+.optional-debt-scroll { max-height: none; overflow: visible; }
+
+/* WebKit can include native option text in a parent scroll extent even when
+   the select itself fits; its native picker remains independently usable. */
+.challenge-privacy-dialog select {
+  contain: inline-size paint;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

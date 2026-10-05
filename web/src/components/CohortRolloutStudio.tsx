@@ -393,7 +393,8 @@ function RolloutConfirmationDialog({ confirmation, rollout, studio, plan, pendin
   const dialogRef = useRef<HTMLElement | null>(null)
   const cancelRef = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {
-    cancelRef.current?.focus()
+    dialogRef.current?.focus({ preventScroll: true })
+    if (dialogRef.current) dialogRef.current.scrollTop = 0
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = previousOverflow }
@@ -409,13 +410,14 @@ function RolloutConfirmationDialog({ confirmation, rollout, studio, plan, pendin
     if (!focusable.length) return
     const first = focusable[0]
     const last = focusable[focusable.length - 1]
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+    if (document.activeElement === dialogRef.current) { event.preventDefault(); (event.shiftKey ? last : first).focus() }
+    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
   }
   const copy = confirmationCopy(confirmation.action, rollout, studio)
   const details = confirmationDetails(confirmation.action, rollout, studio, plan)
   return <div className="cohort-release-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !pending) onCancel() }}>
-    <section ref={dialogRef} className="cohort-release-modal" role="dialog" aria-modal="true" aria-labelledby="cohort-rollout-modal-title" aria-describedby="cohort-rollout-modal-copy" onKeyDown={trapFocus}>
+    <section ref={dialogRef} className="cohort-release-modal" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="cohort-rollout-modal-title" aria-describedby="cohort-rollout-modal-copy" onKeyDown={trapFocus}>
       <p className="eyebrow">Final review</p><h3 id="cohort-rollout-modal-title">{copy.title}</h3><p id="cohort-rollout-modal-copy">{copy.body}</p>
       <dl className="cohort-rollout-confirmation-summary">
         <div><dt>Cohort</dt><dd>{studio.cohort.name}</dd></div>
