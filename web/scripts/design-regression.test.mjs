@@ -98,7 +98,7 @@ assert.ok(css.includes('.income-schedule-submit'), 'income timeline changes shou
 assert.ok(css.includes('.income-schedule-form-footer'), 'income timeline actions should sit in a balanced full-width footer')
 assert.ok(app.includes('Plan preview'), 'income timeline edits should explain their effect before saving')
 assert.ok(app.includes("current_runway_months ?? 'Not available'") && app.includes("current_runway_months === null ? '' : ' months'"), 'optionality must render an unavailable runway without null copy')
-assert.ok(app.includes('const trackingDirty =') && app.includes('disabled={saving || !trackingDirty}'), 'debt tracking save state should include both mode and summary edits')
+assert.ok(app.includes('const trackingDirty =') && app.includes('disabled={saving || formDirty || !trackingDirty}'), 'debt tracking save state should include both mode and summary edits')
 assert.ok(app.includes('Schedule income change'), 'recurring income timeline actions should use a specific action label')
 assert.ok(app.includes('Budget impact if approved'), 'transaction review cards should show the pending category impact before confirmation')
 assert.ok(css.includes('white-space: nowrap'), 'financial values should stay intact instead of breaking digits across lines')

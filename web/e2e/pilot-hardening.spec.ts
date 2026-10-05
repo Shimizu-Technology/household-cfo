@@ -9876,3 +9876,36 @@ test('BOG UI source saves preserve sibling schedule input and invalidate a previ
   expect(yearRequests).toBe(2)
   await expect(page.locator('.income-source-manager-list')).toContainText('Sibling side work')
 })
+
+
+test('BOG UI My Money preserves account goal and debt drafts until save or cancel', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const topics = page.getByRole('navigation', { name: 'My Money topics' })
+  for (const scenario of [
+    { topic: 'Accounts', add: 'Add an account', form: '.account-form', field: 'Account name', value: 'Unsaved checking' },
+    { topic: 'Goals', add: 'Add a goal', form: '.goal-form', field: 'Goal name', value: 'Unsaved travel' },
+    { topic: 'Debt', add: 'Add a debt', form: '.debt-form', field: 'Debt name', value: 'Unsaved credit card' },
+  ]) {
+    await topics.getByRole('button', { name: scenario.topic, exact: true }).click()
+    await page.getByRole('button', { name: scenario.add, exact: true }).click()
+    const form = page.locator(scenario.form)
+    await form.getByLabel(scenario.field).fill(scenario.value)
+    await topics.getByRole('button', { name: 'Income', exact: true }).click()
+    await expect(topics.getByRole('button', { name: scenario.topic, exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(form.getByLabel(scenario.field)).toHaveValue(scenario.value)
+    await page.getByRole('link', { name: 'Home', exact: true }).click()
+    await expect(page).toHaveURL(/#My%20Money$/)
+    await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await topics.getByRole('button', { name: 'Income', exact: true }).click()
+    await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  }
+  await topics.getByRole('button', { name: 'Debt', exact: true }).click()
+  await page.getByRole('radio', { name: /One household summary/ }).check()
+  await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+  await expect(topics.getByRole('button', { name: 'Debt', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Cancel tracking changes', exact: true }).click()
+  await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+  await expect(topics.getByRole('button', { name: 'Accounts', exact: true })).toHaveAttribute('aria-pressed', 'true')
+})

@@ -538,6 +538,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [hasUnsavedIncomeScheduleChanges, setHasUnsavedIncomeScheduleChanges] = useState(false)
   const [incomeDraftNotice, setIncomeDraftNotice] = useState<string | null>(null)
   const [workspaceRefreshNotice, setWorkspaceRefreshNotice] = useState<{ kind: 'home' | 'selected'; message: string } | null>(null)
+  const [moneyDrafts, setMoneyDrafts] = useState({ accounts: false, goals: false, debt: false })
+  const hasUnsavedMoneyChanges = Object.values(moneyDrafts).some(Boolean)
   const hasUnsavedIncomeChanges = hasUnsavedIncomeSourceChanges || hasUnsavedIncomeScheduleChanges
   const incomeMutationPending = Boolean(budgetAction?.includes('income'))
   const [hasUnsavedCoachChanges, setHasUnsavedCoachChanges] = useState(false)
@@ -875,9 +877,22 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (!dirty) setIncomeDraftNotice(null)
   }, [])
 
-  function blockUnsavedIncomeTransition(destination: string) {
-    if (!hasUnsavedIncomeChanges && !incomeMutationPending) return false
-    const notice = incomeMutationPending ? 'Your income change is saving. Wait for it to finish before leaving this task.' : `You have unsaved income changes. Save or cancel them before ${destination}.`
+  const handleAccountDirtyChange = useCallback((dirty: boolean) => {
+    setMoneyDrafts(current => ({ ...current, accounts: dirty }))
+    if (!dirty) setIncomeDraftNotice(null)
+  }, [])
+  const handleGoalDirtyChange = useCallback((dirty: boolean) => {
+    setMoneyDrafts(current => ({ ...current, goals: dirty }))
+    if (!dirty) setIncomeDraftNotice(null)
+  }, [])
+  const handleDebtDirtyChange = useCallback((dirty: boolean) => {
+    setMoneyDrafts(current => ({ ...current, debt: dirty }))
+    if (!dirty) setIncomeDraftNotice(null)
+  }, [])
+
+  function blockFinancialTransition(destination: string) {
+    if (!hasUnsavedIncomeChanges && !incomeMutationPending && !hasUnsavedMoneyChanges) return false
+    const notice = incomeMutationPending ? 'Your income change is saving. Wait for it to finish before leaving this task.' : hasUnsavedIncomeChanges ? `You have unsaved income changes. Save or cancel them before ${destination}.` : `Finish or cancel your money change before ${destination}.`
     setIncomeDraftNotice(notice)
     setRouteAnnouncement(notice)
     return true
@@ -885,7 +900,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
   function chooseParticipantProgram(cohortId: number) {
     if (cohortId === data?.workspace.cohort?.id) return
-    if (blockUnsavedIncomeTransition('switching programs')) return
+    if (blockFinancialTransition('switching programs')) return
     if (hasUnsavedBudgetChanges) {
       setBudgetError('You have unsaved budget changes. Save or cancel them before switching programs.')
       setRouteAnnouncement('Save or cancel your budget changes before switching programs.')
@@ -945,7 +960,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [canLoadWorkspace, auth.currentUser?.id, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId, onProgramVerified, onProgramUnavailable, participantActorId])
 
   useEffect(() => {
-    if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending) return
+    if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending && !hasUnsavedMoneyChanges) return
 
     const preventUnsavedNavigation = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -953,7 +968,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
     window.addEventListener('beforeunload', preventUnsavedNavigation)
     return () => window.removeEventListener('beforeunload', preventUnsavedNavigation)
-  }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending])
+  }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges])
 
   useEffect(() => {
     if (!workspaceLoadKey) return
@@ -1320,8 +1335,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
     const targetSection = visibleSections.includes(section) ? section : sections[0]
     let replacedStaleOAuthLocation = false
-    if (targetSection !== activeSection && (hasUnsavedIncomeChanges || incomeMutationPending)) {
-      const notice = incomeMutationPending ? 'Your income change is saving. Wait for it to finish before leaving this task.' : 'You have unsaved income changes. Save or cancel them before leaving this screen.'
+    if (targetSection !== activeSection && (hasUnsavedIncomeChanges || incomeMutationPending || hasUnsavedMoneyChanges)) {
+      const notice = incomeMutationPending ? 'Your income change is saving. Wait for it to finish before leaving this task.' : hasUnsavedIncomeChanges ? 'You have unsaved income changes. Save or cancel them before leaving this screen.' : 'Finish or cancel your money change before leaving this screen.'
       setIncomeDraftNotice(notice)
       setRouteAnnouncement(notice)
       return false
@@ -1386,7 +1401,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       )
     }
     return true
-  }, [active, activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedCoachChanges, visibleSections])
+  }, [active, activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedCoachChanges, visibleSections])
 
   useEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration
@@ -1541,7 +1556,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   function openManualControls(draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) {
-    if (blockUnsavedIncomeTransition('opening another edit')) return
+    if (blockFinancialTransition('opening another edit')) return
     const targetItem = item ?? (
       draft.draft_type === 'asset_plan'
         ? draft.items.find((candidate) => candidate.target_record_type === 'Account' || candidate.operation_key?.startsWith('account.'))
@@ -2156,7 +2171,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
   async function handleBudgetViewChange(year: number, monthIndex: number) {
     if (budgetYearLoading || budgetAction) return
-    if (blockUnsavedIncomeTransition('changing the report period')) return
+    if (blockFinancialTransition('changing the report period')) return
     const normalizedYear = Math.max(2000, Math.min(2100, year))
     const normalizedMonthIndex = Math.max(0, Math.min(11, monthIndex))
     const requestedView = { year: normalizedYear, monthIndex: normalizedMonthIndex }
@@ -2284,7 +2299,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   async function handleApplyMiaActionDraft(draft: MiaActionDraft, itemIds?: number[]) {
-    if (blockUnsavedIncomeTransition('applying another financial change')) return
+    if (blockFinancialTransition('applying another financial change')) return
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
@@ -3560,7 +3575,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           <nav className="money-topics" aria-label="My Money topics">
             {moneyTopics.map(topic => (
               <button type="button" key={topic.id} aria-pressed={moneyTopic === topic.id} aria-controls="money-topic-content" onClick={() => {
-                if (topic.id !== moneyTopic && blockUnsavedIncomeTransition('switching money topics')) return
+                if (topic.id !== moneyTopic && blockFinancialTransition('switching money topics')) return
                 setMoneyTopic(topic.id)
                 setRouteAnnouncement(`${topic.label} tools loaded.`)
               }}>{topic.label}</button>
@@ -3638,7 +3653,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       portfolio={data.workspace.debt_portfolio ?? { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 }}
                       onChanged={refreshWorkspaceAfterDebtChange}
                       focusRequest={debtFocusRequest}
-                      onFocusRequestHandled={() => setDebtFocusRequest(null)} /> : <article className="panel empty-state"><p>Sign in to manage your household debt.</p></article>}
+                      onFocusRequestHandled={() => setDebtFocusRequest(null)}
+                    onUnsavedChangesChange={handleDebtDirtyChange} /> : <article className="panel empty-state"><p>Sign in to manage your household debt.</p></article>}
               </>
             )}
             {moneyTopic === 'accounts' && (isRealWorkspace ? <AccountManager
@@ -3647,14 +3663,16 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       portfolio={data.workspace.asset_portfolio}
                       onChanged={refreshWorkspaceAfterDebtChange}
                       focusRequest={accountFocusRequest}
-                      onFocusRequestHandled={() => setAccountFocusRequest(null)} /> : <article className="panel empty-state"><p>Sign in to manage your accounts.</p></article>)}
+                      onFocusRequestHandled={() => setAccountFocusRequest(null)}
+                    onUnsavedChangesChange={handleAccountDirtyChange} /> : <article className="panel empty-state"><p>Sign in to manage your accounts.</p></article>)}
             {moneyTopic === 'goals' && (isRealWorkspace ? <GoalManager
                       sectionRef={goalManagerRef}
                       goals={data.workspace.goals ?? []}
                       portfolio={data.workspace.goal_portfolio ?? { active_count: 0, archived_count: 0, target_total: 0, progress_total: 0, target_known_count: 0, progress_known_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] }}
                       onChanged={refreshWorkspaceAfterDebtChange}
                       focusRequest={goalFocusRequest}
-                      onFocusRequestHandled={() => setGoalFocusRequest(null)} /> : <article className="panel empty-state"><p>Sign in to manage your household goals.</p></article>)}
+                      onFocusRequestHandled={() => setGoalFocusRequest(null)}
+                    onUnsavedChangesChange={handleGoalDirtyChange} /> : <article className="panel empty-state"><p>Sign in to manage your household goals.</p></article>)}
             {moneyTopic === 'statements' && <article className="panel"><h3>Your private statements</h3><p>Upload a statement, review its accounts and source rows, and approve only the changes you want.</p><Button onClick={() => openDocumentReview()}>Open Statements</Button></article>}
           </div>
         </section>
@@ -3731,6 +3749,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onChanged={refreshWorkspaceAfterDebtChange}
               focusRequest={accountFocusRequest}
               onFocusRequestHandled={() => setAccountFocusRequest(null)}
+                    onUnsavedChangesChange={handleAccountDirtyChange}
             />
           )}
           </ProfileDisclosure>
@@ -3744,6 +3763,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onChanged={refreshWorkspaceAfterDebtChange}
               focusRequest={goalFocusRequest}
               onFocusRequestHandled={() => setGoalFocusRequest(null)}
+                    onUnsavedChangesChange={handleGoalDirtyChange}
             />
           )}
           </ProfileDisclosure>
@@ -3758,6 +3778,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onChanged={refreshWorkspaceAfterDebtChange}
               focusRequest={debtFocusRequest}
               onFocusRequestHandled={() => setDebtFocusRequest(null)}
+                    onUnsavedChangesChange={handleDebtDirtyChange}
             />
           )}
           </ProfileDisclosure>
@@ -6181,17 +6202,19 @@ function debtSourceLabel(source: DebtRecord['source_type'], assistantName: strin
   return { manual_ui: 'Added manually', mia: `Prepared by ${assistantName}`, document_import: 'Approved import', setup: 'Household setup' }[source]
 }
 
-function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, onFocusRequestHandled }: {
+function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, onFocusRequestHandled, onUnsavedChangesChange }: {
   sectionRef?: Ref<HTMLElement>
   debts: DebtRecord[]
   portfolio: DebtPortfolio
   onChanged: () => Promise<void>
   focusRequest?: DebtFocusRequest | null
   onFocusRequestHandled?: () => void
+  onUnsavedChangesChange?: (dirty: boolean) => void
 }) {
   const { brand, assistantName } = useBrand()
   const [editingId, setEditingId] = useState<number | 'new' | null>(null)
   const [draft, setDraft] = useState<DebtDraft>(emptyDebtDraft)
+  const [draftBaseline, setDraftBaseline] = useState<DebtDraft>(emptyDebtDraft)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [archiveId, setArchiveId] = useState<number | null>(null)
@@ -6210,10 +6233,10 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
     const debt = debts.find((candidate) => candidate.id === focusRequest.debtId)
     requestAnimationFrame(() => {
       if (focusRequest.actionType === 'create_debt') {
-        setDraft(debtDraftWithProposal(emptyDebtDraft, focusRequest.payload)); setEditingId('new'); setArchiveId(null); setError(null)
+        setDraftBaseline(emptyDebtDraft); setDraft(debtDraftWithProposal(emptyDebtDraft, focusRequest.payload)); setEditingId('new'); setArchiveId(null); setError(null)
         requestAnimationFrame(() => debtNameRef.current?.focus())
       } else if (focusRequest.actionType === 'update_debt' && debt?.active) {
-        setDraft(debtDraftWithProposal(debtDraftFor(debt), focusRequest.payload)); setEditingId(debt.id); setArchiveId(null); setError(null)
+        setDraftBaseline(debtDraftFor(debt)); setDraft(debtDraftWithProposal(debtDraftFor(debt), focusRequest.payload)); setEditingId(debt.id); setArchiveId(null); setError(null)
         requestAnimationFrame(() => debtNameRef.current?.focus())
       } else {
         const action = focusRequest.actionType === 'archive_debt' ? 'archive'
@@ -6240,11 +6263,13 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
   }, [debts, focusRequest, modeDraft, onFocusRequestHandled, summaryBalance, summaryMinimum])
 
   function beginCreate() {
-    setDraft(emptyDebtDraft); setEditingId('new'); setArchiveId(null); setError(null)
+    if (formDirty || trackingDirty || saving) { setError('Save or cancel this debt change before opening another record.'); return }
+    setDraftBaseline(emptyDebtDraft); setDraft(emptyDebtDraft); setEditingId('new'); setArchiveId(null); setError(null)
   }
 
   function beginEdit(debt: DebtRecord) {
-    setDraft(debtDraftFor(debt)); setEditingId(debt.id); setArchiveId(null); setError(null)
+    if (formDirty || trackingDirty || saving) { setError('Save or cancel this debt change before opening another record.'); return }
+    setDraftBaseline(debtDraftFor(debt)); setDraft(debtDraftFor(debt)); setEditingId(debt.id); setArchiveId(null); setError(null)
   }
 
   function cancelEdit() {
@@ -6280,6 +6305,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
   }
 
   async function archiveRecord(debt: DebtRecord) {
+    if (formDirty || trackingDirty) { setError('Save or cancel this debt change before archiving a record.'); return }
     if (archiveId !== debt.id) { setArchiveId(debt.id); setError(null); return }
     const signature = `archive:${debt.id}`
     const key = operationKeys.current.keyFor(signature)
@@ -6295,6 +6321,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
   }
 
   async function restoreRecord(debt: DebtRecord) {
+    if (formDirty || trackingDirty) { setError('Save or cancel this debt change before restoring a record.'); return }
     const signature = `restore:${debt.id}`
     const key = operationKeys.current.keyFor(signature)
     setSaving(true); setError(null)
@@ -6309,6 +6336,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
 
   async function saveTrackingMode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (formDirty) return setError('Save or cancel this debt draft before changing its tracking policy.')
     if (saving) return
     const nextSummaryBalance = summaryBalance.trim() === '' ? null : Number(summaryBalance)
     const nextSummaryMinimum = summaryMinimum.trim() === '' ? null : Number(summaryMinimum)
@@ -6330,6 +6358,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
 
   async function confirmNoDebt() {
     if (saving) return
+    if (trackingDirty || formDirty) return setError('Save or cancel your pending debt change before confirming no debt.')
     const values = { mode: 'summary' as const, summary_balance: 0, summary_minimum_payment: 0 }
     const signature = `tracking:${JSON.stringify(values)}`
     const key = operationKeys.current.keyFor(signature)
@@ -6348,6 +6377,11 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
   const initialSummaryBalance = portfolio.balance_known ? String(portfolio.total_balance) : ''
   const initialSummaryMinimum = portfolio.minimum_payment_known ? String(portfolio.monthly_minimum) : ''
   const trackingDirty = modeDraft !== portfolio.mode || (modeDraft === 'summary' && (summaryBalance !== initialSummaryBalance || summaryMinimum !== initialSummaryMinimum))
+  const formDirty = editingId !== null && Object.entries(draftBaseline).some(([key, value]) => draft[key as keyof DebtDraft] !== value)
+  useEffect(() => {
+    onUnsavedChangesChange?.(saving || archiveId !== null || trackingDirty || formDirty)
+    return () => onUnsavedChangesChange?.(false)
+  }, [saving, archiveId, trackingDirty, formDirty, onUnsavedChangesChange])
 
   return (
     <article ref={sectionRef} className="panel debt-manager">
@@ -6361,7 +6395,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
       </div>
 
       <form className="debt-tracking" data-debt-action="tracking" tabIndex={-1} onSubmit={saveTrackingMode}>
-        <fieldset disabled={saving}>
+        <fieldset disabled={saving || formDirty}>
           <legend>How should {brand.product_name} track debt?</legend>
           <label className={modeDraft === 'summary' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="summary" checked={modeDraft === 'summary'} onChange={() => setModeDraft('summary')} /><span><strong>One household summary</strong><small>Best when you know the totals but do not want to enter every lender yet.</small></span></label>
           <label className={modeDraft === 'individual' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="individual" checked={modeDraft === 'individual'} onChange={() => setModeDraft('individual')} /><span><strong>Individual debts</strong><small>Best for APR comparisons, snowball, and avalanche planning.</small></span></label>
@@ -6370,7 +6404,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
           <label className="setup-field"><span>Total debt balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryBalance} onChange={(event) => setSummaryBalance(event.target.value)} placeholder="Unknown" /></span><small>Leave blank if you have not confirmed the balance.</small></label>
           <label className="setup-field"><span>Total monthly minimums</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
         </div>}
-        <div className="debt-form-actions"><button type="submit" disabled={saving || !trackingDirty}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
+        <div className="debt-form-actions">{trackingDirty && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setModeDraft(portfolio.mode); setSummaryBalance(initialSummaryBalance); setSummaryMinimum(initialSummaryMinimum); setError(null) }}>Cancel tracking changes</button>}<button type="submit" disabled={saving || formDirty || !trackingDirty}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
       </form>
 
       <div className="debt-summary" aria-label="Canonical debt totals">
@@ -6386,18 +6420,18 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
         {activeDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}>
           <div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)}</span></div>
           <div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div>
-          <div className="debt-row-actions"><button type="button" data-debt-action="edit" className="secondary-button" disabled={saving} onClick={() => beginEdit(debt)}>Edit</button><button type="button" data-debt-action="archive" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button></div>
+          <div className="debt-row-actions"><button type="button" data-debt-action="edit" className="secondary-button" disabled={saving} onClick={() => beginEdit(debt)}>Edit</button><button type="button" data-debt-action="archive" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button>{archiveId === debt.id && <button type="button" className="secondary-button" disabled={saving} aria-label={`Cancel archiving ${debt.label}`} onClick={() => setArchiveId(null)}>Cancel</button>}</div>
         </div>)}
       </div></>}
 
       {editingId !== null && <form className="debt-form" onSubmit={saveDebt}>
-        <div className="debt-form-grid">
+        <fieldset className="debt-form-grid" disabled={saving || trackingDirty} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}><legend className="sr-only">Debt fields</legend>
           <label className="setup-field text-wide"><span>Debt name</span><input ref={debtNameRef} autoFocus required value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="Visa, auto loan, student loan" /><small>Use the name you recognize on a statement.</small></label>
           <label className="setup-field"><span>Debt type</span><select value={draft.debt_type} onChange={(event) => setDraft((current) => ({ ...current, debt_type: event.target.value as DebtType }))}>{debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}</select><small>This helps {assistantName} explain tradeoffs clearly.</small></label>
           <label className="setup-field"><span>Current balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.balance} onChange={(event) => setDraft((current) => ({ ...current, balance: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the latest balance is not confirmed.</small></label>
           <label className="setup-field"><span>Monthly minimum</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.minimum_payment} onChange={(event) => setDraft((current) => ({ ...current, minimum_payment: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the required payment is not confirmed.</small></label>
           <label className="setup-field"><span>APR</span><span className="percent-input-shell"><input type="number" inputMode="decimal" min="0" max="999.99" step="0.01" value={draft.interest_rate_percent} onChange={(event) => setDraft((current) => ({ ...current, interest_rate_percent: event.target.value }))} placeholder="Unknown" /><span aria-hidden="true">%</span></span><small>Find this on the latest lender statement.</small></label>
-        </div>
+        </fieldset>
         {error && <p className="setup-error" role="alert">{error}</p>}
         <div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelEdit}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === 'new' ? 'Add debt' : 'Save debt'}</button></div>
       </form>}

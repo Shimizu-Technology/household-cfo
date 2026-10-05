@@ -223,4 +223,17 @@ describe('GoalManager', () => {
     await user.click(screen.getByRole('button', { name: 'Restore' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBe(document.activeElement))
   })
+
+  it('reports draft changes and cancellation without treating unknown progress as zero', async () => {
+    const user = userEvent.setup()
+    const dirty = vi.fn()
+    render(<GoalManager goals={[goal()]} portfolio={portfolio} onChanged={vi.fn()} onUnsavedChangesChange={dirty} />)
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(dirty).toHaveBeenLastCalledWith(false)
+    await user.type(screen.getByLabelText(/Current progress/), '0')
+    expect(dirty).toHaveBeenLastCalledWith(true)
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(dirty).toHaveBeenLastCalledWith(false)
+    expect(apiMocks.updateGoal).not.toHaveBeenCalled()
+  })
 })
