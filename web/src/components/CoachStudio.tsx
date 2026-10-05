@@ -755,6 +755,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         </button>
       </nav>
 
+      {error && <div className="coach-studio-alert is-error" role="alert" tabIndex={-1} ref={errorAlertRef}><span>{error}</span><button type="button" onClick={() => { setError(null); void loadPersonas(selectedPersona?.id) }}>Retry</button></div>}
+
       {studioSection === 'settings' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-settings" aria-labelledby="coach-studio-tab-settings" tabIndex={0}>
           <CoachProgramSettings key={activeWorkspaceId ?? 'platform'} workspaceId={activeWorkspaceId} currentUser={currentUser} mutationLifecycle={workspaceMutations} onDirtyChange={setSettingsDirty} />
@@ -801,7 +803,6 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         </div>
       ) : <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-assistants" aria-labelledby="coach-studio-tab-assistants" tabIndex={0}>
 
-      {error && <div className="coach-studio-alert is-error" role="alert" tabIndex={-1} ref={errorAlertRef}><span>{error}</span><button type="button" onClick={() => { setError(null); void loadPersonas(selectedPersona?.id) }}>Retry</button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
       {conflict && (
         <div className="coach-studio-alert is-conflict" role="alert" tabIndex={-1} ref={conflictAlertRef}>

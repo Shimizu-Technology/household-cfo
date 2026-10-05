@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminCohort, AdminUser, CurrentUser } from '../api'
 import { AdminConsole } from './AdminConsole'
-const mocks = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), fetchAdminPlaidHealth: vi.fn(), updateAdminUser: vi.fn(), resendAdminUserInvitation: vi.fn(), createAdminUser: vi.fn() }))
+const mocks = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), fetchAdminPlaidHealth: vi.fn(), updateAdminUser: vi.fn(), resendAdminUserInvitation: vi.fn(), createAdminUser: vi.fn(), createAdminCohort: vi.fn(), updateAdminCohort: vi.fn() }))
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), ...mocks }))
 vi.mock('../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: 2, selectCoachWorkspace: vi.fn() }) }))
 vi.mock('./PilotFeedbackInbox', () => ({ PilotFeedbackInbox: () => <section>Private support inbox</section> }))
@@ -14,7 +14,7 @@ beforeEach(() => { vi.clearAllMocks(); mocks.fetchAdminCohorts.mockResolvedValue
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 const actor = { id: 1, is_admin: true, coach_workspaces: [{ id: 2, name: 'Mel coaching' }] } as CurrentUser
 describe('staff operation hierarchy', () => {
-  it('starts with thirty compact access rows and separates settings from the participant task', async () => {
+  it('pages thirty participants in fifteen compact access rows and separates support from the participant task', async () => {
     render(<AdminConsole currentUser={actor} />)
     await screen.findAllByText('Participant 00')
     expect(document.querySelectorAll('.admin-user-row')).toHaveLength(15)
@@ -25,13 +25,58 @@ describe('staff operation hierarchy', () => {
     expect(Array.from(document.querySelectorAll('.admin-user-controls button')).every((button) => !(button.closest('details') as HTMLDetailsElement).open)).toBe(true)
     expect(screen.queryByRole('heading', { name: 'Bank feed ledger' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Support inbox' }))
-    expect(document.querySelector('[hidden]')?.hasAttribute('hidden')).toBe(true)
+    expect(screen.getByText('Private support inbox').closest('[hidden]')).toBeNull()
+    expect(document.querySelector('.admin-users-panel')?.hasAttribute('hidden')).toBe(true)
     expect(screen.queryByRole('heading', { name: /members/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Participants & access' }))
     expect(screen.getByRole('heading', { name: /members/ })).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'Participant 29' } })
     expect(document.querySelectorAll('.admin-user-row')).toHaveLength(1)
     expect(document.querySelector('.admin-user-row')?.textContent).toContain('participant29@example.test')
+  })
+  it('preserves the selected cohort edits and invite while creating another cohort', async () => {
+    const created = { ...cohort, id: 11, name: 'New challenge group' }
+    mocks.createAdminCohort.mockResolvedValue(created)
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findAllByText('Participant 00')
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'pending@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cohorts' }))
+    const editForm = screen.getByRole('button', { name: 'Save cohort' }).closest('form')!
+    fireEvent.change(within(editForm).getByLabelText('Name'), { target: { value: 'Unfinished BOG name' } })
+    fireEvent.change(within(editForm).getByLabelText('Notes'), { target: { value: 'Unfinished kickoff notes' } })
+    fireEvent.change(within(editForm).getByLabelText('Starts'), { target: { value: '2026-10-10' } })
+    mocks.fetchAdminCohorts.mockResolvedValue([cohort, created])
+    fireEvent.change(screen.getByLabelText('Cohort name'), { target: { value: created.name } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create cohort' }))
+    await screen.findByText(`${created.name} is ready for invites.`)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create cohort' })).toHaveProperty('disabled', false))
+    expect(screen.getByLabelText('Cohort scope')).toHaveProperty('value', '10')
+    expect(within(editForm).getByLabelText('Name')).toHaveProperty('value', 'Unfinished BOG name')
+    expect(within(editForm).getByLabelText('Notes')).toHaveProperty('value', 'Unfinished kickoff notes')
+    expect(within(editForm).getByLabelText('Starts')).toHaveProperty('value', '2026-10-10')
+    expect(mocks.updateAdminCohort).not.toHaveBeenCalled()
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(screen.getByText(`${created.name} is ready for invites.`).getAttribute('role')).toBe('status')
+    fireEvent.click(screen.getByRole('button', { name: 'Participants & access' }))
+    expect(screen.getByLabelText('Email')).toHaveProperty('value', 'pending@example.test')
+    expect(screen.getByLabelText('Cohort (required)')).toHaveProperty('value', '10')
+  })
+  it('selects the created cohort and targets its invitations when the selected cohort edit is clean', async () => {
+    const created = { ...cohort, id: 11, name: 'Next challenge group' }
+    mocks.createAdminCohort.mockResolvedValue(created)
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findAllByText('Participant 00')
+    fireEvent.click(screen.getByRole('button', { name: 'Cohorts' }))
+    mocks.fetchAdminCohorts.mockResolvedValue([cohort, created])
+    fireEvent.change(screen.getByLabelText('Cohort name'), { target: { value: created.name } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create cohort' }))
+    await waitFor(() => expect(screen.getByLabelText('Cohort scope')).toHaveProperty('value', '11'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create cohort' })).toHaveProperty('disabled', false))
+    expect(screen.getByLabelText('Name')).toHaveProperty('value', created.name)
+    expect(screen.getByLabelText('Cohort name')).toHaveProperty('value', '')
+    fireEvent.click(screen.getByRole('button', { name: 'Participants & access' }))
+    expect(screen.getByLabelText('Cohort (required)')).toHaveProperty('value', '11')
+    expect(mocks.createAdminCohort).toHaveBeenCalledWith({ name: created.name, status: 'enrolling', starts_on: '', ends_on: '', notes: '' })
   })
   it('keeps another page’s unsaved edit after saving a participant', async () => {
     render(<AdminConsole currentUser={actor} />)

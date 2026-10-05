@@ -249,11 +249,13 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
     setError(null)
     setNotice(null)
     try {
+      const preserveCohortEdit = Boolean(selectedCohort && editDraft &&
+        JSON.stringify(cleanCohortDraft(editDraft)) !== JSON.stringify(cleanCohortDraft(cohortDraftFor(selectedCohort)!)))
       const cohort = await createAdminCohort(cleanCohortDraft(createDraft))
       setNotice(`${cohort.name} is ready for invites.`)
       setCreateDraft({ name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' })
-      await loadAdminData(cohort.id)
-      setInviteDraft((current) => ({ ...current, cohort_id: String(cohort.id) }))
+      await loadAdminData(preserveCohortEdit ? undefined : cohort.id)
+      if (!preserveCohortEdit) setInviteDraft((current) => ({ ...current, cohort_id: String(cohort.id) }))
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Cohort could not be created.')
     } finally {
@@ -463,7 +465,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
       )}
 
       {error && <p className="admin-alert error" role="alert">{error}</p>}
-      {notice && <p className="admin-alert success">{notice}</p>}
+      {notice && <p className="admin-alert success" role="status">{notice}</p>}
 
       <nav className="admin-area-nav" aria-label="Administration areas">
         {(['participants', 'cohorts', 'feedback', 'programs', 'health'] as const).map((value) => <button type="button" key={value} aria-pressed={area === value} disabled={adminMutationPending} onClick={() => setArea(value)}>{({ participants: 'Participants & access', cohorts: 'Cohorts', feedback: 'Support inbox', programs: 'Programs & rules', health: 'Bank health' })[value]}</button>)}

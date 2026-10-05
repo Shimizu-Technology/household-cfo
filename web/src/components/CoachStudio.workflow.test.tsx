@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminPersonaDetail, CurrentUser, PersonaConfiguration } from '../api'
 import { CoachStudio } from './CoachStudio'
@@ -53,6 +53,25 @@ describe('coach daily operation and assistant workflow', () => {
     expect(screen.getByRole('tab', { name: /Daily coaching/ }).getAttribute('aria-selected')).toBe('true')
     expect(screen.queryByLabelText('Assistant name')).toBeNull()
     expect(screen.queryByText(/Shape a coaching assistant people can trust/)).toBeNull()
+  })
+  it('shows a cohort loading failure and retries from Daily coaching without opening assistant construction', async () => {
+    mocks.fetchAdminPersonaAssignableCohorts.mockRejectedValueOnce(new Error('Cohort list temporarily unavailable'))
+    mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{ id: 41, name: 'BOG challenge group', status: 'enrolling', assignable: true, blocked_reason: null, persona_assignment: null }])
+    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Cohort list temporarily unavailable')
+    expect(alert.closest('[role="tabpanel"]')).toBeNull()
+    expect(screen.getByRole('tab', { name: /Daily coaching/ }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.queryByLabelText('Group')).toBeNull()
+    expect(screen.queryByLabelText('Assistant name')).toBeNull()
+    fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+    await screen.findByLabelText('Group')
+    await waitFor(() => expect(screen.getByLabelText('Group')).toHaveProperty('disabled', false))
+    expect(screen.getByLabelText('Group')).toHaveProperty('value', '41')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('tab', { name: /Daily coaching/ }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.queryByLabelText('Assistant name')).toBeNull()
   })
   it('preserves unsaved draft fields while visiting sources and blocked publication', async () => {
     const dirty = vi.fn()
