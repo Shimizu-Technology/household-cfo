@@ -7866,7 +7866,9 @@ test('failed receipt upload leaves the participant on a retryable private-upload
   await page.route('https://private-storage.example/failed-upload', (route) => route.fulfill({ status: 503, body: '' }))
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Test a private upload' }).click()
-  await expect(page.getByRole('heading', { name: 'Test one private file without changing your numbers.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your statements, one review at a time.' })).toBeVisible()
+  await expect(page).toHaveURL(/#Statements$/)
+  await openDetails(page, 'Upload a receipt, pay stub or budget file')
 
   const receiptCard = page.locator('.document-upload-card').filter({ hasText: 'Receipt or quick evidence' })
   await receiptCard.locator('input[type="file"]').setInputFiles({
@@ -7877,7 +7879,7 @@ test('failed receipt upload leaves the participant on a retryable private-upload
   await expect(receiptCard.locator('input[type="file"]')).toBeEnabled()
 })
 
-test('an empty Profile upload is rejected before private upload work begins', async ({ page }) => {
+test('an empty Statements upload is rejected before private upload work begins', async ({ page }) => {
   let presignRequests = 0
   await page.route('http://api.test/api/v1/document_imports/presign', (route) => {
     presignRequests += 1
@@ -7886,6 +7888,8 @@ test('an empty Profile upload is rejected before private upload work begins', as
 
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Test a private upload' }).click()
+  await expect(page).toHaveURL(/#Statements$/)
+  await openDetails(page, 'Upload a receipt, pay stub or budget file')
   const receiptCard = page.locator('.document-upload-card').filter({ hasText: 'Receipt or quick evidence' })
   await receiptCard.locator('input[type="file"]').setInputFiles({
     name: 'empty-receipt.png',
@@ -8180,6 +8184,10 @@ test('Coach Studio program groups add participants without mistaking failed emai
   let users = [{ ...structuredClone(pilotAdminUser), can_resend_invitation: false }]
   const writes: string[] = []
   let removedMembership = false
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', (route) => route.fulfill({
+    status: 200,
+    json: { cohorts: groups.map((group) => ({ id: group.id, name: group.name, status: group.status, assignable: true, blocked_reason: null, persona_assignment: null })) },
+  }))
   await page.route(/http:\/\/api\.test\/api\/v1\/admin\/cohorts(?:\/\d+)?$/, async (route) => {
     const request = route.request()
     expect(request.headers()['x-coach-workspace-id']).toBe('1')
@@ -8234,24 +8242,25 @@ test('Coach Studio program groups add participants without mistaking failed emai
   })
   await openOwnerProgram(page, /Daily coaching/)
   await page.getByText('Group invitations & access', { exact: true }).click()
+  const accessPanel = page.getByRole('region', { name: 'Groups and participants' })
   await page.getByRole('button', { name: 'New group', exact: true }).click()
   const createForm = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Create a group', exact: true }) })
   await createForm.getByLabel('Group name', { exact: true }).fill('Island weekend group')
   await createForm.getByRole('button', { name: 'Create group', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Group created' })).toBeVisible()
+  await expect(accessPanel.getByRole('status').filter({ hasText: 'Group created' })).toBeVisible()
   await page.getByText('Group details & dates', { exact: true }).click()
   await page.getByLabel('Group name', { exact: true }).fill('Island weekend group revised')
   await page.getByRole('button', { name: 'Save group', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Group saved' })).toBeVisible()
+  await expect(accessPanel.getByRole('status').filter({ hasText: 'Group saved' })).toBeVisible()
   await page.locator('.coach-group-settings').getByText('Add a participant', { exact: true }).click()
   await page.getByLabel('Participant email', { exact: true }).fill('new-participant@example.test')
   await page.getByRole('button', { name: 'Add to Island weekend group revised', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Participant added, but the invitation email failed' })).toBeVisible()
+  await expect(accessPanel.getByRole('status').filter({ hasText: 'Participant added, but the invitation email failed' })).toBeVisible()
   const card = page.locator('.coach-participants-list li').filter({ hasText: 'new-participant@example.test' })
   await expect(card).toContainText('Invitation pending')
   await card.getByText('Participant access', { exact: true }).click()
   await card.getByRole('button', { name: 'Resend invitation', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Invitation email sent.' })).toBeVisible()
+  await expect(accessPanel.getByRole('status').filter({ hasText: 'Invitation email sent.' })).toBeVisible()
   await card.getByRole('button', { name: 'Cancel enrollment', exact: true }).click()
   await expect(card).toContainText('Their account and other group memberships stay available')
   expect(removedMembership).toBe(false)
@@ -8262,7 +8271,7 @@ test('Coach Studio program groups add participants without mistaking failed emai
   await expect(confirmRemoval).toBeVisible()
   await page.evaluate(() => document.fonts.ready)
   await confirmRemoval.click()
-  await expect(page.getByRole('status').filter({ hasText: 'Enrollment removed from this group' })).toBeVisible()
+  await expect(accessPanel.getByRole('status').filter({ hasText: 'Enrollment removed from this group' })).toBeVisible()
   await expect(card).toHaveCount(0)
   expect(removedMembership).toBe(true)
   expect(writes).toEqual(['/api/v1/admin/cohorts', '/api/v1/admin/cohorts/42', '/api/v1/admin/users', '/api/v1/admin/users/903/resend_invitation', '/api/v1/admin/cohorts/42/participants/903'])
