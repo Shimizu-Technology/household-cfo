@@ -1,0 +1,68 @@
+.coach-challenge {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--paper);
+}
+.coach-challenge label {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.coach-challenge select {
+  width: 100%;
+  min-height: 44px;
+}
+.coach-challenge button {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  background: var(--paper-warm);
+  color: var(--ink);
+  padding: 8px 12px;
+  border-radius: 12px;
+  font: inherit;
+  cursor: pointer;
+  margin: 4px;
+}
+.coach-challenge button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.coach-challenge-roster {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 12px;
+}
+.coach-challenge-roster > li,
+.coach-challenge-card {
+  border: 1px solid var(--line);
+  padding: 16px;
+  border-radius: 16px;
+  margin: 12px 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.coach-challenge-card header,
+.coach-challenge-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+.coach-challenge .coach-challenge-check {
+  display: flex;
+  align-items: flex-start;
+}
+.coach-challenge-check input {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+}
+.coach-private-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

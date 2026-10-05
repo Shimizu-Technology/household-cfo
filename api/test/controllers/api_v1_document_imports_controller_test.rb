@@ -65,6 +65,47 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_not body.key?("s3_key")
   end
 
+  test "stored multipart upload remains successful when extraction queue admission fails" do
+    with_s3_stubs(configured?: true, upload: ->(key, *) { key }) do
+      with_singleton_stub(FinancialDocumentExtractionJob, :perform_later, ->(*) { raise ActiveJob::EnqueueError, "raw provider queue error" }) do
+        assert_difference("FinancialDocumentExtractionDispatch.count", 1) do
+          post "/api/v1/document_imports", params: { file: uploaded_csv, document_kind: "spreadsheet" }, headers: auth_headers(@user)
+        end
+      end
+    end
+    assert_response :created
+    document_import = FinancialDocumentImport.last
+    assert document_import.source_available?
+    assert_equal "uploaded", document_import.status
+    assert_equal "pending", document_import.extraction_dispatch.status
+    assert_equal "enqueue_unavailable", document_import.extraction_dispatch.error_code
+    refute_includes response.body, "raw provider"
+    refute_includes response.body, "source_fingerprint"
+    assert_equal document_import.id, JSON.parse(response.body).dig("document_import", "id")
+  end
+
+  test "direct completion preserves durable intent and its success contract during a queue outage" do
+    with_s3_stubs(configured?: true, presigned_upload: ->(*) { { url: "https://storage.example/upload", headers: {}, expires_in: 900 } },
+      object_metadata: ->(*) { { byte_size: 32, content_type: "text/csv", checksum_sha256: Base64.strict_encode64([ "a" * 64 ].pack("H*")), etag: "synthetic", server_side_encryption: "AES256" } }) do
+      post "/api/v1/document_imports/presign", params: { filename: "budget.csv", content_type: "text/csv", byte_size: 32,
+        checksum_sha256: "a" * 64, document_kind: "spreadsheet" }, headers: auth_headers(@user), as: :json
+      assert_response :success
+      token = JSON.parse(response.body).fetch("upload_token")
+      with_singleton_stub(FinancialDocumentExtractionJob, :perform_later, ->(*) { false }) do
+        post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user), as: :json
+        assert_response :created
+        post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user), as: :json
+        assert_response :success
+      end
+    end
+    document_import = FinancialDocumentImport.last
+    assert_equal "uploaded", document_import.status
+    assert_equal "pending", document_import.extraction_dispatch.status
+    assert_equal 1, document_import.extraction_dispatch.generation
+    assert_equal 1, document_import.extraction_dispatch.enqueue_attempts
+    assert_equal document_import.id, JSON.parse(response.body).dig("document_import", "id")
+  end
+
   test "direct upload presigns storage and registers only the authorized completed object" do
     presigned_key = nil
     with_s3_stubs(
@@ -1287,7 +1328,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     )
 
     with_s3_stubs(configured?: true) do
-      assert_enqueued_with(job: FinancialDocumentExtractionJob, args: [ document_import.id ]) do
+      assert_enqueued_with(job: FinancialDocumentExtractionJob, args: ->(args) { args.first == document_import.id && args.length == 3 }) do
         post "/api/v1/document_imports/#{document_import.id}/reprocess", headers: auth_headers(@user)
       end
     end
@@ -1319,7 +1360,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       total_amount_cents: 500, source_type: "statement", status: "pending")
 
     with_s3_stubs(configured?: true) do
-      assert_enqueued_with(job: FinancialDocumentExtractionJob, args: [ document_import.id ]) do
+      assert_enqueued_with(job: FinancialDocumentExtractionJob, args: ->(args) { args.first == document_import.id && args.length == 3 }) do
         post "/api/v1/document_imports/#{document_import.id}/reprocess", headers: auth_headers(@user)
       end
     end

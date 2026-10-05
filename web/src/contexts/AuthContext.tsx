@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useAuth, useUser } from '@clerk/clerk-react'
-import { fetchCurrentUser, setActiveCoachWorkspaceId, setAuthTokenGetter } from '../api'
+import { fetchCurrentUser, setActiveCoachWorkspaceId, setApiActorIdentity, setAuthTokenGetter } from '../api'
 import type { CurrentUser } from '../api'
 import { AuthContext } from './authContextValue'
 import type { AuthContextValue } from './authContextValue'
@@ -20,6 +20,7 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
 
   useLayoutEffect(() => {
     latestAuthIdentityId.current = authIdentityId
+    setApiActorIdentity(authIdentityId)
   }, [authIdentityId])
 
   useEffect(() => {
@@ -152,6 +153,10 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
   }, [])
 
   useLayoutEffect(() => {
+    setApiActorIdentity(seedUser?.clerk_id ?? null)
+  }, [seedUser?.clerk_id])
+
+  useLayoutEffect(() => {
     if (!includeCoachWorkspaces && !liveApi) return
 
     setActiveCoachWorkspaceId(activeCoachWorkspaceId)
@@ -218,6 +223,10 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
 
 function DelayedParticipantE2EAuthBridge({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+
+  useLayoutEffect(() => {
+    setApiActorIdentity(currentUser?.clerk_id ?? null)
+  }, [currentUser?.clerk_id])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setCurrentUser(e2eCurrentUser('participant')), 250)

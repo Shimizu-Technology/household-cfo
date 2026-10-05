@@ -1,0 +1,4 @@
+import { savingsDollars, type SavingsIntake } from '../lib/savingsChallenge'
+export function MiaSavingsReview({intake,onReview}:{intake:SavingsIntake;onReview:()=>void}) {
+  return <section className="daily-note" aria-label="Unreviewed challenge note"><strong>{intake.kind==='purchase'?intake.merchant:intake.kind==='withdrawal'?'Savings withdrawal':'Savings contribution'} · {savingsDollars(intake.amount_cents)} · {intake.effective_on}</strong><p>Unreviewed note. Nothing is saved or counted. Check its details{intake.kind==='purchase'?', category and existing transaction match':', actual date and funding source'} before saving a preview.</p><button type="button" className="secondary-button" onClick={event=>{event.currentTarget.focus();onReview()}}>{intake.kind==='purchase'?'Review purchase':'Review savings'}</button></section>
+}

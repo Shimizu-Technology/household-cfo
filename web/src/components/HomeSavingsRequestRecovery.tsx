@@ -1,0 +1,9 @@
+import { useState } from 'react'
+import type { useHomeSavingsMutation } from '../lib/useHomeSavingsMutation'
+const labels = { enrollment: 'joining the challenge', entry_stage: 'preparing a savings record', entry_approve: 'approving a savings record', zero_attest: 'confirming known zero' }
+export function HomeSavingsRequestRecovery({ state, onFresh }: { state: ReturnType<typeof useHomeSavingsMutation>; onFresh: () => void }) {
+  const [accepted, setAccepted] = useState(false)
+  const request = state.pending
+  if (!request && !state.error) return null
+  return <section className="savings-error" role="alert" aria-label="Savings request recovery"><h3>Check your earlier request</h3><p>{request?.working ? 'Checking or saving your reviewed request…' : request?.error ?? state.error}</p>{request && <><p>Your request for {labels[request.action]} pauses other changes until its result is confirmed. Returning later keeps only its request identity, never the financial inputs.</p><p className="savings-caption">Request reference: {request.key}</p>{state.check && <button type="button" onClick={() => void state.check?.()}>Check earlier savings result</button>}{state.retry && <button type="button" onClick={() => void state.retry?.()}>Retry exact savings request</button>}{state.reviewFresh && <><p>The server found no committed result. This does not prove the earlier request failed.</p><label className="savings-check"><input type="checkbox" checked={accepted} onChange={event => setAccepted(event.target.checked)} />I will re-review the same action using its retained key.</label><button type="button" disabled={!accepted} onClick={() => { state.reviewFresh?.(); setAccepted(false); onFresh() }}>Prepare fresh savings review</button></>}{request.fresh && <p>Review the current facts below and submit only the same action. Its original key prevents two separate commits.</p>}</>}</section>
+}

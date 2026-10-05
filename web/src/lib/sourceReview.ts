@@ -1,3 +1,4 @@
+import type { ParticipantSourceReview } from './participantSourceReview'
 import type { FinancialDocumentImport, TransactionDraft } from '../api'
 
 export type SourceReviewFilter = 'all' | 'posted' | 'unresolved' | 'informational'
@@ -26,6 +27,7 @@ export type SourceEvent = {
   transaction_draft?: TransactionDraft | null
 }
 export type SourceReview = {
+  participant_review?: ParticipantSourceReview
   schema_version: 1; document_import_id: number
   revision: {
     id: number; contract_version: string; revision_number: number; payload_digest: string; created_at: string

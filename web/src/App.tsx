@@ -4,12 +4,27 @@ import './App.css'
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
 import { usePilotDialog } from './lib/usePilotDialog'
 import { StatementSourceReview } from './components/StatementSourceReview'
+import { setStatementReviewExpectedUser } from './lib/statementReviewRecovery'
 import { sourceReviewMode } from './lib/sourceReview'
+import { miaWorkspaceStorageKey } from './lib/miaWorkspaceScope'
 import { HomeScreen } from './components/HomeScreen'
+import { checkedSavingsIntake, type SavingsIntake } from './lib/savingsChallenge'
+import { MiaSavingsReview } from './components/MiaSavingsReview'
+import { ChallengeToday } from './components/ChallengeToday'
+import { setDailyExpectedUser } from './lib/dailyRecovery'
+import { BaselineReview } from './components/BaselineReview'
+import { setBaselineExpectedUser } from './lib/baselineRecovery'
+import { SavingsChallengeHome } from './components/SavingsChallengeHome'
+import { ParticipantProgramPicker } from './components/ParticipantProgramPicker'
+import { ParticipantPrivacyAccess } from './components/ParticipantPrivacyAccess'
+import { ChallengeExport } from './components/ChallengeExport'
+import { SavingsEvidenceDialog } from './components/SavingsEvidenceDialog'
+import { OptionalDebtReview } from './components/OptionalDebtReview'
 import { ActivityPreview } from './components/ActivityPreview'
 import { ParticipantTabs } from './components/ParticipantTabs'
 import { Button } from './components/Button'
 import { ChatHistory } from './components/ChatHistory'
+import { ChatContextDisclosure } from './components/ChatContextDisclosure'
 import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
@@ -40,6 +55,7 @@ import { workspaceViewReducer } from './lib/workspaceView'
 import { documentNeedsReview, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
+  captureApiOperation,
   applyDocumentImport,
   applyMiaActionDraft,
   archiveDebt,
@@ -81,6 +97,7 @@ import {
   restoreDebt,
   restoreIncomeSource,
   saveWorkspaceSetup,
+  setActiveParticipantCohortId,
   sendMiaMessage,
   submitPilotFeedback,
   transcribeMiaVoice,
@@ -475,10 +492,26 @@ function BrandFooter() {
 
 function App() {
   const auth = useAuthContext()
+  const identity = `${auth.authIdentityId ?? 'preview'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
+  const [selection, setSelection] = useState<{identity: string; cohortId: number} | null>(null)
+  const selectedCohortId = selection?.identity === identity ? selection.cohortId : undefined
+  const chooseProgram = useCallback((cohortId: number) => {
+    if (!auth.currentUser?.is_participant || auth.activeCoachWorkspaceId) return
+    setActiveParticipantCohortId(cohortId)
+    setSelection({identity, cohortId})
+  }, [auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, identity])
+  // Account, workspace and explicit program changes discard every private view.
+  return <WorkspaceApp key={`${identity}:${selectedCohortId ?? 'default'}`} selectedCohortId={selectedCohortId} onChooseProgram={chooseProgram} />
+}
+
+function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: number; onChooseProgram: (cohortId: number) => void}) {
+  const auth = useAuthContext()
   const publicBrand = useBrand()
   const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isClerkEnabled || Boolean(auth.currentUser))
   const [{ data, homeBudget, budgets }, setData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
   const [workspaceLoadAttempt, setWorkspaceLoadAttempt] = useState(0)
+  const workspaceMounted = useRef(true)
+  useEffect(() => { workspaceMounted.current = true; return () => { workspaceMounted.current = false } }, [])
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupDraft | null>(null)
   const [isProfileEditing, setIsProfileEditing] = useState(false)
   const [setupSaving, setSetupSaving] = useState(false)
@@ -558,12 +591,31 @@ function App() {
   const miaChatShellRef = useRef<HTMLElement | null>(null)
   const clearChatTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [baselineOpen, setBaselineOpen] = useState(false)
+  const [dailyOpen, setDailyOpen] = useState(false)
+  const [optionalDebtOpen, setOptionalDebtOpen] = useState(false)
+  const [miaSavingsNote,setMiaSavingsNote] = useState<{scope:string;intake:SavingsIntake}|null>(null)
+  const [dailyIntake,setDailyIntake] = useState<{scope:string;intake:SavingsIntake}|null>(null)
+  const [evidenceReview, setEvidenceReview] = useState<{scope:string;entryVersionId:number}|null>(null)
+  const [evidenceRefreshToken, setEvidenceRefreshToken] = useState(0)
+  const [savingsIntake,setSavingsIntake] = useState<{scope:string;intake:SavingsIntake;nonce:string}|null>(null)
+  const challengeIntakeScope = `${auth.authIdentityId}:${auth.currentUser?.id}:${data?.workspace.household_id}:${data?.workspace.cohort?.id}`
+  const challengeParticipantScope = useMemo(() => auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data?.workspace.household_id ? {user_id:auth.currentUser.id,household_id:data.workspace.household_id} : undefined, [auth.currentUser?.is_participant,auth.currentUser?.id,auth.activeCoachWorkspaceId,data?.workspace.household_id])
+  useLayoutEffect(() => {
+    setActiveParticipantCohortId(canLoadWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? selectedCohortId ?? (data?.workspace.mode === 'real' ? data.workspace.cohort?.id ?? null : null) : null)
+  }, [canLoadWorkspace, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, selectedCohortId, data?.workspace.mode, data?.workspace.cohort?.id])
+  const challengeIntakeScopeRef = useRef(challengeIntakeScope)
+  useEffect(() => {
+    challengeIntakeScopeRef.current = challengeIntakeScope
+    let live = true
+    queueMicrotask(() => { if (live) { setMiaSavingsNote(null); setDailyIntake(null); setSavingsIntake(null) } })
+    return () => { live = false }
+  }, [challengeIntakeScope])
   const [pilotGuideOpen, setPilotGuideOpen] = useState(false)
   const [pilotFeedbackOpen, setPilotFeedbackOpen] = useState(false)
   const chatStorageKey = useMemo(() => {
-    const owner = auth.currentUser?.id ? `user-${auth.currentUser.id}` : 'preview'
-    return `${MIA_CHAT_STORAGE_PREFIX}:${owner}`
-  }, [auth.currentUser?.id])
+    return miaWorkspaceStorageKey(MIA_CHAT_STORAGE_PREFIX, auth.currentUser?.id, auth.activeCoachWorkspaceId, data?.workspace.household_id, data?.workspace.cohort?.id ?? selectedCohortId)
+  }, [auth.currentUser?.id, auth.activeCoachWorkspaceId, data?.workspace.household_id, data?.workspace.cohort?.id, selectedCohortId])
   const [messagesStorageKey, setMessagesStorageKey] = useState(chatStorageKey)
   const chatCardRef = useRef<HTMLElement | null>(null)
   const historyExpandedRef = useRef(false)
@@ -587,7 +639,7 @@ function App() {
   const shouldUseRealWorkspace = auth.isClerkEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
   const assistantName = data?.profile.coach.name.trim() || 'your assistant'
-  const isFirstSessionSetup = Boolean(isRealWorkspace && !data?.workspace?.setup_complete)
+  const isFirstSessionSetup = Boolean(isRealWorkspace && data?.workspace.experience_mode !== 'savings_challenge' && !data?.workspace?.setup_complete)
   const canResumePlaidOAuthReturn = Boolean(
     hasPendingPlaidOAuthReturn()
     && data?.workspace?.setup_complete
@@ -596,6 +648,8 @@ function App() {
   )
   const isFirstSessionUpload = isFirstSessionSetup && firstSessionUploadOpen
   const isFocusedFirstSessionSetup = isFirstSessionSetup && !isFirstSessionUpload
+  useEffect(() => { setStatementReviewExpectedUser(auth.currentUser?.id ?? null); setBaselineExpectedUser(auth.currentUser?.id ?? null); setDailyExpectedUser(auth.currentUser?.id ?? null) }, [auth.currentUser?.id])
+
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
   const budgetViewScope = `${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'preview'}:${auth.activeCoachWorkspaceId ?? 'participant'}:${workspaceLoadKey}:${data?.workspace.cohort?.id ?? 'none'}:${workspaceLoadAttempt}`
   budgetViewScopeRef.current = budgetViewScope
@@ -687,7 +741,9 @@ function App() {
     pendingMiaAttachmentsRef.current = pendingMiaAttachments
   }, [pendingMiaAttachments])
 
+  const canRestoreMiaRetry = !shouldUseRealWorkspace || Boolean(data)
   useEffect(() => {
+    if (!canRestoreMiaRetry) return
     const pendingRequest = loadMiaRetryRequest(chatStorageKey)
     miaRetryRequestRef.current = pendingRequest
     if (!pendingRequest) return
@@ -699,7 +755,7 @@ function App() {
         : pendingRequest.attachments.map(pendingAttachmentFromMiaRetry))
     }, 0)
     return () => window.clearTimeout(restoreComposer)
-  }, [chatStorageKey])
+  }, [chatStorageKey, canRestoreMiaRetry])
 
   const documentStatusSignature = useMemo(
     () => documentImports
@@ -809,6 +865,20 @@ function App() {
     }
   }, [isRealWorkspace, selectedBudgetMonthEndsOn, selectedBudgetMonthStartsOn])
 
+  function chooseParticipantProgram(cohortId: number) {
+    if (cohortId === data?.workspace.cohort?.id) return
+    if (hasUnsavedBudgetChanges) {
+      setBudgetError('You have unsaved budget changes. Save or cancel them before switching programs.')
+      setRouteAnnouncement('Save or cancel your budget changes before switching programs.')
+      return
+    }
+    if (canResumePlaidOAuthReturn) {
+      setRouteAnnouncement('Finish the bank connection before switching programs.')
+      return
+    }
+    onChooseProgram(cohortId)
+  }
+
   function refreshSpendingReportForBudget(budget: BudgetData | null | undefined, monthIndex = selectedBudgetMonthIndex) {
     const month = budget?.annual_plan?.months[monthIndex]
     if (!month) return
@@ -824,9 +894,11 @@ function App() {
     fetchAppData(shouldUseRealWorkspace)
       .then((payload) => {
         if (cancelled) return
+        if (selectedCohortId !== undefined && payload.workspace?.cohort?.id !== selectedCohortId) throw new Error('The returned program could not be verified. Choose your program or try again.')
         const realWorkspace = payload.workspace?.mode === 'real'
-        const restoredMessages = realWorkspace ? payload.mia.messages : loadStoredMiaMessages(chatStorageKey)
-        setMessagesStorageKey(chatStorageKey)
+        const payloadStorageKey = miaWorkspaceStorageKey(MIA_CHAT_STORAGE_PREFIX, auth.currentUser?.id, auth.activeCoachWorkspaceId, payload.workspace?.household_id, payload.workspace?.cohort?.id ?? selectedCohortId)
+        const restoredMessages = realWorkspace ? payload.mia.messages : loadStoredMiaMessages(payloadStorageKey)
+        setMessagesStorageKey(payloadStorageKey)
         setData(payload)
         setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
         setMessages(restoredMessages)
@@ -843,7 +915,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [canLoadWorkspace, chatStorageKey, shouldUseRealWorkspace, workspaceLoadAttempt])
+  }, [canLoadWorkspace, auth.currentUser?.id, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId])
 
   useEffect(() => {
     if (!hasUnsavedBudgetChanges) return
@@ -1592,6 +1664,11 @@ function App() {
       return
     }
 
+    const transportGuard = captureApiOperation()
+    const assertOriginalWorkspace = () => {
+      transportGuard()
+      if (!workspaceMounted.current) throw new Error('Your workspace changed. Reopen the original program to resolve its request.')
+    }
     const messageContent = cleanPrompt || 'Please review this upload.'
     const optimisticMessageId = clientSideId('mia-message')
     const spendingReportRequestAtSend = spendingReportRequestRef.current
@@ -1614,15 +1691,18 @@ function App() {
     let pendingRetryRequest: MiaRetryRequest | null = null
 
     try {
-      const uploadResult = await uploadPendingMiaAttachments(attachmentsToSend, messageContent)
+      const uploadResult = await uploadPendingMiaAttachments(attachmentsToSend, messageContent, assertOriginalWorkspace)
+      assertOriginalWorkspace()
       preparedAttachmentsForRetry = uploadResult.attachments
-      const readyAttachments = await waitForMiaAttachmentImports(uploadResult.attachments)
+      const readyAttachments = await waitForMiaAttachmentImports(uploadResult.attachments, assertOriginalWorkspace)
+      assertOriginalWorkspace()
       preparedAttachmentsForRetry = readyAttachments
       const documentImportIds = readyAttachments
         .filter((attachment) => attachment.document_import_id)
         .map((attachment) => attachment.document_import_id!)
         .sort((left, right) => left - right)
       const requestSignature = JSON.stringify({
+        workspace: chatStorageKey,
         message: messageContent,
         attachmentIds: documentImportIds,
         year: selectedBudgetYear,
@@ -1642,6 +1722,7 @@ function App() {
       }
       miaRetryRequestRef.current = pendingRetryRequest
       if (isRealWorkspace) saveMiaRetryRequest(chatStorageKey, pendingRetryRequest)
+      assertOriginalWorkspace()
       const response = await sendMiaMessage(
         messageContent,
         priorMessages,
@@ -1651,6 +1732,9 @@ function App() {
         documentImportIds,
         miaRequestId,
       )
+      assertOriginalWorkspace()
+      const reviewedIntake = checkedSavingsIntake(response.savings_intake)
+      if (challengeIntakeScopeRef.current === challengeIntakeScope) setMiaSavingsNote(reviewedIntake ? {scope:challengeIntakeScope,intake:reviewedIntake} : null)
       if (miaRetryRequestRef.current?.id === miaRequestId) {
         miaRetryRequestRef.current = null
         if (isRealWorkspace) clearMiaRetryRequest(chatStorageKey)
@@ -1706,6 +1790,7 @@ function App() {
         })
       }
     } catch (caught) {
+      if (!workspaceMounted.current) return
       trackPilotWorkflowFailure('ask_mia', 'send')
       captureAnalyticsEvent('mia_message_failed', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
@@ -1723,9 +1808,11 @@ function App() {
       const retryAttachments = caught instanceof MiaAttachmentError ? caught.attachments : preparedAttachmentsForRetry
       setPendingMiaAttachments((current) => [...retryAttachments, ...current])
     } finally {
-      setMiaAttachmentNotice(null)
-      setMiaLoading(false)
-      requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
+      if (workspaceMounted.current) {
+        setMiaAttachmentNotice(null)
+        setMiaLoading(false)
+        requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
+      }
     }
   }
 
@@ -2477,10 +2564,11 @@ function App() {
     )))
   }
 
-  async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[], messageContext: string) {
+  async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[], messageContext: string, assertOriginalWorkspace: () => void) {
     const preparedAttachments = [...attachments]
 
     for (const [index, attachment] of attachments.entries()) {
+      assertOriginalWorkspace()
       if (attachment.document_import_id) continue
 
       const validation = validateFinancialUpload(attachment.file)
@@ -2492,6 +2580,7 @@ function App() {
       trackDocumentUpload(attachment.document_kind, 'started', attachment.file)
       try {
         const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia', messageContext, Boolean(attachment.kindWasSelected))
+        assertOriginalWorkspace()
         preparedAttachments[index] = attachmentWithDocumentImport(attachment, documentImport)
         setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
         setSelectedImportId(documentImport.id)
@@ -2513,7 +2602,8 @@ function App() {
     return { attachments: preparedAttachments }
   }
 
-  async function waitForMiaAttachmentImports(attachments: PendingMiaAttachment[]) {
+  async function waitForMiaAttachmentImports(attachments: PendingMiaAttachment[], assertOriginalWorkspace: () => void) {
+    assertOriginalWorkspace()
     let currentAttachments = [...attachments]
     let pendingIds = currentAttachments
       .filter((attachment) => attachment.document_import_id && PROCESSING_IMPORT_STATUSES.has(attachment.status ?? 'uploaded'))
@@ -2525,7 +2615,9 @@ function App() {
     setMiaAttachmentNotice(`Reading all ${totalCount} attachment${totalCount === 1 ? '' : 's'} before ${assistantName} summarizes anything.`)
     while (pendingIds.length > 0 && Date.now() < deadline) {
       await sleep(1_800)
+      assertOriginalWorkspace()
       const refreshedImports = await Promise.all(pendingIds.map((id) => fetchDocumentImport(id)))
+      assertOriginalWorkspace()
       setDocumentImports((current) => refreshedImports.reduce((imports, documentImport) => replaceImport(imports, documentImport), current))
       currentAttachments = currentAttachments.map((attachment) => {
         const documentImport = refreshedImports.find((candidate) => candidate.id === attachment.document_import_id)
@@ -2833,6 +2925,8 @@ function App() {
               Try again
             </button>
           )}
+          {error && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={selectedCohortId} onChoose={chooseParticipantProgram} />}
+          <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} />
         </section>
       </main>
     )
@@ -2851,7 +2945,7 @@ function App() {
   const brand = runtimeBrand.config
 
   const workspace = (
-    <main className="app">
+    <main className={`app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}`}>
       <SeoManager section={activeSection} />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{routeAnnouncement}</p>
       <header className="shell-header">
@@ -2864,6 +2958,7 @@ function App() {
           {data.workspace?.cohort && <span className="cohort-brand-chip">{data.workspace.cohort.name}</span>}
         </div>
         <div className="shell-actions">
+          <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />
           {auth.currentUser && (
             <div className="account-pill">
               <span>{auth.currentUser.full_name}</span>
@@ -2885,15 +2980,23 @@ function App() {
         </div>
       </header>
 
+      {auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <details className="participant-program-switch"><summary>Program · {data.workspace.cohort?.name ?? 'Choose your program'}</summary><ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram} /></details>}
+
       <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} />
 
-      {isRealWorkspace && activeSection !== ADMIN_SECTION && (
+      {isRealWorkspace && activeSection !== ADMIN_SECTION && activeSection !== 'Ask Mia' && (
         <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
       )}
 
       {budgetYearLoading && <p className="document-alert" role="status">Loading the {pendingBudgetView?.year} plan. Your previous period remains selected; Send and plan changes pause until it loads.</p>}
 
-      {activeSection === 'Home' && (
+      {activeSection === 'Home' && data.workspace.experience_mode === 'savings_challenge' && (
+        <SavingsChallengeHome key={`${auth.authIdentityId}:${auth.currentUser?.id}:${auth.activeCoachWorkspaceId}:${data.workspace.household_id}:${data.workspace.cohort?.id}:${savingsIntake?.scope===challengeIntakeScope?savingsIntake.nonce:''}`} participantScope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onOptionalDebt={challengeParticipantScope && data.workspace.cohort?.id ? () => setOptionalDebtOpen(true) : undefined} evidenceRefreshToken={evidenceRefreshToken} onReviewEvidence={challengeParticipantScope && data.workspace.cohort?.id ? (entryVersionId) => setEvidenceReview({scope:challengeIntakeScope,entryVersionId}) : undefined} onAskMia={() => switchSection('Ask Mia')} onReviewStatements={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)} initialSavingsIntake={savingsIntake?.scope===challengeIntakeScope?savingsIntake.intake:null} onToday={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => {setDailyIntake(null);setDailyOpen(true)} : undefined} onReviewBaseline={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined} />
+      )}
+
+      {activeSection === 'Home' && data.workspace.experience_mode === 'savings_challenge' && challengeParticipantScope && data.workspace.cohort?.id && <ChallengeExport scope={challengeParticipantScope} cohortId={data.workspace.cohort.id} />}
+
+      {activeSection === 'Home' && data.workspace.experience_mode !== 'savings_challenge' && (
         <>
           {unavailableModuleNotice && (
             <div className="module-unavailable-notice" role="status" tabIndex={-1} ref={unavailableModuleNoticeRef}>
@@ -2927,48 +3030,70 @@ function App() {
 
       {activeSection === 'Ask Mia' && (
         <section className="screen-grid mia-screen">
-          <ScreenHeading
-            eyebrow={`Ask ${assistantName}`}
-            title={`Tell ${assistantName} what changed.`}
-            copy={`Update income, savings, debt, goals, or the plan in plain language. ${assistantName} prepares a review; you approve before anything changes.`}
-          />
+          <div className="mia-page-heading">
+            <div className="mia-page-title">
+              <ScreenHeading
+                eyebrow={`Ask ${assistantName}`}
+                title={`Tell ${assistantName} what changed.`}
+                copy={`Update income, savings, debt, goals, or the plan in plain language. ${assistantName} prepares a review; you approve before anything changes.`}
+              />
+
+              {isFirstSessionSetup && <span className="mia-setup-count">{data.workspace.setup_status.completed_count} of {data.workspace.setup_status.required_count} essentials confirmed</span>}
+            </div>
+            <ChatContextDisclosure>
+              {isFirstSessionSetup && !isChatExpanded && (
+                <FirstSessionSetupProgress
+                  status={data.workspace.setup_status}
+                  onStartChat={startChatFirstSession}
+                  onShareAll={shareAllFirstSession}
+                  onManual={startManualFirstSession}
+                />
+              )}
+              <p className="mia-context-introduction">Update income, savings, debt, goals, or the plan in plain language. {assistantName} prepares a review; you approve before anything changes.</p>
+              <p className="mia-context-introduction">Attach up to five files, choose their document types, and describe what you want reviewed. {FINANCIAL_UPLOAD_SIZE_GUIDANCE}</p>
+              {data.workspace.experience_mode === 'savings_challenge' && <p className="mia-workspace-context">Savings challenge workspace. Savings records and approved progress are available on Home.</p>}
+              <article className="mia-context panel">
+                <div className="mia-context-heading">
+                  <span className="spark" aria-hidden="true"><MiaMark /></span>
+                  <div>
+                    <span>Assistant context</span>
+                    <h3>{isFirstSessionSetup ? `Build your starting picture with ${assistantName}` : 'Approved data loaded'}</h3>
+                  </div>
+                </div>
+                <p>{isFirstSessionSetup
+                  ? `Tell ${assistantName} what you know in ordinary language. Your assistant will prepare one review card, and your financial picture stays unchanged until you approve it.`
+                  : data.workspace.experience_mode === 'savings_challenge'
+                    ? `Only approved household context is available to ${assistantName}. Uploading a bank movement does not establish new savings.`
+                    : `Profile, Expense Stack, annual runway, debt pressure, Optionality scenario, and approved document freshness are ready for ${assistantName} to use.`}
+                </p>
+                {isRealWorkspace ? (
+                  <DocumentContextCard
+                    imports={documentImports}
+                    pendingCount={pendingImportsCount}
+                    processingCount={processingImportsCount}
+                    onOpenProfile={() => openDocumentReview()}
+                    onAttach={() => miaAttachmentInputRef.current?.click()}
+                    uploading={Boolean(uploadingKind)}
+                  />
+                ) : (
+                  <div className="upload-strip" aria-label="Demo-only upload affordances">
+                    <button type="button" disabled title="Uploads require a signed-in real workspace.">
+                      <AttachmentIcon />
+                      Spreadsheet import demo-only
+                    </button>
+                    <button type="button" disabled title="Uploads require a signed-in real workspace.">
+                      <StatementIcon />
+                      Statement import demo-only
+                    </button>
+                  </div>
+                )}
+              </article>
+              {isRealWorkspace && <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />}
+              <BrandFooter />
+            </ChatContextDisclosure>
+          </div>
 
           <div className="mia-layout">
-            <article className="mia-context panel">
-              <div className="mia-context-heading">
-                <span className="spark" aria-hidden="true"><MiaMark /></span>
-                <div>
-                  <span>Assistant context</span>
-                  <h3>{isFirstSessionSetup ? `Build your starting picture with ${assistantName}` : 'Approved data loaded'}</h3>
-                </div>
-              </div>
-              <p>{isFirstSessionSetup
-                ? `Tell ${assistantName} what you know in ordinary language. Your assistant will prepare one review card, and your financial picture stays unchanged until you approve it.`
-                : `Profile, Expense Stack, annual runway, debt pressure, Optionality scenario, and approved document freshness are ready for ${assistantName} to use.`}
-              </p>
-              {isRealWorkspace ? (
-                <DocumentContextCard
-                  imports={documentImports}
-                  pendingCount={pendingImportsCount}
-                  processingCount={processingImportsCount}
-                  onOpenProfile={() => openDocumentReview()}
-                  onAttach={() => miaAttachmentInputRef.current?.click()}
-                  uploading={Boolean(uploadingKind)}
-                />
-              ) : (
-                <div className="upload-strip" aria-label="Demo-only upload affordances">
-                  <button type="button" disabled title="Uploads require a signed-in real workspace.">
-                    <AttachmentIcon />
-                    Spreadsheet import demo-only
-                  </button>
-                  <button type="button" disabled title="Uploads require a signed-in real workspace.">
-                    <StatementIcon />
-                    Statement import demo-only
-                  </button>
-                </div>
-              )}
-            </article>
-
             {isChatExpanded && (
               <div
                 className="mia-chat-backdrop"
@@ -2991,6 +3116,7 @@ function App() {
                   <p className="chat-period-context">Plan context: {selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
                 </div>
                 <div className="chat-actions">
+                  {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <button type="button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
                   {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <button type="button" className="chat-memory-button" onClick={() => {
                     setIsChatExpanded(false)
                     switchSection('My Profile')
@@ -3026,7 +3152,7 @@ function App() {
                 </div>
               </div>
 
-              {isFirstSessionSetup && (
+              {isFirstSessionSetup && isChatExpanded && (
                 <FirstSessionSetupProgress
                   status={data.workspace.setup_status}
                   onStartChat={startChatFirstSession}
@@ -3097,6 +3223,7 @@ function App() {
                   onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
                   onReviewImportId={openDocumentReview}
                   reviewContent={<>
+                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && miaSavingsNote?.scope===challengeIntakeScope && <MiaSavingsReview intake={miaSavingsNote.intake} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack
                         drafts={pendingMiaActionDrafts}
@@ -3404,6 +3531,7 @@ function App() {
           )}
 
           {(!isFirstSessionSetup || isFirstSessionUpload) && <DocumentImportWorkspace
+            onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
@@ -3639,7 +3767,7 @@ function App() {
         <CoachStudio currentUser={auth.currentUser} onDirtyChange={setHasUnsavedCoachChanges} />
       )}
 
-      <BrandFooter />
+      {activeSection !== 'Ask Mia' && <BrandFooter />}
 
       {confirmClearChat && (
         <ClearChatConfirmDialog
@@ -3669,6 +3797,10 @@ function App() {
         <LocalAttachmentPreview attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
       )}
 
+      {optionalDebtOpen && challengeParticipantScope && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && data.workspace.cohort?.id && <OptionalDebtReview key={challengeIntakeScope} actorScope={challengeParticipantScope} cohortId={data.workspace.cohort.id} onClose={() => setOptionalDebtOpen(false)} />}
+      {evidenceReview?.scope === challengeIntakeScope && challengeParticipantScope && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && <SavingsEvidenceDialog key={`${challengeIntakeScope}:${evidenceReview.entryVersionId}`} actorScope={challengeParticipantScope} entryVersionId={evidenceReview.entryVersionId} onClose={() => setEvidenceReview(null)} onChanged={() => setEvidenceRefreshToken(value => value + 1)} />}
+      {dailyOpen && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <ChallengeToday key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} cohortId={data.workspace.cohort?.id} initialPurchase={dailyIntake?.scope===challengeIntakeScope?dailyIntake.intake:null} scope={{user_id:auth.currentUser.id,household_id:data.workspace.household_id}} onClose={() => {setDailyOpen(false);setDailyIntake(null)}} onStatements={() => { setDailyOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} onBaseline={() => { setDailyOpen(false); setBaselineOpen(true) }} />}
+      {baselineOpen && isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <BaselineReview key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} scope={{ user_id: auth.currentUser.id, household_id: data.workspace.household_id }} onClose={() => setBaselineOpen(false)} onReviewStatements={() => { setBaselineOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} />}
       {pilotGuideOpen && <PilotGuideDialog onClose={() => setPilotGuideOpen(false)} />}
       {pilotFeedbackOpen && (
         <PilotFeedbackDialog
@@ -3691,6 +3823,7 @@ function App() {
             <h1>This program is temporarily unavailable.</h1>
             <p role="alert">The active program release could not be verified. Try again or contact your coach.</p>
             <button type="button" onClick={() => setWorkspaceLoadAttempt((attempt) => attempt + 1)}>Try again</button>
+            <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} />
           </section>
         </main>
       )}
@@ -4199,6 +4332,7 @@ function DocumentContextCard({
 }
 
 function DocumentImportWorkspace({
+  onReviewBaseline,
   sectionRef,
   isRealWorkspace,
   imports,
@@ -4231,6 +4365,7 @@ function DocumentImportWorkspace({
   onDeleteImport,
   onOpenSource,
 }: {
+  onReviewBaseline?: () => void
   sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
   imports: FinancialDocumentImport[]
@@ -4300,7 +4435,7 @@ function DocumentImportWorkspace({
           <h3>Upload evidence. Review draft facts. Apply only what is right.</h3>
           <p>Files go to private S3. {assistantName} extracts draft values server-side, then waits for your approval before changing household numbers.</p>
         </div>
-        <span className="document-safe-pill">Private S3 · Review first</span>
+        <div><span className="document-safe-pill">Private S3 · Review first</span>{onReviewBaseline && <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onReviewBaseline?.() }}>Review spending baseline</button>}</div>
       </div>
 
       <div className="document-import-summary-row">

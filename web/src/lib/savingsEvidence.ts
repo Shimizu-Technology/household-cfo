@@ -1,0 +1,31 @@
+import type { BaselineScope } from './financialBaseline'
+import type { SavingsEntryVersion } from './savingsChallenge'
+export type EvidenceActor = { actor_scope: BaselineScope; enrollment_id: number }
+export type EvidenceScope = BaselineScope & { enrollment_id: number; entry_version_id: number }
+export type EvidenceProofInput = { source_review_version_id: number; expected_source_digest: string; expected_account_identity_digest: string; amount_cents: number; economic_group_version_id: number | null; expected_group_digest: string | null }
+export type EvidenceMovementLeg = {merchant:string;posted_on:string;account_label:string;filename:string|null;source_available:boolean;signed_amount_cents:number}
+export type EvidenceCandidate = Omit<EvidenceProofInput, 'amount_cents'> & { merchant: string; posted_on: string; signed_amount_cents: number; account_label: string; movement_kind: 'reviewed_asset_transfer' | 'reviewed_income'; canonical_event_ids: number[]; movement_capacity_cents: number; available_cents: number; document_import_id: number | null; filename: string | null; source_available: boolean; movement_legs?: EvidenceMovementLeg[] }
+export type EvidenceVersion = { id: number; savings_evidence_allocation_id: number; previous_version_id: number | null; version_number: number; approval_sequence: number; state: 'attached' | 'revoked'; supported_cents: number; digest: string; reason: string; approved_at: string; proof_snapshot: Array<{ amount_cents: number; capacity_cents: number; group_version_id: number | null; group_digest: string | null; dependencies: Array<{ version_id: number; digest: string; identity_version_id: number; identity_digest: string; posted_on: string }>; bindings: Array<{ event_id: number; source_review_version_id: number; capacity_cents: number; reserved_cents: number }> }>; proof_display?: Array<{merchant:string;posted_on:string;account_label:string;filename:string|null;source_available:boolean;movement_kind:string;amount_cents:number}> }
+export type EvidencePage = EvidenceActor & { entry: SavingsEntryVersion; entry_is_current: boolean; head: { id: number; current_version_id: number | null; lock_version: number } | null; current_version: EvidenceVersion | null; records: EvidenceVersion[]; next_cursor: number | null }
+export type EvidenceCandidates = EvidenceActor & { records: EvidenceCandidate[]; next_cursor: number | null }
+export type EvidenceAction = 'attach' | 'revoke'
+export type EvidenceInput = { entry_version_id: number; expected_evidence_version_id: number | null; expected_head_lock_version: number; accepted: true; reason: string; participant_ownership_accepted?: true; new_money_reservation_accepted?: true; proofs?: EvidenceProofInput[] }
+export type EvidenceMutation = EvidenceActor & { record: EvidenceVersion; replayed: boolean }
+export type EvidenceStatus = (EvidenceActor & ({ state: 'committed'; record: EvidenceVersion; replayed: true } | { state: 'unknown'; can_retry: true })) | { state: 'in_flight'; actor_scope: BaselineScope; enrollment_id: number | null }
+export function evidenceScopeMatches(result: EvidenceActor, scope: EvidenceScope) { return result.actor_scope.user_id === scope.user_id && result.actor_scope.household_id === scope.household_id && result.enrollment_id === scope.enrollment_id }
+// Lock contention can return actor metadata before the enrollment has been resolved.
+// That response may keep recovery pending, but cannot acknowledge a financial payload.
+export function evidenceRecoveryScopeMatches(result: EvidenceMutation | EvidenceStatus, scope: EvidenceScope) {
+ return result.actor_scope.user_id === scope.user_id && result.actor_scope.household_id === scope.household_id && (
+  result.enrollment_id === scope.enrollment_id ||
+  ('state' in result && result.state === 'in_flight' && result.enrollment_id === null && !('record' in result))
+ )
+}
+export function evidenceProof(candidate: EvidenceCandidate, amount_cents: number): EvidenceProofInput { return { source_review_version_id: candidate.source_review_version_id, expected_source_digest: candidate.expected_source_digest, expected_account_identity_digest: candidate.expected_account_identity_digest, economic_group_version_id: candidate.economic_group_version_id, expected_group_digest: candidate.expected_group_digest, amount_cents } }
+export function validateEvidenceSelections(selections: Array<{candidate:EvidenceCandidate;amount_cents:number}>, contribution: number) {
+ if(selections.length<1||selections.length>20)throw new Error('Select between one and twenty reviewed movements.')
+ const events=new Set<number>();let total=0
+ for(const {candidate,amount_cents} of selections){if(candidate.movement_kind==='reviewed_asset_transfer'&&candidate.movement_legs?.length!==2)throw new Error('The paired transfer details are unavailable. Refresh and review both accounts before linking proof.');if(!Number.isSafeInteger(amount_cents)||amount_cents<1||amount_cents>candidate.available_cents)throw new Error('Each support amount must fit the available reviewed movement.');for(const id of candidate.canonical_event_ids){if(events.has(id))throw new Error('The same bank movement cannot support this contribution twice.');events.add(id)}total+=amount_cents}
+ if(!Number.isSafeInteger(total)||total>contribution)throw new Error('Support cannot exceed this reported contribution.')
+ return total
+}

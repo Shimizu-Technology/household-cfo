@@ -1,0 +1,16 @@
+.participant-program-picker { display: grid; gap: 10px; min-width: 0; max-width: 640px; color: var(--ink); }
+.participant-program-picker h2 { margin: 0; font-size: 18px; }
+.participant-program-picker p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.participant-program-picker label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; font-weight: 600; }
+.participant-program-picker select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; height: 44px; min-height: 44px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); text-overflow: ellipsis; overflow: hidden; }
+.participant-program-picker button { justify-self: start; min-height: 44px; max-width: 100%; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--emerald); color: var(--brand-on-primary); font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.participant-program-picker button:disabled, .participant-program-picker select:disabled { opacity: .65; cursor: default; }
+.participant-program-picker button:focus-visible, .participant-program-picker select:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 3px; }
+.program-picker-note { color: var(--muted); font-size: 13px; }
+
+.participant-program-switch { min-width: 0; margin-block: .5rem; }
+.participant-program-switch > summary { cursor: pointer; font-size: .875rem; overflow-wrap: anywhere; }
+
+/* Keep the native menu's internally scrolling label inside its control box.
+   Containment is local to the control; its focus outline and popup stay native. */
+.participant-program-picker select { contain: paint; }

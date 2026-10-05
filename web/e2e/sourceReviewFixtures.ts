@@ -22,3 +22,12 @@ export function sourceReviewFixture(page = 1, filter: SourceReviewFilter = 'all'
     pagination: { page, per_page: 50, total_count: filtered.length, total_pages: Math.max(1, Math.ceil(filtered.length / 50)), has_previous: page > 1, has_next: page < Math.ceil(filtered.length / 50) }, events: filtered.slice((page - 1) * 50, page * 50),
   }
 }
+
+export function participantReviewFixture(page = 1, filter: SourceReviewFilter = 'all'): SourceReview {
+  const data = sourceReviewFixture(page, filter)
+  data.participant_review = { schema_version: 1, actor_scope: { user_id: 901, household_id: 77 }, economic_groups: [], categories: [{ id: 10, name: 'Groceries' }],
+    rows: Object.fromEntries(data.events.map((event) => [event.id, { head: { id: event.id + 1_000, approved_version_id: null, lock_version: 0 }, approved: null, pending: null }])),
+    accounts: [{ source_account_id: 501, head: { id: 80, approved_version_id: 100, lock_version: 1 }, approved: { id: 100, digest: 'fictional-account', version_number: 1, tracked_account: { id: 2, label: 'Fictional checking', account_basis: 'asset', account_id: null }, statement_facts: { period_start_on: '2026-09-01', period_end_on: '2026-09-30', opening_balance_cents: 500_000, closing_balance_cents: 379_000, printed_debit_cents: 124_000, printed_credit_cents: 3_000, printed_row_count: 137 } } }],
+    coverage: { revision_id: 88, represented_rows: 137, approved_rows: 0, pending_corrections: 0, content_digest: 'fictional-coverage', deficiencies: ['unreviewed_source_rows','document_page_or_sheet_coverage_unverified'] }, approved_coverage: null }
+  return data
+}

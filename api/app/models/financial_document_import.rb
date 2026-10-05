@@ -11,6 +11,8 @@ class FinancialDocumentImport < ApplicationRecord
   belongs_to :applied_by_user, class_name: "User", optional: true
   belongs_to :source_deleted_by_user, class_name: "User", optional: true
 
+  has_one :extraction_dispatch, class_name: "FinancialDocumentExtractionDispatch", dependent: :nullify
+
   has_many :items, class_name: "FinancialDocumentImportItem", dependent: :destroy, inverse_of: :financial_document_import
   has_many :attempts, class_name: "FinancialDocumentImportAttempt", dependent: :destroy, inverse_of: :financial_document_import
   has_many :transaction_drafts, dependent: :destroy

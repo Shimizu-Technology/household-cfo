@@ -41,11 +41,14 @@ module FinancialDocuments
 
     attr_reader :model
 
-    def call(document_import)
+    def call(document_import, &progress)
+      @progress = progress
+      progress!
       return failure("Document source is no longer available") unless document_import.source_available?
       return failure("AWS S3 storage is not configured") unless S3Service.configured?
 
       with_source_tempfile(document_import) do |tempfile|
+        progress!
         structured_result = structured_spreadsheet_result(document_import, tempfile.path)
         return Result.new(success: true, data: structured_result.data, error: nil, metadata: { extraction_mode: "structured_spreadsheet" }) if structured_result&.success?
         return failure(structured_result.error) if terminal_structured_spreadsheet_error?(structured_result)
@@ -64,13 +67,19 @@ module FinancialDocuments
         extract_openrouter_document(document_import, tempfile.path)
       end
     rescue StandardError => e
-      Rails.logger.warn("[FinancialDocuments::Extractor] extraction failed for import #{document_import&.id}: #{e.class}: #{e.message}")
-      failure(e.message)
+      Rails.logger.warn("[FinancialDocuments::Extractor] extraction failed for import #{document_import&.id}: #{e.class}")
+      failure("Document extraction could not finish. Try reprocessing the document.")
     end
 
     private
 
     attr_reader :api_key, :pdf_engine
+
+    # Optional job-owned heartbeat. A superseded generation must stop before the
+    # next provider batch, while ordinary synchronous callers need no callback.
+    def progress!
+      raise "Extraction attempt no longer has source access" if @progress && @progress.call == false
+    end
 
     def with_source_tempfile(document_import)
       extension = safe_extension(document_import.filename)
@@ -116,6 +125,7 @@ module FinancialDocuments
       batch_data = []
       batch_metadata = []
       source.pages.each_slice(pages_per_batch).with_index do |pages, index|
+        progress!
         first_page = index * pages_per_batch + 1
         last_page = first_page + pages.length - 1
         chunk = Tempfile.new([ "financial_document_import_#{document_import.id}_pages_#{first_page}_#{last_page}", ".pdf" ])
@@ -132,6 +142,7 @@ module FinancialDocuments
         )
         return failure("Could not finish the complete statement. Pages #{first_page}-#{last_page} failed: #{result.error}", metadata: result.metadata) unless result.success?
 
+        progress!
         batch_data << result.data
         batch_metadata << result.metadata
       ensure
@@ -140,10 +151,10 @@ module FinancialDocuments
 
       merge_pdf_batch_results(batch_data, batch_metadata, page_count: page_count)
     rescue CombinePDF::EncryptionError => e
-      Rails.logger.warn("[FinancialDocuments::Extractor] encrypted PDF import #{document_import.id}: #{e.class}: #{e.message}")
+      Rails.logger.warn("[FinancialDocuments::Extractor] encrypted PDF import #{document_import.id}: #{e.class}")
       failure("This PDF is password-protected. Download an unlocked copy from the bank or export the transactions as CSV, then upload it again.")
     rescue CombinePDF::ParsingError => e
-      Rails.logger.warn("[FinancialDocuments::Extractor] could not safely parse PDF import #{document_import.id}: #{e.class}: #{e.message}")
+      Rails.logger.warn("[FinancialDocuments::Extractor] could not safely parse PDF import #{document_import.id}: #{e.class}")
       failure("This PDF could not be safely split into complete extraction batches. Download a fresh PDF from the bank or export the transactions as CSV, then upload it again.")
     end
 
@@ -159,7 +170,9 @@ module FinancialDocuments
 
     def extract_openrouter_document(document_import, file_path, batch_label: nil)
       payload = build_payload(document_import, file_path, batch_label: batch_label)
+      progress!
       response = perform_openrouter_request(payload)
+      progress!
       return response unless response.success?
       if response.metadata[:finish_reason].to_s == "length"
         return failure(
@@ -456,7 +469,8 @@ module FinancialDocuments
     rescue JSON::ParserError
       failure("OpenRouter returned invalid JSON")
     rescue StandardError => e
-      failure(e.message)
+      Rails.logger.warn("[FinancialDocuments::Extractor] provider_request_failed_class=#{e.class}")
+      failure("Private document extraction service is unavailable. Try reprocessing the document.")
     end
 
     def parse_json_content(content)

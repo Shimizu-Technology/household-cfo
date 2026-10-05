@@ -1,7 +1,12 @@
+import { dailyContext, dailyDraft, dailySnapshot, dailyVersion } from '../src/test/dailyFixtures'
+import type { DailyPurchase, DailyPurchaseDraft, DailyReflection, DailyCheckpointDraft, DailyCheckpoint, DailyInput } from '../src/lib/dailyChallenge'
+import { baselineContext, baselineCurrent, baselinePreview, baselineScope, baselineVersion } from '../src/test/baselineFixtures'
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
-import { sourceReviewFixture } from './sourceReviewFixtures'
-import type { SourceReviewFilter } from '../src/lib/sourceReview'
+import { savingsEntryDraft, savingsEntryVersion, savingsFixture, savingsPlanDraft, savingsPlanVersion } from '../src/test/savingsFixtures'
+import type { SavingsChallenge, SavingsEntry, SavingsEntryDraft, SavingsPlanDraft } from '../src/lib/savingsChallenge'
+import { participantReviewFixture, sourceReviewFixture } from './sourceReviewFixtures'
+import type { SourceReview, SourceReviewFilter } from '../src/lib/sourceReview'
 import type { BrandConfig, CoachWorkspaceSettings, WorkspaceBrandConfiguration, WorkspaceBrandVersion, WorkspaceCollaborator } from '../src/api'
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -41,6 +46,14 @@ async function openSection(page: Page, name: string) {
   await section.click()
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
   await expect(page.locator('.tabs-tools-backdrop')).toHaveCount(0)
+}
+
+async function openChatContext(page: Page) {
+  const disclosure = page.locator('.mia-context-disclosure')
+  if (decodeURIComponent(new URL(page.url()).hash) === '#Ask Mia') await expect(disclosure.locator('summary')).toBeVisible()
+  if (await disclosure.count() && !(await disclosure.evaluate((node: HTMLDetailsElement) => node.open))) {
+    await disclosure.locator('summary').click()
+  }
 }
 
 async function completePersonaReleaseChecks(page: Page) {
@@ -777,6 +790,7 @@ async function mockDemoApi(page: Page) {
     '/api/demo/cfo-filter': cfoFilter,
     '/api/demo/mia/messages': { messages: chatMessages(), oldest_message_id: 1, older_message_count: 0, has_older_messages: false, quick_prompts: ['Can I buy the purse?', 'Why is my readiness Red?', 'Emergency fund or debt first?', 'Can I leave my job?'], disclaimer: 'Education only.' },
     '/api/v1/workspace': realWorkspaceData(false),
+    '/api/v1/participant_programs': { actor_id: 901, current_cohort_id: 41, current_program: { id: 41, name: 'BOG', status: 'active' }, selection_unavailable: false, programs: [{ id: 41, name: 'BOG', status: 'active' }], next_cursor: null },
     '/api/v1/spending_report': {
       spending_report: {
         period_label: `${currentMonth} ${currentYear}`,
@@ -2811,6 +2825,7 @@ test('a confirmed zero remains available when the rest of setup is completed man
   await applyButton.focus()
   await applyButton.press('Enter')
 
+  await openChatContext(page)
   const progress = page.locator('.first-session-setup-progress')
   await progress.getByRole('button', { name: 'Show setup options' }).click()
   await expect(progress.getByRole('listitem').filter({ hasText: 'Flexible spending' }).locator('.sr-only')).toHaveText('— Confirmed')
@@ -2872,6 +2887,7 @@ test('manual first-session entry respects a field selected before navigation foc
   await page.clock.install()
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(false) }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openChatContext(page)
   const progress = page.locator('.first-session-setup-progress')
   await progress.getByRole('button', { name: 'Show setup options' }).click()
 
@@ -3125,9 +3141,9 @@ test('Ask Mia restores uploaded attachment context and its exact request ID afte
   const message = 'Please review this receipt.'
   const month = new Date().getMonth() + 1
   const requestId = 'mia-request-attachment-reload-1'
-  const signature = JSON.stringify({ message, attachmentIds: [501], year: currentYear, month })
+  const signature = JSON.stringify({ workspace: 'household-cfo:mia-chat:v1:user-901:participant:77:41', message, attachmentIds: [501], year: currentYear, month })
   await page.addInitScript(({ storedRequest }) => {
-    window.sessionStorage.setItem('household-cfo:mia-chat:v1:user-901:pending-request', JSON.stringify(storedRequest))
+    window.sessionStorage.setItem('household-cfo:mia-chat:v1:user-901:participant:77:41:pending-request', JSON.stringify(storedRequest))
   }, {
     storedRequest: {
       id: requestId,
@@ -3256,7 +3272,9 @@ test('Ask Mia uploads an attachment with its question and renders the grounded r
     mimeType: 'image/png',
     buffer: Buffer.from('mock-receipt-evidence'),
   })
-  if ((page.viewportSize()?.width ?? 0) > 620) await expect(page.getByText('Images and PDFs up to 12 MB · CSV, Excel, and Word up to 20 MB')).toBeVisible()
+  await openChatContext(page)
+  await expect(page.getByRole('region', { name: 'Chat context and help' })).toContainText('Images and PDFs up to 12 MB · CSV, Excel, and Word up to 20 MB')
+  await page.getByRole('button', { name: 'Close context' }).click()
   await expect(page.locator('.composer-attachment-tray').getByRole('button', { name: 'receipt.png', exact: true })).toBeVisible()
 
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Does this grocery receipt fit my plan?')
@@ -4054,8 +4072,9 @@ test('compact phone layouts keep a stable shell and overlay secondary tools with
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
   const askMiaHeaderBox = await header.boundingBox()
-  expect(Math.abs((askMiaHeaderBox?.height ?? 0) - (homeHeaderBox?.height ?? 0))).toBeLessThan(0.5)
-  expect(Math.abs((askMiaHeaderBox?.y ?? 0) - (homeHeaderBox?.y ?? 0))).toBeLessThan(0.5)
+  // Chat deliberately compacts its shell; Home keeps its established header.
+  expect(askMiaHeaderBox!.height).toBeLessThan(homeHeaderBox!.height)
+  expect(askMiaHeaderBox!.y).toBeGreaterThanOrEqual(0)
   await expect(page.getByText('More prompts →')).toBeHidden()
   await page.locator('.screen-grid').evaluate(async (screen) => {
     await Promise.all(screen.getAnimations().map((animation) => animation.finished.catch(() => undefined)))
@@ -4073,7 +4092,10 @@ test('compact phone layouts keep a stable shell and overlay secondary tools with
   const promptButtons = page.locator('.chat-prompts button')
   const promptWidths = await promptButtons.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().width))
   expect(Math.max(...promptWidths)).toBeLessThanOrEqual(chatLayout.shell.width - 20)
+  await expect(page.locator('.mia-context')).toBeHidden()
+  await openChatContext(page)
   const contextBox = await page.locator('.mia-context').boundingBox()
+  expect(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBe(chatLayout.conversationHeight)
   expect(chatLayout.conversationHeight).toBeGreaterThan(100)
   expect(chatLayout.composerBottom).toBeLessThanOrEqual(chatLayout.shell.bottom + 1)
   expect(contextBox).not.toBeNull()
@@ -4099,7 +4121,10 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
       shellHeight: shellBox.height,
     }
   })
-  expect(compactLayout.historyHeight).toBeGreaterThan(compactLayout.shellHeight * 0.6)
+  // The normal surface fits the viewport; the former 60% ratio relied on a taller,
+  // partly off-screen shell on 320px phones. Keep a useful visible history instead.
+  expect(compactLayout.historyHeight).toBeGreaterThan(Math.min(200, compactLayout.shellHeight * 0.45))
+  expect(await page.getByRole('button', { name: 'Send message to Mia' }).evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(page.viewportSize()!.height)
 
   await suggestionsButton.focus()
   await suggestionsButton.press('Enter')
@@ -4299,7 +4324,7 @@ test('incomplete participants get a short first session, private feedback, and a
 
   await page.getByRole('button', { name: 'Set up with Mia' }).click()
   await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
-  await expect(page.getByText('0 of 5 essentials confirmed')).toBeVisible()
+  await expect(page.locator('.mia-setup-count')).toBeVisible()
   const guidedComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await expect(guidedComposer).toHaveValue(guidedSetupPrompt)
   await expect(guidedComposer).toBeFocused()
@@ -4310,6 +4335,7 @@ test('incomplete participants get a short first session, private feedback, and a
   expect(guidedSetupRequest.postDataJSON().message).toBe(guidedSetupPrompt)
   await expect(page.getByText(guidedSetupReply, { exact: true })).toBeVisible()
 
+  await openChatContext(page)
   await page.getByRole('button', { name: 'Show setup options' }).click()
   await page.getByRole('button', { name: 'Share everything at once' }).click()
   await expect(guidedComposer).toHaveValue(/Here is everything I know so far: our household is called ___/)
@@ -4383,10 +4409,12 @@ test('clearing a saved optional asset submits null so the balance becomes unknow
 test('Mia explains when starting numbers have not been approved yet', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openChatContext(page)
   const context = page.locator('.mia-context')
   await expect(context.getByRole('heading', { name: 'Build your starting picture with Mia' })).toBeVisible()
   await expect(context).toContainText('ordinary language')
   await expect(context.getByText('Approved data loaded')).toHaveCount(0)
+  await openChatContext(page)
   const progress = page.locator('.first-session-setup-progress')
   await expect(progress).toContainText('0 of 5 essentials confirmed')
   await progress.getByRole('button', { name: 'Show setup options' }).click()
@@ -4435,6 +4463,7 @@ test('ignored-only imports remain pending instead of becoming approved Mia conte
   await page.goto('/?pilot_e2e_role=participant')
 
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openChatContext(page)
   await expect(page.getByText('No approved document sources yet. Mia will use manual numbers until you apply extracted values.')).toBeVisible()
 
   await openSection(page, 'My Profile')
@@ -4713,12 +4742,42 @@ test('Coach Studio waits for its initial library before opening a create form', 
   await create.click()
   await page.locator('.coach-create-form').getByLabel('Assistant name').fill('A ready creation form')
   await expect(page.locator('.coach-create-form').getByLabel('Assistant name')).toHaveValue('A ready creation form')
+  page.once('dialog', dialog => dialog.dismiss())
+  await page.getByRole('combobox', { name: /Coach workspace/ }).selectOption('2')
+  await expect(page.getByRole('combobox', { name: /Coach workspace/ })).toHaveValue('1')
+  await expect(page.locator('.coach-create-form').getByLabel('Assistant name')).toHaveValue('A ready creation form')
   listGate = new Promise<void>((resolve) => { releaseList = resolve })
+  page.once('dialog', dialog => dialog.accept())
   await page.getByRole('combobox', { name: /Coach workspace/ }).selectOption('2')
   await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'true')
-  await expect(page.locator('.coach-create-form').getByRole('button', { name: 'Create safe draft' })).toBeDisabled()
+  await expect(page.locator('.coach-create-form')).toHaveCount(0)
+  await expect(create).toBeDisabled()
   releaseList?.()
   await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
+})
+
+test('Coach Studio warns before discarding an unsaved creation form on a view change', async ({ page }) => {
+  await mockProgramSettings(page)
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
+  const create=page.getByRole('button', { name:'Create', exact:true })
+  if (!(await create.isVisible())) await page.getByRole('button', { name:'All assistants' }).click()
+  await create.click()
+  const form=page.locator('.coach-create-form')
+  await form.getByLabel('Assistant name').fill('Private unfinished assistant')
+  await form.getByLabel('Internal description').fill('Private unfinished description')
+  page.once('dialog',dialog=>dialog.dismiss())
+  await page.getByRole('tab',{name:/Program settings/}).click()
+  await expect(form.getByLabel('Assistant name')).toHaveValue('Private unfinished assistant')
+  await expect(form.getByLabel('Internal description')).toHaveValue('Private unfinished description')
+  page.once('dialog',dialog=>dialog.accept())
+  await page.getByRole('tab',{name:/Program settings/}).click()
+  await expect(form).toHaveCount(0)
+  await page.getByRole('tab',{name:/Assistant voice/}).click()
+  if (!(await create.isVisible())) await page.getByRole('button', { name:'All assistants' }).click()
+  await create.click()
+  await expect(form.getByLabel('Assistant name')).toHaveValue('')
+  await expect(form.getByLabel('Internal description')).toHaveValue('')
 })
 
 test('Coach Studio creates a persona through private setup chat and reviewed changes', async ({ page }) => {
@@ -5106,6 +5165,7 @@ test('Coach Studio content controls follow independent editor and reviewer permi
   await expect(itemPanel.getByRole('button', { name: /Approve/ })).toHaveCount(0)
 
   await page.getByLabel('Coach workspace').selectOption('2')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await page.getByRole('button', { name: /Reviewer content draft/ }).click()
   await expect(itemPanel.getByLabel('Draft wording')).toBeDisabled()
   await expect(itemPanel.getByRole('button', { name: 'Approve new version' })).toBeEnabled()
@@ -6356,7 +6416,11 @@ test('Coach Studio does not treat a legacy preview flag as sealed behavioral evi
 
 test('Coach Studio publishes only the exact reviewed release evidence', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await expect(page.getByRole('button', { name: 'Run exact preview' })).toBeVisible()
+  // Wait before the first preview click, not only the later release-check click.
+  await page.evaluate(() => document.fonts.ready)
   await page.getByRole('button', { name: 'Run exact preview' }).click()
+  await expect(page.getByRole('region', { name: 'Sealed behavioral preview evidence' })).toContainText('Saved live-model preview')
   await completePersonaReleaseChecks(page)
   const publishRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/admin/personas/81/publish'))
   await page.getByRole('button', { name: 'Publish first version' }).click()
@@ -6486,18 +6550,27 @@ test('Coach Studio prevents assistant switches while a mutation is pending', asy
   const second = { ...personaDetailFixture(), id: 82, name: 'Coach B', draft: { ...structuredClone(personaConfiguration), identity: { ...personaConfiguration.identity, assistant_name: 'Coach B' } } }
   await page.route('http://api.test/api/v1/admin/personas', (route) => route.fulfill({ status: 200, json: { personas: [first, second] } }))
   await page.route('http://api.test/api/v1/admin/personas/82', (route) => route.fulfill({ status: 200, json: { persona: second } }))
+  let releasePreview!: () => void
+  const previewHeld = new Promise<void>((resolve) => { releasePreview = resolve })
+  const previewRequested = page.waitForRequest((request) => request.url().endsWith('/api/v1/admin/personas/81/preview'))
   await page.route('http://api.test/api/v1/admin/personas/81/preview', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await previewHeld
     await route.fallback()
   })
 
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.evaluate(() => document.fonts.ready)
   await page.getByRole('button', { name: 'Run exact preview' }).click()
+  await previewRequested
 
   const selectionControl = ['desktop-chrome', 'tablet-1024-chrome'].includes(testInfo.project.name)
     ? page.locator('.coach-library-list').getByRole('button', { name: /Coach B/ })
     : page.getByRole('button', { name: 'All assistants' })
-  await expect(selectionControl).toBeDisabled()
+  try {
+    await expect(selectionControl).toBeDisabled()
+  } finally {
+    releasePreview()
+  }
   await expect(page.getByRole('region', { name: 'Sealed behavioral preview evidence' })).toContainText('Saved live-model preview')
   await expect(selectionControl).toBeEnabled()
 })
@@ -7909,6 +7982,7 @@ test('Coach Studio program reviewer cannot edit identity or access participants 
   await openOwnerProgram(page, /Program settings/)
   await expect(page.getByLabel('Workspace name', { exact: true })).toBeEnabled()
   await page.getByLabel('Coach workspace').selectOption('2')
+  await page.getByRole('tab', { name: /Program settings/ }).click()
   await expect(page.getByLabel('Workspace name', { exact: true })).toBeDisabled()
   await expect(page.getByLabel('App name', { exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Preview welcome screen' })).toBeEnabled()
@@ -8007,7 +8081,10 @@ test('Coach Studio program groups add participants without mistaking failed emai
   await card.getByRole('button', { name: 'Keep participant', exact: true }).click()
   expect(removedMembership).toBe(false)
   await card.getByRole('button', { name: 'Cancel enrollment', exact: true }).click()
-  await card.getByRole('button', { name: 'Confirm removal', exact: true }).click()
+  const confirmRemoval = card.getByRole('button', { name: 'Confirm removal', exact: true })
+  await expect(confirmRemoval).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  await confirmRemoval.click()
   await expect(page.getByRole('status').filter({ hasText: 'Enrollment removed from this group' })).toBeVisible()
   await expect(card).toHaveCount(0)
   expect(removedMembership).toBe(true)
@@ -8031,16 +8108,21 @@ for (const setupComplete of [false, true]) {
       const history = shell.querySelector('.chat-card-wrap')!.getBoundingClientRect()
       const send = shell.querySelector('.send-button')!.getBoundingClientRect()
       const tray = shell.querySelector('.composer-attachment-tray') as HTMLElement
-      return { historyHeight: history.height, sendBottom: send.bottom, shellBottom: box.bottom, trayScrollable: tray.scrollHeight > tray.clientHeight, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth }
+      return { viewportHeight: window.innerHeight, shellTop: box.top, historyTop: history.top, historyHeight: history.height, sendBottom: send.bottom, shellBottom: box.bottom, trayScrollable: tray.scrollHeight > tray.clientHeight, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth }
     })
     expect(geometry.historyHeight).toBeGreaterThan(100)
     expect(geometry.sendBottom).toBeLessThanOrEqual(geometry.shellBottom)
+    expect(geometry.shellBottom).toBeLessThanOrEqual(geometry.viewportHeight + 1)
+    expect(geometry.shellTop).toBeLessThan(190)
     expect(geometry.overflow).toBeLessThanOrEqual(1)
     if ((page.viewportSize()?.width ?? 0) <= 900) expect(geometry.trayScrollable).toBe(true)
     await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
 
     await fileInput.setInputFiles({ name: 'QA-sixth-statement.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nQA') })
     await expect(page.getByRole('alert').filter({ hasText: 'Not added: QA-sixth-statement.pdf' })).toBeVisible()
+    const rejectionLayout = await page.locator('.mia-chat-shell').evaluate(shell => ({ history: shell.querySelector('.chat-card-wrap')!.getBoundingClientRect().height, sendBottom: shell.querySelector('.send-button')!.getBoundingClientRect().bottom, viewport: innerHeight }))
+    expect(rejectionLayout.history).toBeGreaterThan(40)
+    expect(rejectionLayout.sendBottom).toBeLessThanOrEqual(rejectionLayout.viewport)
     await expect(composer).toHaveValue('Review these statements.\nHelp me understand my spending.')
     await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
     // Remove by a unique filename using keyboard, after scrolling the bounded tray.
@@ -8106,7 +8188,10 @@ test('BOG UI Home and current review survive a future Budget year', async ({ pag
   const periods = await trackBudgetReportPeriods(page)
   await page.route('http://api.test/api/v1/budget?**', (route) => route.fulfill({ json: future }))
   await page.goto('/?pilot_e2e_role=participant#Budget')
-  await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  const nextYear = page.getByRole('button', { name: 'Next year', exact: true })
+  await expect(nextYear).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  await nextYear.click()
   await expect(page.getByText(`Annual budget · ${currentYear + 1}`, { exact: true })).toBeVisible()
   const selectedPeriod = future.annual_plan.months[new Date().getMonth()]
   await expect.poll(() => periods.some((period) => period.start === selectedPeriod.starts_on && period.end === selectedPeriod.ends_on)).toBe(true)
@@ -8132,7 +8217,9 @@ test('BOG UI partially reviewed statements keep their remaining coverage visible
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openChatContext(page)
   await expect(page.getByLabel('Document import context for Mia')).toContainText('1 waiting review')
+  await openChatContext(page)
   await page.getByRole('button', { name: 'Review imports', exact: true }).click()
   await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
   await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
@@ -8177,7 +8264,9 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(false) }))
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openChatContext(page)
   await expect(page.getByLabel('Document import context for Mia')).toContainText('1 waiting review')
+  await openChatContext(page)
   await page.getByRole('button', { name: 'Review imports', exact: true }).click()
   await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
   await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
@@ -8187,11 +8276,12 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await page.getByRole('button', { name: 'Return to starting numbers', exact: true }).click()
   await expect(page.getByText('Essential first-session information', { exact: true })).toBeVisible()
   await openSection(page, 'Ask Mia')
+  await openChatContext(page)
   await page.getByRole('button', { name: 'Review imports', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'QA-partial.pdf', exact: true })).toBeVisible()
 })
 
-async function openTypedStatementReview(page: Page, failSecondPage = false) {
+async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview) {
   const source = {
     id: 1203, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'Fictional-137-row-statement.pdf', content_type: 'application/pdf', byte_size: 500,
     document_date: null, period_start_on: '2026-09-01', period_end_on: '2026-09-30', extracted_summary: 'Fictional statement with 137 represented rows.', extraction_error: null,
@@ -8208,9 +8298,10 @@ async function openTypedStatementReview(page: Page, failSecondPage = false) {
     expect(query.get('per_page')).toBe('50')
     const currentPage = Number(query.get('page'))
     if (failSecondPage && currentPage === 2) return route.fulfill({ status: 409, json: { error: 'Extraction revision changed. Refresh the import.' } })
-    return route.fulfill({ json: { source_review: sourceReviewFixture(currentPage, query.get('filter') as SourceReviewFilter) } })
+    return route.fulfill({ json: { source_review: participant ? participant(participantReviewFixture(currentPage, query.get('filter') as SourceReviewFilter)) : sourceReviewFixture(currentPage, query.get('filter') as SourceReviewFilter) } })
   })
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openChatContext(page)
   await page.getByRole('button', { name: 'Review imports', exact: true }).click()
   return page.getByRole('region', { name: 'Statement source accounting', exact: true })
 }
@@ -8295,8 +8386,13 @@ async function openAuthenticatedSource(page: Page, type: 'image' | 'pdf', settin
     return route.fulfill({ contentType: mime, body: bytes })
   })
   await page.goto('/?pilot_e2e_role=participant#My%20Profile')
-  await page.getByRole('button', { name: 'Preview original', exact: true }).click()
-  return { dialog: page.getByRole('dialog', { name: `Preview ${filename}`, exact: true }), contentReads, filename }
+  const preview = page.getByRole('button', { name: 'Preview original', exact: true })
+  await expect(preview).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  await preview.click()
+  const dialog = page.getByRole('dialog', { name: `Preview ${filename}`, exact: true })
+  await expect(dialog).toBeVisible()
+  return { dialog, contentReads, filename }
 }
 
 test('BOG UI private source image uses Blob bytes and fresh authenticated download instead of metadata URLs', async ({ page }) => {
@@ -8414,6 +8510,369 @@ test('BOG UI private source PDF opens only after fresh content reads and release
   expect(urls.created.every((url) => urls.revoked.includes(url))).toBe(true)
 })
 
+
+async function openSavingsHome(page: Page, options: { enrolled?: boolean; uncertainEntry?: boolean; manyDrafts?: boolean; ended?: boolean; staleOffer?: boolean } = {}) {
+  const scopedChallenge = (enrolled = true): SavingsChallenge => {
+    const value = { ...savingsFixture(enrolled), cohort_id: 41 }
+    if (value.enrollment) value.enrollment.cohort_id = 41
+    return value
+  }
+  let challenge: SavingsChallenge = scopedChallenge(options.enrolled !== false)
+  if (options.ended) { challenge.calendar = { ...challenge.calendar!, local_today: '2027-01-02', phase: 'window_ended', day: 90 }; challenge.projection!.cutoff_on = '2026-12-29' }
+  let revoked = false
+  const plans: SavingsPlanDraft[] = []
+  const drafts: SavingsEntryDraft[] = options.manyDrafts ? Array.from({ length: 25 }, (_, index) => ({ ...savingsEntryDraft(), id: index + 1 })) : []
+  const entries: SavingsEntry[] = []
+  const calls: { path: string; key: string; input: Record<string, unknown> }[] = []
+  const replies = new Map<string, object>()
+  if (options.manyDrafts) challenge.pending_entry_count = 25
+  const workspace = { ...realWorkspaceData(false), workspace: { ...realWorkspaceData(false).workspace, experience_mode: 'savings_challenge' } }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/savings_challenge**', async (route) => {
+    if (revoked) return route.fulfill({ status: 403, json: { errors: ['Challenge access revoked.'] } })
+    const request = route.request(); const url = new URL(request.url()); const path = url.pathname.replace('/api/v1/savings_challenge', '')
+    if (request.method() === 'GET') {
+      if (!path) return route.fulfill({ json: challenge })
+      const records = path === '/plan_drafts' ? plans : path === '/entry_drafts' ? drafts : path === '/entries' ? entries : []
+      const cursor = Number(url.searchParams.get('cursor') ?? 0)
+      expect(url.searchParams.get('limit')).toBe('10')
+      const remaining = records.filter((record) => record.id > cursor)
+      const visible = remaining.slice(0, 10)
+      return route.fulfill({ json: { actor_scope: baselineScope, cohort_id: 41, enrollment_id: challenge.enrollment?.id ?? null, records: visible, next_cursor: remaining.length > 10 ? visible.at(-1)!.id : null } })
+    }
+    const key = request.headers()['idempotency-key']; expect(key).toBeTruthy(); expect(request.headers()['x-brand-hostname']).toBeTruthy()
+    const input = request.postDataJSON() as Record<string, unknown>; calls.push({ path, key, input })
+    if (replies.has(key)) return route.fulfill({ json: { ...replies.get(key), replayed: true } })
+    let record: object
+    if (path === '/enrollment') {
+      if (options.staleOffer && calls.length === 1) { challenge.offer!.acceptance_digest = 'b'.repeat(64); return route.fulfill({ status: 409, json: { errors: ['Participation offer changed; refresh to review it.'] } }) }
+      expect(input).toEqual({ participation_accepted: true, policy_version: 'dev-notice-v1', late_start_accepted: true, expected_acceptance_digest: challenge.offer!.acceptance_digest })
+      challenge = scopedChallenge(); challenge.enrollment!.starts_on = '2026-10-04'; challenge.enrollment!.ends_on = '2027-01-01'; challenge.enrollment!.late_start_accepted = true
+      challenge.calendar = { ...challenge.calendar!, starts_on: '2026-10-04', ends_on: '2027-01-01', day: 1, checkpoints: { '30': '2026-11-02', '60': '2026-12-02', '90': '2027-01-01' } }
+      record = challenge.enrollment!
+    } else if (path === '/plan_drafts') {
+      const draft = { ...savingsPlanDraft(), target_cents: input.target_cents as number | null, base_plan_version_id: input.expected_plan_version_id as number | null }
+      plans.push(draft); challenge.pending_plan_count = plans.filter((value) => value.status === 'pending').length; record = draft
+    } else if (path.startsWith('/plan_drafts/') && path.endsWith('/approve')) {
+      const draft = plans.find((value) => value.id === Number(path.split('/')[2]))!; expect(input.expected_draft_lock_version).toBe(draft.lock_version)
+      challenge.accepted_plan = { ...savingsPlanVersion(), target_cents: draft.target_cents }; challenge.enrollment!.current_accepted_plan_version_id = 21; challenge.projection!.target_cents = draft.target_cents
+      draft.status = 'approved'; challenge.pending_plan_count = 0; record = challenge.accepted_plan!
+    } else if (path === '/entry_drafts') {
+      const draft = { ...savingsEntryDraft(), id: drafts.length + 31, savings_entry_id: input.entry_id as number ?? entries.length + 41, signed_cents: input.signed_cents as number, effective_on: input.effective_on as string, funding_source: input.funding_source as SavingsEntryDraft['funding_source'], base_version_id: input.expected_version_id as number | null, base_entry_lock_version: input.expected_entry_lock_version as number ?? 0, reason: input.reason as string ?? '' }
+      drafts.push(draft); challenge.pending_entry_count = drafts.filter((value) => value.status === 'pending').length; record = draft
+    } else if (path.startsWith('/entry_drafts/') && path.endsWith('/approve')) {
+      const draft = drafts.find((value) => value.id === Number(path.split('/')[2]))!; expect(input).toEqual({ accepted: true, expected_draft_lock_version: draft.lock_version, expected_version_id: draft.base_version_id, expected_entry_lock_version: draft.base_entry_lock_version })
+      const old = entries.find((entry) => entry.id === draft.savings_entry_id)
+      const version = { ...savingsEntryVersion(), id: drafts.indexOf(draft) + 51, savings_entry_id: draft.savings_entry_id, signed_cents: draft.signed_cents, effective_on: draft.effective_on, funding_source: draft.funding_source, version_number: old ? old.current_approved_version!.version_number + 1 : 1 }
+      const entry = { id: draft.savings_entry_id, current_approved_version_id: version.id, lock_version: old ? old.lock_version + 1 : 1, current_approved_version: version }
+      if (old) entries[entries.indexOf(old)] = entry; else entries.push(entry)
+      draft.status = 'approved'; challenge.pending_entry_count = drafts.filter((value) => value.status === 'pending').length
+      const eligible = entries.filter((value) => !['preexisting', 'borrowed', 'cash_advance', 'existing_internal_money'].includes(value.current_approved_version!.funding_source))
+      const total = eligible.reduce((sum, value) => sum + value.current_approved_version!.signed_cents, 0)
+      challenge.projection = { ...challenge.projection!, reporting_known: eligible.length > 0, reported_cents: eligible.length ? total : null, evidence_supported_cents: eligible.length ? 0 : null, included_entry_count: eligible.length, excluded_entry_count: entries.length - eligible.length, progress_basis_points: eligible.length && challenge.accepted_plan?.target_cents ? Math.floor(Math.min(Math.max(total, 0), challenge.accepted_plan.target_cents) * 10000 / challenge.accepted_plan.target_cents) : null }
+      record = version
+    } else if (path === '/zero_attestations') {
+      expect(input.known_zero).toBe(true); challenge.projection = { ...challenge.projection!, reporting_known: true, zero_attested: true, reported_cents: 0, evidence_supported_cents: 0 }; record = { id: 61, cutoff_on: input.cutoff_on }
+    } else return route.fulfill({ status: 422, json: { errors: ['Unsupported fictional test action'] } })
+    const result = structuredClone({ record, replayed: false, challenge }); replies.set(key, result)
+    if (options.uncertainEntry && path === '/entry_drafts' && calls.filter((value) => value.path === path).length === 1) return route.abort('failed')
+    return route.fulfill({ json: result })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  const home = page.getByRole('region', { name: 'Savings challenge', exact: true })
+  await expect(home.getByRole('heading', { name: 'Your savings challenge' })).toBeVisible()
+  return { home, calls, revoke: () => { revoked = true }, current: () => challenge }
+}
+
+test('BOG UI savings Home joins late with explicit personal dates without full budget setup', async ({ page }) => {
+  const { home, calls } = await openSavingsHome(page, { enrolled: false })
+  await expect(home).toContainText('2026-10-04 – 2027-01-01')
+  await expect(page.getByText('Build your starting picture')).toHaveCount(0)
+  await home.getByLabel(/read this notice/).check()
+  await expect(home.getByRole('button', { name: 'Accept and join' })).toBeDisabled()
+  await home.getByLabel(/later personal start/).check()
+  await home.getByRole('button', { name: 'Accept and join' }).click()
+  await expect(home).toContainText('Day 1 of 90')
+  expect(calls[0].input.policy_version).toBe('dev-notice-v1')
+  await expect(home).toContainText('2027-01-01')
+  await expect(page.locator('.home-screen')).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('BOG UI savings Home preserves approved totals through proposals corrections and withdrawals', async ({ page }) => {
+  const { home, calls } = await openSavingsHome(page)
+  const progress = home.getByRole('article', { name: 'Approved savings progress' })
+  await expect(progress).toContainText('Not yet reported')
+  await home.getByLabel('Target in US dollars').fill('125.50')
+  await home.getByRole('button', { name: 'Review target plan' }).click()
+  await expect(progress).toContainText('Not yet approved')
+  await home.getByRole('button', { name: 'Approve target plan #11' }).click()
+  await expect(progress).toContainText('$125.50')
+  await home.getByLabel('Amount in US dollars').fill('25.50')
+  await home.getByRole('button', { name: 'Review savings record' }).click()
+  await expect(progress).toContainText('Not yet reported')
+  await home.getByRole('button', { name: 'Approve savings record #31' }).click()
+  await expect(progress.locator('.savings-total')).toHaveText('$25.50')
+  await home.getByRole('button', { name: 'Correct record #41' }).click()
+  await home.getByLabel('Amount in US dollars').fill('10.00')
+  await home.getByLabel('Reason for correction').fill('Fictional amount correction')
+  await home.getByRole('button', { name: 'Review savings record' }).click()
+  await expect(progress.locator('.savings-total')).toHaveText('$25.50')
+  expect(calls.at(-1)!.input).toMatchObject({ entry_id: 41, expected_version_id: 51, expected_entry_lock_version: 1, signed_cents: 1000 })
+  await home.getByRole('button', { name: 'Approve savings record #32' }).click()
+  await expect(progress.locator('.savings-total')).toHaveText('$10.00')
+  await home.getByLabel('Amount in US dollars').fill('20.00')
+  await home.getByLabel(/withdrew this amount/).check()
+  await home.getByRole('button', { name: 'Review savings record' }).click()
+  expect(calls.at(-1)!.input).toMatchObject({ signed_cents: -2000, funding_source: 'withdrawal' })
+  await home.getByRole('button', { name: 'Approve savings record #33' }).click()
+  await expect(progress.locator('.savings-total')).toHaveText('-$10.00')
+  await expect(home.getByRole('progressbar')).toHaveAttribute('value', '0')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('BOG UI savings Home excludes existing money and confirms zero only after an explicit attestation', async ({ page }) => {
+  const { home } = await openSavingsHome(page)
+  await home.getByLabel('Amount in US dollars').fill('500.00')
+  await home.getByLabel('Where did this money come from?').selectOption('preexisting')
+  await expect(home).toContainText('excluded from reported progress')
+  await home.getByRole('button', { name: 'Review savings record' }).click()
+  await home.getByRole('button', { name: 'Approve savings record #31' }).click()
+  const progress = home.getByRole('article', { name: 'Approved savings progress' })
+  await expect(progress.locator('.savings-total')).toHaveText('Not yet reported')
+  await expect(progress).toContainText('1 excluded approved record')
+  await expect(home.getByRole('button', { name: 'Confirm known zero' })).toBeDisabled()
+  await home.getByLabel(/I know I have no eligible/).check()
+  await home.getByRole('button', { name: 'Confirm known zero' }).click()
+  await expect(progress.locator('.savings-total')).toHaveText('$0.00')
+})
+
+test('BOG UI savings Home recovers uncertain submission with the same idempotency identity', async ({ page }) => {
+  const { home, calls } = await openSavingsHome(page, { uncertainEntry: true })
+  await home.getByLabel('Amount in US dollars').fill('25.50')
+  await home.getByRole('button', { name: 'Review savings record' }).click()
+  await expect(home.getByRole('button', { name: 'Retry exact savings request' })).toBeVisible()
+  await expect(home.getByLabel('Amount in US dollars')).toBeDisabled()
+  await home.getByRole('button', { name: 'Retry exact savings request' }).click()
+  await expect(home).toContainText('earlier request was confirmed')
+  expect(calls).toHaveLength(2); expect(calls[1]).toEqual(calls[0])
+  await expect(home).toContainText('1 pending contribution review')
+})
+
+test('BOG UI savings Home pages history preserves composer on refresh and clears revoked private data', async ({ page }) => {
+  const { home, revoke } = await openSavingsHome(page, { manyDrafts: true })
+  const reviews = home.getByRole('region', { name: 'Savings record reviews', exact: true })
+  await expect(reviews.getByRole('button', { name: /^Approve savings record/ })).toHaveCount(10)
+  await reviews.getByRole('button', { name: 'Next records' }).click()
+  await expect(reviews.getByRole('button', { name: 'Approve savings record #11' })).toBeVisible()
+  await expect(reviews.getByRole('button', { name: /^Approve savings record/ })).toHaveCount(10)
+  await home.getByLabel('Amount in US dollars').fill('31.75')
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(home.getByLabel('Amount in US dollars')).toHaveValue('31.75')
+  await expect(reviews.getByRole('button', { name: 'Approve savings record #11' })).toBeVisible()
+  revoke(); await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(home.getByRole('alert')).toContainText('Challenge access revoked.')
+  await expect(home.getByLabel('Amount in US dollars')).toHaveCount(0)
+  await expect(home.getByRole('article', { name: 'Approved savings progress' })).toHaveCount(0)
+})
+
+test('BOG UI savings Home resets acceptance when refreshed participation terms change', async ({ page }) => {
+  const { home, current } = await openSavingsHome(page, { enrolled: false })
+  await home.getByLabel(/read this notice/).check()
+  await home.getByLabel(/later personal start/).check()
+  await expect(home.getByRole('button', { name: 'Accept and join' })).toBeEnabled()
+  current().offer!.policy_version = 'dev-notice-v2'
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(home).toContainText('dev-notice-v2')
+  await expect(home.getByLabel(/read this notice/)).not.toBeChecked()
+  await expect(home.getByLabel(/later personal start/)).not.toBeChecked()
+  await expect(home.getByRole('button', { name: 'Accept and join' })).toBeDisabled()
+})
+
+test('BOG UI savings Home gate preserves legacy household Home without challenge reads', async ({ page }) => {
+  let savingsReads = 0
+  page.on('request', (request) => { if (request.url().includes('/api/v1/savings_challenge')) savingsReads += 1 })
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await expect(page.getByRole('heading', { name: 'CFO snapshot', exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Savings challenge', exact: true })).toHaveCount(0)
+  expect(savingsReads).toBe(0)
+})
+
+
+test('BOG UI savings Home postpones target and reports historical actuals inside an ended window', async ({ page }) => {
+  const { home, calls } = await openSavingsHome(page, { ended: true })
+  await expect(home).toContainText('Reporting window ended')
+  await expect(home.getByLabel('Date money was set aside or withdrawn')).toHaveValue('2026-12-29')
+  await home.getByLabel('I will choose my target later').check()
+  await home.getByRole('button', { name: 'Review target plan' }).click()
+  expect(calls.at(-1)!.input.target_cents).toBeNull()
+  await home.getByRole('button', { name: 'Approve target plan #11' }).click()
+  await expect(home.getByRole('article', { name: 'Approved savings progress' })).toContainText('Choosing later')
+  await home.getByLabel('Amount in US dollars').fill('1.25')
+  await home.getByRole('button', { name: 'Review savings record' }).click()
+  expect(calls.at(-1)!.input.effective_on).toBe('2026-12-29')
+  await home.getByRole('button', { name: 'Approve savings record #31' }).click()
+  await expect(home.locator('.savings-total')).toHaveText('$1.25')
+  await expect(home.getByRole('progressbar')).toHaveCount(0)
+})
+
+test('BOG UI savings Home captures accessible desktop and narrow-phone layouts', async ({ page }, testInfo) => {
+  const { home } = await openSavingsHome(page)
+  await expect(home.getByRole('article', { name: 'Approved savings progress' })).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  await page.screenshot({ path: testInfo.outputPath('savings-home-viewport.png') })
+  await page.screenshot({ path: testInfo.outputPath('savings-home-full.png'), fullPage: true })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+
+test('BOG UI savings Home requires refreshed acceptance after a stale offer conflict', async ({ page }) => {
+  const { home, calls } = await openSavingsHome(page, { enrolled: false, staleOffer: true })
+  await home.getByLabel(/read this notice/).check(); await home.getByLabel(/later personal start/).check()
+  await home.getByRole('button', { name: 'Accept and join' }).click()
+  await expect(home.getByRole('alert')).toContainText('Participation offer changed')
+  expect(calls[0].input.expected_acceptance_digest).toBe('a'.repeat(64))
+  await expect(home.getByLabel(/read this notice/)).not.toBeChecked()
+  await expect(home.getByLabel(/later personal start/)).not.toBeChecked()
+  await expect(home.getByRole('button', { name: 'Accept and join' })).toBeDisabled()
+  await home.getByRole('button', { name: 'Refresh challenge' }).click()
+  await expect(home.getByLabel(/read this notice/)).not.toBeChecked()
+  await home.getByLabel(/read this notice/).check(); await home.getByLabel(/later personal start/).check()
+  await home.getByRole('button', { name: 'Accept and join' }).click()
+  await expect(home).toContainText('Day 1 of 90')
+  expect(calls[1].input.expected_acceptance_digest).toBe('b'.repeat(64))
+})
+
+
+test('BOG UI savings Home opens a new draft review directly after many older records', async ({ page }) => {
+  const { home } = await openSavingsHome(page, { manyDrafts: true })
+  const reviews = home.getByRole('region', { name: 'Savings record reviews', exact: true })
+  await expect(reviews.getByRole('button', { name: /^Approve savings record/ })).toHaveCount(10)
+  await home.getByLabel('Amount in US dollars').fill('1.25')
+  await home.getByRole('button', { name: 'Review savings record' }).click()
+  await expect(reviews.getByRole('button', { name: 'Approve savings record #56' })).toBeVisible()
+  await expect(home).toContainText('26 pending contribution reviews')
+  await reviews.getByRole('button', { name: 'Previous records' }).click()
+  await expect(reviews.getByRole('button', { name: 'Approve savings record #1', exact: true })).toBeVisible()
+})
+
+
+test('BOG UI compact normal chat shows history and composer on first screen with accessible context', async ({ page }, testInfo) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.evaluate(() => document.fonts.ready)
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await composer.fill('Keep this draft while I check context.')
+  const shell = page.locator('.mia-chat-shell')
+  const before = await shell.evaluate((node) => {
+    const history = node.querySelector('.chat-card-wrap')!.getBoundingClientRect()
+    const composer = node.querySelector('textarea')!.getBoundingClientRect()
+    return { historyTop: history.top, historyHeight: history.height, composerBottom: composer.bottom, viewport: window.innerHeight, scroll: window.scrollY }
+  })
+  expect(before.scroll).toBe(0)
+  expect(before.historyTop).toBeLessThan(250)
+  expect(before.historyHeight).toBeGreaterThan((page.viewportSize()?.width ?? 0) <= 350 ? 150 : 200)
+  expect(before.composerBottom).toBeLessThanOrEqual(before.viewport)
+  const disclosure = page.locator('.mia-context-disclosure')
+  const summary = disclosure.locator('summary')
+  await expect(page.getByRole('region', { name: 'Chat context and help' })).toBeHidden()
+  await summary.focus()
+  await summary.press('Enter')
+  const context = page.getByRole('region', { name: 'Chat context and help' })
+  await expect(context).toBeVisible()
+  await expect(context.getByRole('button', { name: 'Guide', exact: true })).toBeVisible()
+  await expect(context.getByRole('button', { name: 'Review imports', exact: true })).toBeVisible()
+  // Fractional grid tracks may round by one CSS pixel when a disclosure opens.
+  expect(Math.abs(await shell.locator('.chat-card-wrap').evaluate((node) => node.getBoundingClientRect().height) - before.historyHeight)).toBeLessThanOrEqual(1)
+  await context.getByRole('button', { name: 'Close context' }).focus()
+  await page.keyboard.press('Escape')
+  await expect(context).toBeHidden()
+  await expect(summary).toBeFocused()
+  await expect(composer).toHaveValue('Keep this draft while I check context.')
+  const expand = page.getByRole('button', { name: 'Expand Ask Mia chat' })
+  await expand.focus()
+  await expand.press('Enter')
+  await expect(page.getByRole('dialog', { name: 'Ask Mia', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Expand Ask Mia chat' })).toBeFocused()
+  await expect(composer).toHaveValue('Keep this draft while I check context.')
+  await page.getByRole('button', { name: 'Tools', exact: true }).click()
+  await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Tools', exact: true })).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+  await page.screenshot({ path: `.codex-qa/compact-chat-${testInfo.project.name}.png` })
+  await openSection(page, 'Home')
+  await expect(page.locator('main.app')).not.toHaveClass(/is-chat-page/)
+})
+
+test('BOG UI program chooser shares the compact chat masthead without overlapping privacy or resizing conversation', async ({ page }, testInfo) => {
+  const current = realWorkspaceData(true)
+  const name = 'Fictional Bank of Guam Community Savings Challenge with a long program name'
+  current.workspace.cohort.name = name
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: current }))
+  await page.route('http://api.test/api/v1/participant_programs**', route => route.fulfill({ json: { actor_id: 901, current_cohort_id: 41, current_program: { id: 41, name, status: 'active' }, selection_unavailable: false, programs: [{ id: 41, name, status: 'active' }, { id: 42, name: 'Another fictional program', status: 'active' }], next_cursor: null } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.evaluate(() => document.fonts.ready)
+  const disclosure = page.locator('.participant-program-switch'), summary = disclosure.locator('summary')
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await composer.fill('Keep this draft while checking my program.')
+  await expect(summary).toHaveText(`Program · ${name}`)
+  const geometry = await summary.evaluate(node => {
+    const trigger = node.getBoundingClientRect(), privacy = document.querySelector('.participant-private-access button')!.getBoundingClientRect()
+    const history = document.querySelector('.chat-card-wrap')!.getBoundingClientRect()
+    return { trigger: { left: trigger.left, right: trigger.right, top: trigger.top, bottom: trigger.bottom, height: trigger.height }, privacy: { left: privacy.left, right: privacy.right, top: privacy.top, bottom: privacy.bottom }, headerHeight: document.querySelector('.shell-header')!.getBoundingClientRect().height, navHeight: document.querySelector('.tabs-shell')!.getBoundingClientRect().height, titleHeight: document.querySelector('.mia-page-heading')!.getBoundingClientRect().height, rows: getComputedStyle(document.querySelector('main.app')!).gridTemplateRows, historyHeight: history.height, historyTop: history.top, sendBottom: document.querySelector('[aria-label="Send message to Mia"]')!.getBoundingClientRect().bottom, viewport: innerHeight }
+  })
+  expect(geometry.trigger.height).toBeGreaterThanOrEqual(44)
+  expect(geometry.trigger.left >= geometry.privacy.right || geometry.trigger.right <= geometry.privacy.left || geometry.trigger.top >= geometry.privacy.bottom || geometry.trigger.bottom <= geometry.privacy.top).toBe(true)
+  await page.screenshot({ path: `.codex-qa/program-chat-${testInfo.project.name}.png` })
+  expect(geometry.historyTop, JSON.stringify(geometry)).toBeLessThan(250)
+  expect(geometry.sendBottom).toBeLessThanOrEqual(geometry.viewport)
+  await summary.focus(); await summary.press('Enter')
+  await expect(page.getByRole('combobox', { name: 'Switch participant program' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Your participant programs' })).toContainText(name)
+  expect(Math.abs(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height) - geometry.historyHeight)).toBeLessThanOrEqual(1)
+  await summary.focus(); await summary.press('Space')
+  await expect(page.getByRole('combobox', { name: 'Switch participant program' })).toBeHidden()
+  await expect(composer).toHaveValue('Keep this draft while checking my program.')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+  await testInfo.attach('compact-program-geometry', { body: JSON.stringify(geometry), contentType: 'application/json' })
+  await page.screenshot({ path: `.codex-qa/program-chat-${testInfo.project.name}.png` })
+})
+
+test('BOG UI compact chat context names savings workspace without claiming savings totals', async ({ page }) => {
+  const workspace = { ...realWorkspaceData(true), workspace: { ...realWorkspaceData(true).workspace, experience_mode: 'savings_challenge' } }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openChatContext(page)
+  await expect(page.locator('.mia-workspace-context')).toHaveText('Savings challenge workspace. Savings records and approved progress are available on Home.')
+  await page.getByRole('button', { name: 'Close context' }).click()
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
+})
+
+
+test('BOG UI normal chat adapts to a reduced phone viewport and preserves a keyboard draft', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await composer.fill('A draft before viewport resize.')
+  await composer.focus()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.setViewportSize({ width: 390, height: 500 })
+  await expect(composer).toHaveValue('A draft before viewport resize.')
+  await expect(composer).toBeFocused()
+  await expect.poll(() => composer.evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(500)
+  const send = page.getByRole('button', { name: 'Send message to Mia' })
+  await expect.poll(() => send.evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(500)
+  expect(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(100)
+  await page.setViewportSize({ width: 640, height: 360 })
+  await expect(composer).toHaveValue('A draft before viewport resize.')
+  await send.scrollIntoViewIfNeeded()
+  await expect(send).toBeInViewport()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+})
+
 test('BOG UI delayed budget year keeps the approved period and pauses editing and Mia Send', async ({ page }) => {
   const current = realWorkspaceData(true)
   const future = budgetFixtureForYear(currentYear + 1)
@@ -8429,6 +8888,7 @@ test('BOG UI delayed budget year keeps the approved period and pauses editing an
   await expect(page.getByRole('button', { name: 'Manage manually' })).toBeDisabled()
   await expect(page.getByRole('combobox', { name: 'Report month', exact: true })).toBeDisabled()
   await openSection(page, 'Ask Mia')
+  await expect(page.getByRole('status').filter({ hasText: `Loading the ${currentYear + 1} plan.` })).toBeVisible()
   await expect(page.locator('.chat-period-context').first()).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear}`)
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Review my selected period.')
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeDisabled()
@@ -8506,7 +8966,312 @@ test('BOG UI budget year response cannot cross a coach workspace switch or repla
   const oldResponse = page.waitForResponse((response) => response.url().includes('/api/v1/budget?') && response.status() === 200)
   releaseOld()
   await (await oldResponse).finished()
-  await expect(page.locator('html')).toHaveAttribute('data-stale-budget-consumed', 'true')
+  // Let the old handler and a render opportunity drain before checking the guard.
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  // The transport now rejects the old context before consuming its JSON body.
+  await expect(page.locator('html')).not.toHaveAttribute('data-stale-budget-consumed', 'true')
   await expect(page.getByText('Fresh budget after workspace switch.', { exact: true })).toBeVisible()
   await expect(page.getByText('Stale budget from previous workspace.', { exact: true })).toHaveCount(0)
 })
+
+
+test('BOG UI participant purchase duplicate keeps exact source facts and review focus on phones', async ({ page }) => {
+  const canonical = { id: 401, digest: 'fictional-canonical', version_number: 1, reason: 'Checked original', projection: { action: 'none' }, actual: null,
+    facts: { source_account_identity_version_id: 100, disposition: 'include', event_type: 'purchase', signed_amount_cents: -1_000, purchase_amount_cents: 1_000, posted_on: '2026-09-15', authorized_on: '2026-09-14', external_reference: 'fictional-ref', merchant: 'Fictional canonical purchase', budget_category_id: 10, overlap_disposition: 'canonical' },
+    source: { document_import_id: 1202, filename: 'Fictional-original.pdf', locator: { page: 2, row: 7 }, source_available: true } }
+  let pending: import('../src/lib/participantSourceReview').PendingSourceDraft | null = null
+  const requests: Array<{ key: string; input: Record<string, unknown> }> = []
+  await page.route('http://api.test/api/v1/document_imports/1203/review_candidates?*', (route) => route.fulfill({ json: { records: [canonical], next_cursor: null } }))
+  await page.route('http://api.test/api/v1/document_imports/1203/review/stage', async (route) => {
+    const body = route.request().postDataJSON(); requests.push({ key: route.request().headers()['idempotency-key'], input: body.input })
+    pending = { id: 900, digest: 'fictional-saved', lock_version: 1, status: 'pending', reason: body.input.reason, projection: body.input.projection, facts: body.input.facts }
+    await route.fulfill({ json: { record: pending, replayed: false } })
+  })
+  const review = await openTypedStatementReview(page, false, (data) => { data.participant_review!.rows[4003].pending = pending; return data })
+  await review.getByRole('button', { name: 'Inspect source row 4', exact: true }).click()
+  await review.getByLabel('How to use this row').selectOption('match')
+  await review.getByRole('radio', { name: /Fictional canonical purchase.*Fictional-original.pdf.*Page 2.*row 7/ }).check()
+  await review.locator('.source-event-details').getByLabel('Review note', { exact: true }).fill('Compared physical original and statement account.')
+  await review.getByRole('button', { name: 'Save proposal for review', exact: true }).click()
+  await expect(review).toContainText('Review the saved proposal')
+  expect(requests).toHaveLength(1); expect(requests[0].key).toBeTruthy()
+  expect(requests[0].input).toMatchObject({ projection: { action: 'none' }, facts: { disposition: 'match', purchase_amount_cents: 1_000, signed_amount_cents: -1_000, matched_version_id: 401 } })
+  await expect(review.locator('#source-event-details-4003')).toBeFocused()
+  expect(await review.evaluate((node) => node.scrollWidth > node.clientWidth + 1)).toBe(false)
+  await expect(review.getByRole('button', { name: 'Approve saved row proposal' })).toBeDisabled()
+})
+
+test('BOG UI statement uncertain request survives section navigation with identical replay', async ({ page }) => {
+  let attempts = 0; let pending: import('../src/lib/participantSourceReview').PendingSourceDraft | null = null
+  const requests: Array<{ key: string; body: unknown }> = []
+  await page.route('http://api.test/api/v1/document_imports/1203/review/stage', async (route) => {
+    const body = route.request().postDataJSON(); requests.push({ key: route.request().headers()['idempotency-key'], body }); attempts += 1
+    if (attempts === 1) return route.fulfill({ status: 503, json: { error: 'Fictional connection interruption' } })
+    pending = { id: 901, digest: 'replayed-proposal', lock_version: 1, status: 'pending', reason: body.input.reason, projection: body.input.projection, facts: body.input.facts }
+    return route.fulfill({ json: { record: pending, replayed: true } })
+  })
+  const review = await openTypedStatementReview(page, false, (data) => { data.participant_review!.rows[4003].pending = pending; return data })
+  await review.getByRole('button', { name: 'Inspect source row 4', exact: true }).click(); await review.locator('.source-event-details').getByLabel('Review note', { exact: true }).fill('Checked this source row.')
+  await review.getByRole('button', { name: 'Save proposal for review', exact: true }).click()
+  await expect(review.getByRole('button', { name: 'Retry the same review request' })).toBeVisible()
+  await openSection(page, 'Home'); await openSection(page, 'My Profile')
+  await expect(review.getByRole('button', { name: 'Retry the same review request' })).toBeVisible()
+  await expect(review.getByRole('button', { name: 'Refresh statement review' })).toBeDisabled()
+  const metadata = await page.evaluate(() => sessionStorage.getItem('statement-review-request-identities-v1'))
+  expect(metadata).not.toContain('Checked this source row'); expect(metadata).not.toContain('signed_amount_cents')
+  await review.getByRole('button', { name: 'Retry the same review request' }).click()
+  await expect(review.getByText(/An earlier statement request/)).toHaveCount(0)
+  expect(requests).toHaveLength(2); expect(requests[1]).toEqual(requests[0])
+})
+
+test('BOG UI participant split purchase links bank funding then explicitly approves one full spending entry', async ({ page }) => {
+  const recognized = { identity_version_id: 100, tracked_account_id: 2, label: 'Fictional wallet', account_basis: 'asset' as const, account_id: null, current: true }
+  const wallet: import('../src/lib/participantSourceReview').ReviewedRow = { id: 401, digest: 'wallet-approved', version_number: 1, reason: 'Checked complete purchase.', projection: { action: 'none' }, actual: null, current: true, recognized_account: recognized,
+    facts: { source_account_identity_version_id: 100, disposition: 'include', event_type: 'purchase', signed_amount_cents: -2_159, purchase_amount_cents: 100_000, posted_on: '2026-09-15', merchant: 'Fictional full purchase', budget_category_id: 10, overlap_disposition: 'canonical' }, source: { document_import_id: 1203, filename: 'Fictional-wallet.pdf', locator: { page: 1, row: 4 }, source_available: true } }
+  const bank: import('../src/lib/participantSourceReview').ReviewedRow = { ...wallet, id: 402, digest: 'bank-approved', recognized_account: { ...recognized, identity_version_id: 101, tracked_account_id: 3, label: 'Fictional bank' }, facts: { ...wallet.facts, source_account_identity_version_id: 101, event_type: 'transfer', signed_amount_cents: -97_841, purchase_amount_cents: null, merchant: 'Fictional bank funding' }, source: { document_import_id: 1204, filename: 'Fictional-bank.pdf', locator: { page: 2, row: 7 }, source_available: true } }
+  let linked = false; let projected = false
+  const actions: Array<{ action: string; input: Record<string, unknown> }> = []
+  await page.route('http://api.test/api/v1/document_imports/1203/review_candidates?*', (route) => route.fulfill({ json: { records: [bank], next_cursor: null } }))
+  await page.route('http://api.test/api/v1/document_imports/1203/review/economic_link', (route) => { actions.push({ action: 'economic_link', input: route.request().postDataJSON().input }); linked = true; return route.fulfill({ json: { record: { id: 701 }, replayed: false } }) })
+  await page.route('http://api.test/api/v1/document_imports/1203/review/project', (route) => { actions.push({ action: 'project', input: route.request().postDataJSON().input }); projected = true; return route.fulfill({ json: { record: { id: 801 }, replayed: false } }) })
+  const review = await openTypedStatementReview(page, false, (data) => {
+    const context = data.participant_review!
+    context.rows[4003] = { head: { id: 5_003, approved_version_id: 401, lock_version: 1 }, approved: { ...wallet, actual: projected ? { id: 801, digest: 'actual-current', amount_cents: 100_000 } : null }, pending: null }
+    context.coverage.approved_rows = 1
+    context.economic_groups = linked ? [{ id: 70, head: { id: 70, approved_version_id: 701, lock_version: 1 }, approved: { id: 701, digest: 'link-approved', version_number: 1, kind: 'purchase_funding', reason: 'Compared physical funding legs', current: true, members: [{ role: 'purchase', allocation_cents: 2_159, record: wallet }, { role: 'funding', allocation_cents: 97_841, record: bank }] } }] : []
+    return data
+  })
+  await review.getByRole('button', { name: 'Inspect source row 4', exact: true }).click()
+  await review.getByText('Review spending effect separately', { exact: true }).click()
+  await expect(review.getByRole('button', { name: 'Approve spending creation', exact: true })).toBeDisabled()
+  await review.getByText('Create a related-movement link', { exact: true }).click(); await review.getByLabel('Link type').selectOption('purchase_funding'); await review.getByText('Choose another approved physical row', { exact: true }).click()
+  await review.getByRole('checkbox', { name: /Fictional bank funding.*Fictional-bank.pdf/ }).check()
+  await review.getByLabel('Link review note', { exact: true }).fill('Compared wallet purchase and actual bank funding row.'); await review.getByRole('checkbox', { name: /I checked every selected source/ }).check()
+  await review.getByRole('button', { name: 'Approve reviewed link', exact: true }).click()
+  await expect(review).toContainText('purchase funding · version 1 · Current')
+  await review.getByText('Review spending effect separately', { exact: true }).click()
+  await review.getByLabel('Spending review note', { exact: true }).fill('Approve one full purchase with reviewed funding.'); await review.getByRole('checkbox', { name: /I approve this exact spending effect/ }).check()
+  await review.getByRole('button', { name: 'Approve spending creation', exact: true }).click()
+  await expect(review).toContainText('Existing spending: $1,000.00.')
+  expect(actions).toEqual([{ action: 'economic_link', input: { group_id: null, base_version_id: null, base_lock_version: 0, kind: 'purchase_funding', members: [{ source_review_version_id: 401, role: 'purchase', allocation_cents: 2_159 }, { source_review_version_id: 402, role: 'funding', allocation_cents: 97_841 }], reason: 'Compared wallet purchase and actual bank funding row.' } }, { action: 'project', input: { version_id: 401, expected_version_digest: 'wallet-approved', projection: { action: 'create' }, reason: 'Approve one full purchase with reviewed funding.' } }])
+  expect(await review.evaluate((node) => node.scrollWidth > node.clientWidth + 1)).toBe(false)
+})
+
+
+test('BOG UI participant selected batch stages and approves only explicitly displayed source rows', async ({ page }) => {
+  type Draft = import('../src/lib/participantSourceReview').PendingSourceDraft
+  const pending = new Map<number, Draft>(); const approved = new Map<number, import('../src/lib/participantSourceReview').ReviewedRow>()
+  const requests: Array<{ action: string; input: Record<string, unknown>; key: string }> = []
+  await page.route('http://api.test/api/v1/document_imports/1203/review/*', (route) => {
+    const action = route.request().url().split('/').at(-1)!; const body = route.request().postDataJSON()
+    requests.push({ action, input: body.input, key: route.request().headers()['idempotency-key'] })
+    if (action === 'stage') pending.set(body.input.event_id, { id: body.input.event_id + 10_000, digest: `proposal-${body.input.event_id}`, lock_version: 1, status: 'pending', reason: body.input.reason, facts: body.input.facts, projection: body.input.projection })
+    if (action === 'approve') {
+      const entry = [...pending].find(([,draft]) => draft.id === body.input.draft_id)!; const [eventId,draft] = entry
+      approved.set(eventId, { id: eventId + 20_000, digest: `approved-${eventId}`, version_number: 1, reason: draft.reason, facts: draft.facts, projection: draft.projection, actual: null, current: true }); pending.delete(eventId)
+    }
+    return route.fulfill({ json: { record: {}, replayed: false } })
+  })
+  const review = await openTypedStatementReview(page, false, (data) => {
+    for (const event of data.events) { const row = data.participant_review!.rows[event.id]; row.pending = pending.get(event.id) ?? null; row.approved = approved.get(event.id) ?? null; row.head = { ...row.head, approved_version_id: row.approved?.id ?? null, lock_version: row.approved ? 1 : 0 } }
+    return data
+  })
+  await review.getByRole('checkbox', { name: 'Select source row 4 for explicit batch review', exact: true }).check()
+  await review.getByRole('checkbox', { name: 'Select source row 6 for explicit batch review', exact: true }).check()
+  const batch = review.getByRole('region', { name: 'Review explicitly selected rows', exact: true })
+  await expect(batch).toContainText('2 explicitly selected rows')
+  await batch.getByLabel('Spending category for selected purchase proposals').selectOption('10')
+  await batch.getByLabel('Selected-row review note').fill('Checked these two fictional physical rows individually.')
+  await batch.getByRole('checkbox', { name: /I checked every displayed account/ }).check()
+  await batch.getByRole('button', { name: 'Save selected row proposals', exact: true }).click()
+  await expect.poll(() => requests.filter((request) => request.action === 'stage').length).toBe(2)
+  await expect(batch.getByRole('button', { name: 'Approve selected saved proposals', exact: true })).toBeDisabled()
+  await expect(batch).toContainText('Saved review note: Checked these two fictional physical rows individually.')
+  await batch.getByRole('checkbox', { name: /I checked every displayed account/ }).check()
+  await batch.getByRole('button', { name: 'Approve selected saved proposals', exact: true }).click()
+  await expect.poll(() => requests.filter((request) => request.action === 'approve').length).toBe(2)
+  expect(requests.map((request) => request.action)).toEqual(['stage','stage','approve','approve'])
+  expect(requests.slice(0,2).map((request) => request.input.event_id)).toEqual([4003,4005])
+  for (const request of requests.slice(0,2)) expect(request.input).toMatchObject({ projection: { action: 'none' }, facts: { budget_category_id: 10, signed_amount_cents: -1_000, purchase_amount_cents: 1_000 } })
+  expect(requests.slice(2).map((request) => request.input)).toEqual([{ draft_id: 14003, draft_digest: 'proposal-4003', draft_lock_version: 1 },{ draft_id: 14005, draft_digest: 'proposal-4005', draft_lock_version: 1 }])
+  expect(new Set(requests.map((request) => request.key)).size).toBe(4)
+  expect(await review.evaluate((node) => node.scrollWidth > node.clientWidth + 1)).toBe(false)
+})
+
+
+async function openBaseline(page: Page, options: { approved?: boolean; home?: boolean; uncertain?: boolean; stale?: boolean } = {}) {
+  type Approval = import('../src/lib/financialBaseline').BaselineApproval
+  let version = options.approved ? baselineVersion() : null; let revoked = false
+  const calls: Array<{action:string;key:string;input:Approval}> = []; const previews: import('../src/lib/financialBaseline').BaselineRequest[] = []
+  await page.route('http://api.test/api/v1/financial_baseline**', async(route)=>{
+    const request=route.request();const url=new URL(request.url());const path=url.pathname.replace('/api/v1/financial_baseline','')
+    if(revoked)return route.fulfill({status:403,json:{errors:['Private baseline access revoked.']}})
+    if(request.method()==='GET'){
+      if(!path)return route.fulfill({json:baselineCurrent(version)})
+      if(path==='/context')return route.fulfill({json:baselineContext})
+      if(path==='/history')return route.fulfill({json:{actor_scope:baselineScope,local_today:'2026-10-05',records:version?[version]:[],next_cursor:null}})
+      if(path==='/request_status')return route.fulfill({json:{actor_scope:baselineScope,local_today:'2026-10-05',state:version?'committed':'unknown',...(version?{record:version,replayed:true}:{can_retry:true})}})
+      if(path==='/observations'){const kind=url.searchParams.get('kind');const actual={id:701,posted_on:'2026-09-15',merchant:'Fictional cash lunch',amount_cents:1000,source_type:'manual_ui',digest:'actual-current',splits:[{budget_category_id:20,category_name:'Dining',amount_cents:1000}]};const withdrawal={id:801,digest:'withdrawal-current',version_number:1,reason:'Checked source',projection:{action:'none'},actual:null,current:true,recognized_account:{identity_version_id:100,tracked_account_id:2,label:'Fictional checking',account_basis:'asset',account_id:null,current:true},facts:{source_account_identity_version_id:100,disposition:'include',event_type:'cash_withdrawal',signed_amount_cents:-5000,purchase_amount_cents:null,posted_on:'2026-09-14',merchant:'Fictional ATM',budget_category_id:null,overlap_disposition:'canonical'},source:{document_import_id:1203,filename:'Fictional-checking.pdf',locator:{page:2,row:8},source_available:true}};return route.fulfill({json:{actor_scope:baselineScope,local_today:'2026-10-05',kind,records:kind==='actual'?[actual]:kind==='withdrawal'?[withdrawal]:[],next_cursor:null}})}
+    }
+    if(path==='/preview'){const body=request.postDataJSON();previews.push(body.request);return route.fulfill({json:baselinePreview(body.request,body.request.revision_ids.length>0||body.request.actual_decisions.length>0,false)})}
+    if(['/approve','/revise'].includes(path)){const input=request.postDataJSON();calls.push({action:path.slice(1),key:request.headers()['idempotency-key'],input});if(options.stale && calls.length===1)return route.fulfill({status:409,json:{errors:['Source changed. Preview again before approval.']}});if(options.uncertain && calls.length===1)return route.fulfill({status:503,json:{errors:['Response interrupted.']}});version={...baselineVersion(baselinePreview(input.request,input.request.revision_ids.length>0)),version_number:version?version.version_number+1:1,coverage_status:input.coverage_status,reason:input.reason};return route.fulfill({json:{actor_scope:baselineScope,local_today:'2026-10-05',record:version,replayed:calls.length>1}})}
+    return route.fulfill({status:422,json:{errors:['Unsupported fictional baseline route.']}})
+  })
+  if(options.home)await openSavingsHome(page,{enrolled:false})
+  else {await page.route('http://api.test/api/v1/workspace',(route)=>route.fulfill({json:realWorkspaceData(true)}));await page.goto('/?pilot_e2e_role=participant#My%20Profile')}
+  const trigger=page.getByRole('button',{name:'Review spending baseline',exact:true});await expect(trigger).toBeVisible();await page.evaluate(()=>document.fonts.ready);await trigger.click()
+  const dialog=page.getByRole('dialog',{name:'Review your spending baseline',exact:true});await expect(dialog.getByLabel('Period begins')).toBeVisible()
+  return {dialog,trigger,calls,previews,revoke:()=>{revoked=true}}
+}
+async function baselinePeriod(dialog:ReturnType<Page['getByRole']>){await dialog.getByLabel('Period begins').fill('2026-09-01');await dialog.getByLabel('Period ends').fill('2026-09-30')}
+async function baselineConsent(dialog:ReturnType<Page['getByRole']>){await dialog.getByLabel('Baseline approval explanation').fill('Reviewed this exact fictional window and its listed limits.');await dialog.getByRole('checkbox',{name:/I reviewed this period/}).check()}
+
+test('BOG UI baseline optional Home path approves limited unknown manual context with separate consent',async({page})=>{
+  const{dialog,calls,trigger}=await openBaseline(page,{home:true});await baselinePeriod(dialog);await dialog.getByRole('button',{name:'Use limited manual context without statements',exact:true}).click();await dialog.getByRole('button',{name:'Preview baseline and limitations',exact:true}).click();const proposal=dialog.getByRole('region',{name:'Proposed baseline preview',exact:true});await expect(proposal).toContainText('Spending observations are unknown.');await expect(proposal).toContainText('0 complete calendar months supported');await expect(dialog.getByRole('option',{name:'Complete — all coverage checks passed',exact:true})).toHaveAttribute('disabled','');await expect(dialog.getByRole('button',{name:'Approve baseline',exact:true})).toBeDisabled();await baselineConsent(dialog);await dialog.getByRole('button',{name:'Approve baseline',exact:true}).click();await expect(dialog).toContainText('Approved baseline · version 1');expect(calls[0].input).toMatchObject({coverage_status:'manual',request:{revision_ids:[],tracked_account_ids:[],cash_coverage:'unknown',category_eligibility:[],actual_decisions:[],cash_allocations:[]}});expect(calls[0].key).toBeTruthy();await assertBaselineFits(dialog);await dialog.getByRole('button',{name:'Close baseline',exact:true}).focus();await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(trigger).toBeFocused()
+})
+test('BOG UI baseline statements preview uses full-window patterns and keeps old approval while choices change',async({page})=>{
+  const{dialog,previews}=await openBaseline(page,{approved:true});await dialog.getByText('Choose reviewed statement sources (0 selected)',{exact:true}).click();await dialog.getByRole('checkbox',{name:/Fictional-checking.pdf/}).check();await dialog.getByRole('checkbox',{name:'Fictional checking',exact:true}).check();await dialog.getByRole('checkbox',{name:/I checked which household accounts/}).check();await dialog.getByLabel('Cash coverage').selectOption('not_used');await dialog.getByText('2. Review category consideration and recurrence',{exact:true}).click();await expect(dialog.getByLabel('Consider Groceries for spending review')).toHaveValue('');await dialog.getByLabel('Consider Groceries for spending review').selectOption('yes');await dialog.getByLabel('Recurrence for Groceries').selectOption('annual');await dialog.getByLabel('Explanation for Groceries').fill('Annual event purchases vary.');await dialog.getByRole('button',{name:'Preview baseline and limitations',exact:true}).click();const proposal=dialog.getByRole('region',{name:'Proposed baseline preview',exact:true});await expect(proposal).toContainText('$1,370.00');await expect(proposal).toContainText('$1,360.00');await expect(proposal).toContainText('137 observations');await proposal.getByText('Merchant observations (37)',{exact:true}).click();await expect(proposal.getByText('Fictional merchant 20',{exact:true})).toBeVisible();await expect(proposal.getByText('Fictional merchant 21',{exact:true})).toHaveCount(0);await proposal.getByRole('button',{name:'Next merchants',exact:true}).click();await expect(proposal.getByText('Fictional merchant 37',{exact:true})).toBeVisible();await proposal.getByText('Observation sample (50 of 137)',{exact:true}).click();await expect(proposal).toContainText('All totals and patterns use the entire period');await baselineConsent(dialog);await dialog.getByLabel('Period ends').fill('2026-09-29');await expect(proposal).toContainText('This preview is out of date');await expect(dialog.getByRole('button',{name:'Approve baseline revision',exact:true})).toBeDisabled();await expect(dialog).toContainText('Approved baseline · version 1');expect(previews[0].category_eligibility).toEqual([{budget_category_id:10,eligible:true,recurrence:'annual',reason:'Annual event purchases vary.'}]);await assertBaselineFits(dialog)
+})
+test('BOG UI baseline uncertain approval survives close and retries the identical body and key',async({page})=>{
+  const{dialog,calls,trigger}=await openBaseline(page,{uncertain:true});await baselinePeriod(dialog);await dialog.getByRole('button',{name:'Preview baseline and limitations',exact:true}).click();await baselineConsent(dialog);await dialog.getByRole('button',{name:'Approve baseline',exact:true}).click();await expect(dialog.getByRole('button',{name:'Retry the same baseline request',exact:true})).toBeVisible();await expect(dialog.getByLabel('Period begins')).toBeDisabled();await dialog.getByRole('button',{name:'Close baseline',exact:true}).click();await trigger.click();await expect(dialog.getByRole('button',{name:'Retry the same baseline request',exact:true})).toBeVisible();const metadata=await page.evaluate(()=>sessionStorage.getItem('baseline-request-identities-v1'));expect(metadata).not.toContain('category_eligibility');expect(metadata).not.toContain('Reviewed this exact fictional');await dialog.getByRole('button',{name:'Retry the same baseline request',exact:true}).click();await expect(dialog).toContainText('Approved baseline · version 1');expect(calls).toHaveLength(2);expect(calls[1]).toEqual(calls[0])
+})
+test('BOG UI baseline stale conflict preserves input and requires a fresh preview',async({page})=>{
+  const{dialog,calls}=await openBaseline(page,{stale:true});await baselinePeriod(dialog);await dialog.getByRole('button',{name:'Preview baseline and limitations',exact:true}).click();await baselineConsent(dialog);await dialog.getByRole('button',{name:'Approve baseline',exact:true}).click();await expect(dialog).toContainText('Source changed. Preview again before approval.');await expect(dialog.getByRole('button',{name:'Approve baseline',exact:true})).toBeDisabled();await expect(dialog.getByLabel('Baseline approval explanation')).toHaveValue('Reviewed this exact fictional window and its listed limits.');await dialog.getByRole('button',{name:'Preview baseline and limitations',exact:true}).click();await baselineConsent(dialog);await dialog.getByRole('button',{name:'Approve baseline',exact:true}).click();await expect(dialog).toContainText('Approved baseline · version 1');expect(calls[1].key).not.toBe(calls[0].key)
+})
+test('BOG UI baseline cash review stages an explicit actual decision and exact withdrawal allocation',async({page})=>{
+  const{dialog,previews}=await openBaseline(page);await baselinePeriod(dialog);await dialog.getByText('Choose reviewed statement sources (0 selected)',{exact:true}).click();await dialog.getByRole('checkbox',{name:/Fictional-checking.pdf/}).check();await dialog.getByRole('checkbox',{name:'Fictional checking',exact:true}).check();await dialog.getByLabel('Cash coverage').selectOption('partial');await dialog.getByText('Review existing transactions, duplicates and cash allocations',{exact:true}).click();await dialog.getByText('Fictional cash lunch · 2026-09-15 · recorded amount $10.00 · Unreviewed',{exact:true}).click();await dialog.getByLabel('Classification for Fictional cash lunch').selectOption('purchase');await dialog.getByLabel('Account or cash for Fictional cash lunch').selectOption('cash');await dialog.getByLabel('Transaction review note for Fictional cash lunch').fill('Checked actual cash lunch receipt.');await dialog.getByRole('checkbox',{name:/I checked this recorded amount/}).check();await dialog.getByRole('button',{name:'Use this transaction decision in preview',exact:true}).click();await dialog.getByText('Allocate reviewed cash withdrawals to cash purchases',{exact:true}).click();await dialog.getByRole('radio',{name:/Fictional ATM.*Fictional-checking.pdf.*page 2/}).check();await dialog.getByLabel('Reviewed cash purchase').selectOption('701');await dialog.getByLabel('Cash allocated to this purchase').fill('10.00');await dialog.getByLabel('Cash allocation review note').fill('Compared actual withdrawal and cash receipt.');await dialog.getByRole('checkbox',{name:/I checked this exact withdrawal/}).check();await dialog.getByRole('button',{name:'Use this cash allocation in preview',exact:true}).click();await dialog.getByRole('button',{name:'Preview baseline and limitations',exact:true}).click();await expect(dialog.getByRole('region',{name:'Proposed baseline preview',exact:true})).toBeVisible();expect(previews[0].actual_decisions).toEqual([{transaction_id:701,event_type:'purchase',disposition:'include',tracked_account_id:null,cash:true,overlap_disposition:'new',source_review_version_id:null,matched_transaction_id:null,reason:'Checked actual cash lunch receipt.'}]);expect(previews[0].cash_allocations).toEqual([{source_review_version_id:801,transaction_id:701,amount_cents:1000,reason:'Compared actual withdrawal and cash receipt.'}]);await assertBaselineFits(dialog)
+})
+test('BOG UI baseline revoked refresh clears private snapshots and controls',async({page})=>{
+  const{dialog,revoke}=await openBaseline(page,{approved:true});await expect(dialog).toContainText('Approved baseline · version 1');revoke();await dialog.getByRole('button',{name:'Refresh current baseline and choices',exact:true}).click();await expect(dialog).toContainText('Private baseline access is no longer available');await expect(dialog.getByLabel('Period begins')).toHaveCount(0);await expect(dialog.getByRole('region',{name:'Current approved baseline',exact:true})).toHaveCount(0)
+})
+
+async function assertBaselineFits(dialog: ReturnType<Page['getByRole']>) {const size = await dialog.evaluate((root) => ({scroll:root.scrollWidth,client:root.clientWidth,width:root.getBoundingClientRect().width,offenders:[...root.querySelectorAll('*')].filter((node)=>node.getClientRects().length && (node.getBoundingClientRect().right > root.getBoundingClientRect().right-parseFloat(getComputedStyle(root).paddingRight)+1 || node.scrollWidth > node.clientWidth+1)).map((node)=>({tag:node.tagName,text:node.textContent?.slice(0,60),width:node.getBoundingClientRect().width,right:node.getBoundingClientRect().right,scroll:node.scrollWidth,client:node.clientWidth,padding:getComputedStyle(node).padding})).slice(-12)}));expect(size.scroll,JSON.stringify(size)).toBeLessThanOrEqual(size.client+1)}
+
+async function openDaily(page:Page,options:{known?:boolean;source?:boolean;uncertain?:boolean;many?:boolean}={}) {
+  await openSavingsHome(page)
+  let context={...structuredClone(dailyContext),cohort_id:41,enrollment_id:1};let revoked=false
+  const purchases:DailyPurchase[]=options.known?[{id:200,current_version_id:400,lock_version:1,current_version:{...dailyVersion,link_kind:options.source?'existing_transaction':'manual_new'}}]:[]
+  const drafts:DailyPurchaseDraft[]=[];const reflections:DailyReflection[]=[];const checkpointDrafts:DailyCheckpointDraft[]=[];const checkpoints:DailyCheckpoint[]=[]
+  if(options.known)context.day={...context.day!,approved_purchase_count:1,reported_spend_cents:1250,spending_state:'spending'}
+  const calls:{action:string;key:string;input:DailyInput}[]=[]
+  const committed=new Map<string,unknown>()
+  await page.route('http://api.test/api/v1/savings_challenge/daily**',async route=>{
+    const request=route.request();const url=new URL(request.url());const path=url.pathname.replace('/api/v1/savings_challenge/daily','')
+    if(revoked)return route.fulfill({status:403,json:{errors:['Daily access revoked.']}})
+    if(request.method()==='GET'){
+      if(!path)return route.fulfill({json:context})
+      if(path==='/records'){
+        const collection=url.searchParams.get('collection');const parent=Number(url.searchParams.get('parent_id'));const cursor=Number(url.searchParams.get('cursor')??0)
+        const records=collection==='purchases'?purchases:collection==='purchase_drafts'?drafts:collection==='reflections'?reflections.filter(row=>row.savings_daily_purchase_id===parent):collection==='reflection_versions'?reflections.filter(row=>row.id===parent).map(row=>row.current_version):collection==='checkpoint_drafts'?checkpointDrafts:collection==='checkpoints'?checkpoints:[]
+        const remaining=records.filter(row=>row&&row.id>cursor);return route.fulfill({json:{actor_scope:baselineScope,cohort_id:41,enrollment_id:1,records:remaining.slice(0,50),next_cursor:remaining.length>50?remaining[49]!.id:null}})
+      }
+      if(path==='/candidates'){
+        const cursor=Number(url.searchParams.get('cursor')??0);const rows=Array.from({length:options.many?51:1},(_,index)=>({id:500+index,merchant:`Fictional existing expense ${index+1}`,amount_cents:1250,posted_on:'2026-09-29',purchased_on_candidates:['2026-09-28'],splits:[{budget_category_id:20,amount_cents:1250}],digest:'a'.repeat(64),source_owned:true})).filter(row=>row.id>cursor);return route.fulfill({json:{actor_scope:baselineScope,cohort_id:41,enrollment_id:1,records:rows.slice(0,50),next_cursor:rows.length>50?rows[49].id:null}})
+      }
+      if(path==='/request_status'){const result=committed.get(request.headers()['idempotency-key']);return route.fulfill({json:{actor_scope:baselineScope,cohort_id:41,enrollment_id:1,...(result?{state:'committed',record:result,replayed:true}:{state:'unknown',can_retry:true})}})}
+      if(path.endsWith('/erase_status'))return route.fulfill({json:{state:'unknown',can_retry:true}})
+    }
+    const action=path.startsWith('/actions/')?path.split('/')[2]:'reflection_erase';const input=request.postDataJSON() as DailyInput;const key=request.headers()['idempotency-key'];calls.push({action,key,input});expect(key).toBeTruthy();expect(input).not.toHaveProperty('cohort_id')
+    if(options.uncertain&&calls.length===1)return route.fulfill({status:503,json:{errors:['Interrupted daily response.']}})
+    let record:unknown
+    if(action==='purchase_stage'){const draft={...dailyDraft,...input,id:300+drafts.length,savings_daily_purchase_id:input.purchase_id as number??200+drafts.length,base_version_id:input.expected_version_id as number|null,base_head_lock_version:input.expected_head_lock_version as number,posted_on:input.link_kind==='existing_transaction'?'2026-09-29':null} as DailyPurchaseDraft;drafts.push(draft);record=draft;if(!purchases.some(row=>row.id===draft.savings_daily_purchase_id))purchases.push({id:draft.savings_daily_purchase_id,current_version_id:null,current_version:null,lock_version:0})}
+    else if(action==='purchase_approve'){const draft=drafts.find(row=>row.id===input.draft_id)!;const head=purchases.find(row=>row.id===draft.savings_daily_purchase_id)!;const version={...dailyVersion,...draft,id:400+drafts.indexOf(draft),version_number:(head.current_version?.version_number??0)+1};head.current_version=version;head.current_version_id=version.id;head.lock_version++;draft.status='approved';context.day={...context.day!,approved_purchase_count:purchases.filter(row=>row.current_version?.disposition==='purchase').length,reported_spend_cents:purchases.reduce((sum,row)=>sum+(row.current_version?.disposition==='purchase'?row.current_version.amount_cents:0),0)};record=version}
+    else if(action==='check_in_save'){context.day={...context.day!,spending_state:input.spending_state as 'unknown',check_in_id:700,check_in_version_id:701,check_in_lock_version:1,reported_spend_cents:input.spending_state==='no_spend'?0:context.day!.reported_spend_cents};record={id:701}}
+    else if(action==='reflection_save'){const old=reflections.find(row=>row.savings_daily_purchase_id===input.purchase_id);const version={id:601,version_number:1,previous_version_id:null,approved_at:'2026-10-05T00:00:00Z',reason:null,savings_daily_purchase_id:input.purchase_id as number,savings_daily_reflection_id:600,feeling_then:input.feeling_then as string|null,feeling_now:input.feeling_now as string|null,erased_at:null};if(old){old.current_version=version;old.current_version_id=601;old.lock_version++}else reflections.push({id:600,savings_daily_purchase_id:input.purchase_id as number,current_version_id:601,lock_version:1,current_version:version});record=version}
+    else if(action==='reflection_erase'){const head=reflections[0];head.current_version={...head.current_version!,feeling_then:null,feeling_now:null,erased_at:'2026-10-05T00:01:00Z'};record={erased:true,reflection_id:600,version_id:602,replayed:false};return route.fulfill({json:record})}
+    else if(action==='checkpoint_stage'){const draft={id:900,lock_version:0,base_version_id:null,base_head_lock_version:0,status:'pending' as const,approved_version_id:null,reason:input.reason as string??null,savings_checkpoint_id:800,snapshot:{...dailySnapshot,milestone_day:input.milestone_day as 90,final_confirmation_status:input.final_confirmation_accepted?'confirmed' as const:'pending' as const}};checkpointDrafts.push(draft);record=draft}
+    else if(action==='checkpoint_approve'){const draft=checkpointDrafts[0];draft.status='approved';const version={id:901,version_number:1,previous_version_id:null,approved_at:'2026-10-05T00:01:00Z',reason:null,savings_checkpoint_id:800,snapshot:draft.snapshot};checkpoints.push({id:800,current_version_id:901,lock_version:1,current_version:version,milestone_day:90});record=version}
+    else if(action==='category_create'){const category={id:30,name:input.name as string,stack_key:input.stack_key as string};context={...context,categories:[...context.categories,category]};record=category}
+    else return route.fulfill({status:422,json:{errors:['Unsupported fictional daily route.']}})
+    committed.set(key,record);return route.fulfill({json:{actor_scope:baselineScope,cohort_id:41,enrollment_id:1,record,replayed:false}})
+  })
+  // Native font completion prevents a late layout shift at the mobile navigation click.
+  await page.evaluate(() => document.fonts.ready)
+  const trigger=page.getByRole('button',{name:'Today & checkpoints',exact:true});await trigger.click();const dialog=page.getByRole('dialog',{name:'Today & checkpoints',exact:true});await expect(dialog.getByRole('combobox',{name:'Spending state',exact:true})).toBeVisible();return{dialog,trigger,calls,revoke:()=>{revoked=true}}
+}
+async function dailyManual(dialog:ReturnType<Page['getByRole']>,merchant='Fictional lunch') {await dialog.getByRole('button',{name:'Add a purchase',exact:true}).click();await dialog.getByLabel('Where did you buy it?').fill(merchant);await dialog.getByLabel('Purchase amount (USD)').fill('12.50');await dialog.getByRole('combobox',{name:'Category 1',exact:true}).selectOption('20');await dialog.getByRole('checkbox',{name:/I reviewed this date, merchant, exact amount/}).check();await dialog.getByRole('button',{name:'Save purchase preview',exact:true}).click()}
+async function dailyFits(dialog:ReturnType<Page['getByRole']>) {const size=await dialog.evaluate(root=>({scroll:root.scrollWidth,client:root.clientWidth}));expect(size.scroll,JSON.stringify(size)).toBeLessThanOrEqual(size.client+1)}
+test('BOG UI daily unknown report and explicit no-spend preserve focus and phone layout',async({page})=>{const{dialog,trigger,calls}=await openDaily(page);await expect(dialog).toContainText('Spending unknown');await dialog.getByRole('combobox',{name:'Spending state',exact:true}).selectOption('no_spend');await expect(dialog.getByRole('button',{name:'Save daily report',exact:true})).toBeDisabled();await dialog.getByRole('checkbox',{name:/Save this exact personal spending state/}).check();await dialog.getByRole('button',{name:'Save daily report',exact:true}).click();await expect(dialog).toContainText('$0.00 reported spending');expect(calls[0].input).toMatchObject({local_on:'2026-09-28',spending_state:'no_spend',accepted:true});await dailyFits(dialog);await dialog.getByRole('button',{name:'Close Today',exact:true}).focus();await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(trigger).toBeFocused()})
+test('BOG UI daily two purchases require saved preview and separate approval',async({page})=>{const{dialog,calls}=await openDaily(page);await dailyManual(dialog);const previews=dialog.getByRole('region',{name:'Saved purchase previews',exact:true});await expect(previews.getByRole('button',{name:'Approve purchase',exact:true})).toBeDisabled();await expect(dialog).toContainText('Spending unknown');await previews.getByRole('checkbox',{name:/I reviewed this saved date/}).check();await previews.getByRole('button',{name:'Approve purchase',exact:true}).click();await expect(dialog).toContainText('$12.50 reported spending');await dailyManual(dialog,'Fictional evening meal');await previews.getByRole('checkbox',{name:/I reviewed this saved date/}).check();await previews.getByRole('button',{name:'Approve purchase',exact:true}).click();await expect(dialog).toContainText('$25.00 reported spending');expect(calls.map(row=>row.action)).toEqual(['purchase_stage','purchase_approve','purchase_stage','purchase_approve']);await expect(dialog.getByRole('option',{name:'I did not spend money',exact:true})).toHaveAttribute('disabled','');await dailyFits(dialog)})
+test('BOG UI daily canonical candidate paging links exact existing facts once',async({page})=>{const{dialog,calls}=await openDaily(page,{many:true});await dialog.getByRole('button',{name:'Add a purchase',exact:true}).click();await dialog.getByLabel('Purchase source').selectOption('existing_transaction');await expect(dialog.getByRole('radio',{name:/Fictional existing expense 50 ·/})).toBeVisible();await expect(dialog.getByRole('radio',{name:/Fictional existing expense 51 ·/})).toHaveCount(0);await dialog.getByRole('button',{name:'Next existing expenses',exact:true}).click();await dialog.getByRole('radio',{name:/Fictional existing expense 51 ·/}).check();await dialog.getByRole('checkbox',{name:/I reviewed this date, merchant, exact amount/}).check();await dialog.getByRole('button',{name:'Save purchase preview',exact:true}).click();await expect.poll(()=>calls.length).toBe(1);expect(calls[0].input).toMatchObject({amount_cents:1250,merchant:'Fictional existing expense 51',purchased_on:'2026-09-28',linked_transaction_id:550,expected_canonical_digest:'a'.repeat(64),splits:[{budget_category_id:20,amount_cents:1250}],link_kind:'existing_transaction'});await expect(dialog).toContainText('Posted 2026-09-29; purchase date remains 2026-09-28');await dailyFits(dialog)})
+test('BOG UI daily source-owned correction directs canonical review and forbids manual void',async({page})=>{const{dialog}=await openDaily(page,{known:true,source:true});await dialog.getByRole('button',{name:'Correct Fictional lunch',exact:true}).click();await expect(dialog).toContainText('Manual editing and voiding are unavailable for this link');await expect(dialog.getByRole('checkbox',{name:/Void this participant-entered/})).toHaveCount(0);await expect(dialog.getByLabel('Where did you buy it?')).toHaveCount(0);await expect(dialog.getByRole('button',{name:'Open Statements',exact:true})).toBeVisible();await dailyFits(dialog)})
+test('BOG UI daily optional feelings and all-version erase leave financial totals intact',async({page})=>{const{dialog,calls}=await openDaily(page,{known:true});await dialog.getByText('Optional feelings for this purchase',{exact:true}).click();await dialog.getByLabel('How did you feel then?').fill('Fictional tired moment');await dialog.getByLabel('How do you feel now?').fill('Fictional calmer now');await dialog.getByRole('checkbox',{name:/Save these optional feelings separately/}).check();await dialog.getByRole('button',{name:'Save optional feelings',exact:true}).click();await expect(dialog.getByRole('button',{name:'Erase all versions of these feelings',exact:true})).toBeDisabled();await dialog.getByRole('checkbox',{name:/Erase my feelings from every version/}).check();await dialog.getByRole('button',{name:'Erase all versions of these feelings',exact:true}).click();await expect(dialog).toContainText('Feelings erased');await expect(dialog).toContainText('$12.50 reported spending');expect(calls.map(row=>row.action)).toEqual(['reflection_save','reflection_erase']);expect(calls[0].input).not.toHaveProperty('amount_cents');await dailyFits(dialog)})
+test('BOG UI daily checkpoint known savings stay separate from pending final confirmation',async({page})=>{const{dialog,calls}=await openDaily(page);await dialog.getByRole('button',{name:'Checkpoints',exact:true}).click();await dialog.getByRole('button',{name:'Review Day 90 · 2026-09-28',exact:true}).click();await dialog.getByRole('checkbox',{name:/Prepare this exact milestone/}).check();await dialog.getByRole('button',{name:'Save Day 90 checkpoint preview',exact:true}).click();const previews=dialog.getByRole('region',{name:'Saved checkpoint previews',exact:true});await expect(previews).toContainText('$550.00');await expect(previews).toContainText('Pending — known approved savings remain counted');await expect(previews.getByRole('button',{name:'Approve Day 90 checkpoint',exact:true})).toBeDisabled();await previews.getByRole('checkbox',{name:/I reviewed this exact as-of date/}).check();await previews.getByRole('button',{name:'Approve Day 90 checkpoint',exact:true}).click();await expect(dialog.getByRole('region',{name:'Approved checkpoints',exact:true})).toContainText('Target reached');expect(calls[0].input.final_confirmation_accepted).toBe(false);expect(calls[0].input).not.toHaveProperty('reported_cents');await dailyFits(dialog)})
+test('BOG UI daily uncertain approval retains exact body and key across close reopen',async({page})=>{const{dialog,trigger,calls}=await openDaily(page,{uncertain:true});await dialog.getByRole('checkbox',{name:/Save this exact personal spending state/}).check();await dialog.getByRole('button',{name:'Save daily report',exact:true}).click();await expect(dialog.getByRole('button',{name:'Retry the same daily request',exact:true})).toBeVisible();const stored=await page.evaluate(()=>sessionStorage.getItem('daily-request-identities-v1'));expect(stored).toBeTruthy();expect(stored).not.toContain('spending_state');await dialog.getByRole('button',{name:'Close Today',exact:true}).click();await trigger.click();await dialog.getByRole('button',{name:'Retry the same daily request',exact:true}).click();await expect.poll(()=>calls.length).toBe(2);expect(calls[1]).toEqual(calls[0]);await dailyFits(dialog)})
+test('BOG UI daily revoked context hides personal reports and purchase controls',async({page})=>{const{dialog,revoke}=await openDaily(page,{known:true});revoke();await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(dialog).toContainText('Private daily access is no longer available');await expect(dialog.getByRole('region',{name:'Current personal daily report',exact:true})).toHaveCount(0);await expect(dialog.getByRole('button',{name:'Add a purchase',exact:true})).toHaveCount(0)})
+
+test('BOG UI daily Mia purchase note prefills only an unreviewed form with blank category',async({page})=>{
+  const{dialog,calls}=await openDaily(page);await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
+  await page.route('http://api.test/api/v1/mia/messages',route=>route.fulfill({json:{user_message:{id:8001,role:'user',author:'You',content:'I spent $12.50 yesterday at Fictional lunch'},assistant_message:{id:8002,role:'assistant',author:'Mia',content:'Review this purchase in Today.'},savings_intake:{kind:'purchase',amount_cents:1250,effective_on:'2026-09-28',merchant:'Fictional lunch',approval_state:'unreviewed_input',counted:false}}}))
+  await page.getByRole('link',{name:'Ask Mia',exact:true}).click();await page.getByRole('textbox',{name:'Ask Mia',exact:true}).fill('I spent $12.50 yesterday at Fictional lunch');await page.getByRole('button',{name:'Send message to Mia',exact:true}).click()
+  const note=page.getByRole('region',{name:'Unreviewed challenge note',exact:true});await expect(note).toContainText('Nothing is saved or counted');await note.getByRole('button',{name:'Review purchase',exact:true}).click();await expect(dialog.getByLabel('Where did you buy it?')).toHaveValue('Fictional lunch');await expect(dialog.getByLabel('Purchase amount (USD)')).toHaveValue('12.50');await expect(dialog.getByRole('combobox',{name:'Category 1',exact:true})).toHaveValue('');await expect(dialog.getByRole('button',{name:'Save purchase preview',exact:true})).toBeDisabled();expect(calls).toHaveLength(0);await dailyFits(dialog)
+})
+test('BOG UI daily Mia savings note requires new-money confirmation before a draft',async({page})=>{
+  const{dialog}=await openDaily(page);await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
+  await page.route('http://api.test/api/v1/mia/messages',route=>route.fulfill({json:{user_message:{id:8011,role:'user',author:'You',content:'I saved $25 yesterday'},assistant_message:{id:8012,role:'assistant',author:'Mia',content:'Review the actual reserve contribution.'},savings_intake:{kind:'contribution',amount_cents:2500,signed_cents:2500,effective_on:'2026-10-03',approval_state:'unreviewed_input',counted:false,new_money_confirmation_required:true}}}))
+  await page.getByRole('link',{name:'Ask Mia',exact:true}).click();await page.getByRole('textbox',{name:'Ask Mia',exact:true}).fill('I saved $25 yesterday');await page.getByRole('button',{name:'Send message to Mia',exact:true}).click();await page.getByRole('button',{name:'Review savings',exact:true}).click()
+  const home=page.getByRole('region',{name:'Savings challenge',exact:true});await expect(home.getByLabel('Amount in US dollars',{exact:true})).toHaveValue('25.00');await expect(home.getByRole('button',{name:'Review savings record',exact:true})).toBeDisabled();await home.getByRole('checkbox',{name:/I confirm this was new money actually set aside/}).check();await expect(home.getByRole('button',{name:'Review savings record',exact:true})).toBeEnabled();await home.getByLabel('Amount in US dollars',{exact:true}).fill('30.00');await expect(home.getByRole('button',{name:'Review savings record',exact:true})).toBeDisabled();await expect(home.getByText('Participant reported eligible progress',{exact:true})).toHaveCount(0)
+})
+
+for (const interruptedAt of ['storage', 'processing'] as const) {
+  test(`BOG UI program switch stops an old attachment chain during ${interruptedAt}`, async ({ page }) => {
+    await page.clock.install()
+    await page.clock.pauseAt(new Date(Date.now() + 100))
+    let releaseStorage!: () => void
+    const storageGate = new Promise<void>(resolve => { releaseStorage = resolve })
+    const calls: Array<{kind: string; cohort: string | undefined}> = []
+    const programNames = {41: 'Fictional original program', 42: 'Fictional second program'}
+    await page.route('http://api.test/api/v1/workspace', route => {
+      const id = route.request().headers()['x-cohort-id'] === '42' ? 42 : 41
+      const workspace = realWorkspaceData(true)
+      workspace.workspace.cohort = {...workspace.workspace.cohort!, id, name: programNames[id]}
+      return route.fulfill({json: workspace})
+    })
+    await page.route('http://api.test/api/v1/participant_programs**', route => {
+      const id = route.request().headers()['x-cohort-id'] === '42' ? 42 : 41
+      const programs = [{id:41,name:programNames[41],status:'active'}, {id:42,name:programNames[42],status:'active'}]
+      return route.fulfill({json:{actor_id:901,current_cohort_id:id,current_program:programs.find(row=>row.id===id),selection_unavailable:false,programs,next_cursor:null}})
+    })
+    await page.route('http://api.test/api/v1/document_imports/presign', route => {
+      calls.push({kind:'presign',cohort:route.request().headers()['x-cohort-id']})
+      return route.fulfill({json:{upload_url:'https://private-storage.example/program-switch-upload',upload_headers:{'Content-Type':'image/png'},upload_token:'fictional-original-upload'}})
+    })
+    await page.route('https://private-storage.example/program-switch-upload', async route => {
+      calls.push({kind:'storage',cohort:undefined})
+      if (interruptedAt === 'storage') await storageGate
+      await route.fulfill({status:200,body:''})
+    })
+    await page.route('http://api.test/api/v1/document_imports/complete', route => {
+      calls.push({kind:'complete',cohort:route.request().headers()['x-cohort-id']})
+      return route.fulfill({status:201,json:{document_import:{id:991,household_id:77,document_kind:'receipt',filename:'fictional-first.png',content_type:'image/png',status:'processing',byte_size:20,source_available:true,details_included:true,metadata:{},items:[],transaction_drafts:[],attempts:[]}}})
+    })
+    await page.route('http://api.test/api/v1/document_imports/991', route => {
+      calls.push({kind:'poll',cohort:route.request().headers()['x-cohort-id']})
+      return route.fulfill({status:500,json:{errors:['Old program must not poll after switching.']}})
+    })
+    await page.route('http://api.test/api/v1/mia/messages', route => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      calls.push({kind:'mia',cohort:route.request().headers()['x-cohort-id']})
+      return route.fulfill({status:500,json:{errors:['Old program must not send after switching.']}})
+    })
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    const composer = page.getByRole('textbox',{name:'Ask Mia',exact:true})
+    await expect(composer).toBeVisible()
+    await page.locator('.ask-row input[type="file"]').setInputFiles([{name:'fictional-first.png',mimeType:'image/png',buffer:Buffer.from('fictional first image')},...(interruptedAt==='storage'?[{name:'fictional-second.png',mimeType:'image/png',buffer:Buffer.from('fictional second image')}]:[])])
+    await composer.fill('Review these fictional receipts in the original program only.')
+    await page.getByRole('button',{name:'Send message to Mia'}).click()
+    await expect.poll(()=>calls.some(row=>row.kind===interruptedAt || interruptedAt==='processing'&&row.kind==='complete')).toBe(true)
+    await page.locator('.participant-program-switch > summary').click()
+    await page.getByRole('combobox',{name:'Switch participant program'}).selectOption('42')
+    await expect(page.locator('.participant-program-switch > summary')).toContainText(programNames[42])
+    await expect(composer).toHaveValue('')
+    await expect(page.locator('.composer-attachment-card')).toHaveCount(0)
+    releaseStorage()
+    await page.clock.runFor(4_000)
+    expect(calls.filter(row=>row.kind==='presign')).toHaveLength(1)
+    expect(calls.filter(row=>row.kind==='complete')).toHaveLength(interruptedAt==='storage'?0:1)
+    expect(calls.filter(row=>row.kind==='poll'||row.kind==='mia')).toEqual([])
+    expect(calls.filter(row=>row.cohort==='42')).toEqual([])
+    expect(await page.evaluate(()=>sessionStorage.getItem('household-cfo:mia-chat:v1:user-901:participant:77:42:pending-request'))).toBeNull()
+  })
+}

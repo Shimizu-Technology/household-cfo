@@ -43,6 +43,7 @@ import { Button } from './Button'
 import { CoachProgramSettings } from './CoachProgramSettings'
 import { WorkspaceCollaborators } from './WorkspaceCollaborators'
 import { CoachGroupsParticipants } from './CoachGroupsParticipants'
+import { CoachChallengeDashboard } from './CoachChallengeDashboard'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { ReleaseAndRolloutStudio } from './ReleaseAndRolloutStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
@@ -124,7 +125,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     if (!selectedPersona?.draft || !draft) return false
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
-  const studioDirty = groupsDirty || dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty || settingsDirty || collaboratorsDirty
+  const createDirty = createOpen && Boolean(createName.trim() || createDescription.trim())
+  const studioDirty = createDirty || groupsDirty || dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty || settingsDirty || collaboratorsDirty
   const personaDirty = dirty || personaSourcesDirty || setupDirty
   const createDisabled = workspaceCreateDisabled || loading || detailLoading || pendingAction !== null || workspaceMutations.pending
 
@@ -258,6 +260,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setDraft(selectedPersona.draft ?? null)
       setDescription(selectedPersona.description)
     }
+    setCreateOpen(false)
+    setCreateName('')
+    setCreateDescription('')
     setExperienceDirty(false)
     setLibraryDirty(false)
     setPersonaSourcesDirty(false)
@@ -765,6 +770,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               setSelectedCohortId((id) => nextCohorts.some((cohort) => cohort.id === id) ? id : nextCohorts[0]?.id ?? null)
             }).catch(() => { /* The group save is complete; existing release views can retry their own load. */ })
           }} />
+          {activeWorkspaceId !== null && <CoachChallengeDashboard userId={currentUser.id} workspaceId={activeWorkspaceId} cohorts={cohorts} />}
         </div>
       ) : studioSection === 'library' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-library" aria-labelledby="coach-studio-tab-library" tabIndex={0}>
