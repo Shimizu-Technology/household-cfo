@@ -25,6 +25,8 @@ function PrivacySession({ actorScope, participant, initialEnrollmentId, document
   const controller = useRef(new AbortController())
   const live = useRef(true)
   const metadataRequest = useRef<AbortController | null>(null)
+  const programPageRequest = useRef<AbortController | null>(null)
+  const [programsPaging, setProgramsPaging] = useState(false)
   const [programs, setPrograms] = useState<PrivateProgram[]>([])
   const [cursor, setCursor] = useState<number | null>(null)
   const [enrollmentId, setEnrollmentId] = useState<number | null>(null)
@@ -52,7 +54,7 @@ function PrivacySession({ actorScope, participant, initialEnrollmentId, document
     metadataRequest.current = request
     let active = true
     const current = () => active && !request.signal.aborted && own()
-    queueMicrotask(() => { if (current()) { setLoading(true); setError(''); setPrograms([]); setEnrollmentId(null) } })
+    queueMicrotask(() => { if (current()) { setLoading(true); setProgramsPaging(false); setCursor(null); setError(''); setPrograms([]); setEnrollmentId(null) } })
     void (async () => {
       let page = await api.controls(null, request.signal)
       assertPrivacyScope(page, actorScope)
@@ -71,15 +73,19 @@ function PrivacySession({ actorScope, participant, initialEnrollmentId, document
         setLoading(false)
       }
     })().catch((failure) => { if (current()) { setError(message(failure)); setLoading(false); if ([401, 403].includes(statusCode(failure) ?? 0)) { setDenied(true); setPending(null) } } })
-    return () => { active = false; request.abort() }
+    return () => { active = false; request.abort(); if (programPageRequest.current === request) programPageRequest.current = null }
   }, [actorScope, participant, initialEnrollmentId, api])
   async function morePrograms() {
-    if (!actorScope || cursor === null) return
+    if (!actorScope || loading || cursor === null || programPageRequest.current) return
     const request = metadataRequest.current
     if (!request || request.signal.aborted) return
+    programPageRequest.current = request
+    setProgramsPaging(true)
+    setError('')
     const current = () => own() && metadataRequest.current === request && !request.signal.aborted
     try { const page = await api.controls(cursor, request.signal); assertPrivacyScope(page, actorScope); if (current()) { setPrograms((rows) => [...rows, ...page.records]); setCursor(page.next_cursor) } }
     catch (failure) { if (current()) setError(message(failure)) }
+    finally { if (programPageRequest.current === request) { programPageRequest.current = null; if (current()) setProgramsPaging(false) } }
   }
   function stage(value: Review) {
     if (pending && !(pending.state === 'unknown' && !pending.input && pending.identity.enrollmentId === enrollmentId && pending.identity.action === value.action && pending.identity.reflectionId === value.reflectionId)) return
@@ -137,7 +143,7 @@ function PrivacySession({ actorScope, participant, initialEnrollmentId, document
         {loading && <p role="status">Loading your programs…</p>}
         {!loading && programs.length === 0 && !error && <p>No savings enrollment yet. These controls become available after you accept a challenge.</p>}
         {programs.length > 0 && <label className="privacy-field">Program<select value={enrollmentId ?? ''} onChange={(event) => { setEnrollmentId(Number(event.target.value)); setReview(null); setNotice(''); setError('') }}><option value="" disabled>Choose your program</option>{programs.map((row) => <option key={row.id} value={row.id}>{row.program_name} · {row.status}</option>)}</select></label>}
-        {cursor !== null && <button type="button" onClick={() => void morePrograms()}>Load more programs</button>}
+        {cursor !== null && <button type="button" disabled={loading || programsPaging} onClick={() => void morePrograms()}>Load more programs</button>}
         {pending && <section className="privacy-notice" aria-label="Earlier request"><p role="status">{pending.error || 'Saving your reviewed choice…'}</p><p>Request: <code>{pending.identity.key}</code> · {pending.identity.action}</p><button type="button" disabled={pending.state === 'working'} onClick={() => void check()}>Check earlier request</button>{pending.state === 'unknown' && pending.input && <button type="button" onClick={() => void perform(pending.identity, pending.input!)}>Retry exact reviewed request</button>}{pending.state === 'unknown' && !pending.input && <p>Select the same program and re-review {pending.identity.action}. Other changes remain blocked.</p>}</section>}
         {error && <p className="privacy-error" role="alert">{error}</p>}{notice && <p className="privacy-notice" role="status">{notice}</p>}
         {review ? <section className="privacy-review" aria-labelledby="privacy-review-title"><p className="privacy-eyebrow">Review before approval</p><h3 id="privacy-review-title" tabIndex={-1}>{review.title}</h3><ul>{review.lines.map((line, i) => <li key={i}>{line}</li>)}</ul><label className="privacy-check"><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} />I understand and approve this exact change.</label><div className="privacy-actions"><button type="button" disabled={!accepted || Boolean(pending && (pending.state !== 'unknown' || pending.input))} onClick={() => { if (enrollmentId && actorScope) void perform(pending?.identity ?? { scope: actorScope, enrollmentId, action: review.action, key: createOperationIdempotencyKey(), ...(review.reflectionId ? { reflectionId: review.reflectionId } : {}) }, review.input) }}>Approve reviewed change</button><button type="button" className="privacy-secondary" disabled={pending?.state === 'working'} onClick={() => setReview(null)}>Back without approval</button></div></section> : enrollmentId && actorScope && <ProgramControls key={`${enrollmentId}:${revision}`} scope={actorScope} enrollmentId={enrollmentId} documentImportId={documentImportId} api={api} blocked={blocked} allowedAction={allowedAction} stage={stage} />}

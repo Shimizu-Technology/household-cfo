@@ -50,39 +50,58 @@ export function PilotFeedbackDialog({
   const [withdrawingId, setWithdrawingId] = useState<number | null>(null)
   const generation = useRef(0)
   const historyRequest = useRef<AbortController | null>(null)
+  const historyPage = useRef<{ beforeId?: number; request: AbortController } | null>(null)
+  const withdrawal = useRef<number | null>(null)
+  const withdrawnReports = useRef(new Set<number>())
   useEffect(() => { const mountedGeneration = ++generation.current; return () => { generation.current = mountedGeneration + 1; historyRequest.current?.abort() } }, [])
 
   async function loadReports(next?: number) {
+    if (withdrawal.current !== null) return
     const current = generation.current
     historyRequest.current?.abort()
     const request = new AbortController()
     historyRequest.current = request
+    const pageRequest = { beforeId: next, request }
+    historyPage.current = pageRequest
     setHistoryLoading(true); setHistoryError(null)
     try {
       const page = await fetchMyPilotFeedback(next, request.signal)
       if (current !== generation.current || request.signal.aborted) return
-      setReports(previous => next ? [...previous, ...page.feedback_reports.filter(row => !previous.some(existing => existing.id === row.id))] : page.feedback_reports)
+      // A confirmed withdrawal cannot be undone by older history metadata.
+      const rows = page.feedback_reports.map(row => withdrawnReports.current.has(row.id) ? { ...row, support_access_available: false, support_sharing_granted: false } : row)
+      setReports(previous => next ? [...previous, ...rows.filter(row => !previous.some(existing => existing.id === row.id))] : rows)
       setCursor(page.next_cursor)
     } catch (caught) {
       if (current === generation.current && !request.signal.aborted) setHistoryError(caught instanceof Error ? caught.message : 'Reports could not be loaded.')
     } finally {
+      if (historyPage.current === pageRequest) historyPage.current = null
       if (current === generation.current && !request.signal.aborted) setHistoryLoading(false)
     }
   }
 
   async function withdraw(id: number) {
+    if (withdrawal.current !== null) return
+    withdrawal.current = id
     const current = generation.current
-    historyRequest.current?.abort(); setHistoryLoading(false)
+    const interruptedPage = historyPage.current
+    historyPage.current = null
+    interruptedPage?.request.abort(); setHistoryLoading(false)
     setWithdrawingId(id); setError(null)
     try {
       const updated = await withdrawPilotFeedbackSupport(id)
       if (current !== generation.current) return
+      if (updated.support_access_available === false) withdrawnReports.current.add(updated.id)
       setReceipt(previous => previous?.id === updated.id ? updated : previous)
       setReports(previous => previous.map(row => row.id === updated.id ? updated : row))
     } catch (caught) {
       if (current === generation.current) setError(caught instanceof Error ? caught.message : 'Withdrawal was not confirmed. Retry to check and withdraw access.')
     } finally {
-      if (current === generation.current) setWithdrawingId(null)
+      if (current === generation.current) {
+        withdrawal.current = null
+        setWithdrawingId(null)
+        // Resume the same page only after the write, retaining its old cursor.
+        if (interruptedPage) void loadReports(interruptedPage.beforeId)
+      }
     }
   }
 
@@ -156,10 +175,10 @@ export function PilotFeedbackDialog({
         <details className="pilot-feedback-history" open={historyOpen} onToggle={event => { const opened = event.currentTarget.open; setHistoryOpen(opened); if (opened && !historyOpen) void loadReports() }}>
           <summary>My submitted reports</summary>
           {historyLoading && <p role="status">Loading reports</p>}
-          {historyError && <p role="alert">{historyError} <button type="button" onClick={() => void loadReports()}>Retry reports</button></p>}
+          {historyError && <p role="alert">{historyError} <button type="button" disabled={withdrawingId !== null} onClick={() => void loadReports()}>Retry reports</button></p>}
           {!historyLoading && !historyError && reports.length === 0 && <p>No reports submitted.</p>}
           {reports.map(report => <article key={report.id}><strong>Report #{report.id}</strong><p>{pilotFeedbackOptions.find(option => option.value === report.workflow)?.label ?? report.workflow} · {report.status}</p>{supportAccess(report)}</article>)}
-          {cursor && <button type="button" disabled={historyLoading} onClick={() => void loadReports(cursor)}>Load earlier reports</button>}
+          {cursor && <button type="button" disabled={historyLoading || withdrawingId !== null} onClick={() => void loadReports(cursor)}>Load earlier reports</button>}
         </details>
         <p className="pilot-feedback-withdrawal-note">Withdrawing stops new support reads. It cannot recall details already read or downloaded. Previously issued screenshot links can remain valid for up to five minutes.</p>
       </section>

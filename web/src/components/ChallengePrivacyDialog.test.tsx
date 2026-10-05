@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChallengePrivacyDialog } from './ChallengePrivacyDialog'
 import { privacyFixture, privacyScope, syntheticPrivacyApi } from '../test/privacyFixtures'
@@ -91,6 +91,42 @@ describe('participant privacy help and reminders', () => {
     render(<ChallengePrivacyDialog actorScope={privacyScope} participant initialEnrollmentId={101} onClose={vi.fn()} api={api} />); await screen.findByText('No sharing grants.')
     expect(api.controls).toHaveBeenCalledTimes(2); expect(api.privacy).toHaveBeenCalledWith(101, null, expect.anything())
   })
+  it('owns one program page synchronously and releases it for retry after failure', async () => {
+    const api = syntheticPrivacyApi(); const first = { ...await api.controls(), next_cursor: 100 }
+    let rejectPage!: (error: Error) => void
+    api.controls = vi.fn().mockResolvedValueOnce(first).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPage = reject }))
+    open(api); await screen.findByLabelText('Purpose')
+    const more = screen.getByRole('button', { name: 'Load more programs' })
+    act(() => { fireEvent.click(more); fireEvent.click(more) })
+    expect(api.controls).toHaveBeenCalledTimes(2)
+    expect(more).toHaveProperty('disabled', true)
+    await act(async () => { rejectPage(new Error('Page unavailable')) })
+    expect(screen.getByText('Page unavailable')).toBeTruthy()
+    expect(more).toHaveProperty('disabled', false)
+    vi.mocked(api.controls).mockResolvedValueOnce({ ...first, records: [{ ...first.records[0], id: 101, program_name: 'Second own program' }], next_cursor: null })
+    fireEvent.click(more); await screen.findByRole('option', { name: 'Second own program · active' })
+    expect(screen.queryByText('Page unavailable')).toBeNull()
+    expect(api.controls).toHaveBeenLastCalledWith(100, expect.any(AbortSignal))
+    expect(screen.getAllByRole('option', { name: 'Second own program · active' })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Load more programs' })).toBeNull()
+  })
+  it('aborts a pending program page on an actor switch without leaking rows or locking the new actor', async () => {
+    const api = syntheticPrivacyApi(); const first = { ...await api.controls(), next_cursor: 100 }
+    let resolvePage!: (page: typeof first) => void
+    api.controls = vi.fn().mockResolvedValueOnce(first).mockImplementationOnce(() => new Promise(resolve => { resolvePage = resolve }))
+    const view = open(api); await screen.findByLabelText('Purpose')
+    fireEvent.click(screen.getByRole('button', { name: 'Load more programs' }))
+    const oldSignal = vi.mocked(api.controls).mock.calls[1][1]!
+    const nextScope = { ...privacyScope, user_id: 999 }
+    vi.mocked(api.controls).mockResolvedValue({ ...first, actor_scope: nextScope, next_cursor: 200 })
+    api.privacy = vi.fn(async () => ({ ...privacyFixture, actor_scope: nextScope }))
+    view.rerender(<ChallengePrivacyDialog actorScope={nextScope} participant onClose={vi.fn()} api={api} />)
+    await screen.findByLabelText('Purpose')
+    expect(oldSignal.aborted).toBe(true)
+    await act(async () => { resolvePage({ ...first, records: [{ ...first.records[0], id: 101, program_name: 'Previous actor private program' }] }) })
+    expect(screen.queryByRole('option', { name: /Previous actor private program/ })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Load more programs' })).toHaveProperty('disabled', false)
+  })
   it('held candidates do not hide existing revocation or self-erasure controls', async () => {
     const api = syntheticPrivacyApi(); api.candidates = vi.fn(async () => { throw new ApiRequestError('Program held. New sharing unavailable.', { status: 403 }) }); api.privacy = vi.fn(async () => ({ ...privacyFixture, grants: [{ id: 20, kind: 'coach_summary' as const, recipient_user_id: 903, granted: true, selected_records: [], expires_at: null, policy_version: 'challenge_privacy_v1', lock_version: 3 }] })); open(api)
     await screen.findByRole('button', { name: 'Review revoke sharing' }); fireEvent.change(screen.getByLabelText('Purpose'), { target: { value: 'selected_details' } }); fireEvent.click(screen.getAllByRole('button', { name: 'Find exact records' })[0]); await screen.findByText('Program held. New sharing unavailable.')
@@ -146,8 +182,8 @@ describe('privacy request ownership under effect replay', () => {
     api.privacy = vi.fn().mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectEarlier = reject })).mockResolvedValue(privacyFixture)
     render(<StrictMode><ChallengePrivacyDialog actorScope={privacyScope} participant onClose={vi.fn()} api={api} /></StrictMode>)
     await screen.findByText('No sharing grants.')
-    rejectEarlier(new Error('Earlier request failed after replay'))
-    await waitFor(() => expect(screen.queryByText('Earlier request failed after replay')).toBeNull())
+    await act(async () => { rejectEarlier(new Error('Earlier request failed after replay')) })
+    expect(screen.queryByText('Earlier request failed after replay')).toBeNull()
     expect(screen.getByText('No sharing grants.')).toBeTruthy()
   })
 })

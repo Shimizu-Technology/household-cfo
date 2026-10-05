@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PilotFeedbackDialog } from './PilotFeedbackDialog'
 import * as api from '../api'
@@ -52,6 +52,59 @@ describe('report-only support sharing', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Load earlier reports' }))
     await screen.findByText('Report #54')
     expect(api.fetchMyPilotFeedback).toHaveBeenLastCalledWith(55, expect.any(AbortSignal))
+  })
+  it.each([true, false])('resumes the cancelled earlier page without applying its late result; withdrawal confirmed: %s', async confirmed => {
+    type History = Awaited<ReturnType<typeof api.fetchMyPilotFeedback>>
+    let resolvePage!: (page: History) => void
+    let resolveWithdrawal!: (report: api.PilotFeedbackReceipt) => void
+    let rejectWithdrawal!: (error: Error) => void
+    vi.mocked(api.fetchMyPilotFeedback).mockResolvedValueOnce({ feedback_reports: [receipt], next_cursor: 55 })
+      .mockImplementationOnce(() => new Promise(resolve => { resolvePage = resolve }))
+      .mockResolvedValueOnce({ feedback_reports: [{ ...receipt, id: 54 }], next_cursor: null })
+    vi.mocked(api.withdrawPilotFeedbackSupport).mockImplementationOnce(() => new Promise((resolve, reject) => { resolveWithdrawal = resolve; rejectWithdrawal = reject }))
+    render(<PilotFeedbackDialog initialWorkflow="home" onClose={vi.fn()} onSubmit={vi.fn()} />)
+    const history = screen.getByText('My submitted reports').closest('details')!
+    history.open = true; fireEvent(history, new Event('toggle')); await screen.findByText('Report #55')
+    fireEvent.click(screen.getByRole('button', { name: 'Load earlier reports' }))
+    const oldSignal = vi.mocked(api.fetchMyPilotFeedback).mock.calls[1][1]!
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw support access to report #55' }))
+    expect(oldSignal.aborted).toBe(true)
+    expect(screen.getByRole('button', { name: 'Load earlier reports' })).toHaveProperty('disabled', true)
+    expect(api.fetchMyPilotFeedback).toHaveBeenCalledTimes(2)
+    await act(async () => { if (confirmed) resolveWithdrawal({ ...receipt, support_access_available: false, support_sharing_granted: false }); else rejectWithdrawal(new Error('Withdrawal unconfirmed')) })
+    await screen.findByText('Report #54')
+    expect(api.fetchMyPilotFeedback).toHaveBeenCalledTimes(3)
+    expect(api.fetchMyPilotFeedback).toHaveBeenLastCalledWith(55, expect.any(AbortSignal))
+    expect(vi.mocked(api.fetchMyPilotFeedback).mock.calls[2][1]!.aborted).toBe(false)
+    await act(async () => { resolvePage({ feedback_reports: [{ ...receipt, id: 53 }], next_cursor: 53 }) })
+    expect(screen.queryByText('Report #53')).toBeNull()
+    expect(screen.getByText('Report #54')).toBeTruthy()
+    if (confirmed) expect(screen.queryByRole('button', { name: 'Withdraw support access to report #55' })).toBeNull()
+    else { expect(screen.getByText('Withdrawal unconfirmed')).toBeTruthy(); expect(screen.getByRole('button', { name: 'Withdraw support access to report #55' })).toHaveProperty('disabled', false) }
+    expect(screen.queryByRole('button', { name: 'Load earlier reports' })).toBeNull()
+  })
+  it('cannot restore a confirmed withdrawal from stale replacement history metadata', async () => {
+    type History = Awaited<ReturnType<typeof api.fetchMyPilotFeedback>>
+    let resolveHistory!: (page: History) => void
+    vi.mocked(api.fetchMyPilotFeedback).mockImplementationOnce(() => new Promise(resolve => { resolveHistory = resolve }))
+      .mockResolvedValueOnce({ feedback_reports: [receipt], next_cursor: null })
+    vi.mocked(api.withdrawPilotFeedbackSupport).mockResolvedValueOnce({ ...receipt, support_access_available: false, support_sharing_granted: false })
+    render(<PilotFeedbackDialog initialWorkflow="home" onClose={vi.fn()} onSubmit={vi.fn().mockResolvedValue(receipt)} />)
+    details(); fireEvent.click(screen.getByLabelText(consent)); fireEvent.click(screen.getByRole('button', { name: 'Submit report' }))
+    await screen.findByText('Report received.')
+    const history = screen.getByText('My submitted reports').closest('details')!
+    history.open = true; fireEvent(history, new Event('toggle'))
+    await waitFor(() => expect(api.fetchMyPilotFeedback).toHaveBeenCalledTimes(1))
+    const oldSignal = vi.mocked(api.fetchMyPilotFeedback).mock.calls[0][1]!
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw support access to report #55' }))
+    await screen.findByText('Report #55')
+    expect(oldSignal.aborted).toBe(true)
+    await act(async () => { resolveHistory({ feedback_reports: [receipt], next_cursor: 55 }) })
+    expect(api.fetchMyPilotFeedback).toHaveBeenCalledTimes(2)
+    expect(screen.getAllByText('App support access is withdrawn or was not granted.')).toHaveLength(2)
+    expect(screen.queryByText('App support can read this report and its optional screenshot.')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Withdraw support access to report #55' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Load earlier reports' })).toBeNull()
   })
   it('ignores late submission after unmount and does not announce unsupported server access', async () => {
     let resolve!: (value: api.PilotFeedbackReceipt) => void
