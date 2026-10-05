@@ -87,25 +87,42 @@ module HouseholdFinance
       if inventory[:total_count].zero?
         return result(:income, "No income sources are saved in your household plan yet. Your income is unknown from these records; this does not mean $0. Add your sources in My Money → Income or ask Mia to draft one.", inventory)
       end
-      lines = [ "Saved household income for #{month_label}: #{money(inventory[:selected_month_amount])} in the monthly plan, including one-time scheduled income. Recurring monthly equivalent: #{money(inventory[:recurring_monthly_amount])}." ]
-      lines << coverage_sentence(inventory[:total_count], inventory[:shown_count])
-      lines << "Monthly totals include all saved sources, including sources omitted below." if inventory[:total_count] > inventory[:shown_count]
+      records = []
+      blocks = []
       inventory[:records].each do |source|
-        effective = source[:effective_amount].nil? ? "not effective in this month" : "effective #{money(source[:effective_amount])} #{cadence(source[:effective_cadence])}"
-        line = "#{label(source[:label])} (#{source[:source_type].humanize}): base #{money(source[:base_amount])} #{cadence(source[:base_cadence])}; #{effective}; #{money(source[:selected_month_amount])} in #{month_label}. Status: #{source[:timeline_status]}."
-        line += " Starts #{source[:starts_on]}." if source[:starts_on]
-        line += " Ends before #{source[:ends_on]} (that month is excluded)." if source[:ends_on]
-        lines << line
-        source[:schedule_entries].each do |entry|
-          kind = entry[:entry_type] == "one_time" ? "one-time" : "recurring change"
-          lines << "  #{entry[:effective_on]}: #{kind}#{entry[:label].present? ? " — #{label(entry[:label])}" : ''}, #{money(entry[:amount])} #{cadence(entry[:cadence])}#{entry[:active] ? '.' : '; outside the source timeline, excluded.'}"
-        end
-        if source[:upcoming_schedule_count] > source[:schedule_entries].length
-          lines << "  Showing #{source[:schedule_entries].length} of #{source[:upcoming_schedule_count]} current and future entries. Open Income for the rest."
-        end
+        block = income_source_block(source)
+        proposed = income_answer_text(inventory, blocks + [ block ], records.length + 1)
+        break if proposed.length > ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH
+        records << source
+        blocks << block
       end
-      lines << inventory[:completeness_note]
-      result(:income, lines.join("\n\n"), inventory)
+      inventory[:records] = records
+      inventory[:shown_count] = records.length
+      inventory[:coverage] = inventory[:total_count] > records.length ? "bounded_saved_records" : "all_saved_records"
+      result(:income, income_answer_text(inventory, blocks, records.length), inventory)
+    end
+
+    def income_answer_text(inventory, blocks, shown)
+      lines = [ "Saved household income for #{month_label}: #{money(inventory[:selected_month_amount])} in the monthly plan, including one-time scheduled income. Recurring monthly equivalent: #{money(inventory[:recurring_monthly_amount])}.",
+        coverage_sentence(inventory[:total_count], shown) ]
+      lines << "Monthly totals include all saved sources, including sources omitted below." if inventory[:total_count] > shown
+      (lines + blocks + [ inventory[:completeness_note] ]).join("\n\n")
+    end
+
+    def income_source_block(source)
+      effective = source[:effective_amount].nil? ? "not effective in this month" : "effective #{money(source[:effective_amount])} #{cadence(source[:effective_cadence])}"
+      line = "#{label(source[:label])} (#{source[:source_type].humanize}): base #{money(source[:base_amount])} #{cadence(source[:base_cadence])}; #{effective}; #{money(source[:selected_month_amount])} in #{month_label}. Status: #{source[:timeline_status]}."
+      line += " Starts #{source[:starts_on]}." if source[:starts_on]
+      line += " Ends before #{source[:ends_on]} (that month is excluded)." if source[:ends_on]
+      lines = [ line ]
+      source[:schedule_entries].each do |entry|
+        kind = entry[:entry_type] == "one_time" ? "one-time" : "recurring change"
+        lines << "  #{entry[:effective_on]}: #{kind}#{entry[:label].present? ? " — #{label(entry[:label])}" : ''}, #{money(entry[:amount])} #{cadence(entry[:cadence])}#{entry[:active] ? '.' : '; outside the source timeline, excluded.'}"
+      end
+      if source[:upcoming_schedule_count] > source[:schedule_entries].length
+        lines << "  Showing #{source[:schedule_entries].length} of #{source[:upcoming_schedule_count]} current and future entries. Open Income for the rest."
+      end
+      lines.join("\n\n")
     end
 
     def answer_spending
@@ -113,7 +130,9 @@ module HouseholdFinance
       rows = plan.fetch(:rows)
       matches = @read_text.match?(/\b(?:categories|expense stacks?|by category)\b/i) ? [] : spending_category_matches(rows)
       if matches.length > 1
-        return result(:spending, "More than one household spending category matches that request: #{matches.map { |row| "#{label(row[:name])} (#{row[:stack_label]})" }.join(', ')}. Name one exact category or ask for all spending categories. No records changed.", total_count: matches.length, shown_count: 0, coverage: "ambiguous_category")
+        names = matches.first(10).map { |row| "#{label(row[:name])} (#{row[:stack_label]})" }
+        qualification = matches.length > names.length ? " Showing #{names.length} of #{matches.length} matching names." : ""
+        return result(:spending, "More than one household spending category matches that request: #{names.join(', ')}.#{qualification} Name one exact category or ask for all spending categories. No records changed.", total_count: matches.length, shown_count: names.length, coverage: "ambiguous_category")
       end
       if matches.empty? && named_spending_request?
         return result(:spending, "I could not match that request to one saved household spending category. Use its exact name or ask for all spending categories. No records changed.", total_count: rows.length, shown_count: 0, coverage: "category_not_found")
@@ -122,11 +141,7 @@ module HouseholdFinance
       shown = selected.first(MAX_RECORDS)
       available = plan.fetch(:plan_available)
       drafts = @household.transaction_drafts.pending.where(financial_source_event_id: nil, occurred_on: @reference_date..@reference_date.end_of_month).includes(:transaction_draft_splits).to_a
-      lines = [ "Household spending plan for #{month_label}. #{coverage_sentence(selected.length, shown.length)}" ]
-      lines << "No saved monthly budget plan is available for this year. Setup starting amounts below are estimates, not saved monthly allocations; confirmed actual coverage is unavailable from this preview." unless available
-      if selected.empty?
-        lines << "No spending categories or setup expense rows are saved. Spending and planned amounts remain unknown; this does not establish $0 or complete coverage."
-      end
+      blocks = []
       records = shown.map do |row|
         cell = row.fetch(:months).fetch(@reference_date.month - 1)
         allocation_known = available && !cell.fetch(:allocation_missing)
@@ -140,20 +155,35 @@ module HouseholdFinance
           "no saved monthly allocation; planned amount unknown"
         end
         actual = available ? "confirmed actuals recorded #{money(cell[:actual])}" : "confirmed actuals unavailable in this plan preview"
-        lines << "#{label(row[:name])} — #{row[:stack_label]}#{row[:active] ? '' : ' (archived category retained for history)'}: #{planned}; #{actual}; pending proposed category spending #{money(Money.dollars(pending))}, excluded from actuals."
+        blocks << "#{label(row[:name])} — #{row[:stack_label]}#{row[:active] ? '' : ' (archived category retained for history)'}: #{planned}; #{actual}; pending proposed category spending #{money(Money.dollars(pending))}, excluded from actuals."
         { id: row[:id], name: row[:name], stack_key: row[:stack_key], active: row[:active], allocation_known: allocation_known,
           planned_amount: allocation_known ? cell[:planned] : nil, starting_estimate: estimate,
           confirmed_actual_amount: available ? cell[:actual] : nil, pending_amount: Money.dollars(pending) }
       end
+      footer = []
       active = rows.select { |row| row[:active] }
       if matches.empty? && available && active.any? && active.all? { |row| !row[:months][@reference_date.month - 1][:allocation_missing] }
         total = active.sum { |row| Money.cents(row[:months][@reference_date.month - 1][:planned]) }
-        lines << "Saved active category plan across all #{active.length} categories: #{money(Money.dollars(total))}. This excludes debt minimums and archived category allocations."
+        footer << "Saved active category plan across all #{active.length} categories: #{money(Money.dollars(total))}. This excludes debt minimums and archived category allocations."
       end
-      lines << "#{drafts.length} pending household transaction #{'review'.pluralize(drafts.length)} recorded in #{month_label}, totaling #{money(Money.dollars(drafts.sum(&:total_amount_cents)))}; these have not changed confirmed actuals. Unassigned pending categories may not appear in the category amounts above."
-      lines << "Pending budget edit cards are proposals; they do not change the saved plan amounts above until you apply reviewed changes."
-      lines << "Recorded actuals cover confirmed or reconciled household records only. A recorded $0 does not verify no spending or complete coverage. This household plan is separate from the challenge's approved spending baseline and reserved savings."
-      result(:spending, lines.join("\n\n"), total_count: selected.length, shown_count: shown.length, coverage: selected.length > shown.length ? "bounded_saved_records" : "all_matching_records", plan_available: available, records: records)
+      footer << "#{drafts.length} pending household transaction #{'review'.pluralize(drafts.length)} recorded in #{month_label}, totaling #{money(Money.dollars(drafts.sum(&:total_amount_cents)))}; these have not changed confirmed actuals. Unassigned pending categories may not appear in the category amounts above."
+      footer << "Pending budget edit cards are proposals; they do not change the saved plan amounts above until you apply reviewed changes."
+      footer << "Recorded actuals cover confirmed or reconciled household records only. A recorded $0 does not verify no spending or complete coverage. This household plan is separate from the challenge's approved spending baseline and reserved savings."
+      included = []
+      blocks.each do |block|
+        proposed = spending_answer_text(selected.length, included + [ block ], available, footer)
+        break if proposed.length > ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH
+        included << block
+      end
+      records = records.first(included.length)
+      result(:spending, spending_answer_text(selected.length, included, available, footer), total_count: selected.length, shown_count: records.length, coverage: selected.length > records.length ? "bounded_saved_records" : "all_matching_records", plan_available: available, records: records)
+    end
+
+    def spending_answer_text(total, blocks, available, footer)
+      lead = [ "Household spending plan for #{month_label}. #{coverage_sentence(total, blocks.length)}" ]
+      lead << "No saved monthly budget plan is available for this year. Setup starting amounts below are estimates, not saved monthly allocations; confirmed actual coverage is unavailable from this preview." unless available
+      lead << "No spending categories or setup expense rows are saved. Spending and planned amounts remain unknown; this does not establish $0 or complete coverage." if total.zero?
+      (lead + blocks + footer).join("\n\n")
     end
 
     def spending_category_matches(rows)
@@ -222,6 +252,19 @@ module HouseholdFinance
     end
 
     def answer_goals
+      if @read_text.match?(/\b(?:primary|main|household)\s+goal\b/i) && !@read_text.match?(/\btracked\b/i)
+        goal = @household.primary_goal
+        answer = goal.present? ? "Your saved primary household goal is: #{label(goal)}" : "No primary household goal is saved yet. This does not mean you have no tracked goals or challenge target."
+        return result(:primary_goal, "#{answer}\n\nThis is your qualitative household goal, separate from tracked goal amounts and the challenge's accepted savings target. No records changed.", value: goal)
+      end
+      if !@read_text.match?(/\b(?:goals|tracked)\b/i)
+        return if @read_text.match?(/\A(?:what(?:'s| is)|show(?: me)?|tell me)\s+(?:my|our)\s+goal[?.!]*\z/i)
+        named = @household.goals.tracked.active.any? do |goal|
+          name = normalized_category_text(goal.label)
+          name.present? && normalized_category_text(@read_text).match?(/(?<![[:alnum:]])#{Regexp.escape(name)}(?![[:alnum:]])/)
+        end
+        return unless named
+      end
       scope = @household.goals.tracked.active.order(:priority, :id)
       rows = scope.limit(MAX_RECORDS).map do |goal|
         "#{label(goal.label)} (#{goal.goal_type.humanize}): target #{known_money(goal.target_amount_known?, goal.target_amount_cents)}, recorded progress #{known_money(goal.current_amount_known?, goal.current_amount_cents)}, target date #{goal.target_on&.iso8601 || 'unknown'}."
@@ -230,7 +273,8 @@ module HouseholdFinance
     end
 
     def inventory_result(topic, total, rows, note)
-      lead = total.zero? ? "No active #{topic} are saved in your household plan. This does not establish zero balances or complete coverage." : "Saved household #{topic}: #{coverage_sentence(total, rows.length)}"
+      display_topic = topic == :goals ? "tracked goals" : topic.to_s
+      lead = total.zero? ? "No active #{display_topic} are saved in your household plan. This does not establish zero balances or complete coverage." : "Saved household #{display_topic}: #{coverage_sentence(total, rows.length)}"
       result(topic, ([ lead ] + rows + [ note ]).join("\n\n"), total_count: total, shown_count: rows.length, coverage: total > rows.length ? "bounded_saved_records" : "all_saved_records")
     end
 

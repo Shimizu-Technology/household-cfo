@@ -110,6 +110,37 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_includes response.answer, "Showing 6 of 8 current and future entries"
   end
 
+  test "income answer fits persistence limit using complete source blocks with truthful omitted coverage" do
+    20.times do |index|
+      source = income("Source #{index.to_s.rjust(2, '0')} #{'s' * 110}", 100_000)
+      6.times do |entry_index|
+        source.income_schedule_entries.create!(entry_type: "one_time", label: "Entry #{entry_index} #{'e' * 72}", amount_cents: 10_000, cadence: "one_time", effective_on: Date.new(2026, 10, 1).next_month(entry_index))
+      end
+    end
+    assert_read_financial_records_unchanged do
+      response = answer("List all my saved income sources and upcoming changes")
+      assert_operator response.answer.length, :<=, ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH
+      assert_equal 20, response.metadata[:total_count]
+      assert_operator response.metadata[:shown_count], :>, 0
+      assert_operator response.metadata[:shown_count], :<, 20
+      assert_equal response.metadata[:shown_count], response.metadata[:records].length
+      assert_equal "bounded_saved_records", response.metadata[:coverage]
+      assert_equal 22_000.0, response.metadata[:selected_month_amount]
+      assert_includes response.answer, "Showing #{response.metadata[:shown_count]} of 20 saved records"
+      assert_includes response.answer, "Monthly totals include all saved sources"
+      assert_includes response.answer, "Saved sources may not cover all household income"
+      assert_not_includes response.answer, "Showing all 20"
+      response.metadata[:records].each do |record|
+        assert_includes response.answer, record[:label]
+        record[:schedule_entries].each { |entry| assert_includes response.answer, entry[:label] }
+      end
+      omitted = @household.income_sources.order(:source_type, :label, :starts_on, :id).offset(response.metadata[:shown_count]).first
+      assert_not_includes response.answer, omitted.label
+      session = @household.chat_sessions.create!(user: @user, title: "Income persistence check")
+      assert session.chat_messages.create!(role: "assistant", content: response.answer).persisted?
+    end
+  end
+
   test "household debts keep unknown and zero distinct and do not read optional challenge cards" do
     @household.debts.create!(label: "Unknown Visa", debt_type: "credit_card", balance_cents: 0, balance_known: false, minimum_payment_cents: 0, minimum_payment_known: false)
     @household.debts.create!(label: "Paid card", debt_type: "credit_card", balance_cents: 0, balance_known: true, minimum_payment_cents: 0, minimum_payment_known: true, interest_rate_percent: 0)
@@ -146,6 +177,24 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_includes response.answer, "Travel (Travel): target unknown, recorded progress $0.00"
     assert_not_includes response.answer, "Runway"
     assert_includes response.answer, "do not move money"
+  end
+
+  test "primary household goal reads do not falsely report missing tracked goals" do
+    @household.update!(primary_goal: "Protect our essentials and build a cushion")
+    [ "What is my primary goal?", "What is my main goal?", "What is my household goal?" ].each do |message|
+      assert_read_financial_records_unchanged do
+        response = answer(message)
+        assert_equal "primary_goal", response.metadata[:topic]
+        assert_includes response.answer, @household.primary_goal
+        assert_not_includes response.answer, "No active goals"
+        assert_includes response.answer, "separate from tracked goal amounts"
+      end
+    end
+    assert_nil answer("What is my goal?")
+    @household.goals.create!(label: "Travel", goal_type: "travel", target_amount_cents: 100_000, target_amount_known: true)
+    assert_equal "goals", answer("Show my Travel goal").metadata[:topic]
+    assert_equal "goals", answer("Show my tracked household goal").metadata[:topic]
+    assert_equal "goals", answer("Show my household goals").metadata[:topic]
   end
 
   test "reader is household scoped and does not reuse chat assertions" do
@@ -266,6 +315,39 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
   test "spending advice baseline documents scenarios and mixed writes stay outside saved spending reads" do
     [ "Show my household spending categories and reduce Dining by $20", "What is my household spending baseline?", "What should my household Dining Out budget be?", "Show my household categories from the uploaded statement", "What if my household Dining budget were $500?" ].each do |message|
       assert_read_financial_records_unchanged { assert_nil answer(message), message }
+    end
+  end
+
+  test "long valid spending rows fit persistence by complete category blocks while full pending total remains" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    categories = 20.times.map { |index| manager.create_category!(name: "Category #{index.to_s.rjust(2, '0')} #{'c' * 68}", stack_key: "sinking_unexpected", monthly_amount: "21474836.47") }
+    year = @household.budget_years.find_by!(year: 2026)
+    june = year.budget_periods.find_by!(starts_on: "2026-06-01")
+    october = year.budget_periods.find_by!(starts_on: "2026-10-01")
+    categories.each do |category|
+      category.update!(active: false)
+      category.budget_allocations.find_by!(budget_period: october).destroy!
+      transaction = @household.household_transactions.create!(budget_period: june, occurred_on: "2026-06-02", merchant: "Historical cafe", total_amount_cents: 2_147_483_647, source_type: "manual_ui", status: "confirmed")
+      transaction.transaction_splits.create!(budget_category: category, amount_cents: 2_147_483_647)
+      october_transaction = @household.household_transactions.create!(budget_period: october, occurred_on: "2026-10-02", merchant: "Recorded cafe", total_amount_cents: 2_147_483_647, source_type: "manual_ui", status: "confirmed")
+      october_transaction.transaction_splits.create!(budget_category: category, amount_cents: 2_147_483_647)
+      @household.transaction_drafts.create!(budget_category: category, occurred_on: "2026-10-03", merchant: "Pending cafe", total_amount_cents: 2_147_483_647, source_type: "manual_ui", status: "pending")
+    end
+    assert_read_financial_records_unchanged do
+      response = answer("Show my household spending categories and planned amounts")
+      assert_operator response.answer.length, :<=, ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH
+      assert_equal 20, response.metadata[:total_count]
+      assert_operator response.metadata[:shown_count], :>, 0
+      assert_operator response.metadata[:shown_count], :<, 20
+      assert_equal response.metadata[:shown_count], response.metadata[:records].length
+      assert_equal "bounded_saved_records", response.metadata[:coverage]
+      assert_includes response.answer, "Showing #{response.metadata[:shown_count]} of 20 saved records"
+      assert_includes response.answer, "20 pending household transaction reviews"
+      assert_includes response.answer, "$429,496,729.40"
+      assert_includes response.answer, "A recorded $0 does not verify no spending"
+      response.metadata[:records].each { |record| assert_includes response.answer, record[:name] }
+      session = @household.chat_sessions.create!(user: @user, title: "Spending persistence check")
+      assert session.chat_messages.create!(role: "assistant", content: response.answer).persisted?
     end
   end
 
