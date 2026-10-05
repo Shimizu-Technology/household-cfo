@@ -9096,3 +9096,12 @@ function StatementIcon() {
 }
 
 export default App
+
+function UsersIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-label="Users">
+      <path d="M9.2 11.1a3.1 3.1 0 1 0 0-6.2 3.1 3.1 0 0 0 0 6.2ZM4.4 19.1c.55-3.1 2.2-4.65 4.8-4.65 2.58 0 4.22 1.55 4.78 4.65" className="icon-stroke" />
+      <path d="M16.2 11.4a2.55 2.55 0 1 0 0-5.1M15.7 14.45c2.05.18 3.35 1.58 3.9 4.2" className="icon-stroke" />
+    </svg>
+  )
+}

@@ -10344,3 +10344,13 @@ body:has(.app.is-chat-page) { overflow: hidden; }
   .is-selected-month-editor .annual-category-cell-editor { min-width: 0; }
   .is-selected-month-editor .annual-budget-table input, .is-selected-month-editor .annual-budget-table select { min-height: 44px; font-size: 16px; background: var(--paper); }
 }
+
+/* Give the BOG task labels enough space on narrow phones. */
+@media (max-width: 600px) {
+  .is-savings-navigation .tabs { grid-template-columns: minmax(44px, .8fr) minmax(54px, 1fr) minmax(40px, .8fr) minmax(78px, 1.3fr) minmax(44px, .8fr); }
+  .is-savings-navigation .tabs :where(button, a) { padding-inline: 4px; min-height: 44px; font-size: .75rem; }
+  .is-savings-navigation .tabs-label-full { display: none; }
+  .is-savings-navigation .tabs-label-short { display: inline; }
+  .is-savings-navigation .tabs-more-toggle svg { display: none; }
+  .document-import-summary-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

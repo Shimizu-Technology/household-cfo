@@ -73,6 +73,7 @@ function AccountForm({ account, review, mutate, disabled }: { account: SourceAcc
       <label>Printed count includes<select value={rowBasis} onChange={(event) => { setRowBasis(event.target.value as 'posted' | 'all'); setChecked(false) }}><option value="posted">Financial movements only</option><option value="all">All printed rows</option></select></label>
       <label>Review note<input required maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="What you checked or corrected" /></label>
       <label className="source-review-check"><input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} />I checked the account, period and the known amounts against my statement.</label>
+      {(!checked || !reason.trim()) && <p className="source-review-help">Add a short review note and check the confirmation to approve these account details.</p>}
       <button type="submit" disabled={!checked || !reason.trim() || loading || Boolean(loadError)}>Approve these account details</button>
     </fieldset>{error && <p role="alert">{error}</p>}
   </form>
