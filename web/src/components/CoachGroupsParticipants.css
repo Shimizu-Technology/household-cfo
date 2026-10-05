@@ -25,3 +25,8 @@
 .coach-participants-list > li { padding: .8rem; gap: .75rem; }
 .coach-participants-list > li > div > span { font-size: .85rem; }
 .coach-group-settings:focus-within, .coach-participant-access:focus-within { border-color: var(--line-strong); }
+
+.coach-roster-count { margin: 0; color: var(--muted); font-size: .85rem; }
+.coach-roster-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; }
+.coach-roster-pages > span { font-size: .85rem; color: var(--muted); }
+@media (max-width: 640px) { .coach-roster-pages .button { flex: 1 1 8rem; } .coach-roster-pages > span { width: 100%; text-align: center; order: -1; } }
