@@ -7,21 +7,25 @@ export type DebtAction = 'stage' | 'approve'
 export type DebtRate = { label: string; balance_cents: number | null; apr_bps: number | null; promotional_expires_on: string | null; post_promo_apr_bps: number | null }
 export type DebtTerms = { label: string; as_of_on: string; balance_cents: number | null; minimum_payment_cents: number | null; apr_bps: number | null; due_on: string | null; promotional_apr_bps: number | null; promotional_expires_on: string | null; post_promo_apr_bps: number | null; rate_segments: DebtRate[]; status: 'active' | 'paid_off' | 'archived' }
 export type DebtMapping = { source_tracked_account_id: number; source_account_identity_version_id: number; source_revision_approval_id: number; fingerprint: string }
-export type DebtSource = { source_tracked_account_id: number | null; source_account_identity_version_id: number | null; source_revision_approval_id: number | null; source_fingerprint: string | null; source_snapshot: Record<string, unknown> }
+export type HouseholdDebtMapping = { household_debt_id: number; fingerprint: string }
+export type HouseholdDebtCandidate = HouseholdDebtMapping & { label: string; snapshot: Record<string, unknown>; proposed_terms: { balance_cents: number | null; minimum_payment_cents: number | null; apr_bps: number | null }; linked_card_id: number | null; qualifications: string[] }
+export type HouseholdDebtSource = { household_debt_id: number | null; household_debt_fingerprint: string | null; household_debt_snapshot: Record<string, unknown> }
+export type DebtSource = HouseholdDebtSource & { source_tracked_account_id: number | null; source_account_identity_version_id: number | null; source_revision_approval_id: number | null; source_fingerprint: string | null; source_snapshot: Record<string, unknown> }
 export type DebtVersion = DebtSource & { id: number; savings_debt_card_id: number; savings_enrollment_id: number; previous_version_id: number | null; version_number: number; terms: DebtTerms; reason: string; digest: string; approved_at: string }
 export type DebtDraft = DebtSource & { id: number; savings_debt_card_id: number; savings_enrollment_id: number; terms: DebtTerms; base_version_id: number | null; base_head_lock_version: number; lock_version: number; status: 'pending' | 'approved'; approved_version_id: number | null; reason: string }
-export type DebtCard = { id: number; savings_enrollment_id: number; lock_version: number; current_version_id: number | null; source_tracked_account_id: number | null; current_version: DebtVersion | null }
+export type DebtCard = { id: number; savings_enrollment_id: number; lock_version: number; current_version_id: number | null; household_debt_id: number | null; source_tracked_account_id: number | null; current_version: DebtVersion | null }
 export type DebtCandidate = DebtMapping & { label: string; statement_as_of_on: string; snapshot: Record<string, unknown>; proposed_terms: { balance_cents: number | null; as_of_on: string; minimum_payment_cents: null; apr_bps: null }; qualifications: string[] }
 export type DebtEnvelope = { actor_scope: BaselineScope; cohort_id: number; enrollment_id: number }
 export type DebtPage<T> = DebtEnvelope & { records: T[]; next_cursor: number | null }
-export type DebtSummary = DebtEnvelope & { local_today: string; cards: { card_id: number; version_id: number; label: string; terms: DebtTerms; source_stale: boolean; qualifications: string[]; promotional_expired: boolean | null; snowball_eligible: boolean; avalanche_eligible: boolean }[]; portfolio_complete: false; known_balance_subtotal_cents: number | null; unknown_balance_count: number; stale_card_count: number; snowball_order: number[]; avalanche_order: number[]; extra_payment_cents: null; payoff_date: null; savings_credit_cents: null; qualifications: string[] }
-export type DebtInput = { terms: DebtTerms; card_id?: number; expected_version_id: number | null; expected_head_lock_version: number; source_mapping: DebtMapping | null; reason: string } | { draft_id: number; accepted: true; expected_draft_lock_version: number; expected_version_id: number | null; expected_head_lock_version: number }
+export type DebtSummary = DebtEnvelope & { local_today: string; cards: { card_id: number; version_id: number; label: string; terms: DebtTerms; source_stale: boolean; household_debt_id: number | null; household_terms_changed: boolean; qualifications: string[]; promotional_expired: boolean | null; snowball_eligible: boolean; avalanche_eligible: boolean }[]; portfolio_complete: false; known_balance_subtotal_cents: number | null; unknown_balance_count: number; stale_card_count: number; snowball_order: number[]; avalanche_order: number[]; extra_payment_cents: null; payoff_date: null; savings_credit_cents: null; qualifications: string[] }
+export type DebtInput = { terms: DebtTerms; card_id?: number; expected_version_id: number | null; expected_head_lock_version: number; source_mapping: DebtMapping | null; household_debt_mapping?: HouseholdDebtMapping | null; reason: string } | { draft_id: number; accepted: true; expected_draft_lock_version: number; expected_version_id: number | null; expected_head_lock_version: number }
 export type DebtMutation = DebtEnvelope & { record: DebtDraft | DebtVersion; replayed: boolean }
 export type DebtStatus = (DebtEnvelope & { state: 'committed'; record: DebtDraft | DebtVersion; replayed: true }) | (DebtEnvelope & { state: 'unknown'; can_retry: true }) | { state: 'in_flight'; actor_scope: BaselineScope; cohort_id: number; enrollment_id: number | null }
 export interface OptionalDebtApi {
   summary(cohortId: number, signal?: AbortSignal): Promise<DebtSummary>
   records<T extends DebtCard | DebtDraft | DebtVersion>(scope: DebtScope, kind: 'cards' | 'drafts' | 'versions', cursor?: number | null, signal?: AbortSignal): Promise<DebtPage<T>>
   candidates(scope: DebtScope, cursor?: number | null, signal?: AbortSignal): Promise<DebtPage<DebtCandidate>>
+  householdCandidates(scope: DebtScope, cursor?: number | null, signal?: AbortSignal): Promise<DebtPage<HouseholdDebtCandidate>>
   mutate(scope: DebtScope, action: DebtAction, input: DebtInput, key: string, signal?: AbortSignal): Promise<DebtMutation>
   status(scope: DebtScope, action: DebtAction, key: string, signal?: AbortSignal): Promise<DebtStatus>
 }
@@ -60,6 +64,10 @@ export function checkedDebtRecord<T extends DebtCard | DebtDraft | DebtVersion>(
     checkedDebtTerms(record.terms)
     if ('base_version_id' in record && (!Number.isSafeInteger(record.lock_version) || record.lock_version < 0 || !Number.isSafeInteger(record.base_head_lock_version) || record.base_head_lock_version < 0 || !['pending', 'approved'].includes(record.status))) throw new Error('The pending card review cannot be approved safely.')
   }
+  return record
+}
+export function checkedHouseholdDebtCandidate(record: HouseholdDebtCandidate): HouseholdDebtCandidate {
+  if (!Number.isSafeInteger(record.household_debt_id) || record.household_debt_id < 1 || !/^[0-9a-f]{64}$/.test(record.fingerprint) || typeof record.label !== 'string' || !record.label.trim() || !record.proposed_terms || !exact(record.proposed_terms.balance_cents) || !exact(record.proposed_terms.minimum_payment_cents) || !exact(record.proposed_terms.apr_bps) || record.proposed_terms.apr_bps !== null && record.proposed_terms.apr_bps > 99999 || record.linked_card_id !== null && (!Number.isSafeInteger(record.linked_card_id) || record.linked_card_id < 1) || !Array.isArray(record.qualifications)) throw new Error('The saved household card cannot be reviewed safely. Refresh before continuing.')
   return record
 }
 export function checkedDebtCandidate(record: DebtCandidate): DebtCandidate {

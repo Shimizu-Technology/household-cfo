@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_05_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -2752,13 +2752,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_000000) do
   create_table "savings_debt_cards", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "current_version_id"
+    t.bigint "household_debt_id"
     t.bigint "household_id", null: false
     t.integer "lock_version", default: 0, null: false
     t.bigint "savings_enrollment_id", null: false
     t.bigint "source_tracked_account_id"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.index ["household_debt_id"], name: "index_savings_debt_cards_on_household_debt_id"
     t.index ["household_id"], name: "index_savings_debt_cards_on_household_id"
+    t.index ["savings_enrollment_id", "household_debt_id"], name: "savings_debt_household_identity_once", unique: true, where: "(household_debt_id IS NOT NULL)"
     t.index ["savings_enrollment_id", "source_tracked_account_id"], name: "savings_debt_canonical_account_once", unique: true, where: "(source_tracked_account_id IS NOT NULL)"
     t.index ["savings_enrollment_id"], name: "index_savings_debt_cards_on_savings_enrollment_id"
     t.index ["source_tracked_account_id"], name: "index_savings_debt_cards_on_source_tracked_account_id"
@@ -2771,6 +2774,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_000000) do
     t.bigint "base_version_id"
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
+    t.string "household_debt_fingerprint"
+    t.bigint "household_debt_id"
+    t.jsonb "household_debt_snapshot", default: {}, null: false
     t.integer "lock_version", default: 0, null: false
     t.text "reason", default: "", null: false
     t.bigint "savings_debt_card_id", null: false
@@ -2784,12 +2790,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_000000) do
     t.jsonb "terms", null: false
     t.datetime "updated_at", null: false
     t.index ["created_by_user_id"], name: "index_savings_debt_drafts_on_created_by_user_id"
+    t.index ["household_debt_id"], name: "index_savings_debt_drafts_on_household_debt_id"
     t.index ["savings_debt_card_id"], name: "index_savings_debt_drafts_on_savings_debt_card_id"
     t.index ["savings_enrollment_id"], name: "index_savings_debt_drafts_on_savings_enrollment_id"
     t.index ["source_account_identity_version_id"], name: "idx_on_source_account_identity_version_id_d819faade4"
     t.index ["source_revision_approval_id"], name: "index_savings_debt_drafts_on_source_revision_approval_id"
     t.index ["source_tracked_account_id"], name: "index_savings_debt_drafts_on_source_tracked_account_id"
     t.check_constraint "base_head_lock_version >= 0 AND (status::text = 'pending'::text AND approved_version_id IS NULL OR status::text = 'approved'::text AND approved_version_id IS NOT NULL)", name: "savings_debt_draft_state"
+    t.check_constraint "household_debt_id IS NULL AND household_debt_fingerprint IS NULL AND household_debt_snapshot = '{}'::jsonb OR household_debt_id IS NOT NULL AND household_debt_fingerprint IS NOT NULL AND household_debt_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND jsonb_typeof(household_debt_snapshot) = 'object'::text AND household_debt_snapshot ? 'id'::text AND (household_debt_snapshot -> 'id'::text) = to_jsonb(household_debt_id)", name: "savings_debt_drafts_household_link_complete"
     t.check_constraint "length(reason) <= 500", name: "savings_debt_drafts_reason_length"
     t.check_constraint "savings_debt_terms_valid(terms)", name: "savings_debt_drafts_terms_valid"
     t.check_constraint "source_tracked_account_id IS NULL AND source_account_identity_version_id IS NULL AND source_revision_approval_id IS NULL AND source_fingerprint IS NULL AND source_snapshot = '{}'::jsonb OR source_tracked_account_id IS NOT NULL AND source_account_identity_version_id IS NOT NULL AND source_revision_approval_id IS NOT NULL AND source_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND jsonb_typeof(source_snapshot) = 'object'::text", name: "savings_debt_drafts_mapping_complete"
@@ -2800,6 +2808,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_000000) do
     t.bigint "approved_by_user_id", null: false
     t.datetime "created_at", null: false
     t.string "digest", null: false
+    t.string "household_debt_fingerprint"
+    t.bigint "household_debt_id"
+    t.jsonb "household_debt_snapshot", default: {}, null: false
     t.bigint "previous_version_id"
     t.text "reason", default: "", null: false
     t.bigint "savings_debt_card_id", null: false
@@ -2813,6 +2824,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_000000) do
     t.datetime "updated_at", null: false
     t.integer "version_number", null: false
     t.index ["approved_by_user_id"], name: "index_savings_debt_versions_on_approved_by_user_id"
+    t.index ["household_debt_id"], name: "index_savings_debt_versions_on_household_debt_id"
     t.index ["id", "savings_debt_card_id"], name: "savings_debt_version_head_identity", unique: true
     t.index ["savings_debt_card_id", "version_number"], name: "savings_debt_version_sequence", unique: true
     t.index ["savings_debt_card_id"], name: "index_savings_debt_versions_on_savings_debt_card_id"
@@ -2820,6 +2832,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_000000) do
     t.index ["source_account_identity_version_id"], name: "idx_on_source_account_identity_version_id_2f27e4803d"
     t.index ["source_revision_approval_id"], name: "index_savings_debt_versions_on_source_revision_approval_id"
     t.index ["source_tracked_account_id"], name: "index_savings_debt_versions_on_source_tracked_account_id"
+    t.check_constraint "household_debt_id IS NULL AND household_debt_fingerprint IS NULL AND household_debt_snapshot = '{}'::jsonb OR household_debt_id IS NOT NULL AND household_debt_fingerprint IS NOT NULL AND household_debt_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND jsonb_typeof(household_debt_snapshot) = 'object'::text AND household_debt_snapshot ? 'id'::text AND (household_debt_snapshot -> 'id'::text) = to_jsonb(household_debt_id)", name: "savings_debt_versions_household_link_complete"
     t.check_constraint "length(reason) <= 500", name: "savings_debt_versions_reason_length"
     t.check_constraint "savings_debt_terms_valid(terms)", name: "savings_debt_versions_terms_valid"
     t.check_constraint "source_tracked_account_id IS NULL AND source_account_identity_version_id IS NULL AND source_revision_approval_id IS NULL AND source_fingerprint IS NULL AND source_snapshot = '{}'::jsonb OR source_tracked_account_id IS NOT NULL AND source_account_identity_version_id IS NOT NULL AND source_revision_approval_id IS NOT NULL AND source_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND jsonb_typeof(source_snapshot) = 'object'::text", name: "savings_debt_versions_mapping_complete"
@@ -3927,11 +3940,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_000000) do
   add_foreign_key "savings_daily_reflections", "savings_daily_purchases", column: ["savings_daily_purchase_id", "savings_enrollment_id"], primary_key: ["id", "savings_enrollment_id"], name: "daily_reflection_purchase_scope", on_delete: :restrict
   add_foreign_key "savings_daily_reflections", "savings_daily_reflection_versions", column: ["current_version_id", "id"], primary_key: ["id", "savings_daily_reflection_id"], name: "savings_daily_reflections_current_scope", on_delete: :restrict
   add_foreign_key "savings_daily_reflections", "savings_enrollments"
+  add_foreign_key "savings_debt_cards", "debts", column: "household_debt_id"
   add_foreign_key "savings_debt_cards", "households"
   add_foreign_key "savings_debt_cards", "savings_debt_versions", column: ["current_version_id", "id"], primary_key: ["id", "savings_debt_card_id"], name: "savings_debt_current_scope"
   add_foreign_key "savings_debt_cards", "savings_enrollments"
   add_foreign_key "savings_debt_cards", "source_tracked_accounts"
   add_foreign_key "savings_debt_cards", "users"
+  add_foreign_key "savings_debt_drafts", "debts", column: "household_debt_id"
   add_foreign_key "savings_debt_drafts", "savings_debt_cards"
   add_foreign_key "savings_debt_drafts", "savings_debt_versions", column: ["approved_version_id", "savings_debt_card_id"], primary_key: ["id", "savings_debt_card_id"], name: "savings_debt_approved_scope"
   add_foreign_key "savings_debt_drafts", "savings_debt_versions", column: ["base_version_id", "savings_debt_card_id"], primary_key: ["id", "savings_debt_card_id"], name: "savings_debt_base_scope"
@@ -3940,6 +3955,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_000000) do
   add_foreign_key "savings_debt_drafts", "source_revision_approvals"
   add_foreign_key "savings_debt_drafts", "source_tracked_accounts"
   add_foreign_key "savings_debt_drafts", "users", column: "created_by_user_id"
+  add_foreign_key "savings_debt_versions", "debts", column: "household_debt_id"
   add_foreign_key "savings_debt_versions", "savings_debt_cards"
   add_foreign_key "savings_debt_versions", "savings_debt_versions", column: ["previous_version_id", "savings_debt_card_id"], primary_key: ["id", "savings_debt_card_id"], name: "savings_debt_previous_scope"
   add_foreign_key "savings_debt_versions", "savings_enrollments"
@@ -4357,6 +4373,42 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_05_000000) do
   SQL
   execute <<~'SQL'
     CREATE TRIGGER savings_debt_versions_guard BEFORE INSERT OR DELETE OR UPDATE ON public.savings_debt_versions FOR EACH ROW EXECUTE FUNCTION savings_debt_scope_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.savings_debt_household_link_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE card savings_debt_cards; version savings_debt_versions; debt debts;
+    BEGIN
+      IF TG_TABLE_NAME='savings_debt_cards' THEN
+        card := NEW;
+        IF NEW.current_version_id IS NOT NULL THEN
+          SELECT * INTO STRICT version FROM savings_debt_versions WHERE id=NEW.current_version_id;
+          IF NEW.household_debt_id IS DISTINCT FROM version.household_debt_id THEN RAISE EXCEPTION 'card household link must match approved version'; END IF;
+        ELSIF NEW.household_debt_id IS NOT NULL THEN RAISE EXCEPTION 'card household link requires approved terms'; END IF;
+      ELSE
+        SELECT * INTO STRICT card FROM savings_debt_cards WHERE id=NEW.savings_debt_card_id;
+        IF TG_TABLE_NAME='savings_debt_drafts' AND TG_OP='UPDATE' THEN
+          SELECT * INTO STRICT version FROM savings_debt_versions WHERE id=NEW.approved_version_id;
+          IF ROW(NEW.household_debt_id,NEW.household_debt_fingerprint,NEW.household_debt_snapshot) IS DISTINCT FROM ROW(version.household_debt_id,version.household_debt_fingerprint,version.household_debt_snapshot) THEN RAISE EXCEPTION 'approved household link does not match draft'; END IF;
+        END IF;
+      END IF;
+      IF NEW.household_debt_id IS NOT NULL THEN
+        SELECT * INTO STRICT debt FROM debts WHERE id=NEW.household_debt_id;
+        IF debt.household_id<>card.household_id OR debt.debt_type<>'credit_card' THEN RAISE EXCEPTION 'household card link scope invalid'; END IF;
+      END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_debt_cards_household_link_guard BEFORE INSERT OR UPDATE ON public.savings_debt_cards FOR EACH ROW EXECUTE FUNCTION savings_debt_household_link_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_debt_drafts_household_link_guard BEFORE INSERT OR UPDATE ON public.savings_debt_drafts FOR EACH ROW EXECUTE FUNCTION savings_debt_household_link_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER savings_debt_versions_household_link_guard BEFORE INSERT OR UPDATE ON public.savings_debt_versions FOR EACH ROW EXECUTE FUNCTION savings_debt_household_link_guard();
   SQL
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_daily_version_guard()

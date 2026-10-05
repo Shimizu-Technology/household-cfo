@@ -7,6 +7,7 @@ Rails.application.routes.draw do
       get "participant_programs", to: "participant_programs#index"
       get "savings_challenge/debt", to: "savings_debt#show"
       get "savings_challenge/debt/records", to: "savings_debt#records"
+      get "savings_challenge/debt/household_candidates", to: "savings_debt#household_candidates"
       get "savings_challenge/debt/source_candidates", to: "savings_debt#source_candidates"
       get "savings_challenge/debt/request_status", to: "savings_debt#request_status"
       post "savings_challenge/debt/actions/:review_action", to: "savings_debt#mutate"

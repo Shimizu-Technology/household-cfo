@@ -5,6 +5,7 @@ class SavingsDebtDraft < ApplicationRecord
   belongs_to :base_version, class_name: "SavingsDebtVersion", optional: true
   belongs_to :approved_version, class_name: "SavingsDebtVersion", optional: true
   belongs_to :source_tracked_account, optional: true
+  belongs_to :household_debt, class_name: "Debt", optional: true
   belongs_to :source_account_identity_version, optional: true
   belongs_to :source_revision_approval, optional: true
   validates :status, inclusion: { in: %w[pending approved] }

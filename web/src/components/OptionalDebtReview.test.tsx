@@ -3,7 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError } from '../api'
 import { OptionalDebtReview } from './OptionalDebtReview'
-import { debtEnvelope, debtFixtureScope, fictionalDraft, syntheticDebtApi } from '../test/optionalDebtFixtures'
+import { OptionalDebtTerms } from './OptionalDebtTerms'
+import { debtEnvelope, debtFixtureScope, fictionalDraft, fictionalVersion, fictionalHouseholdCandidate, fictionalCandidate, syntheticDebtApi } from '../test/optionalDebtFixtures'
 import { debtRecoveryKey, saveDebtIdentity } from '../lib/optionalDebtRecovery'
 import type { DebtInput, OptionalDebtApi } from '../lib/optionalDebt'
 beforeEach(() => sessionStorage.clear())
@@ -35,6 +36,7 @@ describe('optional private card review', () => {
     next.summary = async () => ({ ...summary, actor_scope: { ...summary.actor_scope, user_id: 999 } })
     const rows = next.records; next.records = async (...args) => ({ ...await rows(...args), actor_scope: { ...debtEnvelope.actor_scope, user_id: 999 } })
     const candidates = next.candidates; next.candidates = async (...args) => ({ ...await candidates(...args), actor_scope: { ...debtEnvelope.actor_scope, user_id: 999 } })
+    const householdCandidates = next.householdCandidates; next.householdCandidates = async (...args) => ({ ...await householdCandidates(...args), actor_scope: { ...debtEnvelope.actor_scope, user_id: 999 } })
     view.rerender(<OptionalDebtReview actorScope={{ ...debtFixtureScope, user_id: 999 }} cohortId={701} onClose={vi.fn()} api={next}/>)
     await screen.findByText('No optional card terms approved yet. Having no debt is a valid starting point.'); release()
     await waitFor(() => expect(screen.queryByText('Fictional paid-off card')).toBeNull())
@@ -51,9 +53,72 @@ it('program A/B/A retains uncertain new-card stage identity and cannot start a d
   b.summary = async (...args) => ({ ...await summary(...args), cohort_id: 702, enrollment_id: 802 })
   b.records = async (...args) => ({ ...await records(...args), cohort_id: 702, enrollment_id: 802 })
   b.candidates = async (...args) => ({ ...await candidates(...args), cohort_id: 702, enrollment_id: 802 })
+  const householdCandidates = b.householdCandidates; b.householdCandidates = async (...args) => ({ ...await householdCandidates(...args), cohort_id: 702, enrollment_id: 802 })
   view.rerender(<OptionalDebtReview actorScope={debtFixtureScope} cohortId={702} onClose={vi.fn()} api={b}/>)
   await screen.findByText('No optional card terms approved yet. Having no debt is a valid starting point.'); expect(screen.queryByRole('button', { name: 'Check earlier card result' })).toBeNull()
   view.rerender(<OptionalDebtReview actorScope={debtFixtureScope} cohortId={701} onClose={vi.fn()} api={a}/>)
   await screen.findByRole('button', { name: 'Check earlier card result' }); expect(sessionStorage.getItem(debtRecoveryKey)).toContain(originalKey)
   expect((screen.getByRole('button', { name: 'Add optional card terms' }) as HTMLButtonElement).disabled).toBe(true); expect(a.mutate).toHaveBeenCalledOnce(); expect(screen.queryByDisplayValue('Private fictional label')).toBeNull()
+})
+
+it('links a saved household card only through a pending proposal and separate approval, retaining zero and unknown values', async () => {
+  const api = syntheticDebtApi({ empty: true }); api.mutate = vi.fn(api.mutate); open(api)
+  fireEvent.click(await screen.findByRole('button', { name: 'Add optional card terms' }))
+  fireEvent.change(screen.getByLabelText('How will you review these terms?'), { target: { value: 'household' } })
+  fireEvent.change(screen.getByLabelText('Saved household credit card'), { target: { value: '950' } })
+  expect((screen.getByLabelText('Balance in US dollars') as HTMLInputElement).value).toBe('420.00')
+  expect((screen.getByLabelText('Required minimum in US dollars') as HTMLInputElement).value).toBe('0.00')
+  expect((screen.getByLabelText('APR in percent') as HTMLInputElement).value).toBe('')
+  fireEvent.click(screen.getByRole('button', { name: 'Review pending proposal' }))
+  expect(api.mutate).not.toHaveBeenCalled()
+  expect(screen.getByText(/Link to Fictional saved household card; household values stay unchanged/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'I reviewed this exact pending proposal and mapping choice.' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save pending proposal' }))
+  await screen.findByText('Pending proposal saved. Review it separately before approving.')
+  expect(vi.mocked(api.mutate).mock.calls[0][2]).toEqual(expect.objectContaining({ household_debt_mapping: { household_debt_id: 950, fingerprint: 'c'.repeat(64) }, terms: expect.objectContaining({ minimum_payment_cents: 0, apr_bps: null }) }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Review approval for draft 300' }))
+  await screen.findByRole('heading', { name: 'Review before approving card terms' })
+  expect(screen.getByText(/Its reviewed snapshot is retained; household values stay unchanged/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'I accept these exact reviewed card terms and mapping.' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Approve reviewed card terms' }))
+  await screen.findByRole('button', { name: 'Review current household terms for Fictional saved household card' })
+  fireEvent.click(screen.getByRole('button', { name: 'Review current household terms for Fictional saved household card' }))
+  expect((screen.getByLabelText('Saved household credit card') as HTMLSelectElement).value).toBe('950')
+  fireEvent.click(screen.getByRole('button', { name: 'Review pending proposal' }))
+  expect(screen.getByText('Explain this correction before reviewing it.')).toBeTruthy()
+})
+it('rejects a foreign household candidate envelope before displaying saved financial facts', async () => {
+  const api = syntheticDebtApi(); api.householdCandidates = async () => ({ ...debtEnvelope, actor_scope: { ...debtEnvelope.actor_scope, household_id: 999 }, records: [], next_cursor: null })
+  open(api); await screen.findByText(/Financial details have been cleared/)
+  expect(screen.queryByText('Fictional paid-off card')).toBeNull()
+})
+it('shows a changed saved household snapshot and disables approval until a fresh proposal is reviewed', async () => {
+  const api = syntheticDebtApi({ empty: true }), mutate = api.mutate, candidates = api.householdCandidates
+  let changed = false
+  api.mutate = async (...args) => { const result = await mutate(...args); if (args[1] === 'stage') changed = true; return result }
+  api.householdCandidates = async (...args) => { const page = await candidates(...args); return { ...page, records: page.records.map(row => ({ ...row, fingerprint: changed ? 'd'.repeat(64) : row.fingerprint })) } }
+  open(api)
+  fireEvent.click(await screen.findByRole('button', { name: 'Add optional card terms' }))
+  fireEvent.change(screen.getByLabelText('How will you review these terms?'), { target: { value: 'household' } })
+  fireEvent.change(screen.getByLabelText('Saved household credit card'), { target: { value: '950' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Review pending proposal' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'I reviewed this exact pending proposal and mapping choice.' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save pending proposal' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Review approval for draft 300' }))
+  await screen.findByText('The saved household card changed after this proposal. Re-review its current values; this stale proposal cannot be approved.')
+  expect((screen.getByRole('button', { name: 'Approve reviewed card terms' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+it('statement corrections retain the explicitly linked household identity without copying household values', () => {
+  const version = { ...fictionalVersion(), household_debt_id: 950, household_debt_fingerprint: fictionalHouseholdCandidate.fingerprint, household_debt_snapshot: fictionalHouseholdCandidate.snapshot }
+  const card = { id: 1, savings_enrollment_id: 801, lock_version: 1, current_version_id: 10, source_tracked_account_id: null, household_debt_id: 950, current_version: version }
+  const review = vi.fn()
+  render(<OptionalDebtTerms localToday="2026-11-01" card={card} candidates={[{ ...fictionalCandidate, statement_as_of_on: '2026-11-01', proposed_terms: { ...fictionalCandidate.proposed_terms, as_of_on: '2026-11-01' } }]} householdCandidates={[{ ...fictionalHouseholdCandidate, linked_card_id: 1 }]} busy={false} onReview={review}/>)
+  fireEvent.change(screen.getByLabelText('How will you review these terms?'), { target: { value: 'source' } })
+  expect((screen.getByLabelText('Link to a saved household card (optional)') as HTMLSelectElement).value).toBe('950')
+  fireEvent.change(screen.getByLabelText('Exact approved liability account'), { target: { value: '901' } })
+  expect((screen.getByLabelText('Balance in US dollars') as HTMLInputElement).value).toBe('870.00')
+  fireEvent.change(screen.getByLabelText('Reason for this review (required for correction)'), { target: { value: 'Reviewed the current statement' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Review pending proposal' }))
+  expect(review).toHaveBeenCalledWith(expect.objectContaining({ terms: expect.objectContaining({ balance_cents: 87000, minimum_payment_cents: null }), source_mapping: expect.objectContaining({ source_account_identity_version_id: 901 }), household_debt_mapping: { household_debt_id: 950, fingerprint: fictionalHouseholdCandidate.fingerprint } }))
 })

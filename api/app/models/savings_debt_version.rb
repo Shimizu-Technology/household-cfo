@@ -5,6 +5,7 @@ class SavingsDebtVersion < ApplicationRecord
   belongs_to :approved_by_user, class_name: "User"
   belongs_to :previous_version, class_name: "SavingsDebtVersion", optional: true
   belongs_to :source_tracked_account, optional: true
+  belongs_to :household_debt, class_name: "Debt", optional: true
   belongs_to :source_account_identity_version, optional: true
   belongs_to :source_revision_approval, optional: true
   validates :approved_at, :digest, presence: true

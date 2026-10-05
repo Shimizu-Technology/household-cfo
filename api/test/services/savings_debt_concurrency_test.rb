@@ -53,6 +53,23 @@ class SavingsDebtConcurrencyTest < ActiveSupport::TestCase
     end
   end
 
+  test "two optional identities cannot concurrently claim one saved household card" do
+    with_savings_runtime do
+      savings_enroll
+      debt = @savings_household.debts.create!(label: "Fictional shared card", debt_type: "credit_card", balance_cents: 30_000)
+      candidate = SavingsChallenge::Debt::HouseholdMapping.new(@savings_household).candidate(debt)
+      drafts = 2.times.map do
+        savings_run("debt.stage", { terms: debt_terms, expected_version_id: nil, expected_head_lock_version: 0,
+          household_debt_mapping: { household_debt_id: debt.id, fingerprint: candidate[:fingerprint] } }).subject
+      end
+      outcomes = concurrently(drafts.map { |draft| debt_approval_input(draft) }) { |input| savings_run("debt.approve", input) }
+      assert_equal 1, outcomes.count { |row| row.is_a?(HouseholdFinance::Operations::Runner::Result) }, outcomes.map(&:inspect).join("\n")
+      assert_equal 1, outcomes.count { |row| row.is_a?(ArgumentError) }
+      assert_equal 1, SavingsDebtCard.where(savings_enrollment: @savings_enrollment, household_debt_id: debt.id).count
+      assert_equal 30_000, debt.reload.balance_cents
+    end
+  end
+
   test "status recovery returns bounded in-flight metadata during a competing household transaction" do
     with_savings_runtime do
       savings_enroll
