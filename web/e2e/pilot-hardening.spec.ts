@@ -2353,7 +2353,7 @@ test('account manager routes Mia account reviews to the exact mobile-safe manual
   await expect(card).toContainText('Emergency Fund')
   await card.getByRole('button', { name: 'Open manual controls' }).click()
 
-  await expect(page).toHaveURL(/#My%20Profile$/)
+  await expect(page).toHaveURL(/#My%20Money$/)
   const manager = page.locator('.account-manager')
   const accountName = manager.getByLabel('Account name')
   await expect(accountName).toHaveValue('Emergency reserve')
@@ -3364,7 +3364,7 @@ test('Ask Mia uploads an attachment with its question and renders the grounded r
 test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
   await openSection(page, 'Budget')
-  await expect(page.getByRole('heading', { name: 'Money in, money out, and what is left.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your annual plan' })).toBeVisible()
   const outflowBreakdown = page.getByRole('group', { name: 'Monthly money out breakdown' })
   await expect(outflowBreakdown).toContainText('Category plan')
   await expect(outflowBreakdown).toContainText('$5,300.00')
@@ -3779,7 +3779,7 @@ test('focused manual budget tools expose exact controls without a page hunt and 
   await page.getByRole('link', { name: 'Home', exact: true }).click()
   await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')
   await expect(januaryDining).toHaveValue('650')
-  await expect(page.getByRole('heading', { name: 'Money in, money out, and what is left.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your annual plan' })).toBeVisible()
   await page.goBack()
   await expect(page).toHaveURL(/#Budget$/)
   await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')

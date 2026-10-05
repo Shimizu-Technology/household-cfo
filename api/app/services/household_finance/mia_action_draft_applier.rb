@@ -4,10 +4,11 @@ module HouseholdFinance
     StaleDraftError = Class.new(StandardError)
     INCOMPLETE_DRAFT_MESSAGE = "Mia’s review card is incomplete. Ask Mia to draft a fresh edit. Nothing changed."
 
-    def initialize(draft, user:)
+    def initialize(draft, user:, cohort_membership: nil)
       @draft = draft
       @household = draft.household
       @user = user
+      @cohort_membership = cohort_membership
     end
 
     def call(idempotency_key: nil, selected_item_ids: nil)
@@ -23,6 +24,7 @@ module HouseholdFinance
         household.lock!
         draft.lock!
         ensure_actor_membership!
+        ::Mia::ActionDraftScope.authorize!(draft, user: user, membership: @cohort_membership)
         existing = household.mia_action_draft_applications.find_by(user: user, idempotency_key: key)
         return replay_application(existing, request_fingerprint) if existing
         raise ArgumentError, "Mia action draft is no longer available for review" unless draft.reviewable?
@@ -206,7 +208,7 @@ module HouseholdFinance
         raise KeyError, "mismatched prepared operation"
       end
 
-      Operations::Runner.new(household, user: user).run_prepared(
+      Operations::Runner.new(household, user: user, cohort_membership: @cohort_membership).run_prepared(
         prepared: item.prepared_operation,
         prepared_fingerprint: item.prepared_operation_fingerprint,
         idempotency_key: @application_item_key || "mia-action-item:#{item.id}",

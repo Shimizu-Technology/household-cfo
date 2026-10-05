@@ -126,7 +126,7 @@ module HouseholdFinance
         baseline_surplus: dollars(snapshot.fetch(:baseline_surplus_cents)),
         stacks: snapshot_builder.budget_stacks,
         custom_categories_note: "Rename these into the language of your household. The stack matters more than perfect accounting labels.",
-        annual_plan: annual_plan
+        annual_plan: scoped_annual_plan
       }
     end
 
@@ -340,6 +340,18 @@ module HouseholdFinance
 
     def annual_plan
       @annual_plan ||= annual_budget_manager.plan_data
+    end
+
+    def scoped_annual_plan
+      plan = annual_plan.deep_dup
+      reviews = Array(plan[:pending_mia_action_drafts])
+      drafts = household.mia_action_drafts.where(id: reviews.map { |review| review[:id] })
+        .includes(source_chat_message: :chat_session).index_by(&:id)
+      plan[:pending_mia_action_drafts] = reviews.select do |review|
+        draft = drafts[review[:id]]
+        draft && ::Mia::ActionDraftScope.visible?(draft, user: user, membership: cohort_membership)
+      end
+      plan
     end
 
     def annual_budget_manager

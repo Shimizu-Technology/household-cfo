@@ -2,10 +2,11 @@ module HouseholdFinance
   class MiaActionDraftCanceler
     Result = Struct.new(:success?, :draft, :application, :errors, :replayed?, :conflict?, keyword_init: true)
 
-    def initialize(draft, user:)
+    def initialize(draft, user:, cohort_membership: nil)
       @draft = draft
       @household = draft.household
       @user = user
+      @cohort_membership = cohort_membership
     end
 
     def call(idempotency_key: nil)
@@ -16,6 +17,7 @@ module HouseholdFinance
         household.lock!
         draft.lock!
         ensure_actor_membership!
+        ::Mia::ActionDraftScope.authorize!(draft, user: user, membership: @cohort_membership)
         items = draft.mia_action_items.lock.order(:position, :id).to_a
         existing = household.mia_action_draft_applications.find_by(user: user, idempotency_key: key)
         return replay(existing, request_fingerprint(Array(existing.selected_item_ids))) if existing

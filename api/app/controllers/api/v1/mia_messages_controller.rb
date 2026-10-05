@@ -82,7 +82,26 @@ module Api
           )
         end
 
-        return render_savings_response(session, content, attached_imports, message_request: message_request) if savings_program_selected?
+        if attached_imports.empty? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+          saved_answer = HouseholdFinance::SavedFinancialRecordsAnswerer.new(current_household,
+            message: content, year: budget_year_param, month: budget_month_param).call
+          if saved_answer
+            if savings_program_selected? && saved_answer.metadata[:topic].in?(%w[debts goals]) && !content.match?(/\b(?:household|tracked)\b/i)
+              return render_household_scope_clarification(session, content, message_request: message_request)
+            end
+            return render_saved_records_response(session, content, saved_answer, message_request: message_request)
+          end
+        end
+
+        if savings_program_selected?
+          household_request = attached_imports.empty? ? ::Mia::HouseholdPlanRequest.classify(content) : :challenge
+          if household_request == :ambiguous
+            return render_household_scope_clarification(session, content, message_request: message_request)
+          end
+          return render_savings_response(session, content, attached_imports, message_request: message_request) unless household_request == :household
+
+          @savings_household_request = true
+        end
 
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
           session,
@@ -132,6 +151,7 @@ module Api
           transcript: transcript,
           selected_month: budget_month_param
         ).call
+        scope_pending_action_reviews!(intent_context)
         intent_result = prompt_injection_intent_result(content, intent_context: intent_context) || setup_guide_intent_result(content)
         intent_result ||= HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
@@ -143,6 +163,9 @@ module Api
             resolved_message: content, needs_clarification: false, clarification: "",
             topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic"
           )
+        end
+        if @savings_household_request && intent_result && !::Mia::HouseholdPlanRequest.allowed_intent?(intent_result)
+          return render_household_scope_clarification(session, content, message_request: message_request)
         end
         if attached_imports.any?
           return render_attached_document_response(
@@ -169,7 +192,7 @@ module Api
           )
         else
           intent_plan = annual_budget_manager.plan_data
-          routed = route_legacy_message(
+          routed = (@savings_household_request ? method(:route_household_plan_without_provider) : method(:route_legacy_message)).call(
             content,
             conversation_context: conversation_context,
             annual_budget_manager: annual_budget_manager
@@ -224,6 +247,10 @@ module Api
         )
         assistant_content = append_persona_capability_boundary(content, assistant_content)
         assistant_content = append_prompt_injection_boundary(content, assistant_content)
+        if @savings_household_request
+          chat_session_scope.authorize!
+          assistant_content = "#{assistant_content}\n\nHousehold plan: this review does not approve challenge savings, change your challenge target, or update optional card terms."
+        end
         user_message, assistant_message = persist_chat_messages(
           session,
           content,
@@ -232,6 +259,10 @@ module Api
           assistant_presentation: assistant_presentation
         )
         mia_action_draft = action_result&.existing_draft || persist_mia_action_draft(action_result, user_message, assistant_message)
+        if mia_action_draft && !::Mia::ActionDraftScope.visible?(mia_action_draft, user: current_user, membership: current_cohort_membership)
+          mia_action_draft = nil
+          assistant_message.update!(content: "Open the program where Mia prepared that review card. Nothing changed.")
+        end
         if action_result&.proposal && mia_action_draft.nil?
           assistant_message.update!(content: action_draft_persistence_failure_message)
           assistant_message.coach_content_citations.delete_all
@@ -290,6 +321,7 @@ module Api
               return
             end
 
+            detach_action_reviews_before_clearing(session)
             session.chat_messages.delete_all
             session.mia_message_requests.delete_all
             session.update!(rolling_summary: nil, open_topics: [], active_topic: {}, last_compacted_message_id: nil, last_compacted_at: nil)
@@ -299,6 +331,65 @@ module Api
       end
 
       private
+
+      def detach_action_reviews_before_clearing(session)
+        message_ids = session.chat_messages.select(:id)
+        scope = current_household.mia_action_drafts
+        scope.where(source_chat_message_id: message_ids).or(scope.where(assistant_chat_message_id: message_ids))
+          .includes(source_chat_message: :chat_session, assistant_chat_message: :chat_session).find_each do |draft|
+          origin = draft.source_chat_message&.chat_session || draft.assistant_chat_message&.chat_session
+          metadata = draft.metadata.to_h
+          metadata = metadata.merge("review_program_scope" => { "cohort_id" => origin&.cohort_id, "user_id" => origin&.user_id }) unless metadata.key?("review_program_scope")
+          attributes = { metadata: metadata }
+          attributes[:source_chat_message_id] = nil if draft.source_chat_message&.chat_session_id == session.id
+          attributes[:assistant_chat_message_id] = nil if draft.assistant_chat_message&.chat_session_id == session.id
+          draft.update!(attributes)
+        end
+      end
+
+      def scope_pending_action_reviews!(context)
+        reviews = Array(context[:pending_budget_reviews])
+        drafts = current_household.mia_action_drafts.where(id: reviews.map { |review| review[:id] })
+          .includes(source_chat_message: :chat_session).index_by(&:id)
+        context[:pending_budget_reviews] = reviews.select do |review|
+          draft = drafts[review[:id]]
+          draft && ::Mia::ActionDraftScope.visible?(draft, user: current_user, membership: current_cohort_membership)
+        end
+      end
+
+      def render_saved_records_response(session, content, result, message_request:)
+        render_household_read_response(session, content, result.answer, message_request: message_request)
+      end
+
+      def route_household_plan_without_provider(content, conversation_context:, annual_budget_manager:)
+        followup = HouseholdFinance::ConversationFollowupResolver.new(content, conversation_context: conversation_context).call
+        action_result = HouseholdFinance::MiaActionDraftBuilder.new(current_household, content,
+          user: current_user, annual_budget_manager: annual_budget_manager,
+          selected_month: budget_month_param, raw_input: content).call
+        { followup: followup, action_result: action_result,
+          annual_plan: action_result&.annual_plan || annual_budget_manager.read_only_plan_data,
+          direct_answer: action_result ? nil : "I could not safely prepare that household edit. Restate the record, replacement value, and effective month, or use My Money. Nothing changed." }
+      end
+
+      def render_household_scope_clarification(session, content, message_request:)
+        render_household_read_response(session, content, ::Mia::HouseholdPlanRequest.clarification,
+          message_request: message_request)
+      end
+
+      def render_household_read_response(session, content, answer, message_request:)
+        ApplicationRecord.transaction do
+          current_household.lock!
+          chat_session_scope.authorize!
+          user_message, assistant_message = persist_chat_messages(session, content, [], answer)
+          retire_document_evidence_state(session) if document_evidence_topic_present?(session)
+          payload = { user_message: serialize_chat_message(user_message, author: "You"),
+            assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil,
+            transaction_draft: nil, budget: nil, spending_report: nil }
+          complete_message_request(message_request, payload)
+          record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: [])
+          render json: payload, status: :created
+        end
+      end
 
       def savings_program_selected?
         current_cohort_membership&.cohort&.savings_challenge_enabled == true
@@ -1085,7 +1176,10 @@ module Api
       def persist_mia_action_draft(action_result, user_message, assistant_message)
         return unless action_result&.proposal
 
-        action_result.proposal.create_draft!(source_chat_message: user_message, assistant_chat_message: assistant_message)
+        current_household.with_lock do
+          chat_session_scope.authorize!
+          action_result.proposal.create_draft!(source_chat_message: user_message, assistant_chat_message: assistant_message)
+        end
       rescue StandardError => e
         Rails.logger.error("Mia action draft could not be persisted chat_message_id=#{assistant_message&.id}: #{e.class}: #{e.message}")
         nil

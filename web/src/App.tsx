@@ -8723,8 +8723,8 @@ function AnnualBudgetPlanner({
       <div className="annual-budget-heading">
         <div>
           <p className="eyebrow">Annual budget · {plan.year}</p>
-          <h3>Money in, money out, and what is left.</h3>
-          <p>Use {assistantName} for the fastest update, or open the manual tools when you want exact control.</p>
+          <h3>Your annual plan</h3>
+          <p>Choose the month, review your plan, or make a change.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
             <button type="button" className="secondary-button budget-year-arrow" aria-label="Previous year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>‹</button>
             <strong className="budget-year-label">{plan.year}</strong>

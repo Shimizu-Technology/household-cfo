@@ -54,7 +54,10 @@ module HouseholdFinance
             summary: summary,
             rationale: rationale,
             source_prompt: source_prompt,
-            metadata: metadata
+            metadata: metadata.merge(review_program_scope: {
+              cohort_id: source_chat_message.chat_session.cohort_id,
+              user_id: source_chat_message.chat_session.user_id
+            })
           )
 
           items.each_with_index do |item, index|
@@ -342,7 +345,12 @@ module HouseholdFinance
       amount_match = body.match(/(?:at|for|with|to)\s+(?<amount>#{MONEY_PATTERN})(?:\s*(?:per month|monthly|\/month))?/i)
       amount_cents = amount_match ? amount_cents_from(amount_match[:amount]) : 0
       stack_key = stack_key_from_text(body) || "discretionary"
-      name = clean_new_category_name(body.sub(amount_match.to_s, ""))
+      name_body = body.sub(amount_match.to_s, "")
+      # Scope/stack descriptors before an explicit name are not part of its label.
+      # Keep words such as "household" when the participant includes them after
+      # "called"/"named", rather than stripping them from every category name.
+      name_body = name_body.split(/\b(?:called|named)\s+/i, 2).last
+      name = clean_new_category_name(name_body)
       name = name.gsub(/\b(?:for|in)\s+(?:#{MonthTerms.pattern})(?:\s+\d{4})?\b/i, " ").squish
       name = name.gsub(/\b(?:budget|category|line item|row|for|called|named|new|#{stack_alias_pattern})\b/i, " ").squish
       return validation_result("Tell me the category name before I draft a new budget row.") if name.blank?

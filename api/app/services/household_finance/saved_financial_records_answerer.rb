@@ -81,7 +81,7 @@ module HouseholdFinance
         end
       end
       lines << inventory[:completeness_note]
-      result(:income, lines.join("\n"), inventory)
+      result(:income, lines.join("\n\n"), inventory)
     end
 
     def answer_debts
@@ -115,7 +115,7 @@ module HouseholdFinance
 
     def inventory_result(topic, total, rows, note)
       lead = total.zero? ? "No active #{topic} are saved in your household plan. This does not establish zero balances or complete coverage." : "Saved household #{topic}: #{coverage_sentence(total, rows.length)}"
-      result(topic, ([ lead ] + rows + [ note ]).join("\n"), total_count: total, shown_count: rows.length, coverage: total > rows.length ? "bounded_saved_records" : "all_saved_records")
+      result(topic, ([ lead ] + rows + [ note ]).join("\n\n"), total_count: total, shown_count: rows.length, coverage: total > rows.length ? "bounded_saved_records" : "all_saved_records")
     end
 
     def result(topic, answer, metadata = {})
