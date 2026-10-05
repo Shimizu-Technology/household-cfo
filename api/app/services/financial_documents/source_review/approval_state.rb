@@ -16,6 +16,7 @@ module FinancialDocuments
         deficiencies << "empty_source_history" if events.empty? || row_versions.none? { |row| row.disposition.in?(%w[include match]) } && !verified_zero_activity?(events, row_versions, identities)
         deficiencies << "unreviewed_source_rows" if row_versions.length != events.length
         deficiencies << "unreviewed_source_accounts" if identities.length != revision.financial_source_accounts.count
+        deficiencies << "account_period_unknown" if identities.any? { |identity| identity.statement_facts.values_at("period_start_on", "period_end_on").any?(&:nil?) }
         deficiencies << "account_identity_changed" if row_versions.any? { |row| account_heads[row.financial_source_event.financial_source_account_id]&.approved_version_id != row.source_account_identity_version_id }
         source_report = revision.reconciliation
         pages = source_report.fetch("page_coverage", {})
@@ -31,6 +32,14 @@ module FinancialDocuments
         dependencies = self.class.dependencies(household, row_versions)
         deficiencies << "matched_source_fact_changed" if dependencies[:matches].any? { |match| !match[:current] }
         content = { source_version_ids: row_versions.map(&:id).sort, account_version_ids: identities.map(&:id).sort, dependencies: dependencies }
+        groups = reconciliation[:accounts].select { |account| Array(account[:source_account_ids]).length > 1 }
+        if groups.any?
+          # Earlier approvals reconciled each extraction fragment separately.
+          # Only changed grouping needs renewed approval; single-source history
+          # and retained structured facts keep their existing digest contract.
+          content[:reviewed_reconciliation] = { contract_version: ReviewedReconciliation::VERSION,
+            groups: groups.map { |account| account.slice(:source_account_ids, :tracked_account_id, :period_start_on, :period_end_on) } }
+        end
         { revision_id: revision.id, represented_rows: events.length, approved_rows: row_versions.length,
           pending_corrections: SourceReviewDraft.where(household: household, source_review_head_id: heads.values.map(&:id)).pending.count,
           content_digest: HouseholdFinance::Operations::PreparedOperation.fingerprint(content), **content,
@@ -81,27 +90,7 @@ module FinancialDocuments
       end
 
       def reviewed_reconciliation(events, heads, account_heads)
-        accounts = revision.financial_source_accounts.map do |account|
-          identity = account_heads[account.id]&.approved_version
-          facts = identity&.statement_facts.to_h.symbolize_keys
-          account.attributes.symbolize_keys.slice(:source_key).merge(facts.except(:printed_row_count, :printed_row_count_basis)).merge(account_basis: identity&.source_tracked_account&.account_basis || "unknown", printed_row_count: nil, limitations: [])
-        end
-        rows = events.map do |event|
-          approved = heads[event.id]&.approved_version
-          posted = approved&.disposition.in?(%w[include match])
-          { source_key: event.financial_source_account.source_key, row_kind: approved ? (posted ? "posted" : "informational") : "unresolved", signed_amount_cents: posted ? approved.signed_amount_cents : nil }
-        end
-        report = SourceReconciliation.new(contract_version: revision.contract_version, accounts: accounts, events: rows, coverage: revision.coverage).call
-        report[:accounts].each do |account|
-          source = revision.financial_source_accounts.find { |row| row.source_key == account[:source_key] }
-          facts = account_heads[source.id]&.approved_version&.statement_facts.to_h
-          printed = facts["printed_row_count"]
-          count = facts["printed_row_count_basis"] == "all" ? account[:represented_rows] : account[:posted_rows]
-          account[:limitations].delete("printed_row_count_unknown") unless printed.nil?
-          account[:limitations] << "printed_row_census_mismatch" if printed && printed != count
-          account.merge!(printed_row_count: printed, printed_row_count_basis: facts["printed_row_count_basis"], row_count_matches: printed.nil? ? nil : printed == count)
-        end
-        report
+        ReviewedReconciliation.new(revision, events, heads, account_heads).call
       end
     end
   end
