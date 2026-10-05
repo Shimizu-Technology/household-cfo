@@ -43,7 +43,13 @@ describe('StatementBatchReview current account identity', () => {
     expect(mutate).toHaveBeenCalledWith('stage', { event_id: event.id, base_version_id: 301, base_lock_version: 4,
       expected_pending_draft: null, facts: { ...facts, source_account_identity_version_id: 101 }, projection: { action: 'none' }, reason: 'Checked exact synthetic row.' })
     expect(context.rows[event.id].approved!.facts).toEqual(facts)
-    expect(screen.getByText(/Current reviewed account: Corrected fictional account.*version 2.*identity ID 101/)).toBeTruthy()
+    expect(screen.getByText(/Current reviewed account: Corrected fictional account.*Bank \/ wallet/)).toBeTruthy()
+    const technical = screen.getByText('Review record details').closest('details')!
+    expect(technical.open).toBe(false)
+    expect(technical.textContent).toMatch(/version 2.*identity ID 101/)
+    fireEvent.click(screen.getByText('Review record details'))
+    expect(technical.textContent).toMatch(/Saved facts account identity ID: 101/)
+
     expect(screen.getByText(/Spending: unchanged at \$1,000.00/)).toBeTruthy()
   })
   it('requires a new confirmation when the reviewed account changes without a row-head change', () => {
@@ -65,7 +71,7 @@ describe('StatementBatchReview current account identity', () => {
     confirm()
     expect((screen.getByRole('button', { name: 'Approve selected saved proposals' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Save selected row proposals' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText(/Saved proposal account identity ID 100.*requires individual review/)).toBeTruthy()
+    expect(screen.getByText(/Saved proposal account:.*requires individual review/)).toBeTruthy()
     expect(next.rows[event.id].pending).toEqual(pending)
     expect(mutate).not.toHaveBeenCalled()
   })

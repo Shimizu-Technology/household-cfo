@@ -26,6 +26,17 @@ export function BrandDocument() {
     const displayFont = displayFonts[brand.typography.display] ?? displayFonts.system_serif
     const bodyFont = bodyFonts[brand.typography.body] ?? bodyFonts.system_sans
     const variables: Record<string, string> = {
+      '--surface-page': brand.colors.background,
+      '--surface': brand.colors.surface,
+      '--surface-muted': brand.colors.surface_muted,
+      '--text-primary': brand.colors.text,
+      '--text-muted': brand.colors.text_muted,
+      '--border-subtle': brand.colors.border,
+      '--action-primary': brand.colors.primary,
+      '--action-primary-hover': brand.colors.primary_hover,
+      '--action-primary-soft': brand.colors.primary_soft,
+      '--action-on-primary': brand.colors.on_primary,
+      '--focus-color': brand.colors.focus,
       '--cream': brand.colors.background,
       '--paper': brand.colors.surface,
       '--paper-warm': brand.colors.surface_muted,
