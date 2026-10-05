@@ -136,12 +136,15 @@ jobs:
       - name: Install WebKit browser dependencies
         run: npx playwright install --with-deps webkit
 
-      - name: Run rendered desktop and mobile browser checks
-        run: npm run test:browser
+      - name: Run rendered Safari browser checks
+        run: npm run test:browser:webkit
+
+      - name: Run rendered desktop and mobile Chromium checks
+        run: npm run test:browser:chromium
 
       - name: Preserve browser failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: browser-failure-evidence
           path: web/test-results/
