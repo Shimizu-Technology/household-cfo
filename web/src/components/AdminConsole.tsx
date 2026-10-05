@@ -78,6 +78,8 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   const selectedCohortIdRef = useRef<number | null | undefined>(undefined)
   const activeCoachWorkspaceIdRef = useRef(activeCoachWorkspaceId)
   const adminLoadSequenceRef = useRef(0)
+  const serverUsersRef = useRef<AdminUser[]>([])
+  const serverSelectedCohortRef = useRef<AdminCohort | null>(null)
 
   useLayoutEffect(() => {
     activeCoachWorkspaceIdRef.current = activeCoachWorkspaceId
@@ -134,7 +136,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
     setupComplete: users.filter((user) => user.workspace.setup_complete).length,
   }), [cohorts.length, users])
 
-  const loadAdminData = useCallback(async (preferredCohortId?: number | null) => {
+  const loadAdminData = useCallback(async (preferredCohortId?: number | null, reset?: { all?: boolean; userIds?: number[]; cohort?: boolean }) => {
     const sequence = ++adminLoadSequenceRef.current
     const requestedWorkspaceId = activeCoachWorkspaceIdRef.current
     setLoading(true)
@@ -164,9 +166,20 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
       setUsers(nextUsers)
       setPlaidHealth(plaidHealthResult.value)
       setPlaidHealthError(plaidHealthResult.error)
-      setUserDrafts(adminDraftsForUsers(nextUsers))
+      const previousUserDrafts = adminDraftsForUsers(serverUsersRef.current)
+      const previousCohort = serverSelectedCohortRef.current
+      serverUsersRef.current = nextUsers
+      serverSelectedCohortRef.current = nextSelectedCohort
+      setUserDrafts((current) => Object.fromEntries(nextUsers.map((user) => [user.id,
+        !reset?.all && !reset?.userIds?.includes(user.id) && current[user.id] &&
+          !adminUserDraftsEqual(current[user.id], previousUserDrafts[user.id])
+          ? current[user.id] : adminDraftForUser(user),
+      ])))
       setSelectedCohortId(nextSelectedId)
-      setEditDraft(nextSelectedCohort ? cohortDraftFor(nextSelectedCohort) : null)
+      setEditDraft((current) => !reset?.all && !reset?.cohort && current &&
+        previousCohort?.id === nextSelectedId &&
+        JSON.stringify(cleanCohortDraft(current)) !== JSON.stringify(cleanCohortDraft(cohortDraftFor(previousCohort)!))
+        ? current : cohortDraftFor(nextSelectedCohort))
       setInviteDraft((current) => ({
         ...current,
         cohort_id: current.cohort_id || (nextSelectedId ? String(nextSelectedId) : ''),
@@ -198,7 +211,9 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
     selectedCohortIdRef.current = cohortId
     setRosterPage(0)
     setSelectedCohortId(cohortId)
-    setEditDraft(cohortId ? cohortDraftFor(cohorts.find((cohort) => cohort.id === cohortId) ?? null) : null)
+    const nextCohort = cohorts.find((cohort) => cohort.id === cohortId) ?? null
+    serverSelectedCohortRef.current = nextCohort
+    setEditDraft(cohortDraftFor(nextCohort))
     setNotice(null)
     setInviteDraft((current) => ({ ...current, cohort_id: cohortId ? String(cohortId) : '' }))
   }
@@ -255,7 +270,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
     try {
       const cohort = await updateAdminCohort(selectedCohort.id, cleanCohortDraft(editDraft))
       setNotice(`${cohort.name} settings saved.`)
-      await loadAdminData(cohort.id)
+      await loadAdminData(cohort.id, { cohort: true })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Cohort could not be saved.')
     } finally {
@@ -315,7 +330,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
         cohort_ids: draft.cohort_ids.map(Number),
       })
       setNotice(`${updatedUser.email} was updated.`)
-      await loadAdminData()
+      await loadAdminData(undefined, { userIds: [user.id] })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'User could not be saved.')
     } finally {
@@ -352,7 +367,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
         cohort_ids: [],
       })
       setNotice(`${updatedUser.email} invite was cancelled and removed from cohorts.`)
-      await loadAdminData()
+      await loadAdminData(undefined, { userIds: [user.id] })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Invite could not be cancelled.')
     } finally {
@@ -377,7 +392,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
       setNotice(shouldRevokeAfterRemoval
         ? `${updatedUser.email} was removed from ${cohortName} and access was revoked because no cohorts remain.`
         : `${updatedUser.email} was removed from ${cohortName}.`)
-      await loadAdminData(selectedCohortId)
+      await loadAdminData(selectedCohortId, { userIds: [user.id] })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'User could not be removed from this cohort.')
     } finally {
@@ -568,25 +583,25 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
               <p className="admin-privacy-copy">Last 7 days · aggregate operational activity only. Financial values, uploaded document contents, and Mia conversations are not shown.</p>
               <label className="admin-field wide">
                 <span>Name</span>
-                <input value={editDraft.name} onChange={(event) => setEditDraft((current) => current ? { ...current, name: event.target.value } : current)} />
+                <input disabled={adminMutationPending} value={editDraft.name} onChange={(event) => setEditDraft((current) => current ? { ...current, name: event.target.value } : current)} />
               </label>
               <label className="admin-field">
                 <span>Status</span>
-                <select value={editDraft.status} onChange={(event) => setEditDraft((current) => current ? { ...current, status: event.target.value as AdminCohortStatus } : current)}>
+                <select disabled={adminMutationPending} value={editDraft.status} onChange={(event) => setEditDraft((current) => current ? { ...current, status: event.target.value as AdminCohortStatus } : current)}>
                   {cohortStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
                 </select>
               </label>
               <label className="admin-field">
                 <span>Starts</span>
-                <input type="date" value={editDraft.starts_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, starts_on: event.target.value } : current)} />
+                <input disabled={adminMutationPending} type="date" value={editDraft.starts_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, starts_on: event.target.value } : current)} />
               </label>
               <label className="admin-field">
                 <span>Ends</span>
-                <input type="date" value={editDraft.ends_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, ends_on: event.target.value } : current)} />
+                <input disabled={adminMutationPending} type="date" value={editDraft.ends_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, ends_on: event.target.value } : current)} />
               </label>
               <label className="admin-field wide">
                 <span>Notes</span>
-                <textarea value={editDraft.notes ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, notes: event.target.value } : current)} rows={3} />
+                <textarea disabled={adminMutationPending} value={editDraft.notes ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, notes: event.target.value } : current)} rows={3} />
               </label>
               <button type="submit" disabled={cohortSaving}>{cohortSaving ? 'Saving' : 'Save cohort'}</button>
             </form>
@@ -643,7 +658,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
             <h3>{selectedCohort ? `${selectedCohort.name} members` : 'All invited users'}</h3>
             <p className="admin-list-summary">Showing {visibleUsers.length} of {matchingUsers.length} matching users · {scopedUsers.length} in this cohort scope. Revoked users are hidden by default.</p>
           </div>
-          <button type="button" className="admin-refresh" onClick={() => { if (adminDraftsDirty && !window.confirm('Discard unsaved changes and refresh?')) return; void loadAdminData() }} disabled={adminMutationPending}>{loading ? 'Refreshing' : 'Refresh'}</button>
+          <button type="button" className="admin-refresh" onClick={() => { if (adminDraftsDirty && !window.confirm('Discard unsaved changes and refresh?')) return; void loadAdminData(undefined, { all: true }) }} disabled={adminMutationPending}>{loading ? 'Refreshing' : 'Refresh'}</button>
         </div>
 
         <div className="admin-user-toolbar" aria-label="User filters and sorting">
@@ -725,13 +740,13 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
                   <div className="admin-user-controls">
                     <label className="admin-field compact">
                       <span>Role</span>
-                      <select value={draft.role} disabled={isSelf} onChange={(event) => updateUserDraft(user.id, 'role', event.target.value)}>
+                      <select value={draft.role} disabled={isSelf || adminMutationPending} onChange={(event) => updateUserDraft(user.id, 'role', event.target.value)}>
                         {userRoles.map((role) => <option key={role} value={role}>{titleize(role)}</option>)}
                       </select>
                     </label>
                     <label className="admin-field compact">
                       <span>Status</span>
-                      <select value={draft.invitation_status} disabled={isSelf} onChange={(event) => updateUserDraft(user.id, 'invitation_status', event.target.value)}>
+                      <select value={draft.invitation_status} disabled={isSelf || adminMutationPending} onChange={(event) => updateUserDraft(user.id, 'invitation_status', event.target.value)}>
                         {invitationStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
                       </select>
                     </label>
@@ -743,6 +758,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
                           <label className="admin-cohort-check" key={cohort.id}>
                             <input
                               type="checkbox"
+                              disabled={adminMutationPending}
                               checked={draft.cohort_ids.includes(String(cohort.id))}
                               onChange={() => toggleUserCohort(user.id, cohort.id)}
                             />
@@ -753,10 +769,10 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
                       {draftNeedsCohort && <small className="admin-field-warning">Required before saving.</small>}
                     </div>
                     <div className="admin-user-actions">
-                      <button type="button" onClick={() => void handleSaveUser(user)} disabled={rowSaving || draftNeedsCohort}>{rowSaving ? 'Saving' : 'Save'}</button>
-                      <button type="button" className="secondary-action" onClick={() => void handleResendInvitation(user)} disabled={!canResendInvite || rowResending}>{rowResending ? 'Sending' : 'Resend email'}</button>
-                      {canCancelInvite && <button type="button" className="danger-action" onClick={() => void handleCancelInvite(user)} disabled={rowSaving}>Cancel invite</button>}
-                      {canRemoveFromSelectedCohort && <button type="button" className="danger-action" onClick={() => void handleRemoveFromSelectedCohort(user)} disabled={rowSaving}>Remove from cohort</button>}
+                      <button type="button" onClick={() => void handleSaveUser(user)} disabled={adminMutationPending || draftNeedsCohort}>{rowSaving ? 'Saving' : 'Save'}</button>
+                      <button type="button" className="secondary-action" onClick={() => void handleResendInvitation(user)} disabled={adminMutationPending || !canResendInvite}>{rowResending ? 'Sending' : 'Resend email'}</button>
+                      {canCancelInvite && <button type="button" className="danger-action" onClick={() => void handleCancelInvite(user)} disabled={adminMutationPending}>Cancel invite</button>}
+                      {canRemoveFromSelectedCohort && <button type="button" className="danger-action" onClick={() => void handleRemoveFromSelectedCohort(user)} disabled={adminMutationPending}>Remove from cohort</button>}
                     </div>
                   </div></div>
                 </details>

@@ -10347,7 +10347,7 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 
 /* Give the BOG task labels enough space on narrow phones. */
 @media (max-width: 600px) {
-  .is-savings-navigation .tabs { grid-template-columns: minmax(44px, .8fr) minmax(54px, 1fr) minmax(40px, .8fr) minmax(78px, 1.3fr) minmax(44px, .8fr); }
+  .is-savings-navigation .tabs { grid-template-columns: minmax(44px, .8fr) minmax(58px, 1fr) minmax(40px, .8fr) minmax(88px, 1.3fr) minmax(44px, .8fr); }
   .is-savings-navigation .tabs :where(button, a) { padding-inline: 4px; min-height: 44px; font-size: .75rem; }
   .is-savings-navigation .tabs-label-full { display: none; }
   .is-savings-navigation .tabs-label-short { display: inline; }
