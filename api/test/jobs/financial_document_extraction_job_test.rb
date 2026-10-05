@@ -500,7 +500,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_not metadata.key?("raw_response")
   end
 
-  test "job schedules stale recheck for imports that are already processing recently" do
+  test "job retains a durable stale recheck for imports already processing recently" do
     @document_import.update!(status: "processing")
     @document_import.attempts.create!(
       provider: "openrouter",
@@ -521,14 +521,15 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
 
     with_extractor_stub(extractor) do
       assert_no_difference("FinancialDocumentImportAttempt.count") do
-        assert_enqueued_with(job: FinancialDocumentExtractionJob, args: [ @document_import.id ]) do
-          FinancialDocumentExtractionJob.perform_now(@document_import.id)
-        end
+        FinancialDocumentExtractionJob.perform_now(@document_import.id)
       end
     end
 
     assert_equal false, extractor_called
     assert_equal "processing", @document_import.reload.status
+    dispatch = @document_import.extraction_dispatch
+    assert_equal "processing", dispatch.status
+    assert_equal @document_import.updated_at + FinancialDocumentExtractionJob::STALE_PROCESSING_AFTER, dispatch.lease_expires_at
   end
 
   test "job restarts stale processing imports so queue retries can recover" do

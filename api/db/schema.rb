@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_04_320000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_04_330000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -1822,6 +1822,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_320000) do
     t.index ["id", "financial_baseline_head_id", "household_id"], name: "financial_baseline_version_head_identity", unique: true
     t.check_constraint "coverage_status::text = ANY (ARRAY['complete'::character varying, 'partial'::character varying, 'manual'::character varying]::text[])", name: "financial_baseline_coverage_status"
     t.check_constraint "window_end_on >= window_start_on AND version_number > 0", name: "financial_baseline_window_version"
+  end
+
+  create_table "financial_document_extraction_dispatches", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "enqueue_attempts", default: 0, null: false
+    t.string "error_code"
+    t.bigint "financial_document_import_id"
+    t.bigint "generation", default: 1, null: false
+    t.datetime "lease_expires_at"
+    t.string "lease_token"
+    t.datetime "next_attempt_at", null: false
+    t.string "source_fingerprint", null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["financial_document_import_id"], name: "idx_on_financial_document_import_id_d46e018bd2", unique: true
+    t.index ["status", "next_attempt_at"], name: "index_extraction_dispatches_recovery"
+    t.check_constraint "(status::text <> ALL (ARRAY['enqueued'::character varying, 'processing'::character varying]::text[])) OR lease_expires_at IS NOT NULL", name: "extraction_dispatch_active_lease"
+    t.check_constraint "generation > 0 AND enqueue_attempts >= 0", name: "extraction_dispatch_counters"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'enqueued'::character varying, 'processing'::character varying, 'completed'::character varying, 'cancelled'::character varying]::text[])", name: "extraction_dispatch_status"
   end
 
   create_table "financial_document_import_attempts", force: :cascade do |t|
@@ -3783,6 +3802,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_04_320000) do
   add_foreign_key "financial_baseline_versions", "financial_baseline_versions", column: ["supersedes_id", "financial_baseline_head_id", "household_id"], primary_key: ["id", "financial_baseline_head_id", "household_id"], name: "financial_baseline_supersedes_head_scope"
   add_foreign_key "financial_baseline_versions", "households"
   add_foreign_key "financial_baseline_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "financial_document_extraction_dispatches", "financial_document_imports", on_delete: :nullify
   add_foreign_key "financial_document_import_attempts", "financial_document_imports"
   add_foreign_key "financial_document_import_items", "financial_document_imports"
   add_foreign_key "financial_document_import_items", "users", column: "applied_by_user_id"

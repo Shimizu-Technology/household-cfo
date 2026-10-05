@@ -80,8 +80,11 @@ module Api
           return render json: { errors: [ "Could not store document in private S3" ] }, status: :unprocessable_entity
         end
 
-        document_import.update!(s3_key: s3_key)
-        FinancialDocumentExtractionJob.perform_later(document_import.id)
+        dispatch = document_import.with_lock do
+          document_import.update!(s3_key: s3_key)
+          FinancialDocumentExtractionDispatch.request!(document_import)
+        end
+        dispatch.enqueue_retry
 
         render json: { document_import: serialize_document_import(document_import.reload) }, status: :created
       rescue S3Service::MissingConfigurationError
@@ -150,7 +153,7 @@ module Api
           render json: { errors: [ "This exact file is already uploaded and still waiting for review. Remove the duplicate attachment or finish the existing import before uploading it again." ] }, status: :unprocessable_entity
         when :created
           document_import = outcome.fetch(:document_import)
-          FinancialDocumentExtractionJob.perform_later(document_import.id)
+          document_import.extraction_dispatch.enqueue_retry
           render json: { document_import: serialize_document_import(document_import.reload) }, status: :created
         end
       rescue ActiveSupport::MessageVerifier::InvalidSignature, ActionController::ParameterMissing
@@ -235,10 +238,11 @@ module Api
             processed_at: nil,
             metadata: reset_extraction_metadata(@document_import.metadata)
           )
+          FinancialDocumentExtractionDispatch.request!(@document_import, restart: true)
         end
         return render json: { errors: [ reprocess_error ] }, status: :unprocessable_entity if reprocess_error
 
-        FinancialDocumentExtractionJob.perform_later(@document_import.id)
+        @document_import.extraction_dispatch.enqueue_retry
         render json: { document_import: serialize_document_import(@document_import.reload) }
       end
 
@@ -486,12 +490,15 @@ module Api
           end
 
           document_import.save!
+          FinancialDocumentExtractionDispatch.request!(document_import)
           { status: :created, document_import: document_import }
         end
       end
 
       def render_completed_direct_upload(document_import)
-        FinancialDocumentExtractionJob.perform_later(document_import.id) if document_import.status == "uploaded"
+        if document_import.status == "uploaded"
+          FinancialDocumentExtractionDispatch.request!(document_import).enqueue_retry
+        end
         render json: { document_import: serialize_document_import(document_import) }, status: :ok
       end
 
