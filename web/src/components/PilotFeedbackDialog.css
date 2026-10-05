@@ -1,0 +1,8 @@
+.pilot-feedback-consent { padding: 1rem; border: 1px solid var(--border, #dfdad1); border-radius: 1rem; background: var(--surface, #fffdf8); }
+.pilot-feedback-consent label { display: flex; align-items: flex-start; gap: .75rem; }
+.pilot-feedback-consent input[type="checkbox"] { flex: 0 0 1.25rem; width: 1.25rem; min-height: 1.25rem; margin-top: .2rem; accent-color: var(--primary, #34534a); }
+.pilot-feedback-access { display: grid; gap: .5rem; }
+.pilot-feedback-history { margin-top: 1.5rem; border-top: 1px solid var(--border, #dfdad1); }
+.pilot-feedback-history summary { cursor: pointer; padding: .75rem 0; min-height: 44px; font-weight: 600; }
+.pilot-feedback-history article { padding: 1rem 0; border-bottom: 1px solid var(--border, #dfdad1); }
+.pilot-feedback-withdrawal-note { font-size: .85rem; color: var(--muted, #666b63); line-height: 1.5; }

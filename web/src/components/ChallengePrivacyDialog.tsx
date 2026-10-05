@@ -24,6 +24,7 @@ function PrivacySession({ actorScope, participant, initialEnrollmentId, document
   const dialog = useRef<HTMLDialogElement>(null)
   const controller = useRef(new AbortController())
   const live = useRef(true)
+  const metadataRequest = useRef<AbortController | null>(null)
   const [programs, setPrograms] = useState<PrivateProgram[]>([])
   const [cursor, setCursor] = useState<number | null>(null)
   const [enrollmentId, setEnrollmentId] = useState<number | null>(null)
@@ -38,37 +39,47 @@ function PrivacySession({ actorScope, participant, initialEnrollmentId, document
   const own = () => live.current && !controller.current.signal.aborted
   useEffect(() => {
     live.current = true
-    controller.current = new AbortController()
+    const request = new AbortController()
+    controller.current = request
     const previous = document.activeElement as HTMLElement | null
     const node = dialog.current
     node?.showModal()
-    return () => { live.current = false; controller.current.abort(); node?.close(); previous?.focus() }
+    return () => { live.current = false; request.abort(); node?.close(); previous?.focus() }
   }, [])
   useEffect(() => {
     if (!actorScope || !participant) return
+    const request = new AbortController()
+    metadataRequest.current = request
+    let active = true
+    const current = () => active && !request.signal.aborted && own()
+    queueMicrotask(() => { if (current()) { setLoading(true); setError(''); setPrograms([]); setEnrollmentId(null) } })
     void (async () => {
-      let page = await api.controls(null, controller.current.signal)
+      let page = await api.controls(null, request.signal)
       assertPrivacyScope(page, actorScope)
       const rows = [...page.records]
       const seen = new Set<number>()
       while (initialEnrollmentId && !rows.some((row) => row.id === initialEnrollmentId) && page.next_cursor !== null) {
         if (seen.has(page.next_cursor)) throw new Error('Program pagination did not advance. Close and reopen your controls.')
         seen.add(page.next_cursor)
-        page = await api.controls(page.next_cursor, controller.current.signal)
+        page = await api.controls(page.next_cursor, request.signal)
         assertPrivacyScope(page, actorScope); rows.push(...page.records)
       }
-      if (own()) {
-        setPrograms(rows); setCursor(page.next_cursor)
+      if (current()) {
+        setError(''); setDenied(false); setPrograms(rows); setCursor(page.next_cursor)
         setEnrollmentId(initialEnrollmentId ? rows.find((row) => row.id === initialEnrollmentId)?.id ?? null : rows[0]?.id ?? null)
         if (initialEnrollmentId && !rows.some((row) => row.id === initialEnrollmentId)) setError('The selected program is unavailable. Choose one of your own programs.')
         setLoading(false)
       }
-    })().catch((failure) => { if (own()) { setError(message(failure)); setLoading(false); if ([401, 403].includes(statusCode(failure) ?? 0)) { setDenied(true); setPending(null) } } })
+    })().catch((failure) => { if (current()) { setError(message(failure)); setLoading(false); if ([401, 403].includes(statusCode(failure) ?? 0)) { setDenied(true); setPending(null) } } })
+    return () => { active = false; request.abort() }
   }, [actorScope, participant, initialEnrollmentId, api])
   async function morePrograms() {
     if (!actorScope || cursor === null) return
-    try { const page = await api.controls(cursor, controller.current.signal); assertPrivacyScope(page, actorScope); if (own()) { setPrograms((rows) => [...rows, ...page.records]); setCursor(page.next_cursor) } }
-    catch (failure) { if (own()) setError(message(failure)) }
+    const request = metadataRequest.current
+    if (!request || request.signal.aborted) return
+    const current = () => own() && metadataRequest.current === request && !request.signal.aborted
+    try { const page = await api.controls(cursor, request.signal); assertPrivacyScope(page, actorScope); if (current()) { setPrograms((rows) => [...rows, ...page.records]); setCursor(page.next_cursor) } }
+    catch (failure) { if (current()) setError(message(failure)) }
   }
   function stage(value: Review) {
     if (pending && !(pending.state === 'unknown' && !pending.input && pending.identity.enrollmentId === enrollmentId && pending.identity.action === value.action && pending.identity.reflectionId === value.reflectionId)) return
@@ -143,15 +154,19 @@ function ProgramControls({ scope, enrollmentId, documentImportId, api, blocked, 
   const live = useRef(true)
   const [more, setMore] = useState(false)
   useEffect(() => {
-    live.current = true; abort.current = new AbortController()
-    void api.privacy(enrollmentId, null, abort.current.signal).then((result) => { assertPrivacyScope(result, scope); if (live.current) setData(result) }).catch((failure) => { if (live.current) { setError(message(failure)); setData(null) } })
-    return () => { live.current = false; abort.current.abort() }
+    const request = new AbortController(); abort.current = request; live.current = true
+    const current = () => live.current && abort.current === request && !request.signal.aborted
+    queueMicrotask(() => { if (current()) { setData(null); setError(''); setMore(false) } })
+    void api.privacy(enrollmentId, null, request.signal).then((result) => { assertPrivacyScope(result, scope); if (current()) { setError(''); setData(result) } }).catch((failure) => { if (current()) { setError(message(failure)); setData(null) } })
+    return () => { request.abort(); if (abort.current === request) live.current = false }
   }, [api, scope, enrollmentId])
   async function moreReflections() {
     if (!data?.reflections_next_cursor || more) return
     setMore(true)
-    try { const page = await api.privacy(enrollmentId, data.reflections_next_cursor, abort.current.signal); assertPrivacyScope(page, scope); if (live.current) setData((previous) => previous && { ...previous, erasable_reflections: [...previous.erasable_reflections, ...page.erasable_reflections], reflections_next_cursor: page.reflections_next_cursor }) }
-    catch (failure) { if (live.current) setError(message(failure)) } finally { if (live.current) setMore(false) }
+    const request = abort.current
+    const current = () => live.current && abort.current === request && !request.signal.aborted
+    try { const page = await api.privacy(enrollmentId, data.reflections_next_cursor, request.signal); assertPrivacyScope(page, scope); if (current()) setData((previous) => previous && { ...previous, erasable_reflections: [...previous.erasable_reflections, ...page.erasable_reflections], reflections_next_cursor: page.reflections_next_cursor }) }
+    catch (failure) { if (current()) setError(message(failure)) } finally { if (current()) setMore(false) }
   }
   const can = (action: PrivateAction) => !blocked && (allowedAction === undefined || allowedAction === action)
   if (error) return <p className="privacy-error" role="alert">{error}</p>

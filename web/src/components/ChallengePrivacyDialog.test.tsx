@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -117,4 +118,36 @@ it('clears a first-attempt definitive conflict and requires a fresh review', asy
   const api = syntheticPrivacyApi(); api.mutate = vi.fn().mockRejectedValue(new ApiRequestError('Fresh choices stale', { status: 409 })); open(api)
   await screen.findByLabelText('Purpose'); fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' })); approve()
   await screen.findByText('Fresh choices stale'); expect(sessionStorage.getItem('challenge-private-request-identity-v1')).toBeNull(); expect(screen.queryByRole('button', { name: 'Approve reviewed change' })).toBeNull()
+})
+
+
+describe('privacy request ownership under effect replay', () => {
+  it('ignores aborted metadata and program requests in StrictMode without hiding valid controls', async () => {
+    const api = syntheticPrivacyApi()
+    const originalControls = api.controls; const originalPrivacy = api.privacy
+    api.controls = vi.fn((cursor, signal) => new Promise<Awaited<ReturnType<typeof originalControls>>>((resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(new Error('Metadata could not reach the API')), { once: true })
+      queueMicrotask(() => { if (!signal?.aborted) void originalControls(cursor, signal).then(resolve, reject) })
+    }))
+    api.privacy = vi.fn((id, cursor, signal) => new Promise<Awaited<ReturnType<typeof originalPrivacy>>>((resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(new Error('Privacy could not reach the API')), { once: true })
+      queueMicrotask(() => { if (!signal?.aborted) void originalPrivacy(id, cursor, signal).then(resolve, reject) })
+    }))
+    render(<StrictMode><ChallengePrivacyDialog actorScope={privacyScope} participant onClose={vi.fn()} api={api} /></StrictMode>)
+    await screen.findByText('No sharing grants.')
+    expect(screen.queryByText('Metadata could not reach the API')).toBeNull()
+    expect(screen.queryByText('Privacy could not reach the API')).toBeNull()
+    expect(api.controls).toHaveBeenCalledTimes(2)
+    expect(api.privacy).toHaveBeenCalledTimes(2)
+  })
+  it('does not let a late failed first privacy request overwrite the current successful request', async () => {
+    const api = syntheticPrivacyApi()
+    let rejectEarlier: (error: Error) => void = () => {}
+    api.privacy = vi.fn().mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectEarlier = reject })).mockResolvedValue(privacyFixture)
+    render(<StrictMode><ChallengePrivacyDialog actorScope={privacyScope} participant onClose={vi.fn()} api={api} /></StrictMode>)
+    await screen.findByText('No sharing grants.')
+    rejectEarlier(new Error('Earlier request failed after replay'))
+    await waitFor(() => expect(screen.queryByText('Earlier request failed after replay')).toBeNull())
+    expect(screen.getByText('No sharing grants.')).toBeTruthy()
+  })
 })

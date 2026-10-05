@@ -29,6 +29,7 @@ import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
 import { GoalManager, type GoalFocusRequest } from './components/GoalManager'
+import { PilotFeedbackDialog } from './components/PilotFeedbackDialog'
 import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
 import { CreateCoachProgram } from './components/CoachProgramSettings'
 import { CoachStudio } from './components/CoachStudio'
@@ -146,7 +147,6 @@ import type {
   MiaMessage,
   MiaMessageAttachment,
   MiaMessagesData,
-  PilotFeedbackInput,
   PilotFeedbackWorkflow,
   RecentTransaction,
   SpendingReport,
@@ -3804,6 +3804,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
       {pilotGuideOpen && <PilotGuideDialog onClose={() => setPilotGuideOpen(false)} />}
       {pilotFeedbackOpen && (
         <PilotFeedbackDialog
+          key={`${auth.authIdentityId}:${auth.currentUser?.id}:${data.workspace.household_id}`}
           initialWorkflow={pilotFeedbackWorkflowForSection(activeSection)}
           onClose={() => setPilotFeedbackOpen(false)}
           onSubmit={submitPilotFeedback}
@@ -4139,21 +4140,6 @@ function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => v
   )
 }
 
-const pilotFeedbackOptions: Array<{ value: PilotFeedbackWorkflow; label: string }> = [
-  { value: 'sign_in', label: 'Sign in or invitation' },
-  { value: 'home', label: 'Home or next action' },
-  { value: 'setup', label: 'Household setup' },
-  { value: 'ask_mia', label: 'Assistant chat' },
-  { value: 'voice', label: 'Voice entry' },
-  { value: 'budget', label: 'Budget or annual plan' },
-  { value: 'transaction_review', label: 'Transaction review' },
-  { value: 'receipt_upload', label: 'Receipt upload' },
-  { value: 'statement_upload', label: 'Statement upload' },
-  { value: 'document_upload', label: 'Other document upload' },
-  { value: 'private_document', label: 'Preview, download, or delete' },
-  { value: 'admin', label: 'Cohort administration' },
-  { value: 'other', label: 'Something else' },
-]
 
 function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow {
   if (section === 'Ask Mia') return 'ask_mia'
@@ -4198,82 +4184,6 @@ function PilotGuideDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-function PilotFeedbackDialog({
-  initialWorkflow,
-  onClose,
-  onSubmit,
-}: {
-  initialWorkflow: PilotFeedbackWorkflow
-  onClose: () => void
-  onSubmit: (values: PilotFeedbackInput) => Promise<{ id: number; screenshot_attached: boolean }>
-}) {
-  const { brand, assistantName } = useBrand()
-  const dialogRef = usePilotDialog(onClose)
-  const [workflow, setWorkflow] = useState<PilotFeedbackWorkflow>(initialWorkflow)
-  const [attempted, setAttempted] = useState('')
-  const [expected, setExpected] = useState('')
-  const [actual, setActual] = useState('')
-  const [screenshot, setScreenshot] = useState<File | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [receiptId, setReceiptId] = useState<number | null>(null)
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!attempted.trim() || !expected.trim() || !actual.trim()) {
-      setError('Describe what you attempted, what you expected, and what happened.')
-      return
-    }
-    if (screenshot && screenshot.size > 5 * 1024 * 1024) {
-      setError('Screenshot must be 5 MB or smaller.')
-      return
-    }
-
-    setSaving(true)
-    setError(null)
-    try {
-      const receipt = await onSubmit({ workflow, attempted: attempted.trim(), expected: expected.trim(), actual: actual.trim(), screenshot })
-      captureAnalyticsEvent('pilot_feedback_report_submitted', { workflow, screenshot_attached: receipt.screenshot_attached })
-      setReceiptId(receipt.id)
-    } catch (caught) {
-      trackPilotWorkflowFailure('feedback', 'submit', { workflow })
-      setError(caught instanceof Error ? caught.message : 'Feedback could not be submitted. Please try again.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="pilot-dialog-overlay" role="presentation">
-      <button type="button" className="pilot-dialog-backdrop" aria-label="Close feedback form" onClick={onClose} />
-      <section ref={dialogRef} className="pilot-dialog pilot-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-feedback-title" tabIndex={-1}>
-        <header>
-          <div><p className="eyebrow">Pilot support</p><h2 id="pilot-feedback-title">Report what got in your way.</h2></div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
-        </header>
-        {receiptId ? (
-          <div className="pilot-feedback-success" role="status">
-            <FeedbackIcon />
-            <strong>Report received.</strong>
-            <p>Reference #{receiptId}. Your written details and optional screenshot were not sent to analytics.</p>
-            <button type="button" onClick={onClose}>Return to {brand.product_name}</button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            <p className="pilot-privacy-note"><ShieldIcon /> Do not include account numbers, exact financial values, document contents, passwords, or private {assistantName} messages. Crop screenshots to the problem area.</p>
-            <label><span>Screen or workflow</span><select value={workflow} onChange={(event) => setWorkflow(event.currentTarget.value as PilotFeedbackWorkflow)}>{pilotFeedbackOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label><span>What did you attempt?</span><textarea rows={3} maxLength={2000} value={attempted} onChange={(event) => setAttempted(event.currentTarget.value)} /></label>
-            <label><span>What did you expect?</span><textarea rows={3} maxLength={2000} value={expected} onChange={(event) => setExpected(event.currentTarget.value)} /></label>
-            <label><span>What happened instead?</span><textarea rows={3} maxLength={2000} value={actual} onChange={(event) => setActual(event.currentTarget.value)} /></label>
-            <label className="pilot-screenshot-field"><span>Optional cropped screenshot</span><input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" onChange={(event) => setScreenshot(event.currentTarget.files?.[0] ?? null)} /><small>{screenshot ? `${screenshot.name} · ${Math.ceil(screenshot.size / 1024)} KB` : 'JPG, PNG, or WebP · 5 MB maximum'}</small></label>
-            {error && <p className="setup-error" role="alert">{error}</p>}
-            <button type="submit" disabled={saving}>{saving ? 'Submitting privately' : 'Submit report'}</button>
-          </form>
-        )}
-      </section>
-    </div>
-  )
-}
 
 function milestoneProgressWidth(current: number, target: number) {
   if (target <= 0) return current > 0 ? '100%' : '0%'

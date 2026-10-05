@@ -35,17 +35,20 @@ module Api
           begin
             ApplicationRecord.transaction do
               @report.lock!
+              raise ActiveRecord::RecordNotFound unless visible_reports.where(id: @report.id).exists?
               previous_status = @report.status
               @report.update!(status: feedback_report_params.fetch(:status))
               record_status_change!(previous_status) if previous_status != @report.status
             end
+          rescue ActiveRecord::RecordNotFound
+            raise
           rescue ActiveRecord::RecordInvalid
             raise
           rescue ActiveRecord::ActiveRecordError => e
             raise FeedbackPersistenceError, e.message
           end
 
-          render json: { feedback_report: serialize_detail(@report.reload) }
+          render json: { feedback_report: serialize_detail(@report) }
         rescue FeedbackAuditError
           render_feedback_unavailable
         rescue ActiveRecord::RecordInvalid => e
@@ -96,7 +99,10 @@ module Api
           @report = visible_reports.includes(:user).find(params[:id])
         end
 
-        def visible_reports = ChallengePrivacy::PrivateFinanceAccess.without_pilot_households(PilotFeedbackReport.all)
+        def visible_reports
+          legacy = ChallengePrivacy::PrivateFinanceAccess.without_pilot_households(PilotFeedbackReport.all).where(support_sharing_revoked_at: nil)
+          PilotFeedbackReport.where(id: legacy.select(:id)).or(PilotFeedbackReport.shared_with_support)
+        end
 
         def feedback_report_params
           params.require(:feedback_report).permit(:status)

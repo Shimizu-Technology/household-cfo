@@ -1659,9 +1659,12 @@ export type PilotFeedbackInput = {
   expected: string
   actual: string
   screenshot?: File | null
+  share_with_support?: boolean
 }
 
 export type PilotFeedbackReceipt = {
+  support_sharing_granted?: boolean
+  support_access_available?: boolean
   id: number
   workflow: PilotFeedbackWorkflow
   screenshot_attached: boolean
@@ -2645,6 +2648,7 @@ export async function submitPilotFeedback(values: PilotFeedbackInput): Promise<P
   formData.append('feedback_report[attempted]', values.attempted)
   formData.append('feedback_report[expected]', values.expected)
   formData.append('feedback_report[actual]', values.actual)
+  if (values.share_with_support !== undefined) formData.append('feedback_report[share_with_support]', String(values.share_with_support))
   if (values.screenshot) formData.append('screenshot', values.screenshot)
 
   return withDeadline(async (signal) => {
@@ -2664,6 +2668,15 @@ export async function submitPilotFeedback(values: PilotFeedbackInput): Promise<P
     return payload.feedback_report
   }, FILE_UPLOAD_TIMEOUT_MS, 'The server did not confirm whether your report was received.', undefined,
   'It may already be submitted. Keep your details and check with support before submitting again.')
+}
+
+export async function fetchMyPilotFeedback(beforeId?: number, signal?: AbortSignal): Promise<{ feedback_reports: PilotFeedbackReceipt[]; next_cursor: number | null }> {
+  return fetchJson(`/api/v1/pilot_feedback_reports${beforeId ? `?before_id=${beforeId}` : ''}`, { signal })
+}
+
+export async function withdrawPilotFeedbackSupport(id: number): Promise<PilotFeedbackReceipt> {
+  const payload = await fetchJson<{ feedback_report: PilotFeedbackReceipt }>(`/api/v1/pilot_feedback_reports/${id}/withdraw_support_access`, { method: 'PATCH' })
+  return payload.feedback_report
 }
 
 export async function fetchAdminPilotFeedback(status: PilotFeedbackStatus | 'all' = 'submitted'): Promise<{ feedback_reports: AdminPilotFeedbackSummary[]; counts: AdminPilotFeedbackCounts }> {

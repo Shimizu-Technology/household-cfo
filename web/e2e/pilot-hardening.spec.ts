@@ -1211,7 +1211,7 @@ async function mockDemoApi(page: Page) {
     }
     if (path === '/api/v1/workspace/setup' && route.request().method() === 'PATCH') return route.fulfill({ status: 200, json: realWorkspaceData(true) })
     if (path === '/api/v1/pilot_feedback_reports' && route.request().method() === 'POST') {
-      return route.fulfill({ status: 201, json: { feedback_report: { id: 55, workflow: 'setup', screenshot_attached: false, status: 'submitted', created_at: '2026-07-17T00:00:00Z' } } })
+      return route.fulfill({ status: 201, json: { feedback_report: { id: 55, support_access_available: true, support_sharing_granted: true, workflow: 'setup', screenshot_attached: false, status: 'submitted', created_at: '2026-07-17T00:00:00Z' } } })
     }
     if (path === '/api/v1/admin/pilot_feedback_reports' && route.request().method() === 'GET') {
       const filter = url.searchParams.get('status') ?? 'submitted'
@@ -4317,6 +4317,8 @@ test('incomplete participants get a short first session, private feedback, and a
   await feedback.getByLabel('What did you attempt?').fill('I tried to save the first session form.')
   await feedback.getByLabel('What did you expect?').fill('I expected to return to Home.')
   await feedback.getByLabel('What happened instead?').fill('The save button stayed busy.')
+  await expect(feedback.getByRole('button', { name: 'Submit report' })).toBeDisabled()
+  await feedback.getByRole('checkbox', { name: 'I agree to share this report and optional screenshot with app support administrators.' }).check()
   await feedback.getByRole('button', { name: 'Submit report' }).click()
   await expect(feedback.getByText('Report received.')).toBeVisible()
   await expect(feedback).toContainText('were not sent to analytics')
