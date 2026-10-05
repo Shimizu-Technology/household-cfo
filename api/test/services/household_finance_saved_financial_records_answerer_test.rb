@@ -158,6 +158,117 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_equal 1000.0, response.metadata[:selected_month_amount]
   end
 
+  test "spending inventory separates saved plan recorded actuals and pending proposed category amounts" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    period = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: "2026-10-01")
+    transaction = @household.household_transactions.create!(budget_period: period, occurred_on: "2026-10-02", merchant: "Recorded cafe", total_amount_cents: 2500, source_type: "manual_ui", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: dining, amount_cents: 2500)
+    draft = @household.transaction_drafts.create!(budget_category: dining, occurred_on: "2026-10-03", merchant: "Pending cafe", total_amount_cents: 1000, source_type: "manual_ui", status: "pending")
+    draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 1000)
+    @household.transaction_drafts.create!(occurred_on: "2026-10-04", merchant: "Unassigned review", total_amount_cents: 500, source_type: "manual_ui", status: "pending")
+    assert_read_financial_records_unchanged do
+      response = answer("Show my household spending categories and planned amounts")
+      assert_equal "spending", response.metadata[:topic]
+      assert_includes response.answer, "Dining Out — Discretionary: saved monthly plan $300.00; confirmed actuals recorded $25.00; pending proposed category spending $10.00, excluded from actuals"
+      assert_includes response.answer, "2 pending household transaction reviews"
+      assert_includes response.answer, "totaling $15.00"
+      assert_includes response.answer, "does not verify no spending or complete coverage"
+      assert_includes response.answer, "separate from the challenge's approved spending baseline"
+    end
+  end
+
+  test "targeted spending reads use unique category and requested future and numeric period" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 100)
+    dining_out = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    november = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: "2026-11-01")
+    december = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: "2026-12-01")
+    manager.update_allocation!(dining_out.budget_allocations.find_by!(budget_period: november), 450)
+    manager.update_allocation!(dining_out.budget_allocations.find_by!(budget_period: december), 500)
+    travel_to Time.zone.local(2026, 10, 6, 12) do
+      assert_read_financial_records_unchanged do
+        response = answer("What is my household Dining Out budget next month?")
+        assert_equal "2026-11-01", response.metadata[:reference_month]
+        assert_equal 1, response.metadata[:total_count]
+        assert_equal 450.0, response.metadata[:records].sole[:planned_amount]
+        assert_not_includes response.answer, "Dining —"
+        assert_equal 500.0, answer("Show my household Dining Out budget for 2026-12").metadata[:records].sole[:planned_amount]
+        assert_equal "ambiguous_category", answer("Show my household Dining and Dining Out budget").metadata[:coverage]
+        assert_equal "category_not_found", answer("What is my household Travel budget?").metadata[:coverage]
+      end
+    end
+  end
+
+  test "no-plan spending preview qualifies setup estimates and never claims actual or allocation coverage" do
+    @household.expense_items.create!(label: "Rent", stack_key: "non_discretionary", amount_cents: 80_000, cadence: "monthly", active: true)
+    @household.budget_categories.create!(name: "Unplanned category", stack_key: "discretionary", active: true, sort_order: 0)
+    assert_read_financial_records_unchanged do
+      response = answer("Show my household spending categories and planned amounts")
+      refute response.metadata[:plan_available]
+      assert_includes response.answer, "No saved monthly budget plan"
+      assert_includes response.answer, "Rent — Non-discretionary: no saved monthly allocation; setup starting estimate $800.00 (not approved for this month)"
+      assert_includes response.answer, "Unplanned category — Discretionary: no saved monthly allocation; planned amount unknown"
+      assert_includes response.answer, "confirmed actuals unavailable in this plan preview"
+      assert_not_includes response.answer, "confirmed actuals recorded $0.00"
+      assert response.metadata[:records].all? { |row| row[:planned_amount].nil? && row[:confirmed_actual_amount].nil? }
+    end
+  end
+
+  test "missing saved allocation is not converted into approved zero" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    category = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    period = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: "2026-10-01")
+    category.budget_allocations.find_by!(budget_period: period).destroy!
+    assert_read_financial_records_unchanged do
+      response = answer("What is my household Dining Out budget?")
+      assert response.metadata[:plan_available]
+      assert_nil response.metadata[:records].sole[:planned_amount]
+      assert_equal 300.0, response.metadata[:records].sole[:starting_estimate]
+      assert_includes response.answer, "no saved monthly allocation; setup starting estimate $300.00"
+      assert_not_includes response.answer, "saved monthly plan $0.00"
+    end
+  end
+
+  test "bounded category inventory preserves complete total and targeted lookup beyond first page" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    22.times { |index| manager.create_category!(name: "Category #{index.to_s.rjust(2, '0')}", stack_key: "discretionary", monthly_amount: 1) }
+    assert_read_financial_records_unchanged do
+      response = answer("Show my household spending categories and planned amounts")
+      assert_equal 22, response.metadata[:total_count]
+      assert_equal 20, response.metadata[:shown_count]
+      assert_includes response.answer, "Showing 20 of 22"
+      assert_includes response.answer, "across all 22 categories: $22.00"
+      targeted = answer("What is my household Category 21 budget?")
+      assert_equal "Category 21", targeted.metadata[:records].sole[:name]
+      assert_equal 1.0, targeted.metadata[:records].sole[:planned_amount]
+    end
+  end
+
+  test "archived category historical zero is retained as a recorded zero not a no-spend claim" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    category = manager.create_category!(name: "Old Dining", stack_key: "discretionary", monthly_amount: 100)
+    year = @household.budget_years.find_by!(year: 2026)
+    june = year.budget_periods.find_by!(starts_on: "2026-06-01")
+    october = year.budget_periods.find_by!(starts_on: "2026-10-01")
+    transaction = @household.household_transactions.create!(budget_period: june, occurred_on: "2026-06-02", merchant: "Historical cafe", total_amount_cents: 1000, source_type: "manual_ui", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1000)
+    manager.update_allocation!(category.budget_allocations.find_by!(budget_period: october), 0)
+    manager.archive_category!(category)
+    assert_read_financial_records_unchanged do
+      response = answer("What is my household Old Dining budget for 2026-10?")
+      assert_includes response.answer, "archived category retained for history"
+      assert_includes response.answer, "saved monthly plan $0.00; confirmed actuals recorded $0.00"
+      assert_includes response.answer, "A recorded $0 does not verify no spending"
+    end
+  end
+
+  test "spending advice baseline documents scenarios and mixed writes stay outside saved spending reads" do
+    [ "Show my household spending categories and reduce Dining by $20", "What is my household spending baseline?", "What should my household Dining Out budget be?", "Show my household categories from the uploaded statement", "What if my household Dining budget were $500?" ].each do |message|
+      assert_read_financial_records_unchanged { assert_nil answer(message), message }
+    end
+  end
+
   private
 
   def income(label, cents, **attributes)
@@ -166,5 +277,9 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
 
   def answer(message, year: 2026, month: 10)
     HouseholdFinance::SavedFinancialRecordsAnswerer.new(@household, message: message, year: year, month: month).call
+  end
+
+  def assert_read_financial_records_unchanged(&block)
+    assert_no_difference [ "BudgetYear.count", "BudgetPeriod.count", "BudgetCategory.count", "BudgetAllocation.count", "HouseholdProfile.count", "ExpenseItem.count", "IncomeSource.count", "IncomeScheduleEntry.count", "MiaActionDraft.count", "HouseholdTransaction.count", "TransactionDraft.count" ], &block
   end
 end
