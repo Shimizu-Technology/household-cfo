@@ -10,6 +10,9 @@
 #     schedule: at 5am every day
 
 production:
+  recover_document_extraction:
+    class: FinancialDocumentExtractionRecoveryJob
+    schedule: every 5 minutes
   recover_challenge_reminders:
     class: ChallengeReminderRecoveryJob
     schedule: every 5 minutes

@@ -260,6 +260,35 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal "length", result.metadata.fetch(:finish_reason)
   end
 
+  test "optional progress heartbeat stops additional PDF batches after access is superseded" do
+    document_import = FinancialDocumentImport.new(document_kind: "statement", filename: "synthetic.pdf", content_type: "application/pdf", s3_key: "qa/synthetic")
+    file = Tempfile.new([ "synthetic-progress", ".pdf" ])
+    file.close
+    pdf = CombinePDF.new
+    6.times { pdf << CombinePDF.create_page }
+    pdf.save(file.path)
+    extractor = FinancialDocuments::Extractor.new(api_key: "synthetic")
+    extractor.define_singleton_method(:native_statement_result) { |*| nil }
+    batches = []
+    extractor.define_singleton_method(:extract_openrouter_document) do |_import, _path, batch_label:|
+      batches << batch_label
+      FinancialDocuments::Extractor::Result.new(success: true, error: nil, metadata: {}, data: { items: [], transaction_drafts: [], warnings: [] })
+    end
+    heartbeats = 0
+    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write(File.binread(file.path)); true }) do
+      result = extractor.call(document_import) do
+        heartbeats += 1
+        batches.empty?
+      end
+      refute result.success?
+      assert_equal [ "pages 1-2 of 6" ], batches
+      assert_operator heartbeats, :>=, 4
+      assert_match(/could not finish/, result.error)
+    end
+  ensure
+    file&.close!
+  end
+
   test "rejects PDFs above the bounded page limit before starting model batches" do
     user = User.create!(clerk_id: "clerk_extractor_pdf_limit_user", email: "extractor-pdf-limit@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Extractor PDF Limit Household")
