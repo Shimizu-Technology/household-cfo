@@ -8144,6 +8144,9 @@ test('Coach Studio program collaborator controls protect owner access and report
   await expect(owner).toHaveCount(1)
   const viewer = team.locator('.workspace-collaborator').filter({ hasText: 'viewer@example.test' })
   await viewer.getByLabel('Role for viewer@example.test').selectOption('editor')
+  // Settle native scrolling and font layout before WebKit dispatches the pointer click.
+  await page.evaluate(() => document.fonts.ready)
+  await viewer.getByRole('button', { name: 'Save role', exact: true }).scrollIntoViewIfNeeded()
   page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('from viewer to editor'); await dialog.accept() })
   await viewer.getByRole('button', { name: 'Save role', exact: true }).click()
   await expect(team.getByRole('status')).toContainText('as editor')
