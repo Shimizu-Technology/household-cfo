@@ -8188,7 +8188,10 @@ test('BOG UI Home and current review survive a future Budget year', async ({ pag
   const periods = await trackBudgetReportPeriods(page)
   await page.route('http://api.test/api/v1/budget?**', (route) => route.fulfill({ json: future }))
   await page.goto('/?pilot_e2e_role=participant#Budget')
-  await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  const nextYear = page.getByRole('button', { name: 'Next year', exact: true })
+  await expect(nextYear).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  await nextYear.click()
   await expect(page.getByText(`Annual budget · ${currentYear + 1}`, { exact: true })).toBeVisible()
   const selectedPeriod = future.annual_plan.months[new Date().getMonth()]
   await expect.poll(() => periods.some((period) => period.start === selectedPeriod.starts_on && period.end === selectedPeriod.ends_on)).toBe(true)
