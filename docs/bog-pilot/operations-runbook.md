@@ -76,6 +76,18 @@ Monitor aggregate status counts, oldest due age, attempt counts, leases and sani
 
 The source-cleanup outbox lives in the primary database and survives import removal or queue admission failure (`api/app/models/financial_document_source_cleanup.rb:17`). Recovery enqueues due/expired-lease records. On physical-delete failure retain the key and retry state; never manually mark completion or clear the key to quiet an alert. Repeated requests share one obligation; replacement-source protection and lock ordering matter. Storage doubles exercise failures, but actual S3 delete-fault acceptance remains open.
 
+## Interrupted statement extraction
+
+Each uploaded or reprocessed source has a primary-database extraction intent, distinct from queue admission. Failed admission leaves the upload valid and recoverable. The bounded recovery sweep considers due intents and legacy uploaded/stalled imports; current generation and source fingerprint fence replacement sources and superseded attempts. Active extraction heartbeats renew the lease between provider batches. A recovered source remains pending participant review; recovery never approves financial facts or household spending.
+
+Verify the deployed extraction recovery schedule and worker separately from application health. If the scheduler is interrupted, an authorized operator can run the bounded primary-database recovery entrypoint against the already verified environment:
+
+```sh
+RAILS_ENV=production DATABASE_URL="$BOG_VERIFIED_DATABASE_URL" bin/rails document_extraction:recover
+```
+
+This command can admit extraction of existing authorized sources and use the configured provider. Use a disposable test environment and fictional imports for rehearsal. Do not reprocess real participant sources merely to test recovery, mark an intent completed manually, or force an older generation to publish. Investigate repeated sanitized error classes, lease age and attempt counts without printing statement content or storage keys. The local OS-kill rehearsal proves durable primary intent and duplicate delivery handling with a test queue and stub extractor; production provider, scheduler and storage fault acceptance remains open. See [the extraction dispatch contract](../document-extraction-dispatch.md).
+
 ## Source reads, deletion and retention
 
 Participants use authenticated application source reads; grants and deletion/expiry are checked on each new read. Do not hand participant/coach clients a presigned storage GET URL for the challenge viewer. Direct private upload is a separate capability. Clear/reauthorize local previews on identity/revocation changes. Already downloaded copies cannot be recalled.
