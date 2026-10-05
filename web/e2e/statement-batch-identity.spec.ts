@@ -1,4 +1,16 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
+
+async function reviewIdentityDetails(batch: Locator, savedIdentities = [101, 101, 201, 201, 301, 301]) {
+  const rows = batch.getByRole('article')
+  await expect(rows).toHaveCount(6)
+  for (const [index, currentIdentity] of [101, 101, 201, 201, 301, 301].entries()) {
+    const row = rows.nth(index)
+    await expect(row.getByText('Current reviewed account: Fictional shared checking · Bank / wallet', { exact: true })).toBeVisible()
+    const details = row.locator('details.source-review-technical')
+    if (await details.getAttribute('open') === null) await details.locator('summary').click()
+    await expect(row.getByText(`Current account review: version 2 · identity ID ${currentIdentity}. Saved facts account identity ID: ${savedIdentities[index]}.`, { exact: true })).toBeVisible()
+  }
+}
 
 test('BOG UI selected batch corrects identity v1 to v2 for six rows without changing financial facts or spending', async ({ page }) => {
   await page.goto('/e2e/fixtures/statement-batch.html')
@@ -12,7 +24,7 @@ test('BOG UI selected batch corrects identity v1 to v2 for six rows without chan
   await page.getByRole('button', { name: 'Correct reviewed account identities to version 2' }).click()
   await expect(confirmation).not.toBeChecked()
   await expect(stage).toBeDisabled()
-  await expect(batch.getByText(/Current reviewed account: Fictional shared checking.*version 2/)).toHaveCount(6)
+  await reviewIdentityDetails(batch)
   await expect(batch.getByText(/Spending: unchanged at/)).toHaveCount(6)
   await confirmation.check()
   await stage.click()
@@ -21,7 +33,8 @@ test('BOG UI selected batch corrects identity v1 to v2 for six rows without chan
   await expect(confirmation).not.toBeChecked()
   const approve = batch.getByRole('button', { name: 'Approve selected saved proposals', exact: true })
   await expect(approve).toBeDisabled()
-  await expect(batch.getByText(/Saved proposal account identity ID.*matches the current reviewed account/)).toHaveCount(6)
+  await expect(batch.getByText('Saved proposal account: Fictional shared checking · matches the current reviewed account.', { exact: true })).toHaveCount(6)
+  await reviewIdentityDetails(batch)
   await confirmation.check()
   await approve.click()
   await expect(page.getByRole('status', { name: 'Fixture submissions' })).toHaveText('12 synthetic review requests submitted')
@@ -46,13 +59,14 @@ test('BOG UI selected batch never rewrites or approves a historical pending iden
   await page.getByRole('button', { name: 'Correct reviewed account identities to version 2' }).click()
   await page.getByRole('button', { name: 'Load saved proposal on old identity' }).click()
   const batch = page.getByRole('region', { name: 'Review explicitly selected rows', exact: true })
-  await expect(batch.getByText(/Saved proposal account identity ID 100.*requires individual review before approval/)).toHaveCount(2)
+  await expect(batch.getByText(/Saved proposal account:.*differs from the current reviewed account and requires individual review before approval/)).toHaveCount(6)
+  await reviewIdentityDetails(batch, [100, 100, 200, 200, 300, 300])
   await expect(batch.getByText('Saved review note: Historical saved v1 proposal')).toHaveCount(6)
   await batch.getByLabel('Selected-row review note').fill('A historical pending proposal must be resolved individually.')
   await batch.getByRole('checkbox', { name: /I checked every displayed account/ }).check()
   await expect(batch.getByRole('button', { name: 'Save selected row proposals', exact: true })).toBeDisabled()
   await expect(batch.getByRole('button', { name: 'Approve selected saved proposals', exact: true })).toBeDisabled()
   await expect(page.getByRole('status', { name: 'Fixture submissions' })).toHaveText('0 synthetic review requests submitted')
-  await expect(batch.getByText(/Current reviewed account: Fictional shared checking.*version 2/)).toHaveCount(6)
+  await reviewIdentityDetails(batch, [100, 100, 200, 200, 300, 300])
   expect(await batch.evaluate((node) => node.scrollWidth > node.clientWidth + 1)).toBe(false)
 })
