@@ -9593,6 +9593,7 @@ test('BOG UI pilot support stays vertically aligned on narrow phones and account
 })
 
 async function assertDialogVisibleHeight(dialog: ReturnType<Page['getByRole']>) {
+  await expect.poll(() => dialog.evaluate(() => document.documentElement.style.getPropertyValue('--dialog-viewport-height') === `${window.visualViewport?.height ?? innerHeight}px`)).toBe(true)
   const bounds = await dialog.evaluate(node => {
     const rect = node.getBoundingClientRect()
     const viewport = window.visualViewport
