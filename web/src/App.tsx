@@ -3124,7 +3124,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <div className="chat-shell-header">
                 <span className="message-avatar" aria-hidden="true">{assistantInitial(assistantName)}</span>
                 <div className="chat-shell-copy">
-                  <h3 id="mia-chat-title">Ask {assistantName}</h3>
+                  <h3 id="mia-chat-title" aria-label={`Ask ${assistantName}`}><span className="chat-heading-verb">Ask </span>{assistantName}</h3>
                   <p className="chat-period-context">{isSavingsExperience ? 'Optional plan context' : 'Plan context'}: {selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
                 </div>
                 <div className="chat-actions">

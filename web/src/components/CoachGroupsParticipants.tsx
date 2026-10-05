@@ -99,8 +99,9 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
         const updated = result.updatedGroup
         setGroups((items) => items.map((item) => item.id === updated.id ? updated : item)); setDraft(draftFor(updated))
       }
-      setNotice(result.notice)
-      if (selectedCohortId !== undefined && result.preferredId && result.preferredId !== selectedCohortId) onContextNotice?.(result.notice)
+      const contextChanging = selectedCohortId !== undefined && result.preferredId && result.preferredId !== selectedCohortId && onContextNotice
+      setNotice(contextChanging ? null : result.notice)
+      onContextNotice?.(contextChanging ? result.notice : '')
       const data = await load(result.preferredId ?? selectedId)
       if (!mutationLifecycle.isCurrent(ticket) || request !== generation.current) return
       if (data.nextId !== selectedId) { setRosterPage(0); setSearch(''); setRemovingId(null) }
