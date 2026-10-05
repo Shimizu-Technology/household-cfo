@@ -2860,6 +2860,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     if (sectionLabel.toLowerCase().includes('income')) {
       requestAnimationFrame(() => {
+        const disclosure = incomeSourcesRef.current?.closest('details')
+        if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
         incomeSourcesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
         incomeSourcesRef.current?.querySelector<HTMLInputElement>('[name="income_source_label"]')?.focus({ preventScroll: true })
       })
@@ -3550,7 +3552,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           </ProfileDisclosure>
 
           {!isFirstSessionSetup && <article className="panel profile-statements-link"><h3>Your private statements</h3><p>Upload, identify accounts, review source rows and approve changes in Statements.</p><Button variant="secondary" onClick={() => openDocumentReview()}>Open Statements</Button></article>}
-          {isFirstSessionUpload && <DocumentImportWorkspace
+          {isFirstSessionUpload &&         {isFirstSessionSetup && <div className="first-session-upload-return"><Button variant="secondary" onClick={startManualFirstSession}>Return to starting numbers</Button></div>}
+        <DocumentImportWorkspace
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}

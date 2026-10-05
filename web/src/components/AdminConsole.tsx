@@ -235,6 +235,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
 
   async function handleCreateCohort(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (adminMutationPending) return
     if (platformMode) {
       setError('Choose a coach workspace before creating a cohort.')
       return
@@ -262,6 +263,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
 
   async function handleUpdateCohort(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (adminMutationPending) return
     if (!selectedCohort || !editDraft) return
 
     setCohortSaving(true)
@@ -280,6 +282,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
 
   async function handleInviteUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (adminMutationPending) return
     const inviteRole = inviteDraft.role ?? 'participant'
     const cohortId = String(inviteDraft.cohort_id ?? '')
 
@@ -314,7 +317,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
 
   async function handleSaveUser(user: AdminUser) {
     const draft = userDrafts[user.id]
-    if (!draft || savingUserIds.has(user.id)) return
+    if (!draft || adminMutationPending) return
     if (cohortRequiredFor(draft.role, draft.invitation_status) && draft.cohort_ids.length === 0) {
       setError(`${titleize(draft.role)} users must be assigned to at least one cohort before saving unless access is revoked.`)
       return
@@ -339,7 +342,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   }
 
   async function handleResendInvitation(user: AdminUser) {
-    if (resendingUserIds.has(user.id)) return
+    if (adminMutationPending) return
 
     markUserResending(user.id, true)
     setError(null)
@@ -356,7 +359,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   }
 
   async function handleCancelInvite(user: AdminUser) {
-    if (savingUserIds.has(user.id) || !window.confirm(`Cancel ${user.email}'s invitation and revoke their cohort access?`)) return
+    if (adminMutationPending || !window.confirm(`Cancel ${user.email}'s invitation and revoke their cohort access?`)) return
 
     markUserSaving(user.id, true)
     setError(null)
@@ -376,7 +379,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   }
 
   async function handleRemoveFromSelectedCohort(user: AdminUser) {
-    if (!selectedCohortId || savingUserIds.has(user.id) || !window.confirm(`Remove ${user.email} from ${selectedCohort?.name ?? 'this cohort'}? If no required cohorts remain, their access will be revoked.`)) return
+    if (!selectedCohortId || adminMutationPending || !window.confirm(`Remove ${user.email} from ${selectedCohort?.name ?? 'this cohort'}? If no required cohorts remain, their access will be revoked.`)) return
     const selectedId = String(selectedCohortId)
     const nextCohortIds = serverCohortIdsForUser(user).filter((cohortId) => cohortId !== selectedId)
     const shouldRevokeAfterRemoval = cohortRequiredFor(user.role, user.invitation_status) && nextCohortIds.length === 0
@@ -515,7 +518,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
               <span>Notes</span>
               <textarea value={createDraft.notes ?? ''} onChange={(event) => setCreateDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="Pilot focus, meeting cadence, or setup notes" rows={3} />
             </label>
-            <button type="submit" disabled={cohortSaving || platformMode}>{cohortSaving ? 'Saving' : 'Create cohort'}</button>
+            <button type="submit" disabled={adminMutationPending || platformMode}>{cohortSaving ? 'Saving' : 'Create cohort'}</button>
             {platformMode && <p className="admin-muted">Choose an Admin workspace above before creating a cohort.</p>}
           </form>
         </article>
@@ -603,7 +606,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
                 <span>Notes</span>
                 <textarea disabled={adminMutationPending} value={editDraft.notes ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, notes: event.target.value } : current)} rows={3} />
               </label>
-              <button type="submit" disabled={cohortSaving}>{cohortSaving ? 'Saving' : 'Save cohort'}</button>
+              <button type="submit" disabled={adminMutationPending}>{cohortSaving ? 'Saving' : 'Save cohort'}</button>
             </form>
           ) : (
             <p className="admin-muted">Create a cohort, then select it here to update dates, status, and notes.</p>
@@ -646,7 +649,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
               <span>Send invite email now</span>
             </label>
             <p className="admin-field-note wide">Names come from the invited person's Clerk account after first sign-in. Admins can manage across cohorts without assignment; active coaches and participants must belong to at least one cohort.</p>
-            <button type="submit" disabled={inviteSaving}>{inviteSaving ? 'Creating invite' : 'Create invite'}</button>
+            <button type="submit" disabled={adminMutationPending}>{inviteSaving ? 'Creating invite' : 'Create invite'}</button>
           </form>
         </details>
       </div>

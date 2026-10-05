@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminCohort, AdminUser, CurrentUser } from '../api'
 import { AdminConsole } from './AdminConsole'
-const mocks = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), fetchAdminPlaidHealth: vi.fn(), updateAdminUser: vi.fn(), resendAdminUserInvitation: vi.fn() }))
+const mocks = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), fetchAdminPlaidHealth: vi.fn(), updateAdminUser: vi.fn(), resendAdminUserInvitation: vi.fn(), createAdminUser: vi.fn() }))
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), ...mocks }))
 vi.mock('../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: 2, selectCoachWorkspace: vi.fn() }) }))
 vi.mock('./PilotFeedbackInbox', () => ({ PilotFeedbackInbox: () => <section>Private support inbox</section> }))
@@ -60,6 +60,23 @@ describe('staff operation hierarchy', () => {
     expect(preserved.textContent).toContain('Unsaved access changes')
     fireEvent.click(screen.getByRole('button', { name: 'Cohorts' }))
     expect(cohortName).toHaveProperty('value', 'Draft BOG cohort name')
+  })
+  it('prevents a concurrent invite from superseding a participant save and its refresh', async () => {
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findAllByText('Participant 00')
+    const inviteButton = screen.getByRole('button', { name: 'Create invite' })
+    const inviteForm = inviteButton.closest('form')!
+    const row = document.querySelector('.admin-user-row') as HTMLDetailsElement
+    row.open = true
+    fireEvent.change(within(row).getByLabelText('Role'), { target: { value: 'coach' } })
+    let resolveSave!: (user: AdminUser) => void
+    mocks.updateAdminUser.mockImplementation(() => new Promise((resolve) => { resolveSave = resolve }))
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }))
+    expect(inviteButton).toHaveProperty('disabled', true)
+    fireEvent.submit(inviteForm)
+    expect(mocks.createAdminUser).not.toHaveBeenCalled()
+    resolveSave({ ...people[0], role: 'coach' } as AdminUser)
+    await waitFor(() => expect(inviteButton).toHaveProperty('disabled', false))
   })
   it('keeps participant drafts when an invitation resend refreshes the roster', async () => {
     const pending = { ...people[15], invitation_status: 'pending' } as AdminUser
