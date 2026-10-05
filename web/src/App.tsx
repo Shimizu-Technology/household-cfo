@@ -53,7 +53,7 @@ import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/f
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import { guamTodayIso } from './lib/householdDate'
-import { workspaceViewReducer } from './lib/workspaceView'
+import { miaDraftChangesSharedFinancialRecords, workspaceViewReducer } from './lib/workspaceView'
 import { documentNeedsReview, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
@@ -534,6 +534,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [budgetAction, setBudgetAction] = useState<string | null>(null)
   const [budgetError, setBudgetError] = useState<string | null>(null)
   const [hasUnsavedBudgetChanges, setHasUnsavedBudgetChanges] = useState(false)
+  const [hasUnsavedIncomeSourceChanges, setHasUnsavedIncomeSourceChanges] = useState(false)
+  const [hasUnsavedIncomeScheduleChanges, setHasUnsavedIncomeScheduleChanges] = useState(false)
+  const [incomeDraftNotice, setIncomeDraftNotice] = useState<string | null>(null)
+  const [workspaceRefreshNotice, setWorkspaceRefreshNotice] = useState<{ kind: 'home' | 'selected'; message: string } | null>(null)
+  const hasUnsavedIncomeChanges = hasUnsavedIncomeSourceChanges || hasUnsavedIncomeScheduleChanges
+  const incomeMutationPending = Boolean(budgetAction?.includes('income'))
   const [hasUnsavedCoachChanges, setHasUnsavedCoachChanges] = useState(false)
   const [pendingBudgetView, setPendingBudgetView] = useState<{ requestId: number; scope: string; year: number } | null>(null)
   const budgetViewRequestRef = useRef(0)
@@ -860,8 +866,26 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
   }, [isRealWorkspace, selectedBudgetMonthEndsOn, selectedBudgetMonthStartsOn])
 
+  const handleIncomeSourceDirtyChange = useCallback((dirty: boolean) => {
+    setHasUnsavedIncomeSourceChanges(dirty)
+    if (!dirty) setIncomeDraftNotice(null)
+  }, [])
+  const handleIncomeScheduleDirtyChange = useCallback((dirty: boolean) => {
+    setHasUnsavedIncomeScheduleChanges(dirty)
+    if (!dirty) setIncomeDraftNotice(null)
+  }, [])
+
+  function blockUnsavedIncomeTransition(destination: string) {
+    if (!hasUnsavedIncomeChanges && !incomeMutationPending) return false
+    const notice = incomeMutationPending ? 'Your income change is saving. Wait for it to finish before leaving this task.' : `You have unsaved income changes. Save or cancel them before ${destination}.`
+    setIncomeDraftNotice(notice)
+    setRouteAnnouncement(notice)
+    return true
+  }
+
   function chooseParticipantProgram(cohortId: number) {
     if (cohortId === data?.workspace.cohort?.id) return
+    if (blockUnsavedIncomeTransition('switching programs')) return
     if (hasUnsavedBudgetChanges) {
       setBudgetError('You have unsaved budget changes. Save or cancel them before switching programs.')
       setRouteAnnouncement('Save or cancel your budget changes before switching programs.')
@@ -921,7 +945,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [canLoadWorkspace, auth.currentUser?.id, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId, onProgramVerified, onProgramUnavailable, participantActorId])
 
   useEffect(() => {
-    if (!hasUnsavedBudgetChanges) return
+    if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending) return
 
     const preventUnsavedNavigation = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -929,7 +953,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
     window.addEventListener('beforeunload', preventUnsavedNavigation)
     return () => window.removeEventListener('beforeunload', preventUnsavedNavigation)
-  }, [hasUnsavedBudgetChanges])
+  }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending])
 
   useEffect(() => {
     if (!workspaceLoadKey) return
@@ -1296,6 +1320,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
     const targetSection = visibleSections.includes(section) ? section : sections[0]
     let replacedStaleOAuthLocation = false
+    if (targetSection !== activeSection && (hasUnsavedIncomeChanges || incomeMutationPending)) {
+      const notice = incomeMutationPending ? 'Your income change is saving. Wait for it to finish before leaving this task.' : 'You have unsaved income changes. Save or cancel them before leaving this screen.'
+      setIncomeDraftNotice(notice)
+      setRouteAnnouncement(notice)
+      return false
+    }
     if (activeSection === 'Budget' && targetSection !== 'Budget' && hasUnsavedBudgetChanges) {
       setBudgetError('You have unsaved budget changes. Save or cancel them before leaving Budget.')
       return false
@@ -1356,7 +1386,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       )
     }
     return true
-  }, [active, activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, hasUnsavedCoachChanges, visibleSections])
+  }, [active, activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedCoachChanges, visibleSections])
 
   useEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration
@@ -1511,6 +1541,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   function openManualControls(draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) {
+    if (blockUnsavedIncomeTransition('opening another edit')) return
     const targetItem = item ?? (
       draft.draft_type === 'asset_plan'
         ? draft.items.find((candidate) => candidate.target_record_type === 'Account' || candidate.operation_key?.startsWith('account.'))
@@ -1525,8 +1556,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const moneyTarget = moneyTopicForOperation(operationKey, actionType)
     const targetSection = moneyTarget ? 'My Money'
       : targetItem?.manual_section ?? (draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' || draft.draft_type === 'asset_plan' || draft.draft_type === 'goal_plan' ? 'My Profile' : 'Budget')
-    if (moneyTarget) setMoneyTopic(moneyTarget)
     if (!switchSection(targetSection, { focusHeading: false })) return
+    if (moneyTarget) setMoneyTopic(moneyTarget)
 
     if (targetItem && (operationKey.startsWith('account.') || actionType?.endsWith('_account'))) {
       const accountItem = targetItem
@@ -1952,8 +1983,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     try {
       const budget = await createBudgetCategory(input, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
       budgetOperationKeysRef.current.complete(signature)
-      setData((current) => current ? { ...current, budget } : current)
+      setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget } : current })
       refreshSpendingReportForBudget(budget)
+      await refreshCurrentHomeAfterSharedChange(budget)
       setNewBudgetCategory(blankBudgetCategoryDraft())
       captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
     } catch (caught) {
@@ -1963,8 +1995,31 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
   }
 
+  async function restoreSelectedBudgetPlan(returnedBudget: BudgetData) {
+    if (!budgetView || returnedBudget.annual_plan?.year === budgetView.year) return
+    try {
+      const selected = await fetchBudget(budgetView.year)
+      if (selected.annual_plan?.year !== budgetView.year) throw new Error('The selected budget year could not be refreshed.')
+      setData((current) => current ? { ...current, budget: selected } : current)
+      setWorkspaceRefreshNotice(current => current?.kind === 'selected' ? null : current)
+    } catch {
+      setWorkspaceRefreshNotice({ kind: 'selected', message: 'Your change was saved, but the selected budget year could not refresh. Reopen that year before using its totals.' })
+    }
+  }
+
+  async function refreshCurrentHomeAfterSharedChange(budget: BudgetData) {
+    if (budget.annual_plan?.year === data?.dashboard.action_center.current_year) return
+    try {
+      const payload = await fetchAppData(true)
+      setData(payload)
+      setWorkspaceRefreshNotice(current => current?.kind === 'home' ? null : current)
+    } catch {
+      setWorkspaceRefreshNotice({ kind: 'home', message: 'Your change was saved, but the current household view could not refresh. Reload before using those totals.' })
+    }
+  }
+
   async function refreshWorkspaceAfterIncomeChange(fallbackBudget: BudgetData, errorTarget: 'budget' | 'profile') {
-    setData((current) => current ? { ...current, budget: fallbackBudget } : current)
+    setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: fallbackBudget } : current })
     refreshSpendingReportForBudget(fallbackBudget)
     try {
       const payload = await fetchAppData(true)
@@ -1982,6 +2037,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         }
       })
       replaceMiaHistory(payload.mia)
+      await restoreSelectedBudgetPlan(fallbackBudget)
     } catch {
       const message = 'The income change was saved, but the latest totals could not be refreshed. Reload to see the canonical workspace.'
       if (errorTarget === 'profile') setSetupError(message)
@@ -2100,6 +2156,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
   async function handleBudgetViewChange(year: number, monthIndex: number) {
     if (budgetYearLoading || budgetAction) return
+    if (blockUnsavedIncomeTransition('changing the report period')) return
     const normalizedYear = Math.max(2000, Math.min(2100, year))
     const normalizedMonthIndex = Math.max(0, Math.min(11, monthIndex))
     const requestedView = { year: normalizedYear, monthIndex: normalizedMonthIndex }
@@ -2122,6 +2179,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       if (budget.annual_plan?.year !== normalizedYear) throw new Error('The server returned a different budget year. Your previous period remains selected.')
       setData((current) => current ? { ...current, budget } : current)
       setBudgetView(requestedView)
+      setWorkspaceRefreshNotice(current => current?.kind === 'selected' || normalizedYear === data.dashboard.action_center.current_year ? null : current)
     } catch (caught) {
       if (isCurrent()) setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded. Your previous period remains selected.')
     } finally {
@@ -2152,8 +2210,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         budgetOperationKeysRef.current.complete(signature)
         appliedChanges += 1
       }
-      setData((current) => current ? { ...current, budget: latestBudget } : current)
+      setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current } : (current) => current ? { ...current, budget: latestBudget } : current)
       refreshSpendingReportForBudget(latestBudget)
+      if (changes.categories.length > 0) await refreshCurrentHomeAfterSharedChange(latestBudget)
       captureAnalyticsEvent('budget_edits_saved', {
         allocation_change_count: changes.allocations.length,
         category_change_count: changes.categories.length,
@@ -2165,8 +2224,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Budget edits could not be saved.'
       if (appliedChanges > 0) {
-        setData((current) => current ? { ...current, budget: latestBudget } : current)
+        setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current } : (current) => current ? { ...current, budget: latestBudget } : current)
         refreshSpendingReportForBudget(latestBudget)
+      if (changes.categories.length > 0) await refreshCurrentHomeAfterSharedChange(latestBudget)
         setBudgetError(`${message} Earlier changes were saved; your remaining edits are still available to retry.`)
         throw new BudgetEditPartialSaveError(message, latestBudget, { cause: caught })
       }
@@ -2191,8 +2251,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     try {
       const budget = await archiveBudgetCategory(row.id, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
       budgetOperationKeysRef.current.complete(signature)
-      setData((current) => current ? { ...current, budget } : current)
+      setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget } : current })
       refreshSpendingReportForBudget(budget)
+      await refreshCurrentHomeAfterSharedChange(budget)
       captureAnalyticsEvent('budget_category_archived', { stack_key: row.stack_key })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be archived.')
@@ -2211,8 +2272,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     try {
       const budget = await restoreBudgetCategory(categoryId, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
       budgetOperationKeysRef.current.complete(signature)
-      setData((current) => current ? { ...current, budget } : current)
+      setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget } : current })
       refreshSpendingReportForBudget(budget)
+      await refreshCurrentHomeAfterSharedChange(budget)
       captureAnalyticsEvent('budget_category_restored', { category_id: categoryId })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be restored.')
@@ -2222,6 +2284,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   async function handleApplyMiaActionDraft(draft: MiaActionDraft, itemIds?: number[]) {
+    if (blockUnsavedIncomeTransition('applying another financial change')) return
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
@@ -2233,13 +2296,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     try {
       const workspace = await applyMiaActionDraft(draft.id, budgetOperationKeysRef.current.keyFor(signature), selection)
       budgetOperationKeysRef.current.complete(signature)
-      setData(workspace)
+      setData(miaDraftChangesSharedFinancialRecords(draft, selection) ? { type: 'shared_financial_mutation', update: workspace } : workspace)
       if (draft.draft_type === 'household_setup') {
         setSetupDraft(workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(workspace.workspace.setup_values, workspace.workspace.setup_status) : null)
       }
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
       replaceMiaHistory(workspace.mia)
+      if (miaDraftChangesSharedFinancialRecords(draft, selection)) await refreshCurrentHomeAfterSharedChange(workspace.budget)
       captureAnalyticsEvent('mia_action_draft_applied', {
         draft_type: draft.draft_type,
         item_count: draft.items.length,
@@ -2715,7 +2779,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     try {
       const response = await applyDocumentImport(documentImport.id, itemIds)
       setDocumentImports((current) => replaceImport(current, response.document_import))
-      setData(response.workspace)
+      setData({ type: 'shared_financial_mutation', update: response.workspace })
+      await refreshCurrentHomeAfterSharedChange(response.workspace.budget)
+      await restoreSelectedBudgetPlan(response.workspace.budget)
       setSetupDraft(response.workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(response.workspace.workspace.setup_values, response.workspace.workspace.setup_status) : setupDraft)
       replaceMiaHistory(response.workspace.mia)
       const savedDebtInSummaryMode = documentImport.items.some((item) => itemIds.includes(item.id) && item.target_type === 'debt')
@@ -2831,12 +2897,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setupSaveIdempotencyKeyRef.current = idempotencyKey
       const payload = await saveWorkspaceSetup(submittedSetupValues, idempotencyKey)
       setupSaveIdempotencyKeyRef.current = null
-      setData(payload)
+      setData({ type: 'shared_financial_mutation', update: payload })
+      await restoreSelectedBudgetPlan(payload.budget)
       setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : setupDraft)
       setBudgetView((current) => {
         const responseYear = payload.budget.annual_plan?.year
         if (!responseYear) return current
-        return { year: responseYear, monthIndex: current?.monthIndex ?? selectedBudgetMonthIndex }
+        return current ?? { year: responseYear, monthIndex: selectedBudgetMonthIndex }
       })
       setIsProfileEditing(false)
       replaceMiaHistory(payload.mia)
@@ -2859,8 +2926,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   async function refreshWorkspaceAfterDebtChange() {
-    const payload = await fetchAppData(true)
-    setData(payload)
+    const [payload, selectedPlan] = await Promise.all([
+      fetchAppData(true),
+      selectedBudgetYear !== data?.dashboard.action_center.current_year ? fetchBudget(selectedBudgetYear) : Promise.resolve(null),
+    ])
+    setData({ type: 'shared_financial_mutation', update: payload })
+    if (selectedPlan) setData((current) => current ? { ...current, budget: selectedPlan } : current)
+    setWorkspaceRefreshNotice(null)
     if (!isProfileEditing) setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
     replaceMiaHistory(payload.mia)
   }
@@ -3039,6 +3111,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
       )}
 
+      {workspaceRefreshNotice && <p className="setup-error" role="alert">{workspaceRefreshNotice.message}</p>}
+      {incomeDraftNotice && <p className="setup-error" role="alert">{incomeDraftNotice}</p>}
       {budgetYearLoading && <p className="document-alert" role="status">Loading the {pendingBudgetView?.year} plan. Your previous period remains selected; Send and plan changes pause until it loads.</p>}
 
       {activeSection === 'Home' && data.workspace.experience_mode === 'savings_challenge' && (
@@ -3486,6 +3560,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           <nav className="money-topics" aria-label="My Money topics">
             {moneyTopics.map(topic => (
               <button type="button" key={topic.id} aria-pressed={moneyTopic === topic.id} aria-controls="money-topic-content" onClick={() => {
+                if (topic.id !== moneyTopic && blockUnsavedIncomeTransition('switching money topics')) return
                 setMoneyTopic(topic.id)
                 setRouteAnnouncement(`${topic.label} tools loaded.`)
               }}>{topic.label}</button>
@@ -3510,21 +3585,23 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       onArchive={handleArchiveIncomeSource}
                       onRestore={handleRestoreIncomeSource}
                       focusRequest={incomeFocusRequest}
-                      onFocusRequestHandled={() => setIncomeFocusRequest(null)} />
+                      onFocusRequestHandled={() => setIncomeFocusRequest(null)}
+                      onUnsavedChangesChange={handleIncomeSourceDirtyChange} />
                     <article className="panel money-income-schedule">
                       {budgetError && <p className="setup-error" role="alert">{budgetError}</p>}
                       <AnnualIncomePlanner
-                      key={`${budgetForView.annual_plan.year}:${budgetForView.annual_plan.income_sources.map(source => source.id).join(':')}`}
+                      key={budgetForView.annual_plan.year}
                       plan={budgetForView.annual_plan}
                       isRealWorkspace={Boolean(isRealWorkspace)}
                       action={budgetContextAction}
                       onSave={handleSaveIncomeScheduleEntry}
                       onDelete={handleDeleteIncomeScheduleEntry}
                       focusRequest={budgetFocusRequest?.operationKey.startsWith('income.schedule.') ? budgetFocusRequest : null}
-                      onFocusRequestHandled={() => setBudgetFocusRequest(null)} />
+                      onFocusRequestHandled={() => setBudgetFocusRequest(null)}
+                      onUnsavedChangesChange={handleIncomeScheduleDirtyChange} />
                     </article>
                   </fieldset>
-                ) : <article className="panel empty-state"><strong>Your income sources will appear here.</strong><p>Add starting household numbers to create your income plan.</p><Button variant="secondary" onClick={startManualFirstSession}>Set up my household</Button></article>}
+                ) : budgetView ? <article className="panel empty-state"><strong>The {budgetView.year} income plan needs a refresh.</strong><p>Your saved income records are still available. Reload the selected year before editing its schedule.</p><Button variant="secondary" onClick={() => handleBudgetViewChange(budgetView.year, budgetView.monthIndex)}>Reload selected year</Button></article> : <article className="panel empty-state"><strong>Your income sources will appear here.</strong><p>Add starting household numbers to create your income plan.</p><Button variant="secondary" onClick={startManualFirstSession}>Set up my household</Button></article>}
               </>
             )}
             {moneyTopic === 'spending' && (
@@ -3639,6 +3716,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onRestore={handleRestoreIncomeSource}
               focusRequest={incomeFocusRequest}
               onFocusRequestHandled={() => setIncomeFocusRequest(null)}
+                      onUnsavedChangesChange={handleIncomeSourceDirtyChange}
             />
             </fieldset>
           )}
@@ -3839,6 +3917,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onBudgetViewChange={handleBudgetViewChange}
               onSaveBudgetEdits={handleBudgetEditSave}
               onUnsavedChangesChange={setHasUnsavedBudgetChanges}
+              hasUnsavedIncomeChanges={hasUnsavedIncomeScheduleChanges || incomeMutationPending}
+              onIncomeUnsavedChangesChange={handleIncomeScheduleDirtyChange}
               onAskMia={() => {
                 setQuestion('I want to update my budget. Help me make this change safely: ')
                 switchSection('Ask Mia')
@@ -7762,6 +7842,7 @@ function IncomeSourceManager({
   onRestore,
   focusRequest,
   onFocusRequestHandled,
+  onUnsavedChangesChange,
 }: {
   sectionRef?: Ref<HTMLElement>
   sources: IncomeTimelineSource[]
@@ -7772,8 +7853,10 @@ function IncomeSourceManager({
   onRestore: (source: IncomeTimelineSource) => Promise<void>
   focusRequest?: IncomeSourceFocusRequest | null
   onFocusRequestHandled?: () => void
+  onUnsavedChangesChange?: (dirty: boolean) => void
 }) {
   const [draft, setDraft] = useState<IncomeSourceDraft>(() => blankIncomeSourceDraft())
+  const [draftBaseline, setDraftBaseline] = useState<IncomeSourceDraft>(() => blankIncomeSourceDraft())
   const [editingId, setEditingId] = useState<number | null>(null)
   const [endingId, setEndingId] = useState<number | null>(null)
   const [endingMonth, setEndingMonth] = useState('')
@@ -7785,19 +7868,27 @@ function IncomeSourceManager({
   const sourceCardRefs = useRef(new Map<number, HTMLElement>())
   const handledFocusKeyRef = useRef<number | null>(null)
 
+  const hasUnsavedChanges = endingId !== null || Object.entries(draftBaseline).some(([key, value]) => draft[key as keyof IncomeSourceDraft] !== value)
+  useEffect(() => {
+    onUnsavedChangesChange?.(hasUnsavedChanges)
+    return () => onUnsavedChangesChange?.(false)
+  }, [hasUnsavedChanges, onUnsavedChangesChange])
+
   useEffect(() => {
     if (!focusRequest || handledFocusKeyRef.current === focusRequest.key) return
     handledFocusKeyRef.current = focusRequest.key
     const source = sources.find((candidate) => candidate.id === focusRequest.sourceId)
     requestAnimationFrame(() => {
       if (focusRequest.actionType === 'create_income_source') {
-        setDraft(incomeSourceDraftWithProposal(blankIncomeSourceDraft(), focusRequest.payload)); setEditingId(null); setEndingId(null); setFormError(null); lastActionTriggerRef.current = null
+        setDraftBaseline(blankIncomeSourceDraft()); setDraft(incomeSourceDraftWithProposal(blankIncomeSourceDraft(), focusRequest.payload)); setEditingId(null); setEndingId(null); setFormError(null); lastActionTriggerRef.current = null
         requestAnimationFrame(() => sourceNameRef.current?.focus())
       } else if (focusRequest.actionType === 'update_income_source' && source) {
-        setEndingId(null); setEditingId(source.id); setDraft(incomeSourceDraftWithProposal(incomeSourceDraftFor(source), focusRequest.payload)); setFormError(null)
+        setEndingId(null); setEditingId(source.id); setDraftBaseline(incomeSourceDraftFor(source)); setDraft(incomeSourceDraftWithProposal(incomeSourceDraftFor(source), focusRequest.payload)); setFormError(null)
         requestAnimationFrame(() => { sourceFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); sourceNameRef.current?.focus({ preventScroll: true }); sourceNameRef.current?.select() })
       } else if (focusRequest.actionType === 'archive_income_source' && source) {
-        beginEnd(source.id)
+        const blank = blankIncomeSourceDraft()
+        setDraftBaseline(blank); setDraft(blank); setEditingId(null); setEndingId(source.id); setEndingMonth(''); setFormError(null)
+        requestAnimationFrame(() => endMonthRef.current?.focus())
         if (payloadHas(focusRequest.payload, 'ends_on')) setEndingMonth(proposedText(focusRequest.payload, 'ends_on', '').slice(0, 7))
       } else if (focusRequest.actionType === 'restore_income_source' && source) {
         const target = sourceCardRefs.current.get(source.id)?.querySelector<HTMLButtonElement>('[data-income-source-action="restore"]')
@@ -7813,16 +7904,20 @@ function IncomeSourceManager({
   }
 
   function resetForm() {
-    setDraft(blankIncomeSourceDraft())
+    const blank = blankIncomeSourceDraft()
+    setDraftBaseline(blank)
+    setDraft(blank)
     setEditingId(null)
     setFormError(null)
     lastActionTriggerRef.current = null
   }
 
   function beginEdit(source: IncomeTimelineSource, trigger?: HTMLButtonElement) {
+    if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before editing another source.'); return }
     lastActionTriggerRef.current = trigger ?? null
     setEndingId(null)
     setEditingId(source.id)
+    setDraftBaseline(incomeSourceDraftFor(source))
     setDraft(incomeSourceDraftFor(source))
     setFormError(null)
     requestAnimationFrame(() => {
@@ -7839,6 +7934,10 @@ function IncomeSourceManager({
   }
 
   function beginEnd(sourceId: number, trigger?: HTMLButtonElement) {
+    if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before ending a source.'); return }
+    const blank = blankIncomeSourceDraft()
+    setDraftBaseline(blank)
+    setDraft(blank)
     lastActionTriggerRef.current = trigger ?? null
     setEditingId(null)
     setEndingId(sourceId)
@@ -7908,6 +8007,7 @@ function IncomeSourceManager({
     }
   }
 
+  const incomeOperationPending = Boolean(action?.includes('income'))
   const saving = action === 'create-income-source' || (editingId !== null && action === `update-income-source:${editingId}`)
 
   return (
@@ -7964,7 +8064,7 @@ function IncomeSourceManager({
                 </dl>
                 <div className="income-source-manager-actions">
                   {ended && canUndoEnd ? (
-                    <button type="button" data-income-source-action="restore" className="secondary-button" aria-label={`Restore ${source.label}`} disabled={action === `restore-income-source:${source.id}`} onClick={() => void restoreSource(source)}>
+                    <button type="button" data-income-source-action="restore" className="secondary-button" aria-label={`Restore ${source.label}`} disabled={incomeOperationPending} onClick={() => void restoreSource(source)}>
                       {action === `restore-income-source:${source.id}` ? 'Restoring' : 'Restore source'}
                     </button>
                   ) : ended ? (
@@ -7973,10 +8073,10 @@ function IncomeSourceManager({
                     <div className="income-source-end-confirmation">
                       <label>
                         <span>First $0 month</span>
-                        <input ref={endMonthRef} type="month" min="2000-01" max="2100-12" value={endingMonth} onChange={(event) => setEndingMonth(event.currentTarget.value)} />
+                        <input ref={endMonthRef} disabled={incomeOperationPending} type="month" min="2000-01" max="2100-12" value={endingMonth} onChange={(event) => setEndingMonth(event.currentTarget.value)} />
                       </label>
-                      <button type="button" className="secondary-button" aria-label={`Cancel ending ${source.label}`} onClick={cancelEnd}>Cancel</button>
-                      <button type="button" aria-label={`Confirm stop for ${source.label}`} disabled={action === `archive-income-source:${source.id}`} onClick={() => void confirmEnd(source)}>
+                      <button type="button" className="secondary-button" aria-label={`Cancel ending ${source.label}`} disabled={incomeOperationPending} onClick={cancelEnd}>Cancel</button>
+                      <button type="button" aria-label={`Confirm stop for ${source.label}`} disabled={incomeOperationPending} onClick={() => void confirmEnd(source)}>
                         {action === `archive-income-source:${source.id}` ? 'Ending' : 'Confirm stop'}
                       </button>
                     </div>
@@ -8001,7 +8101,7 @@ function IncomeSourceManager({
           </div>
           <p>Changes apply only after you save.</p>
         </div>
-        <div className="income-source-fields">
+        <fieldset className="income-source-fields budget-loading-boundary" style={{ border: 0 }} disabled={incomeOperationPending}><legend className="sr-only">Income source fields</legend>
           <label>
             <span>Name</span>
             <input ref={sourceNameRef} name="income_source_label" maxLength={120} value={draft.label} placeholder="Primary salary" onChange={(event) => updateSourceDraft({ label: event.currentTarget.value })} />
@@ -8029,11 +8129,11 @@ function IncomeSourceManager({
             <span>Starting month</span>
             <input type="month" min="2000-01" max="2100-12" value={draft.starts_on.slice(0, 7)} onChange={(event) => updateSourceDraft({ starts_on: `${event.currentTarget.value}-01` })} />
           </label>
-        </div>
+        </fieldset>
         {formError && <p className="setup-error" role="alert">{formError}</p>}
         <div className="income-source-form-actions">
-          {editingId !== null && <button type="button" className="secondary-button" onClick={cancelEdit}>Cancel</button>}
-          <button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === null ? 'Add source' : 'Save source'}</button>
+          {(editingId !== null || hasUnsavedChanges) && endingId === null && <button type="button" className="secondary-button" disabled={incomeOperationPending} onClick={cancelEdit}>Cancel</button>}
+          <button type="submit" disabled={incomeOperationPending}>{saving ? 'Saving' : editingId === null ? 'Add source' : 'Save source'}</button>
         </div>
       </form>
     </section>
@@ -8066,6 +8166,18 @@ function blankIncomeScheduleDraft(plan: AnnualBudgetPlan): IncomeScheduleDraft {
   }
 }
 
+function incomeScheduleDraftFor(sourceId: number, entry: IncomeScheduleEntry): IncomeScheduleDraft {
+  return {
+    income_source_id: String(sourceId),
+    entry_type: entry.entry_type,
+    label: entry.label ?? '',
+    amount: String(entry.amount),
+    cadence: entry.entry_type === 'one_time' ? 'one_time' : entry.cadence,
+    effective_on: entry.effective_on,
+    retained_after_transition: entry.retained_after_transition === true,
+  }
+}
+
 function AnnualIncomePlanner({
   plan,
   isRealWorkspace,
@@ -8074,6 +8186,7 @@ function AnnualIncomePlanner({
   onDelete,
   focusRequest,
   onFocusRequestHandled,
+  onUnsavedChangesChange,
 }: {
   plan: AnnualBudgetPlan
   isRealWorkspace: boolean
@@ -8082,14 +8195,31 @@ function AnnualIncomePlanner({
   onDelete: (entry: IncomeScheduleEntry) => void
   focusRequest?: BudgetFocusRequest | null
   onFocusRequestHandled?: () => void
+  onUnsavedChangesChange?: (dirty: boolean) => void
 }) {
   const { assistantName } = useBrand()
   const [draft, setDraft] = useState<IncomeScheduleDraft>(() => blankIncomeScheduleDraft(plan))
+  const [draftBaseline, setDraftBaseline] = useState<IncomeScheduleDraft>(() => blankIncomeScheduleDraft(plan))
   const [editingId, setEditingId] = useState<number | null>(null)
   const [removingId, setRemovingId] = useState<number | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const amountInputRef = useRef<HTMLInputElement | null>(null)
   const handledFocusKeyRef = useRef<number | null>(null)
+
+  const hasUnsavedChanges = removingId !== null || Object.entries(draftBaseline).some(([key, value]) => draft[key as keyof IncomeScheduleDraft] !== value)
+  useEffect(() => {
+    onUnsavedChangesChange?.(hasUnsavedChanges)
+    return () => onUnsavedChangesChange?.(false)
+  }, [hasUnsavedChanges, onUnsavedChangesChange])
+
+  useEffect(() => {
+    if (hasUnsavedChanges || editingId !== null) return
+    const refreshedBlank = blankIncomeScheduleDraft(plan)
+    if (draft.income_source_id === refreshedBlank.income_source_id) return
+    // A newly added/ended source can change the default of an untouched form.
+    // Preserve participant-entered fields; only reconcile the pristine draft.
+    queueMicrotask(() => { setDraftBaseline(refreshedBlank); setDraft(refreshedBlank) })
+  }, [draft.income_source_id, editingId, hasUnsavedChanges, plan])
 
   useEffect(() => {
     if (!focusRequest || handledFocusKeyRef.current === focusRequest.key) return
@@ -8106,6 +8236,7 @@ function AnnualIncomePlanner({
         setRemovingId(null)
         setEditingId(null)
         setFormError(null)
+        setDraftBaseline(fallback)
         setDraft({
           income_source_id: sourceId > 0 ? String(sourceId) : fallback.income_source_id,
           entry_type: entryType,
@@ -8125,6 +8256,7 @@ function AnnualIncomePlanner({
       requestAnimationFrame(() => {
         setRemovingId(null)
         setEditingId(located.entry.id)
+        setDraftBaseline(incomeScheduleDraftFor(located.source.id, located.entry))
         setFormError(null)
         setDraft({
           income_source_id: proposedText(payload, payloadHas(payload, 'income_source_id') ? 'income_source_id' : 'source_id', String(located.source.id)),
@@ -8151,24 +8283,22 @@ function AnnualIncomePlanner({
   }, [focusRequest, onFocusRequestHandled, plan])
 
   function editEntry(sourceId: number, entry: IncomeScheduleEntry) {
+    if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before editing another change.'); return }
     setRemovingId(null)
     setEditingId(entry.id)
     setFormError(null)
-    setDraft({
-      income_source_id: String(sourceId),
-      entry_type: entry.entry_type,
-      label: entry.label ?? '',
-      amount: String(entry.amount),
-      cadence: entry.entry_type === 'one_time' ? 'one_time' : entry.cadence,
-      effective_on: entry.effective_on,
-      retained_after_transition: entry.retained_after_transition === true,
-    })
+    const saved = incomeScheduleDraftFor(sourceId, entry)
+    setDraftBaseline(saved)
+    setDraft(saved)
   }
 
   function cancelEdit() {
+    setRemovingId(null)
     setEditingId(null)
     setFormError(null)
-    setDraft(blankIncomeScheduleDraft(plan))
+    const blank = blankIncomeScheduleDraft(plan)
+    setDraftBaseline(blank)
+    setDraft(blank)
   }
 
   function updateIncomeDraft(values: Partial<IncomeScheduleDraft>) {
@@ -8202,6 +8332,7 @@ function AnnualIncomePlanner({
     }
   }
 
+  const incomeOperationPending = Boolean(action?.includes('income'))
   const saving = action === 'create-income' || (editingId !== null && action === `update-income:${editingId}`)
   const eligibleSources = plan.income_sources.filter((source) => incomeSourceEffectiveInMonth(source, draft.effective_on))
   const selectedSource = eligibleSources.find((source) => String(source.id) === draft.income_source_id)
@@ -8271,7 +8402,7 @@ function AnnualIncomePlanner({
                             ) : (
                               <>
                                 <button type="button" className="secondary-button" onClick={() => editEntry(source.id, entry)}>Edit</button>
-                                <button type="button" data-income-entry-action="remove" className="secondary-button" onClick={() => { setEditingId(null); setRemovingId(entry.id) }}>Remove</button>
+                                <button type="button" data-income-entry-action="remove" className="secondary-button" onClick={() => { if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before removing a change.'); return }; cancelEdit(); setRemovingId(entry.id) }}>Remove</button>
                               </>
                             )}
                           </div>
@@ -8294,7 +8425,7 @@ function AnnualIncomePlanner({
                 <p>Nothing changes until you save this timeline entry.</p>
               </div>
 
-              <div className="income-schedule-fields">
+              <fieldset className="income-schedule-fields budget-loading-boundary" style={{ border: 0 }} disabled={incomeOperationPending}><legend className="sr-only">Income schedule fields</legend>
                 <label>
                   <span>Income source</span>
                   <select value={draft.income_source_id} disabled={editingId !== null || eligibleSources.length === 0} onChange={(event) => updateIncomeDraft({ income_source_id: event.currentTarget.value })}>
@@ -8341,13 +8472,14 @@ function AnnualIncomePlanner({
                     <input maxLength={80} value={draft.label} placeholder="Year-end bonus" onChange={(event) => updateIncomeDraft({ label: event.currentTarget.value })} />
                   </label>
                 )}
-              </div>
+              </fieldset>
 
               {selectedSource?.source_type === 'job' && draft.entry_type === 'recurring_change' && numericAmount > 0 && (
                 <label className="income-transition-retention">
                   <input
                     type="checkbox"
                     checked={draft.retained_after_transition}
+                    disabled={incomeOperationPending}
                     onChange={(event) => updateIncomeDraft({ retained_after_transition: event.currentTarget.checked })}
                   />
                   <span>
@@ -8365,8 +8497,8 @@ function AnnualIncomePlanner({
                   <strong>{previewCopy}</strong>
                 </div>
                 <div className="income-schedule-form-actions">
-                  {editingId !== null && <button type="button" className="secondary-button" onClick={cancelEdit}>Cancel</button>}
-                  <button type="submit" className="income-schedule-submit" disabled={saving || eligibleSources.length === 0}>{submitLabel}</button>
+                  {(editingId !== null || hasUnsavedChanges) && <button type="button" className="secondary-button" disabled={incomeOperationPending} onClick={cancelEdit}>Cancel</button>}
+                  <button type="submit" className="income-schedule-submit" disabled={incomeOperationPending || eligibleSources.length === 0}>{submitLabel}</button>
                 </div>
               </div>
             </form>
@@ -8437,6 +8569,8 @@ function AnnualBudgetPlanner({
   onBudgetViewChange,
   onSaveBudgetEdits,
   onUnsavedChangesChange,
+  hasUnsavedIncomeChanges = false,
+  onIncomeUnsavedChangesChange,
   onAskMia,
   onArchiveCategory,
   onRestoreCategory,
@@ -8469,6 +8603,8 @@ function AnnualBudgetPlanner({
   onBudgetViewChange: (year: number, monthIndex: number) => void
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
   onUnsavedChangesChange: (hasChanges: boolean) => void
+  hasUnsavedIncomeChanges?: boolean
+  onIncomeUnsavedChangesChange?: (dirty: boolean) => void
   onAskMia: () => void
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
@@ -8698,7 +8834,7 @@ function AnnualBudgetPlanner({
   }
 
   function selectManualTool(tool: 'category' | 'monthly' | 'income') {
-    if (tool === manualTool || (hasUnsavedBudgetChanges && tool !== 'monthly')) return
+    if (tool === manualTool || (hasUnsavedIncomeChanges || (hasUnsavedBudgetChanges && tool !== 'monthly'))) return
     if (tool === 'monthly') beginBudgetEdit()
     else cancelBudgetEdit()
     setManualTool(tool)
@@ -8706,7 +8842,7 @@ function AnnualBudgetPlanner({
   }
 
   function closeManualManager() {
-    if (hasUnsavedBudgetChanges) return
+    if (hasUnsavedBudgetChanges || hasUnsavedIncomeChanges) return
     cancelBudgetEdit()
     setManualTool(null)
     window.setTimeout(() => manualTriggerRef.current?.focus(), 0)
@@ -8726,21 +8862,21 @@ function AnnualBudgetPlanner({
           <h3>Your annual plan</h3>
           <p>Choose the month, review your plan, or make a change.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
-            <button type="button" className="secondary-button budget-year-arrow" aria-label="Previous year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>‹</button>
+            <button type="button" className="secondary-button budget-year-arrow" aria-label="Previous year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>‹</button>
             <strong className="budget-year-label">{plan.year}</strong>
             {!isViewingCurrentYear && (
-              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
             )}
             <label>
               <span className="sr-only">Report month</span>
-              <select value={currentMonthIndex} disabled={hasUnsavedBudgetChanges} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
+              <select value={currentMonthIndex} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
                 {plan.months.map((month, index) => <option value={index} key={month.id}>{month.label}</option>)}
               </select>
             </label>
             {isViewingCurrentYear && !isViewingCurrentMonth && (
-              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
             )}
-            <button type="button" className="secondary-button budget-year-arrow" aria-label="Next year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>›</button>
+            <button type="button" className="secondary-button budget-year-arrow" aria-label="Next year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>›</button>
           </div>
         </div>
         <div className="annual-budget-actions">
@@ -8760,15 +8896,16 @@ function AnnualBudgetPlanner({
               <h4 id="budget-manual-manager-title">What do you want to change?</h4>
               <p>Choose one focused task. Your full annual controls stay here when you need them.</p>
             </div>
-            <button type="button" className="secondary-button" disabled={hasUnsavedBudgetChanges} onClick={closeManualManager}>Close manual tools</button>
+            <button type="button" className="secondary-button" disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={closeManualManager}>Close manual tools</button>
           </div>
 
           <div className="budget-manual-tabs" role="group" aria-label="Manual budget tools">
-            <button type="button" aria-pressed={manualTool === 'category'} disabled={hasUnsavedBudgetChanges} onClick={() => selectManualTool('category')}>Add a category</button>
-            <button type="button" aria-pressed={manualTool === 'monthly'} onClick={() => selectManualTool('monthly')}>Edit monthly plan</button>
-            <button type="button" aria-pressed={manualTool === 'income'} disabled={hasUnsavedBudgetChanges} onClick={() => selectManualTool('income')}>Schedule income</button>
+            <button type="button" aria-pressed={manualTool === 'category'} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => selectManualTool('category')}>Add a category</button>
+            <button type="button" aria-pressed={manualTool === 'monthly'} disabled={hasUnsavedIncomeChanges} onClick={() => selectManualTool('monthly')}>Edit monthly plan</button>
+            <button type="button" aria-pressed={manualTool === 'income'} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => selectManualTool('income')}>Schedule income</button>
           </div>
 
+          {hasUnsavedIncomeChanges && <p className="annual-edit-hint" role="status">Save or cancel your income draft before switching tools or report periods.</p>}
           {error && <p className="setup-error" role="alert">{error}</p>}
 
           {manualTool === 'category' && (
@@ -8847,7 +8984,7 @@ function AnnualBudgetPlanner({
           {manualTool === 'income' && (
             <div className="budget-manual-tool">
               <AnnualIncomePlanner
-                key={`${plan.year}:${plan.income_sources.map((source) => source.id).join(':')}`}
+                key={plan.year}
                 plan={plan}
                 isRealWorkspace={isRealWorkspace}
                 action={action}
@@ -8855,6 +8992,7 @@ function AnnualBudgetPlanner({
                 onDelete={onDeleteIncomeScheduleEntry}
                 focusRequest={focusRequest?.operationKey.startsWith('income.schedule.') ? focusRequest : null}
                 onFocusRequestHandled={onFocusRequestHandled}
+                onUnsavedChangesChange={onIncomeUnsavedChangesChange}
               />
             </div>
           )}

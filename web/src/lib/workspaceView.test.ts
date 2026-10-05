@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { AppData } from '../api'
-import { workspaceViewReducer } from './workspaceView'
+import type { AppData, MiaActionDraft } from '../api'
+import { miaDraftChangesSharedFinancialRecords, workspaceViewReducer } from './workspaceView'
 
 function workspace(year: number, householdId = 1, actual = 25): AppData {
   return {
@@ -38,5 +38,47 @@ describe('current Home snapshot', () => {
     nextYear.dashboard.action_center.current_year = 2027
     expect(workspaceViewReducer(initial, nextYear).homeBudget).toBeNull()
     expect(workspaceViewReducer(initial, null)).toEqual({ data: null, homeBudget: null, budgets: {} })
+  })
+})
+
+
+describe('shared financial mutation cache', () => {
+  it('invalidates other cached plans while preserving Home until its canonical refresh arrives', () => {
+    const current = workspace(2026)
+    let state = workspaceViewReducer({ data: null, homeBudget: null, budgets: {} }, current)
+    state = workspaceViewReducer(state, workspace(2027, 1, 0))
+    state = workspaceViewReducer(state, workspace(2025, 1, 0))
+    const updatedSelected = workspace(2027, 1, 40)
+    state = workspaceViewReducer(state, { type: 'shared_financial_mutation', update: updatedSelected })
+    expect(Object.keys(state.budgets)).toEqual(['2027'])
+    expect(state.homeBudget).toBe(current.budget)
+    const refreshedCurrent = workspace(2026, 1, 95)
+    state = workspaceViewReducer(state, refreshedCurrent)
+    expect(state.homeBudget).toBe(refreshedCurrent.budget)
+    expect(state.budgets[2027]).toBe(updatedSelected.budget)
+    expect(state.budgets[2025]).toBeUndefined()
+  })
+
+  it('does not reuse another program’s cached review queues for the same household', () => {
+    const first = workspace(2026)
+    first.workspace.cohort = { id: 41 } as NonNullable<AppData['workspace']['cohort']>
+    let state = workspaceViewReducer({ data: null, homeBudget: null, budgets: {} }, first)
+    state = workspaceViewReducer(state, { ...first, budget: workspace(2027).budget })
+    const second = { ...first, workspace: { ...first.workspace, cohort: { ...first.workspace.cohort!, id: 42 } } }
+    state = workspaceViewReducer(state, second)
+    expect(state.budgets[2027]).toBeUndefined()
+    expect(state.homeBudget).toBe(second.budget)
+  })
+
+  it('limits Mia invalidation to the selected unapplied shared operations', () => {
+    const draft = { items: [
+      { id: 1, action_type: 'update_allocation', operation_key: 'budget.allocation.set' },
+      { id: 2, action_type: 'update_income_source', operation_key: 'income.source.update' },
+      { id: 3, action_type: 'update_debt', applied_at: '2026-10-06' },
+    ] } as unknown as MiaActionDraft
+    expect(miaDraftChangesSharedFinancialRecords(draft, [1])).toBe(false)
+    expect(miaDraftChangesSharedFinancialRecords(draft, [2])).toBe(true)
+    expect(miaDraftChangesSharedFinancialRecords(draft)).toBe(true)
+    expect(miaDraftChangesSharedFinancialRecords(draft, [3])).toBe(false)
   })
 })
