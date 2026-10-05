@@ -144,6 +144,9 @@ module Api
         end
         retire_prior_document_evidence = attached_imports.empty? && document_evidence_topic_present?(session)
         conversation_context = HouseholdFinance::DocumentEvidenceContinuity.without_evidence(conversation_context) if retire_prior_document_evidence
+        intent_plan = intent_plan.merge(pending_mia_action_drafts: ::Mia::ActionDraftScope.reviews(
+          household: current_household, user: current_user, membership: current_cohort_membership,
+          year: intent_plan.fetch(:year), limit: HouseholdFinance::MiaIntentContextBuilder::MAX_PENDING_DRAFTS))
         intent_context = HouseholdFinance::MiaIntentContextBuilder.new(
           current_household,
           annual_plan: intent_plan,
@@ -151,7 +154,6 @@ module Api
           transcript: transcript,
           selected_month: budget_month_param
         ).call
-        scope_pending_action_reviews!(intent_context)
         intent_result = prompt_injection_intent_result(content, intent_context: intent_context) || setup_guide_intent_result(content)
         intent_result ||= HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
@@ -344,16 +346,6 @@ module Api
           attributes[:source_chat_message_id] = nil if draft.source_chat_message&.chat_session_id == session.id
           attributes[:assistant_chat_message_id] = nil if draft.assistant_chat_message&.chat_session_id == session.id
           draft.update!(attributes)
-        end
-      end
-
-      def scope_pending_action_reviews!(context)
-        reviews = Array(context[:pending_budget_reviews])
-        drafts = current_household.mia_action_drafts.where(id: reviews.map { |review| review[:id] })
-          .includes(source_chat_message: :chat_session).index_by(&:id)
-        context[:pending_budget_reviews] = reviews.select do |review|
-          draft = drafts[review[:id]]
-          draft && ::Mia::ActionDraftScope.visible?(draft, user: current_user, membership: current_cohort_membership)
         end
       end
 

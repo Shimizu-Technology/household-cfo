@@ -344,13 +344,8 @@ module HouseholdFinance
 
     def scoped_annual_plan
       plan = annual_plan.deep_dup
-      reviews = Array(plan[:pending_mia_action_drafts])
-      drafts = household.mia_action_drafts.where(id: reviews.map { |review| review[:id] })
-        .includes(source_chat_message: :chat_session).index_by(&:id)
-      plan[:pending_mia_action_drafts] = reviews.select do |review|
-        draft = drafts[review[:id]]
-        draft && ::Mia::ActionDraftScope.visible?(draft, user: user, membership: cohort_membership)
-      end
+      plan[:pending_mia_action_drafts] = ::Mia::ActionDraftScope.reviews(household: household,
+        user: user, membership: cohort_membership, year: plan.fetch(:year), limit: 10)
       plan
     end
 

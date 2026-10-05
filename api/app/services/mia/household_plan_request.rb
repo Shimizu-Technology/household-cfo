@@ -18,7 +18,7 @@ module Mia
       return :challenge if FinancialReadOnlyRequest.matches?(text)
       return :ambiguous if text.match?(CHALLENGE) && text.match?(/\bhousehold\b/i)
       return :challenge if text.match?(CHALLENGE)
-      return :household if text.match?(HOUSEHOLD)
+      return :household if text.match?(HOUSEHOLD) || text.match?(INCOME_REPORT)
       return :ambiguous if text.match?(AMBIGUOUS)
 
       :challenge
