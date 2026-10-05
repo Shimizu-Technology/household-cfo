@@ -9824,7 +9824,7 @@ test('BOG UI My Money blocks transitions until income source and schedule drafts
   await source.getByLabel('Starting amount').fill('500')
   await topics.getByRole('button', { name: 'Spending', exact: true }).click()
   await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByText('You have unsaved income changes. Save or cancel them before switching money topics.')).toBeVisible()
+  await expect(page.getByRole('alert').filter({ hasText: 'You have unsaved income changes. Save or cancel them before switching money topics.' })).toBeVisible()
   await page.getByRole('link', { name: 'Home', exact: true }).click()
   await expect(page).toHaveURL(/#My%20Money$/)
   await page.getByRole('button', { name: 'Next income year' }).click()
