@@ -47,14 +47,17 @@ module FinancialDocuments
             projection: projection_input.merge(reason: required_text(input[:reason], 500)) }
         when "revision_approve"
           revision(input.fetch(:revision_id))
+          status = input.fetch(:requested_status).to_s
           coverage = input.fetch(:coverage_attestation).to_h.deep_symbolize_keys
           accounts = Array(coverage[:accounts]).map do |row|
             row = row.to_h.deep_symbolize_keys
-            { source_account_id: source_account(row.fetch(:source_account_id)).id, identity_version_id: identities.find(row.fetch(:identity_version_id)).id,
-              period_start_on: date!(row.fetch(:period_start_on)), period_end_on: date!(row.fetch(:period_end_on)), all_rows_accounted: row[:all_rows_accounted] == true }
+            identity = identities.find(row.fetch(:identity_version_id))
+            { source_account_id: source_account(row.fetch(:source_account_id)).id, identity_version_id: identity.id,
+              period_start_on: coverage_date(row.fetch(:period_start_on), identity, "period_start_on", status),
+              period_end_on: coverage_date(row.fetch(:period_end_on), identity, "period_end_on", status), all_rows_accounted: row[:all_rows_accounted] == true }
           end
           raise ArgumentError, "An account can only be attested once" unless accounts.pluck(:source_account_id).uniq.length == accounts.length
-          { revision_id: input.fetch(:revision_id).to_i, requested_status: input.fetch(:requested_status).to_s,
+          { revision_id: input.fetch(:revision_id).to_i, requested_status: status,
             expected_digest: input.fetch(:expected_digest).to_s, reason: required_text(input[:reason], 500),
             coverage_attestation: { accounts: accounts, all_document_rows_accounted: coverage[:all_document_rows_accounted] == true } }
         when "economic_link"
@@ -348,6 +351,15 @@ module FinancialDocuments
         raise ArgumentError, "Printed totals cannot be negative" if %i[printed_debit_cents printed_credit_cents].any? { |key| result[key].to_i.negative? }
         raise ArgumentError, "Statement period is reversed" if result[:period_start_on] && result[:period_end_on] && result[:period_start_on] > result[:period_end_on]
         result
+      end
+
+      def coverage_date(value, identity, field, status)
+        return date!(value) unless status == "qualified" && value.nil?
+
+        unless identity.source_account_review_head.approved_version_id == identity.id && identity.statement_facts[field].nil?
+          raise ArgumentError, "A known or changed statement period cannot be omitted; review the current account details"
+        end
+        nil
       end
 
       def projection(raw)
