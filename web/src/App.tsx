@@ -1,3 +1,4 @@
+import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
 import './App.css'
@@ -158,13 +159,14 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
-const sections = ['Home', 'Review', 'Ask Mia', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']
+const sections = ['Home', 'Review', 'Ask Mia', 'My Money', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']
 const sectionCapabilityIds: Record<string, string> = {
   Home: 'home',
   Review: 'review',
   'Ask Mia': 'ask_mia',
   Budget: 'budget',
   'My Profile': 'profile',
+  'My Money': 'profile',
   Statements: 'profile',
   Wealth: 'wealth',
   'CFO Filter': 'cfo_filter',
@@ -502,6 +504,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   useEffect(() => { workspaceMounted.current = true; return () => { workspaceMounted.current = false } }, [])
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupDraft | null>(null)
   const [isProfileEditing, setIsProfileEditing] = useState(false)
+  const [moneyTopic, setMoneyTopic] = useState<MoneyTopic>('income')
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
@@ -682,7 +685,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const budgetForView = budgetView
     ? budgets[budgetView.year] ?? (data?.budget.annual_plan?.year === budgetView.year ? data.budget : null)
     : data?.budget
-  const usesSelectedBudgetContext = activeSection === 'Budget' || activeSection === 'Ask Mia'
+  const usesSelectedBudgetContext = activeSection === 'Budget' || activeSection === 'Ask Mia' || activeSection === 'My Money'
   const reviewBudget = usesSelectedBudgetContext ? budgetForView : homeBudget
   const pendingTransactionDrafts = reviewBudget?.annual_plan?.pending_transaction_drafts ?? []
   const pendingPlaidDrafts = pendingTransactionDrafts.filter((draft) => draft.source_type === 'plaid')
@@ -1493,6 +1496,20 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
   }
 
+  function openBudgetMoneyTool(tool: 'category' | 'monthly') {
+    if (!switchSection('Budget', { focusHeading: false })) return
+    budgetFocusSequenceRef.current += 1
+    setBudgetFocusRequest({
+      key: budgetFocusSequenceRef.current,
+      operationKey: tool === 'category' ? 'budget.category.create' : 'budget.category.update',
+      actionType: tool === 'category' ? 'create_category' : 'update_category',
+      categoryId: null,
+      months: tool === 'category' ? [] : [selectedBudgetMonthIndex + 1],
+      incomeScheduleEntryId: null,
+      payload: {},
+    })
+  }
+
   function openManualControls(draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) {
     const targetItem = item ?? (
       draft.draft_type === 'asset_plan'
@@ -1505,9 +1522,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     )
     const operationKey = targetItem?.operation_key ?? ''
     const actionType = targetItem?.action_type
-    const targetSection = operationKey.startsWith('income.source.')
-      ? 'My Profile'
+    const moneyTarget = moneyTopicForOperation(operationKey, actionType)
+    const targetSection = moneyTarget ? 'My Money'
       : targetItem?.manual_section ?? (draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' || draft.draft_type === 'asset_plan' || draft.draft_type === 'goal_plan' ? 'My Profile' : 'Budget')
+    if (moneyTarget) setMoneyTopic(moneyTarget)
     if (!switchSection(targetSection, { focusHeading: false })) return
 
     if (targetItem && (operationKey.startsWith('account.') || actionType?.endsWith('_account'))) {
@@ -2868,6 +2886,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (!isRealWorkspace) return
 
     if (sectionLabel.toLowerCase().includes('income')) {
+      if (!switchSection('My Money', { focusHeading: false })) return
+      setMoneyTopic('income')
       requestAnimationFrame(() => {
         const disclosure = incomeSourcesRef.current?.closest('details')
         if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
@@ -2878,11 +2898,15 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
 
     if (sectionLabel.toLowerCase().includes('debt')) {
+      if (!switchSection('My Money', { focusHeading: false })) return
+      setMoneyTopic('debt')
       requestAnimationFrame(focusDebtManager)
       return
     }
 
     if (sectionLabel.toLowerCase().includes('saving') || sectionLabel.toLowerCase().includes('asset')) {
+      if (!switchSection('My Money', { focusHeading: false })) return
+      setMoneyTopic('accounts')
       requestAnimationFrame(focusAccountManager)
       return
     }
@@ -3452,6 +3476,113 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         </section>
       )}
 
+      {activeSection === 'My Money' && (
+        <section className="screen-grid money-screen">
+          <ScreenHeading
+            eyebrow="My Money"
+            title="Your household money"
+            copy={isSavingsExperience ? 'Optional household tools. Your challenge progress and approved savings stay in Savings.' : `See your income, spending, debt, accounts, and goals. Update them here or ask ${assistantName} to prepare a change.`}
+          />
+          <nav className="money-topics" aria-label="My Money topics">
+            {moneyTopics.map(topic => (
+              <button type="button" key={topic.id} aria-pressed={moneyTopic === topic.id} aria-controls="money-topic-content" onClick={() => {
+                setMoneyTopic(topic.id)
+                setRouteAnnouncement(`${topic.label} tools loaded.`)
+              }}>{topic.label}</button>
+            ))}
+          </nav>
+          <div id="money-topic-content" className="money-topic-content">
+            {moneyTopic === 'income' && (
+              <>
+                {isRealWorkspace && budgetForView?.annual_plan ? (
+                  <fieldset className="budget-loading-boundary" disabled={budgetYearLoading}><legend className="sr-only">Income plan controls</legend>
+                    <div className="money-period-controls" aria-label="Income schedule year controls">
+                      <button type="button" className="secondary-button budget-year-arrow" aria-label="Previous income year" onClick={() => handleBudgetViewChange(selectedBudgetYear - 1, selectedBudgetMonthIndex)}>‹</button>
+                      <strong>{selectedBudgetYear} income schedule</strong>
+                      <button type="button" className="secondary-button budget-year-arrow" aria-label="Next income year" onClick={() => handleBudgetViewChange(selectedBudgetYear + 1, selectedBudgetMonthIndex)}>›</button>
+                    </div>
+                    <IncomeSourceManager
+                      sectionRef={incomeSourcesRef}
+                      sources={data.workspace.income_sources ?? budgetForView.annual_plan.income_sources}
+                      action={budgetContextAction}
+                      error={setupError}
+                      onSave={handleSaveIncomeSource}
+                      onArchive={handleArchiveIncomeSource}
+                      onRestore={handleRestoreIncomeSource}
+                      focusRequest={incomeFocusRequest}
+                      onFocusRequestHandled={() => setIncomeFocusRequest(null)} />
+                    <article className="panel money-income-schedule">
+                      {budgetError && <p className="setup-error" role="alert">{budgetError}</p>}
+                      <AnnualIncomePlanner
+                      key={`${budgetForView.annual_plan.year}:${budgetForView.annual_plan.income_sources.map(source => source.id).join(':')}`}
+                      plan={budgetForView.annual_plan}
+                      isRealWorkspace={Boolean(isRealWorkspace)}
+                      action={budgetContextAction}
+                      onSave={handleSaveIncomeScheduleEntry}
+                      onDelete={handleDeleteIncomeScheduleEntry}
+                      focusRequest={budgetFocusRequest?.operationKey.startsWith('income.schedule.') ? budgetFocusRequest : null}
+                      onFocusRequestHandled={() => setBudgetFocusRequest(null)} />
+                    </article>
+                  </fieldset>
+                ) : <article className="panel empty-state"><strong>Your income sources will appear here.</strong><p>Add starting household numbers to create your income plan.</p><Button variant="secondary" onClick={startManualFirstSession}>Set up my household</Button></article>}
+              </>
+            )}
+            {moneyTopic === 'spending' && (
+              <article className="panel money-spending">
+                <div className="money-topic-heading"><div><p className="eyebrow">Spending · {selectedBudgetMonth?.label ?? 'Current month'} {selectedBudgetYear}</p><h3>Your categories and planned amounts</h3><p>Planned amounts and confirmed spending are separate. Your annual plan keeps future expenses visible.</p></div><Button variant="secondary" disabled={!visibleSections.includes('Budget')} onClick={() => switchSection('Budget')}>Open annual plan</Button></div>
+                <div className="money-topic-actions">
+                  <Button disabled={!isRealWorkspace || budgetYearLoading || !visibleSections.includes('Budget')} onClick={() => openBudgetMoneyTool('category')}>Add category</Button>
+                  <Button variant="secondary" disabled={!isRealWorkspace || budgetYearLoading || !visibleSections.includes('Budget')} onClick={() => openBudgetMoneyTool('monthly')}>Edit categories and amounts</Button>
+                </div>
+                {activeBudgetPlan?.rows.length ? (
+                  <ul className="money-record-list">
+                    {activeBudgetPlan.rows.map(row => {
+                      const month = row.months[selectedBudgetMonthIndex]
+                      return <li key={row.id}>
+                        <div><strong>{row.name}</strong><span>{row.stack_label}</span></div>
+                        <div>
+                          <strong>{month && !month.allocation_missing ? currency.format(month.planned) : 'Not available'} planned</strong>
+                          <span>{month ? currency.format(month.actual) : 'Not available'} confirmed</span>
+                        </div>
+                      </li>
+                    })}
+                  </ul>
+                ) : <p>No spending categories yet. Add a category to start planning.</p>}
+                {isSavingsExperience && <p className="annual-edit-hint">These are household budget categories. Changes to an approved statement spending baseline require a separate review.</p>}
+              </article>
+            )}
+            {moneyTopic === 'debt' && (
+              <>
+                {isSavingsExperience && <article className="panel money-scope-note"><strong>Household debt and optional card review</strong><p>This household plan tracks balances and minimums used in your budget. The challenge card review separately holds approved statement terms and comparisons; changes here do not update it.</p>{challengeParticipantScope && data.workspace.cohort?.id && <Button variant="secondary" onClick={() => setOptionalDebtOpen(true)}>Open optional card review</Button>}</article>}
+                {isRealWorkspace ? <DebtManager
+                      sectionRef={debtManagerRef}
+                      key={`${data.workspace.debt_portfolio?.mode}:${data.workspace.debt_portfolio?.total_balance}:${data.workspace.debt_portfolio?.monthly_minimum}:${data.workspace.debt_portfolio?.balance_known}:${data.workspace.debt_portfolio?.minimum_payment_known}:${data.workspace.debt_portfolio?.active_count}:${data.workspace.debt_portfolio?.archived_count}`}
+                      debts={data.workspace.debts ?? []}
+                      portfolio={data.workspace.debt_portfolio ?? { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 }}
+                      onChanged={refreshWorkspaceAfterDebtChange}
+                      focusRequest={debtFocusRequest}
+                      onFocusRequestHandled={() => setDebtFocusRequest(null)} /> : <article className="panel empty-state"><p>Sign in to manage your household debt.</p></article>}
+              </>
+            )}
+            {moneyTopic === 'accounts' && (isRealWorkspace ? <AccountManager
+                      sectionRef={accountManagerRef}
+                      accounts={data.workspace.accounts}
+                      portfolio={data.workspace.asset_portfolio}
+                      onChanged={refreshWorkspaceAfterDebtChange}
+                      focusRequest={accountFocusRequest}
+                      onFocusRequestHandled={() => setAccountFocusRequest(null)} /> : <article className="panel empty-state"><p>Sign in to manage your accounts.</p></article>)}
+            {moneyTopic === 'goals' && (isRealWorkspace ? <GoalManager
+                      sectionRef={goalManagerRef}
+                      goals={data.workspace.goals ?? []}
+                      portfolio={data.workspace.goal_portfolio ?? { active_count: 0, archived_count: 0, target_total: 0, progress_total: 0, target_known_count: 0, progress_known_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] }}
+                      onChanged={refreshWorkspaceAfterDebtChange}
+                      focusRequest={goalFocusRequest}
+                      onFocusRequestHandled={() => setGoalFocusRequest(null)} /> : <article className="panel empty-state"><p>Sign in to manage your household goals.</p></article>)}
+            {moneyTopic === 'statements' && <article className="panel"><h3>Your private statements</h3><p>Upload a statement, review its accounts and source rows, and approve only the changes you want.</p><Button onClick={() => openDocumentReview()}>Open Statements</Button></article>}
+          </div>
+        </section>
+      )}
+
       {activeSection === 'My Profile' && (
         <section className={`screen-grid profile-screen${isFocusedFirstSessionSetup ? ' first-session-setup-screen' : ''}`}>
           <ScreenHeading
@@ -3466,6 +3597,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             </div>
           )}
 
+          {!isFirstSessionSetup && <article className="panel profile-money-link"><h3>Looking for your money details?</h3><p>Find income, spending categories, debt, accounts, and goals together in My Money.</p><Button variant="secondary" onClick={() => switchSection('My Money')}>Open My Money</Button></article>}
           {!isFirstSessionSetup && (
             <article className="panel completeness-card">
               <div>
@@ -6386,6 +6518,7 @@ function MiaActionDraftReviewCard({
           </div>
         </div>
         <p>{draft.summary}</p>
+        {draft.scope_note && <p className="mia-action-scope-note">{draft.scope_note}</p>}
         {draft.rationale && <p>{draft.rationale}</p>}
         {draft.draft_type === 'action_plan' && (
           <div className="mia-action-plan-toolbar">
@@ -6437,7 +6570,7 @@ function MiaActionDraftReviewCard({
                 {miaActionItemFinePrint(item) && <small>{miaActionItemFinePrint(item)}</small>}
                 {onEditManually && draft.draft_type === 'action_plan' && !item.applied_at && !item.canceled_at && (
                   <button type="button" className="mia-item-manual-link" disabled={!isRealWorkspace || Boolean(action)} onClick={() => onEditManually(draft, item)}>
-                    Open {item.manual_section ?? 'manual controls'}
+                    Open {moneyTopicForOperation(item.operation_key ?? '', item.action_type) ? 'My Money' : item.manual_section ?? 'manual controls'}
                   </button>
                 )}
               </div>
@@ -8102,7 +8235,7 @@ function AnnualIncomePlanner({
       </div>
 
       {plan.income_sources.length === 0 ? (
-        <p className="annual-edit-hint">Add income in My Profile before scheduling changes across the year.</p>
+        <p className="annual-edit-hint">Add an income source in My Money before scheduling changes across the year.</p>
       ) : (
         <>
           <div className="income-source-list">
@@ -8593,7 +8726,8 @@ function AnnualBudgetPlanner({
           <h3>Money in, money out, and what is left.</h3>
           <p>Use {assistantName} for the fastest update, or open the manual tools when you want exact control.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
-            <button type="button" className="secondary-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>Previous year</button>
+            <button type="button" className="secondary-button budget-year-arrow" aria-label="Previous year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>‹</button>
+            <strong className="budget-year-label">{plan.year}</strong>
             {!isViewingCurrentYear && (
               <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
             )}
@@ -8606,12 +8740,11 @@ function AnnualBudgetPlanner({
             {isViewingCurrentYear && !isViewingCurrentMonth && (
               <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
             )}
-            <button type="button" className="secondary-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>Next year</button>
+            <button type="button" className="secondary-button budget-year-arrow" aria-label="Next year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>›</button>
           </div>
         </div>
         <div className="annual-budget-actions">
-          <span>{plan.rows.length} categories</span>
-          <span>{plan.pending_transaction_drafts.length + (plan.pending_mia_action_drafts ?? []).length} awaiting review</span>
+          <div className="budget-status-row"><span>{plan.rows.length} categories</span><span>{plan.pending_transaction_drafts.length + (plan.pending_mia_action_drafts ?? []).length} awaiting review</span></div>
           <div className="budget-primary-actions">
             <button type="button" onClick={onAskMia}>Ask {assistantName} to update my plan</button>
             {isRealWorkspace && <button type="button" ref={manualTriggerRef} className="secondary-button" aria-controls="budget-manual-manager" aria-expanded={manualTool !== null} disabled={manualTool !== null} onClick={openManualManager}>{manualTool ? 'Manual tools open' : 'Manage manually'}</button>}

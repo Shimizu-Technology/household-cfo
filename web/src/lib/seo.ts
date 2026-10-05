@@ -25,6 +25,7 @@ export function getSectionSeo(section: string, brand?: BrandConfig, assistantNam
     Home: { title: tagline ? `${siteName} | ${tagline}` : siteName, description: homeDescription },
     'Ask Mia': { title: title(`Ask ${assistantName}`), description: `Ask ${assistantName} private household finance questions using approved profile, plan, debt, runway, and bank activity context.`, robots: 'noindex,nofollow' },
     Review: { title: title('Review Transactions'), description: 'Review activity and control which records become official household budget actuals.', robots: 'noindex,nofollow' },
+    'My Money': { title: title('My Money'), description: 'View and manage private household income, spending, debts, accounts, goals, and statements.', robots: 'noindex,nofollow' },
     'My Profile': { title: title('My Profile'), description: `Review and update the private household information ${assistantName} may use.`, robots: 'noindex,nofollow' },
     Budget: { title: title('Budget'), description: 'Review household income, expenses, breathing room, and spending pressure.', robots: 'noindex,nofollow' },
     Wealth: { title: title('Wealth'), description: 'Review household assets, debts, net worth, and financial runway.', robots: 'noindex,nofollow' },

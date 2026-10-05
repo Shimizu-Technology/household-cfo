@@ -1733,7 +1733,7 @@ test('participant workflow remains usable when Plaid is not configured', async (
   await openSection(page, 'Review')
   await expect(page.getByText('Manual activity is ready.')).toBeVisible()
   await expect(page.getByText('Connect an account from My Profile.', { exact: false })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: 'Budget', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'My Money', exact: true })).toBeVisible()
 })
 
 test('configured Plaid clearly supports a participant with no connections', async ({ page }) => {
@@ -3363,7 +3363,7 @@ test('Ask Mia uploads an attachment with its question and renders the grounded r
 
 test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await expect(page.getByRole('heading', { name: 'Money in, money out, and what is left.' })).toBeVisible()
   const outflowBreakdown = page.getByRole('group', { name: 'Monthly money out breakdown' })
   await expect(outflowBreakdown).toContainText('Category plan')
@@ -3697,7 +3697,7 @@ test('continuing job income is never assumed and requires explicit participant a
 
   await page.clock.setFixedTime(new Date(Date.UTC(currentYear, 8, 30, 15, 30)))
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await page.getByRole('button', { name: 'Manage manually' }).click()
   await page.getByRole('button', { name: 'Schedule income' }).click()
   const sourceSelect = page.locator('.income-schedule-form label').filter({ hasText: 'Income source' }).locator('select')
@@ -3724,7 +3724,7 @@ test('continuing job income is never assumed and requires explicit participant a
 
 test('Budget keeps headline, cockpit, and chart on the selected report month', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
 
   const reportMonth = page.getByLabel('Report month')
   const headline = page.locator('.budget-period-summary')
@@ -3753,7 +3753,7 @@ test('Budget keeps headline, cockpit, and chart on the selected report month', a
 
 test('focused manual budget tools expose exact controls without a page hunt and protect dirty edits', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await page.getByRole('button', { name: 'Manage manually' }).click()
 
   const manager = page.locator('.budget-manual-manager')
@@ -3818,7 +3818,7 @@ test('a partially saved budget keeps the approved change and protects unapplied 
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await page.getByRole('button', { name: 'Manage manually' }).click()
   await page.getByRole('button', { name: 'Edit monthly plan' }).click()
 
@@ -3852,7 +3852,7 @@ test('participant navigation remains available after deep scrolling', async ({ p
   await page.goto('/')
   await page.evaluate(() => document.fonts.ready)
   const homeHeaderHeight = await page.locator('.shell-header').evaluate((element) => element.getBoundingClientRect().height)
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   const budgetHeaderHeight = await page.locator('.shell-header').evaluate((element) => element.getBoundingClientRect().height)
   expect(Math.abs(budgetHeaderHeight - homeHeaderHeight)).toBeLessThanOrEqual(1)
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
@@ -3869,6 +3869,7 @@ test('participant links preserve browser history, heading focus, and section scr
   test.skip(testInfo.project.name.includes('mobile'), 'desktop history and focus assertion')
   await page.goto('/#Home')
 
+  await page.getByRole('button', { name: 'Tools', exact: true }).click()
   const budgetLink = page.getByRole('link', { name: 'Budget', exact: true })
   await expect(budgetLink).toHaveAttribute('href', '#Budget')
   await budgetLink.click()
@@ -3941,7 +3942,7 @@ test('unfinished Plaid returns keep Profile and the URL aligned through reload a
   await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 
@@ -4001,7 +4002,7 @@ test('stale Plaid return queries recover normal participant navigation', async (
   await expect(page).toHaveURL(/\?pilot_e2e_role=participant#My%20Profile$/)
   await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
 
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Budget$/)
   await expect(page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })).toBeFocused()
 
@@ -4100,7 +4101,7 @@ test('desktop Tools stays anchored to its trigger and contains keyboard focus', 
   expect(dialogBox?.y ?? 0).toBeGreaterThanOrEqual((triggerBox?.y ?? 0) + (triggerBox?.height ?? 0) + 6)
   expect((dialogBox?.y ?? 0) + (dialogBox?.height ?? 0)).toBeLessThanOrEqual(page.viewportSize()?.height ?? 720)
 
-  await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeFocused()
+  await expect(page.getByRole('link', { name: 'Budget', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(dialog.getByRole('button', { name: 'Close tools' })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
@@ -6960,7 +6961,7 @@ test('admin can privately review and resolve submitted pilot feedback', async ({
 
 test('real review controls keep transaction and Mia changes behind explicit participant actions', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
 
   const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await expect(transactionCard).toContainText('Actuals stay unchanged until you confirm.')
@@ -7083,9 +7084,9 @@ test('390px action-plan account link opens and focuses the exact account editor'
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
   const item = page.locator('.mia-action-item').filter({ hasText: 'Update Everyday checking' })
-  await item.getByRole('button', { name: 'Open My Profile' }).click()
+  await item.getByRole('button', { name: 'Open My Money' }).click()
 
-  await expect(page).toHaveURL(/#My%20Profile$/)
+  await expect(page).toHaveURL(/#My%20Money$/)
   const accountName = page.locator('.account-manager').getByLabel('Account name')
   await expect(accountName).toHaveValue('Everyday checking')
   await expect(accountName).toBeFocused()
@@ -7112,9 +7113,9 @@ test('320px action-plan goal link opens and focuses the exact goal editor', asyn
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
   const item = page.locator('.mia-action-item').filter({ hasText: 'Update Family trip' })
-  await item.getByRole('button', { name: 'Open My Profile' }).click()
+  await item.getByRole('button', { name: 'Open My Money' }).click()
 
-  await expect(page).toHaveURL(/#My%20Profile$/)
+  await expect(page).toHaveURL(/#My%20Money$/)
   const goalName = page.locator('.goal-manager').getByLabel('Goal name')
   await expect(goalName).toHaveValue('Family trip')
   await expect(goalName).toBeFocused()
@@ -7312,7 +7313,7 @@ test('desktop action-plan debt link focuses the exact debt editor', async ({ pag
   })]
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
-  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   await expect(page.locator('.debt-form').getByLabel('Debt name')).toHaveValue('Visa Gold')
   await expect(page.locator('.debt-form').getByLabel('Debt name')).toBeFocused()
   const debtAmounts = page.locator('.debt-form input[placeholder="Unknown"]')
@@ -7331,7 +7332,7 @@ test('320px action-plan income-source link focuses the exact profile control', a
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
-  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   const sourceName = page.locator('.income-source-form').getByLabel('Name', { exact: true })
   await expect(sourceName).toHaveValue('Primary income')
   await expect(sourceName).toBeFocused()
@@ -7371,7 +7372,7 @@ test('mobile Ask Mia 390px action-plan schedule-create link preloads and focuses
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
-  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   const scheduleForm = page.locator('.income-schedule-form')
   await expect(scheduleForm.getByLabel('Income source')).toHaveValue('2')
   await expect(scheduleForm.getByLabel('Starting month')).toHaveValue(`${currentYear}-11`)
@@ -7392,7 +7393,7 @@ test('mobile Ask Mia 390px schedule-update link merges proposed values into the 
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
-  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   const scheduleForm = page.locator('.income-schedule-form')
   await expect(scheduleForm.getByLabel('Income source')).toHaveValue('1')
   await expect(scheduleForm.getByLabel('Starting month')).toHaveValue(`${currentYear}-10`)
@@ -7413,9 +7414,8 @@ test('a missing scheduled-income manual target is cleared after the first routin
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
-  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
-  await expect(page.locator('.budget-manual-manager')).toBeVisible()
-  await page.getByRole('button', { name: 'Close manual tools' }).click()
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
+  await expect(page.locator('.income-schedule-form')).toBeVisible()
   await openSection(page, 'Home')
   await openSection(page, 'Budget')
 
@@ -7570,7 +7570,7 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   const card = page.locator('.transaction-draft-card').filter({ hasText: "Tita's Demo Market" })
   await expect(card.getByText('3 splits need a category')).toBeVisible()
   await expect(card.getByText('Cleaning products')).toBeVisible()
@@ -7758,7 +7758,7 @@ test('a late spending report cannot overwrite the refresh triggered by a transac
 
   await page.goto('/?pilot_e2e_role=participant')
   await firstRequestStarted
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
 
@@ -7812,7 +7812,7 @@ test('a late Mia response cannot replace the ledger after the participant change
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await page.getByLabel('Report month').selectOption(String(targetMonthIndex))
   await page.getByText('Monthly activity and transactions', { exact: true }).click()
   await expect(page.getByText('Selected month transaction')).toBeVisible()
@@ -7873,7 +7873,7 @@ test('a same-month Mia response cannot undo a newer transaction refresh', async 
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
   const monthSummary = page.getByRole('region', { name: `${currentShortMonth} ${currentYear} plan position` })
@@ -9610,14 +9610,13 @@ async function assertDialogVisibleHeight(dialog: ReturnType<Page['getByRole']>) 
 test('BOG UI route headings stay semantic without decorative outlines and keyboard controls keep focus', async ({ page }) => {
   await page.goto('/#Home')
   for (const section of ['Review', 'Ask Mia', 'Budget', 'Home']) {
-    const link = page.getByRole('link', { name: section, exact: true })
-    await link.click()
+    await openSection(page, section)
     const heading = page.locator('[data-page-heading]').first()
     await expect(heading).toBeFocused()
     await expect(heading).toHaveCSS('outline-style', 'none')
     await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(`${section} screen loaded.`)
   }
-  const budgetLink = page.getByRole('link', { name: 'Budget', exact: true })
+  const budgetLink = page.getByRole('link', { name: 'My Money', exact: true })
   await budgetLink.focus()
   await page.keyboard.press('Tab')
   const focus = await page.evaluate(() => ({ tag: document.activeElement?.tagName, style: getComputedStyle(document.activeElement!).outlineStyle, width: getComputedStyle(document.activeElement!).outlineWidth }))
@@ -9765,4 +9764,46 @@ test('BOG UI source preview keeps a long filename and final help reachable with 
   await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport()
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
+})
+
+
+test('BOG UI My Money groups saved records and opens category editing without mobile overflow', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const topics = page.getByRole('navigation', { name: 'My Money topics' })
+  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.income-source-manager-card').first()).toBeVisible()
+  await expect(page.locator('.income-schedule-form')).toBeVisible()
+  await topics.getByRole('button', { name: 'Spending', exact: true }).click()
+  await expect(page.locator('.money-record-list')).toContainText('Fixed essentials')
+  await page.getByRole('button', { name: 'Add category', exact: true }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(page.getByRole('textbox', { name: 'New category' })).toBeFocused()
+  await openSection(page, 'My Money')
+  await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+  await expect(page.locator('.account-manager')).toBeVisible()
+  await topics.getByRole('button', { name: 'Goals', exact: true }).click()
+  await expect(page.locator('.goal-manager')).toBeVisible()
+  await topics.getByRole('button', { name: 'Statements', exact: true }).click()
+  await page.getByRole('button', { name: 'Open Statements', exact: true }).click()
+  await expect(page).toHaveURL(/#Statements$/)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('BOG UI financial review cards stay available in Mia with their explicit household scope', async ({ page }) => {
+  const regular = realWorkspaceData(true)
+  const workspace = { ...regular, workspace: { ...regular.workspace, experience_mode: 'savings_challenge' } }
+  const scopedDraft = { ...miaCompoundActionPlan, record_scope: 'household_plan', scope_note: 'Household plan — changes here do not approve challenge savings, change the challenge target, or update optional card terms.' }
+  workspace.budget.annual_plan.pending_mia_action_drafts = [scopedDraft]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.locator('.mia-action-scope-note')).toHaveText(scopedDraft.scope_note)
+  await expect(page.locator('.mia-action-draft-card')).toBeVisible()
+  const navigation = page.getByRole('navigation', { name: /participant sections/ })
+  await expect(navigation.getByRole('link', { name: 'My Money', exact: true })).toHaveCount(0)
+  await openSection(page, 'My Money')
+  await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: 'Debt', exact: true }).click()
+  await expect(page.locator('.money-scope-note')).toContainText('changes here do not update it')
+  await expect(page.locator('.debt-manager')).toBeVisible()
 })

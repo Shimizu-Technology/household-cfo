@@ -26,7 +26,7 @@ const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
 const brandContext = readFileSync(resolve(__dirname, '../src/contexts/BrandContext.tsx'), 'utf8')
 const brandDocument = readFileSync(resolve(__dirname, '../src/components/BrandDocument.tsx'), 'utf8')
 
-const expectedNav = "['Home', 'Review', 'Ask Mia', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']"
+const expectedNav = "['Home', 'Review', 'Ask Mia', 'My Money', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']"
 assert.ok(
   app.replace(/\s+/g, ' ').includes(expectedNav),
   'participant navigation must keep the complete set of participant modules',

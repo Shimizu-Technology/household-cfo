@@ -10,10 +10,11 @@ type ParticipantTabsProps = {
   onToday?: () => void
 }
 
-const primarySections = new Set(['Home', 'Review', 'Ask Mia', 'Budget'])
+const primarySections = new Set(['Home', 'Review', 'Ask Mia', 'My Money'])
 
 const sectionDescriptions: Record<string, string> = {
-  'My Profile': 'Optional household setup, memory, and bank connections.',
+  'My Profile': 'Household setup, memory, and bank connections.',
+  'My Money': 'Find and update income, spending, debt, accounts, goals, and statements.',
   Statements: 'Upload privately and review accounts, periods, and statement rows.',
   Review: 'Review and confirm transactions.',
   Budget: 'Optional monthly and annual planning.',
@@ -26,6 +27,7 @@ const sectionDescriptions: Record<string, string> = {
 
 const compactLabels: Record<string, string> = {
   'My Profile': 'Profile',
+  'My Money': 'Money',
   Budget: 'Plan',
 }
 

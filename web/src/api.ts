@@ -629,6 +629,8 @@ export type MiaActionItem = {
 }
 
 export type MiaActionDraft = {
+  record_scope?: string
+  scope_note?: string | null
   id: number
   status: 'pending' | 'partially_applied' | 'applied' | 'canceled'
   draft_type: 'budget_edit' | 'household_setup' | 'income_schedule' | 'debt_plan' | 'asset_plan' | 'goal_plan' | 'action_plan'
