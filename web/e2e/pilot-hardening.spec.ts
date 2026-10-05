@@ -1542,11 +1542,15 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
     for (const first of [0, 2, 4]) expect(tabBoxes[first]?.y).toBeCloseTo(tabBoxes[first + 1]?.y ?? 0, 0)
     expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(3)
   } else if (testInfo.project.name === 'desktop-chrome') {
-    for (const first of [0, 3]) {
-      expect(tabBoxes[first]?.y).toBeCloseTo(tabBoxes[first + 1]?.y ?? 0, 0)
-      expect(tabBoxes[first]?.y).toBeCloseTo(tabBoxes[first + 2]?.y ?? 0, 0)
-    }
-    expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(2)
+    for (const box of tabBoxes) expect(box?.y).toBeCloseTo(tabBoxes[0]?.y ?? 0, 0)
+    expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(1)
+  }
+
+  for (const box of tabBoxes) {
+    expect(box).not.toBeNull()
+    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
   }
 
   const sealButton = page.getByRole('button', { name: 'Review and seal record' })
@@ -1774,7 +1778,7 @@ test('account selection keeps activity cards and row totals in the same scope', 
   const summary = page.getByLabel('Bank activity summary')
   await expect(summary.getByText('$141.00')).toHaveCount(2)
 
-  await page.getByLabel('Account').selectOption('11')
+  await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption('11')
   await expect(summary.getByText('$42.00')).toHaveCount(2)
   await expect(page.getByRole('heading', { name: '1 transaction' })).toBeVisible()
 })
@@ -2104,7 +2108,8 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await expect(attachmentPreview).toBeFocused()
 
   await page.getByRole('button', { name: 'Review draft' }).click()
-  await expect(page.getByText('Profile completeness', { exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/#Statements$/)
+  await expect(page.getByRole('heading', { name: 'Your statements, one review at a time.' })).toBeVisible()
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
 
   await page.getByRole('button', { name: 'Load earlier messages (40 remaining)' }).click()
