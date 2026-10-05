@@ -510,6 +510,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [routeAnnouncement, setRouteAnnouncement] = useState('')
   const [unavailableModuleNotice, setUnavailableModuleNotice] = useState<UnavailableModuleNotice | null>(null)
   const unavailableModuleNoticeRef = useRef<HTMLDivElement | null>(null)
+  const shellAccountMenuRef = useRef<HTMLDetailsElement | null>(null)
+  const participantProgramMenuRef = useRef<HTMLDetailsElement | null>(null)
   const sectionScrollPositionsRef = useRef(new Map<string, number>())
   const pendingSectionNavigationRef = useRef<PendingSectionNavigation | null>(null)
   const lastHandledLocationRef = useRef('')
@@ -1309,6 +1311,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       )
       replacedStaleOAuthLocation = true
     }
+
+    if (shellAccountMenuRef.current) shellAccountMenuRef.current.open = false
+    if (participantProgramMenuRef.current) participantProgramMenuRef.current.open = false
 
     if (targetSection === activeSection) {
       if (active !== targetSection) setActive(targetSection)
@@ -2943,8 +2948,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const runtimeBrand = data.workspace.brand
   const brand = runtimeBrand.config
 
+  const showMiaLauncher = activeSection !== 'Ask Mia' && visibleSections.includes('Ask Mia')
+
   const workspace = (
-    <main className={`app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}`}>
+    <main className={`app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}${showMiaLauncher ? ' has-mia-launcher' : ''}`}>
       <SeoManager section={activeSection} />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{routeAnnouncement}</p>
       <header className="shell-header">
@@ -2957,7 +2964,24 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           {data.workspace?.cohort && !(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId) && <span className="cohort-brand-chip">{data.workspace.cohort.name}</span>}
         </div>
         <div className="shell-actions">
-          <details className="shell-account-menu" onKeyDown={event => {
+          {auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && (
+            <details ref={participantProgramMenuRef} className="participant-program-switch" onToggle={event => {
+              if (event.currentTarget.open && shellAccountMenuRef.current) shellAccountMenuRef.current.open = false
+            }} onKeyDown={event => {
+              if (event.key === 'Escape') {
+                event.currentTarget.open = false
+                event.currentTarget.querySelector<HTMLElement>('summary')?.focus()
+              }
+            }}>
+              <summary aria-label={`Program · ${data.workspace.cohort?.name ?? 'Choose your program'}`} title={data.workspace.cohort?.name ?? 'Choose your program'}>
+                Program<span className="program-name"> · {data.workspace.cohort?.name ?? 'Choose your program'}</span>
+              </summary>
+              <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram} />
+            </details>
+          )}
+          <details ref={shellAccountMenuRef} className="shell-account-menu" onToggle={event => {
+            if (event.currentTarget.open && participantProgramMenuRef.current) participantProgramMenuRef.current.open = false
+          }} onKeyDown={event => {
             if (event.key === 'Escape' && !(event.target as HTMLElement).closest('dialog, [role="dialog"]')) {
               event.currentTarget.open = false
               event.currentTarget.querySelector<HTMLElement>('summary')?.focus()
@@ -2965,33 +2989,20 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           }}>
             <summary aria-label="Account and help"><UsersIcon /><span>Account &amp; help</span></summary>
             <div className="shell-account-panel">
-          <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />
-          {auth.currentUser && (
-            <div className="account-pill">
-              <span>{auth.currentUser.full_name}</span>
-              <small>{auth.currentUser.role}</small>
-              {auth.isClerkEnabled && <UserButton afterSignOutUrl="/" />}
-            </div>
-          )}
+              {auth.currentUser && (
+                <div className="account-pill">
+                  <span>{auth.currentUser.full_name}</span>
+                  <small>{auth.currentUser.role}</small>
+                  {auth.isClerkEnabled && <UserButton afterSignOutUrl="/" />}
+                </div>
+              )}
+              <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />
               <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotGuideOpen(true) }}><GuideIcon /> Guide</Button>
               {isRealWorkspace && <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotFeedbackOpen(true) }}><FeedbackIcon /> Report a problem</Button>}
             </div>
           </details>
-          <Button
-            className="shell-mia-button"
-            variant="secondary"
-            size="compact"
-            aria-label={`Open ${assistantName}`}
-            aria-current={activeSection === 'Ask Mia' ? 'page' : undefined}
-            onClick={() => switchSection('Ask Mia')}
-          >
-            <span className="shell-mia-mark" aria-hidden="true">{assistantInitial(assistantName)}</span>
-            <span>Open {assistantName}</span>
-          </Button>
         </div>
       </header>
-
-      {auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <details className="participant-program-switch"><summary>Program · {data.workspace.cohort?.name ?? 'Choose your program'}</summary><ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram} /></details>}
 
       {selectionNotice && <p className="document-alert" role="status">{selectionNotice}</p>}
       <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} onToday={isSavingsExperience && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => { setDailyIntake(null); setDailyOpen(true) } : undefined} />
@@ -3862,6 +3873,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {evidenceReview?.scope === challengeIntakeScope && challengeParticipantScope && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && <SavingsEvidenceDialog key={`${challengeIntakeScope}:${evidenceReview.entryVersionId}`} actorScope={challengeParticipantScope} entryVersionId={evidenceReview.entryVersionId} onClose={() => setEvidenceReview(null)} onChanged={() => setEvidenceRefreshToken(value => value + 1)} />}
       {dailyOpen && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <ChallengeToday key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} cohortId={data.workspace.cohort?.id} initialPurchase={dailyIntake?.scope===challengeIntakeScope?dailyIntake.intake:null} scope={{user_id:auth.currentUser.id,household_id:data.workspace.household_id}} onClose={() => {setDailyOpen(false);setDailyIntake(null)}} onStatements={() => { setDailyOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} onBaseline={() => { setDailyOpen(false); setBaselineOpen(true) }} />}
       {baselineOpen && isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <BaselineReview key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} scope={{ user_id: auth.currentUser.id, household_id: data.workspace.household_id }} onClose={() => setBaselineOpen(false)} onReviewStatements={() => { setBaselineOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} />}
+      {showMiaLauncher && <Button className="mia-launcher" aria-label={`Open ${assistantName}`} title={`Open ${assistantName}`} onClick={() => switchSection('Ask Mia')}><FeedbackIcon /><span>{assistantName}</span></Button>}
       {pilotGuideOpen && <PilotGuideDialog savingsChallenge={isSavingsExperience} onClose={() => setPilotGuideOpen(false)} />}
       {pilotFeedbackOpen && (
         <PilotFeedbackDialog

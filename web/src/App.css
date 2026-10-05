@@ -10226,48 +10226,6 @@ body:has(.app.is-chat-page) { overflow: hidden; }
   .is-chat-page .chat-error, .is-chat-page .voice-status { max-height: 44px; margin: 0 6px 4px; padding: 5px 8px; font-size: .72rem; }
 }
 
-/* The program chooser shares the chat masthead instead of adding a row.
-   Its private choices open above the conversation without resizing it. */
-.app.is-chat-page:has(> .participant-program-switch) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 220px);
-  grid-template-rows: auto auto minmax(0, 1fr);
-  column-gap: 8px;
-}
-.is-chat-page:has(> .participant-program-switch) > .shell-header { grid-column: 1; grid-row: 1; }
-.is-chat-page > .participant-program-switch { grid-column: 2; grid-row: 1; position: relative; margin: 0; min-width: 0; z-index: 60; }
-.is-chat-page > .participant-program-switch > summary {
-  display: block; align-content: center; position: relative; min-height: 44px; height: 100%;
-  padding: 6px 24px 6px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .75rem;
-}
-.is-chat-page > .participant-program-switch > summary::after { content: '⌄'; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
-.is-chat-page > .participant-program-switch[open] > summary::after { content: '⌃'; }
-.is-chat-page:has(> .participant-program-switch) .cohort-brand-chip { display: none; }
-.is-chat-page > .participant-program-switch > .participant-program-picker {
-  position: absolute; top: calc(100% + 6px); right: 0; width: min(420px, calc(100vw - 28px));
-  max-height: min(380px, calc(100dvh - 100px)); overflow-y: auto; overscroll-behavior: contain;
-  padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper);
-  box-shadow: 0 12px 30px rgba(31, 36, 33, .16);
-}
-.is-chat-page:has(> .participant-program-switch) > .tabs-shell { grid-column: 1 / -1; grid-row: 2; }
-.is-chat-page:has(> .participant-program-switch) > .mia-screen { grid-column: 1 / -1; grid-row: 3; }
-.is-chat-page:has(> .participant-program-switch) .shell-brand { overflow: hidden; }
-.is-chat-page:has(> .participant-program-switch) .shell-brand h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-@media (max-width: 620px) {
-  .app.is-chat-page:has(> .participant-program-switch) { grid-template-columns: minmax(0, 1fr) 90px; column-gap: 4px; }
-  .is-chat-page > .participant-program-switch > summary { padding: 6px 20px 6px 6px; font-size: .7rem; }
-  .is-chat-page:has(> .participant-program-switch) .shell-brand-logo { max-width: 40px; }
-  .is-chat-page > .participant-program-switch > .participant-program-picker { width: calc(100vw - 16px); }
-}
-@media (max-height: 450px) {
-  .app.is-chat-page:has(> .participant-program-switch) { grid-template-rows: auto auto auto; }
-}
-
-.is-chat-page:has(> .participant-program-switch):has(> .document-alert) { grid-template-rows: auto auto auto minmax(0, 1fr); }
-.is-chat-page:has(> .participant-program-switch) > .document-alert { grid-column: 1 / -1; grid-row: 3; }
-.is-chat-page:has(> .participant-program-switch):has(> .document-alert) > .mia-screen { grid-row: 4; }
-
 /* Legacy phone navigation spacing should not consume chat working height. */
 .is-chat-page > .tabs-shell { margin-bottom: 0; }
 .is-chat-page .tabs { margin-block: 4px; }
@@ -10282,9 +10240,11 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 .shell-account-menu > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); font-size: .8rem; font-weight: 600; list-style: none; }
 .shell-account-menu > summary::-webkit-details-marker { display: none; }
 .shell-account-menu > summary svg { width: 20px; height: 20px; fill: currentColor; }
-.shell-account-panel { position: absolute; top: calc(100% + 8px); right: 0; width: min(320px, calc(100vw - 32px)); z-index: 65; display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); box-shadow: 0 12px 30px #0002; }
-.shell-account-panel .account-pill { flex-wrap: wrap; justify-content: flex-start; }
-.shell-account-panel .account-pill > span, .shell-account-panel .account-pill > small { display: block; overflow-wrap: anywhere; }
+.shell-account-panel { position: absolute; top: calc(100% + 8px); right: 0; width: min(320px, calc(100vw - 32px)); z-index: 65; max-height: calc(100dvh - 112px - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); box-shadow: 0 12px 30px #0002; }
+.shell-account-panel .account-pill { flex-wrap: wrap; justify-content: center; width: 100%; box-sizing: border-box; min-height: 44px; text-align: center; }
+.app .shell-account-panel .account-pill > span { display: block; max-width: 100%; font-size: .86rem; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.app .shell-account-panel .account-pill > small { display: block; font-size: .64rem; }
+.shell-account-panel > .button svg { width: 20px; height: 20px; flex: 0 0 20px; fill: none; }
 .shell-account-panel .participant-private-access > button { max-width: none; width: 100%; font-size: .85rem; min-height: 44px; }
 .shell-account-panel .shell-mia-button { display: none; }
 .shell-account-menu > summary:focus-visible, .profile-disclosure > summary:focus-visible, .savings-task > summary:focus-visible, .savings-support > summary:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 3px; }
@@ -10313,15 +10273,6 @@ body:has(.app.is-chat-page) { overflow: hidden; }
   .app .shell-brand-copy h1 { font-size: 1.16rem; }
   .app .shell-brand-logo { max-width: 46px; max-height: 30px; }
   .app .shell-brand { gap: 6px; }
-  .app.is-chat-page:has(> .participant-program-switch) { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr); }
-  .app.is-chat-page > .participant-program-switch { grid-column: 1; grid-row: 2; }
-  .app.is-chat-page:has(> .participant-program-switch) > .tabs-shell { grid-row: 3; }
-  .app.is-chat-page:has(> .participant-program-switch) > .mia-screen { grid-row: 4; }
-  .app.is-chat-page:has(> .participant-program-switch):has(> .document-alert) { grid-template-rows: auto auto auto auto minmax(0, 1fr); }
-  .app.is-chat-page:has(> .participant-program-switch) > .document-alert { grid-row: 4; }
-  .app.is-chat-page:has(> .participant-program-switch):has(> .document-alert) > .mia-screen { grid-row: 5; }
-  .app.is-chat-page:has(> .participant-program-switch) .shell-brand { overflow: visible; }
-  .app.is-chat-page:has(> .participant-program-switch) .shell-brand h1 { white-space: normal; overflow: visible; text-overflow: clip; }
   .profile-disclosure > summary { padding: 16px; }
 }
 .phone-budget-editor-controls { display: none; }
@@ -10356,16 +10307,9 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 }
 
 /* Keep the compact chat header when the general account header is styled. */
-.app.is-chat-page > .shell-header { min-height: 52px; padding: 6px 14px; }
+.app.is-chat-page > .shell-header { min-height: 52px; padding: 6px 16px; }
 @media (max-width: 620px) {
-  .app.is-chat-page > .shell-header { min-height: 52px; padding: 4px 8px; }
-  .app.is-chat-page:has(> .participant-program-switch) { grid-template-columns: minmax(0, 1fr) 90px; grid-template-rows: auto auto minmax(0, 1fr); column-gap: 4px; }
-  .app.is-chat-page > .participant-program-switch { grid-column: 2; grid-row: 1; }
-  .app.is-chat-page:has(> .participant-program-switch) > .tabs-shell { grid-row: 2; }
-  .app.is-chat-page:has(> .participant-program-switch) > .mia-screen { grid-row: 3; }
-  .app.is-chat-page:has(> .participant-program-switch):has(> .document-alert) { grid-template-rows: auto auto auto minmax(0, 1fr); }
-  .app.is-chat-page:has(> .participant-program-switch) > .document-alert { grid-row: 3; }
-  .app.is-chat-page:has(> .participant-program-switch):has(> .document-alert) > .mia-screen { grid-row: 4; }
+  .app.is-chat-page > .shell-header { min-height: 52px; padding: 4px 10px; }
 }
 
 @media (max-width: 620px) {
@@ -10373,4 +10317,40 @@ body:has(.app.is-chat-page) { overflow: hidden; }
   .is-chat-page .empty-chat-state { padding: 8px 4px; }
   .is-chat-page .empty-chat-state h3 { font-size: 1rem; line-height: 1.2; }
   .is-chat-page .empty-chat-state p { font-size: .82rem; line-height: 1.45; }
+}
+
+/* Keep account/help at the trailing edge on every page. */
+.shell-actions .participant-program-switch { margin: 0; position: relative; min-width: 0; width: clamp(76px, 18vw, 180px); }
+.shell-actions .participant-program-switch > summary { display: block; align-content: center; position: relative; box-sizing: border-box; min-height: 44px; padding: 8px 24px 8px 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); cursor: pointer; list-style: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .75rem; }
+.participant-program-switch > summary::-webkit-details-marker { display: none; }
+.participant-program-switch > summary::after { content: '⌄'; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
+.participant-program-switch[open] > summary::after { content: '⌃'; }
+.participant-program-switch > summary:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 3px; }
+.participant-program-switch > .participant-program-picker { position: absolute; top: calc(100% + 8px); right: 0; width: min(420px, calc(100vw - 32px)); box-sizing: border-box; z-index: 60; max-height: min(380px, calc(100dvh - 112px)); overflow-y: auto; overscroll-behavior: contain; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); box-shadow: 0 12px 30px #0002; }
+.app.has-mia-launcher { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+.app > .mia-launcher { box-sizing: border-box; height: 56px; position: fixed; right: max(20px, env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 40; min-height: 56px; border-radius: 999px; gap: 10px; padding: 14px 20px; box-shadow: 0 6px 20px #0002; }
+.mia-launcher svg { width: 24px; height: 24px; flex: 0 0 24px; fill: none; }
+.app:has(.shell-account-menu[open], .participant-program-switch[open]) > .mia-launcher,
+body:has([role="dialog"][aria-modal="true"], dialog[open]) .app > .mia-launcher { visibility: hidden; pointer-events: none; }
+.app .pilot-support-bar { flex-wrap: nowrap; align-items: center; gap: 8px; }
+.app .pilot-support-bar > span { min-width: 0; line-height: 1.35; }
+.app .pilot-support-bar > div { width: auto; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; gap: 4px; }
+@media (max-width: 620px) {
+  .shell-actions .participant-program-switch { width: 84px; }
+  .participant-program-switch .program-name { display: none; }
+  .shell-actions .participant-program-switch > summary { padding-left: 6px; font-size: .68rem; }
+  .participant-program-switch > .participant-program-picker { right: -50px; }
+  .app > .mia-launcher { right: max(16px, env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); width: 56px; padding: 16px; }
+  .mia-launcher > span { display: none; }
+  .app .pilot-support-bar { padding: 5px 6px 5px 10px; }
+  .app .pilot-support-bar > span { font-size: .68rem; gap: 6px; }
+  .app .pilot-support-bar > div { gap: 0; }
+  .app .pilot-support-bar .button { padding-inline: 6px; gap: 5px; font-size: .72rem; }
+  .app .pilot-support-bar svg { width: 17px; height: 17px; flex-basis: 17px; }
+}
+
+.app.is-chat-page { padding-inline: calc(clamp(14px, 3vw, 32px) + env(safe-area-inset-left)) calc(clamp(14px, 3vw, 32px) + env(safe-area-inset-right)); }
+@media (max-width: 620px) {
+  .app.is-chat-page { padding-inline: calc(10px + env(safe-area-inset-left)) calc(10px + env(safe-area-inset-right)); }
+  .shell-actions .participant-program-switch > summary { font-family: inherit; font-weight: 600; font-size: .7rem; }
 }

@@ -9049,7 +9049,7 @@ test('BOG UI program chooser shares the compact chat masthead without overlappin
   const disclosure = page.locator('.participant-program-switch'), summary = disclosure.locator('summary')
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await composer.fill('Keep this draft while checking my program.')
-  await expect(summary).toHaveText(`Program · ${name}`)
+  await expect(summary).toHaveAccessibleName(`Program · ${name}`)
   const geometry = await summary.evaluate(node => {
     const trigger = node.getBoundingClientRect(), privacy = document.querySelector('.shell-account-menu > summary')!.getBoundingClientRect()
     const history = document.querySelector('.chat-card-wrap')!.getBoundingClientRect()
@@ -9064,6 +9064,11 @@ test('BOG UI program chooser shares the compact chat masthead without overlappin
   await expect(page.getByRole('combobox', { name: 'Switch participant program' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Your participant programs' })).toContainText(name)
   expect(Math.abs(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height) - geometry.historyHeight)).toBeLessThanOrEqual(1)
+  await page.locator('.shell-account-menu > summary').click()
+  await expect(disclosure).not.toHaveAttribute('open', '')
+  await expect(page.locator('.shell-account-panel')).toBeVisible()
+  await summary.click()
+  await expect(page.locator('.shell-account-menu')).not.toHaveAttribute('open', '')
   await summary.focus(); await summary.press('Space')
   await expect(page.getByRole('combobox', { name: 'Switch participant program' })).toBeHidden()
   await expect(composer).toHaveValue('Keep this draft while checking my program.')
@@ -9507,3 +9512,66 @@ for (const interruptedAt of ['storage', 'processing'] as const) {
     expect(await page.evaluate(()=>sessionStorage.getItem('household-cfo:mia-chat:v1:user-901:participant:77:42:pending-request'))).toBeNull()
   })
 }
+
+for (const role of ['participant', 'coach', 'admin']) {
+  test(`BOG UI floating Mia launcher keeps account help stable for ${role}`, async ({ page }) => {
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+    await page.goto(`/?pilot_e2e_role=${role}#Home`)
+    const account = page.locator('.shell-account-menu > summary')
+    const launcher = page.getByRole('button', { name: 'Open Mia', exact: true })
+    await expect(launcher).toBeVisible()
+    await page.evaluate(() => document.fonts.ready)
+    const homeRight = await account.evaluate(node => node.getBoundingClientRect().right)
+    await account.click()
+    await expect(launcher).toBeHidden()
+    const identity = page.locator('.shell-account-panel .account-pill')
+    await expect(identity).toBeVisible()
+    expect(await identity.evaluate(node => getComputedStyle(node).justifyContent)).toBe('center')
+    for (const icon of await page.locator('.shell-account-panel > .button svg').all()) {
+      const size = await icon.boundingBox()
+      expect(size!.width).toBeLessThanOrEqual(24)
+      expect(size!.height).toBeLessThanOrEqual(24)
+    }
+    await account.press('Escape')
+    await expect(account).toBeFocused()
+    await launcher.click()
+    await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
+    await expect(launcher).toHaveCount(0)
+    expect(Math.abs(await account.evaluate(node => node.getBoundingClientRect().right) - homeRight)).toBeLessThanOrEqual(4)
+    await openSection(page, 'Budget')
+    await expect(launcher).toBeVisible()
+    expect(Math.abs(await account.evaluate(node => node.getBoundingClientRect().right) - homeRight)).toBeLessThanOrEqual(1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
+  })
+}
+
+test('BOG UI pilot support stays vertically aligned on narrow phones and account fits short screens', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=admin#Home')
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 568 })
+    const alignment = await page.locator('.pilot-support-bar').evaluate(node => {
+      const status = node.querySelector(':scope > span')!.getBoundingClientRect()
+      const actions = node.querySelector(':scope > div')!.getBoundingClientRect()
+      return { centers: Math.abs((status.top + status.bottom) / 2 - (actions.top + actions.bottom) / 2), height: node.getBoundingClientRect().height, overflow: document.documentElement.scrollWidth - innerWidth }
+    })
+    expect(alignment.centers).toBeLessThanOrEqual(1)
+    expect(alignment.height).toBeLessThanOrEqual(64)
+    expect(alignment.overflow).toBeLessThanOrEqual(1)
+  }
+  const launcher = page.getByRole('button', { name: 'Open Mia', exact: true })
+  await page.locator('.brand-footer').scrollIntoViewIfNeeded()
+  await page.keyboard.press('End')
+  expect(await page.locator('.brand-footer').evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual((await launcher.boundingBox())!.y)
+  await page.getByRole('button', { name: 'Tools', exact: true }).click()
+  await expect(launcher).toBeHidden()
+  await page.getByRole('dialog').getByRole('button', { name: 'Close tools', exact: true }).click()
+  await expect(launcher).toBeVisible()
+  await page.setViewportSize({ width: 640, height: 360 })
+  await openAccountHelp(page)
+  const menu = page.locator('.shell-account-panel')
+  expect(await menu.evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(360)
+  await menu.getByRole('button', { name: 'Guide', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open Mia', exact: true })).toBeHidden()
+})
