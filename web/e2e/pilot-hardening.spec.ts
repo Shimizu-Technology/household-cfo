@@ -9676,6 +9676,7 @@ test('BOG UI visual viewport reduction keeps feedback above the keyboard and fol
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Feedback', exact: true }).click()
   const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
   await dialog.getByLabel('What did you attempt?').fill('Fictional keyboard test')
   await page.evaluate(() => {
     document.documentElement.dataset.testViewportHeight = '320'

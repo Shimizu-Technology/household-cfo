@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { revealDialogControl } from './dialogFocus'
 
 export function usePilotDialog(onClose: () => void) {
   const dialogRef = useRef<HTMLElement | null>(null)
@@ -24,7 +25,7 @@ export function usePilotDialog(onClose: () => void) {
       })
     function revealFocus(element: HTMLElement) {
       element.focus({ preventScroll: true })
-      element.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+      if (dialog) revealDialogControl(element, dialog)
     }
     const focusFrame = window.requestAnimationFrame(() => {
       if (!dialog) return
@@ -67,7 +68,10 @@ export function usePilotDialog(onClose: () => void) {
     }
 
     function handleFocusIn(event: FocusEvent) {
-      if (dialog?.contains(event.target as Node)) return
+      if (dialog?.contains(event.target as Node)) {
+        if (event.target instanceof HTMLElement) revealDialogControl(event.target, dialog)
+        return
+      }
       const destination = focusableElements()[0] ?? dialog
       destination?.focus()
     }

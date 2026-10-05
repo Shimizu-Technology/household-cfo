@@ -100,3 +100,14 @@
   .is-chat-page > .mia-screen,
   .is-chat-page .mia-layout { flex: 0 0 auto; }
 }
+
+/* Keep the entire privacy/card panel reachable when its header wraps or a
+   keyboard shrinks the visible viewport; avoid competing inner scroll areas. */
+.challenge-privacy-dialog,
+.optional-debt-dialog { overflow-y: auto; }
+.privacy-scroll,
+.optional-debt-scroll { max-height: none; overflow: visible; }
+
+/* WebKit can include native option text in a parent scroll extent even when
+   the select itself fits; its native picker remains independently usable. */
+.challenge-privacy-dialog select { overflow: hidden; text-overflow: ellipsis; }
