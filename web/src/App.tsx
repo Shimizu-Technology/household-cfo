@@ -140,7 +140,8 @@ import type {
   WorkspaceSetupStatus,
   WorkspaceSetupValues,
 } from './api'
-import { readParticipantProgram, storeParticipantProgram, verifiedParticipantProgram } from './lib/participantProgramSelection'
+import { verifiedParticipantProgram } from './lib/participantProgramSelection'
+import { ParticipantProgramSession } from './components/ParticipantProgramSession'
 import { fetchParticipantPrograms } from './participantProgramsApi'
 import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
@@ -483,28 +484,9 @@ function BrandFooter() {
 function App() {
   const auth = useAuthContext()
   const identity = `${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
-  const [selection, setSelection] = useState<{identity: string; cohortId?: number} | null>(null)
-  const [selectionNotice, setSelectionNotice] = useState<{identity: string; text: string} | null>(null)
-  const participant = Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)
-  const selectedCohortId = participant ? selection?.identity === identity ? selection.cohortId : readParticipantProgram(auth.authIdentityId, auth.currentUser?.id) : undefined
-  const chooseProgram = useCallback((cohortId: number) => {
-    if (!participant) return
-    setActiveParticipantCohortId(cohortId)
-    setSelection({identity, cohortId})
-    setSelectionNotice(null)
-  }, [participant, identity])
-  const programVerified = useCallback((cohortId: number) => {
-    if (participant) storeParticipantProgram(auth.authIdentityId, auth.currentUser?.id, cohortId)
-  }, [participant, auth.authIdentityId, auth.currentUser?.id])
-  const programUnavailable = useCallback(() => {
-    if (!participant) return
-    storeParticipantProgram(auth.authIdentityId, auth.currentUser?.id, undefined)
-    setActiveParticipantCohortId(null)
-    setSelection({identity})
-    setSelectionNotice({identity, text: 'Your previous program is no longer available. Your current authorized program is shown below; use Program to check your choices.'})
-  }, [participant, auth.authIdentityId, auth.currentUser?.id, identity])
-  // Account, workspace and explicit program changes discard every private view.
-  return <WorkspaceApp key={`${identity}:${selectedCohortId ?? 'default'}`} selectedCohortId={selectedCohortId} onChooseProgram={chooseProgram} onProgramVerified={programVerified} onProgramUnavailable={programUnavailable} selectionNotice={selectionNotice?.identity === identity ? selectionNotice.text : null} />
+  return <ParticipantProgramSession identity={identity} authIdentityId={auth.authIdentityId} actorId={auth.currentUser?.id} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)}>
+    {selection => <WorkspaceApp key={`${identity}:${selection.selectedCohortId ?? 'default'}`} {...selection} />}
+  </ParticipantProgramSession>
 }
 
 function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onProgramUnavailable, selectionNotice}: {selectedCohortId?: number; onChooseProgram: (cohortId: number) => void; onProgramVerified: (cohortId: number) => void; onProgramUnavailable: () => void; selectionNotice: string | null}) {
