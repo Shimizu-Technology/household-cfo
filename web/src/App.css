@@ -10271,3 +10271,106 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 /* Legacy phone navigation spacing should not consume chat working height. */
 .is-chat-page > .tabs-shell { margin-bottom: 0; }
 .is-chat-page .tabs { margin-block: 4px; }
+
+/* A stable identity row; account/help actions stay behind one compact disclosure. */
+.app > .shell-header { min-height: 68px; gap: 16px; padding: 12px 16px; }
+.app .shell-brand { flex: 1 1 auto; overflow: visible; }
+.app .shell-brand-copy { overflow: visible; }
+.app .shell-brand-copy h1 { font-size: clamp(1.4rem, 2.4vw, 2rem); white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: normal; line-height: 1.12; }
+.app .shell-brand-copy .eyebrow { white-space: normal; font-size: .65rem; }
+.shell-account-menu { position: relative; }
+.shell-account-menu > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); font-size: .8rem; font-weight: 600; list-style: none; }
+.shell-account-menu > summary::-webkit-details-marker { display: none; }
+.shell-account-menu > summary svg { width: 20px; height: 20px; fill: currentColor; }
+.shell-account-panel { position: absolute; top: calc(100% + 8px); right: 0; width: min(320px, calc(100vw - 32px)); z-index: 65; display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); box-shadow: 0 12px 30px #0002; }
+.shell-account-panel .account-pill { flex-wrap: wrap; justify-content: flex-start; }
+.shell-account-panel .account-pill > span, .shell-account-panel .account-pill > small { display: block; overflow-wrap: anywhere; }
+.shell-account-panel .participant-private-access > button { max-width: none; width: 100%; font-size: .85rem; min-height: 44px; }
+.shell-account-panel .shell-mia-button { display: none; }
+.shell-account-menu > summary:focus-visible, .profile-disclosure > summary:focus-visible, .savings-task > summary:focus-visible, .savings-support > summary:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 3px; }
+.profile-disclosure { border: 1px solid var(--line); border-radius: 16px; background: var(--paper); min-width: 0; }
+.profile-disclosure > summary { padding: 18px 20px; min-height: 44px; font-weight: 600; cursor: pointer; }
+.profile-disclosure > .panel, .profile-disclosure > fieldset, .profile-disclosure > .profile-section-grid { margin: 12px; }
+.profile-disclosure > .panel { box-shadow: none; }
+.profile-statements-link { display: grid; gap: 8px; }
+.profile-statements-link h3, .profile-statements-link p { margin: 0; }
+.profile-statements-link .button { justify-self: start; }
+.statements-screen { max-width: 1100px; margin-inline: auto; width: 100%; }
+.document-upload-secondary { margin-block: 14px; border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+.document-upload-secondary > summary { min-height: 44px; cursor: pointer; font-weight: 600; }
+.document-upload-primary { max-width: 560px; }
+@media (max-width: 1024px) {
+  .app .shell-brand-copy .eyebrow { display: none; }
+  .app .shell-brand-logo { max-width: 80px; max-height: 36px; }
+  .app .shell-actions { flex: 0 0 auto; gap: 6px; }
+  .shell-account-menu > summary > span { display: none; }
+  .shell-account-menu > summary { width: 44px; padding: 10px; justify-content: center; }
+  .app .shell-mia-button { min-width: 44px; max-width: 44px; width: 44px; padding: 0; }
+  .app .shell-mia-button > span:last-child { display: none; }
+}
+@media (max-width: 620px) {
+  .app > .shell-header { padding: 8px 10px; min-height: 60px; gap: 8px; }
+  .app .shell-brand-copy h1 { font-size: 1.16rem; }
+  .app .shell-brand-logo { max-width: 46px; max-height: 30px; }
+  .app .shell-brand { gap: 6px; }
+  .app.is-chat-page:has(> .participant-program-switch) { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr); }
+  .app.is-chat-page > .participant-program-switch { grid-column: 1; grid-row: 2; }
+  .app.is-chat-page:has(> .participant-program-switch) > .tabs-shell { grid-row: 3; }
+  .app.is-chat-page:has(> .participant-program-switch) > .mia-screen { grid-row: 4; }
+  .app.is-chat-page:has(> .participant-program-switch):has(> .document-alert) { grid-template-rows: auto auto auto auto minmax(0, 1fr); }
+  .app.is-chat-page:has(> .participant-program-switch) > .document-alert { grid-row: 4; }
+  .app.is-chat-page:has(> .participant-program-switch):has(> .document-alert) > .mia-screen { grid-row: 5; }
+  .app.is-chat-page:has(> .participant-program-switch) .shell-brand { overflow: visible; }
+  .app.is-chat-page:has(> .participant-program-switch) .shell-brand h1 { white-space: normal; overflow: visible; text-overflow: clip; }
+  .profile-disclosure > summary { padding: 16px; }
+}
+.phone-budget-editor-controls { display: none; }
+@media (max-width: 620px) {
+  .phone-budget-editor-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-block: 16px; }
+  .phone-budget-editor-controls label { display: flex; align-items: center; gap: 10px; }
+  .phone-budget-editor-controls select { min-height: 44px; padding: 8px 12px; font: inherit; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); }
+  .is-selected-month-editor .edit-other-month, .is-selected-month-editor .edit-year-total { display: none; }
+  .is-selected-month-editor .annual-budget-table { min-width: 0; width: 100%; table-layout: fixed; }
+  .is-selected-month-editor .annual-budget-table th:first-child { min-width: 0; width: 58%; position: static; }
+  .is-selected-month-editor .annual-budget-table td { min-width: 0; }
+  .is-selected-month-editor .annual-budget-table input, .is-selected-month-editor .annual-budget-table select { width: 100%; min-width: 0; }
+}
+.tabs .tabs-today-action { min-height: 44px; border: 1px solid var(--line); border-radius: 14px; padding: 10px 16px; color: var(--ink); background: var(--paper); font: inherit; font-weight: 600; cursor: pointer; }
+.challenge-personal-export select { min-height: 44px; min-width: 0; width: 100%; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); }
+.challenge-personal-export label:first-child { display: grid; }
+.challenge-personal-export fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+@media (max-width: 620px) { .tabs .tabs-today-action { padding: 7px 2px; border-radius: 12px; font-size: .68rem; } }
+@media (max-width: 620px) {
+  .is-selected-month-editor .annual-category-cell-editor { min-width: 0; }
+  .is-selected-month-editor .annual-budget-table input, .is-selected-month-editor .annual-budget-table select { min-height: 44px; font-size: 16px; background: var(--paper); }
+}
+
+/* Give the BOG task labels enough space on narrow phones. */
+@media (max-width: 600px) {
+  .is-savings-navigation .tabs { grid-template-columns: minmax(44px, .8fr) minmax(58px, 1fr) minmax(40px, .8fr) minmax(88px, 1.3fr) minmax(44px, .8fr); }
+  .is-savings-navigation .tabs :where(button, a) { padding-inline: 4px; min-height: 44px; font-size: .75rem; }
+  .is-savings-navigation .tabs-label-full { display: none; }
+  .is-savings-navigation .tabs-label-short { display: inline; }
+  .is-savings-navigation .tabs-more-toggle svg { display: none; }
+  .document-import-summary-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Keep the compact chat header when the general account header is styled. */
+.app.is-chat-page > .shell-header { min-height: 52px; padding: 6px 14px; }
+@media (max-width: 620px) {
+  .app.is-chat-page > .shell-header { min-height: 52px; padding: 4px 8px; }
+  .app.is-chat-page:has(> .participant-program-switch) { grid-template-columns: minmax(0, 1fr) 90px; grid-template-rows: auto auto minmax(0, 1fr); column-gap: 4px; }
+  .app.is-chat-page > .participant-program-switch { grid-column: 2; grid-row: 1; }
+  .app.is-chat-page:has(> .participant-program-switch) > .tabs-shell { grid-row: 2; }
+  .app.is-chat-page:has(> .participant-program-switch) > .mia-screen { grid-row: 3; }
+  .app.is-chat-page:has(> .participant-program-switch):has(> .document-alert) { grid-template-rows: auto auto auto minmax(0, 1fr); }
+  .app.is-chat-page:has(> .participant-program-switch) > .document-alert { grid-row: 3; }
+  .app.is-chat-page:has(> .participant-program-switch):has(> .document-alert) > .mia-screen { grid-row: 4; }
+}
+
+@media (max-width: 620px) {
+  .is-chat-page .chat-heading-verb { display: none; }
+  .is-chat-page .empty-chat-state { padding: 8px 4px; }
+  .is-chat-page .empty-chat-state h3 { font-size: 1rem; line-height: 1.2; }
+  .is-chat-page .empty-chat-state p { font-size: .82rem; line-height: 1.45; }
+}

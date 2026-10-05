@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminCohort, AdminUser, CurrentUser } from '../api'
@@ -24,10 +24,79 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 describe('Coach group essentials', () => {
+  it('bounds thirty participants to ten rows and resets paging on search and group changes without discarding drafts', async () => {
+    const user = userEvent.setup()
+    const second = { ...group, id: 11, name: 'Wednesday group' }
+    const roster = Array.from({ length: 30 }, (_, index) => ({ ...participant, id: 100 + index, full_name: `Member ${index + 1}`, email: `member${index + 1}@example.test`, cohorts: [{ ...participant.cohorts[0], id: 200 + index }] }))
+    const other = { ...participant, id: 99, email: 'wednesday@example.test', cohorts: [{ ...participant.cohorts[0], cohort: { ...participant.cohorts[0].cohort, id: 11 } }] }
+    mocks.fetchAdminCohorts.mockResolvedValue([group, second])
+    mocks.fetchAdminUsers.mockResolvedValue([...roster, other])
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const { dirty } = harness()
+    await screen.findByText('member1@example.test')
+    const list = () => within(document.querySelector('.coach-participants-list') as HTMLElement)
+    expect(list().getAllByRole('listitem')).toHaveLength(10)
+    expect(screen.queryByText('member11@example.test')).toBeNull()
+    expect(screen.getByText('Showing 1–10 of 30 participants.')).toBeTruthy()
+    await user.click(screen.getByText('Add a participant', { selector: 'summary', exact: true }))
+    expect(screen.getByLabelText('Participant email').closest('details')).toHaveProperty('open', true)
+    await user.type(screen.getByLabelText('Participant email'), 'unsaved@example.test')
+    await user.click(screen.getByRole('button', { name: 'Next participants' }))
+    expect(list().getAllByRole('listitem')).toHaveLength(10)
+    expect(screen.getByText('member11@example.test')).toBeTruthy()
+    expect(screen.queryByText('member1@example.test')).toBeNull()
+    expect(screen.getByText('Page 2 of 3')).toBeTruthy()
+    expect(screen.getByLabelText('Participant email')).toHaveProperty('value', 'unsaved@example.test')
+    expect(dirty).toHaveBeenLastCalledWith(true)
+    for (const summary of screen.getAllByText('Participant access', { selector: 'summary', exact: true })) await user.click(summary)
+    expect(screen.getAllByRole('button', { name: 'Resend invitation' }).every(button => (button.closest('details') as HTMLDetailsElement).open)).toBe(true)
+    expect(screen.getAllByRole('button', { name: 'Resend invitation' }).every(button => (button as HTMLButtonElement).disabled)).toBe(true)
+    await user.type(screen.getByLabelText('Find a participant'), 'member29@')
+    expect(list().getAllByRole('listitem')).toHaveLength(1)
+    expect(screen.getByText('member29@example.test')).toBeTruthy()
+    expect(screen.getByText('Showing 1–1 of 1 matching participants.')).toBeTruthy()
+    expect(screen.queryByRole('navigation', { name: 'Participant roster pages' })).toBeNull()
+    await user.clear(screen.getByLabelText('Find a participant'))
+    expect(screen.getByText('Page 1 of 3')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Next participants' }))
+    await user.selectOptions(screen.getByLabelText('Group'), '11')
+    expect(confirm).toHaveBeenCalledWith('Discard unsaved group or invitation changes?')
+    expect(screen.getByText('Page 2 of 3')).toBeTruthy()
+    expect(screen.getByLabelText('Participant email')).toHaveProperty('value', 'unsaved@example.test')
+    confirm.mockReturnValue(true)
+    await user.selectOptions(screen.getByLabelText('Group'), '11')
+    expect(screen.getByText('wednesday@example.test')).toBeTruthy()
+    expect(screen.getByLabelText('Participant email')).toHaveProperty('value', '')
+    expect(screen.queryByRole('navigation', { name: 'Participant roster pages' })).toBeNull()
+    await user.selectOptions(screen.getByLabelText('Group'), '10')
+    expect(screen.getByText('Page 1 of 3')).toBeTruthy()
+    expect(screen.getByText('member1@example.test')).toBeTruthy()
+    expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(1)
+    expect(mocks.removeCoachGroupParticipant).not.toHaveBeenCalled()
+    expect(mocks.resendAdminUserInvitation).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('shares one cohort context and leaves roster actions collapsed until requested', async () => {
+    const second = { ...group, id: 11, name: 'Second program group' }
+    mocks.fetchAdminCohorts.mockResolvedValue([group, second])
+    mocks.fetchAdminUsers.mockResolvedValue([{ ...participant, cohorts: [{ ...participant.cohorts[0], cohort: { ...participant.cohorts[0].cohort, id: 11 } }] }])
+    const changed = vi.fn()
+    const lifecycle = { pending: false, begin: vi.fn(() => ({ id: 1, workspaceId: 2 })), isCurrent: vi.fn(() => true), finish: vi.fn() }
+    render(<CoachGroupsParticipants currentUser={owner} workspaceId={2} mutationLifecycle={lifecycle} onDirtyChange={() => undefined} selectedCohortId={11} onSelectedCohortIdChange={changed} />)
+    await screen.findByText('Participants in Second program group')
+    expect(screen.queryByLabelText('Group')).toBeNull()
+    expect(changed).toHaveBeenCalledWith(11)
+    expect(document.querySelector('.coach-participant-access')?.hasAttribute('open')).toBe(false)
+    expect(screen.getByText(/Optional household setup: not complete/)).toBeTruthy()
+    expect(screen.queryByText(/Budget setup incomplete/)).toBeNull()
+  })
+
   it('clears roster and unsaved input synchronously when another program loads', async () => {
     const user = userEvent.setup()
     const view = harness()
     await screen.findByText('participant@example.com')
+    await user.click(screen.getByText('Add a participant', { selector: 'summary', exact: true }))
     await user.type(screen.getByLabelText('Participant email'), 'unsaved@example.com')
     let resolveGroups!: (value: AdminCohort[]) => void
     let resolveUsers!: (value: AdminUser[]) => void
@@ -41,6 +110,7 @@ describe('Coach group essentials', () => {
     expect(screen.getByRole('button', { name: 'New group' })).toHaveProperty('disabled', true)
     await act(async () => { resolveGroups([{ ...group, id: 30, name: 'Another program group' }]); resolveUsers([]) })
     await screen.findByText('Participants in Another program group')
+    await user.click(screen.getByText('Add a participant', { selector: 'summary', exact: true }))
     expect(screen.getByLabelText('Participant email')).toHaveProperty('value', '')
     expect(mocks.removeCoachGroupParticipant).not.toHaveBeenCalled()
     expect(mocks.resendAdminUserInvitation).not.toHaveBeenCalled()
@@ -78,6 +148,7 @@ describe('Coach group essentials', () => {
     mocks.updateAdminCohort.mockResolvedValue({ ...group, name: 'Evening group' })
     const { dirty } = harness()
     await screen.findByText('Participants in Tuesday group')
+    await user.click(screen.getByText('Group details & dates', { selector: 'summary', exact: true }))
     await user.clear(screen.getByLabelText('Group name'))
     await user.type(screen.getByLabelText('Group name'), 'Evening group')
     expect(dirty).toHaveBeenLastCalledWith(true)
@@ -90,6 +161,7 @@ describe('Coach group essentials', () => {
     mocks.createAdminUser.mockResolvedValue({ user: participant, invitation_sent: false, invitation_status: 'failed', invitation_error: 'Email provider unavailable.' })
     const { lifecycle } = harness()
     await screen.findByText('Participants in Tuesday group')
+    await user.click(screen.getByText('Add a participant', { selector: 'summary', exact: true }))
     await user.type(screen.getByLabelText('Participant email'), 'new@example.com')
     await user.click(screen.getByRole('button', { name: 'Add to Tuesday group' }))
     await screen.findByText(/Participant added, but the invitation email failed/)
@@ -114,6 +186,7 @@ describe('Coach group essentials', () => {
     mocks.removeCoachGroupParticipant.mockResolvedValue({ removed: true, cohort_id: 10 })
     harness()
     await screen.findByText('Participants in Tuesday group')
+    await user.click(screen.getByText('Participant access', { selector: 'summary', exact: true }))
     await user.click(screen.getByRole('button', { name: 'Cancel enrollment' }))
     expect(mocks.removeCoachGroupParticipant).not.toHaveBeenCalled()
     expect(screen.getByText(/Their account and other group memberships stay available/)).toBeTruthy()
@@ -127,6 +200,7 @@ describe('Coach group essentials', () => {
     mocks.createAdminUser.mockImplementation(() => new Promise((done) => { resolve = done }))
     const { lifecycle } = harness()
     await screen.findByText('Participants in Tuesday group')
+    await user.click(screen.getByText('Add a participant', { selector: 'summary', exact: true }))
     await user.type(screen.getByLabelText('Participant email'), 'new@example.com')
     await user.click(screen.getByRole('button', { name: 'Add to Tuesday group' }))
     lifecycle.isCurrent.mockReturnValue(false)

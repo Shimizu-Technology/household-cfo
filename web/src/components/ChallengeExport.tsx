@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchPrivateJson } from '../api'
+import { printableChallengeRecord, type PrivateChallengeRecord } from '../lib/privateChallengeRecord'
 import type { BaselineScope } from '../lib/financialBaseline'
 export function ChallengeExport({ scope, cohortId }: { scope: BaselineScope; cohortId: number }) {
   return <Export key={`${scope.user_id}:${scope.household_id}:${cohortId}`} scope={scope} cohortId={cohortId} />
 }
 function Export({ scope, cohortId }: { scope: BaselineScope; cohortId: number }) {
+  const [format, setFormat] = useState<'printable' | 'json'>('printable')
   const [feelings, setFeelings] = useState(false),
     [accepted, setAccepted] = useState(false),
     [busy, setBusy] = useState(false),
@@ -27,27 +29,24 @@ function Export({ scope, cohortId }: { scope: BaselineScope; cohortId: number })
     setError(null)
     setNotice(null)
     try {
-      const result = await fetchPrivateJson<{
-        schema_version: number
-        actor_scope: BaselineScope
-        optional_reflections_included: boolean
-        enrollment: { cohort_id: number }
-      }>(`/api/v1/savings_challenge/export?include_reflections=${feelings}`, {
+      const result = await fetchPrivateJson<PrivateChallengeRecord>(`/api/v1/savings_challenge/export?include_reflections=${feelings}`, {
         signal: owned.signal,
         cache: 'no-store',
       })
       if (!live.current || owned.signal.aborted) return
       if (
+        result.schema_version !== 1 ||
         result.actor_scope.user_id !== scope.user_id ||
         result.actor_scope.household_id !== scope.household_id ||
         result.optional_reflections_included !== feelings ||
         result.enrollment?.cohort_id !== cohortId
       )
         throw new Error('Your private workspace changed. Reopen the export in the correct account.')
-      const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }))
+      const content = format === 'printable' ? printableChallengeRecord(result) : JSON.stringify(result, null, 2)
+      const url = URL.createObjectURL(new Blob([content], { type: format === 'printable' ? 'text/html;charset=utf-8' : 'application/json' }))
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = 'my-90-day-challenge.json'
+      anchor.download = format === 'printable' ? 'my-90-day-challenge.html' : 'my-90-day-challenge.json'
       anchor.click()
       URL.revokeObjectURL(url)
       setAccepted(false)
@@ -65,10 +64,11 @@ function Export({ scope, cohortId }: { scope: BaselineScope; cohortId: number })
     <details className="challenge-personal-export">
       <summary>Download your private challenge record</summary>
       <p>
-        Download approved savings, plan revisions, daily reports and checkpoint history as a structured JSON file.
+        Download a readable summary of approved savings, target changes and checkpoint history. Open the downloaded record in your browser to print or save as PDF. Choose JSON for the complete structured history.
         Original statements, chat and pending proposals are excluded.
       </p>
       <fieldset disabled={busy}>
+        <label>Record format<select value={format} onChange={event => { setFormat(event.target.value as 'printable' | 'json'); setAccepted(false) }}><option value="printable">Readable record · print or save as PDF</option><option value="json">Structured JSON · complete data</option></select></label>
         <label>
           <input
             type="checkbox"

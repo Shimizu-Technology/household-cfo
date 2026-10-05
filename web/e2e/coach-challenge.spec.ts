@@ -19,6 +19,7 @@ test('BOG UI Coach Studio metadata and explicit current sharing fit each viewpor
 test('BOG UI fixed coarse report review and private export choices are explicit', async ({ page }) => {
   await page.goto('/e2e/fixtures/coach-challenge.html')
   await page.getByLabel('Challenge group').selectOption('1')
+  await page.getByText('Checkpoint reports', { exact: true }).click()
   await page.getByRole('button', { name: 'Review scheduled reports' }).click()
   await expect(page.getByRole('button', { name: 'Seal reviewed Day 30 report' })).toBeDisabled()
   await page.getByRole('checkbox', { name: /Seal the scheduled checkpoint/ }).check()

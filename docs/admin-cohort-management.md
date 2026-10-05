@@ -1,6 +1,6 @@
 # Admin cohort management
 
-Updated: 2026-06-23
+Updated: 2026-10-05
 
 Household CFO now includes a browser-based Admin tab for owner admins. This avoids local `rails runner` invite commands during testing and gives Mrs. Mel/Leon the foundation for pilot cohort operations.
 
@@ -22,7 +22,7 @@ SEED_ADMIN_EMAILS=owner@example.com,partner@example.com bin/rails db:seed
 
 ## Admin UI
 
-After an invited admin signs in, the participant nav gets an additional `Admin` tab.
+After an invited admin signs in, open **Tools → Admin**. The console separates Participants, Cohorts, Support, Programs, and Bank health. Participant rows are collapsed and paged fifteen at a time. Unsaved edits survive paging and unrelated saves; an explicit refresh asks before discarding them.
 
 Admins can:
 

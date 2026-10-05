@@ -262,3 +262,9 @@
   .coach-content-legacy-phrases > div:not(:first-child) { align-items: stretch; flex-direction: column; }
   .coach-content-legacy-phrases button { width: 100%; }
 }
+.coach-content-library [hidden] { display: none; }
+.coach-content-library .coach-content-grid { grid-template-columns: minmax(0, 1fr); }
+.coach-library-areas { display: flex; flex-wrap: wrap; gap: .5rem; }
+.coach-library-areas button { min-height: 44px; padding: .65rem .9rem; border: 1px solid var(--line); border-radius: .75rem; background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; }
+.coach-library-areas button[aria-pressed="true"] { background: var(--emerald); border-color: var(--emerald); color: var(--brand-on-primary, var(--paper)); }
+@media (max-width: 620px) { .coach-library-areas button { flex: 1 1 8rem; } }

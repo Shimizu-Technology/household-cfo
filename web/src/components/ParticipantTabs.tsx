@@ -6,12 +6,17 @@ type ParticipantTabsProps = {
   sections: string[]
   activeSection: string
   onChange: (section: string) => void
+  savingsChallenge?: boolean
+  onToday?: () => void
 }
 
 const primarySections = new Set(['Home', 'Review', 'Ask Mia', 'Budget'])
 
 const sectionDescriptions: Record<string, string> = {
-  'My Profile': 'Update household context, documents, and bank connections.',
+  'My Profile': 'Optional household setup, memory, and bank connections.',
+  Statements: 'Upload privately and review accounts, periods, and statement rows.',
+  Review: 'Review and confirm transactions.',
+  Budget: 'Optional monthly and annual planning.',
   Wealth: 'See debt, assets, and long-range capacity.',
   'CFO Filter': 'Pressure-test a purchase before money moves.',
   Optionality: 'Compare choices against stability and runway.',
@@ -44,15 +49,16 @@ function sectionHref(section: string) {
   return `#${encodeURIComponent(section)}`
 }
 
-export function ParticipantTabs({ sections, activeSection, onChange }: ParticipantTabsProps) {
+export function ParticipantTabs({ sections, activeSection, onChange, savingsChallenge = false, onToday }: ParticipantTabsProps) {
   const { assistantName, brand } = useBrand()
   const [moreOpen, setMoreOpen] = useState(false)
   const [toolsPosition, setToolsPosition] = useState({ top: 0, right: 16 })
   const shellRef = useRef<HTMLDivElement | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement | null>(null)
   const secondaryRef = useRef<HTMLDivElement | null>(null)
-  const primary = sections.filter((section) => primarySections.has(section))
-  const secondary = sections.filter((section) => !primarySections.has(section))
+  const primarySet = savingsChallenge ? new Set(['Home', 'Statements', 'Ask Mia']) : primarySections
+  const primary = sections.filter((section) => primarySet.has(section))
+  const secondary = sections.filter((section) => !primarySet.has(section))
   const secondaryIsActive = secondary.includes(activeSection)
 
   const closeTools = useCallback(() => {
@@ -142,13 +148,16 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
   }
 
   const sectionLabel = (section: string, compact = false) => {
+    if (savingsChallenge && section === 'Home') return 'Savings'
+    if (savingsChallenge && section === 'Review') return 'Transactions'
     if (section === 'Ask Mia') return compact ? assistantName : `Ask ${assistantName}`
     return compact ? compactLabels[section] ?? section : section
   }
 
   return (
-    <div className={`tabs-shell${moreOpen ? ' is-tools-open' : ''}`} ref={shellRef}>
+    <div className={`tabs-shell${savingsChallenge ? ' is-savings-navigation' : ''}${moreOpen ? ' is-tools-open' : ''}`} ref={shellRef}>
       <nav className="tabs" aria-label={`${brand.short_name} participant sections`}>
+        {savingsChallenge && onToday && <button type="button" className="tabs-today-action" onClick={event => { event.currentTarget.focus({ preventScroll: true }); onToday() }}>Today</button>}
         {primary.map((section) => (
           <a
             key={section}
@@ -217,12 +226,12 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
                   key={section}
                   href={sectionHref(section)}
                   className={activeSection === section ? 'active' : ''}
-                  aria-label={section}
+                  aria-label={sectionLabel(section)}
                   aria-current={activeSection === section ? 'page' : undefined}
                   onClick={(event) => chooseSection(event, section)}
                 >
                   <span>
-                    <strong>{section}</strong>
+                    <strong>{sectionLabel(section)}</strong>
                     <small>{sectionDescriptions[section] ?? `Open this ${brand.short_name} workspace.`}</small>
                   </span>
                   <ArrowIcon />

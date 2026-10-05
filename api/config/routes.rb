@@ -169,7 +169,9 @@ Rails.application.routes.draw do
           end
         end
       end
-      resources :pilot_feedback_reports, only: :create
+      resources :pilot_feedback_reports, only: %i[index create] do
+        patch :withdraw_support_access, on: :member
+      end
       namespace :admin do
         resources :coach_workspaces, only: %i[show create update]
         resources :collaborators, controller: "workspace_collaborators", only: %i[index create update destroy] do

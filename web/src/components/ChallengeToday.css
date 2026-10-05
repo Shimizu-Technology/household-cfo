@@ -1,5 +1,7 @@
+@import './ParticipantControls.css';
+
 .daily-overlay { position: fixed; inset: 0; z-index: 110; display: grid; place-items: center; padding: 20px; background: rgba(20,39,38,.42); }
-.daily-dialog { width: min(920px,100%); max-height: calc(100dvh - 40px); overflow-y: auto; overscroll-behavior: contain; min-width: 0; padding: 24px; border-radius: 18px; background: var(--surface,#fff); color: var(--ink,#18312d); box-shadow: 0 16px 60px rgba(20,39,38,.18); }
+.daily-dialog { width: min(920px,100%); max-height: calc(100dvh - 40px); overflow-y: auto; overscroll-behavior: contain; min-width: 0; padding: 24px; border-radius: 18px; background: var(--surface, #fffdf8); color: var(--ink,#18312d); box-shadow: 0 16px 60px rgba(20,39,38,.18); }
 .daily-dialog header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .daily-dialog h2 { font-size: clamp(1.4rem,3vw,2rem); margin: 5px 0 12px; }
 .daily-dialog h3 { font-size: 1.15rem; margin: 20px 0 10px; }
@@ -9,20 +11,23 @@
 .daily-dialog fieldset { min-width: 0; border: 1px solid var(--line,#d6dfdd); padding: 16px; border-radius: 12px; margin: 16px 0; }
 .daily-dialog legend { max-width: 100%; padding: 0 5px; font-weight: 700; white-space: normal; overflow-wrap: anywhere; }
 .daily-dialog label { display: flex; flex-direction: column; gap: 7px; min-width: 0; margin: 12px 0; }
-.daily-dialog input:not([type=checkbox]):not([type=radio]),.daily-dialog select,.daily-dialog textarea { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; padding: 9px 10px; font: inherit; color: inherit; border: 1px solid var(--line,#cad6d2); border-radius: 8px; background: #fff; overflow: hidden; text-overflow: ellipsis; }
+.daily-dialog input:not([type=checkbox]):not([type=radio]),.daily-dialog select,.daily-dialog textarea { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; padding: 9px 10px; font: inherit; color: inherit; border: 1px solid var(--line,#cad6d2); border-radius: var(--field-radius, 12px); background: var(--surface, #fffdf8); overflow: hidden; text-overflow: ellipsis; }
 .daily-dialog textarea { min-height: 80px; resize: vertical; }
-.daily-dialog button { min-height: 44px; padding: 10px 14px; font: inherit; font-weight: 600; white-space: normal; overflow-wrap: anywhere; color: inherit; background: #fff; border: 1px solid var(--line,#cad6d2); border-radius: 8px; cursor: pointer; }
+.daily-dialog button { min-height: 44px; padding: 10px 14px; font: inherit; font-weight: 600; white-space: normal; overflow-wrap: anywhere; color: inherit; background: var(--surface, #fffdf8); border: 1px solid var(--line,#cad6d2); border-radius: var(--field-radius, 12px); cursor: pointer; }
 .daily-dialog button:disabled { opacity: .5; cursor: default; }
 .daily-dialog .daily-check { flex-direction: row; align-items: flex-start; padding: 8px 0; }
-.daily-check input { flex: 0 0 20px; width: 20px; height: 20px; margin: 3px 0 0; accent-color: var(--forest,#245548); }
+.daily-check input { flex: 0 0 20px; width: 20px; height: 20px; margin: 3px 0 0; accent-color: var(--action-primary, #7b4a58); }
 .daily-check span { min-width: 0; }
 .daily-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
 .daily-fields,.daily-totals { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .daily-totals div { padding: 12px; border: 1px solid var(--line,#d6dfdd); border-radius: 10px; min-width: 0; }
 .daily-totals dt { font-size: .88rem; color: var(--muted,#51665e); }
 .daily-totals dd { margin: 7px 0 0; font-size: 1.2rem; font-weight: 700; overflow-wrap: anywhere; }
-.daily-overview,.daily-note { padding: 14px; border-radius: 12px; background: #f1f5f1; border: 1px solid #d6e0d6; margin: 14px 0; }
+.daily-overview,.daily-note { padding: 14px; border-radius: 12px; background: var(--surface-muted, #f6efe6); border: 1px solid var(--border-subtle, #dfd3c5); margin: 14px 0; }
 .daily-dialog article { padding: 12px 0; border-bottom: 1px solid var(--line,#d6dfdd); }
 .daily-dialog details { padding: 12px 0; border-top: 1px solid var(--line,#d6dfdd); }
 .daily-dialog summary { min-height: 44px; cursor: pointer; font-weight: 600; align-content: center; overflow-wrap: anywhere; }
 @media(max-width:640px) { .daily-overlay { padding: 8px; } .daily-dialog { padding: 16px; max-height: calc(100dvh - 16px); border-radius: 14px; } .daily-dialog header { display: block; } .daily-fields,.daily-totals { grid-template-columns: 1fr; } .daily-dialog fieldset { padding: 12px; } .daily-actions>button { flex: 1 1 125px; } }
+
+.daily-dialog button { border-radius: var(--control-radius, 999px); }
+.daily-dialog button[type=submit] { background: var(--action-primary, #7b4a58); border-color: var(--action-primary, #7b4a58); color: var(--action-on-primary, #fffdf8); }

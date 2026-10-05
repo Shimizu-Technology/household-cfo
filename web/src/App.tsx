@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
 import './App.css'
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
 import { usePilotDialog } from './lib/usePilotDialog'
@@ -29,8 +29,8 @@ import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
 import { GoalManager, type GoalFocusRequest } from './components/GoalManager'
-import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
-import { CreateCoachProgram } from './components/CoachProgramSettings'
+import { PilotFeedbackDialog } from './components/PilotFeedbackDialog'
+import { AdminConsole } from './components/AdminConsole'
 import { CoachStudio } from './components/CoachStudio'
 import { MiaMemoryPanel } from './components/MiaMemoryPanel'
 import {
@@ -66,8 +66,6 @@ import {
   cancelMiaActionDraft,
   clearMiaMessages,
   confirmTransactionDraft,
-  createAdminCohort,
-  createAdminUser,
   createBudgetCategory,
   createDebt,
   createIncomeSource,
@@ -76,9 +74,6 @@ import {
   deleteDocumentImport,
   deleteDocumentImportSource,
   deleteIncomeScheduleEntry,
-  fetchAdminCohorts,
-  fetchAdminPlaidHealth,
-  fetchAdminUsers,
   fetchAppData,
   fetchBudget,
   fetchDocumentImport,
@@ -92,7 +87,6 @@ import {
   matchTransactionDraft,
   reprocessDocumentImport,
   reopenTransactionDraft,
-  resendAdminUserInvitation,
   restoreBudgetCategory,
   restoreDebt,
   restoreIncomeSource,
@@ -102,11 +96,9 @@ import {
   submitPilotFeedback,
   transcribeMiaVoice,
   updateBudgetAllocation,
-  updateAdminCohort,
   updateBudgetCategory,
   updateDebt,
   updateDebtTracking,
-  updateAdminUser,
   updateDocumentImportItem,
   updateIncomeSource,
   updateIncomeScheduleEntry,
@@ -114,20 +106,12 @@ import {
   uploadDocumentImport,
 } from './api'
 import type {
-  AdminCohort,
-  AdminCohortInput,
-  AdminCohortStatus,
-  AdminPlaidHealth,
-  AdminUser,
-  AdminUserInput,
-  AdminUserMutationResponse,
   AnnualBudgetPlan,
   BrandConfig,
   BudgetCategoryMonth,
   BudgetCategoryRow,
   BudgetData,
   BudgetStackKey,
-  CurrentUser,
   DocumentImportItem,
   DocumentImportItemInput,
   DocumentImportKind,
@@ -136,7 +120,6 @@ import type {
   DebtRecord,
   DebtType,
   FinancialDocumentImport,
-  InvitationStatus,
   IncomeScheduleEntry,
   IncomeScheduleEntryInput,
   IncomeSourceInput,
@@ -146,7 +129,6 @@ import type {
   MiaMessage,
   MiaMessageAttachment,
   MiaMessagesData,
-  PilotFeedbackInput,
   PilotFeedbackWorkflow,
   RecentTransaction,
   SpendingReport,
@@ -154,11 +136,13 @@ import type {
   TransactionDraftCreateInput,
   TransactionDraftSplit,
   TransactionDraftUpdateInput,
-  UserRole,
   WealthData,
   WorkspaceSetupStatus,
   WorkspaceSetupValues,
 } from './api'
+import { verifiedParticipantProgram } from './lib/participantProgramSelection'
+import { ParticipantProgramSession } from './components/ParticipantProgramSession'
+import { fetchParticipantPrograms } from './participantProgramsApi'
 import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
 import { BrandRuntimeProvider } from './contexts/BrandContext'
@@ -180,6 +164,7 @@ const sectionCapabilityIds: Record<string, string> = {
   'Ask Mia': 'ask_mia',
   Budget: 'budget',
   'My Profile': 'profile',
+  Statements: 'profile',
   Wealth: 'wealth',
   'CFO Filter': 'cfo_filter',
   Optionality: 'optionality',
@@ -188,7 +173,7 @@ const COACH_STUDIO_SECTION = 'Coach Studio'
 const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
 type UnavailableModuleNotice = { moduleId: string; message: string }
-const allSections = [...sections, COACH_STUDIO_SECTION, ADMIN_SECTION]
+const allSections = [...sections, 'Statements', COACH_STUDIO_SECTION, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 8_000
 const MIA_MESSAGE_LENGTH_WARNING_AT = 1_000
@@ -199,6 +184,12 @@ const MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS = 300_000
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+const SAVINGS_UPDATE_EXAMPLES = [
+  'I set aside $20 today from money left after expenses. Help me review it.',
+  'Help me find one comfortable spending change this week.',
+  'Help me understand my statement before I approve anything.',
+]
+const SAVINGS_QUICK_PROMPTS = ['Help me with today’s check-in.', 'What is a comfortable savings target for me?', 'Explain my approved savings progress.']
 const MIA_UPDATE_EXAMPLES = [
   'My take-home pay is now $6,200 a month.',
   'My credit card balance is $3,100 and my monthly minimum is $175.',
@@ -492,21 +483,16 @@ function BrandFooter() {
 
 function App() {
   const auth = useAuthContext()
-  const identity = `${auth.authIdentityId ?? 'preview'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
-  const [selection, setSelection] = useState<{identity: string; cohortId: number} | null>(null)
-  const selectedCohortId = selection?.identity === identity ? selection.cohortId : undefined
-  const chooseProgram = useCallback((cohortId: number) => {
-    if (!auth.currentUser?.is_participant || auth.activeCoachWorkspaceId) return
-    setActiveParticipantCohortId(cohortId)
-    setSelection({identity, cohortId})
-  }, [auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, identity])
-  // Account, workspace and explicit program changes discard every private view.
-  return <WorkspaceApp key={`${identity}:${selectedCohortId ?? 'default'}`} selectedCohortId={selectedCohortId} onChooseProgram={chooseProgram} />
+  const identity = `${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
+  return <ParticipantProgramSession identity={identity} authIdentityId={auth.authIdentityId} actorId={auth.currentUser?.id} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)}>
+    {selection => <WorkspaceApp key={`${identity}:${selection.selectedCohortId ?? 'default'}`} {...selection} />}
+  </ParticipantProgramSession>
 }
 
-function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: number; onChooseProgram: (cohortId: number) => void}) {
+function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onProgramUnavailable, selectionNotice}: {selectedCohortId?: number; onChooseProgram: (cohortId: number) => void; onProgramVerified: (cohortId: number) => void; onProgramUnavailable: () => void; selectionNotice: string | null}) {
   const auth = useAuthContext()
   const publicBrand = useBrand()
+  const participantActorId = auth.currentUser?.id
   const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isClerkEnabled || Boolean(auth.currentUser))
   const [{ data, homeBudget, budgets }, setData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
   const [workspaceLoadAttempt, setWorkspaceLoadAttempt] = useState(0)
@@ -638,6 +624,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
   const e2eRealWorkspace = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && Boolean(auth.currentUser)
   const shouldUseRealWorkspace = auth.isClerkEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
+  const isSavingsExperience = data?.workspace.experience_mode === 'savings_challenge'
   const assistantName = data?.profile.coach.name.trim() || 'your assistant'
   const isFirstSessionSetup = Boolean(isRealWorkspace && data?.workspace.experience_mode !== 'savings_challenge' && !data?.workspace?.setup_complete)
   const canResumePlaidOAuthReturn = Boolean(
@@ -672,7 +659,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
       : []
     const staffSections = auth.currentUser?.is_staff ? [COACH_STUDIO_SECTION] : []
     const adminSections = auth.currentUser?.is_admin ? [ADMIN_SECTION] : []
-    return [...enabledParticipantSections, ...staffSections, ...adminSections]
+    const participantSections = enabledParticipantSections.includes('My Profile') ? [...enabledParticipantSections, 'Statements'] : enabledParticipantSections
+    return [...participantSections, ...staffSections, ...adminSections]
   }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff, data])
   const activeSection = !visibleSections.includes(active) ? sections[0] : active
   const selectedImport = useMemo(() => {
@@ -891,10 +879,18 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
 
     let cancelled = false
 
-    fetchAppData(shouldUseRealWorkspace)
+    const selectionCheck = selectedCohortId !== undefined && participantActorId !== undefined && shouldUseRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId
+      ? fetchParticipantPrograms().then(programs => {
+          if (cancelled) return false
+          if (!verifiedParticipantProgram(programs, participantActorId, selectedCohortId)) { onProgramUnavailable(); return false }
+          return true
+        })
+      : Promise.resolve(true)
+    selectionCheck.then(verified => verified && !cancelled ? fetchAppData(shouldUseRealWorkspace) : null)
       .then((payload) => {
-        if (cancelled) return
+        if (cancelled || !payload) return
         if (selectedCohortId !== undefined && payload.workspace?.cohort?.id !== selectedCohortId) throw new Error('The returned program could not be verified. Choose your program or try again.')
+        if (payload.workspace?.mode === 'real' && payload.workspace.cohort?.id) onProgramVerified(payload.workspace.cohort.id)
         const realWorkspace = payload.workspace?.mode === 'real'
         const payloadStorageKey = miaWorkspaceStorageKey(MIA_CHAT_STORAGE_PREFIX, auth.currentUser?.id, auth.activeCoachWorkspaceId, payload.workspace?.household_id, payload.workspace?.cohort?.id ?? selectedCohortId)
         const restoredMessages = realWorkspace ? payload.mia.messages : loadStoredMiaMessages(payloadStorageKey)
@@ -915,7 +911,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
     return () => {
       cancelled = true
     }
-  }, [canLoadWorkspace, auth.currentUser?.id, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId])
+  }, [canLoadWorkspace, auth.currentUser?.id, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId, onProgramVerified, onProgramUnavailable, participantActorId])
 
   useEffect(() => {
     if (!hasUnsavedBudgetChanges) return
@@ -1600,16 +1596,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
   }
 
   function focusDebtManager() {
+    const disclosure = debtManagerRef.current?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
     debtManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     debtManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }
 
   function focusAccountManager() {
+    const disclosure = accountManagerRef.current?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
     accountManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     accountManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }
 
   function focusGoalManager() {
+    const disclosure = goalManagerRef.current?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
     goalManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     goalManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }
@@ -1639,15 +1638,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
   }
 
   function openDocumentReview(documentImportId?: number) {
-    if (!switchSection('My Profile')) return
+    if (!switchSection('Statements')) return
     if (documentImportId !== undefined) setSelectedImportId(documentImportId)
-    if (isFirstSessionSetup) setFirstSessionUploadOpen(true)
     requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
   function startUploadFirstSession() {
-    switchSection('My Profile')
-    setFirstSessionUploadOpen(true)
+    if (!switchSection('Statements')) return
     window.setTimeout(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
   }
 
@@ -2863,6 +2860,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
 
     if (sectionLabel.toLowerCase().includes('income')) {
       requestAnimationFrame(() => {
+        const disclosure = incomeSourcesRef.current?.closest('details')
+        if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
         incomeSourcesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
         incomeSourcesRef.current?.querySelector<HTMLInputElement>('[name="income_source_label"]')?.focus({ preventScroll: true })
       })
@@ -2955,9 +2954,17 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
             <p className="eyebrow">{brandByline(brand)}</p>
             <h1>{brand.short_name}</h1>
           </div>
-          {data.workspace?.cohort && <span className="cohort-brand-chip">{data.workspace.cohort.name}</span>}
+          {data.workspace?.cohort && !(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId) && <span className="cohort-brand-chip">{data.workspace.cohort.name}</span>}
         </div>
         <div className="shell-actions">
+          <details className="shell-account-menu" onKeyDown={event => {
+            if (event.key === 'Escape' && !(event.target as HTMLElement).closest('dialog, [role="dialog"]')) {
+              event.currentTarget.open = false
+              event.currentTarget.querySelector<HTMLElement>('summary')?.focus()
+            }
+          }}>
+            <summary aria-label="Account and help"><UsersIcon /><span>Account &amp; help</span></summary>
+            <div className="shell-account-panel">
           <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />
           {auth.currentUser && (
             <div className="account-pill">
@@ -2966,6 +2973,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
               {auth.isClerkEnabled && <UserButton afterSignOutUrl="/" />}
             </div>
           )}
+              <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotGuideOpen(true) }}><GuideIcon /> Guide</Button>
+              {isRealWorkspace && <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotFeedbackOpen(true) }}><FeedbackIcon /> Report a problem</Button>}
+            </div>
+          </details>
           <Button
             className="shell-mia-button"
             variant="secondary"
@@ -2982,9 +2993,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
 
       {auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <details className="participant-program-switch"><summary>Program · {data.workspace.cohort?.name ?? 'Choose your program'}</summary><ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram} /></details>}
 
-      <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} />
+      {selectionNotice && <p className="document-alert" role="status">{selectionNotice}</p>}
+      <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} onToday={isSavingsExperience && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => { setDailyIntake(null); setDailyOpen(true) } : undefined} />
 
-      {isRealWorkspace && activeSection !== ADMIN_SECTION && activeSection !== 'Ask Mia' && (
+      {isRealWorkspace && !isSavingsExperience && activeSection !== ADMIN_SECTION && activeSection !== COACH_STUDIO_SECTION && activeSection !== 'Ask Mia' && (
         <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
       )}
 
@@ -3112,15 +3124,15 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
               <div className="chat-shell-header">
                 <span className="message-avatar" aria-hidden="true">{assistantInitial(assistantName)}</span>
                 <div className="chat-shell-copy">
-                  <h3 id="mia-chat-title">Ask {assistantName}</h3>
-                  <p className="chat-period-context">Plan context: {selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
+                  <h3 id="mia-chat-title" aria-label={`Ask ${assistantName}`}><span className="chat-heading-verb">Ask </span>{assistantName}</h3>
+                  <p className="chat-period-context">{isSavingsExperience ? 'Optional plan context' : 'Plan context'}: {selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
                 </div>
                 <div className="chat-actions">
                   {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <button type="button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
                   {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <button type="button" className="chat-memory-button" onClick={() => {
                     setIsChatExpanded(false)
                     switchSection('My Profile')
-                    window.setTimeout(() => document.getElementById('mia-memory')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+                    window.setTimeout(() => { const memory = document.getElementById('mia-memory'); const disclosure = memory?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true; memory?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 80)
                   }}>Memory</button>}
                   {currentMessages.length > 0 && (
                     <button ref={clearChatTriggerRef} type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
@@ -3169,7 +3181,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
                     <small>{assistantName} will show you a review card. Nothing changes until you tap Apply.</small>
                   </div>
                   <div className="mia-update-examples" aria-label={`Example updates for ${assistantName}`}>
-                    {MIA_UPDATE_EXAMPLES.map((prompt) => (
+                    {(isSavingsExperience ? SAVINGS_UPDATE_EXAMPLES : MIA_UPDATE_EXAMPLES).map((prompt) => (
                       <button type="button" key={prompt} onClick={() => {
                         setShowMiaSuggestions(false)
                         prepareMiaUpdate(prompt)
@@ -3182,7 +3194,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
 
                 <div className="chat-prompts-shell">
                   <div className="quick-prompts chat-prompts" aria-label={`Suggested questions for ${assistantName}`}>
-                    {data.mia.quick_prompts.map((prompt) => (
+                    {(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : data.mia.quick_prompts).map((prompt) => (
                       <button type="button" key={prompt} onClick={() => {
                         setShowMiaSuggestions(false)
                         void handleAskMia(prompt)
@@ -3449,7 +3461,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
             </article>
           )}
 
-          {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <MiaMemoryPanel enabled={Boolean(isRealWorkspace)} />}
+          {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <ProfileDisclosure label="Memory & personalization"><MiaMemoryPanel enabled={Boolean(isRealWorkspace)} /></ProfileDisclosure>}
 
           {isRealWorkspace && setupDraft && !isFirstSessionUpload && (
             <WorkspaceSetupForm
@@ -3466,6 +3478,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
             />
           )}
 
+          <ProfileDisclosure label="Income sources and schedule" forceOpen={Boolean(incomeFocusRequest)}>
           {isRealWorkspace && !isFirstSessionSetup && data.budget.annual_plan && (
             <fieldset className="budget-loading-boundary" disabled={budgetYearLoading}><legend className="sr-only">Income plan controls</legend>
             <IncomeSourceManager
@@ -3481,8 +3494,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
             />
             </fieldset>
           )}
+          </ProfileDisclosure>
 
-
+          <ProfileDisclosure label="Accounts and assets" forceOpen={Boolean(accountFocusRequest)}>
           {isRealWorkspace && !isFirstSessionSetup && (
             <AccountManager
               sectionRef={accountManagerRef}
@@ -3493,7 +3507,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
               onFocusRequestHandled={() => setAccountFocusRequest(null)}
             />
           )}
+          </ProfileDisclosure>
 
+          <ProfileDisclosure label="Household goals" forceOpen={Boolean(goalFocusRequest)}>
           {isRealWorkspace && !isFirstSessionSetup && (
             <GoalManager
               sectionRef={goalManagerRef}
@@ -3504,7 +3520,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
               onFocusRequestHandled={() => setGoalFocusRequest(null)}
             />
           )}
+          </ProfileDisclosure>
 
+          <ProfileDisclosure label="Optional household debt plan" forceOpen={Boolean(debtFocusRequest)}>
           {isRealWorkspace && !isFirstSessionSetup && (
             <DebtManager
               sectionRef={debtManagerRef}
@@ -3516,7 +3534,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
               onFocusRequestHandled={() => setDebtFocusRequest(null)}
             />
           )}
+          </ProfileDisclosure>
 
+          <ProfileDisclosure label="Optional bank connections" forceOpen={canResumePlaidOAuthReturn}>
           {isRealWorkspace && auth.currentUser && !isFirstSessionSetup && (
             <PlaidConnections
               userId={String(auth.currentUser.id)}
@@ -3529,8 +3549,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
               }}
             />
           )}
+          </ProfileDisclosure>
 
-          {(!isFirstSessionSetup || isFirstSessionUpload) && <DocumentImportWorkspace
+          {!isFirstSessionSetup && <article className="panel profile-statements-link"><h3>Your private statements</h3><p>Upload, identify accounts, review source rows and approve changes in Statements.</p><Button variant="secondary" onClick={() => openDocumentReview()}>Open Statements</Button></article>}
+          {isFirstSessionUpload && <DocumentImportWorkspace
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -3565,7 +3587,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
             onOpenSource={handleOpenDocumentSource}
           />}
 
-          {!isFirstSessionSetup && <div className="profile-section-grid">
+          {!isFirstSessionSetup && <details className="profile-disclosure"><summary>Saved household summary</summary><div className="profile-section-grid">
             {data.profile.sections.map((section) => (
               <article className="panel profile-section" key={section.label}>
                 <div className="row-between">
@@ -3581,9 +3603,48 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
                 ))}
               </article>
             ))}
-          </div>}
+          </div></details>}
         </section>
       )}
+
+      {activeSection === 'Statements' && <section className="screen-grid statements-screen">
+        <ScreenHeading eyebrow="Statements" title="Your statements, one review at a time." copy="Upload privately, check the account and period, then review what each row means. Nothing changes your numbers until you approve it." />
+        {isFirstSessionSetup && <div className="first-session-upload-return"><Button variant="secondary" onClick={startManualFirstSession}>Return to starting numbers</Button></div>}
+        <DocumentImportWorkspace
+            onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
+            sectionRef={documentImportsRef}
+            isRealWorkspace={Boolean(isRealWorkspace)}
+            imports={documentImports}
+            categories={activeBudgetPlan?.rows ?? []}
+            annualPlan={activeBudgetPlan}
+            selectedImport={selectedImport}
+            loading={documentsLoading}
+            error={documentsError}
+            notice={documentsNotice}
+            uploadingKind={uploadingKind}
+            itemSavingIds={itemSavingIds}
+            action={documentAction}
+            draftAction={budgetContextAction}
+            expandedAppliedImportId={expandedAppliedImportId}
+            onExpandedAppliedImportIdChange={setExpandedAppliedImportId}
+            demoUploads={data.profile.uploads}
+            onUpload={handleDocumentUpload}
+            onSelectImport={setSelectedImportId}
+            onUpdateItem={handleDocumentItemUpdate}
+            onUpdateDraft={handleUpdateTransactionDraft}
+            onMatchDraft={handleMatchTransactionDraft}
+            onConfirmDraft={handleConfirmTransactionDraft}
+            onIgnoreDraft={handleIgnoreTransactionDraft}
+            onReopenDraft={handleReopenTransactionDraft}
+            onBulkConfirmDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+            onBulkIgnoreDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
+            onApply={handleApplyDocumentImport}
+            onReprocess={handleReprocessDocumentImport}
+            onDeleteSource={handleDeleteDocumentSource}
+            onDeleteImport={handleDeleteDocumentImport}
+            onOpenSource={handleOpenDocumentSource}
+          />
+      </section>}
 
       {activeSection === 'Budget' && budgetForView && (
         <section className="screen-grid budget-screen">
@@ -3717,8 +3778,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
                   <span>{decision.recommendation}</span>
                   <h3>{decision.item}</h3>
                 </div>
-                <strong>{currency.format(decision.amount)}</strong>
-                <p>{decision.reason}</p>
+                <strong>{!debtMinimumsKnown ? 'Not available' : currency.format(decision.amount)}</strong>
+                <p>{data.workspace.debt_portfolio?.balance_known === true && data.workspace.debt_portfolio.minimum_payment_known === true && data.workspace.debt_portfolio.total_balance === 0 && data.workspace.debt_portfolio.monthly_minimum === 0 && decision.reason.startsWith('No debt entered yet.') ? 'Your debt-free household baseline is confirmed. There is no debt payoff to prioritize.' : decision.reason}</p>
               </article>
             ))}
           </div>
@@ -3801,9 +3862,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
       {evidenceReview?.scope === challengeIntakeScope && challengeParticipantScope && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && <SavingsEvidenceDialog key={`${challengeIntakeScope}:${evidenceReview.entryVersionId}`} actorScope={challengeParticipantScope} entryVersionId={evidenceReview.entryVersionId} onClose={() => setEvidenceReview(null)} onChanged={() => setEvidenceRefreshToken(value => value + 1)} />}
       {dailyOpen && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <ChallengeToday key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} cohortId={data.workspace.cohort?.id} initialPurchase={dailyIntake?.scope===challengeIntakeScope?dailyIntake.intake:null} scope={{user_id:auth.currentUser.id,household_id:data.workspace.household_id}} onClose={() => {setDailyOpen(false);setDailyIntake(null)}} onStatements={() => { setDailyOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} onBaseline={() => { setDailyOpen(false); setBaselineOpen(true) }} />}
       {baselineOpen && isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <BaselineReview key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} scope={{ user_id: auth.currentUser.id, household_id: data.workspace.household_id }} onClose={() => setBaselineOpen(false)} onReviewStatements={() => { setBaselineOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} />}
-      {pilotGuideOpen && <PilotGuideDialog onClose={() => setPilotGuideOpen(false)} />}
+      {pilotGuideOpen && <PilotGuideDialog savingsChallenge={isSavingsExperience} onClose={() => setPilotGuideOpen(false)} />}
       {pilotFeedbackOpen && (
         <PilotFeedbackDialog
+          key={`${auth.authIdentityId}:${auth.currentUser?.id}:${data.workspace.household_id}`}
           initialWorkflow={pilotFeedbackWorkflowForSection(activeSection)}
           onClose={() => setPilotFeedbackOpen(false)}
           onSubmit={submitPilotFeedback}
@@ -4124,6 +4186,13 @@ function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }
   )
 }
 
+function ProfileDisclosure({ label, forceOpen = false, children }: { label: string; forceOpen?: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDetailsElement>(null)
+  useLayoutEffect(() => { if (forceOpen && ref.current) ref.current.open = true }, [forceOpen])
+  if (!children) return null
+  return <details ref={ref} className="profile-disclosure"><summary>{label}</summary>{children}</details>
+}
+
 function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => void; onOpenFeedback: () => void }) {
   const { brand } = useBrand()
   const supportHref = brand.support.url ?? (brand.support.email ? `mailto:${brand.support.email}` : null)
@@ -4139,25 +4208,11 @@ function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => v
   )
 }
 
-const pilotFeedbackOptions: Array<{ value: PilotFeedbackWorkflow; label: string }> = [
-  { value: 'sign_in', label: 'Sign in or invitation' },
-  { value: 'home', label: 'Home or next action' },
-  { value: 'setup', label: 'Household setup' },
-  { value: 'ask_mia', label: 'Assistant chat' },
-  { value: 'voice', label: 'Voice entry' },
-  { value: 'budget', label: 'Budget or annual plan' },
-  { value: 'transaction_review', label: 'Transaction review' },
-  { value: 'receipt_upload', label: 'Receipt upload' },
-  { value: 'statement_upload', label: 'Statement upload' },
-  { value: 'document_upload', label: 'Other document upload' },
-  { value: 'private_document', label: 'Preview, download, or delete' },
-  { value: 'admin', label: 'Cohort administration' },
-  { value: 'other', label: 'Something else' },
-]
 
 function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow {
   if (section === 'Ask Mia') return 'ask_mia'
   if (section === 'My Profile') return 'setup'
+  if (section === 'Statements') return 'statement_upload'
   if (section === 'Budget') return 'budget'
   if (section === COACH_STUDIO_SECTION) return 'admin'
   if (section === ADMIN_SECTION) return 'admin'
@@ -4165,7 +4220,7 @@ function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow
   return 'other'
 }
 
-function PilotGuideDialog({ onClose }: { onClose: () => void }) {
+function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () => void; savingsChallenge?: boolean }) {
   const { assistantName } = useBrand()
   const dialogRef = usePilotDialog(onClose)
 
@@ -4176,18 +4231,22 @@ function PilotGuideDialog({ onClose }: { onClose: () => void }) {
         <header>
           <div>
             <p className="eyebrow">Pilot tester guide</p>
-            <h2 id="pilot-guide-title">A clear first {assistantName} session in three moves.</h2>
+            <h2 id="pilot-guide-title">{savingsChallenge ? 'Your 90-day challenge in three simple moves.' : <>A clear first {assistantName} session in three moves.</>}</h2>
           </div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
         <ol className="pilot-guide-steps">
-          <li><span>1</span><div><strong>Give {assistantName} the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Enter 0 when an amount does not apply; you can refine everything later.</p></div></li>
+          {savingsChallenge ? <>
+            <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested $500 over 90 days is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
+            <li><span>2</span><div><strong>Use Today for a quick check-in.</strong><p>Report purchases when useful, distinguish no spending from unknown spending, and return for your Day 30, 60 and 90 checkpoints. Feelings are optional.</p></div></li>
+            <li><span>3</span><div><strong>Report money you actually set aside.</strong><p>On Home, choose Report savings, check its date and funding source, then approve your reviewed record. A plan or pending proposal does not count as savings. Ask {assistantName} for a comfortable next step.</p></div></li>
+          </> : <><li><span>1</span><div><strong>Give {assistantName} the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Enter 0 when an amount does not apply; you can refine everything later.</p></div></li>
           <li><span>2</span><div><strong>Tell {assistantName} what changed.</strong><p>Use your own words—for example, “My take-home pay is now $6,200” or “My card balance is $3,100.” Your assistant can also coach from the context you approved.</p></div></li>
-          <li><span>3</span><div><strong>Review before applying.</strong><p>{assistantName} can draft household-number, future-income, and budget-plan changes. Check every before-and-after value; pending drafts change nothing until you explicitly apply them.</p></div></li>
+          <li><span>3</span><div><strong>Review before applying.</strong><p>{assistantName} can draft household-number, future-income, and budget-plan changes. Check every before-and-after value; pending drafts change nothing until you explicitly apply them.</p></div></li></>}
         </ol>
         <div className="pilot-guide-power-path">
           <strong>Optional upload check</strong>
-          <p>If a file would save time, try one demo-safe budget, statement, receipt, or pay stub. Review extracted setup values before applying them and report any failed read from Ask {assistantName} or My Profile.</p>
+          <p>{savingsChallenge ? "Statements can help you understand spending, but they are optional. Use Statements to upload and review. A credit card, full budget and bank connection are not required. Uploading does not grant your coach access to your private statements." : <>If a file would save time, try one budget, statement, receipt, or pay stub. Review extracted setup values before applying them and report any failed read from Ask {assistantName} or Statements.</>}</p>
         </div>
         <footer>
           <ShieldIcon />
@@ -4198,82 +4257,6 @@ function PilotGuideDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-function PilotFeedbackDialog({
-  initialWorkflow,
-  onClose,
-  onSubmit,
-}: {
-  initialWorkflow: PilotFeedbackWorkflow
-  onClose: () => void
-  onSubmit: (values: PilotFeedbackInput) => Promise<{ id: number; screenshot_attached: boolean }>
-}) {
-  const { brand, assistantName } = useBrand()
-  const dialogRef = usePilotDialog(onClose)
-  const [workflow, setWorkflow] = useState<PilotFeedbackWorkflow>(initialWorkflow)
-  const [attempted, setAttempted] = useState('')
-  const [expected, setExpected] = useState('')
-  const [actual, setActual] = useState('')
-  const [screenshot, setScreenshot] = useState<File | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [receiptId, setReceiptId] = useState<number | null>(null)
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!attempted.trim() || !expected.trim() || !actual.trim()) {
-      setError('Describe what you attempted, what you expected, and what happened.')
-      return
-    }
-    if (screenshot && screenshot.size > 5 * 1024 * 1024) {
-      setError('Screenshot must be 5 MB or smaller.')
-      return
-    }
-
-    setSaving(true)
-    setError(null)
-    try {
-      const receipt = await onSubmit({ workflow, attempted: attempted.trim(), expected: expected.trim(), actual: actual.trim(), screenshot })
-      captureAnalyticsEvent('pilot_feedback_report_submitted', { workflow, screenshot_attached: receipt.screenshot_attached })
-      setReceiptId(receipt.id)
-    } catch (caught) {
-      trackPilotWorkflowFailure('feedback', 'submit', { workflow })
-      setError(caught instanceof Error ? caught.message : 'Feedback could not be submitted. Please try again.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="pilot-dialog-overlay" role="presentation">
-      <button type="button" className="pilot-dialog-backdrop" aria-label="Close feedback form" onClick={onClose} />
-      <section ref={dialogRef} className="pilot-dialog pilot-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-feedback-title" tabIndex={-1}>
-        <header>
-          <div><p className="eyebrow">Pilot support</p><h2 id="pilot-feedback-title">Report what got in your way.</h2></div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
-        </header>
-        {receiptId ? (
-          <div className="pilot-feedback-success" role="status">
-            <FeedbackIcon />
-            <strong>Report received.</strong>
-            <p>Reference #{receiptId}. Your written details and optional screenshot were not sent to analytics.</p>
-            <button type="button" onClick={onClose}>Return to {brand.product_name}</button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            <p className="pilot-privacy-note"><ShieldIcon /> Do not include account numbers, exact financial values, document contents, passwords, or private {assistantName} messages. Crop screenshots to the problem area.</p>
-            <label><span>Screen or workflow</span><select value={workflow} onChange={(event) => setWorkflow(event.currentTarget.value as PilotFeedbackWorkflow)}>{pilotFeedbackOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label><span>What did you attempt?</span><textarea rows={3} maxLength={2000} value={attempted} onChange={(event) => setAttempted(event.currentTarget.value)} /></label>
-            <label><span>What did you expect?</span><textarea rows={3} maxLength={2000} value={expected} onChange={(event) => setExpected(event.currentTarget.value)} /></label>
-            <label><span>What happened instead?</span><textarea rows={3} maxLength={2000} value={actual} onChange={(event) => setActual(event.currentTarget.value)} /></label>
-            <label className="pilot-screenshot-field"><span>Optional cropped screenshot</span><input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" onChange={(event) => setScreenshot(event.currentTarget.files?.[0] ?? null)} /><small>{screenshot ? `${screenshot.name} · ${Math.ceil(screenshot.size / 1024)} KB` : 'JPG, PNG, or WebP · 5 MB maximum'}</small></label>
-            {error && <p className="setup-error" role="alert">{error}</p>}
-            <button type="submit" disabled={saving}>{saving ? 'Submitting privately' : 'Submit report'}</button>
-          </form>
-        )}
-      </section>
-    </div>
-  )
-}
 
 function milestoneProgressWidth(current: number, target: number) {
   if (target <= 0) return current > 0 ? '100%' : '0%'
@@ -4433,9 +4416,9 @@ function DocumentImportWorkspace({
         <div>
           <p className="eyebrow">Private document import</p>
           <h3>Upload evidence. Review draft facts. Apply only what is right.</h3>
-          <p>Files go to private S3. {assistantName} extracts draft values server-side, then waits for your approval before changing household numbers.</p>
+          <p>Your files stay private. {assistantName} proposes information for review and waits for your approval before changing household numbers.</p>
         </div>
-        <div><span className="document-safe-pill">Private S3 · Review first</span>{onReviewBaseline && <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onReviewBaseline?.() }}>Review spending baseline</button>}</div>
+        <div><span className="document-safe-pill">Private · Review first</span>{onReviewBaseline && <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onReviewBaseline?.() }}>Review spending baseline</button>}</div>
       </div>
 
       <div className="document-import-summary-row">
@@ -4445,29 +4428,22 @@ function DocumentImportWorkspace({
         <Metric label="Freshness" value={latestApplied ? importPeriodLabel(latestApplied) : imports.length > 0 ? 'Review pending' : 'Manual'} />
       </div>
 
-      <div className="document-import-guide">
+      <details className="document-upload-secondary"><summary>Other files &amp; budget template</summary><div className="document-import-guide">
         <div>
           <strong>Not sure what to upload?</strong>
           <p>Start with our Excel budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. {assistantName} drafts values only after upload.</p>
           <small>{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</small>
         </div>
         <a href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
-      </div>
+      </div></details>
 
       {error && <p className="document-alert error" role="alert">{error}</p>}
       {notice && <p className="document-alert success" role="status">{notice}</p>}
 
-      <div className="document-upload-grid">
-        {documentUploadCards.map((card) => (
-          <DocumentUploadCard
-            key={card.kind}
-            card={card}
-            uploading={uploadingKind === card.kind}
-            disabled={Boolean(uploadingKind)}
-            onUpload={(file) => onUpload(card.kind, file, 'profile')}
-          />
-        ))}
-      </div>
+      <div className="document-upload-primary">{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+      <details className="document-upload-secondary"><summary>Upload a receipt, pay stub or budget file</summary>
+        <div className="document-upload-grid">{documentUploadCards.filter(card => card.kind !== 'statement').map(card => <DocumentUploadCard key={card.kind} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+      </details>
 
       <div className="document-review-layout">
         <DocumentImportHistory
@@ -4648,7 +4624,7 @@ function DocumentImportHistory({
         <div className="document-empty-state">
           <StatementIcon />
           <h4>No documents yet</h4>
-          <p>Upload a sample-safe document to test extraction. Avoid real client statements in local demos.</p>
+          <p>Upload a statement when you are ready. Uploads are optional; review every proposal before approval.</p>
         </div>
       ) : visibleImports.length === 0 ? (
         <div className="document-empty-state compact">
@@ -5792,977 +5768,6 @@ function setupFocusFieldForSection(sectionLabel: string): keyof WorkspaceSetupVa
   return 'household_name'
 }
 
-type AdminUserDraft = {
-  role: UserRole
-  invitation_status: InvitationStatus
-  cohort_ids: string[]
-}
-
-type UserStatusFilter = 'active' | 'all' | InvitationStatus
-type UserRoleFilter = 'all' | UserRole
-type UserSortKey = 'name_asc' | 'email_asc' | 'role_asc' | 'status_asc' | 'setup_desc' | 'invite_desc'
-
-const cohortStatuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'completed', 'archived']
-const userRoles: UserRole[] = ['participant', 'coach', 'admin']
-const invitationStatuses: InvitationStatus[] = ['pending', 'accepted', 'revoked']
-const emptyCohortOperationalSummary: AdminCohort['operational_summary'] = {
-  available: false,
-  period_days: 7,
-  mia_requests: null,
-  mia_failures: null,
-  average_mia_latency_ms: null,
-  uploads: null,
-  upload_failures: null,
-  participants_active: null,
-}
-
-function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
-  const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
-  const coachWorkspaces = currentUser.coach_workspaces ?? []
-  const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
-  const [cohorts, setCohorts] = useState<AdminCohort[]>([])
-  const [users, setUsers] = useState<AdminUser[]>([])
-  const [plaidHealth, setPlaidHealth] = useState<AdminPlaidHealth>({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] })
-  const [plaidHealthError, setPlaidHealthError] = useState<string | null>(null)
-  const [selectedCohortId, setSelectedCohortId] = useState<number | null>(null)
-  const [createDraft, setCreateDraft] = useState<AdminCohortInput>({
-    name: '',
-    status: 'enrolling',
-    starts_on: '',
-    ends_on: '',
-    notes: '',
-  })
-  const [editDraft, setEditDraft] = useState<AdminCohortInput | null>(null)
-  const [inviteDraft, setInviteDraft] = useState<AdminUserInput>({
-    email: '',
-    role: 'participant',
-    cohort_id: '',
-    send_invitation_email: true,
-  })
-  const [userDrafts, setUserDrafts] = useState<Record<number, AdminUserDraft>>({})
-  const [userSearch, setUserSearch] = useState('')
-  const [userStatusFilter, setUserStatusFilter] = useState<UserStatusFilter>('active')
-  const [userRoleFilter, setUserRoleFilter] = useState<UserRoleFilter>('all')
-  const [userSort, setUserSort] = useState<UserSortKey>('name_asc')
-  const [loading, setLoading] = useState(true)
-  const [cohortSaving, setCohortSaving] = useState(false)
-  const [inviteSaving, setInviteSaving] = useState(false)
-  const [savingUserIds, setSavingUserIds] = useState<Set<number>>(() => new Set())
-  const [resendingUserIds, setResendingUserIds] = useState<Set<number>>(() => new Set())
-  const [roleMatrixOpen, setRoleMatrixOpen] = useState(false)
-  const [programCreateDirty, setProgramCreateDirty] = useState(false)
-  const [programCreating, setProgramCreating] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const selectedCohortIdRef = useRef<number | null | undefined>(undefined)
-  const activeCoachWorkspaceIdRef = useRef(activeCoachWorkspaceId)
-  const adminLoadSequenceRef = useRef(0)
-
-  useLayoutEffect(() => {
-    activeCoachWorkspaceIdRef.current = activeCoachWorkspaceId
-    adminLoadSequenceRef.current += 1
-  }, [activeCoachWorkspaceId])
-
-  const displayCohorts = useMemo(() => cohorts.map((cohort) => cohortWithUserStats(cohort, users)), [cohorts, users])
-
-  const selectedCohort = useMemo(
-    () => displayCohorts.find((cohort) => cohort.id === selectedCohortId) ?? null,
-    [displayCohorts, selectedCohortId],
-  )
-
-  const scopedUsers = useMemo(() => {
-    if (!selectedCohortId) return users
-
-    return users.filter((user) => user.cohorts.some((membership) => membership.cohort.id === selectedCohortId))
-  }, [selectedCohortId, users])
-
-  const visibleUsers = useMemo(
-    () => filterAndSortAdminUsers(scopedUsers, {
-      search: userSearch,
-      status: userStatusFilter,
-      role: userRoleFilter,
-      sort: userSort,
-    }),
-    [scopedUsers, userRoleFilter, userSearch, userSort, userStatusFilter],
-  )
-
-  const activeScopedUserCount = useMemo(() => scopedUsers.filter((user) => user.invitation_status !== 'revoked').length, [scopedUsers])
-
-  const adminDraftsDirty = useMemo(() => {
-    const emptyCreateDraft = { name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' } satisfies AdminCohortInput
-    if (JSON.stringify(cleanCohortDraft(createDraft)) !== JSON.stringify(emptyCreateDraft)) return true
-    if (selectedCohort && editDraft && JSON.stringify(cleanCohortDraft(editDraft)) !== JSON.stringify(cleanCohortDraft(cohortDraftFor(selectedCohort)!))) return true
-
-    const expectedInviteCohortId = selectedCohortId ? String(selectedCohortId) : ''
-    if (inviteDraft.email?.trim() || (inviteDraft.role ?? 'participant') !== 'participant' ||
-        String(inviteDraft.cohort_id ?? '') !== expectedInviteCohortId || inviteDraft.send_invitation_email === false) return true
-
-    return users.some((user) => !adminUserDraftsEqual(userDrafts[user.id], adminDraftForUser(user)))
-  }, [createDraft, editDraft, inviteDraft, selectedCohort, selectedCohortId, userDrafts, users])
-
-  const adminMutationPending = loading || cohortSaving || programCreating || inviteSaving || savingUserIds.size > 0 || resendingUserIds.size > 0
-
-  const adminStats = useMemo(() => ({
-    cohorts: cohorts.length,
-    users: users.length,
-    pending: users.filter((user) => user.invitation_status === 'pending').length,
-    setupComplete: users.filter((user) => user.workspace.setup_complete).length,
-  }), [cohorts.length, users])
-
-  const loadAdminData = useCallback(async (preferredCohortId?: number | null) => {
-    const sequence = ++adminLoadSequenceRef.current
-    const requestedWorkspaceId = activeCoachWorkspaceIdRef.current
-    setLoading(true)
-    setError(null)
-    try {
-      const [nextCohorts, nextUsers, plaidHealthResult] = await Promise.all([
-        fetchAdminCohorts(),
-        fetchAdminUsers(),
-        fetchAdminPlaidHealth()
-          .then((value) => ({ value, error: null }))
-          .catch(() => ({
-            value: { summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] } satisfies AdminPlaidHealth,
-            error: 'Bank connection health is temporarily unavailable. Cohorts and invitations are still available.',
-          })),
-      ])
-      if (sequence !== adminLoadSequenceRef.current || requestedWorkspaceId !== activeCoachWorkspaceIdRef.current) return
-      const requestedCohortId = preferredCohortId === undefined ? selectedCohortIdRef.current : preferredCohortId
-      const nextSelectedId = requestedCohortId === null
-        ? null
-        : requestedCohortId && nextCohorts.some((cohort) => cohort.id === requestedCohortId)
-          ? requestedCohortId
-          : nextCohorts[0]?.id ?? null
-      const nextSelectedCohort = nextCohorts.find((cohort) => cohort.id === nextSelectedId) ?? null
-
-      selectedCohortIdRef.current = nextSelectedId
-      setCohorts(nextCohorts)
-      setUsers(nextUsers)
-      setPlaidHealth(plaidHealthResult.value)
-      setPlaidHealthError(plaidHealthResult.error)
-      setUserDrafts(adminDraftsForUsers(nextUsers))
-      setSelectedCohortId(nextSelectedId)
-      setEditDraft(nextSelectedCohort ? cohortDraftFor(nextSelectedCohort) : null)
-      setInviteDraft((current) => ({
-        ...current,
-        cohort_id: current.cohort_id || (nextSelectedId ? String(nextSelectedId) : ''),
-      }))
-    } catch (caught) {
-      if (sequence === adminLoadSequenceRef.current && requestedWorkspaceId === activeCoachWorkspaceIdRef.current) {
-        setError(caught instanceof Error ? caught.message : 'Admin data could not be loaded.')
-      }
-    } finally {
-      if (sequence === adminLoadSequenceRef.current && requestedWorkspaceId === activeCoachWorkspaceIdRef.current) setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    queueMicrotask(() => {
-      if (!cancelled) void loadAdminData()
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeCoachWorkspaceId, loadAdminData])
-
-  function selectCohort(cohortId: number | null) {
-    selectedCohortIdRef.current = cohortId
-    setSelectedCohortId(cohortId)
-    setEditDraft(cohortId ? cohortDraftFor(cohorts.find((cohort) => cohort.id === cohortId) ?? null) : null)
-    setNotice(null)
-    setInviteDraft((current) => ({ ...current, cohort_id: cohortId ? String(cohortId) : '' }))
-  }
-
-  function chooseAdminWorkspace(nextWorkspaceId: number | null) {
-    if (nextWorkspaceId === activeCoachWorkspaceId || adminMutationPending) return
-    if ((adminDraftsDirty || programCreateDirty) && !window.confirm('Discard unsaved program, cohort, invite, and user changes and switch workspaces?')) return
-
-    setCreateDraft({ name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' })
-    setEditDraft(null)
-    setInviteDraft({ email: '', role: 'participant', cohort_id: '', send_invitation_email: true })
-    setUserDrafts({})
-    setSelectedCohortId(null)
-    selectedCohortIdRef.current = null
-    setError(null)
-    setNotice(null)
-    selectCoachWorkspace(nextWorkspaceId)
-  }
-
-  async function handleCreateCohort(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (platformMode) {
-      setError('Choose a coach workspace before creating a cohort.')
-      return
-    }
-    if (!createDraft.name.trim()) {
-      setError('Cohort name is required.')
-      return
-    }
-
-    setCohortSaving(true)
-    setError(null)
-    setNotice(null)
-    try {
-      const cohort = await createAdminCohort(cleanCohortDraft(createDraft))
-      setNotice(`${cohort.name} is ready for invites.`)
-      setCreateDraft({ name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' })
-      await loadAdminData(cohort.id)
-      setInviteDraft((current) => ({ ...current, cohort_id: String(cohort.id) }))
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Cohort could not be created.')
-    } finally {
-      setCohortSaving(false)
-    }
-  }
-
-  async function handleUpdateCohort(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!selectedCohort || !editDraft) return
-
-    setCohortSaving(true)
-    setError(null)
-    setNotice(null)
-    try {
-      const cohort = await updateAdminCohort(selectedCohort.id, cleanCohortDraft(editDraft))
-      setNotice(`${cohort.name} settings saved.`)
-      await loadAdminData(cohort.id)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Cohort could not be saved.')
-    } finally {
-      setCohortSaving(false)
-    }
-  }
-
-  async function handleInviteUser(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const inviteRole = inviteDraft.role ?? 'participant'
-    const cohortId = String(inviteDraft.cohort_id ?? '')
-
-    if (!inviteDraft.email?.trim()) {
-      setError('Email is required before creating an invite.')
-      return
-    }
-    if (roleRequiresCohort(inviteRole) && !cohortId) {
-      setError(`${titleize(inviteRole)} users must be assigned to at least one cohort.`)
-      return
-    }
-
-    setInviteSaving(true)
-    setError(null)
-    setNotice(null)
-    try {
-      const response = await createAdminUser({
-        email: inviteDraft.email.trim(),
-        role: inviteRole,
-        cohort_id: cohortId || undefined,
-        send_invitation_email: inviteDraft.send_invitation_email ?? true,
-      })
-      setNotice(`${response.user.email} ${inviteActionNotice(response)}${cohortId ? ' and assigned to the selected cohort' : ' as an admin'}. ${inviteDeliveryNotice(response)}`)
-      setInviteDraft({ email: '', role: 'participant', cohort_id: selectedCohortId ? String(selectedCohortId) : '', send_invitation_email: true })
-      await loadAdminData()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Invite could not be created.')
-    } finally {
-      setInviteSaving(false)
-    }
-  }
-
-  async function handleSaveUser(user: AdminUser) {
-    const draft = userDrafts[user.id]
-    if (!draft || savingUserIds.has(user.id)) return
-    if (cohortRequiredFor(draft.role, draft.invitation_status) && draft.cohort_ids.length === 0) {
-      setError(`${titleize(draft.role)} users must be assigned to at least one cohort before saving unless access is revoked.`)
-      return
-    }
-
-    markUserSaving(user.id, true)
-    setError(null)
-    setNotice(null)
-    try {
-      const updatedUser = await updateAdminUser(user.id, {
-        role: draft.role,
-        invitation_status: draft.invitation_status,
-        cohort_ids: draft.cohort_ids.map(Number),
-      })
-      setNotice(`${updatedUser.email} was updated.`)
-      await loadAdminData()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'User could not be saved.')
-    } finally {
-      markUserSaving(user.id, false)
-    }
-  }
-
-  async function handleResendInvitation(user: AdminUser) {
-    if (resendingUserIds.has(user.id)) return
-
-    markUserResending(user.id, true)
-    setError(null)
-    setNotice(null)
-    try {
-      const response = await resendAdminUserInvitation(user.id)
-      setNotice(`${response.user.email} invitation refreshed. ${inviteDeliveryNotice(response)}`)
-      await loadAdminData()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Invitation email could not be resent.')
-    } finally {
-      markUserResending(user.id, false)
-    }
-  }
-
-  async function handleCancelInvite(user: AdminUser) {
-    if (savingUserIds.has(user.id)) return
-
-    markUserSaving(user.id, true)
-    setError(null)
-    setNotice(null)
-    try {
-      const updatedUser = await updateAdminUser(user.id, {
-        invitation_status: 'revoked',
-        cohort_ids: [],
-      })
-      setNotice(`${updatedUser.email} invite was cancelled and removed from cohorts.`)
-      await loadAdminData()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Invite could not be cancelled.')
-    } finally {
-      markUserSaving(user.id, false)
-    }
-  }
-
-  async function handleRemoveFromSelectedCohort(user: AdminUser) {
-    if (!selectedCohortId || savingUserIds.has(user.id)) return
-    const selectedId = String(selectedCohortId)
-    const nextCohortIds = serverCohortIdsForUser(user).filter((cohortId) => cohortId !== selectedId)
-    const shouldRevokeAfterRemoval = cohortRequiredFor(user.role, user.invitation_status) && nextCohortIds.length === 0
-    const mutation: AdminUserInput = { cohort_ids: nextCohortIds.map(Number) }
-    if (shouldRevokeAfterRemoval) mutation.invitation_status = 'revoked'
-
-    markUserSaving(user.id, true)
-    setError(null)
-    setNotice(null)
-    try {
-      const updatedUser = await updateAdminUser(user.id, mutation)
-      const cohortName = selectedCohort?.name ?? 'this cohort'
-      setNotice(shouldRevokeAfterRemoval
-        ? `${updatedUser.email} was removed from ${cohortName} and access was revoked because no cohorts remain.`
-        : `${updatedUser.email} was removed from ${cohortName}.`)
-      await loadAdminData(selectedCohortId)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'User could not be removed from this cohort.')
-    } finally {
-      markUserSaving(user.id, false)
-    }
-  }
-
-  function markUserSaving(userId: number, saving: boolean) {
-    setSavingUserIds((current) => toggleIdInSet(current, userId, saving))
-  }
-
-  function markUserResending(userId: number, resending: boolean) {
-    setResendingUserIds((current) => toggleIdInSet(current, userId, resending))
-  }
-
-  function updateUserDraft(userId: number, key: 'role' | 'invitation_status', value: string) {
-    setUserDrafts((current) => {
-      const nextDraft = { ...current[userId] }
-      if (key === 'role') nextDraft.role = value as UserRole
-      if (key === 'invitation_status') nextDraft.invitation_status = value as InvitationStatus
-
-      return {
-        ...current,
-        [userId]: nextDraft,
-      }
-    })
-  }
-
-  function toggleUserCohort(userId: number, cohortId: number) {
-    const cohortIdValue = String(cohortId)
-    setUserDrafts((current) => {
-      const nextDraft = { ...current[userId] }
-      const currentCohortIds = nextDraft.cohort_ids ?? []
-      nextDraft.cohort_ids = currentCohortIds.includes(cohortIdValue)
-        ? currentCohortIds.filter((id) => id !== cohortIdValue)
-        : [...currentCohortIds, cohortIdValue]
-
-      return {
-        ...current,
-        [userId]: nextDraft,
-      }
-    })
-  }
-
-  const inviteRole = inviteDraft.role ?? 'participant'
-  const inviteRequiresCohort = roleRequiresCohort(inviteRole)
-
-  return (
-    <section className="screen-grid admin-screen">
-      <ScreenHeading
-        eyebrow="Admin"
-        title="Cohorts and invitations, without terminal commands."
-        copy="Create the pilot cohorts, invite participants, and keep each user tied to the right Household CFO group before they sign in with Clerk."
-      />
-
-      {currentUser.is_admin && coachWorkspaces.length > 0 && (
-        <label className="coach-workspace-picker">
-          <span>Admin workspace</span>
-          <select
-            value={activeCoachWorkspaceId ?? 'platform'}
-            disabled={adminMutationPending}
-            onChange={(event) => chooseAdminWorkspace(event.target.value === 'platform' ? null : Number(event.target.value))}
-          >
-            <option value="platform">All workspaces / Platform</option>
-            {coachWorkspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
-          </select>
-          <small>{platformMode ? 'Global review mode. Choose a workspace to create cohorts.' : 'Cohorts and invitations are scoped to this workspace.'}</small>
-        </label>
-      )}
-
-      {error && <p className="admin-alert error" role="alert">{error}</p>}
-      {notice && <p className="admin-alert success">{notice}</p>}
-
-      {currentUser.is_admin && <CreateCoachProgram key={activeCoachWorkspaceId ?? 'platform'} disabled={adminMutationPending || adminDraftsDirty} onDirtyChange={setProgramCreateDirty} onPendingChange={setProgramCreating} />}
-
-      <div className="admin-stat-row">
-        <AdminStat label="Cohorts" value={adminStats.cohorts.toString()} />
-        <AdminStat label="Invited users" value={adminStats.users.toString()} />
-        <AdminStat label="Pending" value={adminStats.pending.toString()} />
-        <AdminStat label="Setup complete" value={adminStats.setupComplete.toString()} />
-      </div>
-
-      <RoleMatrix open={roleMatrixOpen} onToggle={setRoleMatrixOpen} />
-
-      <PlaidHealthLedger health={plaidHealth} loading={loading} error={plaidHealthError} />
-      <PilotFeedbackInbox />
-
-      <div className="admin-layout">
-        <article className="panel admin-card">
-          <div className="admin-card-heading">
-            <span className="spark" aria-hidden="true"><CohortIcon /></span>
-            <div>
-              <p className="eyebrow">Cohorts</p>
-              <h3>Create the next group</h3>
-            </div>
-          </div>
-
-          <form className="admin-form" onSubmit={handleCreateCohort}>
-            <label className="admin-field wide">
-              <span>Cohort name</span>
-              <input value={createDraft.name} onChange={(event) => setCreateDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Tuesday pilot cohort" />
-            </label>
-            <label className="admin-field">
-              <span>Status</span>
-              <select value={createDraft.status} onChange={(event) => setCreateDraft((current) => ({ ...current, status: event.target.value as AdminCohortStatus }))}>
-                {cohortStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
-              </select>
-            </label>
-            <label className="admin-field">
-              <span>Starts</span>
-              <input type="date" value={createDraft.starts_on ?? ''} onChange={(event) => setCreateDraft((current) => ({ ...current, starts_on: event.target.value }))} />
-            </label>
-            <label className="admin-field">
-              <span>Ends</span>
-              <input type="date" value={createDraft.ends_on ?? ''} onChange={(event) => setCreateDraft((current) => ({ ...current, ends_on: event.target.value }))} />
-            </label>
-            <label className="admin-field wide">
-              <span>Notes</span>
-              <textarea value={createDraft.notes ?? ''} onChange={(event) => setCreateDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="Pilot focus, meeting cadence, or setup notes" rows={3} />
-            </label>
-            <button type="submit" disabled={cohortSaving || platformMode}>{cohortSaving ? 'Saving' : 'Create cohort'}</button>
-            {platformMode && <p className="admin-muted">Choose an Admin workspace above before creating a cohort.</p>}
-          </form>
-        </article>
-
-        <article className="panel admin-card">
-          <div className="admin-card-heading">
-            <span className="spark" aria-hidden="true"><UsersIcon /></span>
-            <div>
-              <p className="eyebrow">Cohort list</p>
-              <h3>Select a group to manage</h3>
-            </div>
-          </div>
-
-          {loading && cohorts.length === 0 ? (
-            <p className="admin-muted">Loading cohorts and invitations...</p>
-          ) : (
-            <div className="cohort-list">
-              <button type="button" className={`cohort-list-card ${selectedCohortId === null ? 'active' : ''}`} onClick={() => selectCohort(null)}>
-                <strong>All users</strong>
-                <span>Full invitation list</span>
-              </button>
-              {displayCohorts.map((cohort) => (
-                <button type="button" className={`cohort-list-card ${selectedCohortId === cohort.id ? 'active' : ''}`} key={cohort.id} onClick={() => selectCohort(cohort.id)}>
-                  <strong>{cohort.name}</strong>
-                  <span>{titleize(cohort.status)} · {cohort.member_count} users · {cohort.setup_complete_count} ready</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </article>
-      </div>
-
-      <div className="admin-layout">
-        <article className="panel admin-card">
-          <div className="admin-card-heading">
-            <span className="spark" aria-hidden="true"><CohortIcon /></span>
-            <div>
-              <p className="eyebrow">Selected cohort</p>
-              <h3>{selectedCohort ? selectedCohort.name : 'No cohort selected'}</h3>
-            </div>
-          </div>
-
-          {selectedCohort && editDraft ? (
-            <form className="admin-form" onSubmit={handleUpdateCohort}>
-              <div className="admin-cohort-summary">
-                <AdminBadge value={titleize(selectedCohort.status)} tone={selectedCohort.status === 'active' ? 'green' : selectedCohort.status === 'archived' ? 'red' : 'gold'} />
-                <span>{selectedCohort.participant_count} participants</span>
-                <span>{selectedCohort.staff_count} staff</span>
-                <span>{cohortDateRange(selectedCohort)}</span>
-              </div>
-              <div className="admin-operations" aria-label="Privacy-safe cohort operations for the last seven days">
-                {selectedCohort.operational_summary.available ? (
-                  <>
-                    <div><small>Active participants</small><strong>{selectedCohort.operational_summary.participants_active}</strong></div>
-                    <div><small>Mia requests</small><strong>{selectedCohort.operational_summary.mia_requests}</strong></div>
-                    <div><small>Typical Mia time</small><strong>{selectedCohort.operational_summary.average_mia_latency_ms === null ? '—' : `${(selectedCohort.operational_summary.average_mia_latency_ms / 1000).toFixed(1)}s`}</strong></div>
-                    <div><small>Mia failures</small><strong>{selectedCohort.operational_summary.mia_failures}</strong></div>
-                    <div><small>Uploads</small><strong>{selectedCohort.operational_summary.uploads}</strong></div>
-                    <div><small>Upload failures</small><strong>{selectedCohort.operational_summary.upload_failures}</strong></div>
-                  </>
-                ) : (
-                  <p role="status">Activity metrics are temporarily unavailable. Refresh before using this cohort summary to judge participation.</p>
-                )}
-              </div>
-              <p className="admin-privacy-copy">Last 7 days · aggregate operational activity only. Financial values, uploaded document contents, and Mia conversations are not shown.</p>
-              <label className="admin-field wide">
-                <span>Name</span>
-                <input value={editDraft.name} onChange={(event) => setEditDraft((current) => current ? { ...current, name: event.target.value } : current)} />
-              </label>
-              <label className="admin-field">
-                <span>Status</span>
-                <select value={editDraft.status} onChange={(event) => setEditDraft((current) => current ? { ...current, status: event.target.value as AdminCohortStatus } : current)}>
-                  {cohortStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
-                </select>
-              </label>
-              <label className="admin-field">
-                <span>Starts</span>
-                <input type="date" value={editDraft.starts_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, starts_on: event.target.value } : current)} />
-              </label>
-              <label className="admin-field">
-                <span>Ends</span>
-                <input type="date" value={editDraft.ends_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, ends_on: event.target.value } : current)} />
-              </label>
-              <label className="admin-field wide">
-                <span>Notes</span>
-                <textarea value={editDraft.notes ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, notes: event.target.value } : current)} rows={3} />
-              </label>
-              <button type="submit" disabled={cohortSaving}>{cohortSaving ? 'Saving' : 'Save cohort'}</button>
-            </form>
-          ) : (
-            <p className="admin-muted">Create a cohort, then select it here to update dates, status, and notes.</p>
-          )}
-        </article>
-
-        <article className="panel admin-card">
-          <div className="admin-card-heading">
-            <span className="spark" aria-hidden="true"><ShieldIcon /></span>
-            <div>
-              <p className="eyebrow">Invite user</p>
-              <h3>Add admin, coach, or participant</h3>
-            </div>
-          </div>
-
-          <form className="admin-form" onSubmit={handleInviteUser}>
-            <label className="admin-field wide">
-              <span>Email</span>
-              <input type="email" value={inviteDraft.email ?? ''} onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" />
-            </label>
-            <label className="admin-field">
-              <span>Role</span>
-              <select value={inviteRole} onChange={(event) => setInviteDraft((current) => ({ ...current, role: event.target.value as UserRole }))}>
-                {userRoles.map((role) => <option key={role} value={role}>{titleize(role)}</option>)}
-              </select>
-            </label>
-            <label className="admin-field">
-              <span>Cohort {inviteRequiresCohort ? '(required)' : '(optional)'}</span>
-              <select required={inviteRequiresCohort} value={String(inviteDraft.cohort_id ?? '')} onChange={(event) => setInviteDraft((current) => ({ ...current, cohort_id: event.target.value }))}>
-                <option value="">{inviteRequiresCohort ? 'Select a cohort' : 'No cohort for admin'}</option>
-                {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}
-              </select>
-            </label>
-            <label className="admin-inline-check wide">
-              <input
-                type="checkbox"
-                checked={inviteDraft.send_invitation_email ?? true}
-                onChange={(event) => setInviteDraft((current) => ({ ...current, send_invitation_email: event.target.checked }))}
-              />
-              <span>Send invite email now</span>
-            </label>
-            <p className="admin-field-note wide">Names come from the invited person's Clerk account after first sign-in. Admins can manage across cohorts without assignment; active coaches and participants must belong to at least one cohort.</p>
-            <button type="submit" disabled={inviteSaving}>{inviteSaving ? 'Creating invite' : 'Create invite'}</button>
-          </form>
-        </article>
-      </div>
-
-      <article className="panel admin-card admin-users-panel">
-        <div className="admin-card-heading row-between">
-          <div>
-            <p className="eyebrow">Users</p>
-            <h3>{selectedCohort ? `${selectedCohort.name} members` : 'All invited users'}</h3>
-            <p className="admin-list-summary">Showing {visibleUsers.length} of {scopedUsers.length} users. Revoked users are hidden by default.</p>
-          </div>
-          <button type="button" className="admin-refresh" onClick={() => void loadAdminData()} disabled={loading}>{loading ? 'Refreshing' : 'Refresh'}</button>
-        </div>
-
-        <div className="admin-user-toolbar" aria-label="User filters and sorting">
-          <label className="admin-field compact search-field">
-            <span>Search</span>
-            <input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="Name or email" />
-          </label>
-          <label className="admin-field compact">
-            <span>Status</span>
-            <select value={userStatusFilter} onChange={(event) => setUserStatusFilter(event.target.value as UserStatusFilter)}>
-              <option value="active">Active only ({activeScopedUserCount})</option>
-              <option value="pending">Pending</option>
-              <option value="accepted">Accepted</option>
-              <option value="revoked">Revoked</option>
-              <option value="all">All statuses</option>
-            </select>
-          </label>
-          <label className="admin-field compact">
-            <span>Role</span>
-            <select value={userRoleFilter} onChange={(event) => setUserRoleFilter(event.target.value as UserRoleFilter)}>
-              <option value="all">All roles</option>
-              {userRoles.map((role) => <option key={role} value={role}>{titleize(role)}</option>)}
-            </select>
-          </label>
-          <label className="admin-field compact">
-            <span>Sort</span>
-            <select value={userSort} onChange={(event) => setUserSort(event.target.value as UserSortKey)}>
-              <option value="name_asc">Name A–Z</option>
-              <option value="email_asc">Email A–Z</option>
-              <option value="role_asc">Role</option>
-              <option value="status_asc">Status</option>
-              <option value="setup_desc">Setup progress</option>
-              <option value="invite_desc">Recent invite activity</option>
-            </select>
-          </label>
-        </div>
-
-        {visibleUsers.length === 0 ? (
-          <p className="admin-muted">{scopedUsers.length === 0 ? 'No users in this view yet. Create an invite above to start the cohort.' : 'No users match these filters. Switch status to Revoked or All statuses when you need to review cancelled access.'}</p>
-        ) : (
-          <div className="admin-user-list">
-            {visibleUsers.map((user) => {
-              const draft = userDrafts[user.id] ?? adminDraftForUser(user)
-              const isSelf = user.id === currentUser.id
-
-              const draftNeedsCohort = cohortRequiredFor(draft.role, draft.invitation_status) && draft.cohort_ids.length === 0
-              const draftRequiresCohort = cohortRequiredFor(draft.role, draft.invitation_status)
-              const canResendInvite = user.invitation_status === 'pending'
-              const canCancelInvite = user.invitation_status === 'pending' && !isSelf
-              const canRemoveFromSelectedCohort = selectedCohortId !== null && serverCohortIdsForUser(user).includes(String(selectedCohortId)) && !isSelf
-              const rowSaving = savingUserIds.has(user.id)
-              const rowResending = resendingUserIds.has(user.id)
-
-              return (
-                <article className="admin-user-row" key={user.id}>
-                  <div className="admin-user-main">
-                    <div>
-                      <strong>{user.full_name}</strong>
-                      <span>{user.email}</span>
-                    </div>
-                    <div className="admin-badge-row">
-                      <AdminBadge value={titleize(user.role)} tone={user.role === 'admin' ? 'green' : user.role === 'coach' ? 'gold' : 'neutral'} />
-                      <AdminBadge value={titleize(user.invitation_status)} tone={user.invitation_status === 'accepted' ? 'green' : user.invitation_status === 'revoked' ? 'red' : 'gold'} />
-                      {user.invite_email.workspace_scoped
-                        ? <AdminBadge value="Email details in Platform mode" tone="neutral" />
-                        : <AdminBadge value={`Email ${titleize(user.invite_email.status)}`} tone={inviteEmailTone(user.invite_email.status)} />}
-                      <AdminBadge value={pilotSetupLabel(user.workspace.setup_status)} tone={user.workspace.setup_complete ? 'green' : user.workspace.setup_status === 'started' ? 'gold' : 'neutral'} />
-                      <AdminBadge value={user.workspace.signed_in ? 'Signed in' : 'Not signed in'} tone={user.workspace.signed_in ? 'green' : 'neutral'} />
-                      {user.workspace.has_pending_review_work && <AdminBadge value="Review waiting" tone="gold" />}
-                    </div>
-                    <p>{user.cohorts.map((membership) => membership.cohort.name).join(', ') || (user.role === 'admin' ? 'No cohort assigned; admin can work across cohorts' : 'No cohort assigned yet')}</p>
-                    {user.invite_email.last_attempted_at && (
-                      <p className="admin-email-line">Last email attempt: {shortDateTime(user.invite_email.last_attempted_at)}{user.invite_email.error ? ` · ${user.invite_email.error}` : ''}</p>
-                    )}
-                    <p className="admin-email-line">Last safe activity: {user.workspace.last_safe_activity_at ? shortDateTime(user.workspace.last_safe_activity_at) : 'No participant activity yet'}</p>
-                  </div>
-
-                  <div className="admin-user-controls">
-                    <label className="admin-field compact">
-                      <span>Role</span>
-                      <select value={draft.role} disabled={isSelf} onChange={(event) => updateUserDraft(user.id, 'role', event.target.value)}>
-                        {userRoles.map((role) => <option key={role} value={role}>{titleize(role)}</option>)}
-                      </select>
-                    </label>
-                    <label className="admin-field compact">
-                      <span>Status</span>
-                      <select value={draft.invitation_status} disabled={isSelf} onChange={(event) => updateUserDraft(user.id, 'invitation_status', event.target.value)}>
-                        {invitationStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
-                      </select>
-                    </label>
-                    <div className={`admin-field compact cohort-select ${draftNeedsCohort ? 'needs-attention' : ''}`}>
-                      <span>Cohorts {draftRequiresCohort ? '(required)' : '(optional)'}</span>
-                      <div className="admin-cohort-checks">
-                        {cohorts.length === 0 && <small>No cohorts yet. Create one before adding coaches or participants.</small>}
-                        {cohorts.map((cohort) => (
-                          <label className="admin-cohort-check" key={cohort.id}>
-                            <input
-                              type="checkbox"
-                              checked={draft.cohort_ids.includes(String(cohort.id))}
-                              onChange={() => toggleUserCohort(user.id, cohort.id)}
-                            />
-                            <span>{cohort.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                      {draftNeedsCohort && <small className="admin-field-warning">Required before saving.</small>}
-                    </div>
-                    <div className="admin-user-actions">
-                      <button type="button" onClick={() => void handleSaveUser(user)} disabled={rowSaving || draftNeedsCohort}>{rowSaving ? 'Saving' : 'Save'}</button>
-                      <button type="button" className="secondary-action" onClick={() => void handleResendInvitation(user)} disabled={!canResendInvite || rowResending}>{rowResending ? 'Sending' : 'Resend email'}</button>
-                      {canCancelInvite && <button type="button" className="danger-action" onClick={() => void handleCancelInvite(user)} disabled={rowSaving}>Cancel invite</button>}
-                      {canRemoveFromSelectedCohort && <button type="button" className="danger-action" onClick={() => void handleRemoveFromSelectedCohort(user)} disabled={rowSaving}>Remove from cohort</button>}
-                    </div>
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-        )}
-      </article>
-    </section>
-  )
-}
-
-function AdminStat({ label, value }: { label: string; value: string }) {
-  return (
-    <article className="metric-card admin-stat-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
-  )
-}
-
-function PlaidHealthLedger({ health, loading, error }: { health: AdminPlaidHealth; loading: boolean; error: string | null }) {
-  return (
-    <article className="panel admin-card admin-plaid-health">
-      <div className="admin-card-heading row-between">
-        <div>
-          <p className="eyebrow">Connection health</p>
-          <h3>Bank feed ledger</h3>
-          <p className="admin-list-summary">Operational metadata only—no balances, transactions, Plaid identifiers, or access credentials.</p>
-        </div>
-        <div className="admin-plaid-health-summary" aria-label="Plaid connection health summary">
-          <span><strong>{health.summary.connected}</strong> connected</span>
-          <span className="is-healthy"><strong>{health.summary.healthy}</strong> current</span>
-          <span className={health.summary.attention_required > 0 ? 'is-attention' : ''}><strong>{health.summary.attention_required}</strong> attention</span>
-        </div>
-      </div>
-
-      {error && <p className="admin-alert error" role="status">{error}</p>}
-
-      {loading && health.items.length === 0 ? (
-        <p className="admin-muted">Checking bank feed health...</p>
-      ) : health.items.length === 0 ? (
-        <p className="admin-muted">No active Plaid connections yet.</p>
-      ) : (
-        <div className="admin-plaid-health-list">
-          {health.items.map((item) => (
-            <article className={`admin-plaid-health-row is-${item.health.state}`} key={item.id}>
-              <span className="admin-plaid-health-mark" aria-hidden="true" />
-              <div>
-                <strong>{item.institution_name}</strong>
-                <span>{item.household.name} · {item.account_count} account{item.account_count === 1 ? '' : 's'} · {item.environment}</span>
-                <small>Connected by {item.connected_by.full_name} · {item.connected_by.email}</small>
-              </div>
-              <div className="admin-plaid-health-state">
-                <AdminBadge value={item.health.label} tone={plaidHealthTone(item.health.state)} />
-                <small>{item.health.message}</small>
-                <small>{item.health.last_successful_update_at ? `Last successful update ${new Date(item.health.last_successful_update_at).toLocaleString()}` : 'No successful update recorded yet.'}</small>
-                {item.error_code && <small>Reference: {item.error_code}</small>}
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
-    </article>
-  )
-}
-
-function plaidHealthTone(state: AdminPlaidHealth['items'][number]['health']['state']): 'green' | 'gold' | 'red' | 'neutral' {
-  if (state === 'healthy') return 'green'
-  if (state === 'initializing' || state === 'disconnecting') return 'gold'
-  if (state === 'stale' || state === 'action_required' || state === 'error') return 'red'
-
-  return 'neutral'
-}
-
-function AdminBadge({ value, tone }: { value: string; tone: 'green' | 'gold' | 'red' | 'neutral' }) {
-  return <span className={`admin-badge ${tone}`}>{value}</span>
-}
-
-function RoleMatrix({ open, onToggle }: { open: boolean; onToggle: (open: boolean) => void }) {
-  return (
-    <details className="role-matrix panel" open={open} onToggle={(event) => onToggle(event.currentTarget.open)}>
-      <summary>
-        <span>
-          <strong>Role and cohort rules</strong>
-          <small>Backend-enforced policy for admin, coach, and participant users.</small>
-        </span>
-      </summary>
-      <div className="role-matrix-grid">
-        <article>
-          <strong>Admin</strong>
-          <span>May have no cohort</span>
-          <p>Can manage cohorts, users, invitations, and staff access. Admins are not limited to a single participant group.</p>
-        </article>
-        <article>
-          <strong>Coach</strong>
-          <span>Requires at least one active cohort</span>
-          <p>Supports assigned groups and can create participant invites, but cannot manage admin or coach accounts. Revoked coaches can have no cohort.</p>
-        </article>
-        <article>
-          <strong>Participant</strong>
-          <span>Requires at least one active cohort</span>
-          <p>Uses the household workspace and Mia coaching flow. Revoked participants can be removed from all cohorts.</p>
-        </article>
-      </div>
-    </details>
-  )
-}
-
-function adminDraftsForUsers(users: AdminUser[]) {
-  return users.reduce<Record<number, AdminUserDraft>>((drafts, user) => {
-    drafts[user.id] = adminDraftForUser(user)
-    return drafts
-  }, {})
-}
-
-function adminDraftForUser(user: AdminUser): AdminUserDraft {
-  return {
-    role: user.role,
-    invitation_status: user.invitation_status,
-    cohort_ids: serverCohortIdsForUser(user),
-  }
-}
-
-function adminUserDraftsEqual(left: AdminUserDraft | undefined, right: AdminUserDraft) {
-  if (!left) return true
-  return left.role === right.role && left.invitation_status === right.invitation_status &&
-    [...left.cohort_ids].sort().join(',') === [...right.cohort_ids].sort().join(',')
-}
-
-function serverCohortIdsForUser(user: AdminUser) {
-  return user.cohorts.map((membership) => String(membership.cohort.id))
-}
-
-function roleRequiresCohort(role: UserRole) {
-  return role !== 'admin'
-}
-
-function cohortRequiredFor(role: UserRole, invitationStatus: InvitationStatus) {
-  return roleRequiresCohort(role) && invitationStatus !== 'revoked'
-}
-
-function toggleIdInSet(current: Set<number>, id: number, enabled: boolean) {
-  const next = new Set(current)
-  if (enabled) next.add(id)
-  else next.delete(id)
-  return next
-}
-
-function cohortWithUserStats(cohort: AdminCohort, users: AdminUser[]): AdminCohort {
-  const memberships = users.flatMap((user) => user.cohorts
-    .filter((membership) => membership.cohort.id === cohort.id)
-    .map((membership) => ({ user, membership })))
-
-  return {
-    ...cohort,
-    operational_summary: cohort.operational_summary ?? emptyCohortOperationalSummary,
-    member_count: memberships.length,
-    participant_count: memberships.filter(({ membership }) => membership.role === 'participant').length,
-    staff_count: memberships.filter(({ membership }) => membership.role === 'admin' || membership.role === 'coach').length,
-  }
-}
-
-function filterAndSortAdminUsers(users: AdminUser[], filters: { search: string; status: UserStatusFilter; role: UserRoleFilter; sort: UserSortKey }) {
-  const search = filters.search.trim().toLowerCase()
-  const filtered = users.filter((user) => {
-    const statusMatches = filters.status === 'all'
-      ? true
-      : filters.status === 'active'
-        ? user.invitation_status !== 'revoked'
-        : user.invitation_status === filters.status
-    const roleMatches = filters.role === 'all' || user.role === filters.role
-    const searchMatches = !search || `${user.full_name} ${user.email}`.toLowerCase().includes(search)
-
-    return statusMatches && roleMatches && searchMatches
-  })
-
-  return [...filtered].sort((left, right) => compareAdminUsers(left, right, filters.sort))
-}
-
-function compareAdminUsers(left: AdminUser, right: AdminUser, sort: UserSortKey) {
-  if (sort === 'email_asc') return left.email.localeCompare(right.email)
-  if (sort === 'role_asc') return compareTextThenName(left.role, right.role, left, right)
-  if (sort === 'status_asc') return compareTextThenName(left.invitation_status, right.invitation_status, left, right)
-  if (sort === 'setup_desc') return pilotSetupRank(right.workspace.setup_status) - pilotSetupRank(left.workspace.setup_status) || compareByName(left, right)
-  if (sort === 'invite_desc') return sortableTime(right.invite_email.last_attempted_at) - sortableTime(left.invite_email.last_attempted_at) || compareByName(left, right)
-
-  return compareByName(left, right)
-}
-
-function compareTextThenName(leftValue: string, rightValue: string, leftUser: AdminUser, rightUser: AdminUser) {
-  return leftValue.localeCompare(rightValue) || compareByName(leftUser, rightUser)
-}
-
-function compareByName(left: AdminUser, right: AdminUser) {
-  return left.full_name.localeCompare(right.full_name) || left.email.localeCompare(right.email)
-}
-
-function sortableTime(value: string | null) {
-  return value ? new Date(value).getTime() : 0
-}
-
-function pilotSetupRank(status: AdminUser['workspace']['setup_status']) {
-  if (status === 'complete') return 2
-  if (status === 'started') return 1
-  return 0
-}
-
-function pilotSetupLabel(status: AdminUser['workspace']['setup_status']) {
-  if (status === 'complete') return 'Setup complete'
-  if (status === 'started') return 'Setup started'
-  return 'Setup not started'
-}
-
-function inviteActionNotice(response: AdminUserMutationResponse) {
-  if (response.reactivated) return 'was reactivated'
-  if (response.created === false) return 'was updated'
-
-  return 'is invited'
-}
-
-function inviteDeliveryNotice(response: AdminUserMutationResponse) {
-  if (response.invitation_sent) return 'Invite email sent through Resend.'
-  if (response.invitation_status === 'failed') return `Invite saved, but email delivery failed${response.invitation_error ? `: ${response.invitation_error}` : '.'}`
-  if (response.invitation_status === 'skipped') return 'Invite saved; email delivery was skipped by admin.'
-
-  return 'Invite saved.'
-}
-
-function inviteEmailTone(status: AdminUser['invite_email']['status']): 'green' | 'gold' | 'red' | 'neutral' {
-  if (status === 'sent') return 'green'
-  if (status === 'failed') return 'red'
-  if (status === 'skipped') return 'gold'
-
-  return 'neutral'
-}
-
 function shortDateTime(value: string) {
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
@@ -6772,38 +5777,8 @@ function shortDateTime(value: string) {
   }).format(new Date(value))
 }
 
-function cleanCohortDraft(draft: AdminCohortInput): AdminCohortInput {
-  return {
-    name: draft.name.trim(),
-    status: draft.status,
-    starts_on: draft.starts_on || '',
-    ends_on: draft.ends_on || '',
-    notes: draft.notes?.trim() ?? '',
-  }
-}
-
-function cohortDraftFor(cohort: AdminCohort | null): AdminCohortInput | null {
-  if (!cohort) return null
-
-  return {
-    name: cohort.name,
-    status: cohort.status,
-    starts_on: cohort.starts_on ?? '',
-    ends_on: cohort.ends_on ?? '',
-    notes: cohort.notes ?? '',
-  }
-}
-
 function titleize(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
-
-function cohortDateRange(cohort: AdminCohort) {
-  if (cohort.starts_on && cohort.ends_on) return `${formatShortDate(cohort.starts_on)} – ${formatShortDate(cohort.ends_on)}`
-  if (cohort.starts_on) return `Starts ${formatShortDate(cohort.starts_on)}`
-  if (cohort.ends_on) return `Ends ${formatShortDate(cohort.ends_on)}`
-
-  return 'Dates not set'
 }
 
 function formatShortDate(value: string) {
@@ -9386,6 +8361,8 @@ function AnnualBudgetPlanner({
     allocationDrafts: {},
     categoryDrafts: {},
   })
+  const [editMonthIndex, setEditMonthIndex] = useState(currentMonthIndex)
+  const [showFullYearEditor, setShowFullYearEditor] = useState(false)
   const [manualTool, setManualTool] = useState<'category' | 'monthly' | 'income' | null>(null)
   const manualManagerRef = useRef<HTMLElement | null>(null)
   const manualTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -9466,6 +8443,7 @@ function AnnualBudgetPlanner({
       categoryDrafts,
     })
     setManualTool(tool)
+    if (tool === 'monthly') queueMicrotask(() => { setEditMonthIndex(Math.max(0, Math.min(11, (focusRequest.months[0] ?? currentMonthIndex + 1) - 1))); setShowFullYearEditor(focusRequest.months.length > 1) })
     requestAnimationFrame(() => requestAnimationFrame(() => {
       let target: HTMLElement | null = null
       if (tool === 'category') target = newCategoryInputRef.current
@@ -9493,9 +8471,11 @@ function AnnualBudgetPlanner({
       }
       if (tool !== 'income') onFocusRequestHandled?.()
     }))
-  }, [focusRequest, onFocusRequestHandled, onNewCategoryChange, plan.rows, planSignature])
+  }, [focusRequest, onFocusRequestHandled, onNewCategoryChange, plan.rows, planSignature, currentMonthIndex])
 
   function beginBudgetEdit() {
+    setEditMonthIndex(currentMonthIndex)
+    setShowFullYearEditor(false)
     setBudgetEditState({ signature: planSignature, isEditing: true, allocationDrafts: {}, categoryDrafts: {} })
   }
 
@@ -9735,7 +8715,7 @@ function AnnualBudgetPlanner({
                 <div>
                   <p className="eyebrow">Month-by-month plan</p>
                   <strong>Change category names, groups, or monthly amounts.</strong>
-                  <span aria-live="polite">{totalBudgetChanges > 0 ? `${totalBudgetChanges} unsaved change${totalBudgetChanges === 1 ? '' : 's'}. Save or cancel before switching tools.` : 'The table scrolls sideways on smaller screens.'}</span>
+                  <span aria-live="polite">{totalBudgetChanges > 0 ? `${totalBudgetChanges} unsaved change${totalBudgetChanges === 1 ? '' : 's'}. Save or cancel before switching tools.` : 'On your phone, edit one month at a time or choose the full year.'}</span>
                 </div>
                 <div className="annual-plan-edit-actions">
                   <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelAndCloseManualManager}>Cancel</button>
@@ -9745,15 +8725,19 @@ function AnnualBudgetPlanner({
                 </div>
               </div>
 
-              <div className="annual-budget-table-wrap" role="region" aria-label="Annual budget table" tabIndex={0}>
+              <div className="phone-budget-editor-controls">
+                <label>Edit month<select value={editMonthIndex} disabled={isSavingBudgetEdits} onChange={event => setEditMonthIndex(Number(event.target.value))}>{plan.months.map((month, index) => <option key={month.id} value={index}>{month.label}</option>)}</select></label>
+                <label className="savings-check"><input type="checkbox" checked={showFullYearEditor} onChange={event => setShowFullYearEditor(event.target.checked)} /> Show full year</label>
+              </div>
+              <div className={`annual-budget-table-wrap${showFullYearEditor ? ' is-full-year-editor' : ' is-selected-month-editor'}`} role="region" aria-label="Annual budget table" tabIndex={0}>
                 <table className="annual-budget-table">
                   <thead>
                     <tr>
                       <th scope="col">Category</th>
                       {plan.months.map((month, index) => (
-                        <th scope="col" className={index === currentMonthIndex ? 'current-month' : ''} key={month.id}>{month.label}</th>
+                        <th scope="col" className={`${index === currentMonthIndex ? 'current-month' : ''}${index === editMonthIndex ? ' edit-selected-month' : ' edit-other-month'}`} key={month.id}>{month.label}</th>
                       ))}
-                      <th scope="col">Year</th>
+                      <th scope="col" className="edit-year-total">Year</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -9777,7 +8761,7 @@ function AnnualBudgetPlanner({
                           const draftedAmount = Number(draftValue || 0)
                           const hasDraftChange = !allocationMissing && draftedAmount !== month.planned
                           return (
-                            <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id ?? `missing-${month.period_id}`}>
+                            <td className={`${index === currentMonthIndex ? 'current-month' : ''}${index === editMonthIndex ? ' edit-selected-month' : ' edit-other-month'}`} key={month.allocation_id ?? `missing-${month.period_id}`}>
                               {row.active && !allocationMissing ? (
                                 <input
                                   key={`${month.allocation_id ?? month.period_id}:${month.planned}`}
@@ -9797,7 +8781,7 @@ function AnnualBudgetPlanner({
                             </td>
                           )
                         })}
-                        <td><strong>{currency.format(row.planned_total)}</strong><small>{currency.format(row.actual_total)} actual</small></td>
+                        <td className="edit-year-total"><strong>{currency.format(row.planned_total)}</strong><small>{currency.format(row.actual_total)} actual</small></td>
                       </tr>
                     ))}
                   </tbody>
@@ -9993,24 +8977,6 @@ function MiaMark() {
   )
 }
 
-function CohortIcon() {
-  return (
-    <svg viewBox="0 0 24 24" role="img" aria-label="Cohort">
-      <path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h10a2.5 2.5 0 0 1 2.5 2.5v11A2.5 2.5 0 0 1 17 20H7a2.5 2.5 0 0 1-2.5-2.5v-11Z" className="icon-stroke" />
-      <path d="M8 9h8M8 12h5M8 15h7" className="icon-stroke" />
-    </svg>
-  )
-}
-
-function UsersIcon() {
-  return (
-    <svg viewBox="0 0 24 24" role="img" aria-label="Users">
-      <path d="M9.2 11.1a3.1 3.1 0 1 0 0-6.2 3.1 3.1 0 0 0 0 6.2ZM4.4 19.1c.55-3.1 2.2-4.65 4.8-4.65 2.58 0 4.22 1.55 4.78 4.65" className="icon-stroke" />
-      <path d="M16.2 11.4a2.55 2.55 0 1 0 0-5.1M15.7 14.45c2.05.18 3.35 1.58 3.9 4.2" className="icon-stroke" />
-    </svg>
-  )
-}
-
 function ShieldIcon() {
   return (
     <svg viewBox="0 0 24 24" role="img" aria-label="Secure access">
@@ -10115,3 +9081,12 @@ function StatementIcon() {
 }
 
 export default App
+
+function UsersIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-label="Users">
+      <path d="M9.2 11.1a3.1 3.1 0 1 0 0-6.2 3.1 3.1 0 0 0 0 6.2ZM4.4 19.1c.55-3.1 2.2-4.65 4.8-4.65 2.58 0 4.22 1.55 4.78 4.65" className="icon-stroke" />
+      <path d="M16.2 11.4a2.55 2.55 0 1 0 0-5.1M15.7 14.45c2.05.18 3.35 1.58 3.9 4.2" className="icon-stroke" />
+    </svg>
+  )
+}

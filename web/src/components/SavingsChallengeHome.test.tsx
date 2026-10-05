@@ -155,3 +155,31 @@ describe('participant savings Home', () => {
 
 it('offers evidence review only for current positive eligible entries and displays returned quality honestly',async()=>{const review=vi.fn();fetchPage.mockImplementation(async collection=>({records:collection==='entries'?[{id:41,lock_version:1,current_approved_version_id:51,current_approved_version:{...savingsEntryVersion(),evidence_status:'stale',evidence_supported_cents:0}},{id:42,lock_version:1,current_approved_version_id:52,current_approved_version:{...savingsEntryVersion(),id:52,funding_source:'borrowed'}},{id:43,lock_version:1,current_approved_version_id:53,current_approved_version:{...savingsEntryVersion(),id:53,signed_cents:-500,funding_source:'withdrawal'}}]:[],next_cursor:null}));render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onReviewEvidence={review}/>);await screen.findByText(/Linked proof needs review/);expect(screen.getAllByRole('button',{name:'Review savings evidence'})).toHaveLength(1);fireEvent.click(screen.getByRole('button',{name:'Review savings evidence'}));expect(review).toHaveBeenCalledWith(51);expect(screen.getAllByText(/Supported subset:.*part of the reported amount/)).toHaveLength(3)})
 it('pages approved entry revisions and opens optional proof review for an old eligible contribution without editing totals',async()=>{const reviewed=vi.fn();const old={...savingsEntryVersion(5000),id:11,reason:'Earlier approved contribution'};fetchPage.mockImplementation(async(collection,cursor)=>({records:collection==='entry_versions'?(cursor?[old]:[{...old,id:8,funding_source:'borrowed'}]):[],next_cursor:collection==='entry_versions'&&!cursor?8:null}));render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onReviewEvidence={reviewed}/>);await screen.findByText('Not yet approved');fireEvent.click(screen.getByText('Savings entry revision history',{exact:true}));const history=screen.getByRole('region',{name:'Savings entry revisions'});await within(history).findByText(/Borrowed money/);expect(within(history).queryByRole('button',{name:/Review proof for/})).toBeNull();fireEvent.click(within(history).getByRole('button',{name:'Next records'}));fireEvent.click(await within(history).findByRole('button',{name:'Review proof for savings revision 1'}));expect(reviewed).toHaveBeenCalledWith(11);expect(screen.getByRole('article',{name:'Approved savings progress'}).textContent).toContain('Not yet reported');expect(api.stageSavingsEntry).not.toHaveBeenCalled()})
+
+it('keeps approved Home compact, preserves a collapsed entry draft and omits one-page pagination', async () => {
+  const fixture = savingsFixture(); fixture.accepted_plan = { ...savingsPlanDraft(), id: 21, target_cents: 50000 } as unknown as NonNullable<typeof fixture.accepted_plan>
+  fixture.enrollment!.current_accepted_plan_version_id = 21
+  fetchChallenge.mockResolvedValue(fixture)
+  const entries = [{ id: 41, lock_version: 1, current_approved_version_id: 51, current_approved_version: savingsEntryVersion() }]
+  let finishHistory!: (rows: typeof entries) => void
+  fetchPage.mockImplementation(async collection => ({ records: collection === 'entries' ? await new Promise<typeof entries>(resolve => { finishHistory = resolve }) : [], next_cursor: null }))
+  render(view()); await screen.findByRole('button', { name: 'Report savings' })
+  const entry = screen.getByText('Report savings', { selector: 'summary' }).closest('details')!
+  const target = screen.getByText('Target & spending choices', { selector: 'summary' }).closest('details')!
+  expect(entry.open).toBe(false); expect(target.open).toBe(false)
+  fireEvent.click(entry.querySelector('summary')!)
+  const amount = screen.getByLabelText('Amount in US dollars') as HTMLInputElement
+  fireEvent.change(amount, { target: { value: '12.34' } })
+  fireEvent.click(entry.querySelector('summary')!)
+  fireEvent.click(entry.querySelector('summary')!)
+  expect(amount.value).toBe('12.34')
+  const approved = screen.getByText('Your approved records & corrections', { selector: 'summary' }).closest('details')!
+  fireEvent.click(approved.querySelector('summary')!)
+  const history = screen.getByRole('region', { name: 'Savings history', hidden: true })
+  expect(within(history).getByText('Loading savings history…')).toBeTruthy()
+  await act(async () => finishHistory(entries))
+  await waitFor(() => expect(screen.queryAllByText(/^Loading .*…$/)).toHaveLength(0))
+  expect(within(history).getByRole('button', { name: 'Correct record #41' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Previous records' })).toBeNull()
+  expect(api.stageSavingsEntry).not.toHaveBeenCalled()
+})

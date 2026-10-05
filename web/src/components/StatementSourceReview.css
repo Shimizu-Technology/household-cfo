@@ -1,3 +1,5 @@
+@import './ParticipantControls.css';
+
 .statement-source-review { min-width: 0; margin: 1.25rem 0; border-block: 1px solid var(--line, #e2d9cb); padding-block: 1rem; }
 .source-review-heading, .source-review-toolbar, .source-review-pagination { display: flex; justify-content: space-between; gap: .75rem; align-items: center; flex-wrap: wrap; }
 .source-review-heading h5 { font-size: 1.1rem; margin: 0; }
@@ -59,4 +61,45 @@
  min-width: 0;
  max-width: 100%;
  contain: paint;
+}
+
+/* Account identity, row, batch and coverage forms use the same controls. */
+.statement-source-review button {
+ border: 1px solid var(--border-subtle, var(--line, #dfd3c5));
+ border-radius: var(--control-radius, 999px);
+ background: var(--surface, #fffdf8);
+ color: var(--action-primary, #7b4a58);
+ padding: 10px 16px;
+ font-weight: 650;
+}
+.statement-source-review button[type=submit],
+.statement-source-review .source-review-primary {
+ border-color: var(--action-primary, #7b4a58);
+ background: var(--action-primary, #7b4a58);
+ color: var(--action-on-primary, #fffdf8);
+}
+.statement-source-review button:hover:not(:disabled) { border-color: var(--action-primary, #7b4a58); }
+.statement-source-review button[type=submit]:hover:not(:disabled),
+.statement-source-review .source-review-primary:hover:not(:disabled) { background: var(--action-primary-hover, #613845); }
+.statement-source-review :is(button,input,select,textarea):disabled { opacity: .6; cursor: not-allowed; }
+.source-review-boundary, .source-review-counts, .source-review-limitation,
+.source-review-toolbar label, .source-review-toolbar > span, .source-review-page-status,
+.source-event-main span, .source-event p, .source-coverage-facts { font-size: .875rem; }
+.source-review-check { min-height: 44px; padding-block: 8px; }
+.source-review-check input[type=checkbox], .source-review-check input[type=radio] { align-self: flex-start; }
+.source-review-technical { border-top: 1px solid var(--border-subtle, var(--line, #dfd3c5)); margin-top: 12px; }
+.source-review-technical summary { cursor: pointer; font-size: .875rem; color: var(--text-muted, var(--muted, #6d6257)); }
+.source-review-error, .source-pending-proposal { border-radius: 14px; background: var(--surface-muted, #f6efe6); }
+.source-reviewed-account > strong { display: block; }
+.source-review-form legend { font-weight: 650; line-height: 1.5; }
+.source-review-form input, .source-review-form select, .source-coverage-details fieldset input, .source-coverage-details fieldset select {
+ border: 1px solid var(--border-subtle, var(--line, #dfd3c5));
+ border-radius: var(--field-radius, 12px);
+ background: var(--surface, #fffdf8);
+ color: var(--text-primary, var(--ink, #31261c));
+ padding: 10px 12px;
+ font-size: 1rem;
+}
+.source-review-form .source-review-check input, .source-coverage-details .source-review-check input {
+ width: 20px; min-height: 20px; height: 20px; padding: 0;
 }

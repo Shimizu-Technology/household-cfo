@@ -46,12 +46,33 @@ describe('BrandDocument', () => {
 
     expect(document.title).toBe('Island Money Lab | Rooted in community')
     expect(document.documentElement.style.getPropertyValue('--emerald')).toBe('#125f52')
+    for (const [token, expected] of Object.entries({
+      '--surface-page': brand.colors.background, '--surface': brand.colors.surface,
+      '--surface-muted': brand.colors.surface_muted, '--text-primary': brand.colors.text,
+      '--text-muted': brand.colors.text_muted, '--border-subtle': brand.colors.border,
+      '--action-primary': brand.colors.primary, '--action-primary-hover': brand.colors.primary_hover,
+      '--action-primary-soft': brand.colors.primary_soft, '--action-on-primary': brand.colors.on_primary,
+      '--focus-color': brand.colors.focus,
+    })) expect(document.documentElement.style.getPropertyValue(token)).toBe(expected)
+
     expect(favicon.getAttribute('href')).toBe('https://assets.example.test/island.ico')
 
     view.unmount()
     expect(document.title).toBe('VERA')
     expect(document.documentElement.style.getPropertyValue('--emerald')).toBe('#536a63')
+    expect(document.documentElement.style.getPropertyValue('--action-primary')).toBe('')
+    expect(document.documentElement.style.getPropertyValue('--surface')).toBe('')
     expect(favicon.getAttribute('href')).toBe('/favicon.svg')
+  })
+
+  it('updates semantic controls when a different runtime palette replaces the current brand', () => {
+    const view = render(<BrandContext.Provider value={value()}><BrandDocument /></BrandContext.Provider>)
+    const rose = { ...brand, colors: { ...brand.colors, primary: '#7b4a58', surface: '#f8eee5', on_primary: '#fffdf8', focus: '#613344' } }
+    view.rerender(<BrandContext.Provider value={value(rose)}><BrandDocument /></BrandContext.Provider>)
+    expect(document.documentElement.style.getPropertyValue('--action-primary')).toBe('#7b4a58')
+    expect(document.documentElement.style.getPropertyValue('--surface')).toBe('#f8eee5')
+    expect(document.documentElement.style.getPropertyValue('--action-on-primary')).toBe('#fffdf8')
+    expect(document.documentElement.style.getPropertyValue('--focus-color')).toBe('#613344')
   })
 
   it('falls back to the neutral favicon when a branded asset fails', () => {

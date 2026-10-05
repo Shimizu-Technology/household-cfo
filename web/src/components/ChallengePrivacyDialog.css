@@ -1,4 +1,6 @@
-.challenge-privacy-dialog { --privacy-surface: var(--paper, #fffdf8); --privacy-ink: var(--ink, #18392e); --privacy-line: var(--line, #d8ded5); color: var(--privacy-ink); background: var(--privacy-surface); border: 1px solid var(--privacy-line); border-radius: 22px; padding: 0; width: min(740px, calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); margin: auto; box-shadow: 0 24px 80px #102e252e; overflow: hidden; font-family: var(--font-body, sans-serif); }
+@import './ParticipantControls.css';
+
+.challenge-privacy-dialog { --privacy-surface: var(--surface, #fffdf8); --privacy-ink: var(--ink, #18392e); --privacy-line: var(--line, #d8ded5); color: var(--privacy-ink); background: var(--privacy-surface); border: 1px solid var(--privacy-line); border-radius: 22px; padding: 0; width: min(740px, calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); margin: auto; box-shadow: 0 24px 80px #102e252e; overflow: hidden; font-family: var(--font-body, sans-serif); }
 .challenge-privacy-dialog::backdrop { background: #10282085; }
 .challenge-privacy-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px 16px; border-bottom: 1px solid var(--privacy-line); }
 .challenge-privacy-dialog h2 { font: 600 clamp(22px, 4vw, 30px)/1.2 var(--font-display, sans-serif); margin: 4px 0 0; }
@@ -7,12 +9,12 @@
 .privacy-scroll { padding: 20px 24px 28px; overflow: auto; max-height: calc(100dvh - 135px); overscroll-behavior: contain; }
 .challenge-privacy-dialog p, .challenge-privacy-dialog li { line-height: 1.55; overflow-wrap: anywhere; }
 .privacy-intro { margin: 0 0 22px; max-width: 60ch; }
-.challenge-privacy-dialog button { font: inherit; font-size: 14px; font-weight: 650; min-height: 44px; border: 1px solid var(--privacy-line); border-radius: 10px; padding: 10px 14px; background: var(--emerald, #16604c); color: var(--brand-on-primary, #fff); cursor: pointer; max-width: 100%; overflow-wrap: anywhere; }
+.challenge-privacy-dialog button { font: inherit; font-size: 14px; font-weight: 650; min-height: 44px; border: 1px solid var(--privacy-line); border-radius: 10px; padding: 10px 14px; background: var(--action-primary, #7b4a58); color: var(--action-on-primary, #fffdf8); cursor: pointer; max-width: 100%; overflow-wrap: anywhere; }
 .challenge-privacy-dialog button:disabled { opacity: .55; cursor: default; }
 .challenge-privacy-dialog .privacy-secondary, .challenge-privacy-dialog .privacy-close { background: transparent; color: var(--privacy-ink); }
 .challenge-privacy-dialog .privacy-close { flex: 0 0 44px; font-size: 26px; }
 .challenge-privacy-dialog .privacy-danger { background: #8d302a; color: white; }
-.challenge-privacy-dialog :is(button, input, select, textarea, summary):focus-visible { outline: 3px solid var(--brand-focus, #287d69); outline-offset: 3px; }
+.challenge-privacy-dialog :is(button, input, select, textarea, summary):focus-visible { outline: 3px solid var(--focus-color, #7b4a58); outline-offset: 3px; }
 .privacy-sections { display: grid; gap: 12px; margin-top: 22px; }
 .privacy-sections > details { border: 1px solid var(--privacy-line); border-radius: 14px; overflow: clip; }
 .challenge-privacy-dialog summary { padding: 16px; font-weight: 650; cursor: pointer; min-height: 44px; box-sizing: border-box; }
@@ -21,19 +23,26 @@
 .challenge-privacy-dialog fieldset { min-width: 0; border: 0; padding: 0; margin: 20px 0; display: grid; gap: 14px; }
 .challenge-privacy-dialog legend { font-weight: 650; margin-bottom: 10px; }
 .privacy-field { display: grid; gap: 7px; margin-block: 12px; font-size: 14px; font-weight: 600; min-width: 0; }
-.challenge-privacy-dialog :is(select, textarea, input:not([type=checkbox])) { width: 100%; box-sizing: border-box; min-height: 44px; min-width: 0; max-width: 100%; border: 1px solid var(--privacy-line); border-radius: 9px; background: var(--privacy-surface); color: var(--privacy-ink); font: inherit; font-size: 16px; padding: 10px; }
+.challenge-privacy-dialog :is(select, textarea, input:not([type=checkbox])) { width: 100%; box-sizing: border-box; min-height: 44px; min-width: 0; max-width: 100%; border: 1px solid var(--privacy-line); border-radius: var(--field-radius, 12px); background: var(--privacy-surface); color: var(--privacy-ink); font: inherit; font-size: 16px; padding: 10px; }
 .challenge-privacy-dialog textarea { resize: vertical; max-height: 220px; }
 .privacy-check { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
-.privacy-check input { width: 20px; height: 20px; flex: 0 0 20px; margin: 2px 0 0; accent-color: var(--emerald, #16604c); }
+.privacy-check input { width: 20px; height: 20px; flex: 0 0 20px; margin: 2px 0 0; accent-color: var(--action-primary, #7b4a58); }
 .privacy-check span { min-width: 0; overflow-wrap: anywhere; }
 .privacy-check small { display: block; color: var(--muted, #547467); margin-top: 7px; }
 .privacy-records { list-style: none; padding: 0; margin: 12px 0; }
 .privacy-records li { padding: 14px 0; border-bottom: 1px solid var(--privacy-line); }
 .privacy-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
-.privacy-notice, .privacy-error, .privacy-review { padding: 16px; border-radius: 12px; border: 1px solid var(--privacy-line); margin-block: 16px; background: var(--emerald-soft, #edf6ed); }
+.privacy-notice, .privacy-error, .privacy-review { padding: 16px; border-radius: 12px; border: 1px solid var(--privacy-line); margin-block: 16px; background: var(--action-primary-soft, #f1e2e3); }
 .privacy-error { background: #fff2eb; color: #702e23; }
 .privacy-notice code { overflow-wrap: anywhere; }
 .privacy-time-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .privacy-detail article + article { border-top: 1px solid var(--privacy-line); padding-top: 16px; margin-top: 18px; }
 @media (max-width: 480px) { .challenge-privacy-dialog > header { padding: 16px 14px; } .privacy-scroll { padding: 18px 14px 22px; max-height: calc(100dvh - 130px); } .privacy-time-grid { grid-template-columns: 1fr; } .privacy-detail { padding: 0 12px 16px; } .privacy-actions { flex-direction: column; } }
 @media (prefers-reduced-motion: reduce) { .challenge-privacy-dialog *, .challenge-privacy-dialog *::before, .challenge-privacy-dialog *::after { scroll-behavior: auto; transition: none; animation: none; } }
+
+.challenge-privacy-dialog button { border-radius: var(--control-radius, 999px); }
+
+.challenge-privacy-dialog[open] { display: flex; flex-direction: column; }
+.challenge-privacy-dialog > header { flex: 0 0 auto; }
+.privacy-scroll { min-height: 0; max-height: none; }
+.privacy-eyebrow, .privacy-sections > details > summary span { font-size: .8125rem; }

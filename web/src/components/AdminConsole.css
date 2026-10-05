@@ -1,0 +1,24 @@
+.admin-screen [hidden] { display: none; }
+.admin-screen { gap: 1rem; }
+.admin-heading h2 { font-size: clamp(1.7rem, 3vw, 2.4rem); }
+.admin-area-nav { display: flex; flex-wrap: wrap; gap: .45rem; }
+.admin-area-nav button { min-height: 44px; padding: .65rem .9rem; border: 1px solid var(--line); border-radius: .75rem; background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; }
+.admin-area-nav button[aria-pressed="true"] { background: var(--emerald); color: var(--brand-on-primary, var(--paper)); border-color: var(--emerald); }
+.admin-current-cohort { display: grid; gap: .4rem; max-width: 42rem; font-weight: 800; }
+.admin-current-cohort select { min-width: 0; width: 100%; min-height: 44px; padding: .65rem; border: 1px solid var(--line-strong); border-radius: .75rem; color: var(--ink); background: var(--paper); font: inherit; }
+.admin-invite-disclosure { grid-column: 1 / -1; }
+.admin-invite-disclosure > summary { min-height: 44px; cursor: pointer; padding: .4rem; font-weight: 800; }
+.admin-invite-disclosure > .admin-card-heading { margin-top: 1rem; }
+.admin-user-row { display: block; padding: 0; overflow: clip; }
+.admin-user-summary { display: grid; grid-template-columns: minmax(10rem, 1fr) auto auto; gap: .8rem; align-items: center; min-height: 64px; padding: .8rem 1rem; cursor: pointer; }
+.admin-user-summary > span { min-width: 0; overflow-wrap: anywhere; }
+.admin-user-summary strong, .admin-user-summary small { display: block; }
+.admin-user-summary small, .admin-user-summary > span:last-child { font-size: .85rem; color: var(--muted); }
+.admin-user-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 1rem; padding: 1rem; border-top: 1px solid var(--line); }
+.admin-screen button, .admin-screen select, .admin-screen input:not([type="checkbox"]) { min-height: 44px; }
+.admin-screen summary:focus-visible, .admin-screen button:focus-visible, .admin-screen input:focus-visible, .admin-screen select:focus-visible { outline: 3px solid var(--mauve); outline-offset: 3px; }
+@media (max-width: 900px) { .admin-user-detail { grid-template-columns: 1fr; } .admin-user-summary { grid-template-columns: minmax(0, 1fr) auto; } .admin-user-summary > span:last-child { grid-column: 1 / -1; } }
+@media (max-width: 620px) { .admin-user-summary { grid-template-columns: minmax(0, 1fr); gap: .35rem; } .admin-area-nav button { flex: 1 1 8rem; } .admin-user-toolbar { grid-template-columns: 1fr 1fr; } .admin-user-toolbar .search-field { grid-column: 1 / -1; } }
+.admin-roster-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; }
+.admin-roster-pages button { border: 1px solid var(--line); border-radius: .75rem; padding: .65rem .8rem; color: var(--ink); background: var(--paper-warm); font: inherit; cursor: pointer; }
+.admin-roster-pages button:disabled { opacity: .6; cursor: default; }

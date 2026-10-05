@@ -1,5 +1,7 @@
+@import './ParticipantControls.css';
+
 .baseline-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(20,39,38,.42); padding: 24px; display: grid; place-items: center; }
-.baseline-dialog { color: var(--ink); background: var(--surface,#fff); width: min(960px,100%); max-height: calc(100dvh - 48px); overflow-y: auto; overscroll-behavior: contain; border-radius: 20px; padding: 28px; box-shadow: 0 16px 60px rgba(20,39,38,.18); min-width: 0; }
+.baseline-dialog { color: var(--ink); background: var(--surface, #fffdf8); width: min(960px,100%); max-height: calc(100dvh - 48px); overflow-y: auto; overscroll-behavior: contain; border-radius: 20px; padding: 28px; box-shadow: 0 16px 60px rgba(20,39,38,.18); min-width: 0; }
 .baseline-dialog header { display: flex; align-items: flex-start; gap: 20px; justify-content: space-between; }
 .baseline-dialog h2 { font-size: clamp(1.4rem,3vw,2rem); margin: 4px 0 12px; }
 .baseline-dialog h3 { font-size: 1.2rem; }
@@ -8,12 +10,12 @@
 .baseline-dialog fieldset { border: 1px solid var(--line,#d6dfdd); border-radius: 12px; padding: 18px; margin: 20px 0; min-width: 0; }
 .baseline-dialog legend { font-weight: 700; padding: 0 6px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .baseline-dialog label { display: flex; flex-direction: column; gap: 7px; margin: 12px 0; min-width: 0; }
-.baseline-dialog input:not([type=checkbox]),.baseline-dialog select,.baseline-dialog textarea { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; border: 1px solid var(--line,#cad6d2); border-radius: 8px; padding: 9px 10px; background: #fff; color: var(--ink,#18312d); font: inherit; }
+.baseline-dialog input:not([type=checkbox]),.baseline-dialog select,.baseline-dialog textarea { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; border: 1px solid var(--line,#cad6d2); border-radius: var(--field-radius, 12px); padding: 9px 10px; background: var(--surface, #fffdf8); color: var(--ink,#18312d); font: inherit; }
 .baseline-dialog textarea { min-height: 80px; resize: vertical; }
-.baseline-dialog button { min-height: 44px; padding: 10px 14px; border: 1px solid var(--line,#cad6d2); border-radius: 8px; background: #fff; color: var(--ink,#18312d); font: inherit; font-weight: 600; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
+.baseline-dialog button { min-height: 44px; padding: 10px 14px; border: 1px solid var(--line,#cad6d2); border-radius: var(--field-radius, 12px); background: var(--surface, #fffdf8); color: var(--ink,#18312d); font: inherit; font-weight: 600; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
 .baseline-dialog button:disabled { opacity: .5; cursor: default; }
 .baseline-dialog .baseline-check { flex-direction: row; align-items: flex-start; padding: 10px 0; }
-.baseline-check input { flex: 0 0 20px; width: 20px; height: 20px; margin: 3px 0 0; accent-color: var(--forest,#245548); }
+.baseline-check input { flex: 0 0 20px; width: 20px; height: 20px; margin: 3px 0 0; accent-color: var(--action-primary, #7b4a58); }
 .baseline-check span { min-width: 0; }
 .baseline-check small { display: block; margin-top: 4px; }
 .baseline-fields,.baseline-totals { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
@@ -21,7 +23,7 @@
 .baseline-totals dt { color: var(--muted,#51665e); font-size: .88rem; }
 .baseline-totals dd { font-size: 1.3rem; font-weight: 700; margin: 8px 0 0; overflow-wrap: anywhere; }
 .baseline-approved,.baseline-preview { margin: 20px 0; }
-.baseline-limit,.baseline-error { background: #f1f5f1; border: 1px solid #d6e0d6; border-radius: 10px; padding: 14px; margin: 14px 0; }
+.baseline-limit,.baseline-error { background: var(--surface-muted, #f6efe6); border: 1px solid var(--border-subtle, #dfd3c5); border-radius: 10px; padding: 14px; margin: 14px 0; }
 .baseline-error { background: #fff5ec; }
 .baseline-dialog details { border-top: 1px solid var(--line,#d6dfdd); padding: 14px 0; }
 .baseline-dialog summary { cursor: pointer; font-weight: 600; min-height: 44px; display: list-item; align-content: center; overflow-wrap: anywhere; }
@@ -40,3 +42,6 @@
  box-sizing: border-box;
  contain: paint;
 }
+
+.baseline-dialog button { border-radius: var(--control-radius, 999px); }
+.baseline-dialog button[type=submit] { background: var(--action-primary, #7b4a58); border-color: var(--action-primary, #7b4a58); color: var(--action-on-primary, #fffdf8); }

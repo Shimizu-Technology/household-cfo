@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { sourceLocator, sourceMoney, type SourceEvent } from '../lib/sourceReview'
+import { sourceBasisLabel, sourceDispositionLabel, sourceLocator, sourceMoney, sourceOverlapLabel, sourceTypeLabel, type SourceEvent } from '../lib/sourceReview'
 import type { ParticipantSourceReview, ReviewedFacts, SourceReviewAction } from '../lib/participantSourceReview'
 
 type Mutation = (action: SourceReviewAction, input: object) => Promise<boolean>
@@ -84,7 +84,7 @@ export function StatementBatchReview({ events, selected, context, mutate, disabl
   if (!rows.length) return null
   return <section className="source-batch-review" aria-label="Review explicitly selected rows">
     <h6>{rows.length} explicitly selected rows on this page</h6>
-    <p>Only these row identities will be submitted, one at a time. No spending is created by batch staging. Unknown or informational rows require individual review; nothing is silently classified or dropped.</p>
+    <p>Only your selected rows will be submitted, one at a time. Saving these proposals does not add spending. Unknown or informational rows require individual review; nothing is silently classified or dropped.</p>
     <form className="source-review-form"><fieldset disabled={disabled}><legend>Review each exact row</legend>
       <label>Spending category for selected purchase proposals<select value={category} onChange={(event) => setCategory(event.target.value)}>
         <option value="keep">Keep each row’s reviewed category</option><option value="">Explicitly uncategorized</option>
@@ -97,19 +97,24 @@ export function StatementBatchReview({ events, selected, context, mutate, disabl
         const stalePending = Boolean(pending && (facts.source_account_identity_version_id !== item.identity?.id || pending.recognized_account?.current === false))
         return <article className="source-link-member" key={item.event.id}>
           <strong>Source row {item.event.position + 1}</strong>
-          <p>Current reviewed account: {item.identity?.tracked_account.label ?? 'Account not reviewed'} · {item.identity?.tracked_account.account_basis ?? 'unknown basis'} · version {item.identity?.version_number ?? 'unknown'} · identity ID {item.identity?.id ?? 'unknown'}</p>
-          {pending && <p>Saved proposal account identity ID {facts.source_account_identity_version_id}{pending.recognized_account ? ` · ${pending.recognized_account.label} · ${pending.recognized_account.account_basis}` : ''}{stalePending ? ' · differs from the current reviewed account and requires individual review before approval.' : ' · matches the current reviewed account.'}</p>}
-          <p>{facts.disposition} · {facts.event_type.replaceAll('_', ' ')} · {facts.merchant ?? 'Merchant unknown'} · {sourceMoney(facts.signed_amount_cents, true)} · {facts.posted_on ?? 'Date unknown'} · Authorized {facts.authorized_on ?? 'unknown'} · Complete purchase {sourceMoney(facts.purchase_amount_cents)}</p>
-          <p>Category: {context.categories.find((category) => category.id === facts.budget_category_id)?.name ?? 'Explicitly uncategorized'} · Overlap: {facts.overlap_disposition} · Reference: {facts.external_reference ?? 'none'} · Spending: {projection === 'none' ? `unchanged${item.row?.approved?.actual ? ` at ${sourceMoney(item.row.approved.actual.amount_cents)}` : ' (none recorded)'}` : projection === 'void' ? `remove existing ${sourceMoney(item.row?.approved?.actual?.amount_cents ?? null)}` : `${projection === 'replace' ? `replace existing ${sourceMoney(item.row?.approved?.actual?.amount_cents ?? null)} with` : 'create'} ${sourceMoney(facts.purchase_amount_cents)} on ${facts.posted_on ?? 'unknown date'}`} · Canonical target: {facts.matched_version_id ?? 'none'}</p>
-          {pending?.matched_target && <p>Matched source: {pending.matched_target.source?.filename ?? 'Retained source'} · {sourceLocator({ locator: pending.matched_target.source?.locator ?? {} } as SourceEvent)} · {pending.matched_target.recognized_account?.label ?? 'Account unknown'} · {pending.matched_target.facts.merchant} · {sourceMoney(pending.matched_target.facts.signed_amount_cents, true)} · {pending.matched_target.facts.posted_on} · version {pending.matched_target.version_number}</p>}
+          <p>Current reviewed account: {item.identity?.tracked_account.label ?? 'Account not reviewed'} · {sourceBasisLabel(item.identity?.tracked_account.account_basis)}</p>
+          {pending && <p className={stalePending ? 'source-row-review-status' : undefined}>Saved proposal account: {pending.recognized_account?.label ?? 'Account details unavailable'}{stalePending ? ' · differs from the current reviewed account and requires individual review before approval.' : ' · matches the current reviewed account.'}</p>}
+          <p>{sourceDispositionLabel(facts.disposition)} · {sourceTypeLabel(facts.event_type)} · {facts.merchant ?? 'Merchant unknown'} · {sourceMoney(facts.signed_amount_cents, true)} · {facts.posted_on ?? 'Date unknown'} · Complete purchase {sourceMoney(facts.purchase_amount_cents)}</p>
+          <p>Category: {context.categories.find((category) => category.id === facts.budget_category_id)?.name ?? 'Explicitly uncategorized'} · Duplicate check: {sourceOverlapLabel(facts.overlap_disposition)} · Spending: {projection === 'none' ? `unchanged${item.row?.approved?.actual ? ` at ${sourceMoney(item.row.approved.actual.amount_cents)}` : ' (none recorded)'}` : projection === 'void' ? `remove existing ${sourceMoney(item.row?.approved?.actual?.amount_cents ?? null)}` : `${projection === 'replace' ? `replace existing ${sourceMoney(item.row?.approved?.actual?.amount_cents ?? null)} with` : 'create'} ${sourceMoney(facts.purchase_amount_cents)} on ${facts.posted_on ?? 'unknown date'}`}</p>
+          {pending?.matched_target && <p>Matched source: {pending.matched_target.source?.filename ?? 'Retained source'} · {sourceLocator({ locator: pending.matched_target.source?.locator ?? {} } as SourceEvent)} · {pending.matched_target.recognized_account?.label ?? 'Account unknown'} · {pending.matched_target.facts.merchant} · {sourceMoney(pending.matched_target.facts.signed_amount_cents, true)} · {pending.matched_target.facts.posted_on}</p>}
           {pending && <p>Saved review note: {pending.reason}</p>}
+          <details className="source-review-technical"><summary>Review record details</summary>
+            <p>Current account review: version {item.identity?.version_number ?? 'unknown'} · identity ID {item.identity?.id ?? 'unknown'}. Saved facts account identity ID: {facts.source_account_identity_version_id}.</p>
+            <p>Authorized: {facts.authorized_on ?? 'Unknown'} · Statement reference: {facts.external_reference ?? 'None'} · Matched approved row ID: {facts.matched_version_id ?? 'None'}.</p>
+            {pending?.matched_target && <p>Matched approved version: {pending.matched_target.version_number}.</p>}
+          </details>
         </article>
       })}
       <label>Selected-row review note<input maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
       <label className="source-review-check"><input type="checkbox" checked={checked} onChange={(event) => setConfirmation(event.target.checked ? reviewContext : null)} />I checked every displayed account, classification, date, signed amount, complete purchase and spending effect for these selected rows.</label>
       <div className="source-review-pagination">
         <button type="button" disabled={!checked || !reason.trim() || !stageReady} onClick={() => { void run('stage') }}>Save selected row proposals</button>
-        <button type="button" disabled={!checked || !approveReady} onClick={() => { void run('approve') }}>Approve selected saved proposals</button>
+        <button type="button" className="source-review-primary" disabled={!checked || !approveReady} onClick={() => { void run('approve') }}>Approve selected saved proposals</button>
       </div>
       {!stageReady && !approveReady && <p>Use individual review to resolve missing facts, account identity or mixed pending states before a batch action.</p>}
     </fieldset></form>{status && <p role="status">{status}</p>}

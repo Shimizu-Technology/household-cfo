@@ -17,17 +17,52 @@ module Api
 
       before_action :authenticate_user!
 
+      def index
+        before_id = params[:before_id].presence
+        if before_id && !before_id.to_s.match?(/\A[1-9]\d*\z/)
+          return render json: { errors: [ "Report page is not valid" ] }, status: :unprocessable_entity
+        end
+        reports = own_reports.order(id: :desc)
+        reports = reports.where("id < ?", before_id.to_i) if before_id
+        page = reports.limit(21).to_a
+        render json: { feedback_reports: page.first(20).map { |report| serialize_report(report) }, next_cursor: page.length > 20 ? page[19].id : nil }
+      end
+
+      def withdraw_support_access
+        report = own_reports.find(params[:id])
+        ApplicationRecord.transaction do
+          report.lock!
+          unless report.support_sharing_revoked_at
+            report.update!(support_sharing_revoked_at: Time.current)
+            current_household.household_audit_events.create!(user: current_user, actor_type: "user",
+              event_type: "pilot_feedback_report.support_access_withdrawn", auditable_type: "PilotFeedbackReport", auditable_id: report.id,
+              metadata: {}, occurred_at: Time.current)
+          end
+        end
+        render json: { feedback_report: serialize_report(report) }
+      rescue ActiveRecord::RecordNotFound
+        render json: { errors: [ "This report is not available to your account" ] }, status: :not_found
+      rescue ActiveRecord::ActiveRecordError
+        render json: { errors: [ "Support access could not be withdrawn. Please try again." ] }, status: :service_unavailable
+      end
+
       def create
         report = nil
         stored_screenshot_key = nil
         screenshot = params[:screenshot]
+        values = feedback_params
+        consent = values.delete(:share_with_support).in?([ true, "true", "1" ])
+        if ChallengePrivacy::PrivateFinanceAccess.pilot_household?(current_household) && !consent
+          return render json: { errors: [ "Choose whether to share this technical report with app support before submitting. Your report was not sent." ] }, status: :unprocessable_entity
+        end
         screenshot_error = validate_screenshot(screenshot)
         return render json: { errors: [ screenshot_error ] }, status: :unprocessable_entity if screenshot_error
 
         begin
           ApplicationRecord.transaction do
             report = current_household.pilot_feedback_reports.create!(
-              feedback_params.merge(user: current_user)
+              values.merge(user: current_user, support_sharing_approved_at: consent ? Time.current : nil,
+                support_sharing_policy_version: consent ? PilotFeedbackReport::SUPPORT_SHARING_POLICY_VERSION : nil)
             )
 
             if screenshot.present?
@@ -64,8 +99,11 @@ module Api
 
       private
 
+      def own_reports = current_household.pilot_feedback_reports.where(user: current_user)
+
       def feedback_params
-        params.require(:feedback_report).permit(:workflow, :attempted, :expected, :actual)
+        raise ActionController::ParameterMissing, :feedback_report unless params[:feedback_report].is_a?(ActionController::Parameters)
+        params.require(:feedback_report).permit(:workflow, :attempted, :expected, :actual, :share_with_support)
       end
 
       def validate_screenshot(file)
@@ -123,7 +161,7 @@ module Api
           event_type: "pilot_feedback_report.submitted",
           auditable_type: "PilotFeedbackReport",
           auditable_id: report.id,
-          metadata: { workflow: report.workflow, screenshot_attached: report.screenshot? },
+          metadata: { workflow: report.workflow, screenshot_attached: report.screenshot? }.merge(report.support_sharing_granted? ? { support_sharing_policy_version: report.support_sharing_policy_version, support_scope: "report_text_and_optional_screenshot" } : {}),
           occurred_at: Time.current
         )
       rescue ActiveRecord::RecordInvalid => e
@@ -136,7 +174,9 @@ module Api
           workflow: report.workflow,
           screenshot_attached: report.screenshot?,
           status: report.status,
-          created_at: report.created_at
+          created_at: report.created_at,
+          support_sharing_granted: report.support_sharing_granted?,
+          support_access_available: report.support_access_available?
         }
       end
     end

@@ -52,3 +52,28 @@ test('BOG UI participant unavailable program needs explicit alternative selectio
   await expect(page.getByText('Explicit program choice: 3')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
+
+test('BOG UI participant program picker rejects another actor before exposing an alternative choice', async ({ page }) => {
+  let reads = 0
+  await page.route('**/api/v1/participant_programs**', async route => {
+    const actorId = ++reads === 1 ? 8 : 7
+    await route.fulfill({ json: {
+      actor_id: actorId,
+      current_cohort_id: null,
+      current_program: null,
+      selection_unavailable: true,
+      programs: [{ id: 3, name: 'Fictional alternative', status: 'active' }],
+      next_cursor: null,
+    } })
+  })
+  await page.goto('/program-picker-qa.html')
+  await expect(page.getByRole('alert')).toContainText('Program choices belong to a different account')
+  await expect(page.getByRole('button', { name: 'Use Fictional alternative' })).toHaveCount(0)
+  await expect(page.getByRole('combobox')).toHaveCount(0)
+  await expect(page.getByText('No explicit program choice yet.')).toBeVisible()
+  await page.getByRole('button', { name: 'Retry program choices' }).click()
+  await expect(page.getByText(/selected program is unavailable/)).toBeVisible()
+  await expect(page.getByText('No explicit program choice yet.')).toBeVisible()
+  await page.getByRole('button', { name: 'Use Fictional alternative' }).click()
+  await expect(page.getByText('Explicit program choice: 3')).toBeVisible()
+})

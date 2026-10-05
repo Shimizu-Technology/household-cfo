@@ -39,6 +39,7 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
 }) {
   const { activeCoachWorkspaceId } = useAuthContext()
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
+  const [libraryArea, setLibraryArea] = useState<'sources' | 'items' | 'packs'>('sources')
   const [items, setItems] = useState<AdminContentItem[]>([])
   const [packs, setPacks] = useState<AdminContentPack[]>([])
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
@@ -115,6 +116,7 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
   const selectedPack = packs.find((pack) => pack.id === selectedPackId) ?? null
 
   function openAcceptedItem(itemId: number) {
+    setLibraryArea('items')
     setPendingReviewItemId(null)
     setSelectedItemId(itemId)
     setItemReviewRequest((value) => value + 1)
@@ -146,6 +148,8 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
         </ul>
       </div>
 
+      <nav className="coach-library-areas" aria-label="Coaching library workflow">{(['sources', 'items', 'packs'] as const).map((area) => <button type="button" key={area} disabled={busy || mutationLifecycle.pending} aria-pressed={libraryArea === area} onClick={() => setLibraryArea(area)}>{({ sources: 'Private sources', items: 'Teaching items', packs: 'Published collections' })[area]}</button>)}</nav>
+      <div hidden={libraryArea !== 'sources'}>
       <CoachContentSources
         currentUser={currentUser}
         selectedPersona={selectedPersona}
@@ -159,10 +163,11 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
         onPersonaChange={onPersonaChange}
       />
 
-      {pendingReviewItemId !== null && <div className="coach-content-alert is-error" role="alert"><span>You have unsaved content item edits.</span><button type="button" onClick={() => { setPendingReviewItemId(null); setItemFocusRequest((value) => value + 1) }}>Keep editing</button><button type="button" onClick={() => openAcceptedItem(pendingReviewItemId)}>Discard and review draft</button></div>}
+      </div>
+      {pendingReviewItemId !== null && <div className="coach-content-alert is-error" role="alert"><span>You have unsaved content item edits.</span><button type="button" onClick={() => { setPendingReviewItemId(null); setLibraryArea('items'); setItemFocusRequest((value) => value + 1) }}>Keep editing</button><button type="button" onClick={() => openAcceptedItem(pendingReviewItemId)}>Discard and review draft</button></div>}
 
       <div className="coach-content-grid">
-        <ContentItemsPanel
+        <div hidden={libraryArea !== 'items'}><ContentItemsPanel
           currentUser={currentUser}
           platformMode={platformMode}
           items={items}
@@ -180,7 +185,8 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
             return approved
           }}
         />
-        <ContentPacksPanel
+        </div>
+        <div hidden={libraryArea !== 'packs'}><ContentPacksPanel
           currentUser={currentUser}
           platformMode={platformMode}
           packs={packs}
@@ -193,6 +199,7 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
           onSave={(pack, values) => mutate(async () => { await updateAdminContentPack(pack.id, { ...values, draft_revision: pack.draft_revision ?? 0 }) }, 'Pack draft saved. Its published version has not changed.')}
           onPublish={(pack) => mutate(async () => { await publishAdminContentPack(pack.id, { draft_revision: pack.draft_revision ?? 0, draft_manifest_digest: pack.draft_manifest_digest ?? '', expected_published_version_id: pack.current_published_version?.id ?? null }) }, `${pack.name} is published as an immutable version.`)}
         />
+        </div>
       </div>
     </section>
   )

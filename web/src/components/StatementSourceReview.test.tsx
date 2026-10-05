@@ -84,3 +84,16 @@ it('renders real PDF nullable sheet coverage without treating it as an error', a
   mount(); await screen.findByText(/137 source rows/); fireEvent.click(screen.getByText('Account balances, period & extraction coverage'))
   expect(screen.getByText(/0 processed \/ unknown expected/)).toBeTruthy()
 })
+
+
+it('omits paging actions when all matching rows fit on one page', async () => {
+  const data = sourceReviewFixture()
+  data.events = data.events.slice(0, 1)
+  data.counts.all = 1
+  data.pagination = { ...data.pagination, total_count: 1, total_pages: 1, has_next: false }
+  fetchReview.mockResolvedValue(data)
+  mount()
+  await screen.findByText('Fictional entry 1')
+  expect(screen.queryByRole('navigation', { name: 'Statement row pagination' })).toBeNull()
+  expect(screen.getByRole('combobox', { name: 'Filter statement rows' })).toBeTruthy()
+})

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -251,6 +251,22 @@ describe('AccountManager', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })))
     view.rerender(<AccountManager accounts={[reconciled]} portfolio={portfolio} onChanged={onChanged} />)
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' }))
+    expect(apiMocks.reconcilePlaidAccount).toHaveBeenCalledWith(1, decision, expect.any(String))
+  })
+
+  it.each(['accept_observed', 'keep_saved'] as const)('returns focus after pointer %s without native button focus', async (decision) => {
+    const original = account({ balance: 100, plaid_link: {
+      plaid_account_id: 8, institution_name: 'Island Bank', name: 'Checking', mask: '1234',
+      current_balance: 120, available_balance: 110, observed_at: '2026-10-01T00:00:00Z',
+      active: true, observation_newer_than_saved: true,
+    } })
+    apiMocks.reconcilePlaidAccount.mockResolvedValue(original)
+    const onChanged = vi.fn().mockResolvedValue(undefined)
+    render(<><input aria-label="Previous field" /><AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} /></>)
+    screen.getByRole('textbox', { name: 'Previous field' }).focus()
+    fireEvent.click(screen.getByRole('button', { name: decision === 'accept_observed' ? 'Accept bank balance' : 'Keep saved' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })))
     expect(apiMocks.reconcilePlaidAccount).toHaveBeenCalledWith(1, decision, expect.any(String))
   })
 

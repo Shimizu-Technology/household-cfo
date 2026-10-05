@@ -64,6 +64,26 @@ export function sourceMoney(cents: number | null | undefined, signed = false): s
   return `${signed && cents > 0 ? '+' : ''}${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)}`
 }
 
+export function sourceTypeLabel(type: SourceEvent['event_type']): string {
+  return {
+    purchase: 'Purchase', fee: 'Fee', refund: 'Refund', income: 'Income / deposit', transfer: 'Transfer',
+    debt_payment: 'Card / debt payment', cash_withdrawal: 'Cash withdrawal', interest: 'Interest',
+    adjustment: 'Adjustment', unknown: 'Unknown — needs review',
+  }[type]
+}
+
+export function sourceOverlapLabel(value: string): string {
+  return ({ new: 'No known overlap', distinct: 'Checked as a separate movement', canonical: 'Use this copy', match: 'Matches an approved copy', excluded: 'Excluded' } as Record<string, string>)[value] ?? value.replaceAll('_', ' ')
+}
+
+export function sourceDispositionLabel(value: string): string {
+  return ({ include: 'Include movement', match: 'Match approved duplicate', exclude: 'Exclude movement', informational: 'Information only' } as Record<string, string>)[value] ?? value.replaceAll('_', ' ')
+}
+
+export function sourceBasisLabel(value: string | undefined): string {
+  return value === 'asset' ? 'Bank / wallet' : value === 'liability' ? 'Card / debt' : 'Account type unknown'
+}
+
 export function sourceEventLabel(event: SourceEvent): string {
   if (event.row_kind === 'informational') return 'Informational · excluded from movements'
   if (event.row_kind === 'unresolved') return 'Unresolved · needs clarification'
