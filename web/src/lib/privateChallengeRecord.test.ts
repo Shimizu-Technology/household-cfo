@@ -16,3 +16,20 @@ it('never converts unknown savings to zero or includes feelings without explicit
   record.optional_reflections_included = true
   expect(printableChallengeRecord(record)).toContain('secret feeling')
 })
+
+it('keeps current checkpoints separate from all approved revisions without exposing IDs or optional feelings', () => {
+  const record = fixture()
+  record.daily!.checkpoint_versions![0].approved_at = '2026-11-03T10:00:00Z'
+  record.daily!.checkpoint_versions![1].approved_at = '2026-11-04T10:00:00Z'
+  record.daily!.checkpoint_versions![0].feeling_then = 'private checkpoint feeling'
+  const html = printableChallengeRecord(record)
+  const current = html.split('<h2>Current approved checkpoints</h2>')[1].split('<h2>Approved checkpoint revision history</h2>')[0]
+  const history = html.split('<h2>Approved checkpoint revision history</h2>')[1].split('<h2>Savings revision history</h2>')[0]
+  expect(current).toContain('Day 30'); expect(current).toContain('<td>2</td>')
+  expect(current).toContain('2026-11-04T10:00:00Z'); expect(current).not.toContain('2026-11-03T10:00:00Z')
+  expect(history).toContain('<td>1</td>'); expect(history).toContain('<td>2</td>')
+  expect(history).toContain('2026-11-03T10:00:00Z'); expect(history).toContain('2026-11-04T10:00:00Z')
+  expect(history).toContain('history is not additional progress or savings')
+  expect(html).not.toContain('<td>30</td>'); expect(html).not.toContain('<td>31</td>')
+  expect(html).not.toContain('secret feeling'); expect(html).not.toContain('private checkpoint feeling')
+})

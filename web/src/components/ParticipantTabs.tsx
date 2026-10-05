@@ -226,12 +226,12 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
                   key={section}
                   href={sectionHref(section)}
                   className={activeSection === section ? 'active' : ''}
-                  aria-label={section}
+                  aria-label={sectionLabel(section)}
                   aria-current={activeSection === section ? 'page' : undefined}
                   onClick={(event) => chooseSection(event, section)}
                 >
                   <span>
-                    <strong>{section}</strong>
+                    <strong>{sectionLabel(section)}</strong>
                     <small>{sectionDescriptions[section] ?? `Open this ${brand.short_name} workspace.`}</small>
                   </span>
                   <ArrowIcon />

@@ -160,6 +160,9 @@ it('keeps approved Home compact, preserves a collapsed entry draft and omits one
   const fixture = savingsFixture(); fixture.accepted_plan = { ...savingsPlanDraft(), id: 21, target_cents: 50000 } as unknown as NonNullable<typeof fixture.accepted_plan>
   fixture.enrollment!.current_accepted_plan_version_id = 21
   fetchChallenge.mockResolvedValue(fixture)
+  const entries = [{ id: 41, lock_version: 1, current_approved_version_id: 51, current_approved_version: savingsEntryVersion() }]
+  let finishHistory!: (rows: typeof entries) => void
+  fetchPage.mockImplementation(async collection => ({ records: collection === 'entries' ? await new Promise<typeof entries>(resolve => { finishHistory = resolve }) : [], next_cursor: null }))
   render(view()); await screen.findByRole('button', { name: 'Report savings' })
   const entry = screen.getByText('Report savings', { selector: 'summary' }).closest('details')!
   const target = screen.getByText('Target & spending choices', { selector: 'summary' }).closest('details')!
@@ -170,6 +173,13 @@ it('keeps approved Home compact, preserves a collapsed entry draft and omits one
   fireEvent.click(entry.querySelector('summary')!)
   fireEvent.click(entry.querySelector('summary')!)
   expect(amount.value).toBe('12.34')
+  const approved = screen.getByText('Your approved records & corrections', { selector: 'summary' }).closest('details')!
+  fireEvent.click(approved.querySelector('summary')!)
+  const history = screen.getByRole('region', { name: 'Savings history', hidden: true })
+  expect(within(history).getByText('Loading savings history…')).toBeTruthy()
+  await act(async () => finishHistory(entries))
+  await waitFor(() => expect(screen.queryAllByText(/^Loading .*…$/)).toHaveLength(0))
+  expect(within(history).getByRole('button', { name: 'Correct record #41' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Previous records' })).toBeNull()
   expect(api.stageSavingsEntry).not.toHaveBeenCalled()
 })

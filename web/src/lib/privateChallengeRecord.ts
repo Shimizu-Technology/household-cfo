@@ -21,6 +21,8 @@ export function printableChallengeRecord(record: PrivateChallengeRecord): string
   const currentEntries = new Set(record.current_entries?.map(row => row.current_approved_version_id) ?? [])
   const entries = record.savings?.entry_versions ?? []
   const currentCheckpoints = new Set(record.current_daily_records?.checkpoints?.map(row => row.current_version_id) ?? [])
+  const checkpoints = record.daily?.checkpoint_versions ?? []
+  const checkpointRows = (rows: Array<Record<string, unknown>>) => rows.map(row => [`Day ${row.milestone_day}`, row.version_number, row.approved_at])
   const plans = record.savings?.plan_versions ?? []
   const target = plans.find(plan => plan.id === record.enrollment.current_accepted_plan_version_id)
   const known = record.projection?.reporting_known === true
@@ -33,7 +35,8 @@ export function printableChallengeRecord(record: PrivateChallengeRecord): string
   <p>Self-reports are not bank verification. Supported savings are part of the reported reserve, not additional savings. Plans and pending proposals do not count as savings.</p>
   <h2>Current approved savings records</h2>${table(['Date', 'Amount', 'Money source', 'Reason'], entryRows(entries.filter(row => currentEntries.has(Number(row.id)))))}
   <h2>Approved target history</h2>${table(['Revision', 'Target', 'Approved', 'Reason'], plans.map(row => [row.version_number, row.target_cents === null ? 'Choosing later' : money(row.target_cents), row.approved_at, row.reason || '—']))}
-  <h2>Current approved checkpoints</h2>${table(['Checkpoint', 'Revision', 'Approved'], (record.daily?.checkpoint_versions ?? []).filter(row => currentCheckpoints.has(Number(row.id))).map(row => [`Day ${row.milestone_day}`, row.version_number, row.approved_at]))}
+  <h2>Current approved checkpoints</h2>${table(['Checkpoint', 'Revision', 'Approved'], checkpointRows(checkpoints.filter(row => currentCheckpoints.has(Number(row.id)))))}
+  <h2>Approved checkpoint revision history</h2><p>Earlier approved revisions are retained for corrections. Only each checkpoint’s current revision represents its current approved state; history is not additional progress or savings.</p>${table(['Checkpoint', 'Revision', 'Approved'], checkpointRows(checkpoints))}
   <h2>Savings revision history</h2><p>Earlier versions are retained for corrections and are not additional savings.</p>${table(['Date', 'Amount', 'Money source', 'Reason'], entryRows(entries))}
   ${reflections}<p>Original statements, chat, pending proposals and other participants are excluded. This readable record summarizes the approved history; choose the structured JSON export for the complete detailed record. Removing information from the app cannot recall downloaded copies.</p>
   </body></html>`
