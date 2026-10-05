@@ -72,6 +72,7 @@ module HouseholdFinance
           liquid_assets_known: liquid_assets_known
         },
         financial_accounts: financial_accounts_context,
+        income_sources: income_context,
         debts: debt_context,
         tracked_goals: tracked_goals_context,
         expense_stack_totals: expense_stack_totals,
@@ -181,6 +182,17 @@ module HouseholdFinance
           }
         end
       }
+    end
+
+    def income_context
+      SavedIncomeInventory.new(household, on: snapshot_reference_date).call.tap do |inventory|
+        inventory[:records].each do |source|
+          source[:label] = sanitized_text(source[:label], max_length: 120)
+          source[:schedule_entries].each do |entry|
+            entry[:label] = sanitized_text(entry[:label], max_length: 80) if entry[:label]
+          end
+        end
+      end
     end
 
     def tracked_goals_context
