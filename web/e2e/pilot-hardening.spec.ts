@@ -8254,7 +8254,7 @@ test('Coach Studio program groups add participants without mistaking failed emai
   await page.getByLabel('Group name', { exact: true }).fill('Island weekend group revised')
   await page.getByRole('button', { name: 'Save group', exact: true }).click()
   await expect(accessPanel.getByRole('status').filter({ hasText: 'Group saved' })).toBeVisible()
-  await page.locator('.coach-group-settings').getByText('Add a participant', { exact: true }).click()
+  await openDetails(page, /^Add a participant$/)
   await page.getByLabel('Participant email', { exact: true }).fill('new-participant@example.test')
   await page.getByRole('button', { name: 'Add to Island weekend group revised', exact: true }).click()
   await expect(accessPanel.getByRole('status').filter({ hasText: 'Participant added, but the invitation email failed' })).toBeVisible()
@@ -8458,7 +8458,10 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await page.getByRole('button', { name: 'Review imports', exact: true }).click()
   await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
   await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
+  await page.getByRole('button', { name: 'Tools', exact: true }).click()
   await expect(page.getByRole('link', { name: 'Statements', exact: true })).toHaveAttribute('aria-current', 'page')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Tools', exact: true })).toHaveAttribute('aria-expanded', 'false')
   await page.getByLabel('Filter by status').selectOption('needs_review')
   await expect(page.locator('.document-history-card').filter({ hasText: 'QA-partial.pdf' })).toBeVisible()
   await openSection(page, 'My Profile')
@@ -9389,7 +9392,7 @@ async function openDaily(page:Page,options:{known?:boolean;source?:boolean;uncer
   })
   // Native font completion prevents a late layout shift at the mobile navigation click.
   await page.evaluate(() => document.fonts.ready)
-  const trigger=page.getByRole('button',{name:'Today & checkpoints',exact:true});await trigger.click();const dialog=page.getByRole('dialog',{name:'Today & checkpoints',exact:true});await expect(dialog.getByRole('combobox',{name:'Spending state',exact:true})).toBeVisible();return{dialog,trigger,calls,revoke:()=>{revoked=true}}
+  const trigger=page.getByRole('navigation',{name:'Household CFO participant sections'}).getByRole('button',{name:'Today',exact:true});await trigger.click();const dialog=page.getByRole('dialog',{name:'Today & checkpoints',exact:true});await expect(dialog.getByRole('combobox',{name:'Spending state',exact:true})).toBeVisible();return{dialog,trigger,calls,revoke:()=>{revoked=true}}
 }
 async function dailyManual(dialog:ReturnType<Page['getByRole']>,merchant='Fictional lunch') {await dialog.getByRole('button',{name:'Add a purchase',exact:true}).click();await dialog.getByLabel('Where did you buy it?').fill(merchant);await dialog.getByLabel('Purchase amount (USD)').fill('12.50');await dialog.getByRole('combobox',{name:'Category 1',exact:true}).selectOption('20');await dialog.getByRole('checkbox',{name:/I reviewed this date, merchant, exact amount/}).check();await dialog.getByRole('button',{name:'Save purchase preview',exact:true}).click()}
 async function dailyFits(dialog:ReturnType<Page['getByRole']>) {const size=await dialog.evaluate(root=>({scroll:root.scrollWidth,client:root.clientWidth}));expect(size.scroll,JSON.stringify(size)).toBeLessThanOrEqual(size.client+1)}
