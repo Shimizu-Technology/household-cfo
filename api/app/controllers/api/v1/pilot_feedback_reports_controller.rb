@@ -51,7 +51,7 @@ module Api
         stored_screenshot_key = nil
         screenshot = params[:screenshot]
         values = feedback_params
-        consent = params[:feedback_report][:share_with_support].in?([ true, "true", "1" ])
+        consent = values.delete(:share_with_support).in?([ true, "true", "1" ])
         if ChallengePrivacy::PrivateFinanceAccess.pilot_household?(current_household) && !consent
           return render json: { errors: [ "Choose whether to share this technical report with app support before submitting. Your report was not sent." ] }, status: :unprocessable_entity
         end
@@ -103,7 +103,7 @@ module Api
 
       def feedback_params
         raise ActionController::ParameterMissing, :feedback_report unless params[:feedback_report].is_a?(ActionController::Parameters)
-        params.require(:feedback_report).permit(:workflow, :attempted, :expected, :actual)
+        params.require(:feedback_report).permit(:workflow, :attempted, :expected, :actual, :share_with_support)
       end
 
       def validate_screenshot(file)

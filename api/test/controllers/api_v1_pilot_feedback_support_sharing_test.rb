@@ -131,11 +131,12 @@ class ApiV1PilotFeedbackSupportSharingTest < ActionDispatch::IntegrationTest
       original.bind_call(self, *args)
     end
     begin
-      patch "/api/v1/admin/pilot_feedback_reports/#{report.id}", params: { feedback_report: { status: "reviewed" } }, headers: auth(@admin), as: :json
+      assert_no_difference("HouseholdAuditEvent.count") do
+        patch "/api/v1/admin/pilot_feedback_reports/#{report.id}", params: { feedback_report: { status: "reviewed" } }, headers: auth(@admin), as: :json
+      end
       assert_response :not_found
       refute_includes response.body, report.attempted
       assert_equal "submitted", report.reload.status
-      assert_no_difference("HouseholdAuditEvent.count") { report.reload }
     ensure
       PilotFeedbackReport.define_method(:lock!, original)
     end
