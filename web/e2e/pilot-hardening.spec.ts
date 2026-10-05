@@ -8386,8 +8386,13 @@ async function openAuthenticatedSource(page: Page, type: 'image' | 'pdf', settin
     return route.fulfill({ contentType: mime, body: bytes })
   })
   await page.goto('/?pilot_e2e_role=participant#My%20Profile')
-  await page.getByRole('button', { name: 'Preview original', exact: true }).click()
-  return { dialog: page.getByRole('dialog', { name: `Preview ${filename}`, exact: true }), contentReads, filename }
+  const preview = page.getByRole('button', { name: 'Preview original', exact: true })
+  await expect(preview).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  await preview.click()
+  const dialog = page.getByRole('dialog', { name: `Preview ${filename}`, exact: true })
+  await expect(dialog).toBeVisible()
+  return { dialog, contentReads, filename }
 }
 
 test('BOG UI private source image uses Blob bytes and fresh authenticated download instead of metadata URLs', async ({ page }) => {
