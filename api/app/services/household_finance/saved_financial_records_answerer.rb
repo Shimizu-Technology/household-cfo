@@ -15,7 +15,7 @@ module HouseholdFinance
       goals: /\b(?:goals?)\b/i
     }.freeze
     READ_PREFIX = /\A(?:please\s+)?(?:list\b|show\b|tell me\b|what\b|which\b|where (?:does|is)\b|how much\b)/i.freeze
-    MUTATION = /\b(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop|delete|remove|link|unlink|reconcile|apply|cancel)\b/i.freeze
+    MUTATION = /\b(?:set|change|update|adjust|make|increase|decrease|lower|raise|reduce|move|transfer|shift|create|add|edit|rename|reclassify|recategorize|archive|restore|schedule|end|stop|delete|remove|link|unlink|reconcile|apply|cancel)\b/i.freeze
     OTHER_SCOPE = /\b(?:statements?|uploads?|uploaded|documents?|receipts?|challenge|cohort|bog|90[ -]day|reserved|set aside|withdrawals?|refunds?|baseline|transactions?|purchases?|afford|should|recommend|prioriti[sz]e|hypothetical|scenario|if|could|would|might)\b/i.freeze
 
     def initialize(household, message:, year:, month:)
@@ -44,11 +44,27 @@ module HouseholdFinance
     private
 
     def requested_reference_date(text)
+      # Numeric dates must not collapse to their year and silently use the
+      # currently selected month. Unsupported formats belong to clarification.
+      return false if text.match?(/\b\d{1,4}\/\d{1,4}(?:\/\d{1,4})?\b/)
+      numeric = text.scan(/\b\d{4}[-–—][^\s,.!?;:)\]"']*/).uniq
+      return false if numeric.length > 1
+      numeric_date = nil
+      if numeric.any?
+        token = numeric.sole
+        return false unless token.match?(/\A\d{4}-\d{2}(?:-\d{2})?\z/)
+        numeric_date = Date.iso8601(token.length == 7 ? "#{token}-01" : token).beginning_of_month
+        return false unless numeric_date.year.between?(2000, 2100)
+      end
       relative = text.scan(/\b(?:(?:this|current|next|last)\s+month|today|now)\b/i).map(&:downcase).uniq
       month_names = Date::MONTHNAMES.compact + Date::ABBR_MONTHNAMES.compact
       named = text.scan(/\b(?:#{month_names.join('|')})\b/i).map { |name| Date::ABBR_MONTHNAMES.index { |item| item&.casecmp?(name.first(3)) } }.uniq
       years = text.scan(/\b(?:20\d{2}|2100)\b/).map(&:to_i).uniq
       return false if relative.length > 1 || named.length > 1 || years.length > 1 || (relative.any? && (named.any? || years.any?))
+      if numeric_date
+        return false if relative.any? || (named.any? && named.sole != numeric_date.month) || (years.any? && years.sole != numeric_date.year)
+        return numeric_date
+      end
       if relative.any?
         return Date.current.beginning_of_month.next_month if relative.sole.match?(/next/i)
         return Date.current.beginning_of_month.prev_month if relative.sole.match?(/last/i)
@@ -56,6 +72,8 @@ module HouseholdFinance
       end
       return if named.empty? && years.empty?
       Date.new(years.first || @reference_date.year, named.first || @reference_date.month, 1)
+    rescue Date::Error
+      false
     end
 
     def answer_income

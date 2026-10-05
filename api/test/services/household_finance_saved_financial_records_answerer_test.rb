@@ -65,6 +65,37 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert answer("What are my tracked household goals?")
   end
 
+  test "numeric requested periods override the selected month with matching income truth" do
+    salary = income("Salary", 100_000)
+    salary.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 250_000, cadence: "monthly", effective_on: "2026-12-01")
+    [ "Show my income for 2026-12", "Show my income for 2026-12-01", "Show my income for 2026-12-31", "Show my income for December 2026 (2026-12)" ].each do |message|
+      assert_no_difference [ "BudgetYear.count", "BudgetPeriod.count", "MiaActionDraft.count", "HouseholdTransaction.count", "IncomeSource.count", "IncomeScheduleEntry.count" ] do
+        response = answer(message, year: 2026, month: 10)
+        assert_equal "2026-12-01", response.metadata[:reference_month], message
+        assert_equal 2500.0, response.metadata[:selected_month_amount], message
+        assert_includes response.answer, "December 2026"
+        assert_not_includes response.answer, "October 2026"
+      end
+    end
+  end
+
+  test "invalid conflicting and ambiguous numeric periods fall through without writes" do
+    [ "Show my income for 2026-13", "Show my income for 2026-02-30", "Show my income for 2026-1", "Show my income for 2026-12-1", "Show my income for 2026-12-", "Show my income for 2026-12-001", "Show my income for 2026-12-01T12:00:00", "Show my income for 2026–12", "Show my income for 2200-12", "Show my income for 12/2026", "Show my income for 12/01/2026", "Show my income for 2026-12 and 2027-01", "Show my income for November 2026 (2026-12)", "Show my income for December 2027 (2026-12)", "Show my income this month (2026-12)" ].each do |message|
+      assert_no_difference [ "BudgetYear.count", "BudgetPeriod.count", "MiaActionDraft.count", "HouseholdTransaction.count" ] do
+        assert_nil answer(message), message
+      end
+    end
+  end
+
+  test "mixed read write requests and scoped negation fall through for complete intent handling" do
+    [ "Show my income and reduce Dining by $20 for October", "List my accounts and transfer $10 between them", "Show my income then adjust Dining to $20", "Show my income and shift $10 from Dining to Groceries", "Show my income and make Dining $20", "Show my income and edit Dining", "Show my income and reclassify Dining", "Show my income and recategorize Dining", "Show my income; do not change income but reduce Dining by $20", "Show my income without changing it but edit Dining", "Show my income and reduce Dining by $20. Do not change anything.", "Show my income, don't update income, but make Dining $20" ].each do |message|
+      assert_no_difference [ "BudgetYear.count", "BudgetPeriod.count", "MiaActionDraft.count", "HouseholdTransaction.count", "IncomeSource.count" ] do
+        assert_nil answer(message), message
+      end
+    end
+    assert answer("Show my income. Do not change anything.")
+  end
+
   test "read totals include omitted records and schedule omission is visible" do
     22.times { |index| income("Source #{index.to_s.rjust(2, '0')}", 100) }
     salary = @household.income_sources.first
