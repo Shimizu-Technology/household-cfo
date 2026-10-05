@@ -41,3 +41,17 @@
 
 .savings-progress > h3 { grid-column: 1 / -1; scroll-margin-top: 20px; }
 .savings-progress > button { grid-column: 1 / -1; justify-self: start; }
+.savings-task { padding: 0; }
+.savings-task > summary, .savings-support > summary { padding: 18px 20px; min-height: 44px; font-weight: 700; cursor: pointer; overflow-wrap: anywhere; }
+.savings-task > section { padding: 8px 20px 20px; }
+.savings-task[open] > summary { border-bottom: 1px solid var(--line); }
+.savings-support { border: 1px solid var(--line); border-radius: 16px; background: var(--paper); }
+.savings-support .savings-next { padding: 0 20px 20px; }
+.savings-home .savings-caption { font-size: .82rem; }
+.savings-progress > button { width: auto; }
+@media (max-width: 768px) {
+  .savings-task > summary, .savings-support > summary { padding: 16px; }
+  .savings-task > section { padding: 8px 16px 16px; }
+  .savings-calendar li { min-width: 80px; }
+  .savings-calendar li strong { font-size: .85rem; }
+}

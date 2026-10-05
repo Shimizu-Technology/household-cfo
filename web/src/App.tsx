@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
 import './App.css'
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
 import { usePilotDialog } from './lib/usePilotDialog'
@@ -159,6 +159,8 @@ import type {
   WorkspaceSetupStatus,
   WorkspaceSetupValues,
 } from './api'
+import { readParticipantProgram, storeParticipantProgram, verifiedParticipantProgram } from './lib/participantProgramSelection'
+import { fetchParticipantPrograms } from './participantProgramsApi'
 import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
 import { BrandRuntimeProvider } from './contexts/BrandContext'
@@ -180,6 +182,7 @@ const sectionCapabilityIds: Record<string, string> = {
   'Ask Mia': 'ask_mia',
   Budget: 'budget',
   'My Profile': 'profile',
+  Statements: 'profile',
   Wealth: 'wealth',
   'CFO Filter': 'cfo_filter',
   Optionality: 'optionality',
@@ -188,7 +191,7 @@ const COACH_STUDIO_SECTION = 'Coach Studio'
 const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
 type UnavailableModuleNotice = { moduleId: string; message: string }
-const allSections = [...sections, COACH_STUDIO_SECTION, ADMIN_SECTION]
+const allSections = [...sections, 'Statements', COACH_STUDIO_SECTION, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 8_000
 const MIA_MESSAGE_LENGTH_WARNING_AT = 1_000
@@ -199,6 +202,12 @@ const MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS = 300_000
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+const SAVINGS_UPDATE_EXAMPLES = [
+  'I set aside $20 today from money left after expenses. Help me review it.',
+  'Help me find one comfortable spending change this week.',
+  'Help me understand my statement before I approve anything.',
+]
+const SAVINGS_QUICK_PROMPTS = ['Help me with today’s check-in.', 'What is a comfortable savings target for me?', 'Explain my approved savings progress.']
 const MIA_UPDATE_EXAMPLES = [
   'My take-home pay is now $6,200 a month.',
   'My credit card balance is $3,100 and my monthly minimum is $175.',
@@ -492,21 +501,35 @@ function BrandFooter() {
 
 function App() {
   const auth = useAuthContext()
-  const identity = `${auth.authIdentityId ?? 'preview'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
-  const [selection, setSelection] = useState<{identity: string; cohortId: number} | null>(null)
-  const selectedCohortId = selection?.identity === identity ? selection.cohortId : undefined
+  const identity = `${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
+  const [selection, setSelection] = useState<{identity: string; cohortId?: number} | null>(null)
+  const [selectionNotice, setSelectionNotice] = useState<{identity: string; text: string} | null>(null)
+  const participant = Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)
+  const selectedCohortId = participant ? selection?.identity === identity ? selection.cohortId : readParticipantProgram(auth.authIdentityId, auth.currentUser?.id) : undefined
   const chooseProgram = useCallback((cohortId: number) => {
-    if (!auth.currentUser?.is_participant || auth.activeCoachWorkspaceId) return
+    if (!participant) return
     setActiveParticipantCohortId(cohortId)
     setSelection({identity, cohortId})
-  }, [auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, identity])
+    setSelectionNotice(null)
+  }, [participant, identity])
+  const programVerified = useCallback((cohortId: number) => {
+    if (participant) storeParticipantProgram(auth.authIdentityId, auth.currentUser?.id, cohortId)
+  }, [participant, auth.authIdentityId, auth.currentUser?.id])
+  const programUnavailable = useCallback(() => {
+    if (!participant) return
+    storeParticipantProgram(auth.authIdentityId, auth.currentUser?.id, undefined)
+    setActiveParticipantCohortId(null)
+    setSelection({identity})
+    setSelectionNotice({identity, text: 'Your previous program is no longer available. Your current authorized program is shown below; use Program to check your choices.'})
+  }, [participant, auth.authIdentityId, auth.currentUser?.id, identity])
   // Account, workspace and explicit program changes discard every private view.
-  return <WorkspaceApp key={`${identity}:${selectedCohortId ?? 'default'}`} selectedCohortId={selectedCohortId} onChooseProgram={chooseProgram} />
+  return <WorkspaceApp key={`${identity}:${selectedCohortId ?? 'default'}`} selectedCohortId={selectedCohortId} onChooseProgram={chooseProgram} onProgramVerified={programVerified} onProgramUnavailable={programUnavailable} selectionNotice={selectionNotice?.identity === identity ? selectionNotice.text : null} />
 }
 
-function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: number; onChooseProgram: (cohortId: number) => void}) {
+function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onProgramUnavailable, selectionNotice}: {selectedCohortId?: number; onChooseProgram: (cohortId: number) => void; onProgramVerified: (cohortId: number) => void; onProgramUnavailable: () => void; selectionNotice: string | null}) {
   const auth = useAuthContext()
   const publicBrand = useBrand()
+  const participantActorId = auth.currentUser?.id
   const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isClerkEnabled || Boolean(auth.currentUser))
   const [{ data, homeBudget, budgets }, setData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
   const [workspaceLoadAttempt, setWorkspaceLoadAttempt] = useState(0)
@@ -638,6 +661,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
   const e2eRealWorkspace = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && Boolean(auth.currentUser)
   const shouldUseRealWorkspace = auth.isClerkEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
+  const isSavingsExperience = data?.workspace.experience_mode === 'savings_challenge'
   const assistantName = data?.profile.coach.name.trim() || 'your assistant'
   const isFirstSessionSetup = Boolean(isRealWorkspace && data?.workspace.experience_mode !== 'savings_challenge' && !data?.workspace?.setup_complete)
   const canResumePlaidOAuthReturn = Boolean(
@@ -672,7 +696,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
       : []
     const staffSections = auth.currentUser?.is_staff ? [COACH_STUDIO_SECTION] : []
     const adminSections = auth.currentUser?.is_admin ? [ADMIN_SECTION] : []
-    return [...enabledParticipantSections, ...staffSections, ...adminSections]
+    const participantSections = enabledParticipantSections.includes('My Profile') ? [...enabledParticipantSections, 'Statements'] : enabledParticipantSections
+    return [...participantSections, ...staffSections, ...adminSections]
   }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff, data])
   const activeSection = !visibleSections.includes(active) ? sections[0] : active
   const selectedImport = useMemo(() => {
@@ -891,10 +916,18 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
 
     let cancelled = false
 
-    fetchAppData(shouldUseRealWorkspace)
+    const selectionCheck = selectedCohortId !== undefined && participantActorId !== undefined && shouldUseRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId
+      ? fetchParticipantPrograms().then(programs => {
+          if (cancelled) return false
+          if (!verifiedParticipantProgram(programs, participantActorId, selectedCohortId)) { onProgramUnavailable(); return false }
+          return true
+        })
+      : Promise.resolve(true)
+    selectionCheck.then(verified => verified && !cancelled ? fetchAppData(shouldUseRealWorkspace) : null)
       .then((payload) => {
-        if (cancelled) return
+        if (cancelled || !payload) return
         if (selectedCohortId !== undefined && payload.workspace?.cohort?.id !== selectedCohortId) throw new Error('The returned program could not be verified. Choose your program or try again.')
+        if (payload.workspace?.mode === 'real' && payload.workspace.cohort?.id) onProgramVerified(payload.workspace.cohort.id)
         const realWorkspace = payload.workspace?.mode === 'real'
         const payloadStorageKey = miaWorkspaceStorageKey(MIA_CHAT_STORAGE_PREFIX, auth.currentUser?.id, auth.activeCoachWorkspaceId, payload.workspace?.household_id, payload.workspace?.cohort?.id ?? selectedCohortId)
         const restoredMessages = realWorkspace ? payload.mia.messages : loadStoredMiaMessages(payloadStorageKey)
@@ -915,7 +948,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
     return () => {
       cancelled = true
     }
-  }, [canLoadWorkspace, auth.currentUser?.id, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId])
+  }, [canLoadWorkspace, auth.currentUser?.id, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId, onProgramVerified, onProgramUnavailable, participantActorId])
 
   useEffect(() => {
     if (!hasUnsavedBudgetChanges) return
@@ -1600,16 +1633,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
   }
 
   function focusDebtManager() {
+    const disclosure = debtManagerRef.current?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
     debtManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     debtManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }
 
   function focusAccountManager() {
+    const disclosure = accountManagerRef.current?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
     accountManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     accountManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }
 
   function focusGoalManager() {
+    const disclosure = goalManagerRef.current?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
     goalManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     goalManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }
@@ -1639,15 +1675,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
   }
 
   function openDocumentReview(documentImportId?: number) {
-    if (!switchSection('My Profile')) return
+    if (!switchSection('Statements')) return
     if (documentImportId !== undefined) setSelectedImportId(documentImportId)
-    if (isFirstSessionSetup) setFirstSessionUploadOpen(true)
     requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
   function startUploadFirstSession() {
-    switchSection('My Profile')
-    setFirstSessionUploadOpen(true)
+    if (!switchSection('Statements')) return
     window.setTimeout(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
   }
 
@@ -2955,9 +2989,17 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
             <p className="eyebrow">{brandByline(brand)}</p>
             <h1>{brand.short_name}</h1>
           </div>
-          {data.workspace?.cohort && <span className="cohort-brand-chip">{data.workspace.cohort.name}</span>}
+          {data.workspace?.cohort && !(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId) && <span className="cohort-brand-chip">{data.workspace.cohort.name}</span>}
         </div>
         <div className="shell-actions">
+          <details className="shell-account-menu" onKeyDown={event => {
+            if (event.key === 'Escape' && !(event.target as HTMLElement).closest('dialog, [role="dialog"]')) {
+              event.currentTarget.open = false
+              event.currentTarget.querySelector<HTMLElement>('summary')?.focus()
+            }
+          }}>
+            <summary aria-label="Account and help"><UsersIcon /><span>Account &amp; help</span></summary>
+            <div className="shell-account-panel">
           <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />
           {auth.currentUser && (
             <div className="account-pill">
@@ -2966,6 +3008,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
               {auth.isClerkEnabled && <UserButton afterSignOutUrl="/" />}
             </div>
           )}
+              <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotGuideOpen(true) }}><GuideIcon /> Guide</Button>
+              {isRealWorkspace && <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotFeedbackOpen(true) }}><FeedbackIcon /> Report a problem</Button>}
+            </div>
+          </details>
           <Button
             className="shell-mia-button"
             variant="secondary"
@@ -2982,9 +3028,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
 
       {auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <details className="participant-program-switch"><summary>Program · {data.workspace.cohort?.name ?? 'Choose your program'}</summary><ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram} /></details>}
 
-      <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} />
+      {selectionNotice && <p className="document-alert" role="status">{selectionNotice}</p>}
+      <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} onToday={isSavingsExperience && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => { setDailyIntake(null); setDailyOpen(true) } : undefined} />
 
-      {isRealWorkspace && activeSection !== ADMIN_SECTION && activeSection !== 'Ask Mia' && (
+      {isRealWorkspace && !isSavingsExperience && activeSection !== ADMIN_SECTION && activeSection !== COACH_STUDIO_SECTION && activeSection !== 'Ask Mia' && (
         <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
       )}
 
@@ -3113,14 +3160,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
                 <span className="message-avatar" aria-hidden="true">{assistantInitial(assistantName)}</span>
                 <div className="chat-shell-copy">
                   <h3 id="mia-chat-title">Ask {assistantName}</h3>
-                  <p className="chat-period-context">Plan context: {selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
+                  <p className="chat-period-context">{isSavingsExperience ? 'Optional plan context' : 'Plan context'}: {selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
                 </div>
                 <div className="chat-actions">
                   {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <button type="button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
                   {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <button type="button" className="chat-memory-button" onClick={() => {
                     setIsChatExpanded(false)
                     switchSection('My Profile')
-                    window.setTimeout(() => document.getElementById('mia-memory')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+                    window.setTimeout(() => { const memory = document.getElementById('mia-memory'); const disclosure = memory?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true; memory?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 80)
                   }}>Memory</button>}
                   {currentMessages.length > 0 && (
                     <button ref={clearChatTriggerRef} type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
@@ -3169,7 +3216,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
                     <small>{assistantName} will show you a review card. Nothing changes until you tap Apply.</small>
                   </div>
                   <div className="mia-update-examples" aria-label={`Example updates for ${assistantName}`}>
-                    {MIA_UPDATE_EXAMPLES.map((prompt) => (
+                    {(isSavingsExperience ? SAVINGS_UPDATE_EXAMPLES : MIA_UPDATE_EXAMPLES).map((prompt) => (
                       <button type="button" key={prompt} onClick={() => {
                         setShowMiaSuggestions(false)
                         prepareMiaUpdate(prompt)
@@ -3182,7 +3229,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
 
                 <div className="chat-prompts-shell">
                   <div className="quick-prompts chat-prompts" aria-label={`Suggested questions for ${assistantName}`}>
-                    {data.mia.quick_prompts.map((prompt) => (
+                    {(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : data.mia.quick_prompts).map((prompt) => (
                       <button type="button" key={prompt} onClick={() => {
                         setShowMiaSuggestions(false)
                         void handleAskMia(prompt)
@@ -3449,7 +3496,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
             </article>
           )}
 
-          {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <MiaMemoryPanel enabled={Boolean(isRealWorkspace)} />}
+          {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <ProfileDisclosure label="Memory & personalization"><MiaMemoryPanel enabled={Boolean(isRealWorkspace)} /></ProfileDisclosure>}
 
           {isRealWorkspace && setupDraft && !isFirstSessionUpload && (
             <WorkspaceSetupForm
@@ -3466,6 +3513,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
             />
           )}
 
+          <ProfileDisclosure label="Income sources and schedule" forceOpen={Boolean(incomeFocusRequest)}>
           {isRealWorkspace && !isFirstSessionSetup && data.budget.annual_plan && (
             <fieldset className="budget-loading-boundary" disabled={budgetYearLoading}><legend className="sr-only">Income plan controls</legend>
             <IncomeSourceManager
@@ -3481,8 +3529,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
             />
             </fieldset>
           )}
+          </ProfileDisclosure>
 
-
+          <ProfileDisclosure label="Accounts and assets" forceOpen={Boolean(accountFocusRequest)}>
           {isRealWorkspace && !isFirstSessionSetup && (
             <AccountManager
               sectionRef={accountManagerRef}
@@ -3493,7 +3542,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
               onFocusRequestHandled={() => setAccountFocusRequest(null)}
             />
           )}
+          </ProfileDisclosure>
 
+          <ProfileDisclosure label="Household goals" forceOpen={Boolean(goalFocusRequest)}>
           {isRealWorkspace && !isFirstSessionSetup && (
             <GoalManager
               sectionRef={goalManagerRef}
@@ -3504,7 +3555,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
               onFocusRequestHandled={() => setGoalFocusRequest(null)}
             />
           )}
+          </ProfileDisclosure>
 
+          <ProfileDisclosure label="Optional household debt plan" forceOpen={Boolean(debtFocusRequest)}>
           {isRealWorkspace && !isFirstSessionSetup && (
             <DebtManager
               sectionRef={debtManagerRef}
@@ -3516,7 +3569,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
               onFocusRequestHandled={() => setDebtFocusRequest(null)}
             />
           )}
+          </ProfileDisclosure>
 
+          <ProfileDisclosure label="Optional bank connections" forceOpen={canResumePlaidOAuthReturn}>
           {isRealWorkspace && auth.currentUser && !isFirstSessionSetup && (
             <PlaidConnections
               userId={String(auth.currentUser.id)}
@@ -3529,8 +3584,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
               }}
             />
           )}
+          </ProfileDisclosure>
 
-          {(!isFirstSessionSetup || isFirstSessionUpload) && <DocumentImportWorkspace
+          {!isFirstSessionSetup && <article className="panel profile-statements-link"><h3>Your private statements</h3><p>Upload, identify accounts, review source rows and approve changes in Statements.</p><Button variant="secondary" onClick={() => openDocumentReview()}>Open Statements</Button></article>}
+          {isFirstSessionUpload && <DocumentImportWorkspace
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -3565,7 +3622,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
             onOpenSource={handleOpenDocumentSource}
           />}
 
-          {!isFirstSessionSetup && <div className="profile-section-grid">
+          {!isFirstSessionSetup && <details className="profile-disclosure"><summary>Saved household summary</summary><div className="profile-section-grid">
             {data.profile.sections.map((section) => (
               <article className="panel profile-section" key={section.label}>
                 <div className="row-between">
@@ -3581,9 +3638,47 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
                 ))}
               </article>
             ))}
-          </div>}
+          </div></details>}
         </section>
       )}
+
+      {activeSection === 'Statements' && <section className="screen-grid statements-screen">
+        <ScreenHeading eyebrow="Statements" title="Your statements, one review at a time." copy="Upload privately, check the account and period, then review what each row means. Nothing changes your numbers until you approve it." />
+<DocumentImportWorkspace
+            onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
+            sectionRef={documentImportsRef}
+            isRealWorkspace={Boolean(isRealWorkspace)}
+            imports={documentImports}
+            categories={activeBudgetPlan?.rows ?? []}
+            annualPlan={activeBudgetPlan}
+            selectedImport={selectedImport}
+            loading={documentsLoading}
+            error={documentsError}
+            notice={documentsNotice}
+            uploadingKind={uploadingKind}
+            itemSavingIds={itemSavingIds}
+            action={documentAction}
+            draftAction={budgetContextAction}
+            expandedAppliedImportId={expandedAppliedImportId}
+            onExpandedAppliedImportIdChange={setExpandedAppliedImportId}
+            demoUploads={data.profile.uploads}
+            onUpload={handleDocumentUpload}
+            onSelectImport={setSelectedImportId}
+            onUpdateItem={handleDocumentItemUpdate}
+            onUpdateDraft={handleUpdateTransactionDraft}
+            onMatchDraft={handleMatchTransactionDraft}
+            onConfirmDraft={handleConfirmTransactionDraft}
+            onIgnoreDraft={handleIgnoreTransactionDraft}
+            onReopenDraft={handleReopenTransactionDraft}
+            onBulkConfirmDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+            onBulkIgnoreDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
+            onApply={handleApplyDocumentImport}
+            onReprocess={handleReprocessDocumentImport}
+            onDeleteSource={handleDeleteDocumentSource}
+            onDeleteImport={handleDeleteDocumentImport}
+            onOpenSource={handleOpenDocumentSource}
+          />
+      </section>}
 
       {activeSection === 'Budget' && budgetForView && (
         <section className="screen-grid budget-screen">
@@ -3717,8 +3812,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
                   <span>{decision.recommendation}</span>
                   <h3>{decision.item}</h3>
                 </div>
-                <strong>{currency.format(decision.amount)}</strong>
-                <p>{decision.reason}</p>
+                <strong>{!debtMinimumsKnown ? 'Not available' : currency.format(decision.amount)}</strong>
+                <p>{data.workspace.debt_portfolio?.balance_known === true && data.workspace.debt_portfolio.minimum_payment_known === true && data.workspace.debt_portfolio.total_balance === 0 && data.workspace.debt_portfolio.monthly_minimum === 0 && decision.reason.startsWith('No debt entered yet.') ? 'Your debt-free household baseline is confirmed. There is no debt payoff to prioritize.' : decision.reason}</p>
               </article>
             ))}
           </div>
@@ -3801,7 +3896,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram}: {selectedCohortId?: n
       {evidenceReview?.scope === challengeIntakeScope && challengeParticipantScope && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && <SavingsEvidenceDialog key={`${challengeIntakeScope}:${evidenceReview.entryVersionId}`} actorScope={challengeParticipantScope} entryVersionId={evidenceReview.entryVersionId} onClose={() => setEvidenceReview(null)} onChanged={() => setEvidenceRefreshToken(value => value + 1)} />}
       {dailyOpen && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <ChallengeToday key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} cohortId={data.workspace.cohort?.id} initialPurchase={dailyIntake?.scope===challengeIntakeScope?dailyIntake.intake:null} scope={{user_id:auth.currentUser.id,household_id:data.workspace.household_id}} onClose={() => {setDailyOpen(false);setDailyIntake(null)}} onStatements={() => { setDailyOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} onBaseline={() => { setDailyOpen(false); setBaselineOpen(true) }} />}
       {baselineOpen && isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <BaselineReview key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} scope={{ user_id: auth.currentUser.id, household_id: data.workspace.household_id }} onClose={() => setBaselineOpen(false)} onReviewStatements={() => { setBaselineOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} />}
-      {pilotGuideOpen && <PilotGuideDialog onClose={() => setPilotGuideOpen(false)} />}
+      {pilotGuideOpen && <PilotGuideDialog savingsChallenge={isSavingsExperience} onClose={() => setPilotGuideOpen(false)} />}
       {pilotFeedbackOpen && (
         <PilotFeedbackDialog
           key={`${auth.authIdentityId}:${auth.currentUser?.id}:${data.workspace.household_id}`}
@@ -4125,6 +4220,13 @@ function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }
   )
 }
 
+function ProfileDisclosure({ label, forceOpen = false, children }: { label: string; forceOpen?: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDetailsElement>(null)
+  useLayoutEffect(() => { if (forceOpen && ref.current) ref.current.open = true }, [forceOpen])
+  if (!children) return null
+  return <details ref={ref} className="profile-disclosure"><summary>{label}</summary>{children}</details>
+}
+
 function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => void; onOpenFeedback: () => void }) {
   const { brand } = useBrand()
   const supportHref = brand.support.url ?? (brand.support.email ? `mailto:${brand.support.email}` : null)
@@ -4144,6 +4246,7 @@ function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => v
 function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow {
   if (section === 'Ask Mia') return 'ask_mia'
   if (section === 'My Profile') return 'setup'
+  if (section === 'Statements') return 'statement_upload'
   if (section === 'Budget') return 'budget'
   if (section === COACH_STUDIO_SECTION) return 'admin'
   if (section === ADMIN_SECTION) return 'admin'
@@ -4151,7 +4254,7 @@ function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow
   return 'other'
 }
 
-function PilotGuideDialog({ onClose }: { onClose: () => void }) {
+function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () => void; savingsChallenge?: boolean }) {
   const { assistantName } = useBrand()
   const dialogRef = usePilotDialog(onClose)
 
@@ -4162,18 +4265,22 @@ function PilotGuideDialog({ onClose }: { onClose: () => void }) {
         <header>
           <div>
             <p className="eyebrow">Pilot tester guide</p>
-            <h2 id="pilot-guide-title">A clear first {assistantName} session in three moves.</h2>
+            <h2 id="pilot-guide-title">{savingsChallenge ? 'Your 90-day challenge in three simple moves.' : <>A clear first {assistantName} session in three moves.</>}</h2>
           </div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
         <ol className="pilot-guide-steps">
-          <li><span>1</span><div><strong>Give {assistantName} the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Enter 0 when an amount does not apply; you can refine everything later.</p></div></li>
+          {savingsChallenge ? <>
+            <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested $500 over 90 days is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
+            <li><span>2</span><div><strong>Use Today for a quick check-in.</strong><p>Report purchases when useful, distinguish no spending from unknown spending, and return for your Day 30, 60 and 90 checkpoints. Feelings are optional.</p></div></li>
+            <li><span>3</span><div><strong>Report money you actually set aside.</strong><p>On Home, choose Report savings, check its date and funding source, then approve your reviewed record. A plan or pending proposal does not count as savings. Ask {assistantName} for a comfortable next step.</p></div></li>
+          </> : <><li><span>1</span><div><strong>Give {assistantName} the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Enter 0 when an amount does not apply; you can refine everything later.</p></div></li>
           <li><span>2</span><div><strong>Tell {assistantName} what changed.</strong><p>Use your own words—for example, “My take-home pay is now $6,200” or “My card balance is $3,100.” Your assistant can also coach from the context you approved.</p></div></li>
-          <li><span>3</span><div><strong>Review before applying.</strong><p>{assistantName} can draft household-number, future-income, and budget-plan changes. Check every before-and-after value; pending drafts change nothing until you explicitly apply them.</p></div></li>
+          <li><span>3</span><div><strong>Review before applying.</strong><p>{assistantName} can draft household-number, future-income, and budget-plan changes. Check every before-and-after value; pending drafts change nothing until you explicitly apply them.</p></div></li></>}
         </ol>
         <div className="pilot-guide-power-path">
           <strong>Optional upload check</strong>
-          <p>If a file would save time, try one demo-safe budget, statement, receipt, or pay stub. Review extracted setup values before applying them and report any failed read from Ask {assistantName} or My Profile.</p>
+          <p>{savingsChallenge ? "Statements can help you understand spending, but they are optional. Use Statements to upload and review. A credit card, full budget and bank connection are not required. Uploading does not grant your coach access to your private statements." : <>If a file would save time, try one budget, statement, receipt, or pay stub. Review extracted setup values before applying them and report any failed read from Ask {assistantName} or Statements.</>}</p>
         </div>
         <footer>
           <ShieldIcon />
@@ -4343,9 +4450,9 @@ function DocumentImportWorkspace({
         <div>
           <p className="eyebrow">Private document import</p>
           <h3>Upload evidence. Review draft facts. Apply only what is right.</h3>
-          <p>Files go to private S3. {assistantName} extracts draft values server-side, then waits for your approval before changing household numbers.</p>
+          <p>Your files stay private. {assistantName} proposes information for review and waits for your approval before changing household numbers.</p>
         </div>
-        <div><span className="document-safe-pill">Private S3 · Review first</span>{onReviewBaseline && <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onReviewBaseline?.() }}>Review spending baseline</button>}</div>
+        <div><span className="document-safe-pill">Private · Review first</span>{onReviewBaseline && <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onReviewBaseline?.() }}>Review spending baseline</button>}</div>
       </div>
 
       <div className="document-import-summary-row">
@@ -4355,29 +4462,22 @@ function DocumentImportWorkspace({
         <Metric label="Freshness" value={latestApplied ? importPeriodLabel(latestApplied) : imports.length > 0 ? 'Review pending' : 'Manual'} />
       </div>
 
-      <div className="document-import-guide">
+      <details className="document-upload-secondary"><summary>Other files &amp; budget template</summary><div className="document-import-guide">
         <div>
           <strong>Not sure what to upload?</strong>
           <p>Start with our Excel budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. {assistantName} drafts values only after upload.</p>
           <small>{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</small>
         </div>
         <a href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
-      </div>
+      </div></details>
 
       {error && <p className="document-alert error" role="alert">{error}</p>}
       {notice && <p className="document-alert success" role="status">{notice}</p>}
 
-      <div className="document-upload-grid">
-        {documentUploadCards.map((card) => (
-          <DocumentUploadCard
-            key={card.kind}
-            card={card}
-            uploading={uploadingKind === card.kind}
-            disabled={Boolean(uploadingKind)}
-            onUpload={(file) => onUpload(card.kind, file, 'profile')}
-          />
-        ))}
-      </div>
+      <div className="document-upload-primary">{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+      <details className="document-upload-secondary"><summary>Upload a receipt, pay stub or budget file</summary>
+        <div className="document-upload-grid">{documentUploadCards.filter(card => card.kind !== 'statement').map(card => <DocumentUploadCard key={card.kind} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+      </details>
 
       <div className="document-review-layout">
         <DocumentImportHistory
@@ -4558,7 +4658,7 @@ function DocumentImportHistory({
         <div className="document-empty-state">
           <StatementIcon />
           <h4>No documents yet</h4>
-          <p>Upload a sample-safe document to test extraction. Avoid real client statements in local demos.</p>
+          <p>Upload a statement when you are ready. Uploads are optional; review every proposal before approval.</p>
         </div>
       ) : visibleImports.length === 0 ? (
         <div className="document-empty-state compact">
@@ -9296,6 +9396,8 @@ function AnnualBudgetPlanner({
     allocationDrafts: {},
     categoryDrafts: {},
   })
+  const [editMonthIndex, setEditMonthIndex] = useState(currentMonthIndex)
+  const [showFullYearEditor, setShowFullYearEditor] = useState(false)
   const [manualTool, setManualTool] = useState<'category' | 'monthly' | 'income' | null>(null)
   const manualManagerRef = useRef<HTMLElement | null>(null)
   const manualTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -9376,6 +9478,7 @@ function AnnualBudgetPlanner({
       categoryDrafts,
     })
     setManualTool(tool)
+    if (tool === 'monthly') queueMicrotask(() => { setEditMonthIndex(Math.max(0, Math.min(11, (focusRequest.months[0] ?? currentMonthIndex + 1) - 1))); setShowFullYearEditor(focusRequest.months.length > 1) })
     requestAnimationFrame(() => requestAnimationFrame(() => {
       let target: HTMLElement | null = null
       if (tool === 'category') target = newCategoryInputRef.current
@@ -9403,9 +9506,11 @@ function AnnualBudgetPlanner({
       }
       if (tool !== 'income') onFocusRequestHandled?.()
     }))
-  }, [focusRequest, onFocusRequestHandled, onNewCategoryChange, plan.rows, planSignature])
+  }, [focusRequest, onFocusRequestHandled, onNewCategoryChange, plan.rows, planSignature, currentMonthIndex])
 
   function beginBudgetEdit() {
+    setEditMonthIndex(currentMonthIndex)
+    setShowFullYearEditor(false)
     setBudgetEditState({ signature: planSignature, isEditing: true, allocationDrafts: {}, categoryDrafts: {} })
   }
 
@@ -9645,7 +9750,7 @@ function AnnualBudgetPlanner({
                 <div>
                   <p className="eyebrow">Month-by-month plan</p>
                   <strong>Change category names, groups, or monthly amounts.</strong>
-                  <span aria-live="polite">{totalBudgetChanges > 0 ? `${totalBudgetChanges} unsaved change${totalBudgetChanges === 1 ? '' : 's'}. Save or cancel before switching tools.` : 'The table scrolls sideways on smaller screens.'}</span>
+                  <span aria-live="polite">{totalBudgetChanges > 0 ? `${totalBudgetChanges} unsaved change${totalBudgetChanges === 1 ? '' : 's'}. Save or cancel before switching tools.` : 'On your phone, edit one month at a time or choose the full year.'}</span>
                 </div>
                 <div className="annual-plan-edit-actions">
                   <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelAndCloseManualManager}>Cancel</button>
@@ -9655,15 +9760,19 @@ function AnnualBudgetPlanner({
                 </div>
               </div>
 
-              <div className="annual-budget-table-wrap" role="region" aria-label="Annual budget table" tabIndex={0}>
+              <div className="phone-budget-editor-controls">
+                <label>Edit month<select value={editMonthIndex} disabled={isSavingBudgetEdits} onChange={event => setEditMonthIndex(Number(event.target.value))}>{plan.months.map((month, index) => <option key={month.id} value={index}>{month.label}</option>)}</select></label>
+                <label className="savings-check"><input type="checkbox" checked={showFullYearEditor} onChange={event => setShowFullYearEditor(event.target.checked)} /> Show full year</label>
+              </div>
+              <div className={`annual-budget-table-wrap${showFullYearEditor ? ' is-full-year-editor' : ' is-selected-month-editor'}`} role="region" aria-label="Annual budget table" tabIndex={0}>
                 <table className="annual-budget-table">
                   <thead>
                     <tr>
                       <th scope="col">Category</th>
                       {plan.months.map((month, index) => (
-                        <th scope="col" className={index === currentMonthIndex ? 'current-month' : ''} key={month.id}>{month.label}</th>
+                        <th scope="col" className={`${index === currentMonthIndex ? 'current-month' : ''}${index === editMonthIndex ? ' edit-selected-month' : ' edit-other-month'}`} key={month.id}>{month.label}</th>
                       ))}
-                      <th scope="col">Year</th>
+                      <th scope="col" className="edit-year-total">Year</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -9687,7 +9796,7 @@ function AnnualBudgetPlanner({
                           const draftedAmount = Number(draftValue || 0)
                           const hasDraftChange = !allocationMissing && draftedAmount !== month.planned
                           return (
-                            <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id ?? `missing-${month.period_id}`}>
+                            <td className={`${index === currentMonthIndex ? 'current-month' : ''}${index === editMonthIndex ? ' edit-selected-month' : ' edit-other-month'}`} key={month.allocation_id ?? `missing-${month.period_id}`}>
                               {row.active && !allocationMissing ? (
                                 <input
                                   key={`${month.allocation_id ?? month.period_id}:${month.planned}`}
@@ -9707,7 +9816,7 @@ function AnnualBudgetPlanner({
                             </td>
                           )
                         })}
-                        <td><strong>{currency.format(row.planned_total)}</strong><small>{currency.format(row.actual_total)} actual</small></td>
+                        <td className="edit-year-total"><strong>{currency.format(row.planned_total)}</strong><small>{currency.format(row.actual_total)} actual</small></td>
                       </tr>
                     ))}
                   </tbody>
