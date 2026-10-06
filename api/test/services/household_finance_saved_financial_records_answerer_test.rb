@@ -360,6 +360,14 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     named = answer("Show my category named Household budget for October 2026")
     assert_equal 1, named.metadata[:total_count]
     assert_equal "Household", named.metadata[:records].sole[:name]
+    manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 100)
+    targeted = answer("What is my household Dining Out budget next month?")
+    assert_equal [ "Dining Out" ], targeted.metadata[:records].map { |row| row[:name] }
+    manager.create_category!(name: "School", stack_key: "discretionary", monthly_amount: 20)
+    manager.create_category!(name: "School Budget", stack_key: "discretionary", monthly_amount: 30)
+    [ 'Show my category named "School Budget" for October 2026', 'Show my category named School Budget for October 2026' ].each do |message|
+      assert_equal [ "School Budget" ], answer(message).metadata[:records].map { |row| row[:name] }
+    end
   end
 
   private

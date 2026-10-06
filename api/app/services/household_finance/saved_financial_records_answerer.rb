@@ -190,8 +190,16 @@ module HouseholdFinance
     end
 
     def spending_category_matches(rows)
-      named = @read_text[/\bcategory\s+(?:named|called)\s+(.+?)(?:\s+(?:budget|planned amount|spending plan|for)\b|[?.!]*\z)/i, 1]
-      text = normalized_category_text(named.presence || @read_text).gsub(/\b(?:my|our)\s+household\s+(?:budget|spending(?:\s+plan)?|planned amounts?)\b/, " ")
+      quoted = @read_text.scan(/["“]([^"”]+)["”]|'([^']+)'/).flatten.compact.map { |name| normalized_category_text(name) }
+      return rows.select { |row| quoted.include?(normalized_category_text(row[:name])) } if quoted.any?
+      named = @read_text[/\bcategory\s+(?:named|called)\s+(.+)/i, 1]
+      if named.present?
+        text = normalized_category_text(named)
+        candidates = rows.select { |row| text.match?(/\A#{Regexp.escape(normalized_category_text(row[:name]))}(?![[:alnum:]])/) }
+        return candidates.max_by { |row| row[:name].length }.then { |row| row ? [ row ] : [] }
+      end
+      target = spending_requested_name
+      text = normalized_category_text(target.presence || @read_text).gsub(/\b(?:my|our)\s+household\s+(?:budget|spending(?:\s+plan)?|planned amounts?)\b/, " ")
       spans = rows.flat_map do |row|
         name = normalized_category_text(row[:name])
         next [] if name.blank?
@@ -207,8 +215,13 @@ module HouseholdFinance
 
     def named_spending_request?
       return false if @read_text.match?(/\b(?:categories|expense stacks?|by category)\b/i)
+      return true if @read_text.match?(/\bcategory\s+(?:named|called)\s+/i)
+      spending_requested_name.present?
+    end
+
+    def spending_requested_name
       target = @read_text[/\b(?:my|our)\s+(?:household\s+)?(.+?)\s+(?:budget|planned amount|spending plan)\b/i, 1]
-      target.present? && !target.match?(/\A(?:household|saved|monthly|current|next month|last month|this month)\z/i)
+      target if target.present? && !target.match?(/\A(?:household|saved|monthly|current|next month|last month|this month)\z/i)
     end
 
     def spending_starting_estimate(row)
