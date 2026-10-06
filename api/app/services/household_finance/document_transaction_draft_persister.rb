@@ -25,6 +25,11 @@ module HouseholdFinance
     attr_reader :created_count, :match_count, :warnings
 
     def call
+      FinancialPicture.set(household_id: household.id, generation: document_import.financial_generation) { perform }
+    end
+
+    def perform
+      FinancialGenerationGuard.source!(document_import)
       source_ids = transaction_drafts.filter_map { |payload| payload.is_a?(Hash) && payload.deep_symbolize_keys[:financial_source_event_id] }
       @source_events = FinancialSourceEvent.joins(:financial_extraction_revision).where(id: source_ids, household_id: household.id,
         financial_extraction_revisions: { financial_document_import_id: document_import.id }).includes(:financial_extraction_revision).index_by(&:id)

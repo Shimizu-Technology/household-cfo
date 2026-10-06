@@ -39,6 +39,10 @@ module HouseholdFinance
       debt_minimums_known = snapshot.fetch(:debt_minimums_known)
       debt_balance_known = snapshot.fetch(:debt_balance_known)
       liquid_assets_known = snapshot.fetch(:liquid_assets_known)
+      income_known = household.income_sources.exists?
+      spending_known = household.expense_items.exists? || household.budget_categories.exists?
+      outflow_known = spending_known && debt_minimums_known
+      surplus_known = income_known && outflow_known
       guidance_available = setup_status.complete? && debt_minimums_known && liquid_assets_known
       {
         context_type: "untrusted_household_context",
@@ -50,10 +54,11 @@ module HouseholdFinance
         setup: setup_status.as_json,
         metrics: {
           financial_guidance_available: guidance_available,
-          monthly_income: money(snapshot.fetch(:monthly_income_cents)),
-          planned_monthly_outflow: debt_minimums_known ? money(snapshot.fetch(:total_outflow_cents)) : nil,
-          baseline_surplus: debt_minimums_known ? money(snapshot.fetch(:baseline_surplus_cents)) : nil,
-          monthly_surplus_rate_percent: debt_minimums_known ? monthly_surplus_rate_percent : nil,
+          monthly_income: income_known ? money(snapshot.fetch(:monthly_income_cents)) : nil,
+          monthly_income_known: income_known,
+          planned_monthly_outflow: outflow_known ? money(snapshot.fetch(:total_outflow_cents)) : nil,
+          baseline_surplus: surplus_known ? money(snapshot.fetch(:baseline_surplus_cents)) : nil,
+          monthly_surplus_rate_percent: surplus_known ? monthly_surplus_rate_percent : nil,
           safe_to_spend: guidance_available ? money(snapshot.fetch(:safe_to_spend_cents)) : nil,
           runway_months: guidance_available ? snapshot.fetch(:runway_months) : nil,
           readiness: if guidance_available
@@ -106,8 +111,10 @@ module HouseholdFinance
     end
 
     def expense_stack_totals
-      snapshot.fetch(:stack_totals_cents).transform_keys { |stack_key| SnapshotBuilder::STACK_LABELS.fetch(stack_key) }
-        .transform_values { |cents| money(cents) }
+      snapshot.fetch(:stack_totals_cents).each_with_object({}) do |(stack_key, cents), totals|
+        entered = household.expense_items.where(stack_key: stack_key).exists? || household.budget_categories.where(stack_key: stack_key).exists?
+        totals[SnapshotBuilder::STACK_LABELS.fetch(stack_key)] = entered ? money(cents) : nil
+      end
     end
 
     def annual_budget_context
@@ -254,7 +261,7 @@ module HouseholdFinance
 
     def document_context
       {
-        pending_imports_count: household.financial_document_imports.pending_review.count,
+        pending_imports_count: household.financial_document_imports.current_picture.pending_review.count,
         latest_applied_sources: latest_applied_sources,
         stale_warnings: stale_document_warnings,
         recent_applied_summaries: recent_applied_summaries
@@ -295,7 +302,7 @@ module HouseholdFinance
     end
 
     def recent_applied_summaries
-      @recent_applied_summaries ||= household.financial_document_imports
+      @recent_applied_summaries ||= household.financial_document_imports.current_picture
         .where(status: %w[applied partially_applied])
         .where.not(extracted_summary: [ nil, "" ])
         .order(Arel.sql("COALESCE(applied_at, updated_at) DESC"), id: :desc)
@@ -311,7 +318,7 @@ module HouseholdFinance
     end
 
     def latest_applied_documents_by_kind
-      @latest_applied_documents_by_kind ||= household.financial_document_imports
+      @latest_applied_documents_by_kind ||= household.financial_document_imports.current_picture
         .where(status: %w[applied partially_applied])
         .select("DISTINCT ON (document_kind) financial_document_imports.*")
         .order(Arel.sql("document_kind, COALESCE(period_end_on, document_date, applied_at, updated_at) DESC, id DESC"))

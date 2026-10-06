@@ -1,4 +1,5 @@
 class Debt < ApplicationRecord
+  include CurrentFinancialPicture
   DEBT_TYPES = %w[credit_card student_loan auto_loan mortgage personal_loan medical other].freeze
   SOURCE_TYPES = %w[manual_ui mia document_import setup].freeze
 
@@ -8,7 +9,7 @@ class Debt < ApplicationRecord
   scope :archived, -> { where(active: false) }
 
   validates :label, presence: true, length: { maximum: 120 }, uniqueness: {
-    scope: [ :household_id, :debt_type ], case_sensitive: false, conditions: -> { active }
+    scope: [ :financial_generation, :household_id, :debt_type ], case_sensitive: false, conditions: -> { active }
   }
   validates :debt_type, inclusion: { in: DEBT_TYPES }
   validates :source_type, inclusion: { in: SOURCE_TYPES }

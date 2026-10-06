@@ -149,38 +149,40 @@ export function PilotFeedbackDialog({
           <div><p className="eyebrow">Pilot support</p><h2 id="pilot-feedback-title">Report what got in your way.</h2></div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
-        {receipt ? (
-          <div className="pilot-feedback-success" role="status">
-            <strong>Report received.</strong>
-            <p>Reference #{receipt.id}. Your written details and optional screenshot were not sent to analytics.</p>
-            {supportAccess(receipt)}
-            <button type="button" onClick={onClose}>Return to {brand.product_name}</button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            <p className="pilot-privacy-note">Do not include account numbers, exact financial values, document contents, passwords, or private {assistantName} messages. Crop screenshots to the problem area.</p>
-            <label><span>Screen or workflow</span><select value={workflow} onChange={(event) => setWorkflow(event.currentTarget.value as PilotFeedbackWorkflow)}>{pilotFeedbackOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label><span>What did you attempt?</span><textarea rows={3} maxLength={2000} value={attempted} onChange={(event) => setAttempted(event.currentTarget.value)} /></label>
-            <label><span>What did you expect?</span><textarea rows={3} maxLength={2000} value={expected} onChange={(event) => setExpected(event.currentTarget.value)} /></label>
-            <label><span>What happened instead?</span><textarea rows={3} maxLength={2000} value={actual} onChange={(event) => setActual(event.currentTarget.value)} /></label>
-            <label className="pilot-screenshot-field"><span>Optional cropped screenshot</span><input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" onChange={(event) => setScreenshot(event.currentTarget.files?.[0] ?? null)} /><small>{screenshot ? `${screenshot.name} · ${Math.ceil(screenshot.size / 1024)} KB` : 'JPG, PNG, or WebP · 5 MB maximum'}</small></label>
-            <div className="pilot-feedback-consent">
-              <p>App support administrators can read only this technical report and its optional screenshot. This does not grant access to your statements, savings records, feelings, or private {assistantName} chat.</p>
-              <label><input type="checkbox" checked={shareWithSupport} onChange={event => setShareWithSupport(event.currentTarget.checked)} /><span>I agree to share this report and optional screenshot with app support administrators.</span></label>
+        <div className="pilot-dialog-body">
+          {receipt ? (
+            <div className="pilot-feedback-success" role="status">
+              <strong>Report received.</strong>
+              <p>Reference #{receipt.id}. Your written details and optional screenshot were not sent to analytics.</p>
+              {supportAccess(receipt)}
+              <button type="button" onClick={onClose}>Return to {brand.product_name}</button>
             </div>
-            <button type="submit" disabled={saving || !shareWithSupport}>{saving ? 'Submitting report' : 'Submit report'}</button>
-          </form>
-        )}
-        {error && <p className="setup-error" role="alert">{error}</p>}
-        <details className="pilot-feedback-history" open={historyOpen} onToggle={event => { const opened = event.currentTarget.open; setHistoryOpen(opened); if (opened && !historyOpen) void loadReports() }}>
-          <summary>My submitted reports</summary>
-          {historyLoading && <p role="status">Loading reports</p>}
-          {historyError && <p role="alert">{historyError} <button type="button" disabled={withdrawingId !== null} onClick={() => void loadReports()}>Retry reports</button></p>}
-          {!historyLoading && !historyError && reports.length === 0 && <p>No reports submitted.</p>}
-          {reports.map(report => <article key={report.id}><strong>Report #{report.id}</strong><p>{pilotFeedbackOptions.find(option => option.value === report.workflow)?.label ?? report.workflow} · {report.status}</p>{supportAccess(report)}</article>)}
-          {cursor && <button type="button" disabled={historyLoading || withdrawingId !== null} onClick={() => void loadReports(cursor)}>Load earlier reports</button>}
-        </details>
-        <p className="pilot-feedback-withdrawal-note">Withdrawing stops new support reads. It cannot recall details already read or downloaded. Previously issued screenshot links can remain valid for up to five minutes.</p>
+          ) : (
+            <form onSubmit={handleSubmit}>
+              <p className="pilot-privacy-note">Do not include account numbers, exact financial values, document contents, passwords, or private {assistantName} messages. Crop screenshots to the problem area.</p>
+              <label><span>Screen or workflow</span><select value={workflow} onChange={(event) => setWorkflow(event.currentTarget.value as PilotFeedbackWorkflow)}>{pilotFeedbackOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              <label><span>What did you attempt?</span><textarea rows={3} maxLength={2000} value={attempted} onChange={(event) => setAttempted(event.currentTarget.value)} /></label>
+              <label><span>What did you expect?</span><textarea rows={3} maxLength={2000} value={expected} onChange={(event) => setExpected(event.currentTarget.value)} /></label>
+              <label><span>What happened instead?</span><textarea rows={3} maxLength={2000} value={actual} onChange={(event) => setActual(event.currentTarget.value)} /></label>
+              <label className="pilot-screenshot-field"><span>Optional cropped screenshot</span><input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" onChange={(event) => setScreenshot(event.currentTarget.files?.[0] ?? null)} /><small>{screenshot ? `${screenshot.name} · ${Math.ceil(screenshot.size / 1024)} KB` : 'JPG, PNG, or WebP · 5 MB maximum'}</small></label>
+              <div className="pilot-feedback-consent">
+                <p>App support administrators can read only this technical report and its optional screenshot. This does not grant access to your statements, savings records, feelings, or private {assistantName} chat.</p>
+                <label><input type="checkbox" checked={shareWithSupport} onChange={event => setShareWithSupport(event.currentTarget.checked)} /><span>I agree to share this report and optional screenshot with app support administrators.</span></label>
+              </div>
+              <button type="submit" disabled={saving || !shareWithSupport}>{saving ? 'Submitting report' : 'Submit report'}</button>
+            </form>
+          )}
+          {error && <p className="setup-error" role="alert">{error}</p>}
+          <details className="pilot-feedback-history" open={historyOpen} onToggle={event => { const opened = event.currentTarget.open; setHistoryOpen(opened); if (opened && !historyOpen) void loadReports() }}>
+            <summary>My submitted reports</summary>
+            {historyLoading && <p role="status">Loading reports</p>}
+            {historyError && <p role="alert">{historyError} <button type="button" disabled={withdrawingId !== null} onClick={() => void loadReports()}>Retry reports</button></p>}
+            {!historyLoading && !historyError && reports.length === 0 && <p>No reports submitted.</p>}
+            {reports.map(report => <article key={report.id}><strong>Report #{report.id}</strong><p>{pilotFeedbackOptions.find(option => option.value === report.workflow)?.label ?? report.workflow} · {report.status}</p>{supportAccess(report)}</article>)}
+            {cursor && <button type="button" disabled={historyLoading || withdrawingId !== null} onClick={() => void loadReports(cursor)}>Load earlier reports</button>}
+          </details>
+          <p className="pilot-feedback-withdrawal-note">Withdrawing stops new support reads. It cannot recall details already read or downloaded. Previously issued screenshot links can remain valid for up to five minutes.</p>
+        </div>
       </section>
     </div>
   )

@@ -96,9 +96,9 @@ module HouseholdFinance
       return Set.new if household_ids.empty?
 
       [
-        TransactionDraft.pending.where(household_id: household_ids).distinct.pluck(:household_id),
-        MiaActionDraft.pending.where(household_id: household_ids).distinct.pluck(:household_id),
-        FinancialDocumentImport.pending_review.where(household_id: household_ids).distinct.pluck(:household_id)
+        TransactionDraft.current_picture.pending.where(household_id: household_ids).distinct.pluck(:household_id),
+        MiaActionDraft.current_picture.pending.where(household_id: household_ids).distinct.pluck(:household_id),
+        FinancialDocumentImport.current_picture.pending_review.where(household_id: household_ids).distinct.pluck(:household_id)
       ].flatten.to_set
     end
 

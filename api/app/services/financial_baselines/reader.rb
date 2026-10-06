@@ -27,7 +27,7 @@ module FinancialBaselines
     private
 
     attr_reader :household, :user
-    def heads = FinancialBaselineHead.where(household: household, participant_user: user)
+    def heads = FinancialBaselineHead.current_picture.where(household: household, participant_user: user)
 
     def authorized
       ApplicationRecord.transaction do

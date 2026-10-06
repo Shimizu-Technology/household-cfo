@@ -32,6 +32,7 @@ module HouseholdFinance
 
     def call
       household.with_lock do
+        FinancialGenerationGuard.request!(household)
         validate_required_attributes!
         update_household
         upsert_income("Primary income", "job", attributes[:primary_income]) if attributes.key?(:primary_income)

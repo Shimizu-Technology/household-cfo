@@ -57,6 +57,7 @@ module HouseholdFinance
 
       {
         year: budget_year.year,
+        household_id: household.id, financial_generation: household.financial_generation,
         months: periods.map { |period| period_payload(period) },
         rows: rows,
         monthly_income: monthly_income,
@@ -279,6 +280,7 @@ module HouseholdFinance
       debt_portfolio = DebtPortfolio.new(household)
       {
         year: year,
+        household_id: household.id, financial_generation: household.financial_generation,
         months: months,
         rows: rows,
         monthly_income: monthly_income,
@@ -376,7 +378,7 @@ module HouseholdFinance
     def category_ids_with_actuals(periods)
       TransactionSplit
         .joins(:budget_category, :household_transaction)
-        .where(budget_categories: { household_id: household.id })
+        .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
         .where(household_transactions: { budget_period_id: periods.map(&:id), status: %w[confirmed reconciled] })
         .distinct
         .pluck(:budget_category_id)
@@ -385,7 +387,7 @@ module HouseholdFinance
     def actuals_by_category_and_period(category_ids, periods)
       TransactionSplit
         .joins(:budget_category, :household_transaction)
-        .where(budget_categories: { household_id: household.id })
+        .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
         .where(budget_category_id: category_ids, household_transactions: { budget_period_id: periods.map(&:id), status: %w[confirmed reconciled] })
         .group(:budget_category_id, "household_transactions.budget_period_id")
         .sum(:amount_cents)

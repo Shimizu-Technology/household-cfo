@@ -1,4 +1,5 @@
 class SourceEconomicGroup < ApplicationRecord
+  include CurrentFinancialPicture
   include SourceReviewScopedRecord
   belongs_to :approved_version, class_name: "SourceEconomicGroupVersion", optional: true
   validate :approved_version_belongs_to_group

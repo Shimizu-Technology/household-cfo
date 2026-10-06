@@ -27,7 +27,9 @@ module PlaidIntegration
     end
 
     def active_observation?
-      plaid_account.active? && plaid_account.plaid_item.connected? && plaid_account.plaid_item.status == "active"
+      item = plaid_account.plaid_item
+      fresh = item.financial_resumed_at.nil? || item.last_synced_at && item.last_synced_at >= item.financial_resumed_at
+      fresh && plaid_account.financial_generation == item.financial_generation && item.current_financial_picture? && plaid_account.active? && plaid_account.plaid_item.connected? && plaid_account.plaid_item.status == "active"
     end
 
     def current_balance_available?

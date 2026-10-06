@@ -17,7 +17,7 @@ module HouseholdFinance
             ActiveModel::Type::Boolean.new.cast(input[:retained_after_transition]) == true
           elsif require_id
             IncomeScheduleEntry.joins(:income_source)
-              .where(income_sources: { household_id: household.id })
+              .where(income_sources: { household_id: household.id, financial_generation: household.financial_generation })
               .find_by(id: input[:entry_id])&.retained_after_transition? || false
           else
             false

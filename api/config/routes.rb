@@ -46,6 +46,10 @@ Rails.application.routes.draw do
       %w[consent support_request support_grant support_revoke source_authorize source_revoke].each do |action|
         post "savings_challenge/:enrollment_id/privacy/#{action}", to: "challenge_privacy##{action}"
       end
+      get "financial_restart/status", to: "financial_restarts#status"
+      post "financial_restart/preview", to: "financial_restarts#preview"
+      post "financial_restart/cancel", to: "financial_restarts#cancel"
+      post "financial_restart/apply", to: "financial_restarts#apply"
       get "financial_baseline", to: "financial_baselines#show"
       get "financial_baseline/observations", to: "financial_baselines#observations"
       get "financial_baseline/request_status", to: "financial_baselines#request_status"
@@ -160,6 +164,7 @@ Rails.application.routes.draw do
           end
           member do
             post :sync
+            post :resume_financial_picture
             post :update_link_token
           end
         end

@@ -57,7 +57,7 @@ module HouseholdFinance
         end
 
         def plaid_scope(lock:)
-          scope = PlaidAccount.joins(:plaid_item).where(plaid_items: { household_id: household.id })
+          scope = PlaidAccount.joins(:plaid_item).where(plaid_items: { household_id: household.id, financial_generation: household.financial_generation })
           lock ? scope.lock : scope
         end
 

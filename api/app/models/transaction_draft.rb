@@ -1,4 +1,5 @@
 class TransactionDraft < ApplicationRecord
+  include CurrentFinancialPicture
   STATUSES = %w[pending confirmed corrected ignored matched].freeze
   SOURCE_TYPES = HouseholdTransaction::SOURCE_TYPES
 

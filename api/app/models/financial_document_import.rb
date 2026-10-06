@@ -1,4 +1,5 @@
 class FinancialDocumentImport < ApplicationRecord
+  include CurrentFinancialPicture
   DOCUMENT_KINDS = %w[spreadsheet statement pay_stub receipt other].freeze
   STATUSES = %w[uploaded processing needs_review applied partially_applied failed source_deleted].freeze
   IMAGE_CONTENT_TYPES = %w[image/jpeg image/png image/webp image/heic image/heif].freeze

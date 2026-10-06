@@ -1,4 +1,5 @@
 class Account < ApplicationRecord
+  include CurrentFinancialPicture
   ACCOUNT_TYPES = %w[checking savings emergency_fund retirement investment property other].freeze
   LIQUID_TYPES = %w[checking savings emergency_fund].freeze
   SIGNED_BALANCE_TYPES = %w[checking savings].freeze
@@ -11,7 +12,7 @@ class Account < ApplicationRecord
   validates :account_type, inclusion: { in: ACCOUNT_TYPES }
   validates :source_type, inclusion: { in: SOURCE_TYPES }
   validates :balance_cents, numericality: { only_integer: true }
-  validates :plaid_account_id, uniqueness: true, allow_nil: true
+  validates :plaid_account_id, uniqueness: { scope: :financial_generation }, allow_nil: true
   validate :active_name_is_unique
   validate :archive_state_is_consistent
   validate :balance_state_is_consistent
@@ -31,7 +32,7 @@ class Account < ApplicationRecord
   def active_name_is_unique
     return unless active? && household_id && label.present? && account_type.present?
 
-    scope = self.class.active.where(household_id: household_id, account_type: account_type)
+    scope = self.class.active.where(household_id: household_id, financial_generation: financial_generation, account_type: account_type)
       .where("LOWER(label) = ?", label.to_s.downcase)
     scope = scope.where.not(id: id) if persisted?
     errors.add(:label, "has already been taken") if scope.exists?

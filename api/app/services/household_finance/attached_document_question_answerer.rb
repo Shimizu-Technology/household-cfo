@@ -482,7 +482,7 @@ module HouseholdFinance
     end
 
     def evidence_transaction_scope
-      TransactionDraft.where(financial_document_import_id: evidence_imports.map(&:id), household_id: household.id).where.not(status: "ignored")
+      TransactionDraft.current_picture.where(financial_document_import_id: evidence_imports.map(&:id), household_id: household.id).where.not(status: "ignored")
     end
 
     def evidence_setup_scope

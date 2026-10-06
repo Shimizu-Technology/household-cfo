@@ -88,7 +88,7 @@ module Api
 
       def current_entry
         @current_entry ||= IncomeScheduleEntry.joins(:income_source)
-          .where(income_sources: { household_id: current_household.id })
+          .where(income_sources: { household_id: current_household.id, financial_generation: current_household.financial_generation })
           .find(params[:id])
       end
 

@@ -209,8 +209,9 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
         {memories.map((memory) => (
           <section className={`mia-memory-item status-${memory.status}`} key={memory.id} aria-label={`${categoryLabels[memory.category]} memory`}>
             <div className="mia-memory-item-copy">
-              <div className="mia-memory-badges"><span>{categoryLabels[memory.category]}</span><span>Only me</span>{memory.sensitivity === 'sensitive' && <span>Sensitive</span>}<span>{memory.status === 'user_confirmed' ? 'Active' : memory.status.replaceAll('_', ' ')}</span></div>
+              <div className="mia-memory-badges"><span>{categoryLabels[memory.category]}</span><span>Only me</span>{memory.sensitivity === 'sensitive' && <span>Sensitive</span>}<span>{memory.context_paused_by_restart ? 'Paused after start over' : memory.status === 'user_confirmed' ? 'Active' : memory.status.replaceAll('_', ' ')}</span></div>
               <p>{memory.display_value}</p>
+              {memory.context_paused_by_restart && <p>This earlier note is kept privately. Edit and save it when you want Mia to use it in your new starting picture.</p>}
             </div>
             <div className="mia-memory-item-actions">
               {memory.status === 'pending_confirmation' && memory.confirmation_fingerprint && <button type="button" disabled={controlsUnavailable || paused || Boolean(busy)} onClick={() => void act(`confirm-${memory.id}`, () => confirmHouseholdMemory(memory.id, memory.confirmation_fingerprint!), `Memory confirmed. ${assistantName} can use it now.`)}>Confirm</button>}

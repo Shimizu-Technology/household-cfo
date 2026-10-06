@@ -14,7 +14,7 @@ module HouseholdFinance
         end
 
         def subject_for(input, lock:)
-          scope = IncomeScheduleEntry.joins(:income_source).where(income_sources: { household_id: household.id })
+          scope = IncomeScheduleEntry.joins(:income_source).where(income_sources: { household_id: household.id, financial_generation: household.financial_generation })
           scope = scope.lock if lock
           entry = scope.find(input.fetch(:entry_id))
           raise ActiveRecord::RecordNotFound, "Income schedule entry not found" unless entry.income_source_id == input.fetch(:source_id)

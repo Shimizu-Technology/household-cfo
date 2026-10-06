@@ -1,21 +1,26 @@
 module PlaidIntegration
   class TransactionSync
     MAX_RESTARTS = 2
+    FinancialPictureChanged = Class.new(Error)
 
     def initialize(plaid_item)
       @plaid_item = plaid_item
     end
 
     def call
-      raise Error, "This bank connection has been disconnected" unless plaid_item.connected?
+      @financial_generation = plaid_item.reload.financial_generation
+      raise Error, "This bank connection has been disconnected" unless syncable_connection?
 
       sync_accounts!
       sync_transactions!
       ReviewQueueHydrator.new(plaid_item).call
-      plaid_item.update!(status: "active", error_code: nil, error_message: nil, last_synced_at: Time.current, last_successful_update_at: Time.current)
+      plaid_item.with_lock do
+        require_same_financial_generation!
+        plaid_item.update!(status: "active", error_code: nil, error_message: nil, last_synced_at: Time.current, last_successful_update_at: Time.current)
+      end
       plaid_item
     rescue Error => e
-      record_error!(e)
+      record_error!(e) unless e.is_a?(FinancialPictureChanged)
       raise
     end
 
@@ -27,12 +32,15 @@ module PlaidIntegration
       response = Client.safely do |client|
         client.accounts_get(Plaid::AccountsGetRequest.new(access_token: plaid_item.access_token))
       end
+      plaid_item.with_lock do
+        require_same_financial_generation!
       seen = []
       Array(response.accounts).each do |account|
         seen << account.account_id
         record = plaid_item.plaid_accounts.find_or_initialize_by(plaid_account_id: account.account_id)
         balances = account.balances
         record.update!(
+          financial_generation: @financial_generation,
           persistent_account_id: account.respond_to?(:persistent_account_id) ? account.persistent_account_id : nil,
           name: account.name.to_s.first(160),
           official_name: account.official_name.to_s.first(160).presence,
@@ -48,6 +56,7 @@ module PlaidIntegration
         )
       end
       plaid_item.plaid_accounts.where.not(plaid_account_id: seen).update_all(active: false, updated_at: Time.current)
+      end
     end
 
     def sync_transactions!
@@ -77,7 +86,8 @@ module PlaidIntegration
     end
 
     def persist_changes!(changes, cursor)
-      ApplicationRecord.transaction do
+      plaid_item.with_lock do
+        require_same_financial_generation!
         (changes[:added] + changes[:modified]).each { |transaction| upsert_transaction!(transaction) }
         changes[:removed].each do |removed|
           plaid_item.plaid_transactions.find_by(plaid_transaction_id: removed.transaction_id)&.update!(removed_at: Time.current)
@@ -121,11 +131,23 @@ module PlaidIntegration
       value.nil? ? nil : (BigDecimal(value.to_s) * 100).round
     end
 
+    def require_same_financial_generation!
+      return if plaid_item.financial_generation == @financial_generation && syncable_connection?
+      raise FinancialPictureChanged.new("Bank activity belongs to an earlier financial picture. A fresh sync will review new activity.", code: "FINANCIAL_PICTURE_CHANGED")
+    end
+
+    def syncable_connection?
+      plaid_item.status.in?(%w[active update_required error]) && plaid_item.access_token_ciphertext.present?
+    end
+
     def record_error!(error)
       return unless plaid_item.persisted? && plaid_item.connected?
 
+      plaid_item.with_lock do
+        return if plaid_item.financial_generation != @financial_generation || !syncable_connection?
       status = error.code.to_s.start_with?("ITEM_LOGIN") ? "update_required" : "error"
       plaid_item.update_columns(status: status, error_code: error.code.to_s.first(80).presence, error_message: error.message.first(240), updated_at: Time.current)
+      end
     end
   end
 end

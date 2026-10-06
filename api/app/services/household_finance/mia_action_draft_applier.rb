@@ -22,6 +22,7 @@ module HouseholdFinance
         # Keep this consistent with AnnualBudgetManager and action cancelation to
         # avoid deadlocks between concurrent budget/draft operations.
         household.lock!
+        FinancialGenerationGuard.request!(household)
         draft.lock!
         ensure_actor_membership!
         ::Mia::ActionDraftScope.authorize!(draft, user: user, membership: @cohort_membership)
@@ -394,7 +395,7 @@ module HouseholdFinance
       BudgetAllocation
         .includes(:budget_category, budget_period: :budget_year)
         .joins(:budget_category, budget_period: :budget_year)
-        .where(budget_categories: { household_id: household.id }, budget_years: { household_id: household.id })
+        .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation }, budget_years: { household_id: household.id, financial_generation: household.financial_generation })
     end
 
     def stale_category_name_message(name = nil)

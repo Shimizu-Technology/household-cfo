@@ -73,7 +73,7 @@ module HouseholdFinance
       return if pattern.blank?
 
       transaction.transaction_splits.group(:budget_category_id).count.each do |category_id, split_count|
-        rule = MerchantCategoryRule.find_by(household_id: draft.household_id, merchant_pattern: pattern, budget_category_id: category_id)
+        rule = MerchantCategoryRule.current_picture.find_by(household_id: draft.household_id, merchant_pattern: pattern, budget_category_id: category_id)
         next unless rule
 
         rule.with_lock do

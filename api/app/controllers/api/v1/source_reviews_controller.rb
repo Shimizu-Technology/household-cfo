@@ -38,6 +38,7 @@ module Api
           current_household.lock!
           domain.authorize!
           document = current_household.financial_document_imports.lock.find(params[:document_import_id])
+          HouseholdFinance::FinancialGenerationGuard.source!(document)
           revision = document.financial_extraction_revisions.order(revision_number: :desc, id: :desc).first
           unless revision && revision.id.to_s == body[:revision_id].to_s
             raise FinancialDocuments::SourceReview::Domain::StaleReview, "The extraction changed. Refresh this statement; nothing changed."
@@ -57,7 +58,7 @@ module Api
       def accounts
         cursor = params.fetch(:cursor, "0").to_s
         raise ArgumentError, "Invalid account cursor" unless cursor.match?(/\A\d+\z/)
-        rows = SourceTrackedAccount.where(household: current_household).where("id > ?", cursor.to_i).order(:id).limit(51).to_a
+        rows = SourceTrackedAccount.current_picture.where(household: current_household).where("id > ?", cursor.to_i).order(:id).limit(51).to_a
         response.set_header("Cache-Control", "no-store")
         render json: { records: rows.first(50).map { |account| { id: account.id, label: account.label, account_basis: account.account_basis, account_id: account.account_id } },
           next_cursor: rows.length > 50 ? rows[49].id : nil }
@@ -65,6 +66,7 @@ module Api
 
       def candidates
         document = current_household.financial_document_imports.find(params[:document_import_id])
+        HouseholdFinance::FinancialGenerationGuard.source!(document)
         revision = document.financial_extraction_revisions.order(revision_number: :desc, id: :desc).first
         raise ActiveRecord::RecordNotFound unless revision
         event = revision.financial_source_events.find(params[:event_id])
@@ -104,6 +106,7 @@ module Api
           current_household.lock!
           domain.authorize!
           document = current_household.financial_document_imports.find(params[:document_import_id])
+        HouseholdFinance::FinancialGenerationGuard.source!(document)
           execution = HouseholdFinance::Operations::Runner.new(current_household, user: current_user, cohort_membership: current_cohort_membership).private_request_result(
             operation_key: operation, idempotency_key: request.headers["Idempotency-Key"])
           if execution

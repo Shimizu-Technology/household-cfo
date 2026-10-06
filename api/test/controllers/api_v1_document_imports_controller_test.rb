@@ -23,6 +23,46 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     @household.household_memberships.create!(user: @user, role: "owner")
   end
 
+  test "a pre-restart direct upload token cannot enter a new financial picture" do
+    deleted = []
+    with_s3_stubs(configured?: true, presigned_upload: ->(*) { { url: "https://storage.example/upload", headers: {}, expires_in: 900 } }, delete: ->(key) { deleted << key; true }) do
+      post "/api/v1/document_imports/presign", params: { filename: "budget.csv", content_type: "text/csv", byte_size: 32,
+        checksum_sha256: "a" * 64, document_kind: "spreadsheet" }, headers: auth_headers(@user), as: :json
+      assert_response :success
+      token = response.parsed_body.fetch("upload_token")
+      metadata = Rails.application.message_verifier(:financial_document_direct_upload).verify(token).deep_symbolize_keys
+      assert_equal 0, metadata[:financial_generation]
+      flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
+      preview = flow.preview
+      flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
+      assert_no_difference "FinancialDocumentImport.count" do
+        post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user).merge("X-Financial-Generation" => "1"), as: :json
+        assert_response :conflict
+        assert_equal "financial_generation_stale", response.parsed_body["code"]
+      end
+      assert_equal [ metadata[:s3_key] ], deleted
+    end
+  end
+
+  test "the same pending file can be uploaded fresh after restart while prior source is retained" do
+    with_s3_stubs(configured?: true, upload: ->(key, *) { key }) do
+      post "/api/v1/document_imports", params: { file: uploaded_csv, document_kind: "spreadsheet" }, headers: auth_headers(@user)
+      assert_response :created
+      previous = FinancialDocumentImport.last
+      flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
+      preview = flow.preview
+      flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
+      post "/api/v1/document_imports", params: { file: uploaded_csv, document_kind: "spreadsheet" }, headers: auth_headers(@user).merge("X-Financial-Generation" => "1")
+      assert_response :created
+      current = FinancialDocumentImport.last
+      assert_not_equal previous.id, current.id
+      assert_equal previous.checksum_sha256, current.checksum_sha256
+      assert_equal 0, previous.reload.financial_generation
+      assert_equal 1, current.financial_generation
+      assert previous.source_available?
+    end
+  end
+
   test "create requires private S3 configuration" do
     post "/api/v1/document_imports",
       params: { file: uploaded_csv, document_kind: "spreadsheet" },

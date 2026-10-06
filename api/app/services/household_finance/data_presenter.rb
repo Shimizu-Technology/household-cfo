@@ -44,6 +44,7 @@ module HouseholdFinance
         mode: "real",
         experience_mode: participant_experience_mode,
         household_id: household.id,
+        financial_generation: household.financial_generation,
         setup_complete: status.complete?,
         setup_status: status.as_json,
         setup_values: setup_values,
@@ -119,6 +120,7 @@ module HouseholdFinance
     def budget
       ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
       {
+        household_id: household.id, financial_generation: household.financial_generation,
         framework: "Expense Stack",
         intro: "Most budgets collapse life into bills versus fun. Household CFO separates the expenses that surprise you before they turn into emergencies.",
         monthly_income: dollars(snapshot.fetch(:monthly_income_cents)),

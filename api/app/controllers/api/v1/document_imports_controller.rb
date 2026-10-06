@@ -117,7 +117,7 @@ module Api
         return render json: { errors: [ "Could not prepare private document upload" ] }, status: :service_unavailable unless upload
 
         token = direct_upload_verifier.generate(
-          metadata.merge(s3_key: s3_key, household_id: current_household.id, user_id: current_user.id),
+          metadata.merge(s3_key: s3_key, household_id: current_household.id, user_id: current_user.id, financial_generation: FinancialPicture.generation || current_household.financial_generation),
           expires_in: 15.minutes
         )
         render json: {
@@ -138,6 +138,10 @@ module Api
           return render json: { errors: [ "This upload does not belong to this workspace" ] }, status: :forbidden
         end
 
+        unless metadata.fetch(:financial_generation, 0) == current_household.reload.financial_generation
+          delete_unregistered_direct_upload!(metadata.fetch(:s3_key))
+          raise HouseholdFinance::Operations::Base::StaleOperation, "This upload began before your financial picture restarted. Choose the file again for the new picture. Nothing was applied."
+        end
         existing_import = completed_direct_upload(metadata)
         return render_completed_direct_upload(existing_import) if existing_import
 
@@ -464,6 +468,12 @@ module Api
       def register_completed_direct_upload(metadata, object, object_valid:)
         s3_key = metadata.fetch(:s3_key)
         with_direct_upload_key_lock(s3_key) do
+          current_household.with_lock do
+            unless metadata.fetch(:financial_generation, 0) == current_household.financial_generation
+              delete_direct_upload_object_unless_registered(s3_key)
+              raise HouseholdFinance::Operations::Base::StaleOperation, "This upload began before your financial picture restarted. Choose the file again. Nothing was applied."
+            end
+            HouseholdFinance::FinancialGenerationGuard.request!(current_household)
           existing_import = completed_direct_upload(metadata)
           next({ status: :existing, document_import: existing_import }) if existing_import
 
@@ -492,6 +502,7 @@ module Api
           document_import.save!
           FinancialDocumentExtractionDispatch.request!(document_import)
           { status: :created, document_import: document_import }
+          end
         end
       end
 
@@ -591,7 +602,7 @@ module Api
       end
 
       def duplicate_active_import?(document_import)
-        current_household.financial_document_imports
+        current_household.financial_document_imports.current_picture
           .where(
             checksum_sha256: document_import.checksum_sha256,
             document_kind: document_import.document_kind,
@@ -695,6 +706,7 @@ module Api
       def serialize_document_import(document_import, include_attempts: false, include_details: true)
         {
           id: document_import.id,
+          context_paused_by_restart: !document_import.current_financial_picture?,
           household_id: document_import.household_id,
           document_kind: document_import.document_kind,
           status: document_import.status,

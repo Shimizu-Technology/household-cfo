@@ -7,9 +7,12 @@ module FinancialDocuments
         @household = household
       end
 
-      def call(revision_ids:)
+      def call(revision_ids:, current_financial_picture: false)
         revisions = FinancialExtractionRevision.where(household: household, id: Array(revision_ids).uniq).order(:id).to_a
         raise ActiveRecord::RecordNotFound unless revisions.length == Array(revision_ids).uniq.length
+        if current_financial_picture
+          revisions.each { |revision| HouseholdFinance::FinancialGenerationGuard.source!(revision.financial_document_import) }
+        end
         groups = EconomicLinker.valid_current_versions(household)
         heads = SourceReviewHead.where(household: household, financial_source_event_id: FinancialSourceEvent.where(financial_extraction_revision_id: revisions.map(&:id)))
           .includes(approved_version: [ :source_account_identity_version, :source_review_head ])
@@ -29,6 +32,9 @@ module FinancialDocuments
         dependency_revision_ids = (canonical.map { |version| version.financial_source_event.financial_extraction_revision_id } +
           groups.flat_map { |group| group.source_economic_memberships.map { |member| member.source_review_version.financial_source_event.financial_extraction_revision_id } }).uniq - revisions.map(&:id)
         dependencies = FinancialExtractionRevision.where(household: household, id: dependency_revision_ids).order(:id).to_a
+        if current_financial_picture
+          dependencies.each { |revision| HouseholdFinance::FinancialGenerationGuard.source!(revision.financial_document_import) }
+        end
         statuses = (revisions + dependencies).map do |revision|
           state = ApprovalState.new(household, revision).call
           last = SourceRevisionApproval.where(household: household, financial_extraction_revision: revision).order(version_number: :desc).first

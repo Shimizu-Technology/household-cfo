@@ -14,7 +14,7 @@ module PlaidIntegration
     attr_reader :household, :transactions
 
     def pending_source_drafts
-      household.transaction_drafts.pending
+      household.historical_transaction_drafts.pending
         .where(source_type: "plaid")
         .where(id: transactions.where.not(transaction_draft_id: nil).select(:transaction_draft_id))
     end

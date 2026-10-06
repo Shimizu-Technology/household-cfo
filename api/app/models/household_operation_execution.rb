@@ -1,4 +1,5 @@
 class HouseholdOperationExecution < ApplicationRecord
+  include CurrentFinancialPicture
   SOURCES = %w[manual mia].freeze
 
   belongs_to :household

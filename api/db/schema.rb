@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_061000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -61,6 +61,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.bigint "balance_cents", default: 0, null: false
     t.boolean "balance_known", default: true, null: false
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.string "label", null: false
     t.bigint "plaid_account_id"
@@ -68,12 +69,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.jsonb "source_metadata", default: {}, null: false
     t.string "source_type", default: "manual_ui", null: false
     t.datetime "updated_at", null: false
-    t.index "household_id, account_type, lower((label)::text)", name: "index_active_accounts_on_household_type_label", unique: true, where: "(active = true)"
+    t.index "household_id, financial_generation, account_type, lower((label)::text)", name: "index_active_accounts_on_household_type_label", unique: true, where: "(active = true)"
     t.index ["household_id", "account_type"], name: "index_accounts_on_household_id_and_account_type"
     t.index ["household_id", "active"], name: "index_accounts_on_household_id_and_active"
     t.index ["household_id"], name: "index_accounts_on_household_id"
     t.index ["id", "household_id"], name: "accounts_source_review_household_identity", unique: true
-    t.index ["plaid_account_id"], name: "index_accounts_on_unique_plaid_account", unique: true, where: "(plaid_account_id IS NOT NULL)"
+    t.index ["plaid_account_id", "financial_generation"], name: "index_accounts_on_unique_plaid_account", unique: true, where: "(plaid_account_id IS NOT NULL)"
     t.check_constraint "(account_type::text = ANY (ARRAY['checking'::character varying, 'savings'::character varying]::text[])) OR balance_cents >= 0", name: "accounts_balance_signed_only_for_cash"
     t.check_constraint "active = true AND archived_at IS NULL OR active = false AND archived_at IS NOT NULL", name: "accounts_archive_state_valid"
     t.check_constraint "balance_known = true OR balance_cents = 0 AND balance_as_of_on IS NULL", name: "accounts_unknown_balance_zero_without_date"
@@ -98,12 +99,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
   create_table "budget_categories", force: :cascade do |t|
     t.boolean "active", default: true, null: false
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.string "name", null: false
     t.integer "sort_order", default: 0, null: false
     t.string "stack_key", null: false
     t.datetime "updated_at", null: false
-    t.index "household_id, lower((name)::text)", name: "index_budget_categories_on_household_lower_name", unique: true
+    t.index "household_id, financial_generation, lower((name)::text)", name: "index_budget_categories_on_household_lower_name", unique: true
     t.index ["household_id", "active", "sort_order"], name: "idx_on_household_id_active_sort_order_01ee1248fa"
     t.index ["household_id"], name: "index_budget_categories_on_household_id"
     t.index ["id", "household_id"], name: "budget_categories_source_review_household_identity", unique: true
@@ -126,11 +128,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
 
   create_table "budget_years", force: :cascade do |t|
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.string "status", default: "active", null: false
     t.datetime "updated_at", null: false
     t.integer "year", null: false
-    t.index ["household_id", "year"], name: "index_budget_years_on_household_id_and_year", unique: true
+    t.index ["household_id", "financial_generation", "year"], name: "index_budget_years_on_household_id_and_year", unique: true
     t.index ["household_id"], name: "index_budget_years_on_household_id"
     t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'active'::character varying, 'archived'::character varying]::text[])", name: "budget_years_status_valid"
     t.check_constraint "year >= 2000 AND year <= 2100", name: "budget_years_year_reasonable"
@@ -323,6 +326,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.bigint "cohort_release_id"
     t.text "content", null: false
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
+    t.jsonb "financial_restart", default: {}, null: false
     t.jsonb "presentation", default: {}, null: false
     t.string "role", null: false
     t.datetime "updated_at", null: false
@@ -344,6 +349,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.jsonb "active_topic", default: {}, null: false
     t.bigint "cohort_id"
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.datetime "last_compacted_at"
     t.bigint "last_compacted_message_id"
@@ -1753,6 +1759,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.boolean "balance_known", default: true, null: false
     t.datetime "created_at", null: false
     t.string "debt_type", default: "other", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.decimal "interest_rate_percent", precision: 6, scale: 2
     t.string "label", null: false
@@ -1761,7 +1768,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.jsonb "source_metadata", default: {}, null: false
     t.string "source_type", default: "manual_ui", null: false
     t.datetime "updated_at", null: false
-    t.index "household_id, debt_type, lower((label)::text)", name: "index_active_debts_on_household_type_label", unique: true, where: "(active = true)"
+    t.index "household_id, financial_generation, debt_type, lower((label)::text)", name: "index_active_debts_on_household_type_label", unique: true, where: "(active = true)"
     t.index ["household_id", "active"], name: "index_debts_on_household_id_and_active"
     t.index ["household_id", "debt_type"], name: "index_debts_on_household_id_and_debt_type"
     t.index ["household_id"], name: "index_debts_on_household_id"
@@ -1776,12 +1783,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.integer "amount_cents", default: 0, null: false
     t.string "cadence", default: "monthly", null: false
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.string "label", null: false
     t.string "stack_key", null: false
     t.datetime "updated_at", null: false
     t.index ["household_id", "active"], name: "index_expense_items_on_household_id_and_active"
-    t.index ["household_id", "stack_key", "label"], name: "index_expense_items_on_household_stack_key_label", unique: true
+    t.index ["household_id", "financial_generation", "stack_key", "label"], name: "index_expense_items_on_household_stack_key_label", unique: true
     t.index ["household_id", "stack_key"], name: "index_expense_items_on_household_id_and_stack_key"
     t.index ["household_id"], name: "index_expense_items_on_household_id"
     t.check_constraint "amount_cents >= 0", name: "expense_items_amount_cents_non_negative"
@@ -1790,11 +1798,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
   create_table "financial_baseline_heads", force: :cascade do |t|
     t.bigint "approved_version_id"
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.integer "lock_version", default: 0, null: false
     t.bigint "participant_user_id", null: false
     t.datetime "updated_at", null: false
-    t.index ["household_id", "participant_user_id"], name: "financial_baseline_participant_identity", unique: true
+    t.index ["household_id", "participant_user_id", "financial_generation"], name: "financial_baseline_participant_identity", unique: true
     t.index ["household_id"], name: "index_financial_baseline_heads_on_household_id"
     t.index ["id", "household_id"], name: "financial_baseline_head_household_identity", unique: true
     t.index ["id", "participant_user_id", "household_id"], name: "financial_baseline_head_actor_identity", unique: true
@@ -1914,6 +1923,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.text "extracted_summary"
     t.text "extraction_error"
     t.string "filename", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.jsonb "metadata", default: {}, null: false
     t.date "period_end_on"
@@ -1977,6 +1987,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.index ["financial_document_import_id"], name: "idx_on_financial_document_import_id_0c4473f699"
     t.index ["household_id"], name: "index_financial_extraction_revisions_on_household_id"
     t.index ["id", "household_id"], name: "index_extraction_revisions_household_identity", unique: true
+  end
+
+  create_table "financial_restart_reviews", force: :cascade do |t|
+    t.datetime "applied_at"
+    t.bigint "cohort_id"
+    t.datetime "created_at", null: false
+    t.datetime "expires_at", null: false
+    t.integer "financial_generation", null: false
+    t.bigint "household_id", null: false
+    t.jsonb "inventory", default: {}, null: false
+    t.string "inventory_fingerprint", null: false
+    t.jsonb "previous_setup", default: {}, null: false
+    t.bigint "requested_by_user_id", null: false
+    t.integer "result_generation"
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cohort_id"], name: "index_financial_restart_reviews_on_cohort_id"
+    t.index ["household_id"], name: "index_financial_restart_reviews_on_household_id"
+    t.index ["requested_by_user_id"], name: "index_financial_restart_reviews_on_requested_by_user_id"
   end
 
   create_table "financial_source_accounts", force: :cascade do |t|
@@ -2067,6 +2096,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.datetime "created_at", null: false
     t.integer "current_amount_cents", default: 0, null: false
     t.boolean "current_amount_known", default: false, null: false
+    t.integer "financial_generation", default: 0, null: false
     t.string "goal_type", default: "other", null: false
     t.bigint "household_id", null: false
     t.string "label", null: false
@@ -2081,12 +2111,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.datetime "updated_at", null: false
     t.index "household_id, lower((label)::text), goal_type", name: "index_goals_on_active_tracked_identity", unique: true, where: "(((record_kind)::text = 'tracked'::text) AND (active = true))"
     t.index ["household_id", "active"], name: "index_goals_on_household_id_and_active"
+    t.index ["household_id", "financial_generation"], name: "index_goals_on_one_runway_per_household", unique: true, where: "((goal_type)::text = 'runway'::text)"
+    t.index ["household_id", "financial_generation"], name: "index_goals_on_one_transition_per_household", unique: true, where: "((goal_type)::text = 'transition'::text)"
     t.index ["household_id", "goal_type"], name: "index_goals_on_household_id_and_goal_type"
     t.index ["household_id", "priority"], name: "index_goals_on_household_id_and_priority"
     t.index ["household_id", "record_kind", "priority"], name: "index_goals_on_kind_and_priority"
     t.index ["household_id"], name: "index_goals_on_household_id"
-    t.index ["household_id"], name: "index_goals_on_one_runway_per_household", unique: true, where: "((goal_type)::text = 'runway'::text)"
-    t.index ["household_id"], name: "index_goals_on_one_transition_per_household", unique: true, where: "((goal_type)::text = 'transition'::text)"
     t.check_constraint "active = true AND archived_at IS NULL OR active = false AND archived_at IS NOT NULL", name: "goals_archive_state_valid"
     t.check_constraint "current_amount_cents >= 0", name: "goals_current_amount_cents_non_negative"
     t.check_constraint "current_amount_known = true OR current_amount_cents = 0", name: "goals_unknown_current_is_zero"
@@ -2136,6 +2166,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.datetime "created_at", null: false
     t.string "display_value", null: false
     t.datetime "expires_at"
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.bigint "owner_user_id", null: false
     t.datetime "rejected_at"
@@ -2166,6 +2197,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.jsonb "before_snapshot", default: {}, null: false
     t.datetime "completed_at", null: false
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_audit_event_id", null: false
     t.bigint "household_id", null: false
     t.string "idempotency_key", null: false
@@ -2206,6 +2238,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.bigint "debt_summary_minimum_payment_cents", default: 0, null: false
     t.boolean "debt_summary_minimum_payment_known", default: false, null: false
     t.string "debt_tracking_mode", default: "individual", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.string "household_stage"
     t.integer "money_stress_level"
@@ -2222,6 +2255,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.bigint "budget_period_id", null: false
     t.datetime "created_at", null: false
     t.text "description"
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "financial_source_event_id"
     t.bigint "household_id", null: false
     t.string "merchant", null: false
@@ -2249,6 +2283,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.jsonb "confirmed_setup_fields", default: [], null: false
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.string "location"
     t.string "name", null: false
     t.text "primary_goal"
@@ -2281,12 +2316,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.string "cadence", default: "monthly", null: false
     t.datetime "created_at", null: false
     t.date "ends_on"
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.string "label", null: false
     t.string "source_type", default: "other", null: false
     t.date "starts_on"
     t.datetime "updated_at", null: false
-    t.index "household_id, source_type, lower((label)::text)", name: "index_income_sources_on_household_type_lower_label", unique: true, where: "(active = true)"
+    t.index "household_id, financial_generation, source_type, lower((label)::text)", name: "index_income_sources_on_household_type_lower_label", unique: true, where: "(active = true)"
     t.index ["household_id", "active"], name: "index_income_sources_on_household_id_and_active"
     t.index ["household_id", "source_type"], name: "index_income_sources_on_household_id_and_source_type"
     t.index ["household_id"], name: "index_income_sources_on_household_id"
@@ -2318,6 +2354,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.bigint "budget_category_id", null: false
     t.decimal "confidence", precision: 5, scale: 2, default: "0.8", null: false
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.datetime "last_confirmed_at"
     t.string "merchant_pattern", null: false
@@ -2327,7 +2364,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.datetime "updated_at", null: false
     t.index ["budget_category_id"], name: "index_merchant_category_rules_on_budget_category_id"
     t.index ["household_id", "active", "merchant_pattern"], name: "index_merchant_rules_on_household_active_pattern"
-    t.index ["household_id", "merchant_pattern", "budget_category_id"], name: "index_merchant_rules_on_household_pattern_category", unique: true
+    t.index ["household_id", "financial_generation", "merchant_pattern", "budget_category_id"], name: "index_merchant_rules_on_household_pattern_category", unique: true
     t.index ["household_id"], name: "index_merchant_category_rules_on_household_id"
     t.check_constraint "char_length(merchant_pattern::text) <= 120", name: "merchant_category_rules_pattern_length"
     t.check_constraint "confidence >= 0::numeric AND confidence <= 1::numeric", name: "merchant_category_rules_confidence_unit_interval"
@@ -2366,6 +2403,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.bigint "canceled_by_user_id"
     t.datetime "created_at", null: false
     t.string "draft_type", default: "budget_edit", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.jsonb "metadata", default: {}, null: false
     t.text "rationale"
@@ -2430,6 +2468,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.bigint "chat_session_id", null: false
     t.datetime "completed_at"
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.string "request_fingerprint", null: false
     t.string "request_key", null: false
     t.jsonb "response_payload", default: {}, null: false
@@ -2474,6 +2513,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.bigint "available_balance_cents"
     t.datetime "created_at", null: false
     t.bigint "current_balance_cents"
+    t.integer "financial_generation", default: 0, null: false
     t.string "iso_currency_code"
     t.datetime "last_synced_at"
     t.bigint "limit_balance_cents"
@@ -2500,6 +2540,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.string "environment", null: false
     t.string "error_code"
     t.string "error_message"
+    t.integer "financial_generation", default: 0, null: false
+    t.datetime "financial_resumed_at"
     t.bigint "household_id", null: false
     t.string "institution_id"
     t.string "institution_name"
@@ -2522,6 +2564,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.datetime "created_at", null: false
     t.string "detailed_category"
     t.string "drafted_source_fingerprint"
+    t.integer "financial_generation", default: 0, null: false
     t.string "iso_currency_code"
     t.string "merchant_name"
     t.string "name", null: false
@@ -3220,6 +3263,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
   create_table "source_economic_groups", force: :cascade do |t|
     t.bigint "approved_version_id"
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.integer "lock_version", default: 0, null: false
     t.datetime "updated_at", null: false
@@ -3361,6 +3405,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.bigint "account_id"
     t.bigint "approved_by_user_id", null: false
     t.datetime "created_at", null: false
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "household_id", null: false
     t.string "label", null: false
     t.index ["account_id"], name: "index_source_tracked_accounts_on_account_id"
@@ -3411,6 +3456,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     t.datetime "created_at", null: false
     t.jsonb "draft_payload", default: {}, null: false
     t.bigint "financial_document_import_id"
+    t.integer "financial_generation", default: 0, null: false
     t.bigint "financial_source_event_id"
     t.bigint "household_id", null: false
     t.bigint "matched_transaction_id"
@@ -3833,6 +3879,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
   add_foreign_key "financial_extraction_revisions", "financial_document_import_attempts", on_delete: :nullify
   add_foreign_key "financial_extraction_revisions", "financial_document_imports", on_delete: :nullify
   add_foreign_key "financial_extraction_revisions", "households"
+  add_foreign_key "financial_restart_reviews", "cohorts"
+  add_foreign_key "financial_restart_reviews", "households"
+  add_foreign_key "financial_restart_reviews", "users", column: "requested_by_user_id"
   add_foreign_key "financial_source_accounts", "financial_extraction_revisions"
   add_foreign_key "financial_source_accounts", "financial_extraction_revisions", column: ["financial_extraction_revision_id", "household_id"], primary_key: ["id", "household_id"], name: "source_accounts_revision_household_fk"
   add_foreign_key "financial_source_accounts", "households"
@@ -4415,17 +4464,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
      RETURNS trigger
      LANGUAGE plpgsql
     AS $function$
-    BEGIN
-      IF NEW.household_id IS DISTINCT FROM OLD.household_id THEN
-        PERFORM 1 FROM households WHERE id=OLD.household_id FOR UPDATE;
-        IF (
-          EXISTS (SELECT 1 FROM savings_debt_cards WHERE household_debt_id=OLD.id) OR
-          EXISTS (SELECT 1 FROM savings_debt_drafts WHERE household_debt_id=OLD.id) OR
-          EXISTS (SELECT 1 FROM savings_debt_versions WHERE household_debt_id=OLD.id)
-        ) THEN RAISE EXCEPTION 'optional card review history household identity cannot change'; END IF;
-      END IF;
-      RETURN NEW;
-    END; $function$
+        BEGIN
+          IF NEW.household_id IS DISTINCT FROM OLD.household_id THEN
+            PERFORM 1 FROM households WHERE id=OLD.household_id FOR UPDATE;
+            IF (
+              EXISTS (SELECT 1 FROM savings_debt_cards WHERE household_debt_id=OLD.id) OR
+              EXISTS (SELECT 1 FROM savings_debt_drafts WHERE household_debt_id=OLD.id) OR
+              EXISTS (SELECT 1 FROM savings_debt_versions WHERE household_debt_id=OLD.id)
+            ) THEN RAISE EXCEPTION 'optional card review history household identity cannot change'; END IF;
+          END IF;
+          RETURN NEW;
+        END; $function$
   SQL
   execute <<~'SQL'
     CREATE TRIGGER debts_optional_card_identity_guard BEFORE UPDATE OF household_id ON public.debts FOR EACH ROW EXECUTE FUNCTION debts_optional_card_identity_guard();
@@ -4782,6 +4831,114 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
   execute <<~SQL
     DROP TRIGGER IF EXISTS financial_source_events_immutable ON financial_source_events;
     CREATE TRIGGER financial_source_events_immutable BEFORE UPDATE ON public.financial_source_events FOR EACH ROW EXECUTE FUNCTION source_accounting_facts_immutable();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.financial_picture_write_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE current_generation integer;
+    BEGIN
+      SELECT financial_generation INTO current_generation FROM households WHERE id = NEW.household_id FOR UPDATE;
+      IF NEW.financial_generation IS DISTINCT FROM current_generation THEN
+        IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'accounts' THEN
+          IF NEW.plaid_account_id IS NULL AND (to_jsonb(NEW) - ARRAY['plaid_account_id', 'updated_at']) = (to_jsonb(OLD) - ARRAY['plaid_account_id', 'updated_at']) THEN
+            RETURN NEW;
+          END IF;
+        END IF;
+        IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'transaction_drafts' THEN
+          IF (to_jsonb(NEW) - ARRAY['raw_input', 'draft_payload', 'merchant', 'updated_at']) = (to_jsonb(OLD) - ARRAY['raw_input', 'draft_payload', 'merchant', 'updated_at'])
+            AND NEW.raw_input IS NULL AND NEW.draft_payload = '{}'::jsonb
+            AND (NEW.merchant = OLD.merchant OR (NEW.merchant = 'Source row' AND OLD.status IN ('pending', 'ignored'))) THEN
+            RETURN NEW;
+          END IF;
+        END IF;
+        IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'mia_action_drafts' THEN
+          IF (to_jsonb(NEW) - ARRAY['source_chat_message_id', 'assistant_chat_message_id', 'metadata', 'updated_at']) = (to_jsonb(OLD) - ARRAY['source_chat_message_id', 'assistant_chat_message_id', 'metadata', 'updated_at'])
+            AND (NEW.source_chat_message_id IS NULL OR NEW.source_chat_message_id = OLD.source_chat_message_id)
+            AND (NEW.assistant_chat_message_id IS NULL OR NEW.assistant_chat_message_id = OLD.assistant_chat_message_id)
+            AND (NEW.metadata - 'review_program_scope') = (OLD.metadata - 'review_program_scope') THEN
+            RETURN NEW;
+          END IF;
+        END IF;
+        RAISE EXCEPTION 'financial_generation_stale: reload the current financial picture' USING ERRCODE = '23514';
+      END IF;
+      IF TG_OP = 'UPDATE' AND TG_TABLE_NAME <> 'household_profiles' AND NEW.financial_generation IS DISTINCT FROM OLD.financial_generation THEN
+        RAISE EXCEPTION 'financial picture generation cannot change' USING ERRCODE = '23514';
+      END IF;
+      RETURN NEW;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER accounts_financial_picture_guard BEFORE INSERT OR UPDATE ON public.accounts FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER budget_categories_financial_picture_guard BEFORE INSERT OR UPDATE ON public.budget_categories FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER budget_years_financial_picture_guard BEFORE INSERT OR UPDATE ON public.budget_years FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER debts_financial_picture_guard BEFORE INSERT OR UPDATE ON public.debts FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER expense_items_financial_picture_guard BEFORE INSERT OR UPDATE ON public.expense_items FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER goals_financial_picture_guard BEFORE INSERT OR UPDATE ON public.goals FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER household_profiles_financial_picture_guard BEFORE INSERT OR UPDATE ON public.household_profiles FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER household_transactions_financial_picture_guard BEFORE INSERT OR UPDATE ON public.household_transactions FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER income_sources_financial_picture_guard BEFORE INSERT OR UPDATE ON public.income_sources FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER merchant_category_rules_financial_picture_guard BEFORE INSERT OR UPDATE ON public.merchant_category_rules FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER mia_action_drafts_financial_picture_guard BEFORE INSERT OR UPDATE ON public.mia_action_drafts FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER transaction_drafts_financial_picture_guard BEFORE INSERT OR UPDATE ON public.transaction_drafts FOR EACH ROW EXECUTE FUNCTION financial_picture_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.financial_chat_write_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE current_generation integer;
+    BEGIN
+      SELECT financial_generation INTO current_generation FROM households WHERE id = NEW.household_id FOR UPDATE;
+      IF NEW.financial_generation IS DISTINCT FROM current_generation THEN
+        RAISE EXCEPTION 'financial_generation_stale: chat continuity changed' USING ERRCODE = '23514';
+      END IF;
+      RETURN NEW;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER chat_sessions_financial_picture_guard BEFORE INSERT OR UPDATE ON public.chat_sessions FOR EACH ROW EXECUTE FUNCTION financial_chat_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.bank_activity_generation_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF NEW.financial_generation IS DISTINCT FROM OLD.financial_generation OR NEW.plaid_item_id IS DISTINCT FROM OLD.plaid_item_id THEN
+        RAISE EXCEPTION 'bank activity financial generation cannot change' USING ERRCODE = '23514';
+      END IF;
+      RETURN NEW;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER plaid_transactions_financial_generation_guard BEFORE UPDATE ON public.plaid_transactions FOR EACH ROW EXECUTE FUNCTION bank_activity_generation_guard();
   SQL
 execute <<~SQL
   CREATE OR REPLACE FUNCTION prevent_cohort_release_mutation()

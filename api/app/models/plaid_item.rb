@@ -1,4 +1,5 @@
 class PlaidItem < ApplicationRecord
+  include CurrentFinancialPicture
   STATUSES = %w[active update_required error disconnecting disconnected].freeze
   ENVIRONMENTS = %w[sandbox production].freeze
 

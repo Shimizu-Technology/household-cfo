@@ -269,7 +269,7 @@ module HouseholdFinance
 
     def eligible_plaid_accounts
       ::PlaidAccount.joins(:plaid_item).includes(:account, :plaid_item)
-        .where(plaid_accounts: { active: true }, plaid_items: { household_id: household.id, status: "active" })
+        .where(plaid_accounts: { active: true }, plaid_items: { household_id: household.id, financial_generation: household.financial_generation, status: "active" })
         .where.missing(:account).first(MAX_CATEGORIES).filter_map do |observation|
           eligibility = PlaidIntegration::AccountEligibility.new(observation)
           next unless eligibility.eligible? && eligibility.active_observation? && observation.account.nil?

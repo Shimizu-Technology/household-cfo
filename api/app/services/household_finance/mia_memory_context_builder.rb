@@ -21,7 +21,7 @@ module HouseholdFinance
       }
       return context if paused
 
-      household.household_memories.visible_to(user).active.ordered.limit(MAX_MEMORIES).each do |memory|
+      household.household_memories.current_picture.visible_to(user).active.ordered.limit(MAX_MEMORIES).each do |memory|
         entry = { id: memory.id, category: memory.category, value: bounded(memory.display_value) }
         candidate = context.merge(memories: context.fetch(:memories) + [ entry ])
         break if JSON.generate(candidate).bytesize > MAX_CONTEXT_BYTES

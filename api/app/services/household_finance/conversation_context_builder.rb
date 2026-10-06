@@ -10,7 +10,8 @@ module HouseholdFinance
       none set_allocation increase_allocation decrease_allocation move_allocation create_category
       rename_category reclassify_category archive_category restore_category review_pending_action
       create_transaction_draft update_transaction_draft ignore_transaction_drafts update_household_setup
-      schedule_income_change create_debt update_debt archive_debt restore_debt update_debt_tracking
+      schedule_income_change create_income_source update_income_source archive_income_source restore_income_source
+      update_income_schedule_entry delete_income_schedule_entry create_debt update_debt archive_debt restore_debt update_debt_tracking
       create_account update_account archive_account restore_account link_plaid_account reconcile_plaid_account unlink_plaid_account
       create_goal update_goal archive_goal restore_goal
     ].freeze
@@ -202,6 +203,10 @@ module HouseholdFinance
         setup_updates: setup_updates_payload(action["setup_updates"]),
         income_source_id: bounded_integer(action["income_source_id"], 0..MAX_RECORD_ID),
         income_source_name: sanitized_text(action["income_source_name"], max_length: 120),
+        income_schedule_entry_id: bounded_integer(action["income_schedule_entry_id"], 0..MAX_RECORD_ID),
+        source_type: sanitized_text(action["source_type"], max_length: 40),
+        cadence: sanitized_text(action["cadence"], max_length: 40),
+        retained_after_transition: strict_boolean(action["retained_after_transition"]),
         entry_type: sanitized_text(action["entry_type"], max_length: 40),
         effective_on: sanitized_text(action["effective_on"], max_length: 20),
         schedule_label: sanitized_text(action["schedule_label"], max_length: 80),

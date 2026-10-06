@@ -14,7 +14,7 @@ module HouseholdFinance
       return false unless chat_session
       return false unless reference_key.in?(REFERENCE_KEYS) && reference_id.positive?
 
-      chat_session.with_lock do
+      chat_session.with_financial_picture_lock do
         active_topic = updated_topic(chat_session.active_topic)
         open_topics = Array(chat_session.open_topics).map { |topic| updated_topic(topic) }
         chat_session.update!(

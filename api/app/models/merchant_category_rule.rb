@@ -1,4 +1,5 @@
 class MerchantCategoryRule < ApplicationRecord
+  include CurrentFinancialPicture
   SOURCES = %w[user_confirmed system_inferred coach_confirmed].freeze
 
   belongs_to :household

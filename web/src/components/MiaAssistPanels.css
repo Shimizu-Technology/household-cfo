@@ -1,0 +1,38 @@
+.mia-assist-overlay { position: fixed; z-index: 110; inset: var(--dialog-viewport-top, 0px) 0 auto; height: var(--dialog-viewport-height, 100dvh); display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+.mia-assist-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border-radius: 0; background: rgba(31, 36, 33, .5); }
+.mia-assist-panel { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--paper, #fffdf7); border: 1px solid var(--line, #dfdad1); border-radius: 22px; overflow: hidden; color: var(--ink, #202820); }
+.mia-assist-panel.is-modal { width: min(560px, 100%); max-height: 100%; box-shadow: 0 24px 80px rgba(31, 36, 33, .25); }
+.mia-assist-panel.is-companion { width: 100%; max-height: min(780px, calc(100dvh - 120px)); align-self: start; }
+.mia-assist-header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line, #dfdad1); background: var(--paper, #fffdf7); }
+.mia-assist-header > div { min-width: 0; }
+.mia-assist-header h2 { margin: 4px 0 0; font-size: 1.25rem; line-height: 1.2; overflow-wrap: anywhere; }
+.mia-assist-header .eyebrow { font-size: .7rem; }
+.mia-assist-header > button { flex-shrink: 0; min-width: 64px; min-height: 44px; padding: 10px 12px; }
+.mia-assist-body { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 16px; scrollbar-gutter: stable; }
+.mia-assist-body p { margin: 0; color: var(--muted, #61665e); font-size: .95rem; line-height: 1.5; }
+.mia-assist-intro { padding-bottom: 16px; }
+.mia-assist-section { display: grid; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--line, #dfdad1); }
+.mia-assist-section:first-child { padding-top: 0; }
+.mia-assist-section:last-child { border-bottom: 0; padding-bottom: 0; }
+.mia-assist-section h3 { margin: 0; font-family: inherit; font-size: 1rem; line-height: 1.3; }
+.mia-assist-body .mia-assist-note { font-size: .85rem; }
+.mia-assist-prompts { display: grid; gap: 12px; }
+.mia-assist-prompts > button { min-height: 44px; width: 100%; text-align: left; justify-content: flex-start; white-space: normal; padding: 12px 16px; line-height: 1.35; }
+.mia-assist-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.mia-assist-actions > button { min-height: 44px; padding: 10px 14px; white-space: normal; }
+.mia-assist-status { margin: 0; display: grid; gap: 8px; }
+.mia-assist-status > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mia-assist-status dt { color: var(--muted, #61665e); font-size: .9rem; }
+.mia-assist-status dd { margin: 0; font-weight: 800; font-variant-numeric: tabular-nums; }
+.mia-assist-file-help summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-size: .85rem; color: var(--emerald, #7b4a58); text-decoration: underline; }
+.mia-assist-file-help p { margin-top: 8px; font-size: .85rem; }
+.mia-assist-conversation-action { display: grid; gap: 12px; }
+.mia-assist-conversation-action + .mia-assist-conversation-action { border-top: 1px solid var(--line, #dfdad1); padding-top: 16px; margin-top: 4px; }
+.mia-assist-conversation-action > button { min-height: 44px; justify-self: start; white-space: normal; padding: 10px 14px; }
+.mia-assist-panel :focus-visible { outline: 2px solid var(--emerald, #7b4a58); outline-offset: 3px; }
+@media (min-width: 1000px) { .mia-layout.has-assist-panel { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); gap: 20px; } }
+@media (max-width: 374px) { .mia-assist-header, .mia-assist-body { padding: 12px; } .mia-assist-header h2 { font-size: 1.1rem; } .mia-assist-actions { display: grid; grid-template-columns: 1fr; } .mia-assist-actions > button { width: 100%; } }
+@media (min-width: 1000px) {
+  .is-chat-page .mia-layout.has-assist-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); grid-template-rows: minmax(0, 1fr); gap: 20px; }
+  .is-chat-page .mia-layout.has-assist-panel > .mia-assist-panel.is-companion { grid-column: 2; grid-row: 1; align-self: stretch; max-height: 100%; }
+}

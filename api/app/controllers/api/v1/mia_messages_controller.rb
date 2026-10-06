@@ -72,6 +72,10 @@ module Api
         return if request_handled
         @active_mia_message_request = message_request
 
+        if attached_imports.empty? && ::Mia::FinancialRestartRequest.matches?(content, session: session)
+          return render_financial_restart_response(session, content, message_request: message_request)
+        end
+
         if attached_imports.empty? && (memory_command = mia_memory_command(content))
           return render_mia_memory_command(
             session,
@@ -354,6 +358,7 @@ module Api
         return false unless session.active_topic.to_h["record_scope"] == "household_plan"
         text = content.to_s.squish
         return false if text.match?(::Mia::HouseholdPlanRequest::CHALLENGE) || text.match?(/\b(?:set\s+(?:(?:it|that)\s+)?aside|saved|spent|bought|paid|withdrew|withdrawn|contributed)\b/i)
+        return true if ::Mia::IncomeSourceReply.matches?(text, session: session)
         confirmation = confirmation_message?(text) || text.match?(/\A(?:okay|ok|apply it|go ahead)[\s.!?,]*\z/i)
         correction = text.match?(/\b(?:that|it|same|those)\b/i) && text.match?(::Mia::HouseholdPlanRequest::WRITE)
         confirmation || correction
@@ -361,7 +366,7 @@ module Api
 
       def detach_action_reviews_before_clearing(session)
         message_ids = session.chat_messages.select(:id)
-        scope = current_household.mia_action_drafts
+        scope = current_household.historical_mia_action_drafts
         scope.where(source_chat_message_id: message_ids).or(scope.where(assistant_chat_message_id: message_ids))
           .includes(source_chat_message: :chat_session, assistant_chat_message: :chat_session).find_each do |draft|
           origin = draft.source_chat_message&.chat_session || draft.assistant_chat_message&.chat_session
@@ -372,6 +377,17 @@ module Api
           attributes[:assistant_chat_message_id] = nil if draft.assistant_chat_message&.chat_session_id == session.id
           draft.update!(attributes)
         end
+      end
+
+      def render_financial_restart_response(session, content, message_request:)
+        available = current_household.household_memberships.exists?(user_id: current_user.id, role: "owner")
+        answer = if available
+          "Yes. Open Start over to review a fresh financial picture, including income, spending plans and actuals, debts, accounts, goals and setup. Your login, household members, BOG savings and optional card reviews remain. Earlier records and uploads are retained as history; earlier chat and memory context are paused. Nothing changes until you explicitly confirm the review."
+        else
+          "This is a shared household. Only its owner can start a new financial picture for everyone. Ask the household owner to open Start over and review the impact. Your BOG savings and optional card reviews remain. Nothing changed."
+        end
+        render_household_read_response(session, content, answer, message_request: message_request,
+          topic: { "type" => "financial_restart" }, financial_restart: { available: available, state: available ? "review_available" : "owner_required" })
       end
 
       def render_saved_records_response(session, content, result, message_request:)
@@ -398,7 +414,7 @@ module Api
           message_request: message_request)
       end
 
-      def render_household_read_response(session, content, answer, message_request:, topic: {})
+      def render_household_read_response(session, content, answer, message_request:, topic: {}, financial_restart: nil)
         ApplicationRecord.transaction do
           current_household.lock!
           chat_session_scope.authorize!
@@ -408,6 +424,11 @@ module Api
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
             assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil,
             transaction_draft: nil, budget: nil, spending_report: nil }
+          if financial_restart
+            assistant_message.update!(financial_restart: financial_restart)
+            payload[:assistant_message] = serialize_chat_message(assistant_message)
+            payload[:financial_restart] = financial_restart
+          end
           complete_message_request(message_request, payload)
           record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: [])
           render json: payload, status: :created
@@ -1048,7 +1069,7 @@ module Api
         end
 
         fingerprint = message_request_fingerprint(content, attached_imports)
-        session.with_lock do
+        session.with_financial_picture_lock do
           existing_request = session.mia_message_requests.find_by(request_key: request_key)
           return [ existing_request, true ] if existing_request && render_existing_message_request(existing_request, fingerprint)
 
@@ -1089,6 +1110,10 @@ module Api
       end
 
       def render_existing_message_request(message_request, fingerprint)
+        if message_request.financial_generation != current_household.reload.financial_generation
+          render json: { errors: [ "That conversation request belongs to your previous financial picture. Send a fresh message." ], code: "financial_generation_stale", financial_generation: current_household.financial_generation }, status: :conflict
+          return true
+        end
         chat_session_scope.authorize! if message_request.chat_session.cohort_id
         if message_request.request_fingerprint != fingerprint
           render json: {

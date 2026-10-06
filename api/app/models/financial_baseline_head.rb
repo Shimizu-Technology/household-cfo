@@ -1,9 +1,10 @@
 class FinancialBaselineHead < ApplicationRecord
+  include CurrentFinancialPicture
   include SourceReviewScopedRecord
   belongs_to :participant_user, class_name: "User"
   belongs_to :approved_version, class_name: "FinancialBaselineVersion", optional: true
   has_many :financial_baseline_versions
-  validates :participant_user_id, uniqueness: { scope: :household_id }
+  validates :participant_user_id, uniqueness: { scope: [ :household_id, :financial_generation ] }
   validate :approved_head_scope
 
   private

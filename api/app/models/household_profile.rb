@@ -1,4 +1,5 @@
 class HouseholdProfile < ApplicationRecord
+  include CurrentFinancialPicture
   DEBT_TRACKING_MODES = %w[summary individual].freeze
 
   belongs_to :household

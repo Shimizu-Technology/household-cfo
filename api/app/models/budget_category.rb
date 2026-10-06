@@ -1,4 +1,5 @@
 class BudgetCategory < ApplicationRecord
+  include CurrentFinancialPicture
   STACK_KEYS = ExpenseItem::STACK_KEYS
 
   belongs_to :household
@@ -8,7 +9,7 @@ class BudgetCategory < ApplicationRecord
   has_many :transaction_draft_splits, dependent: :nullify
   has_many :merchant_category_rules, dependent: :destroy
 
-  validates :name, presence: true, length: { maximum: 80 }, uniqueness: { scope: :household_id, case_sensitive: false }
+  validates :name, presence: true, length: { maximum: 80 }, uniqueness: { scope: [ :household_id, :financial_generation ], case_sensitive: false }
   validates :stack_key, inclusion: { in: STACK_KEYS }
   validates :sort_order, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
 

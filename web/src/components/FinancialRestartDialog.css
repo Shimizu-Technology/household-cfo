@@ -1,0 +1,29 @@
+.financial-restart-dialog { display: flex; flex-direction: column; gap: 0; overflow: hidden; }
+.financial-restart-dialog > header, .financial-restart-actions { flex: 0 0 auto; }
+.financial-restart-dialog .pilot-dialog-body { display: block; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 4px; }
+.financial-restart-dialog .pilot-dialog-body > h3 { margin: 20px 0 10px; font-size: 1rem; }
+.financial-restart-counts { margin: 0; }
+.financial-restart-counts > div { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.financial-restart-counts dt { color: var(--muted); }
+.financial-restart-counts dd { margin: 0; font-weight: 800; }
+.financial-restart-confirm { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; line-height: 1.5; }
+.financial-restart-confirm input { flex: 0 0 auto; margin-top: 4px; width: 20px; height: 20px; }
+.financial-restart-dialog fieldset { border: 0; padding: 0; margin: 0; }
+.financial-restart-expiry { color: var(--muted); font-size: .85rem; }
+.financial-restart-actions { display: flex; flex-wrap: wrap; gap: 12px; padding: 16px 0 0; border-top: 1px solid var(--line); }
+.financial-restart-actions button { min-height: 44px; }
+.financial-restart-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.financial-restart-notice p { margin: 0; }
+.mia-restart-entry, .mia-wait-status { flex: 0 0 auto; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.mia-restart-entry { display: flex; align-items: center; gap: 12px; }
+.mia-restart-entry p { margin: 0; font-size: .85rem; }
+.mia-wait-status { font-size: .85rem; color: var(--muted); }
+.mia-message-restart { min-height: 44px; margin-top: 12px; }
+@media (max-width: 620px) { .financial-restart-actions { flex-direction: column; } .financial-restart-actions button { width: 100%; } }
+@media (max-height: 400px) {
+  .financial-restart-dialog { padding: 14px; }
+  .financial-restart-dialog > header h2 { font-size: 1.25rem; line-height: 1.15; }
+  .financial-restart-dialog .pilot-dialog-body { padding: 10px 4px; }
+  .financial-restart-actions { flex-direction: row; padding-top: 10px; gap: 10px; }
+  .financial-restart-actions button { flex: 1 1 0; min-width: 0; width: auto; padding: 8px 10px; font-size: .875rem; line-height: 1.3; }
+}

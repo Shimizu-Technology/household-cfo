@@ -1339,7 +1339,7 @@ describe('authenticated financial source content', () => {
   })
   it('keeps consumption of Blob bytes inside the request deadline', async () => {
     vi.useFakeTimers()
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: () => new Promise<Blob>(() => undefined) })
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, headers: new Headers(), blob: () => new Promise<Blob>(() => undefined) })
     vi.stubGlobal('fetch', fetchMock)
     const request = fetchDocumentImportSourceContent(606)
     const failure = expect(request).rejects.toThrow('Private document content took too long.')

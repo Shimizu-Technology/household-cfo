@@ -109,8 +109,8 @@ module HouseholdFinance
     def category_ids_with_actuals
       TransactionSplit
         .joins(:budget_category, :household_transaction)
-        .where(budget_categories: { household_id: household.id })
-        .where(household_transactions: { household_id: household.id, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
+        .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
+        .where(household_transactions: { household_id: household.id, financial_generation: household.financial_generation, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
         .distinct
         .pluck(:budget_category_id)
     end
@@ -121,8 +121,8 @@ module HouseholdFinance
         BudgetAllocation
           .joins(:budget_category, budget_period: :budget_year)
           .includes(:budget_period)
-          .where(budget_categories: { household_id: household.id, id: report_category_ids })
-          .where(budget_years: { household_id: household.id })
+          .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation, id: report_category_ids })
+          .where(budget_years: { household_id: household.id, financial_generation: household.financial_generation })
           .where("budget_periods.starts_on <= ? AND budget_periods.ends_on >= ?", end_on, start_on)
           .find_each do |allocation|
             sums[allocation.budget_category_id] += prorated_planned_cents(allocation)
@@ -145,8 +145,8 @@ module HouseholdFinance
     def actual_sums
       @actual_sums ||= TransactionSplit
         .joins(:budget_category, :household_transaction)
-        .where(budget_categories: { household_id: household.id })
-        .where(household_transactions: { household_id: household.id, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
+        .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
+        .where(household_transactions: { household_id: household.id, financial_generation: household.financial_generation, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
         .group(:budget_category_id)
         .sum(:amount_cents)
     end
@@ -177,7 +177,7 @@ module HouseholdFinance
 
     def bank_activity
       @bank_activity ||= begin
-        transactions = household.plaid_transactions.visible.includes(:transaction_draft).where(occurred_on: start_on..end_on).to_a
+        transactions = household.plaid_transactions.current_picture.visible.includes(:transaction_draft).where(occurred_on: start_on..end_on).to_a
         posted_outflows = transactions.select { |transaction| !transaction.pending? && transaction.amount_cents.positive? }
         pending = transactions.select { |transaction| transaction.pending? && transaction.amount_cents.positive? }
         inflows = transactions.select { |transaction| !transaction.pending? && transaction.amount_cents.negative? }
@@ -224,7 +224,7 @@ module HouseholdFinance
       household.household_transactions
         .includes(transaction_splits: :budget_category)
         .joins(transaction_splits: :budget_category)
-        .where(budget_categories: { household_id: household.id })
+        .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
         .where(status: %w[confirmed reconciled], occurred_on: start_on..end_on)
         .distinct
         .order(occurred_on: :desc, created_at: :desc)

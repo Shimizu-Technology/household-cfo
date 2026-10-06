@@ -1,6 +1,22 @@
 require "test_helper"
 
 class HouseholdFinanceConversationContextBuilderTest < ActiveSupport::TestCase
+  test "income creation clarification retains the same bounded fields across context serialization" do
+    builder = HouseholdFinance::ConversationContextBuilder.new(nil)
+    action = { type: "create_income_source", income_source_name: "Real salary QA", source_type: "job", amount: "3200", cadence: "monthly", effective_on: "2026-10-01", income_schedule_entry_id: 12, retained_after_transition: true }
+    parsed = builder.send(:action_payload, action)
+    assert_equal "create_income_source", parsed[:type]
+    assert_equal "Real salary QA", parsed[:income_source_name]
+    assert_equal "3200", parsed[:amount]
+    assert_equal "job", parsed[:source_type]
+    assert_equal "monthly", parsed[:cadence]
+    assert_equal 12, parsed[:income_schedule_entry_id]
+    assert_equal true, parsed[:retained_after_transition]
+    %w[create_income_source update_income_source archive_income_source restore_income_source update_income_schedule_entry delete_income_schedule_entry].each do |type|
+      assert_equal type, builder.send(:action_payload, action.merge(type: type))[:type]
+    end
+  end
+
   test "exposes versioned validated action state for future conversation turns" do
     user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "conversation-state@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Conversation State Household")

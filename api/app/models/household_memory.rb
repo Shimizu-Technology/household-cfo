@@ -2,6 +2,7 @@ require "digest"
 require "json"
 
 class HouseholdMemory < ApplicationRecord
+  include CurrentFinancialPicture
   CATEGORIES = %w[goal preference constraint habit coaching_style follow_up].freeze
   STATUSES = %w[pending_confirmation user_confirmed rejected expired].freeze
   SENSITIVITIES = %w[ordinary sensitive].freeze
@@ -15,6 +16,8 @@ class HouseholdMemory < ApplicationRecord
   belongs_to :household
   belongs_to :owner_user, class_name: "User"
   belongs_to :source_chat_message, class_name: "ChatMessage", optional: true
+
+  before_update :assign_financial_generation
 
   normalizes :display_value, with: ->(value) { value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").squish }
   normalizes :request_key, with: ->(value) { value.to_s.strip.presence }
@@ -41,6 +44,7 @@ class HouseholdMemory < ApplicationRecord
   def as_api_json(viewer:)
     {
       id: id,
+      context_paused_by_restart: !current_financial_picture?,
       category: category,
       status: status,
       sensitivity: sensitivity,

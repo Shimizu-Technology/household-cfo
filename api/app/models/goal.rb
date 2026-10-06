@@ -1,4 +1,5 @@
 class Goal < ApplicationRecord
+  include CurrentFinancialPicture
   GOAL_TYPES = %w[runway debt_payoff business_income purchase transition savings education business travel home retirement other].freeze
   TRACKED_GOAL_TYPES = (GOAL_TYPES - %w[runway transition]).freeze
   RECORD_KINDS = %w[tracked policy].freeze
@@ -17,7 +18,7 @@ class Goal < ApplicationRecord
   validates :goal_type, inclusion: { in: GOAL_TYPES }
   validates :record_kind, inclusion: { in: RECORD_KINDS }
   validates :source_type, inclusion: { in: SOURCE_TYPES }
-  validates :goal_type, uniqueness: { scope: :household_id }, if: :single_setup_goal_type?
+  validates :goal_type, uniqueness: { scope: [ :household_id, :financial_generation ] }, if: :single_setup_goal_type?
   validates :target_amount_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :current_amount_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :priority, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
@@ -51,7 +52,7 @@ class Goal < ApplicationRecord
 
   def active_name_is_unique
     return unless tracked? && active? && household_id && label.present? && goal_type.present?
-    scope = self.class.tracked.active.where(household_id: household_id, goal_type: goal_type)
+    scope = self.class.tracked.active.where(financial_generation: financial_generation, household_id: household_id, goal_type: goal_type)
       .where("LOWER(label) = ?", label.to_s.downcase)
     scope = scope.where.not(id: id) if persisted?
     errors.add(:label, "has already been taken") if scope.exists?

@@ -17,10 +17,13 @@ module HouseholdFinance
     end
 
     def call
+      FinancialGenerationGuard.source!(item.financial_document_import)
       return failure("Applied value is not linked to a saved household record") unless editable_applied_record?
 
       document_import.with_lock do
         household.with_lock do
+          FinancialGenerationGuard.source!(document_import)
+          FinancialGenerationGuard.request!(household)
           backfill_missing_item_values_from_record!
           item.update!(attributes)
           sync_applied_record!

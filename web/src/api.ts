@@ -71,6 +71,7 @@ export type PublicBrandResponse = {
 }
 
 export type WorkspaceData = {
+  financial_generation?: number
   experience_mode?: 'household_cfo' | 'savings_challenge'
   mode: 'demo' | 'real'
   household_id: number | null
@@ -297,6 +298,7 @@ export type TransactionDraftMatch = {
 }
 
 export type FinancialDocumentImport = {
+  context_paused_by_restart?: boolean
   id: number
   household_id: number
   document_kind: DocumentImportKind
@@ -744,6 +746,7 @@ export type IncomeScheduleEntryInput = {
 export type BudgetStackKey = 'non_discretionary' | 'discretionary' | 'sinking_expected' | 'sinking_unexpected'
 
 export type BudgetData = {
+  financial_generation?: number
   framework: string
   intro: string
   monthly_income: number
@@ -843,6 +846,7 @@ export type MiaAnswerPresentation = {
 }
 
 export type MiaMessage = {
+  financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' } | null
   id?: number
   client_id?: string
   role: 'assistant' | 'user'
@@ -873,6 +877,7 @@ export type MiaMessagesData = {
 export type HouseholdMemoryCategory = 'goal' | 'preference' | 'constraint' | 'habit' | 'coaching_style' | 'follow_up'
 export type HouseholdMemoryStatus = 'pending_confirmation' | 'user_confirmed' | 'rejected' | 'expired'
 export type HouseholdMemory = {
+  context_paused_by_restart?: boolean
   id: number
   category: HouseholdMemoryCategory
   status: HouseholdMemoryStatus
@@ -2203,6 +2208,35 @@ let activeCoachWorkspaceId = readStoredCoachWorkspaceId()
 let activeParticipantCohortId: number | null = null
 let apiActorIdentity: string | null = null
 let apiContextGeneration = 0
+let apiFinancialGeneration: number | null = null
+export function getApiFinancialGeneration() { return apiFinancialGeneration ?? 0 }
+const financialPictureListeners = new Set<(generation: number) => void>()
+export function subscribeFinancialPictureChanges(listener: (generation: number) => void) {
+  financialPictureListeners.add(listener)
+  return () => { financialPictureListeners.delete(listener) }
+}
+class FinancialPictureChangedError extends Error {}
+function financialDataPath(path: string) {
+  return /^\/api\/v1\/(workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
+}
+function checkedFinancialReply(generation: number | null, expected: number | null) {
+  if (generation === null || expected === null || generation === expected) return
+  if (generation > expected) for (const listener of financialPictureListeners) listener(generation)
+  throw new FinancialPictureChangedError('Your household financial picture changed. Refresh the current workspace before continuing.')
+}
+function financialResponseGeneration(response: Response) {
+  const raw = response.headers.get('X-Financial-Generation')
+  if (raw === null || !/^\d+$/.test(raw)) return null
+  const value = Number(raw)
+  return Number.isSafeInteger(value) ? value : null
+}
+
+export function setApiFinancialGeneration(generation: number | null) {
+  if (generation !== null && (!Number.isSafeInteger(generation) || generation < 0)) throw new Error('The financial picture version is invalid.')
+  if (generation === apiFinancialGeneration) return
+  apiFinancialGeneration = generation
+  apiContextGeneration += 1
+}
 
 type ApiFetchSettings = {
   timeoutMs?: number
@@ -2374,6 +2408,7 @@ export function setActiveCoachWorkspaceId(workspaceId: number | null) {
   if (activeCoachWorkspaceId !== workspaceId) {
     apiContextGeneration += 1
     activeParticipantCohortId = null
+    apiFinancialGeneration = null
   }
   activeCoachWorkspaceId = workspaceId
   if (typeof window === 'undefined') return
@@ -2387,6 +2422,7 @@ export function setApiActorIdentity(identity: string | null) {
   apiActorIdentity = identity
   activeParticipantCohortId = null
   activeCoachWorkspaceId = null
+  apiFinancialGeneration = null
   apiContextGeneration += 1
 }
 
@@ -2395,6 +2431,7 @@ export function setApiActorIdentity(identity: string | null) {
 export function setActiveParticipantCohortId(cohortId: number | null) {
   if (activeParticipantCohortId === cohortId) return
   activeParticipantCohortId = cohortId
+  apiFinancialGeneration = null
   apiContextGeneration += 1
 }
 
@@ -2472,13 +2509,14 @@ async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortS
   const getToken = authTokenGetter
   const workspaceId = activeCoachWorkspaceId
   const cohortId = activeParticipantCohortId
+  const financialGeneration = apiFinancialGeneration
   try {
     const callerHeaders = options.headers instanceof Headers
       ? Object.fromEntries(options.headers.entries())
       : Array.isArray(options.headers)
         ? Object.fromEntries(options.headers)
         : { ...(options.headers ?? {}) }
-    const safeCallerHeaders = Object.fromEntries(Object.entries(callerHeaders).filter(([name]) => name.toLowerCase() !== 'x-brand-hostname'))
+    const safeCallerHeaders = Object.fromEntries(Object.entries(callerHeaders).filter(([name]) => !['x-brand-hostname', 'x-financial-generation'].includes(name.toLowerCase())))
     const token = getToken ? await getToken() : null
     assertCurrentContext()
     if (signal?.aborted || options.signal?.aborted) throw new DOMException('Request cancelled', 'AbortError')
@@ -2486,6 +2524,7 @@ async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortS
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(workspaceId ? { 'X-Coach-Workspace-Id': String(workspaceId) } : {}),
       ...(cohortId ? { 'X-Cohort-Id': String(cohortId) } : {}),
+      ...(financialGeneration === null ? {} : { 'X-Financial-Generation': String(financialGeneration) }),
       ...safeCallerHeaders,
       'X-Brand-Hostname': browserBrandHostname(),
     }
@@ -2495,9 +2534,10 @@ async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortS
       ...(signal ? { signal } : {}),
     })
     assertCurrentContext()
+    if (financialDataPath(path) && !path.startsWith('/api/v1/workspace')) checkedFinancialReply(financialResponseGeneration(response), financialGeneration)
     return response
   } catch (error) {
-    if (error instanceof ApiContextChangedError) throw error
+    if (error instanceof ApiContextChangedError || error instanceof FinancialPictureChangedError) throw error
     throw new Error(apiNetworkErrorMessage('API request could not reach the server'), { cause: error })
   }
 }
@@ -2537,9 +2577,14 @@ async function fetchJsonResponse<T>(path: string, options: RequestInit = {}, set
       throw await apiRequestError(response, 'API request failed')
     }
 
-    if (response.status === 204) return { status: response.status, payload: undefined as T }
-
-    return { status: response.status, payload: await response.json() as T }
+    const generationHeader = financialResponseGeneration(response)
+    if (response.status === 204) return { status: response.status, payload: undefined as T, financial_generation_header: generationHeader }
+    const payload = await response.json() as T
+    if (financialDataPath(path) && !path.startsWith('/api/v1/workspace') && payload && typeof payload === 'object' && 'financial_generation' in payload) {
+      const value = (payload as { financial_generation: unknown }).financial_generation
+      if (typeof value === 'number' && Number.isSafeInteger(value)) checkedFinancialReply(value, apiFinancialGeneration)
+    }
+    return { status: response.status, payload, financial_generation_header: generationHeader }
   })
 }
 
@@ -3390,6 +3435,7 @@ export async function resendAdminUserInvitation(id: number): Promise<AdminUserMu
 }
 
 export type PlaidAccount = {
+  financial_generation?: number
   id: number
   name: string
   official_name: string | null
@@ -3410,6 +3456,9 @@ export type PlaidAccount = {
 }
 
 export type PlaidItem = {
+  financial_generation?: number
+  context_paused_by_restart?: boolean
+  financial_resumed_at?: string | null
   id: number
   institution_name: string
   status: 'active' | 'update_required' | 'error' | 'disconnecting' | 'disconnected'
@@ -3431,6 +3480,8 @@ export type PlaidOverview = {
 }
 
 export type PlaidTransaction = {
+  financial_generation?: number
+  context_paused_by_restart?: boolean
   id: number
   account_id: number
   account_name: string
@@ -3516,12 +3567,13 @@ export type PlaidTransactionsPage = {
 export async function fetchPlaidTransactions(
   page = 1,
   view: PlaidActivityView = 'all',
-  filters: { query?: string; accountId?: number | null; reviewYear?: number } = {},
+  filters: { query?: string; accountId?: number | null; reviewYear?: number; picture?: 'current' | 'history' } = {},
 ): Promise<PlaidTransactionsPage> {
   const query = new URLSearchParams({ limit: '50', page: String(page), view })
   if (filters.query) query.set('query', filters.query)
   if (filters.accountId) query.set('account_id', String(filters.accountId))
   if (filters.reviewYear) query.set('review_year', String(filters.reviewYear))
+  if (filters.picture) query.set('picture', filters.picture)
   return fetchJson<PlaidTransactionsPage>(`/api/v1/plaid/transactions?${query}`)
 }
 
@@ -3531,6 +3583,10 @@ export async function updatePlaidItemPreferences(itemId: number, values: { auto_
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(values),
   })
+}
+
+export async function resumePlaidItemFinancialPicture(itemId: number, expectedGeneration: number): Promise<PlaidOverview> {
+  return postJson(`/api/v1/plaid/items/${itemId}/resume_financial_picture`, { accepted: true, expected_item_financial_generation: expectedGeneration })
 }
 
 export async function stagePlaidTransactions(transactionIds: number[]): Promise<{ drafted_count: number; transaction_draft_ids: number[] }> {
@@ -3543,7 +3599,15 @@ export async function ignorePlaidTransactions(transactionIds: number[]): Promise
 
 export async function fetchAppData(realWorkspace = false): Promise<AppData> {
   if (realWorkspace) {
-    return fetchJson<AppData>('/api/v1/workspace')
+    const result = await fetchJsonResponse<AppData>('/api/v1/workspace')
+    const payload = result.payload
+    const generation = payload.workspace.financial_generation ?? 0
+    if (result.financial_generation_header !== null && result.financial_generation_header !== generation) {
+      checkedFinancialReply(result.financial_generation_header, generation)
+    }
+    if (apiFinancialGeneration !== null && generation < apiFinancialGeneration) throw new Error('This reply belongs to the earlier financial picture. Refresh the current workspace.')
+    setApiFinancialGeneration(generation)
+    return payload
   }
 
   const [profile, dashboard, budget, wealth, optionality, cfoFilter, mia] = await Promise.all([
@@ -3740,6 +3804,7 @@ export async function fetchSpendingReport(startOn: string, endOn: string): Promi
 }
 
 export type MiaMessageResponse = {
+  financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' } | null
   savings_intake?: import('./lib/savingsChallenge').SavingsIntake | null
   user_message: MiaMessage
   assistant_message: MiaMessage
@@ -3747,6 +3812,54 @@ export type MiaMessageResponse = {
   mia_action_draft?: MiaActionDraft | null
   budget?: BudgetData | null
   spending_report?: SpendingReport | null
+}
+
+export type FinancialRestartReview = {
+  id: number
+  household_name?: string
+  status: 'pending' | 'applied' | 'canceled' | 'expired'
+  expires_at: string
+  financial_generation: number
+  shared_member_count: number
+  counts: Record<string, number>
+  reset_fields: string[]
+  preserved: string[]
+  paused: string[]
+  clears_chat: boolean
+  clears_memories: boolean
+  applied_at?: string | null
+  result_generation?: number | null
+}
+
+export type FinancialRestartState = {
+  household_id: number
+  available: boolean
+  owner_required: boolean
+  financial_generation: number
+  household_name?: string
+  review?: FinancialRestartReview | null
+  latest_review?: FinancialRestartReview | null
+  result_generation?: number
+  setup_required?: boolean
+}
+
+export async function fetchFinancialRestartStatus(reviewId?: number): Promise<FinancialRestartState> {
+  const query = reviewId == null ? '' : `?review_id=${encodeURIComponent(reviewId)}`
+  const state = (await fetchJson<{ financial_restart: FinancialRestartState }>(`/api/v1/financial_restart/status${query}`, { cache: 'no-store' })).financial_restart
+  if (reviewId == null) checkedFinancialReply(state.financial_generation, apiFinancialGeneration)
+  return reviewId == null ? state : { ...state, review: state.review ?? state.latest_review }
+}
+
+export async function previewFinancialRestart(): Promise<FinancialRestartState> {
+  return (await postJson<{ financial_restart: FinancialRestartState }>('/api/v1/financial_restart/preview', {})).financial_restart
+}
+
+export async function applyFinancialRestart(reviewId: number, sharedHouseholdAcknowledged: boolean): Promise<FinancialRestartState> {
+  return (await postJson<{ financial_restart: FinancialRestartState }>('/api/v1/financial_restart/apply', { review_id: reviewId, confirmation: 'START OVER', shared_household_acknowledged: sharedHouseholdAcknowledged })).financial_restart
+}
+
+export async function cancelFinancialRestart(reviewId: number): Promise<FinancialRestartState> {
+  return (await postJson<{ financial_restart: FinancialRestartState }>('/api/v1/financial_restart/cancel', { review_id: reviewId })).financial_restart
 }
 
 export async function fetchMiaMessages(realWorkspace = false, beforeId?: number | null): Promise<MiaMessagesData> {

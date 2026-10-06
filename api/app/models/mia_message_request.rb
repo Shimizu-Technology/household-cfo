@@ -1,4 +1,14 @@
 class MiaMessageRequest < ApplicationRecord
+  before_validation :stamp_financial_generation, on: :create
+  before_update :guard_financial_request_generation
+
+  def guard_financial_request_generation
+    HouseholdFinance::FinancialGenerationGuard.request!(chat_session.household.reload)
+  end
+
+  def stamp_financial_generation
+    self.financial_generation = FinancialPicture.generation || chat_session.household.financial_generation
+  end
   STATUSES = %w[processing completed failed].freeze
   REQUEST_KEY_FORMAT = /\A[a-zA-Z0-9._:-]+\z/
   STALE_AFTER = 3.minutes

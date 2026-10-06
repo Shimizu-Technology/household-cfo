@@ -61,7 +61,7 @@ module HouseholdFinance
 
       household.transaction_drafts.pending.exists? ||
         household.mia_action_drafts.reviewable.exists? ||
-        household.financial_document_imports.pending_review.exists?
+        household.financial_document_imports.current_picture.pending_review.exists?
     end
 
     def last_safe_activity_at

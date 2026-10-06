@@ -24,6 +24,8 @@ module HouseholdFinance
         # Document apply is the only flow that locks both rows. Keep this order
         # (import, then household) so future mutations avoid lock-order cycles.
         household.with_lock do
+          FinancialGenerationGuard.source!(document_import)
+          FinancialGenerationGuard.request!(household)
           items = selected_items.to_a
           if items.empty?
             update_import_status!

@@ -23,6 +23,7 @@ type ChatHistoryProps = {
   onOpenImportId: (documentImportId: number) => void
   onReviewImportId: (documentImportId: number) => void
   reviewContent?: ReactNode
+  onFinancialRestart?: () => void
 }
 
 export function ChatHistory({
@@ -43,6 +44,7 @@ export function ChatHistory({
   onOpenImportId,
   onReviewImportId,
   reviewContent,
+  onFinancialRestart,
 }: ChatHistoryProps) {
   const { assistantName } = useBrand()
   const remainingMessageCount = Math.max(0, hiddenMessageCount + olderMessageCount)
@@ -74,6 +76,7 @@ export function ChatHistory({
                 {presentation
                   ? <MiaReadOnlyAnswer presentation={presentation} idPrefix={`mia-answer-${messageIndex}`} />
                   : <SafeMessageText content={message.content} allowFormatting={message.role === 'assistant'} stripAuthorPrefix={message.role === 'assistant' ? message.author : undefined} />}
+                {message.role === 'assistant' && message.financial_restart?.available && onFinancialRestart && <button type="button" className="secondary-button mia-message-restart" disabled={miaLoading} onClick={onFinancialRestart}>Review start over</button>}
                 {message.role === 'assistant' && (message.citations ?? []).length > 0 && (
                   <details className="mia-content-sources">
                     <summary>Coach-approved context supplied ({message.citations?.length})</summary>
