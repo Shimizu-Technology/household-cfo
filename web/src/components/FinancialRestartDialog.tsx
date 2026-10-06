@@ -150,7 +150,8 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
           <p>Your active chat and financial picture will start fresh. Earlier records and conversations stay in private history, and setup returns to <strong>not entered</strong>.</p>
           {(review.household_name ?? state.household_name) && <p><strong>Household:</strong> {review.household_name ?? state.household_name}</p>}
           <h3>What starts fresh</h3>
-          <dl className="financial-restart-counts">{Object.entries(review.counts).map(([key, count]) => <div key={key}><dt>{countLabels[key] ?? key.replaceAll('_', ' ')}</dt><dd>{count}</dd></div>)}</dl>
+          <dl className="financial-restart-counts">{Object.entries(review.counts).filter(([, count]) => !setupHelp || count > 0).map(([key, count]) => <div key={key}><dt>{countLabels[key] ?? key.replaceAll('_', ' ')}</dt><dd>{count}</dd></div>)}</dl>
+          {setupHelp && Object.values(review.counts).some(count => count === 0) && <details className="financial-restart-empty"><summary>View empty record types</summary><dl className="financial-restart-counts">{Object.entries(review.counts).filter(([, count]) => count === 0).map(([key, count]) => <div key={key}><dt>{countLabels[key] ?? key.replaceAll('_', ' ')}</dt><dd>{count}</dd></div>)}</dl></details>}
           <p>Your money setup answers, household goal and financial profile will need to be entered again.</p>
           <h3>What stays</h3><ul>{review.preserved.map(value => <li key={value}>{value}</li>)}</ul>
           <h3>What needs a fresh review</h3><ul>{review.paused.map(value => <li key={value}>{value}</li>)}</ul>
@@ -163,9 +164,9 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
         </>}
       </div>
       <footer className="financial-restart-actions">
-        {setupHelp && (unavailable || stale) ? <button type="button" className="primary-button" disabled={busy} onClick={() => onReturnToSetupHelp?.(setupHelp.requestId, review?.id ?? state?.latest_review?.id)}>Return to Fix my setup</button> : uncertain ? <button type="button" className="primary-button" disabled={busy} onClick={() => void checkStatus()}>{phase === 'checking' ? 'Checking status…' : 'Check whether start over finished'}</button>
-          : !blockedReason && (stale || (!review && !state?.owner_required && !state?.admin_required && phase === 'ready')) ? <button type="button" className="primary-button" disabled={busy} onClick={() => void loadPreview()}>Prepare a fresh review</button>
-          : review && <button type="button" className="primary-button" disabled={busy || !confirmed || (review.shared_member_count > 0 && !sharedConfirmed)} onClick={() => void apply()}>{phase === 'applying' ? 'Starting over…' : title}</button>}
+        {setupHelp && (unavailable || stale) ? <button type="button" className="button button--primary" disabled={busy} onClick={() => onReturnToSetupHelp?.(setupHelp.requestId, review?.id ?? state?.latest_review?.id)}>Return to Fix my setup</button> : uncertain ? <button type="button" className="button button--primary" disabled={busy} onClick={() => void checkStatus()}>{phase === 'checking' ? 'Checking status…' : 'Check whether start over finished'}</button>
+          : !blockedReason && (stale || (!review && !state?.owner_required && !state?.admin_required && phase === 'ready')) ? <button type="button" className="button button--primary" disabled={busy} onClick={() => void loadPreview()}>Prepare a fresh review</button>
+          : review && <button type="button" className="button button--primary" disabled={busy || !confirmed || (review.shared_member_count > 0 && !sharedConfirmed)} onClick={() => void apply()}>{phase === 'applying' ? 'Starting over…' : title}</button>}
         <button type="button" className="secondary-button" disabled={busy} onClick={() => void close(true)}>{phase === 'canceling' ? 'Canceling…' : uncertain ? 'Close and check later' : setupHelp?.requestId ? 'Cancel restart request' : 'Keep my current picture'}</button>
       </footer>
     </section>
