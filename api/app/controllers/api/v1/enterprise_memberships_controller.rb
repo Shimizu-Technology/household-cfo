@@ -6,8 +6,7 @@ module Api
       end
 
       def update
-        enterprise_admin!
-        enterprise_organization.with_lock do
+        with_enterprise_mutation do
           membership = enterprise_organization.enterprise_memberships.find(params[:id])
           attributes = params.require(:membership).permit(:it_admin, :locally_revoked)
           if ActiveModel::Type::Boolean.new.cast(attributes[:it_admin]) && (membership.status != "active" || membership.user.nil?)

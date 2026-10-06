@@ -8,7 +8,7 @@ class EnterpriseClientTest < ActiveSupport::TestCase
     captured = nil
     options = nil
     response = Net::HTTPOK.new("1.1", "200", "OK")
-    response.define_singleton_method(:body) { '{"data":[]}' }
+    response.define_singleton_method(:body) { '{"data":[],"list_metadata":{"after":null}}' }
     transport = Object.new
     transport.define_singleton_method(:request) { |request| captured = request; response }
     Net::HTTP.define_singleton_method(:start) do |host, port, **settings, &block|

@@ -8,8 +8,8 @@ class EnterpriseAdmissionTest < ActiveSupport::TestCase
     @organization = EnterpriseOrganization.create!(name: "Bank", coach_workspace: @workspace, workos_organization_id: "org_bank", directory_id: "directory_bank", directory_provisioning_enabled: true)
     @organization.enterprise_group_mappings.create!(workos_group_id: "directory_group_participants", cohort: @cohort)
     @client = EnterpriseProvisioningTest::FakeClient.new
-    @client.provider_memberships = [ { "id" => "om_new", "user_id" => "user_new", "organization_id" => "org_bank", "status" => "active", "updated_at" => "2026-10-07T20:00:00Z", "role" => { "slug" => "admin" } } ]
-    @client.users = [ { "id" => "directory_user_new", "directory_id" => "directory_bank", "organization_id" => "org_bank", "email" => "user_new@bank.test", "state" => "active", "updated_at" => "2026-10-07T20:00:00Z" } ]
+    @client.provider_memberships = [ { "id" => "om_new", "user_id" => "user_new", "organization_id" => "org_bank", "status" => "active", "updated_at" => "2026-10-06T20:00:00Z", "role" => { "slug" => "admin" } } ]
+    @client.users = [ { "id" => "directory_user_new", "directory_id" => "directory_bank", "organization_id" => "org_bank", "email" => "user_new@bank.test", "state" => "active", "updated_at" => "2026-10-06T20:00:00Z" } ]
     @client.groups = [ { "id" => "directory_group_participants", "directory_id" => "directory_bank", "organization_id" => "org_bank" } ]
     @client.session_rows = [ { "id" => "session_new", "user_id" => "user_new", "organization_id" => "org_bank", "status" => "active", "auth_method" => "sso" } ]
     @claims = { "sub" => "user_new", "org_id" => "org_bank", "sid" => "session_new" }

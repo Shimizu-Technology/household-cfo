@@ -187,7 +187,7 @@ class EnterpriseProvisioningTest < ActiveSupport::TestCase
   test "portal tenant is authorized record intent and return URL are constrained" do
     previous = ENV["WORKOS_ADMIN_PORTAL_RETURN_URLS"]
     ENV["WORKOS_ADMIN_PORTAL_RETURN_URLS"] = "https://cfo.example.test/enterprise"
-    arguments = { organization: @organization, user: @participant, intent: "sso", return_url: "https://cfo.example.test/enterprise", client: @client }
+    arguments = { organization: @organization, user: @participant, intent: "sso", return_url: "https://cfo.example.test/enterprise", client: @client, claims: claims, provider: "workos" }
     assert_raises(EnterpriseAccess::Denied) { Enterprise::Portal.call(**arguments) }
     @membership.update!(it_admin: true)
     result = Enterprise::Portal.call(**arguments)
@@ -241,7 +241,7 @@ class EnterpriseProvisioningTest < ActiveSupport::TestCase
     previous_host = ENV["WORKOS_ADMIN_PORTAL_HOSTNAME"]
     ENV["WORKOS_ADMIN_PORTAL_RETURN_URLS"] = "https://cfo.example.test/?enterprise=1"
     @membership.update!(it_admin: true)
-    arguments = { organization: @organization, user: @participant, intent: "dsync", return_url: "https://cfo.example.test/?enterprise=1", client: @client }
+    arguments = { organization: @organization, user: @participant, intent: "dsync", return_url: "https://cfo.example.test/?enterprise=1", client: @client, claims: claims, provider: "workos" }
     @client.portal_url = "https://setup.workos.com.evil.test?token=secret"
     assert_raises(Enterprise::Client::Unavailable) { Enterprise::Portal.call(**arguments) }
     ENV["WORKOS_ADMIN_PORTAL_HOSTNAME"] = "setup.bank.test"

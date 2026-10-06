@@ -101,7 +101,7 @@ class EnterpriseProviderStateTest < ActiveSupport::TestCase
       membership.update!(status: "inactive", provider_updated_at: 1.second.from_now)
       groups.call(**options)
     end
-    Enterprise::Reconciliation.call(@organization, client: @client)
+    assert_raises(Enterprise::Client::Unavailable) { Enterprise::Reconciliation.call(@organization, client: @client) }
     assert_equal "inactive", @membership.reload.status
     assert_empty @user.cohort_memberships
   end

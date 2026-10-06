@@ -34,8 +34,7 @@ module Api
       end
 
       def mutate_mapping(action)
-        enterprise_admin!
-        enterprise_organization.with_lock do
+        with_enterprise_mutation do
           yield
           enterprise_organization.enterprise_memberships.each { |membership| Enterprise::Enrollment.reconcile!(membership) }
           enterprise_audit!(action)

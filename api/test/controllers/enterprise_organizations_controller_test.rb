@@ -1,7 +1,9 @@
 require "test_helper"
+require_relative "../support/workos_auth_test_support"
 
 class EnterpriseOrganizationsControllerTest < ActionController::TestCase
   tests Api::V1::EnterpriseOrganizationsController
+  include WorkosAuthTestSupport
 
   setup do
     @routes = ActionDispatch::Routing::RouteSet.new
@@ -18,6 +20,7 @@ class EnterpriseOrganizationsControllerTest < ActionController::TestCase
     @workspace = CoachWorkspaces::Provisioner.ensure_for!(@admin)
     @organization = EnterpriseOrganization.create!(name: "Bank", coach_workspace: @workspace, workos_organization_id: "org_bank")
     @membership = @organization.enterprise_memberships.create!(user: @it, workos_user_id: "user_it", status: "active", it_admin: true)
+    @it.authentication_identities.create!(provider: "workos", issuer: "https://api.workos.com", subject: "user_it")
     authenticate(@it)
   end
 
@@ -64,7 +67,35 @@ class EnterpriseOrganizationsControllerTest < ActionController::TestCase
   test "inactive IT membership disappears from scope" do
     @membership.update!(status: "inactive")
     get :show, params: { id: @organization.id }
-    assert_response :not_found
+    assert_includes [ 403, 404 ], response.status
+  end
+
+  def process(action, **options)
+    if @signed_user
+      with_workos do
+        with_workos_http do
+          client = Object.new
+          client.define_singleton_method(:memberships) do |organization_id:, user_id:|
+            [ { "organization_id" => organization_id, "user_id" => user_id, "status" => "active" } ]
+          end
+          client.define_singleton_method(:sessions) do |subject|
+            [ { "id" => "session_it", "user_id" => subject, "organization_id" => "org_bank", "status" => "active", "auth_method" => "sso" } ]
+          end
+          stub_method(Enterprise::Client, :new, client) do
+            request.headers["Authorization"] = "Bearer #{workos_token({ "sub" => "user_it", "sid" => "session_it", "org_id" => "org_bank" })}"
+            super(action, **options)
+          end
+        end
+      end
+    else
+      previous = ENV["AUTH_PROVIDER"]
+      begin
+        ENV["AUTH_PROVIDER"] = "clerk"
+        super(action, **options)
+      ensure
+        ENV["AUTH_PROVIDER"] = previous
+      end
+    end
   end
 
   private
@@ -73,6 +104,7 @@ class EnterpriseOrganizationsControllerTest < ActionController::TestCase
     User.create!(clerk_id: "test_#{key}", email: "#{key}@local.test", role: role)
   end
   def authenticate(user)
+    @signed_user = user == @it
     request.headers["Authorization"] = "Bearer test_token_#{user.id}"
   end
 end

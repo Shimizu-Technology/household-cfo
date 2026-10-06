@@ -63,6 +63,12 @@ module Enterprise
     end
 
     def self.apply_directory_snapshot!(organization, membership, snapshot, observed_at:)
+      organization.reload
+      membership.reload
+      if (organization.last_reconciled_at && organization.last_reconciled_at > observed_at) ||
+          (membership.provider_updated_at && membership.provider_updated_at > observed_at)
+        raise Client::Unavailable, "Enterprise directory verification was superseded; retry"
+      end
       seen = snapshot.map { |item| item[:data].fetch("id") }
       snapshot.each do |item|
         data = item[:data]
