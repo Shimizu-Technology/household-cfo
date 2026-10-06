@@ -564,8 +564,10 @@ module HouseholdFinance
       period = Array(plan[:months]).find { |month| Date.iso8601(month.fetch(:starts_on)).month == effective_on.month }
       before_income_cents = period ? Money.cents(plan.fetch(:monthly_income).fetch(period.fetch(:id))) : 0
       source_delta_cents = entry_type == "one_time" ? amount_cents : Money.period_cents(amount_cents, cadence, month: effective_on.month) - current_source_cents
-      outflow_cents = if plan.fetch(:monthly_debt_minimums_known)
-        plan.fetch(:rows).sum { |row| Money.cents(row.fetch(:months).fetch(effective_on.month - 1).fetch(:planned)) } + Money.cents(plan.fetch(:monthly_debt_minimums))
+      active_rows = plan.fetch(:rows).select { |row| row.fetch(:active) }
+      allocations_known = active_rows.none? { |row| row.fetch(:months).fetch(effective_on.month - 1).fetch(:allocation_missing) }
+      outflow_cents = if plan.fetch(:monthly_debt_minimums_known) && allocations_known
+        active_rows.sum { |row| Money.cents(row.fetch(:months).fetch(effective_on.month - 1).fetch(:planned)) } + Money.cents(plan.fetch(:monthly_debt_minimums))
       end
       after_income_cents = before_income_cents + source_delta_cents
       {

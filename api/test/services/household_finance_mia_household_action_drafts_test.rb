@@ -645,6 +645,43 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     assert_nil result.proposal.metadata.dig(:impact, :after_baseline_surplus)
   end
 
+  test "income impact excludes archived category plans retained with historical actuals" do
+    historical = @manager.create_category!(name: "Archived synthetic spending", stack_key: "discretionary", monthly_amount: 100)
+    period = @manager.current_period_for(Date.new(2026, 9, 1))
+    transaction = @household.household_transactions.create!(budget_period: period, occurred_on: "2026-09-02", merchant: "Synthetic historical purchase", total_amount_cents: 1_000, source_type: "manual_ui", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: historical, amount_cents: 1_000)
+    @manager.archive_category!(historical)
+    @household.income_sources.each { |source| source.update!(starts_on: "2026-01-01") }
+    source = @household.income_sources.find_by!(source_type: "job")
+    plan = HouseholdFinance::AnnualBudgetManager.new(@household.reload, year: 2026).read_only_plan_data
+    archived = plan.fetch(:rows).find { |row| row[:id] == historical.id }
+    assert_equal false, archived.fetch(:active)
+    assert_equal 100.0, archived.fetch(:months).fetch(8).fetch(:planned)
+    result = build_command(type: "schedule_income_change", income_source_id: source.id, entry_type: "one_time", amount: "150", effective_on: "2026-09-01")
+    assert result.proposal
+    snapshot = HouseholdFinance::SnapshotBuilder.new(@household, reference_date: Date.new(2026, 9, 1), ensure_plan: false).call
+    assert_equal 3_400.0, result.proposal.metadata.dig(:impact, :before_monthly_outflow)
+    assert_equal snapshot.fetch(:total_outflow_cents), HouseholdFinance::Money.cents(result.proposal.metadata.dig(:impact, :after_monthly_outflow))
+  end
+
+  test "income impact keeps future outflow unknown when an active category allocation is missing" do
+    future = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2027)
+    future.ensure_plan!
+    category = @manager.create_category!(name: "New synthetic category", stack_key: "discretionary", monthly_amount: 50)
+    missing = future.read_only_plan_data.fetch(:rows).find { |row| row[:id] == category.id }.fetch(:months).first
+    assert_equal true, missing.fetch(:allocation_missing)
+    source = @household.income_sources.find_by!(source_type: "job")
+    assert_no_difference [ "BudgetYear.count", "BudgetAllocation.count" ] do
+      result = build_command(type: "schedule_income_change", income_source_id: source.id, entry_type: "recurring_change", amount: "150", cadence: "weekly", effective_on: "2027-01-01")
+      assert result.proposal
+      assert_equal 1150.0, result.proposal.metadata.dig(:impact, :after_monthly_income)
+      assert_nil result.proposal.metadata.dig(:impact, :before_monthly_outflow)
+      assert_nil result.proposal.metadata.dig(:impact, :after_monthly_outflow)
+      assert_nil result.proposal.metadata.dig(:impact, :before_baseline_surplus)
+      assert_nil result.proposal.metadata.dig(:impact, :after_baseline_surplus)
+    end
+  end
+
   private
 
   def build_command(command)
