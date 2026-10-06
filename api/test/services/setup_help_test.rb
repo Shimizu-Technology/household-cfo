@@ -195,7 +195,7 @@ class SetupHelpTest < ActiveSupport::TestCase
     assert_raises(ActiveRecord::RecordNotFound) { stranger.preview }
     second = SetupHelp::Participant.new(other_household, user: other).create_request(reason: "other", share_metadata: true, idempotency_key: "other")[:request]
     staff = SetupHelp::Staff.new(user: @admin)
-    page = staff.list(cursor: first[:id] - 1, limit: 1)
+    page = staff.list(cursor: first[:id] > 1 ? first[:id] - 1 : nil, limit: 1)
     assert_equal [ first[:id] ], page[:records].map { |item| item[:id] }
     next_page = staff.list(cursor: page[:next_cursor], limit: 1)
     assert_equal [ second[:id] ], next_page[:records].map { |item| item[:id] }
