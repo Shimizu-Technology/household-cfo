@@ -110,7 +110,7 @@ class WorkosAuth
       data = response.parsed_response
       raise Unavailable, "WorkOS authentication service returned an invalid response" unless data.is_a?(Hash)
       data
-    rescue HTTParty::Error, Timeout::Error, SocketError, SystemCallError, OpenSSL::SSL::SSLError, JSON::ParserError
+    rescue HTTParty::Error, Timeout::Error, SocketError, SystemCallError, IOError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError, OpenSSL::SSL::SSLError, JSON::ParserError
       # Exceptions may contain request details. Never log credentials or token data.
       raise Unavailable, "WorkOS authentication service is unavailable"
     end

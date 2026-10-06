@@ -67,8 +67,10 @@ class WorkosAuthTest < ActiveSupport::TestCase
   test "missing configuration network timeout and malformed keys are dependency failures" do
     with_workos("WORKOS_API_KEY" => nil) { assert_raises(WorkosAuth::Unavailable) { WorkosAuth.verify("token") } }
     with_workos do
-      stub_method(HTTParty, :get, ->(*_args, **_options) { raise Timeout::Error }) do
-        assert_raises(WorkosAuth::Unavailable) { WorkosAuth.verify(workos_token) }
+      [ Timeout::Error, EOFError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError ].each do |error_class|
+        stub_method(HTTParty, :get, ->(*_args, **_options) { raise error_class }) do
+          assert_raises(WorkosAuth::Unavailable) { WorkosAuth.verify(workos_token) }
+        end
       end
       stub_method(HTTParty, :get, WorkosResponse.new(200, { "keys" => [] })) do
         assert_raises(WorkosAuth::Unavailable) { WorkosAuth.verify(workos_token) }
