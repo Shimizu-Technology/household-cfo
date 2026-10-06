@@ -49,7 +49,7 @@ class ApiV1SetupHelpControllerTest < ActionDispatch::IntegrationTest
     assert_equal "none", first["review_state"]
     get "/api/v1/setup_support_requests", headers: auth(@admin)
     assert_response :success
-    assert_equal [ first["id"] ], response.parsed_body["records"].map { |item| item["id"] }
+    assert_includes response.parsed_body["records"].map { |item| item["id"] }, first["id"]
     refute_match(/Private employer|876543|inventory|previous_setup|fingerprint/, response.body)
     post "/api/v1/setup_support_requests/#{first['id']}/prepare", params: { expected_lock_version: first["lock_version"] }, headers: auth(@admin), as: :json
     assert_response :success

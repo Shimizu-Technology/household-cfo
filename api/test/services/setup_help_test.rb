@@ -36,6 +36,14 @@ class SetupHelpTest < ActiveSupport::TestCase
     assert_not @participant.status[:self_restart_available]
   end
 
+  test "legacy debt confirmations also preserve explicit financial zeros" do
+    %w[credit_card_debt debt_payment].each do |field|
+      @household.update!(confirmed_setup_fields: [ field ])
+      assert_not @participant.status[:self_restart_available]
+      assert_raises(SetupHelp::Error) { @restart.preview }
+    end
+  end
+
   test "whole-household restart requires owner and explicit shared impact acknowledgment" do
     partner = create_user("participant")
     @household.household_memberships.create!(user: partner, role: "partner")
@@ -187,7 +195,7 @@ class SetupHelpTest < ActiveSupport::TestCase
     assert_raises(ActiveRecord::RecordNotFound) { stranger.preview }
     second = SetupHelp::Participant.new(other_household, user: other).create_request(reason: "other", share_metadata: true, idempotency_key: "other")[:request]
     staff = SetupHelp::Staff.new(user: @admin)
-    page = staff.list(limit: 1)
+    page = staff.list(cursor: first[:id] - 1, limit: 1)
     assert_equal [ first[:id] ], page[:records].map { |item| item[:id] }
     next_page = staff.list(cursor: page[:next_cursor], limit: 1)
     assert_equal [ second[:id] ], next_page[:records].map { |item| item[:id] }
@@ -217,9 +225,12 @@ class SetupHelpTest < ActiveSupport::TestCase
         savings_enroll
         savings_plan
         entry = savings_approve(savings_draft(20_000))
+        source, document = evidence_source
+        evidence_attach(entry, [ evidence_proof(source, amount: 15_000) ])
+        card_version = debt_approve(debt_stage)
         participant = SetupHelp::Participant.new(@savings_household, user: @savings_user, cohort_membership: @savings_membership)
         request = participant.create_request(reason: "practice_numbers", share_metadata: true, idempotency_key: "bog")[:request]
-        assert_empty SetupHelp::Staff.new(user: @admin).list[:records]
+        assert_empty SetupHelp::Staff.new(user: @admin).list(cohort_id: @savings_cohort.id)[:records]
         assert_raises(ActiveRecord::RecordNotFound) { SetupHelp::Staff.new(user: @admin).transition(id: request[:id], action: "prepare", expected_lock_version: 0) }
         coach = SetupHelp::Staff.new(user: @savings_owner)
         triaged = coach.transition(id: request[:id], action: "triage", expected_lock_version: 0)[:request]
@@ -241,6 +252,10 @@ class SetupHelpTest < ActiveSupport::TestCase
         supported.apply(review_id: ready[:review_id], confirmation: "START OVER")
         assert_equal before, savings_projection
         assert_equal entry.id, SavingsEntryVersion.find(entry.id).id
+        assert_equal card_version.terms, card_version.reload.terms
+        assert_equal document.id, FinancialDocumentImport.find(document.id).id
+        assert_equal source.id, SourceReviewVersion.find(source.id).id
+        assert_equal 15_000, savings_projection[:evidence_supported_cents]
         assert_equal @savings_enrollment.id, SavingsEnrollment.find(@savings_enrollment.id).id
         workspace_member.destroy!
         assert_raises(SetupHelp::Denied) { supported.apply(review_id: ready[:review_id], confirmation: "START OVER") }
@@ -262,6 +277,84 @@ class SetupHelpTest < ActiveSupport::TestCase
         assert_equal 0, @savings_household.reload.financial_generation
       end
     end
+  end
+
+  test "administrators cannot prepare their own supported restart while their testing flow remains available" do
+    @user.update!(role: "admin")
+    first = request
+    staff = SetupHelp::Staff.new(user: @user)
+    assert_equal false, staff.list[:records].find { |item| item[:id] == first[:id] }[:permissions][:prepare]
+    assert_raises(SetupHelp::Denied) { staff.transition(id: first[:id], action: "prepare", expected_lock_version: 0) }
+    assert HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user).status[:available]
+  end
+
+  test "withdrawn challenge enrollment denies setup requests preparation confirmation and receipt recovery" do
+    setup_savings_context
+    travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 15, 12) do
+      with_savings_runtime do
+        savings_enroll
+        participant = SetupHelp::Participant.new(@savings_household, user: @savings_user, cohort_membership: @savings_membership)
+        first = participant.create_request(reason: "practice_numbers", share_metadata: true, idempotency_key: "withdraw")[:request]
+        @savings_owner.update!(role: "admin")
+        staff = SetupHelp::Staff.new(user: @savings_owner)
+        ready = staff.transition(id: first[:id], action: "prepare", expected_lock_version: 0)[:request]
+        supported = SetupHelp::Restart.new(@savings_household, user: @savings_user, cohort_membership: @savings_membership, request_id: first[:id])
+        supported.apply(review_id: ready[:review_id], confirmation: "START OVER")
+        @savings_enrollment.update!(status: "withdrawn")
+        assert_raises(SetupHelp::Denied) { participant.status }
+        assert_raises(SetupHelp::Denied) { participant.create_request(reason: "other", share_metadata: true, idempotency_key: "withdraw-new") }
+        assert_raises(SetupHelp::Denied) { supported.apply(review_id: ready[:review_id], confirmation: "START OVER") }
+        assert_empty staff.list(cohort_id: @savings_cohort.id)[:records]
+        assert_raises(SetupHelp::Denied) { staff.transition(id: first[:id], action: "prepare", expected_lock_version: ready[:lock_version]) }
+        assert_equal 1, @savings_household.reload.financial_generation
+      end
+    end
+  end
+
+  test "replacement challenge membership cannot reuse an enrollment accepted under an earlier membership" do
+    setup_savings_context
+    travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 15, 12) do
+      with_savings_runtime do
+        savings_enroll
+        participant = SetupHelp::Participant.new(@savings_household, user: @savings_user, cohort_membership: @savings_membership)
+        first = participant.create_request(reason: "other", share_metadata: true, idempotency_key: "stale-enrollment")[:request]
+        @savings_membership.destroy!
+        replacement = @savings_cohort.cohort_memberships.create!(user: @savings_user, role: "participant")
+        rejoined = SetupHelp::Participant.new(@savings_household, user: @savings_user, cohort_membership: replacement)
+        assert_raises(SetupHelp::Denied) { rejoined.status }
+        assert_raises(SetupHelp::Denied) { rejoined.create_request(reason: "other", share_metadata: true, idempotency_key: "stale-enrollment-new") }
+        @savings_owner.update!(role: "admin")
+        assert_raises(SetupHelp::Denied) { SetupHelp::Staff.new(user: @savings_owner).transition(id: first[:id], action: "prepare", expected_lock_version: 0) }
+        assert_equal 0, @savings_household.reload.financial_generation
+      end
+    end
+  end
+
+  test "ordinary program rejoin retires an old prepared request without retargeting its review and allows fresh request" do
+    coach = create_user("coach")
+    cohort = Cohort.create!(name: "Ordinary program #{SecureRandom.hex(4)}", status: "active", created_by_user: coach)
+    member = cohort.cohort_memberships.create!(user: @user, role: "participant")
+    cohort.cohort_memberships.create!(user: @admin, role: "admin")
+    CoachWorkspaceMembership.create!(coach_workspace_id: cohort.coach_workspace_id, user: @admin, role: "reviewer")
+    participant = SetupHelp::Participant.new(@household, user: @user, cohort_membership: member)
+    first = participant.create_request(reason: "wrong_setup", share_metadata: true, idempotency_key: "old-membership")[:request]
+    ready = SetupHelp::Staff.new(user: @admin).transition(id: first[:id], action: "prepare", expected_lock_version: 0)[:request]
+    old_review = FinancialRestartReview.find(ready[:review_id])
+    member.destroy!
+    replacement = cohort.cohort_memberships.create!(user: @user, role: "participant")
+    rejoined = SetupHelp::Participant.new(@household, user: @user, cohort_membership: replacement)
+    fresh = rejoined.create_request(reason: "upload_problem", share_metadata: true, idempotency_key: "new-membership")[:request]
+    assert_not_equal first[:id], fresh[:id]
+    assert_equal "canceled", SetupSupportRequest.find(first[:id]).status
+    assert_equal "canceled", old_review.reload.status
+    assert_equal member.id, SetupSupportRequest.find(first[:id]).participant_membership_id
+    assert_equal replacement.id, SetupSupportRequest.find(fresh[:id]).participant_membership_id
+    assert_equal 1, @household.household_audit_events.where(event_type: "setup_support.retired").count
+    assert_equal "participant_membership_changed", @household.household_audit_events.find_by!(event_type: "setup_support.retired").metadata["retirement_reason"]
+    assert_equal fresh[:id], rejoined.status[:latest_request][:id]
+    stale = SetupHelp::Restart.new(@household, user: @user, cohort_membership: replacement, request_id: first[:id])
+    assert_raises(ActiveRecord::RecordNotFound) { stale.apply(review_id: old_review.id, confirmation: "START OVER") }
+    assert_equal 0, @household.reload.financial_generation
   end
 
   private

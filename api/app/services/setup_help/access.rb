@@ -11,7 +11,10 @@ module SetupHelp
         unless selected&.id == cohort_membership.id && selected.created_at == cohort_membership.created_at
           raise Denied, "Choose your current coaching program before reviewing setup. Nothing changed."
         end
-        SavingsChallenge::AccessPolicy.new(household: household, user: actor, cohort: selected.cohort, lock: true).call! if selected.cohort.savings_challenge_enabled
+        if selected.cohort.savings_challenge_enabled
+          enrollment = SavingsEnrollment.lock.find_by(household: household, user: actor, cohort: selected.cohort)
+          SavingsChallenge::AccessPolicy.new(household: household, user: actor, cohort: selected.cohort, enrollment: enrollment, lock: true).call!
+        end
       elsif ChallengePrivacy::PrivateFinanceAccess.pilot_household?(household)
         raise Denied, "Choose your current coaching program before reviewing setup. Nothing changed."
       end
@@ -54,10 +57,11 @@ module SetupHelp
     end
 
     def self.permissions_for(request, actor)
-      return { triage: true, prepare: true, decline: true } unless request.cohort
+      independent = actor.id != request.requested_by_user_id
+      return { triage: true, prepare: independent, decline: true } unless request.cohort
       role = CoachWorkspaceMembership.lock.find_by(coach_workspace_id: request.cohort.coach_workspace_id, user_id: actor.id)&.role
       mutation = role.in?(%w[owner editor reviewer])
-      { triage: mutation, prepare: actor.admin? && role.in?(%w[owner reviewer]), decline: mutation }
+      { triage: mutation, prepare: independent && actor.admin? && role.in?(%w[owner reviewer]), decline: mutation }
     end
     private_class_method :permissions_for
   end

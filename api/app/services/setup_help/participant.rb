@@ -28,6 +28,7 @@ module SetupHelp
       @household.with_lock do
         HouseholdFinance::FinancialGenerationGuard.request!(@household)
         Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true)
+        retire_outdated_requests!
         existing = SetupHelpRequestKey.find_by(household: @household, user: @user, idempotency_key: key)
         if existing
           raise Conflict, "This request identity was already used for different setup help. Nothing changed." unless existing.request_fingerprint == digest
@@ -81,17 +82,32 @@ module SetupHelp
       record
     end
 
-    def requests = @household.setup_support_requests.where(requested_by_user: @user, cohort_id: @membership&.cohort_id)
+    def requests
+      @household.setup_support_requests.where(requested_by_user: @user, cohort_id: @membership&.cohort_id,
+        participant_membership_id: @membership&.id, participant_membership_started_at: @membership&.created_at)
+    end
+
+    def retire_outdated_requests!
+      @household.setup_support_requests.where(requested_by_user: @user, cohort_id: @membership&.cohort_id,
+        status: SetupSupportRequest::ACTIVE).order(:id).each do |record|
+        next if record.participant_membership_id == @membership&.id && record.participant_membership_started_at == @membership&.created_at
+        HouseholdFinance::FinancialRestart::Core.new(@household, user: @user).cancel_review!(record.financial_restart_review) if record.financial_restart_review
+        record.update!(status: "canceled")
+        audit!(record, "retired", retirement_reason: "participant_membership_changed")
+      end
+    end
+    private :retire_outdated_requests!
+
 
     def check_version!(record, value)
       raise Stale, "This setup help request changed. Refresh it before continuing. Nothing changed." unless value.is_a?(Integer) && value >= 0 && record.lock_version == value
     end
 
-    def audit!(record, action)
+    def audit!(record, action, retirement_reason: nil)
       @household.household_audit_events.create!(user: @user, actor_type: "user", event_type: "setup_support.#{action}",
         auditable_type: "SetupSupportRequest", auditable_id: record.id, occurred_at: Time.current,
         metadata: { requested_by_user_id: record.requested_by_user_id, cohort_id: record.cohort_id, reason: record.reason, status: record.status,
-          review_id: record.financial_restart_review_id, lock_version: record.lock_version })
+          review_id: record.financial_restart_review_id, lock_version: record.lock_version, retirement_reason: retirement_reason }.compact)
     end
   end
 end

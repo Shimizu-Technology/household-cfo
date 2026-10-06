@@ -1,7 +1,7 @@
 module SetupHelp
   class Eligibility
     AUTO_GOAL = "Build a clear monthly money rhythm.".freeze
-    FINANCIAL_CONFIRMATIONS = %w[primary_goal primary_income business_income fixed_expenses flexible_spend expected_sinking_fund unexpected_sinking_fund emergency_fund other_assets target_runway_months].freeze
+    FINANCIAL_CONFIRMATIONS = (HouseholdFinance::SetupUpdater::INPUT_KEYS.map(&:to_s) - [ "household_name" ]).freeze
     FACTS = %i[income_sources expense_items debts accounts goals budget_categories household_transactions merchant_category_rules].freeze
     CHALLENGE_VERSIONS = [ SavingsPlanVersion, SavingsEntryVersion, SavingsEvidenceVersion, SavingsZeroAttestation,
       SavingsDailyCheckInVersion, SavingsDailyPurchaseVersion, SavingsDailyReflectionVersion, SavingsDebtVersion, SavingsCheckpointVersion ].freeze
@@ -28,7 +28,8 @@ module SetupHelp
         source_heads: SourceReviewHead.where(household: @household).where.not(approved_version_id: nil).order(:id).pluck(:id, :approved_version_id),
         account_heads: SourceAccountReviewHead.where(household: @household).where.not(approved_version_id: nil).order(:id).pluck(:id, :approved_version_id),
         tracked_accounts: SourceTrackedAccount.current_picture.where(household: @household).order(:id).pluck(:id),
-        members: @household.users.order(:id).pluck(:id, :role, :invitation_status) }
+        members: @household.users.order(:id).pluck(:id, :role, :invitation_status),
+        participant_programs: CohortMembership.where(user_id: @household.users.select(:id)).order(:id).pluck(:id, :user_id, :cohort_id, :role, :created_at) }
     end
 
     private
