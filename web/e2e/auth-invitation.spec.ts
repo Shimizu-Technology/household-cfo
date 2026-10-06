@@ -8,10 +8,15 @@ test.describe('Auth recovery hosted invitation transport', () => {
         return route.fulfill({ contentType: 'text/html', body: '<h1>Fictional hosted sign-in</h1>' })
       })
       const appOrigin = new URL(test.info().project.use.baseURL!).origin
+      // Let Vite finish its cold SDK dependency load without an invitation.
+      // The credential visit then tests the real sanitizer and SDK flow.
+      await page.goto('/auth-invitation-qa.html')
+      await expect(page.getByRole('button', { name: action, exact: true })).toBeEnabled()
+      await page.waitForLoadState('networkidle')
       await page.goto('/auth-invitation-qa.html?invitation_token=fictional%2Bopaque%2Ftoken%3D')
       const control = page.getByRole('button', { name: action, exact: true })
       await expect(control).toBeEnabled()
-      expect(new URL(page.url()).pathname).toBe('/login')
+      expect(new URL(page.url()).pathname).toBe('/auth-invitation-qa.html')
       expect(page.url()).not.toContain('invitation_token')
       expect(page.url()).not.toContain('opaque')
       await control.click()

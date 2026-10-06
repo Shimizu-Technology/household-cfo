@@ -3,9 +3,6 @@
   <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="robots" content="noindex, nofollow" /><title>Fictional WorkOS invitation QA</title></head>
   <body><div id="root"></div><script type="module">
     if (import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true') {
-      const url = new URL(window.location.href)
-      url.pathname = '/login'
-      window.history.replaceState(null, '', url.href)
       import('/src/qa/AuthInvitationQa.tsx')
     } else { document.getElementById('root').textContent = 'This development fixture is unavailable.' }
   </script></body>

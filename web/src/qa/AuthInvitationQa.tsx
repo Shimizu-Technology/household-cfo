@@ -6,7 +6,16 @@ import { useAuthContext } from '../contexts/authContextValue'
 import { captureAuthInvitation } from '../lib/authInvitation'
 import '../index.css'
 import '../App.css'
+// Exercise production capture on its allowed login path, then retain this
+// fixture entry so a development dependency reload cannot load production Root.
+const fixtureUrl = new URL(window.location.href)
+const loginUrl = new URL(fixtureUrl)
+loginUrl.pathname = '/login'
+window.history.replaceState(null, '', loginUrl.href)
 const invitation = captureAuthInvitation()
+const sanitizedUrl = new URL(window.location.href)
+sanitizedUrl.pathname = fixtureUrl.pathname
+window.history.replaceState(null, '', sanitizedUrl.href)
 export function AuthInvitationQa() {
   const auth = useAuthContext()
   const [error, setError] = useState<string | null>(null)
