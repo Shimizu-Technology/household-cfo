@@ -10066,3 +10066,102 @@ for (const refreshFails of [false, true]) {
     }
   })
 }
+
+
+for (const variant of ['activity', 'connections'] as const) {
+  test(`BOG UI delayed Plaid ${variant} reload cannot restore a precommit Mia budget`, async ({ page }) => {
+    const initial = realWorkspaceData(true)
+    const canonical = structuredClone(initial)
+    canonical.budget.annual_plan.pending_mia_action_drafts = []
+    canonical.budget.annual_plan.rows[3].months[7].planned = 400
+    let workspaceRequests = 0
+    let completedSync = false
+    let releasePlaidReload!: () => void
+    let plaidReloadStarted!: () => void
+    const started = new Promise<void>(resolve => { plaidReloadStarted = resolve })
+    const pendingReload = new Promise<void>(resolve => { releasePlaidReload = resolve })
+    const item = {
+      id: 17, institution_name: 'Synthetic Bank', status: 'active', environment: 'sandbox', consented_at: `${currentYear}-10-01T00:00:00Z`, last_synced_at: `${currentYear}-10-01T00:00:00Z`,
+      health: { state: 'healthy', label: 'Feed current', message: 'Synthetic feed ready', requires_attention: false, last_successful_update_at: `${currentYear}-10-01T00:00:00Z`, stale_after: `${currentYear}-10-03T00:00:00Z` },
+      error_message: null, disconnected_at: null, auto_confirm_trusted_merchants: false, accounts: [],
+    }
+    const overview = () => ({ configured: true, environment: 'sandbox', consent_policy_version: 'test', items: [{ ...item, last_synced_at: completedSync ? `${currentYear}-10-02T00:00:00Z` : item.last_synced_at }] })
+    await page.route('http://api.test/api/v1/workspace', async route => {
+      workspaceRequests += 1
+      if (workspaceRequests > 1) {
+        plaidReloadStarted()
+        await pendingReload
+      }
+      return route.fulfill({ json: initial })
+    })
+    await page.route('http://api.test/api/v1/plaid/items', route => route.fulfill({ json: overview() }))
+    await page.route('http://api.test/api/v1/plaid/transactions**', route => route.fulfill({ json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary } }))
+    await page.route('http://api.test/api/v1/plaid/items/17/sync', route => {
+      const response = overview()
+      completedSync = true
+      return route.fulfill({ json: response })
+    })
+    await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', route => route.fulfill({ json: { workspace: canonical } }))
+    await page.goto('/?pilot_e2e_role=participant')
+    if (variant === 'connections') { await openSection(page, 'My Profile'); await openDetails(page, 'Optional bank connections') }
+    else await openSection(page, 'Review')
+    await page.getByRole('button', { name: variant === 'connections' ? 'Sync now' : 'Sync Synthetic Bank', exact: true }).click()
+    await started
+    await openSection(page, 'Ask Mia')
+    await page.getByRole('button', { name: 'Apply reviewed change', exact: true }).click()
+    await expect(page.locator('.mia-action-draft-card')).toHaveCount(0)
+    const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+    releasePlaidReload()
+    await completedReload
+    await openSection(page, 'Home')
+    await openSection(page, 'Ask Mia')
+    await expect(page.locator('.mia-action-draft-card')).toHaveCount(0)
+  })
+}
+
+
+test('BOG UI Plaid reload preserves a Profile edit begun while its response waits', async ({ page }) => {
+    const initial = realWorkspaceData(true)
+    const canonical = structuredClone(initial)
+    let workspaceRequests = 0
+    let completedSync = false
+    let releasePlaidReload!: () => void
+    let plaidReloadStarted!: () => void
+    const started = new Promise<void>(resolve => { plaidReloadStarted = resolve })
+    const pendingReload = new Promise<void>(resolve => { releasePlaidReload = resolve })
+    const item = {
+      id: 17, institution_name: 'Synthetic Bank', status: 'active', environment: 'sandbox', consented_at: `${currentYear}-10-01T00:00:00Z`, last_synced_at: `${currentYear}-10-01T00:00:00Z`,
+      health: { state: 'healthy', label: 'Feed current', message: 'Synthetic feed ready', requires_attention: false, last_successful_update_at: `${currentYear}-10-01T00:00:00Z`, stale_after: `${currentYear}-10-03T00:00:00Z` },
+      error_message: null, disconnected_at: null, auto_confirm_trusted_merchants: false, accounts: [],
+    }
+    const overview = () => ({ configured: true, environment: 'sandbox', consent_policy_version: 'test', items: [{ ...item, last_synced_at: completedSync ? `${currentYear}-10-02T00:00:00Z` : item.last_synced_at }] })
+    await page.route('http://api.test/api/v1/workspace', async route => {
+      workspaceRequests += 1
+      if (workspaceRequests > 1) {
+        plaidReloadStarted()
+        await pendingReload
+      }
+      return route.fulfill({ json: initial })
+    })
+    await page.route('http://api.test/api/v1/plaid/items', route => route.fulfill({ json: overview() }))
+    await page.route('http://api.test/api/v1/plaid/transactions**', route => route.fulfill({ json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary } }))
+    await page.route('http://api.test/api/v1/plaid/items/17/sync', route => {
+      const response = overview()
+      completedSync = true
+      return route.fulfill({ json: response })
+    })
+    await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', route => route.fulfill({ json: { workspace: canonical } }))
+    await page.goto('/?pilot_e2e_role=participant')
+    await openSection(page, 'My Profile')
+    await openDetails(page, 'Optional bank connections')
+    await page.getByRole('button', { name: 'Sync now', exact: true }).click()
+    await started
+    await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+    const householdName = page.locator('.setup-form input[name="household_name"]')
+    await householdName.fill('Keep my unsaved household name')
+    const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+    releasePlaidReload()
+    await completedReload
+    await expect(page.getByText('Sync complete. Posted expenses are ready for household review, and Mia can read the updated bank activity now.')).toBeVisible()
+    await expect(householdName).toHaveValue('Keep my unsaved household name')
+})

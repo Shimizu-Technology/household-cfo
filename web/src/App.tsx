@@ -509,6 +509,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   useEffect(() => { workspaceMounted.current = true; return () => { workspaceMounted.current = false } }, [])
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupDraft | null>(null)
   const [isProfileEditing, setIsProfileEditing] = useState(false)
+  const profileEditingRef = useRef(isProfileEditing)
+  profileEditingRef.current = isProfileEditing
   const [moneyTopic, setMoneyTopic] = useState<MoneyTopic>('income')
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
@@ -2962,13 +2964,26 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
   }
 
+  function captureWorkspaceReloadGuard() {
+    const generation = financialMutationGenerationRef.current
+    const scope = budgetViewScopeRef.current
+    return () => workspaceMounted.current && budgetViewScopeRef.current === scope && financialMutationGenerationRef.current === generation
+  }
+
+  async function refreshWorkspaceAfterPlaidDrafts() {
+    const isCurrent = captureWorkspaceReloadGuard()
+    const payload = await fetchAppData(true)
+    if (!isCurrent()) return
+    setData(payload)
+    setSetupDraft(current => profileEditingRef.current ? current : payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
+    replaceMiaHistory(payload.mia)
+  }
+
   async function refreshWorkspaceAfterDebtChange() {
     // The record write committed before this callback. Older plans can no longer
     // be treated as current, even if either reload fails.
     setData({ type: 'shared_financial_commit' })
-    const generation = financialMutationGenerationRef.current
-    const refreshScope = budgetViewScope
-    const isCurrent = () => workspaceMounted.current && budgetViewScopeRef.current === refreshScope && generation === financialMutationGenerationRef.current
+    const isCurrent = captureWorkspaceReloadGuard()
     const currentReload = fetchAppData(true).then(payload => {
       if (isCurrent()) {
         setData(payload)
@@ -3586,12 +3601,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 refreshKey={plaidActivityRefreshKey}
                 reviewYear={selectedBudgetYear}
                 onOpenBudget={() => switchSection('Budget')}
-                onDraftsCreated={async () => {
-                  const payload = await fetchAppData(true)
-                  setData(payload)
-                  setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
-                  replaceMiaHistory(payload.mia)
-                }}
+                onDraftsCreated={refreshWorkspaceAfterPlaidDrafts}
               />
             </>
           ) : (
@@ -3836,12 +3846,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             <PlaidConnections
               userId={String(auth.currentUser.id)}
               variant="connections"
-              onDraftsCreated={async () => {
-                const payload = await fetchAppData(true)
-                setData(payload)
-                setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
-                replaceMiaHistory(payload.mia)
-              }}
+              onDraftsCreated={refreshWorkspaceAfterPlaidDrafts}
             />
           )}
           </ProfileDisclosure>
