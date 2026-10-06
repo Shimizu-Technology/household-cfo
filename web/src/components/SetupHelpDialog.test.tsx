@@ -82,6 +82,8 @@ it('returns an expired prepared request to support without preparing or applying
   mocks.fetchSetupHelp.mockResolvedValue({ ...saved, latest_request: ready })
   mocks.changeOwnSetupSupportRequest.mockResolvedValue({ request: { ...request, status: 'in_review' }, setup_help: { ...saved, latest_request: { ...request, status: 'in_review' } } })
   render(<SetupHelpDialog {...props} />)
+  await screen.findByRole('heading', { name: 'Review needs refreshing' })
+  expect(screen.queryByRole('heading', { name: 'Your review is ready' })).toBeNull()
   fireEvent.click(await screen.findByRole('button', { name: 'Request a fresh review' }))
   await screen.findByText('Support is reviewing')
   expect(mocks.changeOwnSetupSupportRequest).toHaveBeenCalledWith(9, 'reopen', 1)

@@ -161,7 +161,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
             const open = ['requested', 'in_review', 'ready'].includes(record.status)
             const canPrepare = isAdmin && record.permissions?.prepare && (record.status === 'requested' || record.status === 'in_review' || (record.status === 'ready' && ['expired', 'stale'].includes(record.review_state)))
             return <section className="setup-support-record" key={record.id} aria-label={`Request #${record.id}`}>
-              <header><h4>{record.participant_name || 'Participant'}</h4><span className="setup-support-status">{statusLabels[record.status]}</span></header>
+              <header><h4>{record.participant_name || 'Participant'}</h4><span className="setup-support-status">{record.status === 'ready' && ['expired', 'stale'].includes(record.review_state) ? 'Review needs refreshing' : statusLabels[record.status]}</span></header>
               <dl>
                 <div><dt>Request</dt><dd>#{record.id}</dd></div>
                 <div><dt>Program</dt><dd>{record.program_name || 'No program linked'}</dd></div>
