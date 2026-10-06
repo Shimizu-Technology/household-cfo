@@ -90,6 +90,20 @@ class HouseholdFinanceFinancialRestartTest < ActiveSupport::TestCase
     assert_equal 1, @household.reload.financial_generation
   end
 
+  test "an eligible second admin owner cannot read apply or cancel another actor review" do
+    other = User.create!(clerk_id: "other-admin-#{SecureRandom.hex(6)}", email: "other-admin-#{SecureRandom.hex(6)}@example.com", role: "admin", invitation_status: "accepted")
+    @household.household_memberships.create!(user: other, role: "owner")
+    preview = @flow.preview
+    other_flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: other)
+    assert other_flow.status[:available]
+    assert_nil other_flow.status[:latest_review]
+    assert_raises(ActiveRecord::RecordNotFound) { other_flow.status(review_id: preview[:review][:id]) }
+    assert_raises(ActiveRecord::RecordNotFound) { other_flow.apply(review_id: preview[:review][:id], confirmation: "START OVER", shared_household_acknowledged: true) }
+    assert_raises(ActiveRecord::RecordNotFound) { other_flow.cancel(review_id: preview[:review][:id]) }
+    assert_equal 0, @household.reload.financial_generation
+    assert_equal "pending", FinancialRestartReview.find(preview[:review][:id]).status
+  end
+
   test "old SQL writes and request-inflight creates cannot revive records" do
     debt = @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 5_000)
     apply(@flow.preview)

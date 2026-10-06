@@ -113,7 +113,7 @@ module HouseholdFinance
         actor = User.lock.find_by(id: user.id)
         raise OwnerRequired, "This account no longer has permission to restart financial records. Nothing changed." unless actor && !actor.revoked?
         raise AdminRequired, "Starting over is an administrator testing tool. Update individual records through Mia or My Money instead. Nothing changed." unless actor.admin?
-        raise OwnerRequired, "Only the household owner can start a new shared financial picture. Ask the owner to review Start over. Nothing changed." unless household.household_memberships.exists?(user_id: user.id, role: "owner")
+        raise OwnerRequired, "Only an administrator who owns this household can reset its test financial picture. Nothing changed." unless household.household_memberships.exists?(user_id: user.id, role: "owner")
         selected = ::Mia::EffectiveCohortResolver.new(user: user, role: "participant", requested_cohort_id: cohort_id).call if cohort_id
         if selected&.cohort&.savings_challenge_enabled
           SavingsChallenge::AccessPolicy.new(household: household, user: user, cohort: selected.cohort).call!

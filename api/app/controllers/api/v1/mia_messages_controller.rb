@@ -17,6 +17,7 @@ module Api
       before_action :require_writable_household!, only: %i[create destroy]
 
       def index
+        response.set_header("Cache-Control", "private, no-store")
         render json: current_data_presenter.mia(
           before_id: params[:before_id],
           limit: params[:limit], picture: params[:picture]
@@ -331,11 +332,20 @@ module Api
       end
 
       def destroy
+        unless params[:picture].blank? || params[:picture].in?(%w[current all])
+          return render json: { errors: [ "Earlier conversations are read-only. Use the explicit all-conversations privacy deletion to erase retained history." ] }, status: :unprocessable_entity
+        end
         current_household.with_lock do
           if (session = chat_session_scope.find)
             session.lock!
-            session.mia_message_requests.where(status: "processing").find_each(&:expire_if_stale!)
-            if session.mia_message_requests.where(status: "processing").exists?
+            messages = session.chat_messages
+            requests = session.mia_message_requests
+            unless params[:picture] == "all"
+              messages = messages.where(financial_generation: current_household.financial_generation)
+              requests = requests.where(financial_generation: current_household.financial_generation)
+            end
+            requests.where(status: "processing").find_each(&:expire_if_stale!)
+            if requests.where(status: "processing").exists?
               render json: {
                 error: "Mia is still working on a message. Wait for it to finish before clearing this conversation.",
                 code: "mia_request_processing"
@@ -343,9 +353,9 @@ module Api
               return
             end
 
-            detach_action_reviews_before_clearing(session)
-            session.chat_messages.delete_all
-            session.mia_message_requests.delete_all
+            detach_action_reviews_before_clearing(messages)
+            messages.delete_all
+            requests.delete_all
             session.update!(rolling_summary: nil, open_topics: [], active_topic: {}, last_compacted_message_id: nil, last_compacted_at: nil)
           end
         end
@@ -364,8 +374,8 @@ module Api
         confirmation || correction
       end
 
-      def detach_action_reviews_before_clearing(session)
-        message_ids = session.chat_messages.select(:id)
+      def detach_action_reviews_before_clearing(messages)
+        message_ids = messages.pluck(:id)
         scope = current_household.historical_mia_action_drafts
         scope.where(source_chat_message_id: message_ids).or(scope.where(assistant_chat_message_id: message_ids))
           .includes(source_chat_message: :chat_session, assistant_chat_message: :chat_session).find_each do |draft|
@@ -373,8 +383,8 @@ module Api
           metadata = draft.metadata.to_h
           metadata = metadata.merge("review_program_scope" => { "cohort_id" => origin&.cohort_id, "user_id" => origin&.user_id }) unless metadata.key?("review_program_scope")
           attributes = { metadata: metadata }
-          attributes[:source_chat_message_id] = nil if draft.source_chat_message&.chat_session_id == session.id
-          attributes[:assistant_chat_message_id] = nil if draft.assistant_chat_message&.chat_session_id == session.id
+          attributes[:source_chat_message_id] = nil if message_ids.include?(draft.source_chat_message_id)
+          attributes[:assistant_chat_message_id] = nil if message_ids.include?(draft.assistant_chat_message_id)
           draft.update!(attributes)
         end
       end
@@ -382,7 +392,7 @@ module Api
       def render_financial_restart_response(session, content, message_request:)
         available = HouseholdFinance::FinancialRestart::Flow.new(current_household, user: current_user, cohort_membership: current_cohort_membership).status[:available]
         answer = if available
-          "Yes. Open Start over to review a fresh financial picture, including income, spending plans and actuals, debts, accounts, goals and setup. Your login, household members, BOG savings and optional card reviews remain. Your active conversation starts fresh, with earlier conversations retained privately as read-only history. Earlier records and uploads are retained as history; saved memory context is paused. Nothing changes until you explicitly confirm the review."
+          "Yes. Open Reset my test workspace to review a fresh financial picture, including income, spending plans and actuals, debts, accounts, goals and setup. Your login, household members, BOG savings and optional card reviews remain. Your active conversation starts fresh, with earlier conversations retained privately as read-only history. Earlier records and uploads are retained as history; saved memory context is paused. Nothing changes until you explicitly confirm the review."
         else
           "Starting over is an administrator testing tool. I can help you correct your income, spending categories, debts, accounts or goals individually. Tell me which record and replacement value to use, or open My Money. You review each change before applying it. Nothing changed."
         end

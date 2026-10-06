@@ -149,7 +149,7 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
     flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
     preview = flow.preview
     flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
-    delete "/api/v1/mia/messages", headers: auth
+    delete "/api/v1/mia/messages", params: { picture: "all" }, headers: auth
     assert_response :no_content
     assert_nil draft.reload.source_chat_message_id
     assert_nil draft.assistant_chat_message_id
@@ -294,6 +294,7 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
     get "/api/v1/mia/messages", params: { picture: "history", limit: 2 }, headers: auth
     assert_response :success
     history = response.parsed_body
+    assert_includes response.headers["Cache-Control"], "private, no-store"
     assert_equal true, history["read_only"]
     assert_equal "history", history["picture"]
     assert_empty history["quick_prompts"]
@@ -305,7 +306,14 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal old_messages.first(3).map(&:id), response.parsed_body["messages"].map { |message| message["id"] }
     assert_equal 0, response.parsed_body["older_message_count"]
-    assert_equal 7, ChatMessage.where(chat_session: [ session, other_session ]).count
+    delete "/api/v1/mia/messages", headers: auth
+    assert_response :no_content
+    assert_not ChatMessage.exists?(fresh.id)
+    assert_equal old_messages.map(&:id), session.chat_messages.order(:id).pluck(:id)
+    delete "/api/v1/mia/messages", params: { picture: "history" }, headers: auth
+    assert_response :unprocessable_entity
+
+    assert_equal 6, ChatMessage.where(chat_session: [ session, other_session ]).count
     get "/api/v1/mia/messages", params: { picture: "history" }, headers: { "Authorization" => "Bearer test_token_#{other_user.id}" }
     assert_response :success
     assert_equal [ other_message.id ], response.parsed_body["messages"].map { |message| message["id"] }
