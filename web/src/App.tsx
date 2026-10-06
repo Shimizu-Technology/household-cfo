@@ -2,6 +2,7 @@ import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/mone
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
 import './App.css'
+import { PausedDocumentImportPanel } from './components/PausedDocumentImportPanel'
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
 import { usePilotDialog } from './lib/usePilotDialog'
 import { useDialogViewport } from './lib/useDialogViewport'
@@ -55,7 +56,7 @@ import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import { guamTodayIso } from './lib/householdDate'
 import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
-import { documentNeedsReview, transactionReviewCoverage } from './lib/documentReview'
+import { documentNeedsReview, latestAppliedImport, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
   captureApiOperation,
@@ -4671,6 +4672,7 @@ function DocumentImportWorkspace({
   const { assistantName } = useBrand()
   const pendingCount = imports.filter(documentNeedsReview).length
   const latestApplied = latestAppliedImport(imports)
+  const currentImports = imports.filter(documentImport => !documentImport.context_paused_by_restart)
 
   if (!isRealWorkspace) {
     return (
@@ -4711,8 +4713,8 @@ function DocumentImportWorkspace({
       <div className="document-import-summary-row">
         <Metric label="Needs review" value={String(pendingCount)} />
         <Metric label="Total imports" value={String(imports.length)} />
-        <Metric label="Approved source" value={latestApplied ? documentKindLabel(latestApplied.document_kind) : imports.length > 0 ? 'Not approved yet' : 'None yet'} />
-        <Metric label="Freshness" value={latestApplied ? importPeriodLabel(latestApplied) : imports.length > 0 ? 'Review pending' : 'Manual'} />
+        <Metric label="Approved source" value={latestApplied ? documentKindLabel(latestApplied.document_kind) : currentImports.length > 0 ? 'Not approved yet' : 'None yet'} />
+        <Metric label="Freshness" value={latestApplied ? importPeriodLabel(latestApplied) : currentImports.length > 0 ? 'Review pending' : 'Manual'} />
       </div>
 
       <details className="document-upload-secondary"><summary>Other files &amp; budget template</summary><div className="document-import-guide">
@@ -4930,6 +4932,7 @@ function DocumentImportHistory({
               >
                 <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
                 <strong>{documentImportDisplayName(documentImport)}</strong>
+                {documentImport.context_paused_by_restart && <small>Previous financial picture · view only</small>}
                 <small>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)}</small>
                 <small>{importPeriodLabel(documentImport)}</small>
               </button>
@@ -5031,6 +5034,10 @@ function DocumentReviewPanel({
         <p>{assistantName} is opening the extracted values, transaction drafts, split lines, and matches for {documentImportDisplayName(documentImport)}.</p>
       </article>
     )
+  }
+
+  if (documentImport.context_paused_by_restart) {
+    return <PausedDocumentImportPanel documentImport={documentImport} uploading={uploading} opening={action === `source-url:${documentImport.id}`} removing={action === `source:${documentImport.id}`} acceptedFileTypes={SUPPORTED_DOCUMENT_ACCEPTS} onOpenSource={() => onOpenSource(documentImport)} onDeleteSource={() => onDeleteSource(documentImport)} onUpload={file => onUpload(documentImport.document_kind, file, 'profile')} />
   }
 
   const sourceMode = sourceReviewMode(documentImport)
@@ -5957,19 +5964,6 @@ function selectedApplyItemIds(documentImport: FinancialDocumentImport) {
   return documentImport.items
     .filter((item) => item.selected && !item.ignored && !item.applied_at)
     .map((item) => item.id)
-}
-
-function importHasApprovedData(documentImport: FinancialDocumentImport) {
-  return documentImport.items.some((item) => Boolean(item.applied_at)) ||
-    documentImport.transaction_drafts.some((draft) => ['confirmed', 'corrected', 'matched'].includes(draft.status))
-}
-
-function latestAppliedImport(imports: FinancialDocumentImport[]) {
-  return imports
-    .filter((documentImport) =>
-      (documentImport.status === 'applied' || documentImport.status === 'partially_applied') && importHasApprovedData(documentImport),
-    )
-    .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
 }
 
 function importTimestamp(documentImport: FinancialDocumentImport) {

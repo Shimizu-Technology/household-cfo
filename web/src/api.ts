@@ -298,6 +298,7 @@ export type TransactionDraftMatch = {
 }
 
 export type FinancialDocumentImport = {
+  context_paused_by_restart?: boolean
   id: number
   household_id: number
   document_kind: DocumentImportKind
