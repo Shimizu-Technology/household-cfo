@@ -516,6 +516,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [setupError, setSetupError] = useState<string | null>(null)
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
   const [manualSetupFocusRequest, setManualSetupFocusRequest] = useState(0)
+  const profileFocusSequenceRef = useRef(0)
   const [active, setActive] = useState(() => {
     return sectionFromLocation()
   })
@@ -1663,16 +1664,24 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   function focusProfileSetupField(fieldName: string, payload: Record<string, unknown>) {
+    const origin = document.activeElement
+    const sequence = ++profileFocusSequenceRef.current
     setSetupDraft((current) => current ? workspaceSetupDraftWithProposal(current, payload) : current)
     setIsProfileEditing(true)
-    window.setTimeout(() => {
+    // Wait for the route and editable fields to commit, without a delayed smooth
+    // scroll that can move a navigation target during the next pointer gesture.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (sequence !== profileFocusSequenceRef.current) return
+      const activeElement = document.activeElement
+      if (activeElement && activeElement !== document.body && activeElement !== origin) return
       const field = setupFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${fieldName}"]`)
-      const optionalFields = field?.closest('details')
+      if (!field) return
+      const optionalFields = field.closest('details')
       if (optionalFields instanceof HTMLDetailsElement) optionalFields.open = true
-      field?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      field?.focus({ preventScroll: true })
-      field?.select()
-    }, 80)
+      field.scrollIntoView({ behavior: 'auto', block: 'center' })
+      field.focus({ preventScroll: true })
+      field.select()
+    }))
   }
 
   function focusDebtManager() {

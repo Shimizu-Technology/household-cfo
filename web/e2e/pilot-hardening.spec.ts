@@ -7289,9 +7289,13 @@ test('desktop setup-confirmation manual route prefills the reviewed runway targe
 
   await page.locator('.mia-action-item').filter({ hasText: 'Confirm household name' }).getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Target runway months')).toHaveValue('6')
+  await expect(page.locator('.setup-form input[name="household_name"]')).toBeFocused()
+  await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
   await openSection(page, 'Ask Mia')
   await page.locator('.mia-action-item').filter({ hasText: 'Clear runway target' }).getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Target runway months')).toHaveValue('')
+  await expect(page.getByLabel('Target runway months')).toBeFocused()
+  await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
   await openSection(page, 'Ask Mia')
   await page.locator('.mia-action-item').filter({ hasText: 'Confirm runway target' }).getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Target runway months')).toHaveValue('9')
