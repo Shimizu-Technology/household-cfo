@@ -7993,10 +7993,25 @@ test('Coach Studio first launch requires impact review and stays usable on phone
     }
     return route.fulfill({ status: 200, json: { launch: preview() } })
   })
+  // A first launch requires an existing sealed record; release evidence loads
+  // alongside the independent launch preview in this combined panel.
+  await page.route('http://api.test/api/v1/admin/cohorts/41/releases', route => route.fulfill({ json: {
+    cohort_release_studio: {
+      cohort: { id: 41, name: 'Mrs. Mel launch cohort', status: 'active' },
+      runtime_truth: { changes_participant_runtime: false, message: 'Sealing prepares this record; first launch activates it.' },
+      permissions: { view: true, seal: true, restore: true },
+      candidate: { ready: true, seal_needed: false, expected_latest_release_id: 405, manifest_schema: 'cohort_release_manifest_v2', bundle_digest: 'first-launch-sealed', assignment_id: 91, persona_version_id: 6, experience_version_id: 8, brand_mode: 'published_version', brand_version_id: 9, brand_snapshot_digest: 'brand-v9', registry_digest: 'registry-v3', registry_version: 3, blockers: [], warnings: [], checks: [] },
+      latest_release_match: true, history: { limit: 30, total_count: 1, truncated: false },
+      releases: [{ id: 405, release_number: 1, manifest_schema: 'cohort_release_manifest_v2', event_type: 'release', released_at: `${currentYear}-10-01T00:00:00Z`, actor_user_id: 901, bundle_digest: 'first-launch-sealed', persona_version_id: 6, experience_version_id: 8, brand_mode: 'published_version', brand_version_id: 9, brand_snapshot_digest: 'brand-v9', registry_digest: 'registry-v3', registry_version: 3, source_release_id: null, restore_allowed: false, restore_reason: null }],
+    },
+  } }))
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Release & rollout/ }).click()
+  await expect(page.getByText('Latest sealed record', { exact: true })).toBeVisible()
+  await expect(page.getByText('Checking the exact release evidence…', { exact: true })).toHaveCount(0)
   const card = page.locator('.initial-cohort-launch')
+  await expect(card.getByText('Checking launch readiness…', { exact: true })).toHaveCount(0)
   await card.getByRole('button', { name: 'Review first launch' }).click()
   await expect(card.getByRole('heading', { name: 'Review first cohort launch' })).toBeFocused()
   await expect(card.getByText(/6 current participants will use this release/)).toBeVisible()
