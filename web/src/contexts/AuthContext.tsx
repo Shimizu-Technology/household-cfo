@@ -2,13 +2,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ReactNode } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useAuth as useWorkOSAuth } from '@workos-inc/authkit-react'
+import { RefreshError } from '@workos-inc/authkit-js'
 import type { AuthProviderName } from '../lib/authConfig'
 import { authIdentityKey, matchesAuthIdentity } from '../lib/authIdentity'
-import { authReturnState } from '../lib/authNavigation'
+import { authReturnState, safeAuthReturnTo } from '../lib/authNavigation'
 import { ApiRequestError, fetchCurrentUser, setActiveCoachWorkspaceId, setApiActorIdentity, setAuthTokenGetter } from '../api'
 import type { CurrentUser } from '../api'
 import { AuthContext } from './authContextValue'
-import type { AuthContextValue } from './authContextValue'
+import type { AuthContextValue, AuthSignInOptions } from './authContextValue'
 
 export const AUTH_VERIFICATION_TIMEOUT_MS = 30_000
 
@@ -16,8 +17,8 @@ export type AuthSession = {
   provider?: AuthProviderName
   sessionScope?: string | null
   sessionError?: string | null
-  signIn?: () => Promise<void>
-  signUp?: () => Promise<void>
+  signIn?: (options?: AuthSignInOptions) => Promise<void>
+  signUp?: (options?: AuthSignInOptions) => Promise<void>
   userId: string | null | undefined
   isLoaded: boolean
   isSignedIn: boolean | undefined
@@ -30,7 +31,7 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
   return <AuthVerificationBridge session={session}>{children}</AuthVerificationBridge>
 }
 
-function WorkOSAuthBridge({ children }: { children: ReactNode }) {
+function WorkOSAuthBridge({ children, invitationToken }: { children: ReactNode; invitationToken?: string | null }) {
   const auth = useWorkOSAuth()
   const { signIn: sdkSignIn, signUp: sdkSignUp, signOut: sdkSignOut } = auth
   const [expired, setExpired] = useState(false)
@@ -39,8 +40,15 @@ function WorkOSAuthBridge({ children }: { children: ReactNode }) {
     window.addEventListener('household-cfo:auth-expired', expire)
     return () => window.removeEventListener('household-cfo:auth-expired', expire)
   }, [])
-  const signIn = useCallback(() => sdkSignIn({ state: authReturnState() }), [sdkSignIn])
-  const signUp = useCallback(() => sdkSignUp({ state: authReturnState() }), [sdkSignUp])
+  const redirectOptions = useCallback((options: AuthSignInOptions = {}) => {
+    if (options.organizationId && !/^org_[A-Za-z0-9]+$/.test(options.organizationId)) throw new Error('The organization sign-in link could not be verified.')
+    const state = authReturnState()
+    if (options.returnTo) state.returnTo = safeAuthReturnTo(options.returnTo)
+    const token = options.invitationToken ?? invitationToken
+    return { state, ...(options.organizationId ? { organizationId: options.organizationId } : {}), ...(token ? { invitationToken: token } : {}) }
+  }, [invitationToken])
+  const signIn = useCallback((options?: AuthSignInOptions) => sdkSignIn(redirectOptions(options)), [sdkSignIn, redirectOptions])
+  const signUp = useCallback((options?: AuthSignInOptions) => sdkSignUp(redirectOptions(options)), [sdkSignUp, redirectOptions])
   const signOut = useCallback(async () => { sdkSignOut({ returnTo: window.location.origin }) }, [sdkSignOut])
   const session: AuthSession = {
     provider: 'workos', userId: auth.user?.id, isLoaded: !auth.isLoading, isSignedIn: Boolean(auth.user),
@@ -86,6 +94,11 @@ export function AuthVerificationBridge({ children, session }: { children: ReactN
       try {
         return await latestGetToken.current()
       } catch (error) {
+        if (latestProvider.current === 'workos' && error instanceof RefreshError && error.isTransient) {
+          // Keep the SDK's refresh session; don't turn a temporary outage into
+          // an unauthenticated request or a forced sign-in.
+          throw new ApiRequestError('Secure sign-in is temporarily unavailable. Try again in a moment.', { status: 503 })
+        }
         if (latestProvider.current === 'workos') window.dispatchEvent(new Event('household-cfo:auth-expired'))
         if (import.meta.env.DEV) console.warn('Unable to load secure sign-in token', error)
         return null
@@ -405,8 +418,8 @@ function e2eCurrentUser(role: 'admin' | 'coach' | 'participant', includeCoachWor
   return user
 }
 
-export function AuthProvider({ children, isClerkEnabled = false, provider }: { children: ReactNode; isClerkEnabled?: boolean; provider?: AuthProviderName | 'preview' }) {
-  if (provider === 'workos') return <WorkOSAuthBridge>{children}</WorkOSAuthBridge>
+export function AuthProvider({ children, isClerkEnabled = false, provider, invitationToken }: { children: ReactNode; isClerkEnabled?: boolean; provider?: AuthProviderName | 'preview'; invitationToken?: string | null }) {
+  if (provider === 'workos') return <WorkOSAuthBridge invitationToken={invitationToken}>{children}</WorkOSAuthBridge>
   isClerkEnabled = provider === 'clerk' || isClerkEnabled
   if (!isClerkEnabled && e2eAuthRole() === 'delayed_participant') {
     return <DelayedParticipantE2EAuthBridge>{children}</DelayedParticipantE2EAuthBridge>

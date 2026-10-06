@@ -9,6 +9,7 @@ import { useDialogViewport } from '../lib/useDialogViewport'
 export function EnterpriseAccessPage() {
   useDialogViewport()
   const auth = useAuthContext()
+  if (auth.authError) return <AuthAccessPanel title="Organization access could not be verified." copy={auth.authError} recovering onRetry={auth.refreshCurrentUser} onSignOut={auth.signOut} onSignIn={auth.signIn} />
   if (!auth.isSignedIn && !auth.isLoading) return <AuthAccessPanel title="Organization sign-in & provisioning" copy="Sign in with your designated IT administrator account to manage your company connection." footer={<div className="auth-actions"><SignInButton><Button>Sign in</Button></SignInButton></div>} />
   if (auth.isLoading || auth.isVerifyingApi) return <AuthAccessPanel title="Checking organization access." copy="Verifying your secure sign-in and configuration permissions." />
   if (!auth.currentUser || auth.authError) return <AuthAccessPanel title="Organization access could not be verified." copy={auth.authError ?? 'Your account has not been approved for company configuration.'} recovering onRetry={auth.refreshCurrentUser} onSignOut={auth.signOut} onSignIn={auth.signIn} />

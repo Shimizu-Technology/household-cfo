@@ -43,9 +43,9 @@ export function UserButton({ afterSignOutUrl = '/' }: { afterSignOutUrl?: string
   if (auth.authProvider !== 'workos') return <ClerkUserButton afterSignOutUrl={afterSignOutUrl} />
   const user = auth.currentUser
   return <div className="auth-account-control" ref={container} onKeyDown={event => {
-    if (event.key === 'Escape') { setOpen(false); trigger.current?.focus() }
+    if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus({ preventScroll: true }) }
   }}>
-    <button type="button" className="auth-account-trigger" aria-label="Account" aria-expanded={open} aria-controls="auth-account-panel" ref={trigger} onClick={() => setOpen(value => !value)}>
+    <button type="button" className="auth-account-trigger" aria-label="Account" aria-expanded={open} aria-controls="auth-account-panel" ref={trigger} onClick={() => { setOpen(value => !value); trigger.current?.focus({ preventScroll: true }) }}>
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" strokeWidth="1.7" /><path d="M4 21a8 8 0 0 1 16 0" fill="none" stroke="currentColor" strokeWidth="1.7" /></svg>
     </button>
     {open && <div id="auth-account-panel" className="auth-account-panel">

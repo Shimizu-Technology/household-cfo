@@ -2546,7 +2546,7 @@ async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortS
     if (financialDataPath(path) && !path.startsWith('/api/v1/workspace')) checkedFinancialReply(financialResponseGeneration(response), financialGeneration)
     return response
   } catch (error) {
-    if (error instanceof ApiContextChangedError || error instanceof FinancialPictureChangedError) throw error
+    if (error instanceof ApiContextChangedError || error instanceof FinancialPictureChangedError || error instanceof ApiRequestError) throw error
     throw new Error(apiNetworkErrorMessage('API request could not reach the server'), { cause: error })
   }
 }

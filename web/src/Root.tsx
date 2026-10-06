@@ -1,5 +1,7 @@
 import { ClerkProvider } from '@clerk/clerk-react'
 import { AuthKitProvider } from '@workos-inc/authkit-react'
+import { useSyncExternalStore } from 'react'
+import { captureAuthInvitation } from './lib/authInvitation'
 import { authConfiguration } from './lib/authConfig'
 import { restoreAuthReturn } from './lib/authNavigation'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
@@ -14,20 +16,29 @@ import { IdentityBoundary } from './components/IdentityBoundary'
 import { useBrand } from './contexts/brandContextValue'
 
 const config = authConfiguration(import.meta.env, window.location.hostname)
+const invitation = captureAuthInvitation()
+const navigationState = () => `${window.location.pathname}:${new URLSearchParams(window.location.search).get('enterprise') === '1'}`
+function subscribeNavigation(callback: () => void) {
+  window.addEventListener('hashchange', callback)
+  window.addEventListener('popstate', callback)
+  return () => { window.removeEventListener('hashchange', callback); window.removeEventListener('popstate', callback) }
+}
 
 function Root() {
+  const route = useSyncExternalStore(subscribeNavigation, navigationState)
   const { brand, status } = useBrand()
   if (status !== 'ready') {
     return <><BrandDocument /><BrandBootstrapState /></>
   }
 
   if (config.error) return <><BrandDocument /><AuthAccessPanel title="Secure sign-in is unavailable." copy={config.error} /></>
+  if (invitation.error) return <><BrandDocument /><AuthAccessPanel title="This invitation needs a fresh link." copy={invitation.error} /></>
 
   const app = (
-    <AuthProvider provider={config.provider}>
+    <AuthProvider provider={config.provider} invitationToken={invitation.token}>
       <PostHogProvider>
         <BrandDocument />
-        <IdentityBoundary>{config.provider === 'workos' && window.location.pathname === '/login' ? <AuthLoginRoute /> : window.location.pathname === '/organization-access' || new URLSearchParams(window.location.search).get('enterprise') === '1' ? <EnterpriseAccessPage /> : <App />}</IdentityBoundary>
+        <IdentityBoundary>{config.provider === 'workos' && route.startsWith('/login:') ? <AuthLoginRoute /> : route.startsWith('/organization-access:') || route.endsWith(':true') ? <EnterpriseAccessPage /> : <App />}</IdentityBoundary>
       </PostHogProvider>
     </AuthProvider>
   )

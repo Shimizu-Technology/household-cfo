@@ -6,8 +6,9 @@ export type EnterpriseOrganization = {
   directory_id: string | null; connection_state: string | null; directory_state: string | null
   last_reconciled_at: string | null; last_sync_error: string | null
 }
+export type EnterpriseOrganizationOption = Pick<EnterpriseOrganization, 'id' | 'name' | 'workos_organization_id'>
 export type EnterpriseGroupMapping = { id: number; workos_group_id: string; cohort_id: number; active: boolean; role: 'participant' }
-export type EnterpriseMember = { id: number; user_id: number; workos_user_id: string; status: string; it_admin: boolean; locally_revoked: boolean; email: string; full_name: string }
+export type EnterpriseMember = { id: number; user_id: number | null; workos_user_id: string; status: string; it_admin: boolean; locally_revoked: boolean; email: string | null; full_name: string | null }
 export type EnterpriseDetail = { enterprise_organization: EnterpriseOrganization; group_mappings: EnterpriseGroupMapping[]; can_manage_memberships: boolean; eligible_cohorts: Array<{ id: number; name: string }> }
 export type EnterpriseInput = Pick<EnterpriseOrganization, 'name' | 'coach_workspace_id' | 'workos_organization_id' | 'active' | 'require_sso' | 'directory_provisioning_enabled' | 'directory_id'>
 
@@ -16,7 +17,7 @@ function json(method: string, body: unknown): RequestInit {
   return { method, cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
 export function fetchEnterpriseOrganizations(signal?: AbortSignal) {
-  return fetchPrivateJson<{ enterprise_organizations: EnterpriseOrganization[] }>(path, { signal, cache: 'no-store' })
+  return fetchPrivateJson<{ enterprise_organizations: EnterpriseOrganizationOption[] }>(path, { signal, cache: 'no-store' })
 }
 export function fetchEnterpriseOrganization(id: number, signal?: AbortSignal) {
   return fetchPrivateJson<EnterpriseDetail>(`${path}/${id}`, { signal, cache: 'no-store' })
@@ -31,7 +32,7 @@ export function openEnterprisePortal(id: number, intent: 'sso' | 'dsync', return
   return fetchPrivateJson<{ url: string; expires_at: string }>(`${path}/${id}/portal`, json('POST', { intent, return_url: returnUrl }))
 }
 export function reconcileEnterpriseOrganization(id: number) {
-  return fetchPrivateJson<{ enterprise_organization: EnterpriseOrganization }>(`${path}/${id}/reconcile`, json('POST', {}))
+  return fetchPrivateJson<{ queued: boolean }>(`${path}/${id}/reconcile`, json('POST', {}))
 }
 export function fetchEnterpriseMembers(id: number, signal?: AbortSignal) {
   return fetchPrivateJson<{ memberships: EnterpriseMember[] }>(`${path}/${id}/memberships`, { signal, cache: 'no-store' })

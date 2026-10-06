@@ -2,13 +2,15 @@ import { createContext, useContext } from 'react'
 import type { CurrentUser } from '../api'
 import type { AuthProviderName } from '../lib/authConfig'
 
+export type AuthSignInOptions = { organizationId?: string; invitationToken?: string; returnTo?: string }
+
 export type AuthContextValue = {
   /** Transitional compatibility for existing local QA fixtures. */
   isClerkEnabled: boolean
   isAuthEnabled?: boolean
   authProvider?: AuthProviderName | 'preview'
-  signIn?: () => Promise<void>
-  signUp?: () => Promise<void>
+  signIn?: (options?: AuthSignInOptions) => Promise<void>
+  signUp?: (options?: AuthSignInOptions) => Promise<void>
   authErrorStatus?: number | null
   authIdentityId: string | null
   isSignedIn: boolean

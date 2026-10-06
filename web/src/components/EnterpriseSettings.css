@@ -8,6 +8,8 @@
 .enterprise-toolbar > label { flex: 1 1 220px; }
 .enterprise-settings label { display: grid; gap: 8px; font-weight: 700; }
 .enterprise-settings input, .enterprise-settings select { width: 100%; min-width: 0; min-height: 44px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; }
+.enterprise-settings label:has(input[type="checkbox"]) { grid-template-columns: 20px minmax(0, 1fr); align-items: start; font-weight: 400; }
+.enterprise-settings input[type="checkbox"] { width: 20px; min-height: 20px; height: 20px; margin: 3px 0 0; padding: 0; }
 .enterprise-form, .enterprise-section { display: grid; gap: 16px; padding: 20px 0; border-top: 1px solid var(--line); }
 .enterprise-section h3, .enterprise-form h3, .enterprise-section p, .enterprise-confirmation h4, .enterprise-confirmation p { margin: 0; }
 .enterprise-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0; }
