@@ -1053,7 +1053,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         lastWorkspaceDraftSignatureRef.current = signature
         setData(payload)
         setSetupDraft((current) => {
-          if (isFirstSessionSetup && current) return current
+          if ((isFirstSessionSetup || profileEditingRef.current) && current) return current
           return payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : current
         })
         replaceMiaHistory(payload.mia)
@@ -2071,7 +2071,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         : null
       setSetupDraft((current) => {
         if (!refreshedDraft) return current
-        if (!isProfileEditing || !current) return refreshedDraft
+        if (!profileEditingRef.current || !current) return refreshedDraft
         return {
           ...current,
           primary_income: refreshedDraft.primary_income,
@@ -2981,11 +2981,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
   async function refreshWorkspaceAfterPlaidDrafts() {
     const isCurrent = captureWorkspaceReloadGuard()
-    const payload = await fetchAppData(true)
-    if (!isCurrent()) return
-    setData(payload)
-    setSetupDraft(current => profileEditingRef.current ? current : payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
-    replaceMiaHistory(payload.mia)
+    try {
+      const payload = await fetchAppData(true)
+      if (!isCurrent()) return
+      setData(payload)
+      setSetupDraft(current => profileEditingRef.current ? current : payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
+      replaceMiaHistory(payload.mia)
+      setWorkspaceRefreshNotice(current => current?.kind === 'home' ? null : current)
+    } catch (caught) {
+      if (!isCurrent()) return
+      const message = 'Bank activity updated, but the household workspace could not refresh. Reload before using its totals or reviewing new bank activity.'
+      setWorkspaceRefreshNotice({ kind: 'home', message })
+      throw caught
+    }
   }
 
   async function refreshWorkspaceAfterDebtChange() {
@@ -2996,7 +3004,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const currentReload = fetchAppData(true).then(payload => {
       if (isCurrent()) {
         setData(payload)
-        if (!isProfileEditing) setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
+        setSetupDraft(current => profileEditingRef.current ? current : payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
         replaceMiaHistory(payload.mia)
       }
       return payload

@@ -10184,3 +10184,184 @@ test('BOG UI Plaid reload preserves a Profile edit begun while its response wait
     await expect(page.getByText('Sync complete. Posted expenses are ready for household review, and Mia can read the updated bank activity now.')).toBeVisible()
     await expect(householdName).toHaveValue('Keep my unsaved household name')
 })
+
+
+for (const variant of ['activity', 'connections'] as const) {
+  for (const mode of ['current', 'superseded', 'recovery'] as const) {
+  test(`BOG UI failed Plaid ${variant} reload ${mode === 'superseded' ? 'ignores an obsolete failure' : mode === 'recovery' ? 'clears the warning after retry succeeds' : 'keeps the refresh warning across pages'}`, async ({ page }) => {
+    const initial = realWorkspaceData(true)
+    const canonical = structuredClone(initial)
+    canonical.budget.annual_plan.pending_mia_action_drafts = []
+    canonical.budget.annual_plan.rows[3].months[7].planned = 400
+    let workspaceRequests = 0
+    let completedSync = false
+    let releasePlaidReload!: () => void
+    let plaidReloadStarted!: () => void
+    const started = new Promise<void>(resolve => { plaidReloadStarted = resolve })
+    const pendingReload = new Promise<void>(resolve => { releasePlaidReload = resolve })
+    const item = {
+      id: 17, institution_name: 'Synthetic Bank', status: 'active', environment: 'sandbox', consented_at: `${currentYear}-10-01T00:00:00Z`, last_synced_at: `${currentYear}-10-01T00:00:00Z`,
+      health: { state: 'healthy', label: 'Feed current', message: 'Synthetic feed ready', requires_attention: false, last_successful_update_at: `${currentYear}-10-01T00:00:00Z`, stale_after: `${currentYear}-10-03T00:00:00Z` },
+      error_message: null, disconnected_at: null, auto_confirm_trusted_merchants: false, accounts: [],
+    }
+    const overview = () => ({ configured: true, environment: 'sandbox', consent_policy_version: 'test', items: [{ ...item, last_synced_at: completedSync ? `${currentYear}-10-02T00:00:00Z` : item.last_synced_at }] })
+    await page.route('http://api.test/api/v1/workspace', async route => {
+      workspaceRequests += 1
+      if (workspaceRequests > 1) {
+        plaidReloadStarted()
+        await pendingReload
+      }
+      return route.fulfill(workspaceRequests > 1 && !(mode === 'recovery' && workspaceRequests > 2) ? { status: 503, json: { error: 'Synthetic workspace refresh failure.' } } : { json: initial })
+    })
+    await page.route('http://api.test/api/v1/plaid/items', route => route.fulfill({ json: overview() }))
+    await page.route('http://api.test/api/v1/plaid/transactions**', route => route.fulfill({ json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary } }))
+    await page.route('http://api.test/api/v1/plaid/items/17/sync', route => {
+      const response = overview()
+      completedSync = true
+      return route.fulfill({ json: response })
+    })
+    await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', route => route.fulfill({ json: { workspace: canonical } }))
+    await page.goto('/?pilot_e2e_role=participant')
+    if (variant === 'connections') { await openSection(page, 'My Profile'); await openDetails(page, 'Optional bank connections') }
+    else await openSection(page, 'Review')
+    await page.getByRole('button', { name: variant === 'connections' ? 'Sync now' : 'Sync Synthetic Bank', exact: true }).click()
+    await started
+    if (mode === 'superseded') {
+      await openSection(page, 'Ask Mia')
+      await page.getByRole('button', { name: 'Apply reviewed change', exact: true }).click()
+      await expect(page.locator('.mia-action-draft-card')).toHaveCount(0)
+    }
+    const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 503)
+    releasePlaidReload()
+    await completedReload
+    const warning = page.getByRole('alert').filter({ hasText: 'Bank activity updated, but the household workspace could not refresh.' })
+    if (mode !== 'superseded') await expect(warning).toBeVisible()
+    if (mode === 'recovery') {
+      await expect(page.getByText('Sync complete. Posted expenses are ready for household review, and Mia can read the updated bank activity now.')).toBeVisible()
+      await expect(warning).toHaveCount(0)
+    }
+    await openSection(page, 'Home')
+    await openSection(page, 'Ask Mia')
+    if (mode === 'superseded') {
+      await expect(warning).toHaveCount(0)
+      await expect(page.locator('.mia-action-draft-card')).toHaveCount(0)
+    } else {
+      if (mode === 'current') await expect(warning).toBeVisible()
+      else await expect(warning).toHaveCount(0)
+      await expect(page.locator('.mia-action-draft-card')).toHaveCount(1)
+    }
+  })
+  }
+}
+
+test('BOG UI account-save reload preserves a Profile edit begun while its response waits', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.accounts = [{ id: 1, label: 'Checking', account_type: 'checking', balance: 100, balance_as_of_on: null, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {}, plaid_link: null }]
+  let committed = false
+  let releaseReload!: () => void
+  let reloadStarted!: () => void
+  const started = new Promise<void>(resolve => { reloadStarted = resolve })
+  const pendingReload = new Promise<void>(resolve => { releaseReload = resolve })
+  await page.route('http://api.test/api/v1/workspace', async route => {
+    if (committed) { reloadStarted(); await pendingReload }
+    return route.fulfill({ json: workspace })
+  })
+  await page.route('http://api.test/api/v1/accounts/1', route => {
+    committed = true
+    workspace.workspace.accounts[0].balance = Number(route.request().postDataJSON().account.balance)
+    return route.fulfill({ json: { account: workspace.workspace.accounts[0] } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await openDetails(page, 'Accounts and assets')
+  await page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true }).click()
+  await page.locator('.account-form').getByLabel('Approved balance').fill('200')
+  await page.getByRole('button', { name: 'Save account', exact: true }).click()
+  await started
+  await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+  const householdName = page.locator('.setup-form input[name="household_name"]')
+  await householdName.fill('Keep my profile edit after the saved account refresh')
+  const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+  releaseReload()
+  await completedReload
+  await expect(page.locator('.account-row')).toContainText('$200.00')
+  await expect(page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true })).toBeEnabled()
+  await expect(householdName).toHaveValue('Keep my profile edit after the saved account refresh')
+  await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.locator('.setup-form input[name="household_name"]')).toHaveValue('Test Participant Household')
+})
+
+test('BOG UI income-save reload preserves a new Profile edit while refreshing calculated income', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  let committed = false
+  let releaseReload!: () => void
+  let reloadStarted!: () => void
+  const started = new Promise<void>(resolve => { reloadStarted = resolve })
+  const pendingReload = new Promise<void>(resolve => { releaseReload = resolve })
+  await page.route('http://api.test/api/v1/workspace', async route => {
+    if (committed) { reloadStarted(); await pendingReload }
+    return route.fulfill({ json: workspace })
+  })
+  await page.route('http://api.test/api/v1/income_sources**', route => {
+    const values = route.request().postDataJSON().income_source
+    committed = true
+    const source = { id: 90, label: values.label, source_type: values.source_type, base_amount: Number(values.amount), base_cadence: values.cadence, starts_on: values.starts_on, ends_on: null, active: true, schedule_entries: [] }
+    workspace.workspace.income_sources = [...workspace.workspace.income_sources, source]
+    workspace.budget.annual_plan.income_sources = [...workspace.budget.annual_plan.income_sources, source]
+    workspace.workspace.setup_values.business_income = 200
+    return route.fulfill({ json: { income_source: source, budget: workspace.budget } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await openDetails(page, 'Income sources and schedule')
+  await page.locator('.income-source-form').getByLabel('Name', { exact: true }).fill('Synthetic extra work')
+  await page.locator('.income-source-form label').filter({ hasText: 'Type' }).locator('select').selectOption('business')
+  await page.getByRole('spinbutton', { name: 'Starting amount', exact: true }).fill('200')
+  await page.getByRole('button', { name: 'Add source', exact: true }).click()
+  await started
+  await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+  const householdName = page.locator('.setup-form input[name="household_name"]')
+  await householdName.fill('Keep my new Profile name after income reload')
+  const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+  releaseReload()
+  await completedReload
+  await expect(page.getByRole('button', { name: 'Add source', exact: true })).toBeEnabled()
+  await expect(householdName).toHaveValue('Keep my new Profile name after income reload')
+  await page.getByText('Add details for a stronger CFO read', { exact: true }).click()
+  await expect(page.getByRole('spinbutton', { name: 'Business income total (calculated)' })).toHaveValue('200')
+  await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(householdName).toHaveValue('Test Participant Household')
+})
+
+test('BOG UI background import hydration preserves a Profile edit begun while its response waits', async ({ page }) => {
+  const initial = realWorkspaceData(true)
+  const refreshed = structuredClone(initial)
+  refreshed.profile.household.name = 'Synthetic refreshed household'
+  refreshed.workspace.setup_values.household_name = 'Synthetic refreshed household'
+  let workspaceRequests = 0
+  let releaseBackground!: () => void
+  let backgroundStarted!: () => void
+  const started = new Promise<void>(resolve => { backgroundStarted = resolve })
+  const pendingBackground = new Promise<void>(resolve => { releaseBackground = resolve })
+  await page.route('http://api.test/api/v1/workspace', async route => {
+    workspaceRequests += 1
+    if (workspaceRequests === 2) { backgroundStarted(); await pendingBackground }
+    return route.fulfill({ json: workspaceRequests > 1 ? refreshed : initial })
+  })
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: [{
+    id: 999, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'synthetic-background.pdf', content_type: 'application/pdf', byte_size: 100,
+    document_date: null, period_start_on: null, period_end_on: null, extracted_summary: null, extraction_error: null, processed_at: null, applied_at: null,
+    source_deleted_at: null, updated_at: `${currentYear}-10-01T00:00:00Z`, source_available: false, details_included: false, uploaded_by: null, applied_by: null, source_deleted_by: null,
+    metadata: {}, items: [], attempts: [], transaction_drafts: [{ id: 999, occurred_on: `${currentYear}-10-01`, merchant: 'Synthetic pending row', amount: 20, status: 'pending', category_id: null, category_name: null }],
+  }] } }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await started
+  await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+  const householdName = page.locator('.setup-form input[name="household_name"]')
+  await householdName.fill('Keep my new Profile name during document hydration')
+  const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+  releaseBackground()
+  await completedReload
+  await expect(page.getByRole('heading', { name: 'Synthetic refreshed household', exact: true })).toBeVisible()
+  await expect(householdName).toHaveValue('Keep my new Profile name during document hydration')
+  await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(householdName).toHaveValue('Synthetic refreshed household')
+})
