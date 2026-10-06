@@ -3,9 +3,11 @@ import { AuthAccessPanel } from './AuthAccessPanel'
 import { SignInButton } from './AuthControls'
 import { Button } from './Button'
 import { EnterpriseSettings } from './EnterpriseSettings'
+import { useDialogViewport } from '../lib/useDialogViewport'
 
 // IT contacts can reach configuration without loading a household or joining a cohort.
 export function EnterpriseAccessPage() {
+  useDialogViewport()
   const auth = useAuthContext()
   if (!auth.isSignedIn && !auth.isLoading) return <AuthAccessPanel title="Organization sign-in & provisioning" copy="Sign in with your designated IT administrator account to manage your company connection." footer={<div className="auth-actions"><SignInButton><Button>Sign in</Button></SignInButton></div>} />
   if (auth.isLoading || auth.isVerifyingApi) return <AuthAccessPanel title="Checking organization access." copy="Verifying your secure sign-in and configuration permissions." />
