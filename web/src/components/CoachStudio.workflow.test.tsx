@@ -5,6 +5,8 @@ import type { AdminPersonaDetail, CurrentUser, PersonaConfiguration } from '../a
 import { CoachStudio } from './CoachStudio'
 const mocks = vi.hoisted(() => ({ fetchAdminPersonas: vi.fn(), fetchAdminPersona: vi.fn(), fetchAdminPersonaAssignableCohorts: vi.fn() }))
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), ...mocks }))
+const supportMocks = vi.hoisted(() => ({ fetchSetupSupportRequests: vi.fn(), updateSetupSupportRequest: vi.fn() }))
+vi.mock('../setupHelpApi', () => supportMocks)
 vi.mock('../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: 2, selectCoachWorkspace: vi.fn() }) }))
 vi.mock('./CoachGroupsParticipants', () => ({ CoachGroupsParticipants: () => <section>Participant access task</section> }))
 vi.mock('./CoachChallengeDashboard', () => ({ CoachChallengeDashboard: () => <section>Daily check-ins task</section> }))
@@ -44,9 +46,34 @@ const personaConfiguration = {
 
 const persona = { id: 81, name: 'Coach Lani', description: 'Private draft', status: 'draft', draft_revision: 1, draft: personaConfiguration as PersonaConfiguration, published_version: null, visible_assignment_count: 0, has_unpublished_changes: true, permissions: { read: true, edit: true, publish: true, assign: true, archive: true, restore: false }, guardrails: { rules: ['Financial and privacy policy remains locked.'] }, versions: [], assignments: [], approved_phrase_promotions: [], phrase_artifact_access: { can_add: true, artifacts: [] } } as unknown as AdminPersonaDetail
 const actor = { id: 10, is_admin: false, full_name: 'Fictional coach', coach_workspaces: [{ id: 2, name: 'Mel coaching', membership_role: 'owner' }] } as CurrentUser
-beforeEach(() => { vi.clearAllMocks(); mocks.fetchAdminPersonas.mockResolvedValue([persona]); mocks.fetchAdminPersona.mockResolvedValue(persona); mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([]); Element.prototype.scrollIntoView = vi.fn(); window.scrollTo = vi.fn() })
+beforeEach(() => { vi.clearAllMocks(); supportMocks.fetchSetupSupportRequests.mockReset(); supportMocks.updateSetupSupportRequest.mockReset(); mocks.fetchAdminPersonas.mockResolvedValue([persona]); mocks.fetchAdminPersona.mockResolvedValue(persona); mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([]); Element.prototype.scrollIntoView = vi.fn(); window.scrollTo = vi.fn() })
 afterEach(cleanup)
 describe('coach daily operation and assistant workflow', () => {
+  it('opens setup support only on demand in the selected group and holds workspace tabs during triage', async () => {
+    mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{ id: 41, name: 'BOG challenge group', status: 'enrolling', assignable: true, blocked_reason: null, persona_assignment: null }])
+    const record = { id: 91, participant_name: 'Support participant', program_name: 'BOG', status: 'requested', reason_label: 'Practice numbers', lock_version: 2, created_at: '2026-10-07T10:00:00Z', permissions: { triage: true, prepare: false, decline: true } }
+    supportMocks.fetchSetupSupportRequests.mockResolvedValue({ records: [record], next_cursor: null })
+    let complete!: (value: unknown) => void
+    supportMocks.updateSetupSupportRequest.mockReturnValue(new Promise((resolve) => { complete = resolve }))
+    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
+    await screen.findByLabelText('Group')
+    expect(supportMocks.fetchSetupSupportRequests).not.toHaveBeenCalled()
+    const disclosure = screen.getByRole('button', { name: 'Setup help requests' })
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(disclosure)
+    await screen.findByText('Support participant')
+    expect(supportMocks.fetchSetupSupportRequests).toHaveBeenCalledWith(41, null, expect.any(AbortSignal))
+    expect(screen.queryByRole('button', { name: 'Prepare participant review' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Mark in review' }))
+    expect(screen.getByRole('tab', { name: /Assistant voice/ })).toHaveProperty('disabled', true)
+    expect(screen.getByLabelText('Group')).toHaveProperty('disabled', true)
+    expect(disclosure).toHaveProperty('disabled', true)
+    complete({ request: { ...record, status: 'in_review', lock_version: 3 } })
+    await screen.findByText('Request #91: In review.')
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Assistant voice/ })).toHaveProperty('disabled', false))
+    fireEvent.click(disclosure)
+    expect(screen.queryByText('Support participant')).toBeNull()
+  })
   it('starts with participant operations and keeps assistant construction secondary', async () => {
     render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
     await screen.findByText('Daily check-ins task')

@@ -1,0 +1,25 @@
+.setup-support-inbox { display: grid; gap: 16px; min-width: 0; padding: 20px; }
+.setup-support-heading, .setup-support-record > header, .setup-support-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.setup-support-heading, .setup-support-record > header { justify-content: space-between; }
+.setup-support-inbox h3, .setup-support-inbox h4, .setup-support-inbox p { margin: 0; }
+.setup-support-privacy, .setup-support-record p, .setup-support-pagination p { color: var(--muted); line-height: 1.55; max-width: 76ch; }
+.setup-support-records { display: grid; gap: 12px; }
+.setup-support-record { display: grid; gap: 12px; min-width: 0; border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.setup-support-record h4 { font-size: 1rem; overflow-wrap: anywhere; }
+.setup-support-status { border-radius: 999px; padding: 6px 10px; background: var(--emerald-soft); color: var(--emerald); font-size: 0.78rem; font-weight: 800; }
+.setup-support-record dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; margin: 0; }
+.setup-support-record dt { color: var(--muted); font-size: 0.75rem; font-weight: 800; }
+.setup-support-record dd { margin: 4px 0 0; overflow-wrap: anywhere; line-height: 1.4; }
+.setup-support-inbox .button, .setup-support-disclosure-button { min-height: 44px; }
+.setup-support-confirmation, .setup-support-alert { display: grid; gap: 12px; border-left: 3px solid var(--mauve); background: var(--paper); padding: 16px; }
+.setup-support-alert { color: var(--status-red); }
+.setup-support-notice { color: var(--emerald); line-height: 1.5; }
+.setup-support-pagination { display: grid; gap: 12px; justify-items: start; }
+.setup-support-disclosure { display: grid; gap: 12px; }
+.setup-support-disclosure-button { justify-self: start; }
+@media (max-width: 620px) {
+  .setup-support-inbox { padding: 16px; }
+  .setup-support-record dl { grid-template-columns: minmax(0, 1fr); }
+  .setup-support-heading .button, .setup-support-actions .button { width: 100%; }
+  .setup-support-actions { display: grid; }
+}

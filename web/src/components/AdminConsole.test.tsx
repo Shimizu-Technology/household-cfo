@@ -5,15 +5,40 @@ import type { AdminCohort, AdminUser, CurrentUser } from '../api'
 import { AdminConsole } from './AdminConsole'
 const mocks = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), fetchAdminPlaidHealth: vi.fn(), updateAdminUser: vi.fn(), resendAdminUserInvitation: vi.fn(), createAdminUser: vi.fn(), createAdminCohort: vi.fn(), updateAdminCohort: vi.fn() }))
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), ...mocks }))
+const supportMocks = vi.hoisted(() => ({ fetchSetupSupportRequests: vi.fn(), updateSetupSupportRequest: vi.fn() }))
+vi.mock('../setupHelpApi', () => supportMocks)
 vi.mock('../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: 2, selectCoachWorkspace: vi.fn() }) }))
 vi.mock('./PilotFeedbackInbox', () => ({ PilotFeedbackInbox: () => <section>Private support inbox</section> }))
 vi.mock('./CoachProgramSettings', () => ({ CreateCoachProgram: () => <section>Create program controls</section> }))
 const cohort = { id: 10, name: 'BOG 90 day challenge', status: 'enrolling', starts_on: null, ends_on: null, notes: '', updated_at: '2026-10-04T12:00:00Z' } as AdminCohort
 const people = Array.from({ length: 30 }, (_, index) => ({ id: 40 + index, email: `participant${index}@example.test`, full_name: `Participant ${String(index).padStart(2, '0')}`, role: 'participant', invitation_status: 'accepted', cohorts: [{ id: 100 + index, role: 'participant', cohort: { id: 10, name: cohort.name, status: 'enrolling' } }], invite_email: { workspace_scoped: true, status: 'not_sent', last_attempted_at: null }, workspace: { setup_complete: false, setup_status: 'not_started', signed_in: true, has_pending_review_work: false, last_safe_activity_at: null } })) as AdminUser[]
-beforeEach(() => { vi.clearAllMocks(); mocks.fetchAdminCohorts.mockResolvedValue([cohort]); mocks.fetchAdminUsers.mockResolvedValue(people); mocks.fetchAdminPlaidHealth.mockResolvedValue({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] }); vi.spyOn(window, 'confirm').mockReturnValue(false) })
+beforeEach(() => { vi.clearAllMocks(); supportMocks.fetchSetupSupportRequests.mockReset(); supportMocks.updateSetupSupportRequest.mockReset(); mocks.fetchAdminCohorts.mockResolvedValue([cohort]); mocks.fetchAdminUsers.mockResolvedValue(people); mocks.fetchAdminPlaidHealth.mockResolvedValue({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] }); vi.spyOn(window, 'confirm').mockReturnValue(false) })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 const actor = { id: 1, is_admin: true, coach_workspaces: [{ id: 2, name: 'Mel coaching' }] } as CurrentUser
 describe('staff operation hierarchy', () => {
+  it('loads setup requests only inside their selected support view and locks navigation during writes', async () => {
+    const record = { id: 91, participant_name: 'Support participant', program_name: 'BOG', status: 'requested', reason_label: 'Practice numbers', lock_version: 2, created_at: '2026-10-07T10:00:00Z', permissions: { triage: true, prepare: true, decline: true } }
+    supportMocks.fetchSetupSupportRequests.mockResolvedValue({ records: [record], next_cursor: null })
+    let complete!: (value: unknown) => void
+    supportMocks.updateSetupSupportRequest.mockReturnValue(new Promise((resolve) => { complete = resolve }))
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findAllByText('Participant 00')
+    expect(supportMocks.fetchSetupSupportRequests).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Support inbox' }))
+    expect(screen.getByRole('button', { name: 'Problems reported' }).getAttribute('aria-pressed')).toBe('true')
+    expect(supportMocks.fetchSetupSupportRequests).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Setup requests' }))
+    await screen.findByText('Support participant')
+    expect(supportMocks.fetchSetupSupportRequests).toHaveBeenCalledWith(10, null, expect.any(AbortSignal))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark in review' }))
+    expect(screen.getByRole('button', { name: 'Participants & access' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: 'Problems reported' })).toHaveProperty('disabled', true)
+    expect(screen.getByLabelText('Cohort scope')).toHaveProperty('disabled', true)
+    expect(screen.getByLabelText(/^Admin workspace/)).toHaveProperty('disabled', true)
+    complete({ request: { ...record, status: 'in_review', lock_version: 3 } })
+    await screen.findByText('Request #91: In review.')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Participants & access' })).toHaveProperty('disabled', false))
+  })
   it('pages thirty participants in fifteen compact access rows and separates support from the participant task', async () => {
     render(<AdminConsole currentUser={actor} />)
     await screen.findAllByText('Participant 00')

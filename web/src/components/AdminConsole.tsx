@@ -3,6 +3,7 @@ import { createAdminCohort, createAdminUser, fetchAdminCohorts, fetchAdminUsers,
 import type { AdminCohort, AdminCohortInput, AdminCohortStatus, AdminPlaidHealth, AdminUser, AdminUserInput, AdminUserMutationResponse, CurrentUser, InvitationStatus, UserRole } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
 import { PilotFeedbackInbox } from './PilotFeedbackInbox'
+import { SetupSupportInbox } from './SetupSupportInbox'
 import { CreateCoachProgram } from './CoachProgramSettings'
 import './AdminConsole.css'
 
@@ -40,6 +41,8 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   const coachWorkspaces = currentUser.coach_workspaces ?? []
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
   const [area, setArea] = useState<'participants' | 'cohorts' | 'feedback' | 'programs' | 'health'>('participants')
+  const [supportView, setSupportView] = useState<'problems' | 'setup'>('problems')
+  const [supportBusy, setSupportBusy] = useState(false)
   const [cohorts, setCohorts] = useState<AdminCohort[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
   const [plaidHealth, setPlaidHealth] = useState<AdminPlaidHealth>({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] })
@@ -127,7 +130,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
     return users.some((user) => !adminUserDraftsEqual(userDrafts[user.id], adminDraftForUser(user)))
   }, [createDraft, editDraft, inviteDraft, selectedCohort, selectedCohortId, userDrafts, users])
 
-  const adminMutationPending = loading || cohortSaving || programCreating || inviteSaving || savingUserIds.size > 0 || resendingUserIds.size > 0
+  const adminMutationPending = supportBusy || loading || cohortSaving || programCreating || inviteSaving || savingUserIds.size > 0 || resendingUserIds.size > 0
 
   const adminStats = useMemo(() => ({
     cohorts: cohorts.length,
@@ -485,7 +488,14 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
       </div>
 
       <div hidden={area !== 'health'}><PlaidHealthLedger health={plaidHealth} loading={loading} error={plaidHealthError} /></div>
-      <div hidden={area !== 'feedback'}><PilotFeedbackInbox /></div>
+      <div hidden={area !== 'feedback'}>
+        <nav className="admin-area-nav" aria-label="Support inbox views">
+          <button type="button" aria-pressed={supportView === 'problems'} disabled={adminMutationPending} onClick={() => setSupportView('problems')}>Problems reported</button>
+          <button type="button" aria-pressed={supportView === 'setup'} disabled={adminMutationPending} onClick={() => setSupportView('setup')}>Setup requests</button>
+        </nav>
+        <div hidden={supportView !== 'problems'}><PilotFeedbackInbox /></div>
+        {area === 'feedback' && supportView === 'setup' && <SetupSupportInbox actorId={currentUser.id} workspaceId={activeCoachWorkspaceId} cohortId={selectedCohortId} isAdmin={currentUser.is_admin} disabled={adminMutationPending && !supportBusy} onPendingChange={setSupportBusy} />}
+      </div>
 
       <div hidden={area !== 'cohorts' && area !== 'participants'} className="admin-layout">
         <article hidden={area !== 'cohorts'} className="panel admin-card">
