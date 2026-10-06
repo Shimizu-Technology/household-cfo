@@ -1,7 +1,7 @@
 import { dailyContext, dailyDraft, dailySnapshot, dailyVersion } from '../src/test/dailyFixtures'
 import type { DailyPurchase, DailyPurchaseDraft, DailyReflection, DailyCheckpointDraft, DailyCheckpoint, DailyInput } from '../src/lib/dailyChallenge'
 import { baselineContext, baselineCurrent, baselinePreview, baselineScope, baselineVersion } from '../src/test/baselineFixtures'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type Locator } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { savingsEntryDraft, savingsEntryVersion, savingsFixture, savingsPlanDraft, savingsPlanVersion } from '../src/test/savingsFixtures'
 import type { SavingsChallenge, SavingsEntry, SavingsEntryDraft, SavingsPlanDraft } from '../src/lib/savingsChallenge'
@@ -2569,11 +2569,17 @@ for (const decision of ['keep_saved', 'accept_observed'] as const) {
     }
     await expect(accountDetails).toHaveAttribute('open', '')
     const manager = page.locator('.account-manager')
-    await manager.getByRole('button', { name: decision === 'keep_saved' ? 'Keep saved' : 'Accept bank balance' }).click()
+    const reconcile = manager.getByRole('button', { name: decision === 'keep_saved' ? 'Keep saved' : 'Accept bank balance' })
+    await reconcile.focus()
+    await expect(reconcile).toBeFocused()
+    await reconcile.press('Enter')
     await expect(manager.getByRole('button', { name: 'Edit', exact: true })).toBeFocused()
     await expect(manager.getByRole('button', { name: 'Keep saved' })).toHaveCount(0)
     await expect(manager).toContainText(decision === 'keep_saved' ? '$100.00' : '$120.00')
-    await manager.getByRole('button', { name: 'Unmatch' }).click()
+    const unmatch = manager.getByRole('button', { name: 'Unmatch' })
+    await unmatch.focus()
+    await expect(unmatch).toBeFocused()
+    await unmatch.press('Enter')
     const match = manager.getByLabel('Match a bank observation')
     await expect(match).toBeFocused()
     await match.selectOption('88')
@@ -8224,10 +8230,15 @@ test('Coach Studio program reviewer cannot edit identity or access participants 
   const ownerRosterRequests = rosterRequests
   await page.getByLabel('Coach workspace').selectOption('2')
   await page.getByRole('tab', { name: /Program settings/ }).click()
+  await expect(page.getByLabel('Workspace name', { exact: true })).toHaveValue('Partner coaching workspace')
   await expect(page.getByLabel('Workspace name', { exact: true })).toBeDisabled()
   await expect(page.getByLabel('App name', { exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Preview welcome screen' })).toBeEnabled()
-  await page.getByRole('button', { name: 'Preview welcome screen' }).click()
+  await page.evaluate(() => document.fonts.ready)
+  const preview = page.getByRole('button', { name: 'Preview welcome screen' })
+  await preview.focus()
+  await expect(preview).toBeFocused()
+  await preview.press('Enter')
   await expect(page.getByRole('heading', { name: 'Welcome screen preview' })).toBeVisible()
   await page.evaluate(() => document.fonts.ready)
   const teamSummary = page.locator('details > summary').filter({ hasText: 'Team collaborators & access' })
@@ -10554,11 +10565,28 @@ async function assertRestartUnknownMoney(page: Page) {
   await expect(page.getByRole('button', { name: 'Confirm no debt ($0)', exact: true })).toBeVisible()
 }
 
+// WebKit can paint a protocol-driven inner scroll after the input point is
+// calculated. Settle that scroll before pointer activation; do not retry a tap.
+async function settleRestartPointerControl(control: Locator) {
+  await control.evaluate(() => document.fonts.ready)
+  await control.scrollIntoViewIfNeeded()
+  await control.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
+  await expect(control).toBeInViewport()
+  await expect.poll(() => control.evaluate(element => {
+    const box = element.getBoundingClientRect(), body = element.closest('.pilot-dialog-body')!.getBoundingClientRect()
+    return box.top >= body.top && box.bottom <= body.bottom && document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === element
+  })).toBe(true)
+}
+
 async function acknowledgeRestart(dialog: ReturnType<Page['getByRole']>) {
-  await dialog.getByRole('checkbox', { name: /I reviewed what starts fresh/ }).check()
+  const ownConfirmation = dialog.getByRole('checkbox', { name: /I reviewed what starts fresh/ })
+  await settleRestartPointerControl(ownConfirmation)
+  await ownConfirmation.check()
   const apply = dialog.getByRole('button', { name: 'Start over with my real numbers', exact: true })
   await expect(apply).toBeDisabled()
-  await dialog.getByRole('checkbox', { name: /I understand this changes the shared financial picture/ }).check()
+  const sharedConfirmation = dialog.getByRole('checkbox', { name: /I understand this changes the shared financial picture/ })
+  await settleRestartPointerControl(sharedConfirmation)
+  await sharedConfirmation.check()
   await expect(apply).toBeEnabled()
 }
 
