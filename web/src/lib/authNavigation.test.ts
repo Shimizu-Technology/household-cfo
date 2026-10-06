@@ -26,3 +26,10 @@ it('preserves a bank OAuth callback only in the originating tab and excludes it 
   restoreAuthReturn({ state })
   expect(window.location.search).toBe('')
 })
+it('preserves organization access across hosted sign-in without carrying unrelated query details', () => {
+  expect(safeAuthReturnTo('/organization-access?income=4000#Budget', origin)).toBe(`${origin}/organization-access`)
+  expect(safeAuthReturnTo('/?enterprise=1&email=private@example.com', origin)).toBe(`${origin}/organization-access`)
+  expect(safeAuthReturnTo('https://evil.test/organization-access', origin)).toBe(`${origin}/`)
+  window.history.replaceState(null, '', '/login?returnTo=%2Forganization-access')
+  expect(authReturnState()).toEqual({ returnTo: `${window.location.origin}/organization-access` })
+})
