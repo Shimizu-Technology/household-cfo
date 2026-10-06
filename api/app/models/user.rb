@@ -13,6 +13,22 @@ class User < ApplicationRecord
   INVITATION_STATUSES = %w[pending accepted revoked].freeze
   INVITATION_EMAIL_STATUSES = %w[not_sent skipped sent failed].freeze
 
+  # Identity rows are written only by server-verified provider/mapping paths.
+  # EXISTS preserves one row per user when this scope is merged into policy joins.
+  scope :linked_authentication_identity, -> {
+    where(<<~SQL.squish, providers: %w[clerk workos])
+      (BTRIM(users.clerk_id) <> '' AND LEFT(users.clerk_id, 8) <> 'pending_' AND LEFT(users.clerk_id, 7) <> 'workos_')
+      OR EXISTS (
+        SELECT 1 FROM authentication_identities
+        WHERE authentication_identities.user_id = users.id
+          AND authentication_identities.provider IN (:providers)
+          AND BTRIM(authentication_identities.issuer) <> ''
+          AND BTRIM(authentication_identities.subject) <> ''
+      )
+    SQL
+  }
+  scope :accepted_linked_identity, -> { where(invitation_status: "accepted").merge(linked_authentication_identity) }
+
   normalizes :email, with: ->(email) { email.to_s.strip.downcase }
 
   validates :clerk_id, presence: true, uniqueness: true
@@ -92,7 +108,11 @@ class User < ApplicationRecord
   end
 
   def invitation_accepted?
-    invitation_status == "accepted"
+    persisted? && self.class.accepted_linked_identity.where(id: id).exists?
+  end
+
+  def linked_authentication_identity?
+    persisted? && self.class.linked_authentication_identity.where(id: id).exists?
   end
 
   def revoked?
