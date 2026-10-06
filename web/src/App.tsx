@@ -53,7 +53,7 @@ import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/f
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import { guamTodayIso } from './lib/householdDate'
-import { miaDraftChangesSharedFinancialRecords, workspaceViewReducer } from './lib/workspaceView'
+import { miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer } from './lib/workspaceView'
 import { documentNeedsReview, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
@@ -498,7 +498,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const publicBrand = useBrand()
   const participantActorId = auth.currentUser?.id
   const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isClerkEnabled || Boolean(auth.currentUser))
-  const [{ data, homeBudget, budgets }, setData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
+  const [{ data, homeBudget, budgets, homeBudgetStale, dataBudgetStale }, setData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
   const [workspaceLoadAttempt, setWorkspaceLoadAttempt] = useState(0)
   const workspaceMounted = useRef(true)
   useEffect(() => { workspaceMounted.current = true; return () => { workspaceMounted.current = false } }, [])
@@ -691,8 +691,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     [documentImports],
   )
   const budgetForView = budgetView
-    ? budgets[budgetView.year] ?? (data?.budget.annual_plan?.year === budgetView.year ? data.budget : null)
-    : data?.budget
+    ? budgets[budgetView.year] ?? (!dataBudgetStale && data?.budget.annual_plan?.year === budgetView.year ? data.budget : null)
+    : dataBudgetStale ? null : data?.budget
   const usesSelectedBudgetContext = activeSection === 'Budget' || activeSection === 'Ask Mia' || activeSection === 'My Money'
   const reviewBudget = usesSelectedBudgetContext ? budgetForView : homeBudget
   const pendingTransactionDrafts = reviewBudget?.annual_plan?.pending_transaction_drafts ?? []
@@ -2039,6 +2039,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     try {
       const payload = await fetchAppData(true)
       setData(payload)
+      setWorkspaceRefreshNotice(current => current?.kind === 'home' ? null : current)
       const refreshedDraft = payload.workspace?.setup_values
         ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status)
         : null
@@ -2055,6 +2056,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       await restoreSelectedBudgetPlan(fallbackBudget)
     } catch {
       const message = 'The income change was saved, but the latest totals could not be refreshed. Reload to see the canonical workspace.'
+      setWorkspaceRefreshNotice({ kind: 'home', message })
       if (errorTarget === 'profile') setSetupError(message)
       else setBudgetError(message)
     }
@@ -2941,15 +2943,39 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   async function refreshWorkspaceAfterDebtChange() {
-    const [payload, selectedPlan] = await Promise.all([
-      fetchAppData(true),
-      selectedBudgetYear !== data?.dashboard.action_center.current_year ? fetchBudget(selectedBudgetYear) : Promise.resolve(null),
-    ])
-    setData({ type: 'shared_financial_mutation', update: payload })
-    if (selectedPlan) setData((current) => current ? { ...current, budget: selectedPlan } : current)
+    // The record write committed before this callback. Older plans can no longer
+    // be treated as current, even if either reload fails.
+    setData({ type: 'shared_financial_commit' })
+    const refreshScope = budgetViewScope
+    const isCurrent = () => workspaceMounted.current && budgetViewScopeRef.current === refreshScope
+    const currentReload = fetchAppData(true).then(payload => {
+      if (isCurrent()) {
+        setData(payload)
+        if (!isProfileEditing) setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
+        replaceMiaHistory(payload.mia)
+      }
+      return payload
+    })
+    const selectedReload = selectedBudgetYear !== data?.dashboard.action_center.current_year
+      ? fetchBudget(selectedBudgetYear).then(selectedPlan => {
+          if (selectedPlan.annual_plan?.year !== selectedBudgetYear) throw new Error('The selected budget year could not be refreshed.')
+          if (isCurrent()) setData(current => current ? { ...current, budget: selectedPlan } : current)
+          return selectedPlan
+        })
+      : Promise.resolve(null)
+    const [currentResult, selectedResult] = await Promise.allSettled([currentReload, selectedReload])
+    if (!isCurrent()) return
+    if (currentResult.status === 'rejected') {
+      const message = 'Your change was saved, but the current household workspace could not refresh. Previous totals are stale; reload before using them.'
+      setWorkspaceRefreshNotice({ kind: 'home', message })
+      throw new Error(message)
+    }
+    if (selectedResult.status === 'rejected') {
+      const message = `Your change was saved and the current household workspace refreshed, but the ${selectedBudgetYear} budget year could not reload. Reopen that year before using its totals.`
+      setWorkspaceRefreshNotice({ kind: 'selected', message })
+      throw new Error(message)
+    }
     setWorkspaceRefreshNotice(null)
-    if (!isProfileEditing) setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
-    replaceMiaHistory(payload.mia)
   }
 
   function updateSetupDraft(key: keyof WorkspaceSetupValues, value: string) {
@@ -3126,6 +3152,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
       )}
 
+      {!workspaceRefreshNotice && (homeBudgetStale || dataBudgetStale) && <p className="document-alert" role="status">Your financial records changed. Previous household totals are marked stale until the current workspace reloads.</p>}
       {workspaceRefreshNotice && <p className="setup-error" role="alert">{workspaceRefreshNotice.message}</p>}
       {incomeDraftNotice && <p className="setup-error" role="alert">{incomeDraftNotice}</p>}
       {budgetYearLoading && <p className="document-alert" role="status">Loading the {pendingBudgetView?.year} plan. Your previous period remains selected; Send and plan changes pause until it loads.</p>}
@@ -3616,7 +3643,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       onUnsavedChangesChange={handleIncomeScheduleDirtyChange} />
                     </article>
                   </fieldset>
-                ) : budgetView ? <article className="panel empty-state"><strong>The {budgetView.year} income plan needs a refresh.</strong><p>Your saved income records are still available. Reload the selected year before editing its schedule.</p><Button variant="secondary" onClick={() => handleBudgetViewChange(budgetView.year, budgetView.monthIndex)}>Reload selected year</Button></article> : <article className="panel empty-state"><strong>Your income sources will appear here.</strong><p>Add starting household numbers to create your income plan.</p><Button variant="secondary" onClick={startManualFirstSession}>Set up my household</Button></article>}
+                ) : budgetView ? <article className="panel empty-state"><strong>The {budgetView.year} income plan needs a refresh.</strong><p>Your saved income records are still available. Reload the selected year before editing its schedule.</p><Button variant="secondary" onClick={() => handleBudgetViewChange(budgetView.year, budgetView.monthIndex)}>Reload selected year</Button><Button variant="secondary" onClick={() => handleBudgetViewChange(data.dashboard.action_center.current_year, new Date().getMonth())}>Use current year</Button></article> : <article className="panel empty-state"><strong>Your income sources will appear here.</strong><p>Add starting household numbers to create your income plan.</p><Button variant="secondary" onClick={startManualFirstSession}>Set up my household</Button></article>}
               </>
             )}
             {moneyTopic === 'spending' && (
@@ -6376,7 +6403,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
   const recordMoney = (value: number | null) => value === null ? 'Not entered' : currency.format(value)
   const initialSummaryBalance = portfolio.balance_known ? String(portfolio.total_balance) : ''
   const initialSummaryMinimum = portfolio.minimum_payment_known ? String(portfolio.monthly_minimum) : ''
-  const trackingDirty = modeDraft !== portfolio.mode || (modeDraft === 'summary' && (summaryBalance !== initialSummaryBalance || summaryMinimum !== initialSummaryMinimum))
+  const trackingDirty = modeDraft !== portfolio.mode || (modeDraft === 'summary' && (!sameOptionalMoneyValue(summaryBalance, initialSummaryBalance) || !sameOptionalMoneyValue(summaryMinimum, initialSummaryMinimum)))
   const formDirty = editingId !== null && Object.entries(draftBaseline).some(([key, value]) => draft[key as keyof DebtDraft] !== value)
   useEffect(() => {
     onUnsavedChangesChange?.(saving || archiveId !== null || trackingDirty || formDirty)
@@ -6401,8 +6428,8 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
           <label className={modeDraft === 'individual' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="individual" checked={modeDraft === 'individual'} onChange={() => setModeDraft('individual')} /><span><strong>Individual debts</strong><small>Best for APR comparisons, snowball, and avalanche planning.</small></span></label>
         </fieldset>
         {modeDraft === 'summary' && <div className="debt-summary-inputs">
-          <label className="setup-field"><span>Total debt balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryBalance} onChange={(event) => setSummaryBalance(event.target.value)} placeholder="Unknown" /></span><small>Leave blank if you have not confirmed the balance.</small></label>
-          <label className="setup-field"><span>Total monthly minimums</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
+          <label className="setup-field"><span>Total debt balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryBalance} disabled={saving || formDirty} onChange={(event) => setSummaryBalance(event.target.value)} placeholder="Unknown" /></span><small>Leave blank if you have not confirmed the balance.</small></label>
+          <label className="setup-field"><span>Total monthly minimums</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} disabled={saving || formDirty} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
         </div>}
         <div className="debt-form-actions">{trackingDirty && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setModeDraft(portfolio.mode); setSummaryBalance(initialSummaryBalance); setSummaryMinimum(initialSummaryMinimum); setError(null) }}>Cancel tracking changes</button>}<button type="submit" disabled={saving || formDirty || !trackingDirty}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
       </form>

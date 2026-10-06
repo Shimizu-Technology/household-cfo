@@ -9909,3 +9909,96 @@ test('BOG UI My Money preserves account goal and debt drafts until save or cance
   await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
   await expect(topics.getByRole('button', { name: 'Accounts', exact: true })).toHaveAttribute('aria-pressed', 'true')
 })
+
+
+test('BOG UI debt summary decimal formats stay clean and decimal saves release navigation', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.debt_portfolio = { mode: 'summary', total_balance: 150, monthly_minimum: 25.5, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 }
+  let finishSave!: () => void
+  const pendingSave = new Promise<void>(resolve => { finishSave = resolve })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/debts/tracking', async route => {
+    const values = route.request().postDataJSON().debt_tracking
+    await pendingSave
+    workspace.workspace.debt_portfolio = { ...workspace.workspace.debt_portfolio, total_balance: values.summary_balance, monthly_minimum: values.summary_minimum_payment }
+    return route.fulfill({ json: { debt_portfolio: workspace.workspace.debt_portfolio } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const topics = page.getByRole('navigation', { name: 'My Money topics' })
+  await topics.getByRole('button', { name: 'Debt', exact: true }).click()
+  const balance = page.getByLabel('Total debt balance')
+  const minimum = page.getByLabel('Total monthly minimums')
+  await balance.fill('150.00')
+  await minimum.fill('25.50')
+  await expect(page.getByRole('button', { name: 'Save tracking choice' })).toBeDisabled()
+  await topics.getByRole('button', { name: 'Income', exact: true }).click()
+  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await topics.getByRole('button', { name: 'Debt', exact: true }).click()
+  await balance.fill('175.25')
+  await minimum.fill('26.50')
+  await page.getByRole('button', { name: 'Save tracking choice' }).click()
+  await expect(balance).toBeDisabled()
+  await expect(minimum).toBeDisabled()
+  finishSave()
+  await expect(page.getByRole('button', { name: 'Save tracking choice' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Cancel tracking changes' })).toHaveCount(0)
+  await topics.getByRole('button', { name: 'Income', exact: true }).click()
+  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+})
+
+for (const currentRefreshWorks of [false, true]) {
+  test(`BOG UI committed account change retains global refresh warning and invalidates future cache (current refresh ${currentRefreshWorks ? 'succeeds' : 'fails'})`, async ({ page }) => {
+    const workspace = realWorkspaceData(true)
+    workspace.workspace.accounts = [{ id: 1, label: 'Checking', account_type: 'checking', balance: 100, balance_as_of_on: null, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {}, plaid_link: null }]
+    let committed = false
+    let yearRequests = 0
+    await page.route('http://api.test/api/v1/workspace', route => committed && !currentRefreshWorks ? route.fulfill({ status: 503, json: { errors: ['Fictional reload outage'] } }) : route.fulfill({ json: workspace }))
+    await page.route('http://api.test/api/v1/budget?**', route => {
+      yearRequests += 1
+      return committed ? route.fulfill({ status: 503, json: { errors: ['Fictional future-year outage'] } }) : route.fulfill({ json: budgetFixtureForYear(currentYear + 1) })
+    })
+    await page.route('http://api.test/api/v1/accounts/1', route => {
+      committed = true
+      workspace.workspace.accounts[0].balance = Number(route.request().postDataJSON().account.balance)
+      return route.fulfill({ json: { account: workspace.workspace.accounts[0] } })
+    })
+    await page.goto('/?pilot_e2e_role=participant#My%20Money')
+    await page.getByRole('button', { name: 'Next income year' }).click()
+    await expect(page.locator('.money-period-controls')).toContainText(String(currentYear + 1))
+    const topics = page.getByRole('navigation', { name: 'My Money topics' })
+    await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+    await page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.locator('.account-form').getByLabel('Approved balance').fill('200')
+    await page.getByRole('button', { name: 'Save account' }).click()
+    const warning = page.getByRole('alert').filter({ hasText: currentRefreshWorks ? 'current household workspace refreshed' : 'Previous totals are stale' })
+    await expect(warning).toBeVisible()
+    expect(yearRequests).toBe(2)
+    if (currentRefreshWorks) await expect(page.locator('.account-row')).toContainText('$200.00')
+    await page.getByRole('link', { name: 'Home', exact: true }).click()
+    await expect(warning).toBeVisible()
+    await openSection(page, 'My Money')
+    await topics.getByRole('button', { name: 'Income', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Reload selected year' })).toBeVisible()
+    await page.getByRole('button', { name: 'Reload selected year' }).click()
+    await expect.poll(() => yearRequests).toBe(3)
+    await expect(warning).toBeVisible()
+  })
+}
+
+test('BOG UI income refresh failure stays visible after leaving the income editor', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  let committed = false
+  await page.route('http://api.test/api/v1/workspace', route => committed ? route.fulfill({ status: 503, json: { errors: ['Fictional reload outage'] } }) : route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/income_sources?**', route => {
+    committed = true
+    return route.fulfill({ status: 201, json: { income_source: {}, budget: workspace.budget } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await page.locator('.income-source-form').getByLabel('Name', { exact: true }).fill('Saved source during outage')
+  await page.locator('.income-source-form').getByLabel('Starting amount').fill('500')
+  await page.getByRole('button', { name: 'Add source', exact: true }).click()
+  const warning = page.getByRole('alert').filter({ hasText: 'income change was saved' }).first()
+  await expect(warning).toBeVisible()
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'income change was saved' })).toBeVisible()
+})

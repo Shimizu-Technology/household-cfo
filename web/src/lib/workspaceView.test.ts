@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AppData, MiaActionDraft } from '../api'
-import { miaDraftChangesSharedFinancialRecords, workspaceViewReducer } from './workspaceView'
+import { miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer } from './workspaceView'
 
 function workspace(year: number, householdId = 1, actual = 25): AppData {
   return {
@@ -81,4 +81,54 @@ describe('shared financial mutation cache', () => {
     expect(miaDraftChangesSharedFinancialRecords(draft)).toBe(true)
     expect(miaDraftChangesSharedFinancialRecords(draft, [3])).toBe(false)
   })
+})
+
+
+describe('committed changes with partial refresh failure', () => {
+  it('invalidates all old year caches immediately and marks retained Home stale', () => {
+    let state = workspaceViewReducer({ data: null, homeBudget: null, budgets: {} }, workspace(2026))
+    state = workspaceViewReducer(state, workspace(2027))
+    const priorHome = state.homeBudget
+    state = workspaceViewReducer(state, { type: 'shared_financial_commit' })
+    expect(state.budgets).toEqual({})
+    expect(state.homeBudget).toBe(priorHome)
+    expect(state.homeBudgetStale).toBe(true)
+    expect(state.dataBudgetStale).toBe(true)
+    // Nonfinancial state updates cannot accidentally revalidate the old payload.
+    state = workspaceViewReducer(state, current => ({ ...current! }))
+    expect(state.budgets).toEqual({})
+    expect(state.homeBudgetStale).toBe(true)
+    expect(state.dataBudgetStale).toBe(true)
+  })
+
+  it('retains a successful current refresh when the selected future reload fails', () => {
+    let state = workspaceViewReducer({ data: null, homeBudget: null, budgets: {} }, workspace(2026))
+    state = workspaceViewReducer(state, workspace(2027))
+    state = workspaceViewReducer(state, { type: 'shared_financial_commit' })
+    const current = workspace(2026, 1, 95)
+    state = workspaceViewReducer(state, current)
+    expect(state.homeBudget).toBe(current.budget)
+    expect(state.homeBudgetStale).toBe(false)
+    expect(state.dataBudgetStale).toBe(false)
+    expect(state.budgets[2027]).toBeUndefined()
+  })
+
+  it('keeps Home marked stale if only a future plan reload succeeds', () => {
+    let state = workspaceViewReducer({ data: null, homeBudget: null, budgets: {} }, workspace(2026))
+    state = workspaceViewReducer(state, { type: 'shared_financial_commit' })
+    state = workspaceViewReducer(state, workspace(2027, 1, 95))
+    expect(state.homeBudgetStale).toBe(true)
+    expect(state.dataBudgetStale).toBe(false)
+    expect(Object.keys(state.budgets)).toEqual(['2027'])
+  })
+})
+
+
+it('compares summary money numerically while preserving unknown versus zero', () => {
+  expect(sameOptionalMoneyValue('150.00', '150')).toBe(true)
+  expect(sameOptionalMoneyValue('25.50', '25.5')).toBe(true)
+  expect(sameOptionalMoneyValue(' ', '')).toBe(true)
+  expect(sameOptionalMoneyValue('', '0')).toBe(false)
+  expect(sameOptionalMoneyValue('0.00', '0')).toBe(true)
+  expect(sameOptionalMoneyValue('25.51', '25.5')).toBe(false)
 })
