@@ -293,13 +293,15 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_equal "contribution", response.parsed_body.dig("savings_intake", "kind")
     assert_nil response.parsed_body.fetch("mia_action_draft")
     assert_empty session.reload.active_topic
-    session.update!(active_topic: { "schema_version" => 2, "record_scope" => "household_plan" })
-    post "/api/v1/mia/messages", params: { message: "Yes, I set aside $20 today", request_id: "ack-challenge" }, headers: auth, as: :json
-    assert_response :created
-    assert_equal "contribution", response.parsed_body.dig("savings_intake", "kind")
-    assert_nil response.parsed_body.fetch("mia_action_draft")
-    refute_includes response.parsed_body.dig("assistant_message", "content"), "Household plan:"
-    assert_empty session.reload.active_topic
+    [ "Yes, I set aside $20 today", "Yep, I set aside $20 today", "Okay. I set aside $20 today", "We just set aside $20 today" ].each_with_index do |message, index|
+      session.update!(active_topic: { "schema_version" => 2, "record_scope" => "household_plan" })
+      post "/api/v1/mia/messages", params: { message: message, request_id: "ack-challenge-#{index}" }, headers: auth, as: :json
+      assert_response :created
+      assert_equal "contribution", response.parsed_body.dig("savings_intake", "kind")
+      assert_nil response.parsed_body.fetch("mia_action_draft")
+      refute_includes response.parsed_body.dig("assistant_message", "content"), "Household plan:"
+      assert_empty session.reload.active_topic
+    end
     session.update!(active_topic: { "schema_version" => 2, "record_scope" => "household_plan" })
     post "/api/v1/mia/messages", params: { message: "Change it to $600 for my savings goal", request_id: "explicit-challenge" }, headers: auth, as: :json
     assert_response :created
