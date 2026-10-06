@@ -10398,3 +10398,42 @@ body:has([role="dialog"][aria-modal="true"], dialog[open]) .app > .mia-launcher 
   .annual-budget-actions .budget-status-row span { padding: 5px 8px; }
 }
 .mia-action-scope-note { padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--muted); font-size: .85rem; }
+
+/* Long help dialogs keep dismissal visible while only their content scrolls. */
+.pilot-dialog.pilot-guide-dialog,
+.pilot-dialog.pilot-feedback-dialog {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+}
+.pilot-guide-dialog > header,
+.pilot-feedback-dialog > header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+.pilot-guide-dialog > header h2,
+.pilot-feedback-dialog > header h2 {
+  font-size: clamp(1.2rem, 3vw, 1.6rem);
+  line-height: 1.25;
+}
+.pilot-guide-dialog > header button,
+.pilot-feedback-dialog > header button {
+  width: auto;
+  min-width: 64px;
+}
+.pilot-dialog-body {
+  display: grid;
+  gap: 18px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px;
+  scrollbar-gutter: stable;
+}
