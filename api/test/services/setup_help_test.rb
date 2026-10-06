@@ -330,6 +330,22 @@ class SetupHelpTest < ActiveSupport::TestCase
     end
   end
 
+  test "an enrollment bound to another household is not treated as never enrolled" do
+    setup_savings_context
+    travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 15, 12) do
+      with_savings_runtime do
+        savings_enroll
+        replacement = Household.create!(created_by_user: @savings_user, name: "Replacement household")
+        replacement.household_memberships.create!(user: @savings_user, role: "owner")
+        participant = SetupHelp::Participant.new(replacement, user: @savings_user, cohort_membership: @savings_membership)
+        assert_raises(SetupHelp::Denied) { participant.status }
+        assert_raises(SetupHelp::Denied) { participant.create_request(reason: "other", share_metadata: true, idempotency_key: "foreign-enrollment-household") }
+        assert_equal 0, replacement.reload.financial_generation
+        assert_equal @savings_household.id, @savings_enrollment.reload.household_id
+      end
+    end
+  end
+
   test "ordinary program rejoin retires an old prepared request without retargeting its review and allows fresh request" do
     coach = create_user("coach")
     cohort = Cohort.create!(name: "Ordinary program #{SecureRandom.hex(4)}", status: "active", created_by_user: coach)
