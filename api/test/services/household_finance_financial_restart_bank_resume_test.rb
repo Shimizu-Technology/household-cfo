@@ -63,6 +63,18 @@ class HouseholdFinanceFinancialRestartBankResumeTest < ActiveSupport::TestCase
     end
   end
 
+  test "disconnect can erase retained raw bank observations without changing saved financial snapshots" do
+    PlaidIntegration::ItemDisconnector.new(@item, user: @user).send(:clear_local_data!)
+    assert_equal "disconnected", @item.reload.status
+    assert_nil @item.access_token_ciphertext
+    assert_empty @item.plaid_transactions
+    assert_empty @item.plaid_accounts
+    assert_nil @old_account.reload.plaid_account_id
+    assert_equal 100_000, @old_account.balance_cents
+    assert_equal 0, @old_account.financial_generation
+    assert_empty @household.reload.accounts
+  end
+
   private
   def restart!
     flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)

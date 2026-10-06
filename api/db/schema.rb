@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_07_060700) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_060800) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -4840,6 +4840,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_060700) do
     BEGIN
       SELECT financial_generation INTO current_generation FROM households WHERE id = NEW.household_id FOR UPDATE;
       IF NEW.financial_generation IS DISTINCT FROM current_generation THEN
+        IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'accounts' THEN
+          IF NEW.plaid_account_id IS NULL AND (to_jsonb(NEW) - ARRAY['plaid_account_id', 'updated_at']) = (to_jsonb(OLD) - ARRAY['plaid_account_id', 'updated_at']) THEN
+            RETURN NEW;
+          END IF;
+        END IF;
         IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'transaction_drafts' THEN
           IF (to_jsonb(NEW) - ARRAY['raw_input', 'draft_payload', 'merchant', 'updated_at']) = (to_jsonb(OLD) - ARRAY['raw_input', 'draft_payload', 'merchant', 'updated_at'])
             AND NEW.raw_input IS NULL AND NEW.draft_payload = '{}'::jsonb

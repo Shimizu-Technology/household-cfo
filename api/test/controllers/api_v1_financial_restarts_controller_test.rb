@@ -170,6 +170,18 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
     assert_empty @household.reload.income_sources
   end
 
+  test "an admin owner can restart their own ordinary household" do
+    @savings_membership.destroy!
+    @user.update!(role: "admin")
+    post "/api/v1/financial_restart/preview", headers: auth, as: :json
+    assert_response :created
+    id = response.parsed_body.dig("financial_restart", "review", "id")
+    assert_equal @household.name, response.parsed_body.dig("financial_restart", "review", "household_name")
+    post "/api/v1/financial_restart/apply", params: { review_id: id, confirmation: "START OVER" }, headers: auth, as: :json
+    assert_response :success
+    assert_equal 1, @household.reload.financial_generation
+  end
+
   private
   def auth
     { "Authorization" => "Bearer test_token_#{@user.id}", "Idempotency-Key" => SecureRandom.uuid }.tap { |headers| headers["X-Cohort-Id"] = @savings_cohort.id.to_s unless @savings_membership.destroyed? }
