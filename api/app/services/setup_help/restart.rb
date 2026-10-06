@@ -70,7 +70,7 @@ module SetupHelp
           unless record.financial_restart_review_id == review.id
             raise Stale, "This prepared setup review changed. Refresh the request before canceling. Nothing changed."
           end
-          return participant.cancel_request(id: record.id, expected_lock_version: record.lock_version).then { status.merge(review: core.serialize(review)) }
+          return participant.cancel_request(id: record.id, expected_lock_version: record.lock_version).then { status.merge(review: core.serialize(review.reload)) }
         end
         core.cancel_review!(review)
         status.merge(review: core.serialize(review))

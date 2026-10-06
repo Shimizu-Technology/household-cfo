@@ -149,6 +149,22 @@ class SetupHelpTest < ActiveSupport::TestCase
     assert_equal 1, @household.household_audit_events.where(event_type: "setup_support.applied").count
   end
 
+  test "supported cancellation returns the freshly canceled review and matching persisted request" do
+    first = request
+    ready = SetupHelp::Staff.new(user: @admin).transition(id: first[:id], action: "prepare", expected_lock_version: 0)[:request]
+    supported = SetupHelp::Restart.new(@household, user: @user, request_id: first[:id])
+    assert_equal "pending", FinancialRestartReview.find(ready[:review_id]).status
+
+    canceled = supported.cancel(review_id: ready[:review_id])
+
+    assert_equal "canceled", FinancialRestartReview.find(ready[:review_id]).status
+    assert_equal "canceled", canceled[:review][:status]
+    assert_equal "canceled", canceled[:latest_review][:status]
+    assert_equal ready[:review_id], canceled[:review][:id]
+    assert_equal "canceled", SetupSupportRequest.find(first[:id]).status
+    assert_equal 0, @household.reload.financial_generation
+  end
+
   test "request optimistic versions cancellation decline reopen and stale preparation cannot mutate finances" do
     first = request
     staff = SetupHelp::Staff.new(user: @admin)
