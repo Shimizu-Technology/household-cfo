@@ -10503,7 +10503,7 @@ function restartBrowserWorkspace(generation: number) {
   }
 }
 
-async function mockFinancialRestartBrowser(page: Page, options: { lostReply?: boolean; sharedMembers?: number; savingsParticipant?: boolean } = {}) {
+async function mockFinancialRestartBrowser(page: Page, options: { lostReply?: boolean; sharedMembers?: number; baselineParticipant?: boolean } = {}) {
   let generation = 0, previewCalls = 0, applyCalls = 0, cancelCalls = 0
   const statusChecks: string[] = []
   const applies: Array<Record<string, unknown>> = []
@@ -10517,7 +10517,7 @@ async function mockFinancialRestartBrowser(page: Page, options: { lostReply?: bo
     paused: ['Earlier document applications', 'Earlier bank transaction staging and automatic confirmation', 'Previous chat continuity and saved-memory context'], clears_chat: false, clears_memories: false,
   })
   const state = () => ({ household_id: 77, household_name: 'Admin Test Household', available: true, owner_required: false, admin_required: false, financial_generation: generation, latest_review: review })
-  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ headers: { 'X-Financial-Generation': String(generation), 'Access-Control-Expose-Headers': 'X-Financial-Generation' }, json: options.savingsParticipant ? { ...restartBrowserWorkspace(generation), workspace: { ...restartBrowserWorkspace(generation).workspace, experience_mode: realWorkspaceData(true).workspace.experience_mode, cohort: realWorkspaceData(true).workspace.cohort } } : restartBrowserWorkspace(generation) }))
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ headers: { 'X-Financial-Generation': String(generation), 'Access-Control-Expose-Headers': 'X-Financial-Generation' }, json: options.baselineParticipant ? { ...restartBrowserWorkspace(generation), workspace: { ...restartBrowserWorkspace(generation).workspace, experience_mode: 'household_cfo', cohort: realWorkspaceData(true).workspace.cohort } } : restartBrowserWorkspace(generation) }))
   await page.route('http://api.test/api/v1/financial_restart/**', async route => {
     const path = new URL(route.request().url()).pathname, input = route.request().method() === 'POST' ? route.request().postDataJSON() : null
     if (path.endsWith('/status')) {
@@ -10664,7 +10664,7 @@ test('Admin UI financial restart resolves an exact lost reply without applying a
 
 for (const delayedPath of ['', '/context']) {
   test(`BOG UI financial generation change discards a stale baseline ${delayedPath ? 'source choices' : 'head'} reply and its old draft`, async ({ page }) => {
-    const flow = await mockFinancialRestartBrowser(page, { savingsParticipant: true })
+    const flow = await mockFinancialRestartBrowser(page, { baselineParticipant: true })
     let delayed = false, reached = false
     let release: () => void = () => undefined
     const gate = new Promise<void>(resolve => { release = resolve })

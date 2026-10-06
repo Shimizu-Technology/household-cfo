@@ -16,7 +16,7 @@ export function AuthAccessPanel({ title, copy, recovering = false, onRetry, onSi
       <p role={recovering ? 'alert' : 'status'}>{copy}</p>
       <p>Your workspace stays closed until your account access is verified.</p>
       <div className="auth-actions">
-        {recovering && onRetry && <button type="button" onClick={() => void onRetry()}>Check access again</button>}
+        {recovering && onRetry && <button type="button" onClick={() => void onRetry().catch(() => undefined)}>Check access again</button>}
         <button type="button" onClick={() => window.location.reload()}>Reload page</button>
         {onSignOut && <button type="button" onClick={() => void onSignOut().catch(() => undefined)}>Sign out</button>}
       </div>
