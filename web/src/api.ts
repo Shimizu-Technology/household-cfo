@@ -3435,6 +3435,7 @@ export async function resendAdminUserInvitation(id: number): Promise<AdminUserMu
 }
 
 export type PlaidAccount = {
+  financial_generation?: number
   id: number
   name: string
   official_name: string | null

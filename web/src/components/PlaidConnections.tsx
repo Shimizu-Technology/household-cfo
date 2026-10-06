@@ -16,6 +16,7 @@ import {
   updatePlaidItemPreferences,
   type PlaidActivitySummary,
   type PlaidActivityView,
+  type PlaidAccount,
   type PlaidItem,
   type PlaidOverview,
   type PlaidTransaction,
@@ -32,8 +33,10 @@ import { useBrand } from '../contexts/brandContextValue'
 import { BankActivityResumeDialog } from './BankActivityResumeDialog'
 import './PlaidConnections.css'
 
-function hasFreshBankObservation(item: PlaidItem) {
+function hasFreshBankObservation(item: PlaidItem, account: PlaidAccount) {
   if (item.context_paused_by_restart) return false
+  const generation = item.financial_generation ?? 0
+  if ((account.financial_generation ?? (generation === 0 ? 0 : null)) !== generation) return false
   if (!item.financial_resumed_at) return true
   return Boolean(item.last_synced_at && new Date(item.last_synced_at).getTime() >= new Date(item.financial_resumed_at).getTime())
 }
@@ -621,7 +624,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
                   </div>
                   <div className="plaid-accounts">
                     {item.accounts.filter((account) => account.active).map((account) => (
-                      <div key={account.id}><span>{account.name} {account.mask ? `••${account.mask}` : ''}</span><strong>{!hasFreshBankObservation(item) ? (item.context_paused_by_restart ? 'Previous picture · balance hidden' : 'Awaiting fresh balance') : account.current_balance_cents == null ? 'Balance unavailable' : money.format(account.current_balance_cents / 100)}</strong></div>
+                      <div key={account.id}><span>{account.name} {account.mask ? `••${account.mask}` : ''}</span><strong>{!hasFreshBankObservation(item, account) ? (item.context_paused_by_restart ? 'Previous picture · balance hidden' : 'Awaiting fresh balance') : account.current_balance_cents == null ? 'Balance unavailable' : money.format(account.current_balance_cents / 100)}</strong></div>
                     ))}
                   </div>
                   <label className="plaid-automation-toggle">

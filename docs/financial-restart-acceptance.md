@@ -22,7 +22,7 @@ A note can be edited and saved to explicitly resume it.
 
 Original files remain readable and removable under their existing privacy controls.
 Earlier extracted values cannot be applied. Upload a fresh copy for a new review.
-Bank connections remain paused until the owner reviews Use new bank activity.
+Bank connections remain paused until you review Use new bank activity.
 That action disables automatic confirmation and stages only newly received activity;
 earlier transactions remain read-only history.
 
