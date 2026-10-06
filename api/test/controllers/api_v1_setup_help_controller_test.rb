@@ -192,6 +192,25 @@ class ApiV1SetupHelpControllerTest < ActionDispatch::IntegrationTest
     assert_nil response.parsed_body["setup_help"]
   end
 
+  test "guided administrator negated restarts cannot fall through to the bulk testing offer" do
+    @user.update!(role: "admin")
+    [ "I don’t want to start over", "I don’t want to reset all my information", "I do not want to start over" ].each_with_index do |message, index|
+      post "/api/v1/mia/messages", params: { message: "Fix my setup", request_id: "admin-negation-context-#{index}" }, headers: auth, as: :json
+      assert_response :created
+      assert_no_difference [ "FinancialRestartReview.count", "SetupSupportRequest.count", "IncomeSource.count" ] do
+        post "/api/v1/mia/messages", params: { message: message, request_id: "admin-negated-restart-#{index}" }, headers: auth, as: :json
+      end
+      assert_response :created
+      assert_not response.parsed_body.dig("financial_restart", "available")
+      refute_includes response.parsed_body.dig("assistant_message", "content"), "Reset my test workspace"
+    end
+    post "/api/v1/mia/messages", params: { message: "I don’t want to start over; help me correct my setup", request_id: "admin-correct-without-restart" }, headers: auth, as: :json
+    assert_response :created
+    assert_equal true, response.parsed_body.dig("setup_help", "available")
+    assert_equal false, response.parsed_body.dig("financial_restart", "available")
+    assert_equal 0, @household.reload.financial_generation
+  end
+
   private
   def auth(user = @user)
     { "Authorization" => "Bearer test_token_#{user.id}", "Idempotency-Key" => SecureRandom.uuid }
