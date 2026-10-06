@@ -53,7 +53,16 @@ async function openDetails(page: Page, label: string | RegExp) {
   const summary = page.locator('details > summary').filter({ hasText: label })
   await expect(summary).toHaveCount(1)
   const disclosure = summary.locator('..')
-  if (!(await disclosure.evaluate((node: HTMLDetailsElement) => node.open))) await summary.click()
+  if (!(await disclosure.evaluate((node: HTMLDetailsElement) => node.open))) {
+    // WebKit can calculate a tap from the scrolled layout before the visible
+    // viewport paints it. Settle fonts and that scroll before the single tap.
+    await summary.evaluate(() => document.fonts.ready)
+    await summary.scrollIntoViewIfNeeded()
+    await summary.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
+    await expect(summary).toBeInViewport()
+    await summary.click()
+  }
+  await expect(disclosure).toHaveJSProperty('open', true)
 }
 
 async function selectBudgetEditMonth(page: Page, index: number) {
@@ -10879,12 +10888,12 @@ function setupSupportBrowserRecord(status: 'requested' | 'ready' = 'requested') 
   }
 }
 
-async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolean; ready?: boolean; expired?: boolean; staleApply?: boolean; ownerRequired?: boolean; lostCreate?: boolean; userId?: number; cohortId?: number | null; miaSetupOffer?: boolean } = {}) {
+async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolean; ready?: boolean; expired?: boolean; staleApply?: boolean; ownerRequired?: boolean; lostCreate?: boolean; userId?: number; cohortId?: number | null; miaSetupOffer?: boolean; onceDeniedPreview?: 403 | 422 } = {}) {
   const userId = options.userId ?? 901
   const cohortId = options.cohortId === undefined ? 41 : options.cohortId
   const householdName = userId === 902 ? 'Coach’s own household' : 'Test Participant Household'
   const supportRecord = (status: 'requested' | 'ready' = 'requested') => ({ ...setupSupportBrowserRecord(status), user_id: userId, cohort_id: cohortId, program_name: cohortId === null ? null : 'BOG' })
-  let generation = 0, previewCalls = 0, applyCalls = 0, reopenCalls = 0
+  let generation = 0, previewCalls = 0, applyCalls = 0, reopenCalls = 0, reviewId = 1801
   let latest: Record<string, unknown> | null = options.ready ? supportRecord('ready') : null
   if (options.expired && latest) latest = { ...latest, review_state: 'expired', review_expires_at: new Date(Date.now() - 1_000).toISOString() }
   const creates: Array<{ body: Record<string, unknown>; key: string | undefined }> = []
@@ -10935,7 +10944,7 @@ async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolea
       const action = url.pathname.split('/').at(-1)!
       restartInputs.push({ action, body })
       const review = {
-        id: 1801, status: 'pending', financial_generation: generation, household_name: householdName,
+        id: reviewId, status: 'pending', financial_generation: generation, household_name: householdName,
         expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), shared_member_count: 0,
         counts: { income_sources: options.selfEligible ? 0 : 3, debts: 0, transaction_drafts: 0 },
         reset_fields: ['Financial setup'], preserved: ['BOG enrollment, approved savings, evidence and challenge history', 'Earlier private chats'], paused: ['Earlier chat coaching context'], clears_chat: false, clears_memories: false,
@@ -10946,11 +10955,12 @@ async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolea
       else expect(body).not.toHaveProperty('request_id')
       if (action === 'preview') {
         previewCalls += 1
+        if (options.onceDeniedPreview && previewCalls === 1) return route.fulfill({ status: options.onceDeniedPreview, json: { code: 'setup_help_stale', errors: ['A prepared review is not available yet. No records changed.'] } })
         return route.fulfill({ json: { financial_restart: { ...restartState, review } } })
       }
       if (action === 'apply') {
         applyCalls += 1
-        expect(body).toMatchObject({ review_id: 1801, confirmation: 'START OVER', shared_household_acknowledged: false })
+        expect(body).toMatchObject({ review_id: reviewId, confirmation: 'START OVER', shared_household_acknowledged: false })
         if (options.staleApply) return route.fulfill({ status: 409, json: { code: 'setup_help_stale', errors: ['Your saved information changed after this review.'] } })
         generation += 1
         if (latest) latest = { ...latest, status: 'applied', review_state: 'applied' }
@@ -10960,7 +10970,7 @@ async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolea
     }
     throw new Error(`Unexpected setup help route: ${method} ${url.pathname}`)
   })
-  return { generation: () => generation, previewCalls: () => previewCalls, applyCalls: () => applyCalls, reopenCalls: () => reopenCalls, creates, restartInputs, setupState: state }
+  return { generation: () => generation, previewCalls: () => previewCalls, applyCalls: () => applyCalls, reopenCalls: () => reopenCalls, creates, restartInputs, setupState: state, prepareNextReview: () => { reviewId += 1; latest = { ...latest, status: 'ready', review_id: reviewId, review_state: 'pending', lock_version: Number(latest?.lock_version ?? 0) + 1 } } }
 }
 
 async function openFixSetupFromChat(page: Page) {
@@ -11304,3 +11314,33 @@ test('BOG UI a selected coach who is an own-household partner can correct facts 
   expect(flow.creates).toEqual([])
   expect(flow.restartInputs).toEqual([])
 })
+
+for (const status of [403, 422] as const) {
+  test(`BOG UI an unidentified ${status} prepared-preview denial does not block the next support review`, async ({ page }) => {
+    const flow = await mockSetupHelpBrowser(page, { ready: true, onceDeniedPreview: status })
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    const help = await openFixSetupFromChat(page)
+    await help.getByRole('button', { name: 'Review prepared restart', exact: true }).click()
+    const review = page.getByRole('dialog', { name: 'Review prepared restart', exact: true })
+    await expect(review.getByRole('alert')).toContainText('A prepared review is not available yet.')
+    await expect(review.getByRole('checkbox', { name: /I reviewed what starts fresh/ })).toHaveCount(0)
+    await expect(review.getByRole('button', { name: 'Prepare a fresh review', exact: true })).toHaveCount(0)
+    expect(flow.previewCalls()).toBe(1)
+    expect(flow.applyCalls()).toBe(0)
+    // Support prepares a new concrete ID after the denial, which returned
+    // neither a review nor a latest_review. It must not inherit a blanket stale flag.
+    flow.prepareNextReview()
+    expect(flow.setupState().latest_request).toMatchObject({ review_id: 1802, review_state: 'pending' })
+    await review.getByRole('button', { name: 'Return to Fix my setup', exact: true }).click()
+    await expect(help.getByRole('heading', { name: 'Your review is ready', exact: true })).toBeVisible()
+    await expect(help.getByRole('button', { name: 'Request a fresh review', exact: true })).toHaveCount(0)
+    await expect(help.getByRole('button', { name: 'Review prepared restart', exact: true })).toBeEnabled()
+    await help.getByRole('button', { name: 'Review prepared restart', exact: true }).click()
+    await expect(review.getByRole('checkbox', { name: /I reviewed what starts fresh/ })).not.toBeChecked()
+    await expect(review.getByRole('button', { name: 'Review prepared restart', exact: true })).toBeDisabled()
+    expect(flow.previewCalls()).toBe(2)
+    expect(flow.reopenCalls()).toBe(0)
+    expect(flow.applyCalls()).toBe(0)
+    expect(flow.generation()).toBe(0)
+  })
+}
