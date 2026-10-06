@@ -10437,3 +10437,19 @@ body:has([role="dialog"][aria-modal="true"], dialog[open]) .app > .mia-launcher 
   padding: 18px;
   scrollbar-gutter: stable;
 }
+
+@media (max-width: 350px) {
+  /* Keep attachment status beside the composer controls on compact phones.
+     The file tray retains its own scrolling area above the message field. */
+  .is-chat-page .mia-chat-shell:not(.is-expanded) .composer-attachment-workflow { display: contents; }
+  .is-chat-page .mia-chat-shell:not(.is-expanded) .composer-attachment-workflow > strong {
+    grid-column: 3;
+    grid-row: 3;
+    align-self: center;
+    min-width: 0;
+    padding-inline: 4px;
+    font-size: .7rem;
+    line-height: 1.3;
+  }
+  .is-chat-page .mia-chat-shell:not(.is-expanded) .composer-attachment-tray { grid-row: 1; }
+}
