@@ -125,6 +125,7 @@ module Api
               eligibility = PlaidIntegration::AccountEligibility.new(account)
               {
                 id: account.id,
+                financial_generation: account.financial_generation,
                 name: account.name,
                 official_name: account.official_name,
                 mask: account.mask,

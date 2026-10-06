@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_07_060900) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_061000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -2513,6 +2513,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_060900) do
     t.bigint "available_balance_cents"
     t.datetime "created_at", null: false
     t.bigint "current_balance_cents"
+    t.integer "financial_generation", default: 0, null: false
     t.string "iso_currency_code"
     t.datetime "last_synced_at"
     t.bigint "limit_balance_cents"

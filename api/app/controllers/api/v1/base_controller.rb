@@ -75,7 +75,9 @@ module Api
         return true if names.include?(controller_name)
         return false unless controller_name == "mia_messages" && action_name == "create"
         return true unless current_cohort_membership&.cohort&.savings_challenge_enabled == true
-        ::Mia::HouseholdPlanRequest.classify(params[:message].to_s, household: current_household).in?(%i[household household_read])
+        session = current_household.chat_sessions.find_by(user_id: current_user.id, cohort_id: current_cohort_membership&.cohort_id)
+        income_reply = session && session.active_topic.to_h["record_scope"] == "household_plan" && ::Mia::IncomeSourceReply.matches?(params[:message], session: session)
+        income_reply || ::Mia::HouseholdPlanRequest.classify(params[:message].to_s, household: current_household).in?(%i[household household_read])
       end
 
       def current_household

@@ -1,6 +1,21 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  test "a complete named income request recovers explicit amount omitted by provider without guessing" do
+    action = default_action.merge(type: "create_income_source", income_source_name: "Real salary QA", cadence: "monthly", effective_on: "2026-10-01")
+    transport = ->(_) { resolution_json(intent: "income_action", continuation: false, resolved_message: "Create income", topic: { type: "income_schedule", title: "Income", subject: "Real salary QA" }, action: action) }
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: "Create a household job income source named Real salary QA with $3200 monthly starting October 2026.", context: intent_context.merge(income_sources: []), api_key: "synthetic", transport: transport).call
+    assert result.actionable?, result.to_h.inspect
+    assert_equal "3200", result.action[:amount]
+    assert_equal "job", result.action[:source_type]
+    ambiguous = HouseholdFinance::MiaIntentResolver.new(user_message: "Create a household job income source named Real salary QA with $3200 or $4200 monthly starting October 2026.", context: intent_context.merge(income_sources: []), api_key: "synthetic", transport: transport).call
+    assert ambiguous.clarification?
+    assert_equal "", ambiguous.action[:amount]
+    unrelated = HouseholdFinance::MiaIntentResolver.new(user_message: "Create a household job income source named Real salary QA after paying $3200 rent monthly.", context: intent_context.merge(income_sources: []), api_key: "synthetic", transport: transport).call
+    assert unrelated.clarification?
+    assert_equal "", unrelated.action[:amount]
+  end
+
   test "provider grammar limits do not prevent a grounded supervised action" do
     transport = ->(request) do
       schema = request.dig(:response_format, :json_schema, :schema)

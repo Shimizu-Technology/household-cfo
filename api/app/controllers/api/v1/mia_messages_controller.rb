@@ -358,6 +358,7 @@ module Api
         return false unless session.active_topic.to_h["record_scope"] == "household_plan"
         text = content.to_s.squish
         return false if text.match?(::Mia::HouseholdPlanRequest::CHALLENGE) || text.match?(/\b(?:set\s+(?:(?:it|that)\s+)?aside|saved|spent|bought|paid|withdrew|withdrawn|contributed)\b/i)
+        return true if ::Mia::IncomeSourceReply.matches?(text, session: session)
         confirmation = confirmation_message?(text) || text.match?(/\A(?:okay|ok|apply it|go ahead)[\s.!?,]*\z/i)
         correction = text.match?(/\b(?:that|it|same|those)\b/i) && text.match?(::Mia::HouseholdPlanRequest::WRITE)
         confirmation || correction

@@ -42,6 +42,8 @@ class HouseholdFinanceFinancialRestartBankResumeTest < ActiveSupport::TestCase
     assert_equal 1, @household.historical_merchant_category_rules.count
     assert_empty @household.merchant_category_rules
     @item.update!(last_synced_at: @item.financial_resumed_at + 1.second)
+    assert_not PlaidIntegration::AccountEligibility.new(@account.reload).active_observation?
+    @account.update!(financial_generation: @item.financial_generation, last_synced_at: @item.last_synced_at)
     assert PlaidIntegration::AccountEligibility.new(@account.reload).active_observation?
     current = @household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: 200_000, plaid_account: @account)
     assert_equal current.id, @account.reload.account.id

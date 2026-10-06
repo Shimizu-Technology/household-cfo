@@ -183,6 +183,24 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, @household.reload.financial_generation
   end
 
+  test "a job clarification reply stays in household planning in a savings cohort" do
+    travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 15, 12) do
+      with_savings_runtime do
+        savings_enroll
+        session = @household.chat_sessions.create!(user: @user, cohort: @savings_cohort,
+          active_topic: { schema_version: 2, type: "income_schedule", title: "New income", status: "needs_clarification", record_scope: "household_plan",
+            action: { type: "create_income_source", income_source_name: "Real salary QA", amount: "3200", cadence: "monthly", effective_on: "2026-10-01" } })
+        assert Api::V1::MiaMessagesController.new.send(:household_plan_continuation?, session, "A job income source: Real salary QA, $3200 monthly, starting October 2026.")
+        assert Api::V1::MiaMessagesController.new.send(:household_plan_continuation?, session, "job")
+        assert Api::V1::MiaMessagesController.new.send(:household_plan_continuation?, session, "$3200")
+        assert_not Api::V1::MiaMessagesController.new.send(:household_plan_continuation?, session, "I saved $20 today")
+        context = HouseholdFinance::ConversationContextBuilder.new(session, household: @household).call
+        assert_equal "3200", context.dig(:active_topic, :action, :amount)
+        assert_equal "monthly", context.dig(:active_topic, :action, :cadence)
+      end
+    end
+  end
+
   private
   def auth
     { "Authorization" => "Bearer test_token_#{@user.id}", "Idempotency-Key" => SecureRandom.uuid }.tap { |headers| headers["X-Cohort-Id"] = @savings_cohort.id.to_s unless @savings_membership.destroyed? }
