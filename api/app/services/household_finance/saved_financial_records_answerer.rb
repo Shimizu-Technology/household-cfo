@@ -190,7 +190,8 @@ module HouseholdFinance
     end
 
     def spending_category_matches(rows)
-      text = normalized_category_text(@read_text)
+      named = @read_text[/\bcategory\s+(?:named|called)\s+(.+?)(?:\s+(?:budget|planned amount|spending plan|for)\b|[?.!]*\z)/i, 1]
+      text = normalized_category_text(named.presence || @read_text).gsub(/\b(?:my|our)\s+household\s+(?:budget|spending(?:\s+plan)?|planned amounts?)\b/, " ")
       spans = rows.flat_map do |row|
         name = normalized_category_text(row[:name])
         next [] if name.blank?

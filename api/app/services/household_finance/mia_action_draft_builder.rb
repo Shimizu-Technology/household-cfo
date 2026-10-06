@@ -481,12 +481,15 @@ module HouseholdFinance
     end
 
     def compound_category_mentions(authored)
+      # In "household budget category Groceries", household/budget describe
+      # the scope rather than additional rows with those coincidental names.
+      searchable = authored.gsub(/\bhousehold\s+budget\s+categor(?:y|ies)\b/i) { |scope| " " * scope.length }
       categories = household.budget_categories.active.where(id: active_rows.map { |row| row.fetch(:id) }).index_by(&:id)
       candidates = active_rows.flat_map do |row|
         category = categories[row.fetch(:id).to_i]
         next [] unless category
 
-        authored.to_enum(:scan, /(?<![[:alnum:]])#{Regexp.escape(category.name)}(?![[:alnum:]])/i).map do
+        searchable.to_enum(:scan, /(?<![[:alnum:]])#{Regexp.escape(category.name)}(?![[:alnum:]])/i).map do
           { category: category, starts_at: Regexp.last_match.begin(0), ends_at: Regexp.last_match.end(0) }
         end
       end.sort_by { |mention| [ mention.fetch(:starts_at), -(mention.fetch(:ends_at) - mention.fetch(:starts_at)) ] }

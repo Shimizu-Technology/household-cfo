@@ -351,6 +351,17 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     end
   end
 
+  test "general household budget reads do not select a category named Household or Budget" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    %w[Household Budget Groceries].each { |name| manager.create_category!(name: name, stack_key: "discretionary", monthly_amount: 50) }
+    response = answer("Show my household budget for October 2026")
+    assert_equal 3, response.metadata[:total_count]
+    assert_equal %w[Budget Groceries Household], response.metadata[:records].map { |row| row[:name] }.sort
+    named = answer("Show my category named Household budget for October 2026")
+    assert_equal 1, named.metadata[:total_count]
+    assert_equal "Household", named.metadata[:records].sole[:name]
+  end
+
   private
 
   def income(label, cents, **attributes)

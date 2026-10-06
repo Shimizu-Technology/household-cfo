@@ -39,6 +39,19 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_equal %w[update_allocation update_allocation], move.proposal.items.map(&:action_type)
   end
 
+  test "household budget category scope does not add coincidentally named rows" do
+    @manager.create_category!(name: "Household", stack_key: "discretionary", monthly_amount: 50)
+    @manager.create_category!(name: "Budget", stack_key: "discretionary", monthly_amount: 60)
+    prompt = "Set household budget category Groceries to $650 for October 2026"
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household, user: @user, annual_budget_manager: @manager, selected_month: 10,
+      raw_input: prompt, command: { type: "set_allocation", category_id: @groceries.id, category_name: "Groceries", amount: "650", months: [ 10 ], year: 2026 }
+    ).call
+    assert result.proposal, result.response
+    assert_equal [ @groceries.id ], result.proposal.items.map { |item| item.payload.fetch(:category_id) }
+    assert_equal 65_000, result.proposal.items.sole.payload.fetch(:changes).sole.fetch(:after_cents)
+  end
+
   test "drafts multiple participant-authored category amounts as one atomic review" do
     result = HouseholdFinance::MiaActionDraftBuilder.new(
       @household,
