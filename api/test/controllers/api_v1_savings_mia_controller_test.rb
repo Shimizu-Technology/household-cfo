@@ -313,12 +313,13 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   private
   def with_intent_resolver(resolver)
     singleton = class << HouseholdFinance::MiaIntentResolver; self; end
-    original_new = singleton.instance_method(:new)
+    defined_before = singleton.method_defined?(:new, false)
+    original_new = singleton.instance_method(:new) if defined_before
     singleton.define_method(:new) { |**_kwargs| resolver }
     yield
   ensure
-    singleton.send(:remove_method, :new) if singleton.method_defined?(:new)
-    singleton.define_method(:new, original_new)
+    singleton.send(:remove_method, :new) if singleton.method_defined?(:new, false)
+    singleton.define_method(:new, original_new) if defined_before
   end
 
   def auth = { "Authorization" => "Bearer test_token_#{@savings_user.id}", "X-Cohort-Id" => @savings_cohort.id.to_s }
