@@ -740,7 +740,7 @@ module Api
           user.with_lock do
             attempt = user.invitation_email_attempts.create!(
               status: result.fetch(:status),
-              provider: "resend",
+              provider: result[:provider].presence || "resend",
               provider_message_id: result[:provider_message_id],
               error: result[:error],
               attempted_at: attempted_at,

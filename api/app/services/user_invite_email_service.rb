@@ -5,6 +5,9 @@ class UserInviteEmailService
 
   class << self
     def send_invite(user:, invited_by:)
+      provider = ENV.fetch("AUTH_PROVIDER", "clerk")
+      return failed_configuration("Authentication provider is not configured") unless provider.in?(%w[clerk workos])
+      return send_workos_invite(user: user, invited_by: invited_by) if provider == "workos"
       return failed_configuration("RESEND_API_KEY is not configured") if ENV["RESEND_API_KEY"].blank?
       return failed_configuration("MAILER_FROM_EMAIL or RESEND_FROM_EMAIL is not configured") if from_email.blank?
 
@@ -36,6 +39,29 @@ class UserInviteEmailService
     end
 
     private
+
+    def send_workos_invite(user:, invited_by:)
+      if WorkosInvitationService.custom_delivery?
+        return failed_configuration("RESEND_API_KEY is not configured") if ENV["RESEND_API_KEY"].blank?
+        return failed_configuration("MAILER_FROM_EMAIL or RESEND_FROM_EMAIL is not configured") if from_email.blank?
+        # Validate the trusted destination before any vendor invitation is minted.
+        WorkosInvitationService.acceptance_url(frontend_url, "validation")
+      end
+      WorkosInvitationService.send_invite(user: user, invited_by: invited_by) do |token, recipient|
+        link = WorkosInvitationService.acceptance_url(frontend_url, token)
+        begin
+          response = Resend::Emails.send({ from: from_email, to: recipient.email, subject: "You're invited to Household CFO Method",
+            html: invite_html(user: recipient, invited_by: invited_by, button_link: link, display_url: link, identity_provider: "WorkOS"),
+            text: invite_text(user: recipient, invited_by: invited_by, button_link: link) })
+        rescue StandardError
+          raise WorkosInvitationService::DeliveryError, "The invitation email provider could not confirm delivery. Retry later."
+        end
+        id = response_id(response)
+        { sent: id.present?, status: id.present? ? "sent" : "failed", provider: "resend", provider_message_id: id, error: nil }
+      end
+    rescue WorkosInvitationService::DeliveryError => error
+      failed_configuration(error.message)
+    end
 
     def failed_configuration(reason)
       Rails.logger.error("[InviteEmail] #{reason}; invite email cannot be delivered")
@@ -76,7 +102,7 @@ class UserInviteEmailService
       TEXT
     end
 
-    def invite_html(user:, invited_by:, button_link:, display_url:)
+    def invite_html(user:, invited_by:, button_link:, display_url:, identity_provider: "Clerk")
       inviter = h(invited_by&.full_name.presence || invited_by&.email.presence || "A Household CFO admin")
       role = h(user.role.to_s.titleize)
       invited_email = h(user.email)
@@ -117,7 +143,7 @@ class UserInviteEmailService
                             <td style="padding:18px;">
                               <p style="margin:0 0 6px 0;color:#7b4a58;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;font-weight:800;">Use this email</p>
                               <p style="margin:0;color:#1f2421;font-size:14px;line-height:1.65;">
-                                Open the app and sign up or sign in with <strong>#{invited_email}</strong>. Household CFO Method will link your Clerk account to this invitation.
+                                Open the app and sign up or sign in with <strong>#{invited_email}</strong>. Household CFO Method will link your #{h(identity_provider)} account to this invitation.
                               </p>
                             </td>
                           </tr>
