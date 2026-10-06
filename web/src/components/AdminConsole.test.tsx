@@ -7,15 +7,27 @@ const mocks = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: v
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), ...mocks }))
 const supportMocks = vi.hoisted(() => ({ fetchSetupSupportRequests: vi.fn(), updateSetupSupportRequest: vi.fn() }))
 vi.mock('../setupHelpApi', () => supportMocks)
-vi.mock('../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: 2, selectCoachWorkspace: vi.fn() }) }))
+const authScope = vi.hoisted(() => ({ workspaceId: 2 as number | null, selectCoachWorkspace: vi.fn() }))
+vi.mock('../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: authScope.workspaceId, selectCoachWorkspace: authScope.selectCoachWorkspace }) }))
 vi.mock('./PilotFeedbackInbox', () => ({ PilotFeedbackInbox: () => <section>Private support inbox</section> }))
 vi.mock('./CoachProgramSettings', () => ({ CreateCoachProgram: () => <section>Create program controls</section> }))
 const cohort = { id: 10, name: 'BOG 90 day challenge', status: 'enrolling', starts_on: null, ends_on: null, notes: '', updated_at: '2026-10-04T12:00:00Z' } as AdminCohort
 const people = Array.from({ length: 30 }, (_, index) => ({ id: 40 + index, email: `participant${index}@example.test`, full_name: `Participant ${String(index).padStart(2, '0')}`, role: 'participant', invitation_status: 'accepted', cohorts: [{ id: 100 + index, role: 'participant', cohort: { id: 10, name: cohort.name, status: 'enrolling' } }], invite_email: { workspace_scoped: true, status: 'not_sent', last_attempted_at: null }, workspace: { setup_complete: false, setup_status: 'not_started', signed_in: true, has_pending_review_work: false, last_safe_activity_at: null } })) as AdminUser[]
-beforeEach(() => { vi.clearAllMocks(); supportMocks.fetchSetupSupportRequests.mockReset(); supportMocks.updateSetupSupportRequest.mockReset(); mocks.fetchAdminCohorts.mockResolvedValue([cohort]); mocks.fetchAdminUsers.mockResolvedValue(people); mocks.fetchAdminPlaidHealth.mockResolvedValue({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] }); vi.spyOn(window, 'confirm').mockReturnValue(false) })
+beforeEach(() => { vi.clearAllMocks(); authScope.workspaceId = 2; supportMocks.fetchSetupSupportRequests.mockReset(); supportMocks.updateSetupSupportRequest.mockReset(); mocks.fetchAdminCohorts.mockResolvedValue([cohort]); mocks.fetchAdminUsers.mockResolvedValue(people); mocks.fetchAdminPlaidHealth.mockResolvedValue({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] }); vi.spyOn(window, 'confirm').mockReturnValue(false) })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 const actor = { id: 1, is_admin: true, coach_workspaces: [{ id: 2, name: 'Mel coaching' }] } as CurrentUser
 describe('staff operation hierarchy', () => {
+  it('keeps ordinary platform support reachable without the default global cohort filter', async () => {
+    authScope.workspaceId = null
+    supportMocks.fetchSetupSupportRequests.mockResolvedValue({ records: [], next_cursor: null })
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findAllByText('Participant 00')
+    expect(screen.getByLabelText('Cohort scope')).toHaveProperty('value', '10')
+    fireEvent.click(screen.getByRole('button', { name: 'Support inbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Setup requests' }))
+    await screen.findByText('Platform support requests; select a program workspace for its requests.')
+    await waitFor(() => expect(supportMocks.fetchSetupSupportRequests).toHaveBeenCalledWith(null, null, expect.any(AbortSignal)))
+  })
   it('loads setup requests only inside their selected support view and locks navigation during writes', async () => {
     const record = { id: 91, participant_name: 'Support participant', program_name: 'BOG', status: 'requested', reason_label: 'Practice numbers', lock_version: 2, created_at: '2026-10-07T10:00:00Z', permissions: { triage: true, prepare: true, decline: true } }
     supportMocks.fetchSetupSupportRequests.mockResolvedValue({ records: [record], next_cursor: null })

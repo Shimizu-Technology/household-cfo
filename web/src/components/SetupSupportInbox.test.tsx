@@ -13,7 +13,7 @@ afterEach(cleanup)
 describe('staff setup request safety', () => {
   it('fails closed when server permissions are absent or deny writes, even for a platform admin', async () => {
     mocks.fetchSetupSupportRequests.mockResolvedValue({ records: [{ ...request, permissions: undefined }, { ...request, id: 11, permissions: { triage: false, prepare: false, decline: false } }], next_cursor: null })
-    render(<SetupSupportInbox {...base} isAdmin />)
+    render(<SetupSupportInbox {...base} workspaceId={null} cohortId={null} isAdmin />)
     await screen.findByText('#11')
     expect(screen.queryByRole('button', { name: 'Prepare participant review' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Mark in review' })).toBeNull()
@@ -77,7 +77,7 @@ describe('staff setup request safety', () => {
     expect(mocks.updateSetupSupportRequest).toHaveBeenCalledTimes(1)
     expect(within(screen.getByRole('region', { name: 'Request #9' })).queryByRole('button', { name: 'Prepare participant review' })).toBeNull()
   })
-  it('paginates a bounded page and refreshes to the newest requests', async () => {
+  it('paginates a bounded page and refreshes to the first requests', async () => {
     mocks.fetchSetupSupportRequests.mockResolvedValueOnce({ records: [request], next_cursor: 9 }).mockResolvedValueOnce({ records: [{ ...request, id: 8, participant_name: 'Older Participant' }], next_cursor: null }).mockResolvedValue({ records: [request], next_cursor: 9 })
     render(<SetupSupportInbox {...base} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Load more requests' }))
@@ -122,10 +122,35 @@ describe('staff setup request safety', () => {
     await screen.findByText('Fictional Participant')
     expect(screen.queryByRole('alert')).toBeNull()
   })
-  it('requires explicit workspace context and does not fetch in platform mode', () => {
-    render(<SetupSupportInbox {...base} workspaceId={null} isAdmin />)
-    expect(screen.getByText(/Platform access does not grant/)).toBeTruthy()
+  it('requires explicit workspace context for coaches and does not fetch in platform mode', () => {
+    render(<SetupSupportInbox {...base} workspaceId={null} cohortId={null} />)
+    expect(screen.getByText('Choose a workspace to view its setup requests.')).toBeTruthy()
     expect(mocks.fetchSetupSupportRequests).not.toHaveBeenCalled()
+  })
+  it('loads ordinary platform requests for admins and allows only the server-granted actions', async () => {
+    const ordinary = { ...request, cohort_id: null, program_name: null }
+    mocks.fetchSetupSupportRequests.mockResolvedValue({ records: [ordinary], next_cursor: null })
+    mocks.updateSetupSupportRequest.mockResolvedValueOnce({ request: { ...ordinary, status: 'in_review', lock_version: 3 } }).mockResolvedValueOnce({ request: { ...ordinary, status: 'ready', lock_version: 4, review_state: 'pending' } })
+    render(<SetupSupportInbox {...base} workspaceId={null} cohortId={null} isAdmin />)
+    expect(screen.getByText('Platform support requests; select a program workspace for its requests.')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark in review' }))
+    await screen.findByText('Request #9: In review.')
+    expect(mocks.fetchSetupSupportRequests).toHaveBeenCalledWith(null, null, expect.any(AbortSignal))
+    expect(mocks.updateSetupSupportRequest).toHaveBeenNthCalledWith(1, 9, 'triage', 2)
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare participant review' }))
+    expect(mocks.updateSetupSupportRequest).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm preparation' }))
+    await screen.findByText('Waiting for the participant to review and confirm.')
+    expect(mocks.updateSetupSupportRequest).toHaveBeenNthCalledWith(2, 9, 'prepare', 3)
+    expect(screen.getByRole('button', { name: 'Fresh requests' })).toHaveProperty('disabled', false)
+  })
+  it('hides preparation for an admin own request when the server denies it', async () => {
+    mocks.fetchSetupSupportRequests.mockResolvedValue({ records: [{ ...request, user_id: base.actorId, cohort_id: null, program_name: null, permissions: { triage: true, decline: true, prepare: false } }], next_cursor: null })
+    render(<SetupSupportInbox {...base} workspaceId={null} cohortId={null} isAdmin />)
+    await screen.findByText('Fictional Participant')
+    expect(screen.queryByRole('button', { name: 'Prepare participant review' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Mark in review' })).toBeTruthy()
+    expect(mocks.updateSetupSupportRequest).not.toHaveBeenCalled()
   })
   it('uses the shared workspace mutation lifecycle and releases its ticket', async () => {
     const ticket = { id: 3, workspaceId: 2 }

@@ -494,7 +494,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
           <button type="button" aria-pressed={supportView === 'setup'} disabled={adminMutationPending} onClick={() => setSupportView('setup')}>Setup requests</button>
         </nav>
         <div hidden={supportView !== 'problems'}><PilotFeedbackInbox /></div>
-        {area === 'feedback' && supportView === 'setup' && <SetupSupportInbox actorId={currentUser.id} workspaceId={activeCoachWorkspaceId} cohortId={selectedCohortId} isAdmin={currentUser.is_admin} disabled={adminMutationPending && !supportBusy} onPendingChange={setSupportBusy} />}
+        {area === 'feedback' && supportView === 'setup' && <SetupSupportInbox actorId={currentUser.id} workspaceId={activeCoachWorkspaceId} cohortId={platformMode ? null : selectedCohortId} isAdmin={currentUser.is_admin} disabled={adminMutationPending && !supportBusy} onPendingChange={setSupportBusy} />}
       </div>
 
       <div hidden={area !== 'cohorts' && area !== 'participants'} className="admin-layout">

@@ -23,10 +23,11 @@ export function SetupSupportInbox(props: Props) {
 }
 
 function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disabled = false, onPendingChange, mutationLifecycle }: Props) {
+  const canLoadScope = workspaceId !== null || isAdmin
   const [records, setRecords] = useState<SetupSupportRequest[]>([])
   const [cursor, setCursor] = useState<number | null>(null)
   const [nextCursor, setNextCursor] = useState<number | null>(null)
-  const [loading, setLoading] = useState(workspaceId !== null)
+  const [loading, setLoading] = useState(canLoadScope)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -49,7 +50,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
   }, [])
 
   const load = useCallback(async (pageCursor: number | null, verifyId: number | null = null) => {
-    if (workspaceId === null) return
+    if (!canLoadScope) return
     controller.current?.abort()
     const abort = new AbortController()
     controller.current = abort
@@ -99,7 +100,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
     } finally {
       if (current()) setLoading(false)
     }
-  }, [cohortId, workspaceId])
+  }, [cohortId, canLoadScope])
 
   useEffect(() => {
     let canceled = false
@@ -108,7 +109,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
   }, [load, actorId])
 
   async function act(record: SetupSupportRequest, action: SupportAction) {
-    if (savingRef.current || loading || disabled || uncertainId !== null || workspaceId === null || (action === 'prepare' && !isAdmin)) return
+    if (savingRef.current || loading || disabled || uncertainId !== null || !canLoadScope || (action === 'prepare' && !isAdmin)) return
     if (!record.permissions?.[action]) return
     if (action === 'prepare' && (confirmation?.id !== record.id || confirmation.version !== record.lock_version)) return
     savingRef.current = true
@@ -146,10 +147,11 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
     <article className="panel setup-support-inbox" aria-label="Setup help requests" aria-busy={loading || saving}>
       <header className="setup-support-heading">
         <div><p className="eyebrow">Participant setup help</p><h3>Setup requests</h3></div>
-        <Button variant="secondary" disabled={disabled || saving || loading || workspaceId === null} onClick={() => { setNotice(null); void load(null, uncertainId) }}>Fresh requests</Button>
+        <Button variant="secondary" disabled={disabled || saving || loading || !canLoadScope} onClick={() => { setNotice(null); void load(null, uncertainId) }}>Fresh requests</Button>
       </header>
       <p className="setup-support-privacy">Only request metadata is shared here. Financial details, documents and private conversations stay private. The participant must review and confirm every restart.</p>
-      {workspaceId === null ? <p>Choose a workspace to view its setup requests. Platform access does not grant access to participant requests.</p> : <>
+      {!canLoadScope ? <p>Choose a workspace to view its setup requests.</p> : <>
+        {workspaceId === null && <p>Platform support requests; select a program workspace for its requests.</p>}
         {error && <div className="setup-support-alert" role="alert"><p>{error}</p><Button variant="secondary" disabled={disabled || saving || loading} onClick={() => void load(cursor, uncertainId)}>Retry loading requests</Button></div>}
         {notice && <p role="status" className="setup-support-notice">{notice}</p>}
         {loading && <p role="status">Loading setup requests…</p>}
@@ -180,7 +182,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
             </section>
           })}
         </div>
-        {nextCursor !== null && <div className="setup-support-pagination"><p>Showing one page of requests. Fresh requests returns to the newest page.</p><Button variant="secondary" disabled={blocked} onClick={() => { setNotice(null); void load(nextCursor) }}>Load more requests</Button></div>}
+        {nextCursor !== null && <div className="setup-support-pagination"><p>Showing one page of requests. Fresh requests returns to the first page.</p><Button variant="secondary" disabled={blocked} onClick={() => { setNotice(null); void load(nextCursor) }}>Load more requests</Button></div>}
       </>}
     </article>
   )
