@@ -24,6 +24,7 @@ type Props = {
   onGuide: () => void
   onFeedback: () => void
   onClearChat: () => void
+  onFixSetup?: () => void
   onStartOver?: () => void
   onHistory?: () => void
   updatePrompts: Prompt[]
@@ -77,6 +78,7 @@ function PanelContent(props: Props) {
           </> : <p>Sign in to upload and review your own files.</p>}
         </section>
         {props.realWorkspace && <section className="mia-assist-section" aria-label="Help"><h3>Help</h3><div className="mia-assist-actions"><button type="button" className="secondary-button" onClick={() => act(props.onGuide)}>Guide</button><button type="button" className="secondary-button" onClick={() => act(props.onFeedback)}>Report a problem</button></div></section>}
+        {props.onFixSetup && <section className="mia-assist-section" aria-label="Fix my setup"><h3>Fix something I entered</h3><p>Find the right correction tool or review a safe way to start setup again.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onFixSetup!)}>Fix my setup</button></section>}
         {(props.hasMessages || props.onStartOver || props.onHistory) && <section className="mia-assist-section" aria-label="Conversation and setup"><h3>{props.onStartOver ? 'Conversation & testing' : 'Conversation'}</h3>
           {props.hasMessages && <div className="mia-assist-conversation-action"><p>Clear the active conversation while keeping your saved financial information and earlier conversations.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onClearChat)}>Clear chat</button></div>}
           {props.onHistory && <div className="mia-assist-conversation-action"><p>Read conversations from before a reset. Earlier messages do not supply your current numbers.</p><button type="button" className="secondary-button" onClick={() => act(props.onHistory!)}>Earlier conversations</button></div>}

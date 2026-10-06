@@ -846,6 +846,7 @@ export type MiaAnswerPresentation = {
 }
 
 export type MiaMessage = {
+  setup_help?: { available: boolean } | null
   financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
   id?: number
   client_id?: string
@@ -2218,6 +2219,7 @@ export function subscribeFinancialPictureChanges(listener: (generation: number) 
 }
 class FinancialPictureChangedError extends Error {}
 function financialDataPath(path: string) {
+  if (/^\/api\/v1\/setup_help(\/|\?|$)/.test(path)) return !path.startsWith('/api/v1/setup_help/restart/')
   return /^\/api\/v1\/(workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
 }
 function checkedFinancialReply(generation: number | null, expected: number | null) {
@@ -3805,6 +3807,7 @@ export async function fetchSpendingReport(startOn: string, endOn: string): Promi
 }
 
 export type MiaMessageResponse = {
+  setup_help?: { available: boolean } | null
   financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
   savings_intake?: import('./lib/savingsChallenge').SavingsIntake | null
   user_message: MiaMessage

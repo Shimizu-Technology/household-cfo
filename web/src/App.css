@@ -10470,3 +10470,5 @@ body:has([role="dialog"][aria-modal="true"], dialog[open]) .app > .mia-launcher 
   .is-chat-page .mia-chat-shell:not(.is-expanded) .chat-period-context { grid-column: 1; grid-row: 1; align-self: end; margin: 0; font-size: .65rem; line-height: 1.2; white-space: nowrap; }
   .is-chat-page .mia-chat-shell:not(.is-expanded) .chat-period-prefix { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 }
+
+.money-setup-help { justify-self: start; grid-column: 1 / -1; min-height: 44px; }
