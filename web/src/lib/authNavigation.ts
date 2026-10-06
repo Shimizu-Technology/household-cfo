@@ -5,7 +5,8 @@ export function safeAuthReturnTo(value: unknown, origin = window.location.origin
   if (typeof value !== 'string' || value.length > 2048) return `${origin}/`
   try {
     const url = new URL(value, origin)
-    if (url.origin !== origin || !['/', '/login'].includes(url.pathname) || url.username || url.password) return `${origin}/`
+    if (url.origin !== origin || !['/', '/login', '/organization-access'].includes(url.pathname) || url.username || url.password) return `${origin}/`
+    if (url.pathname === '/organization-access' || url.searchParams.get('enterprise') === '1') return `${origin}/organization-access`
     const destination = new URL('/', origin)
     const section = decodeURIComponent(url.hash.slice(1))
     if (sections.has(section)) destination.hash = encodeURIComponent(section)

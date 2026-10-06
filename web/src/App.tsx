@@ -1,3 +1,4 @@
+import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
 import { SignInButton, SignUpButton, UserButton } from './components/AuthControls'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
@@ -652,6 +653,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => { live = false }
   }, [challengeIntakeScope])
   const [pilotGuideOpen, setPilotGuideOpen] = useState(false)
+  const [enterpriseSettingsOpen, setEnterpriseSettingsOpen] = useState(false)
   const [pilotFeedbackOpen, setPilotFeedbackOpen] = useState(false)
   const chatStorageKey = useMemo(() => {
     return `${miaWorkspaceStorageKey(MIA_CHAT_STORAGE_PREFIX, auth.currentUser?.id, auth.activeCoachWorkspaceId, data?.workspace.household_id, data?.workspace.cohort?.id ?? selectedCohortId)}:picture:${data?.workspace.financial_generation ?? 0}`
@@ -3284,6 +3286,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />
               <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotGuideOpen(true) }}><GuideIcon /> Guide</Button>
               {isRealWorkspace && <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotFeedbackOpen(true) }}><FeedbackIcon /> Report a problem</Button>}
+              {isRealWorkspace && auth.currentUser && (auth.currentUser.is_admin || auth.currentUser.enterprise_access?.organizations.some(org => org.it_admin)) && <Button variant="ghost" size="compact" onClick={event => {event.currentTarget.closest('details')?.removeAttribute('open'); setEnterpriseSettingsOpen(true)}}>Organization access</Button>}
               {isRealWorkspace && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFinancialRestartOpen(true) }}>Reset my test workspace</Button>}
             </div>
           </details>
@@ -4231,6 +4234,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {financialRestartOpen && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && <FinancialRestartDialog key={chatStorageKey} scopeKey={restartScopeKey}
         blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind ? 'Save or cancel your open edits and let current requests finish before preparing a restart review.' : null}
         onClose={() => setFinancialRestartOpen(false)} onApplied={finishFinancialRestart} />}
+      {enterpriseSettingsOpen && auth.currentUser && <EnterpriseSettings key={`${auth.authProvider}:${auth.authIdentityId}:${auth.currentUser.id}`} currentUser={auth.currentUser} onClose={() => setEnterpriseSettingsOpen(false)} />}
       {pilotGuideOpen && <PilotGuideDialog savingsChallenge={isSavingsExperience} onClose={() => setPilotGuideOpen(false)} />}
       {pilotFeedbackOpen && (
         <PilotFeedbackDialog

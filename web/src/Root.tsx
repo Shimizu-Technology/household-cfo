@@ -4,6 +4,7 @@ import { authConfiguration } from './lib/authConfig'
 import { restoreAuthReturn } from './lib/authNavigation'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
 import { AuthLoginRoute } from './components/AuthLoginRoute'
+import { EnterpriseAccessPage } from './components/EnterpriseAccessPage'
 import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
 import { PostHogProvider } from './providers/PostHogProvider'
@@ -26,7 +27,7 @@ function Root() {
     <AuthProvider provider={config.provider}>
       <PostHogProvider>
         <BrandDocument />
-        <IdentityBoundary>{config.provider === 'workos' && window.location.pathname === '/login' ? <AuthLoginRoute /> : <App />}</IdentityBoundary>
+        <IdentityBoundary>{config.provider === 'workos' && window.location.pathname === '/login' ? <AuthLoginRoute /> : window.location.pathname === '/organization-access' || new URLSearchParams(window.location.search).get('enterprise') === '1' ? <EnterpriseAccessPage /> : <App />}</IdentityBoundary>
       </PostHogProvider>
     </AuthProvider>
   )

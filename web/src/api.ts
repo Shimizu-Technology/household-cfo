@@ -1712,6 +1712,7 @@ export type AdminPilotFeedbackScreenshotUrl = {
 }
 
 export type CurrentUser = {
+  enterprise_access?: { can_configure: boolean; organizations: Array<{ id: number; name: string; it_admin: boolean }> }
   id: number
   auth_provider?: 'clerk' | 'workos'
   auth_subject?: string
