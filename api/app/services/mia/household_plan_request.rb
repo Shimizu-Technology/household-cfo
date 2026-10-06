@@ -16,7 +16,7 @@ module Mia
       text = message.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").squish
       # Reporting a purchase/reservation keeps the challenge intake even when a
       # merchant, goal or account happens to share a household record's label.
-      return :challenge if text.match?(/\A(?:i|we)\s+(?:have\s+)?(?:set aside|saved|spent|bought|paid|withdrew|withdrawn|contributed)\b/i)
+      return :challenge if text.match?(/\A(?:(?:yes|yeah|okay|ok)[,\s]+)?(?:i|we)\s+(?:have\s+)?(?:set\s+(?:(?:it|that)\s+)?aside|saved|spent|bought|paid|withdrew|withdrawn|contributed)\b/i)
       if text.match?(HouseholdFinance::MiaIntentResolver::HYPOTHETICAL_PATTERN) &&
           text.match?(/\bhousehold\b/i) && text.match?(HOUSEHOLD) && !text.match?(CHALLENGE)
         return :household_read
