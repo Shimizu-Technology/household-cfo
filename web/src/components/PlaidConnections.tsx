@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePlaidLink, type PlaidLinkOnExit, type PlaidLinkOnSuccess } from 'react-plaid-link'
 import {
+  captureApiOperation,
+  getApiFinancialGeneration,
+  resumePlaidItemFinancialPicture,
   createPlaidLinkToken,
   createPlaidUpdateLinkToken,
   disconnectPlaidItem,
@@ -26,7 +29,18 @@ import {
 } from '../lib/plaidOAuthSession'
 import { plaidSyncOutcome } from '../lib/plaidSyncWatch'
 import { useBrand } from '../contexts/brandContextValue'
+import { BankActivityResumeDialog } from './BankActivityResumeDialog'
 import './PlaidConnections.css'
+
+function hasFreshBankObservation(item: PlaidItem) {
+  if (item.context_paused_by_restart) return false
+  if (!item.financial_resumed_at) return true
+  return Boolean(item.last_synced_at && new Date(item.last_synced_at).getTime() >= new Date(item.financial_resumed_at).getTime())
+}
+
+function operationIsCurrent(assertCurrent: () => void) {
+  try { assertCurrent(); return true } catch { return false }
+}
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const PLAID_LINK_SCRIPT_URL = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js'
@@ -82,6 +96,7 @@ function loadPlaidLinkScript() {
 
 type Props = {
   userId: string
+  householdId?: number | null
   onDraftsCreated: () => Promise<void> | void
   variant?: 'connections' | 'activity'
   refreshKey?: string
@@ -113,10 +128,25 @@ const trustLabels: Record<PlaidTransaction['trust_state'], string> = {
   source_changed: 'Source changed',
 }
 
-export function PlaidConnections({ userId, onDraftsCreated, variant = 'connections', refreshKey = '', reviewYear = new Date().getFullYear(), onOpenBudget }: Props) {
+export function PlaidConnections({ userId, householdId, onDraftsCreated, variant = 'connections', refreshKey = '', reviewYear = new Date().getFullYear(), onOpenBudget }: Props) {
   const { brand, assistantName } = useBrand()
   const onDraftsCreatedRef = useRef(onDraftsCreated)
-  const [oauthSession] = useState(() => readPlaidOAuthSession(userId))
+  const [oauthSession] = useState(() => readPlaidOAuthSession(userId, undefined, Date.now(), { financialGeneration: getApiFinancialGeneration(), householdId }))
+  const mounted = useRef(false)
+  const lifetime = useRef(0)
+  const refreshSequence = useRef(0)
+  useEffect(() => { mounted.current = true; lifetime.current += 1; return () => { mounted.current = false; lifetime.current += 1 } }, [userId, householdId])
+  const captureCurrentOperation = useCallback(() => {
+    const assertApi = captureApiOperation()
+    const sequence = lifetime.current
+    return () => {
+      assertApi()
+      if (!mounted.current || sequence !== lifetime.current) throw new Error('Your bank workspace changed. Reopen the connection before continuing.')
+    }
+  }, [])
+  const [linkOperation, setLinkOperation] = useState<(() => void) | null>(() => oauthSession ? captureApiOperation() : null)
+  const resumeInFlight = useRef(false)
+  const [resumeItem, setResumeItem] = useState<PlaidItem | null>(null)
   const oauthReturn = isPlaidOAuthReturn(window.location.href)
   const missingOAuthSession = oauthReturn && !oauthSession
   const receivedRedirectUri = oauthReturn && oauthSession ? window.location.href : undefined
@@ -127,6 +157,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
   const [activityTotal, setActivityTotal] = useState(0)
   const [activitySummary, setActivitySummary] = useState<PlaidActivitySummary | null>(null)
   const [activityView, setActivityView] = useState<PlaidActivityView>('all')
+  const [picture, setPicture] = useState<'current' | 'history'>('current')
   const [searchInput, setSearchInput] = useState('')
   const [activityQuery, setActivityQuery] = useState('')
   const [activityAccountId, setActivityAccountId] = useState<number | null>(null)
@@ -153,7 +184,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
 
     void loadPlaidLinkScript()
       .then(() => {
-        if (!cancelled) setPlaidScriptReady(true)
+        if (!cancelled && linkOperation && operationIsCurrent(linkOperation)) setPlaidScriptReady(true)
       })
       .catch((reason) => {
         if (cancelled) return
@@ -163,7 +194,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
       })
 
     return () => { cancelled = true }
-  }, [linkToken])
+  }, [linkOperation, linkToken])
 
   const finishOAuthSession = useCallback(() => {
     clearPlaidOAuthSession(userId)
@@ -179,10 +210,14 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
   }, [missingOAuthSession])
 
   const refresh = useCallback(async () => {
+    const assertCurrent = captureCurrentOperation()
+    const sequence = ++refreshSequence.current
     const [nextOverview, nextTransactionsPage] = await Promise.all([
       fetchPlaidOverview(),
-      fetchPlaidTransactions(1, activityView, { query: activityQuery, accountId: activityAccountId, reviewYear }),
+      fetchPlaidTransactions(1, activityView, { query: activityQuery, accountId: activityAccountId, reviewYear, picture }),
     ])
+    assertCurrent()
+    if (sequence !== refreshSequence.current) return
     const nextTransactions = nextTransactionsPage.transactions
     setOverview(nextOverview)
     setTransactions(nextTransactions)
@@ -191,12 +226,13 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
     setActivityTotal(nextTransactionsPage.pagination.total)
     setActivitySummary(nextTransactionsPage.summary)
     setSelected((current) => current.filter((id) => nextTransactions.some((transaction) => transaction.id === id && transaction.stageable)))
-  }, [activityAccountId, activityQuery, activityView, reviewYear])
+  }, [activityAccountId, activityQuery, activityView, captureCurrentOperation, picture, reviewYear])
 
   useEffect(() => {
     if (syncWatchItemId == null) return
 
     let cancelled = false
+    const assertCurrent = captureCurrentOperation()
     let inFlight = false
     let attempts = 0
     let timeoutId: number | null = null
@@ -215,8 +251,10 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
 
       inFlight = true
       try {
+        assertCurrent()
         const nextOverview = await fetchPlaidOverview()
         if (cancelled) return
+        assertCurrent()
 
         setOverview(nextOverview)
         const item = nextOverview.items.find((candidate) => candidate.id === syncWatchItemId)
@@ -271,17 +309,20 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
       stop()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [assistantName, brand.product_name, refresh, syncWatchBaselineLastSyncedAt, syncWatchItemId])
+  }, [assistantName, brand.product_name, captureCurrentOperation, refresh, syncWatchBaselineLastSyncedAt, syncWatchItemId])
 
   useEffect(() => {
     let cancelled = false
+    const assertCurrent = captureCurrentOperation()
+    const sequence = ++refreshSequence.current
     async function load() {
       try {
         const [nextOverview, nextTransactionsPage] = await Promise.all([
           fetchPlaidOverview(),
-          fetchPlaidTransactions(1, activityView, { query: activityQuery, accountId: activityAccountId, reviewYear }),
+          fetchPlaidTransactions(1, activityView, { query: activityQuery, accountId: activityAccountId, reviewYear, picture }),
         ])
-        if (cancelled) return
+        if (cancelled || sequence !== refreshSequence.current) return
+        assertCurrent()
         setOverview(nextOverview)
         setTransactions(nextTransactionsPage.transactions)
         setTransactionPage(1)
@@ -296,41 +337,55 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
     }
     void load()
     return () => { cancelled = true }
-  }, [activityAccountId, activityQuery, activityView, refresh, refreshKey, reviewYear])
+  }, [activityAccountId, activityQuery, activityView, captureCurrentOperation, picture, refresh, refreshKey, reviewYear])
 
   const onSuccess = useCallback<PlaidLinkOnSuccess>(async (publicToken, metadata) => {
+    if (!mounted.current || !linkOperation) return
+    try { linkOperation() } catch { return }
     setBusy('link')
     setError(null)
     try {
       if (updateItemId) {
+        linkOperation()
         const nextOverview = await syncPlaidItem(updateItemId)
+        linkOperation()
+        if (!mounted.current) return
         const item = nextOverview.items.find((candidate) => candidate.id === updateItemId)
         setOverview(nextOverview)
         setSyncWatch({ itemId: updateItemId, baselineLastSyncedAt: item?.last_synced_at ?? null })
         setNotice('Bank sign-in updated. Transaction sync is running.')
       } else {
+        linkOperation()
         const result = await exchangePlaidPublicToken({
           public_token: publicToken,
           institution_id: metadata.institution?.institution_id,
           institution_name: metadata.institution?.name,
         })
+        linkOperation()
+        if (!mounted.current) return
         setOverview(result.plaid)
         setSyncWatch({ itemId: result.item.id, baselineLastSyncedAt: result.item.last_synced_at })
         setNotice('Bank connected. Preparing transaction history now; official actuals will not change until you approve them.')
       }
       await refresh()
     } catch (reason) {
+      if (!mounted.current) return
+      try { linkOperation() } catch { return }
       setError(reason instanceof Error ? reason.message : 'Could not finish the bank connection.')
     } finally {
-      finishOAuthSession()
-      setBusy(null)
-      setLinkToken(null)
-      setUpdateItemId(null)
-      setLaunchLink(false)
+      if (mounted.current && operationIsCurrent(linkOperation)) {
+        finishOAuthSession()
+        setBusy(null)
+        setLinkToken(null)
+        setUpdateItemId(null)
+        setLaunchLink(false)
+      }
     }
-  }, [finishOAuthSession, refresh, updateItemId])
+  }, [finishOAuthSession, linkOperation, refresh, updateItemId])
 
   const onExit = useCallback<PlaidLinkOnExit>((linkError, metadata) => {
+    if (!mounted.current || !linkOperation) return
+    try { linkOperation() } catch { return }
     if (linkError) {
       const message = linkError.display_message || 'The bank connection could not be completed.'
       const reference = metadata.request_id ? ` Plaid reference: ${metadata.request_id}.` : ''
@@ -341,117 +396,168 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
     setUpdateItemId(null)
     setLaunchLink(false)
     setBusy(null)
-  }, [finishOAuthSession])
+  }, [finishOAuthSession, linkOperation])
 
   const connect = async () => {
+    const assertCurrent = captureCurrentOperation()
+    const financialGeneration = getApiFinancialGeneration()
     setBusy('connect')
     setError(null)
     try {
       const result = await createPlaidLinkToken(consent)
-      savePlaidOAuthSession({ userId, linkToken: result.link_token, updateItemId: null })
+      assertCurrent()
+      savePlaidOAuthSession({ userId, householdId, financialGeneration, linkToken: result.link_token, updateItemId: null })
+      setLinkOperation(() => assertCurrent)
       setLinkToken(result.link_token)
       setLaunchLink(true)
       setBusy('link')
     } catch (reason) {
+      try { assertCurrent() } catch { return }
       setError(reason instanceof Error ? reason.message : 'Could not start Plaid Link.')
       setBusy(null)
     }
   }
 
   const repair = async (item: PlaidItem) => {
+    if (item.context_paused_by_restart) return
+    const assertCurrent = captureCurrentOperation()
+    const financialGeneration = getApiFinancialGeneration()
     setBusy(`repair-${item.id}`)
     setError(null)
     try {
       const result = await createPlaidUpdateLinkToken(item.id)
-      savePlaidOAuthSession({ userId, linkToken: result.link_token, updateItemId: item.id })
+      assertCurrent()
+      savePlaidOAuthSession({ userId, householdId, financialGeneration, linkToken: result.link_token, updateItemId: item.id })
+      setLinkOperation(() => assertCurrent)
       setUpdateItemId(item.id)
       setLinkToken(result.link_token)
       setLaunchLink(true)
       setBusy('link')
     } catch (reason) {
+      try { assertCurrent() } catch { return }
       setError(reason instanceof Error ? reason.message : 'Could not start the bank sign-in update.')
       setBusy(null)
     }
   }
 
   const runItemAction = async (item: PlaidItem, action: 'sync' | 'disconnect') => {
+    if (action === 'sync' && item.context_paused_by_restart) return
     if (action === 'disconnect' && !window.confirm(`Disconnect ${item.institution_name}? Plaid access and unapproved imported bank data will be removed. Approved actuals will stay in your household record.`)) return
+    const assertCurrent = captureCurrentOperation()
     setBusy(`${action}-${item.id}`)
     setError(null)
     try {
       if (action === 'sync') {
         const nextOverview = await syncPlaidItem(item.id)
+        assertCurrent()
         setOverview(nextOverview)
         setSyncWatch({ itemId: item.id, baselineLastSyncedAt: item.last_synced_at })
         setNotice('Sync is running. Posted expenses will move into household review as the bank feed finishes updating.')
       } else {
         await disconnectPlaidItem(item.id)
+        assertCurrent()
         setNotice('Bank disconnected and Plaid source data removed.')
         await refresh()
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : `Could not ${action} this bank.`)
+      if (operationIsCurrent(assertCurrent)) setError(reason instanceof Error ? reason.message : `Could not ${action} this bank.`)
     } finally {
-      setBusy(null)
+      if (operationIsCurrent(assertCurrent)) setBusy(null)
     }
   }
 
   const updateReviewPreference = async (item: PlaidItem, enabled: boolean) => {
+    if (item.context_paused_by_restart) return
+    const assertCurrent = captureCurrentOperation()
     setBusy(`preference-${item.id}`)
     setError(null)
     try {
-      setOverview(await updatePlaidItemPreferences(item.id, { auto_confirm_trusted_merchants: enabled }))
+      const next = await updatePlaidItemPreferences(item.id, { auto_confirm_trusted_merchants: enabled })
+      assertCurrent(); setOverview(next)
       setNotice(enabled
         ? 'Trusted-merchant automation is on. Only familiar posted amounts with a proven category rule can confirm automatically.'
         : 'Trusted-merchant automation is off. Posted expenses will wait for your review.')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not update the transaction review preference.')
+      if (operationIsCurrent(assertCurrent)) setError(reason instanceof Error ? reason.message : 'Could not update the transaction review preference.')
     } finally {
-      setBusy(null)
+      if (operationIsCurrent(assertCurrent)) setBusy(null)
     }
   }
 
   const applySelection = async (action: 'stage' | 'ignore') => {
+    if (picture === 'history') return
+    const assertCurrent = captureCurrentOperation()
     setBusy(action)
     setError(null)
     try {
       if (action === 'stage') {
         const result = await stagePlaidTransactions(selected)
+        assertCurrent()
         setNotice(`${result.drafted_count} bank transaction${result.drafted_count === 1 ? '' : 's'} moved to review. Actuals have not changed.`)
-        await onDraftsCreated()
+        await onDraftsCreatedRef.current()
+        assertCurrent()
       } else {
         const result = await ignorePlaidTransactions(selected)
+        assertCurrent()
         setNotice(`${result.ignored_count} bank transaction${result.ignored_count === 1 ? '' : 's'} ignored.`)
       }
       setSelected([])
       await refresh()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not update the selected transactions.')
+      if (operationIsCurrent(assertCurrent)) setError(reason instanceof Error ? reason.message : 'Could not update the selected transactions.')
     } finally {
-      setBusy(null)
+      if (operationIsCurrent(assertCurrent)) setBusy(null)
     }
   }
 
   const loadOlderTransactions = async () => {
+    const assertCurrent = captureCurrentOperation()
+    const sequence = refreshSequence.current
     setBusy('older')
     setError(null)
     try {
-      const next = await fetchPlaidTransactions(transactionPage + 1, activityView, { query: activityQuery, accountId: activityAccountId, reviewYear })
+      const next = await fetchPlaidTransactions(transactionPage + 1, activityView, { query: activityQuery, accountId: activityAccountId, reviewYear, picture })
+      assertCurrent()
+      if (sequence !== refreshSequence.current) return
       setTransactions((current) => [...current, ...next.transactions])
       setTransactionPage(next.pagination.page)
       setHasMoreTransactions(next.pagination.has_more)
       setActivityTotal(next.pagination.total)
       setActivitySummary(next.summary)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not load older bank activity.')
+      if (operationIsCurrent(assertCurrent)) setError(reason instanceof Error ? reason.message : 'Could not load older bank activity.')
     } finally {
-      setBusy(null)
+      if (operationIsCurrent(assertCurrent)) setBusy(null)
     }
   }
 
+  const resumeBankActivity = async (item: PlaidItem) => {
+    if (resumeInFlight.current) return
+    resumeInFlight.current = true
+    const assertCurrent = captureCurrentOperation()
+    setBusy(`resume-${item.id}`); setError(null)
+    try {
+      const resumed = await resumePlaidItemFinancialPicture(item.id, item.financial_generation ?? 0)
+      assertCurrent(); setOverview(resumed); setResumeItem(null)
+      setNotice('New bank activity is enabled. Preparing a fresh sync; older activity remains in History. Automatic approvals remain off.')
+      const baseline = resumed.items.find(candidate => candidate.id === item.id)?.last_synced_at ?? null
+      const next = await syncPlaidItem(item.id)
+      assertCurrent(); setOverview(next)
+      setSyncWatch({ itemId: item.id, baselineLastSyncedAt: baseline })
+      await refresh()
+    } catch (reason) {
+      try { assertCurrent() } catch { return }
+      setError(reason instanceof Error ? reason.message : 'Could not enable new bank activity. Check the connection status before retrying.')
+    } finally {
+      resumeInFlight.current = false
+      if (operationIsCurrent(assertCurrent)) setBusy(null)
+    }
+  }
+  const resumeDialog = resumeItem ? <BankActivityResumeDialog institutionName={resumeItem.institution_name} busy={busy === `resume-${resumeItem.id}`} error={error} onClose={() => { if (!busy) setResumeItem(null) }} onConfirm={() => void resumeBankActivity(resumeItem)} /> : null
+
   const activeItems = overview?.items.filter((item) => item.status !== 'disconnected') ?? []
   const activeAccounts = activeItems.flatMap((item) => item.accounts.filter((account) => account.active))
-  const stageable = useMemo(() => transactions.filter((transaction) => transaction.stageable), [transactions])
+  const stageable = useMemo(() => picture === 'history' ? [] : transactions.filter((transaction) => transaction.stageable && !transaction.context_paused_by_restart), [picture, transactions])
   const plaidLinkLauncher = linkToken && plaidScriptReady ? (
     <PlaidLinkLauncher
       token={linkToken}
@@ -459,6 +565,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
       launch={launchLink}
       onSuccess={onSuccess}
       onExit={onExit}
+      assertCurrent={linkOperation ?? undefined}
     />
   ) : null
 
@@ -466,6 +573,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
     return (
       <section className="panel plaid-workspace" aria-labelledby="bank-connections-heading">
         {plaidLinkLauncher}
+        {resumeDialog}
         <div className="plaid-heading">
           <div>
             <span className="eyebrow">{overview && !overview.configured ? 'Manual-first pilot' : 'Bank connections'}</span>
@@ -499,11 +607,12 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
                   <div>
                     <strong>{item.institution_name}</strong>
                     <span className={`plaid-status is-${item.status}`}>{item.status.replace('_', ' ')}</span>
-                    <p>{syncWatch?.itemId === item.id ? `Preparing transaction history now. You can keep using ${brand.product_name} while this finishes.` : item.last_synced_at ? `Last synced ${new Date(item.last_synced_at).toLocaleString()}` : 'Initial history is still being prepared.'}</p>
+                    <p>{item.context_paused_by_restart ? 'Paused after starting over. Older balances and activity are kept in History and are not part of your new financial picture.' : syncWatch?.itemId === item.id ? `Preparing transaction history now. You can keep using ${brand.product_name} while this finishes.` : item.last_synced_at ? `Last synced ${new Date(item.last_synced_at).toLocaleString()}` : 'Initial history is still being prepared.'}</p>
                   </div>
                   <div className="plaid-item-actions">
-                    {item.status === 'update_required' && <button type="button" onClick={() => void repair(item)} disabled={Boolean(busy)}>Reconnect</button>}
-                    <button type="button" onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy) || syncWatch?.itemId === item.id || item.status === 'disconnecting'}>{syncWatch?.itemId === item.id ? 'Syncing…' : 'Sync now'}</button>
+                    {item.context_paused_by_restart && <button type="button" className="primary-button" disabled={Boolean(busy) || item.status === 'disconnecting'} onClick={() => { setError(null); setResumeItem(item) }}>Use new bank activity</button>}
+                    {item.status === 'update_required' && !item.context_paused_by_restart && <button type="button" onClick={() => void repair(item)} disabled={Boolean(busy)}>Reconnect</button>}
+                    <button type="button" onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy) || item.context_paused_by_restart || syncWatch?.itemId === item.id || item.status === 'disconnecting'}>{syncWatch?.itemId === item.id ? 'Syncing…' : 'Sync now'}</button>
                     <button type="button" className="danger-button" onClick={() => void runItemAction(item, 'disconnect')} disabled={Boolean(busy)}>{item.status === 'disconnecting' ? 'Finish disconnect' : 'Disconnect'}</button>
                   </div>
                   <div className={`plaid-health-strip is-${item.health.state}`} role={item.health.requires_attention ? 'alert' : 'status'}>
@@ -512,12 +621,12 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
                   </div>
                   <div className="plaid-accounts">
                     {item.accounts.filter((account) => account.active).map((account) => (
-                      <div key={account.id}><span>{account.name} {account.mask ? `••${account.mask}` : ''}</span><strong>{account.current_balance_cents == null ? 'Balance unavailable' : money.format(account.current_balance_cents / 100)}</strong></div>
+                      <div key={account.id}><span>{account.name} {account.mask ? `••${account.mask}` : ''}</span><strong>{!hasFreshBankObservation(item) ? (item.context_paused_by_restart ? 'Previous picture · balance hidden' : 'Awaiting fresh balance') : account.current_balance_cents == null ? 'Balance unavailable' : money.format(account.current_balance_cents / 100)}</strong></div>
                     ))}
                   </div>
                   <label className="plaid-automation-toggle">
                     <span><strong>Auto-confirm familiar merchants</strong><small>After three matching approvals, familiar posted amounts can use that exact merchant-category rule. Unusual amounts and duplicate candidates still wait.</small></span>
-                    <input type="checkbox" role="switch" checked={item.auto_confirm_trusted_merchants} disabled={Boolean(busy)} onChange={(event) => void updateReviewPreference(item, event.currentTarget.checked)} />
+                    <input type="checkbox" role="switch" checked={!item.context_paused_by_restart && item.auto_confirm_trusted_merchants} disabled={Boolean(busy) || item.context_paused_by_restart} onChange={(event) => void updateReviewPreference(item, event.currentTarget.checked)} />
                   </label>
                 </article>
               ))}
@@ -532,6 +641,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
   return (
     <section className="panel plaid-workspace plaid-activity" aria-labelledby="bank-activity-heading">
       {plaidLinkLauncher}
+      {resumeDialog}
       <div className="plaid-heading">
         <div>
           <span className="eyebrow">{overview && !overview.configured ? 'Manual activity' : 'Transaction activity'}</span>
@@ -554,24 +664,29 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
         )
       ) : (
         <>
+          <nav className="plaid-picture-tabs" aria-label="Bank financial picture">
+            {(['current', 'history'] as const).map(value => <button type="button" key={value} className={picture === value ? 'is-active' : ''} aria-pressed={picture === value} disabled={Boolean(busy)} onClick={() => { setPicture(value); setSelected([]); setTransactions([]); setActivitySummary(null) }}>{value === 'current' ? 'Current picture' : 'History'}</button>)}
+          </nav>
+          {picture === 'history' && <p className="plaid-history-note" role="status">Activity from before you started over. View only: it cannot be added to your current budget or approved again here.</p>}
           {activitySummary && (
             <>
               <div className="plaid-activity-summary" aria-label="Bank activity summary">
                 <article className="is-observed"><span>Bank-observed spending</span><strong>{money.format(activitySummary.posted_outflow_cents / 100)}</strong><small>{activitySummary.posted_outflow_count} posted outflows</small></article>
-                <article className="is-confirmed"><span>Confirmed actuals</span><strong>{money.format(activitySummary.confirmed_cents / 100)}</strong><small>{activitySummary.confirmed_actual_count} approved ledger transactions</small></article>
-                <article className="is-review"><span>Needs review · all history</span><strong>{money.format(activitySummary.needs_review_cents / 100)}</strong><small>{activitySummary.needs_review_count} decisions waiting</small></article>
-                <article><span>Bank pending</span><strong>{money.format(activitySummary.pending_cents / 100)}</strong><small>{activitySummary.pending_count} not posted yet</small></article>
+                <article className="is-confirmed"><span>{picture === 'history' ? 'Previously confirmed' : 'Confirmed actuals'}</span><strong>{money.format(activitySummary.confirmed_cents / 100)}</strong><small>{activitySummary.confirmed_actual_count} approved ledger transactions</small></article>
+                <article className="is-review"><span>{picture === 'history' ? 'Previous review status' : 'Needs review'}</span><strong>{money.format(activitySummary.needs_review_cents / 100)}</strong><small>{activitySummary.needs_review_count} decisions waiting</small></article>
+                <article><span>{picture === 'history' ? 'Previous bank pending' : 'Bank pending'}</span><strong>{money.format(activitySummary.pending_cents / 100)}</strong><small>{activitySummary.pending_count} not posted yet</small></article>
               </div>
-              <div className="plaid-review-scope" role="status">
+              <div className="plaid-review-scope" role="status" hidden={picture === 'history'}>
                 <span><strong>{activitySummary.review_year_needs_review_count ?? activitySummary.needs_review_count} in the {activitySummary.review_year ?? reviewYear} budget-year queue.</strong>{(activitySummary.other_years_needs_review_count ?? 0) > 0 ? ` ${activitySummary.other_years_needs_review_count} older decision${activitySummary.other_years_needs_review_count === 1 ? '' : 's'} remain available in their budget years.` : ' All waiting decisions are in this budget year.'}</span>
-                {onOpenBudget && <button type="button" onClick={onOpenBudget}>Review by budget year</button>}
+                {picture === 'current' && onOpenBudget && <button type="button" onClick={onOpenBudget}>Review by budget year</button>}
               </div>
             </>
           )}
 
           <div className="plaid-source-strip">
-            <div>{activeItems.map((item) => <span key={item.id}><strong>{item.institution_name}</strong>{syncWatch?.itemId === item.id ? ' · Syncing now' : item.last_synced_at ? ` · Synced ${new Date(item.last_synced_at).toLocaleString()}` : ' · Preparing history'} · {item.health.label}</span>)}</div>
-            {activeItems.map((item) => <button type="button" className="secondary-button" key={item.id} onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy) || syncWatch?.itemId === item.id}>{syncWatch?.itemId === item.id ? 'Syncing…' : `Sync ${item.institution_name}`}</button>)}
+            <div>{activeItems.map((item) => <span key={item.id}><strong>{item.institution_name}</strong>{item.context_paused_by_restart ? ' · Paused after starting over' : syncWatch?.itemId === item.id ? ' · Syncing now' : item.last_synced_at ? ` · Synced ${new Date(item.last_synced_at).toLocaleString()}` : ' · Preparing history'} · {item.health.label}</span>)}</div>
+            {activeItems.filter(item => item.context_paused_by_restart).map(item => <button type="button" className="primary-button" key={`resume-${item.id}`} disabled={Boolean(busy)} onClick={() => { setError(null); setResumeItem(item) }}>Use new activity from {item.institution_name}</button>)}
+            {activeItems.map((item) => <button type="button" className="secondary-button" key={item.id} onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy) || item.context_paused_by_restart || syncWatch?.itemId === item.id}>{syncWatch?.itemId === item.id ? 'Syncing…' : `Sync ${item.institution_name}`}</button>)}
           </div>
 
           <nav className="plaid-activity-tabs" aria-label="Transaction activity filters">
@@ -606,7 +721,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
             <div className="plaid-transaction-list">
               {transactions.map((transaction) => (
                 <article className={`plaid-transaction is-${transaction.trust_state}`} key={transaction.id}>
-                  {transaction.stageable ? (
+                  {picture === 'current' && transaction.stageable && !transaction.context_paused_by_restart ? (
                     <input aria-label={`Select ${transaction.merchant_name || transaction.name}`} type="checkbox" checked={selected.includes(transaction.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, transaction.id] : current.filter((id) => id !== transaction.id))} />
                   ) : <span className="plaid-state-mark" aria-hidden="true" />}
                   <span className="plaid-transaction-copy">
@@ -623,7 +738,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
               {transactions.length === 0 && <div className="plaid-empty"><strong>Nothing in this view.</strong><p>Try another activity state or sync the connected account.</p></div>}
             </div>
             {hasMoreTransactions && <button type="button" className="plaid-load-more" onClick={() => void loadOlderTransactions()} disabled={Boolean(busy)}>Load older activity</button>}
-            {selected.length > 0 && (
+            {picture === 'current' && selected.length > 0 && (
               <div className="plaid-review-actions">
                 <button type="button" onClick={() => void applySelection('ignore')} disabled={Boolean(busy)}>Exclude selected</button>
                 <button type="button" className="primary-button" onClick={() => void applySelection('stage')} disabled={Boolean(busy)}>Prepare {selected.length} for review</button>
@@ -642,18 +757,20 @@ function PlaidLinkLauncher({
   launch,
   onSuccess,
   onExit,
+  assertCurrent,
 }: {
   token: string
   receivedRedirectUri?: string
   launch: boolean
   onSuccess: PlaidLinkOnSuccess
   onExit: PlaidLinkOnExit
+  assertCurrent?: () => void
 }) {
   const { open, ready } = usePlaidLink({ token, onSuccess, onExit, receivedRedirectUri })
 
   useEffect(() => {
-    if (launch && ready) open()
-  }, [launch, open, ready])
+    if (launch && ready && assertCurrent && operationIsCurrent(assertCurrent)) open()
+  }, [assertCurrent, launch, open, ready])
 
   return null
 }

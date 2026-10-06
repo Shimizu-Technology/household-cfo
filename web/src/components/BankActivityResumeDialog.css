@@ -1,0 +1,13 @@
+.bank-resume-overlay { position: fixed; z-index: 110; top: var(--dialog-viewport-top, 0px); left: 0; right: 0; height: var(--dialog-viewport-height, 100dvh); display: grid; place-items: center; padding: var(--dialog-space-top, 12px) 12px var(--dialog-space-bottom, 12px); }
+.bank-resume-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 0; background: rgba(31,36,33,.55); }
+.bank-resume-dialog { position: relative; display: flex; flex-direction: column; width: min(560px,100%); max-height: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: var(--paper); box-shadow: 0 24px 70px rgba(31,36,33,.25); }
+.bank-resume-dialog > header { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid var(--line); }
+.bank-resume-dialog h2 { margin: 0; font-size: 1.4rem; }
+.bank-resume-dialog > header button { min-height: 44px; flex-shrink: 0; }
+.bank-resume-dialog p, .bank-resume-dialog li { margin: 0; line-height: 1.5; color: var(--muted); }
+.bank-resume-dialog ul { margin: 0; padding-left: 20px; display: grid; gap: 12px; }
+.bank-resume-dialog label { display: flex; align-items: start; gap: 12px; line-height: 1.5; }
+.bank-resume-dialog input { flex: 0 0 auto; width: 20px; height: 20px; margin-top: 2px; }
+.bank-resume-actions { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 4px; }
+.bank-resume-actions button { min-height: 44px; white-space: normal; }
+@media(max-width:390px) { .bank-resume-actions { display: grid; } .bank-resume-actions button { width: 100%; } }

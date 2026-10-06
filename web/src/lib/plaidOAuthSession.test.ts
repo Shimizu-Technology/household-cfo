@@ -32,6 +32,23 @@ describe('Plaid OAuth session storage', () => {
     expect(readPlaidOAuthSession('99', storage, 2_000)).toBeNull()
   })
 
+  it('restores only the same financial picture and household', () => {
+    const storage = new MemoryStorage()
+    savePlaidOAuthSession({ userId: '42', linkToken: 'link-sandbox-test', updateItemId: 7, financialGeneration: 1, householdId: 12 }, storage, 1000)
+    expect(readPlaidOAuthSession('42', storage, 2000, { financialGeneration: 1, householdId: 12 })).not.toBeNull()
+    expect(readPlaidOAuthSession('42', storage, 2000, { financialGeneration: 2, householdId: 12 })).toBeNull()
+    savePlaidOAuthSession({ userId: '42', linkToken: 'link-sandbox-test', updateItemId: 7, financialGeneration: 1, householdId: 12 }, storage, 1000)
+    expect(readPlaidOAuthSession('42', storage, 2000, { financialGeneration: 1, householdId: 13 })).toBeNull()
+  })
+  it('accepts legacy metadata only before a restart, and rejects unknown household scope', () => {
+    const storage = new MemoryStorage()
+    savePlaidOAuthSession({ userId: '42', linkToken: 'link-sandbox-test', updateItemId: null }, storage, 1000)
+    expect(readPlaidOAuthSession('42', storage, 2000, { financialGeneration: 0 })).not.toBeNull()
+    expect(readPlaidOAuthSession('42', storage, 2000, { financialGeneration: 1 })).toBeNull()
+    savePlaidOAuthSession({ userId: '42', linkToken: 'link-sandbox-test', updateItemId: null }, storage, 1000)
+    expect(readPlaidOAuthSession('42', storage, 2000, { financialGeneration: 0, householdId: 12 })).toBeNull()
+  })
+
   it('rejects and removes expired sessions', () => {
     const storage = new MemoryStorage()
     savePlaidOAuthSession({ userId: '42', linkToken: 'link-sandbox-test', updateItemId: null }, storage, 1_000)

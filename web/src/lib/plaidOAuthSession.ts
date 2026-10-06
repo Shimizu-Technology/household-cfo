@@ -5,6 +5,8 @@ export type PlaidOAuthSession = {
   userId: string
   linkToken: string
   updateItemId: number | null
+  financialGeneration?: number
+  householdId?: number | null
   createdAt: number
 }
 
@@ -40,6 +42,7 @@ export function readPlaidOAuthSession(
   userId: string,
   storage: SessionStorage | null = browserStorage(),
   now = Date.now(),
+  context?: { financialGeneration: number; householdId?: number | null },
 ): PlaidOAuthSession | null {
   if (!storage) return null
 
@@ -47,10 +50,15 @@ export function readPlaidOAuthSession(
     const raw = storage.getItem(PLAID_OAUTH_SESSION_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<PlaidOAuthSession>
-    const valid = parsed.userId === userId
+    const contextMatches = !context || ((parsed.financialGeneration ?? 0) === context.financialGeneration
+      && (parsed.financialGeneration !== undefined || context.financialGeneration === 0)
+      && (context.householdId === undefined || parsed.householdId === context.householdId))
+    const valid = contextMatches && parsed.userId === userId
       && typeof parsed.linkToken === 'string'
       && parsed.linkToken.startsWith('link-')
       && (parsed.updateItemId === null || typeof parsed.updateItemId === 'number')
+      && (parsed.financialGeneration === undefined || (Number.isSafeInteger(parsed.financialGeneration) && parsed.financialGeneration! >= 0))
+      && (parsed.householdId === undefined || parsed.householdId === null || (Number.isSafeInteger(parsed.householdId) && parsed.householdId! > 0))
       && typeof parsed.createdAt === 'number'
       && now - parsed.createdAt <= PLAID_OAUTH_SESSION_TTL_MS
       && parsed.createdAt <= now + 60_000

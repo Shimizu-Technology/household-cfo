@@ -100,3 +100,11 @@
   .plaid-transaction > strong:last-child { grid-column: 2; grid-row: auto; }
   .plaid-accounts > div { align-items: flex-start; flex-direction: column; gap: .2rem; }
 }
+.plaid-picture-tabs { display: flex; flex-wrap: wrap; gap: 12px; }
+.plaid-picture-tabs button { min-height: 44px; }
+.plaid-picture-tabs .is-active { color: white; background: var(--berry); border-color: var(--berry); }
+.plaid-history-note { margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); line-height: 1.5; }
+.plaid-review-scope[hidden] { display: none; }
+.plaid-source-strip { flex-wrap: wrap; }
+.plaid-source-strip > div { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.plaid-source-strip > button { max-width: 100%; white-space: normal; }
