@@ -10440,3 +10440,185 @@ test('BOG UI chat assist panels keep spaced actions readable and preserve a draf
   await expect(composer).toBeFocused()
   expect(sentMessages).toEqual([])
 })
+
+function restartBrowserWorkspace(generation: number) {
+  const base = realWorkspaceData(generation === 0)
+  const empty = generation > 0
+  const plan = base.budget.annual_plan
+  return {
+    ...base,
+    workspace: {
+      ...base.workspace, financial_generation: generation, experience_mode: 'savings_challenge',
+      income_sources: empty ? [] : base.workspace.income_sources,
+      debts: empty ? [] : [{ id: 601, label: 'Practice Visa', debt_type: 'credit_card', balance: 3400, minimum_payment: 175, interest_rate_percent: 19.9, active: true, source_type: 'manual', archived_at: null }],
+      debt_portfolio: { ...base.workspace.debt_portfolio, total_balance: empty ? null : 3400, monthly_minimum: empty ? null : 175, balance_known: !empty, minimum_payment_known: !empty, active_count: empty ? 0 : 1 },
+      setup_values: { ...base.workspace.setup_values, primary_goal: empty ? '' : 'Practice goal', primary_income: empty ? null : 5000, business_income: empty ? null : 0, fixed_expenses: empty ? null : 2500, flexible_spend: empty ? null : 600, credit_card_debt: empty ? null : 3400, debt_payment: empty ? null : 175 },
+    },
+    budget: { ...base.budget, financial_generation: generation, annual_plan: { ...plan, rows: empty ? [] : plan.rows, income_sources: empty ? [] : plan.income_sources, monthly_income: empty ? {} : plan.monthly_income, pending_mia_action_drafts: [], pending_transaction_drafts: [], recent_transactions: [], archived_categories: [] } },
+    mia: { ...base.mia, messages: [], oldest_message_id: null, older_message_count: 0 },
+  }
+}
+
+async function mockFinancialRestartBrowser(page: Page, options: { lostReply?: boolean; sharedMembers?: number } = {}) {
+  let generation = 0, previewCalls = 0, applyCalls = 0, cancelCalls = 0
+  const statusChecks: string[] = []
+  const applies: Array<Record<string, unknown>> = []
+  let review: Record<string, unknown> | null = null
+  const pending = (id: number) => ({
+    id, status: 'pending', financial_generation: generation, household_name: 'Test Participant Household',
+    expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), shared_member_count: options.sharedMembers ?? 2,
+    counts: { income_sources: 3, income_schedule_entries: 8, expense_items: 6, budget_years: 4, budget_categories: 6, budget_allocations: 288, debts: 2, accounts: 3, goals: 2, household_transactions: 121, transaction_drafts: 4, mia_action_drafts: 2, merchant_category_rules: 7, document_imports: 5, bank_connections: 1 },
+    reset_fields: ['Financial setup and confirmations', 'Income including historical and future schedules', 'Spending categories, plans and actuals', 'Debts, accounts and goals'],
+    preserved: ['Login, household name and members', 'BOG enrollment, savings, evidence and optional card reviews', 'Original uploads and bank connections', 'Audit and previous financial history', 'Earlier chats for reference', 'Saved private memories (paused in Mia until reviewed)'],
+    paused: ['Earlier document applications', 'Earlier bank transaction staging and automatic confirmation', 'Previous chat continuity and saved-memory context'], clears_chat: false, clears_memories: false,
+  })
+  const state = () => ({ household_id: 77, household_name: 'Test Participant Household', available: true, owner_required: false, financial_generation: generation, latest_review: review })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ headers: { 'X-Financial-Generation': String(generation), 'Access-Control-Expose-Headers': 'X-Financial-Generation' }, json: restartBrowserWorkspace(generation) }))
+  await page.route('http://api.test/api/v1/financial_restart/**', async route => {
+    const path = new URL(route.request().url()).pathname, input = route.request().method() === 'POST' ? route.request().postDataJSON() : null
+    if (path.endsWith('/status')) {
+      statusChecks.push(new URL(route.request().url()).search)
+      return route.fulfill({ headers: { 'X-Financial-Generation': String(generation), 'Access-Control-Expose-Headers': 'X-Financial-Generation' }, json: { financial_restart: state() } })
+    }
+    if (path.endsWith('/preview')) {
+      previewCalls += 1; review = pending(1300 + previewCalls)
+      return route.fulfill({ status: 201, json: { financial_restart: { ...state(), review } } })
+    }
+    if (path.endsWith('/cancel')) {
+      cancelCalls += 1; expect(input.review_id).toBe(review?.id); review = { ...review, status: 'canceled' }
+      return route.fulfill({ json: { financial_restart: { ...state(), review } } })
+    }
+    if (path.endsWith('/apply')) {
+      applyCalls += 1; applies.push(input)
+      expect(input.review_id).toBe(review?.id); expect(input.confirmation).toBe('START OVER')
+      expect(input.shared_household_acknowledged).toBe((options.sharedMembers ?? 2) > 0)
+      generation += 1; review = { ...review, status: 'applied', result_generation: generation, applied_at: new Date().toISOString() }
+      if (options.lostReply) return route.abort('failed')
+      return route.fulfill({ headers: { 'X-Financial-Generation': String(generation), 'Access-Control-Expose-Headers': 'X-Financial-Generation' }, json: { financial_restart: { ...state(), review, setup_required: true } } })
+    }
+    throw new Error(`Unexpected fictional restart route: ${path}`)
+  })
+  await page.route('http://api.test/api/v1/mia/messages', route => {
+    const message = route.request().postDataJSON().message
+    return route.fulfill({ json: {
+      financial_restart: { available: true, state: 'review_available' },
+      user_message: { id: 201, role: 'user', author: 'You', content: message, created_at: new Date().toISOString() },
+      assistant_message: { id: 202, role: 'assistant', author: 'Mia', content: 'I can help you start over with your real numbers. Review what starts fresh and what stays before confirming.', financial_restart: { available: true, state: 'review_available' }, created_at: new Date().toISOString() },
+      budget: null, transaction_draft: null, mia_action_draft: null,
+    } })
+  })
+  return { generation: () => generation, previewCalls: () => previewCalls, applyCalls: () => applyCalls, cancelCalls: () => cancelCalls, statusChecks, applies, changePicture: () => { generation += 1 } }
+}
+
+async function assertRestartUnknownMoney(page: Page) {
+  await openSection(page, 'My Money')
+  await expect(page.locator('.income-source-manager-heading')).toContainText('Income not entered')
+  await expect(page.locator('.income-source-empty')).toContainText('No income sources yet.')
+  await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: 'Debt', exact: true }).click()
+  await expect(page.locator('.debt-empty')).toContainText('No active debts entered yet.')
+  await expect(page.getByLabel('Canonical debt totals')).toContainText('Not entered')
+  await expect(page.locator('.debt-manager')).not.toContainText('Practice Visa')
+  await expect(page.getByRole('button', { name: 'Confirm no debt ($0)', exact: true })).toBeVisible()
+}
+
+async function acknowledgeRestart(dialog: ReturnType<Page['getByRole']>) {
+  await dialog.getByRole('checkbox', { name: /I reviewed what starts fresh/ }).check()
+  const apply = dialog.getByRole('button', { name: 'Start over with my real numbers', exact: true })
+  await expect(apply).toBeDisabled()
+  await dialog.getByRole('checkbox', { name: /I understand this changes the shared financial picture/ }).check()
+  await expect(apply).toBeEnabled()
+}
+
+for (const size of [null, { width: 390, height: 844 }, { width: 320, height: 568 }, { width: 320, height: 280 }]) {
+  test(`BOG UI financial restart opens a concrete review from Mia and requires shared confirmation at ${size ? `${size.width}x${size.height}` : 'desktop'}`, async ({ page }) => {
+    if (size) await page.setViewportSize(size)
+    const flow = await mockFinancialRestartBrowser(page)
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('These are practice numbers. Can you reset everything so I can use my real information?')
+    await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Start over with my real numbers', exact: true })
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('Test Participant Household')
+    await expect(dialog.locator('.financial-restart-counts > div')).toHaveCount(15)
+    await expect(dialog).toContainText('BOG enrollment, savings, evidence and optional card reviews')
+    await assertDialogVisibleHeight(dialog)
+    const body = dialog.locator('.pilot-dialog-body')
+    expect(await body.evaluate(node => node.scrollHeight - node.clientHeight)).toBeGreaterThan(0)
+    await body.evaluate(node => { node.scrollTop = node.scrollHeight })
+    await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport()
+    await expect(dialog.getByRole('button', { name: 'Keep my current picture', exact: true })).toBeInViewport()
+    const bounds = await dialog.evaluate(node => {
+      const panel = node.getBoundingClientRect()
+      return Array.from(node.querySelectorAll(':scope > header button, :scope > footer button')).map(button => { const box = button.getBoundingClientRect(); return { top: box.top, bottom: box.bottom, left: box.left, right: box.right, panelTop: panel.top, panelBottom: panel.bottom, panelLeft: panel.left, panelRight: panel.right } })
+    })
+    for (const button of bounds) { expect(button.top).toBeGreaterThanOrEqual(button.panelTop); expect(button.bottom).toBeLessThanOrEqual(button.panelBottom + 1); expect(button.left).toBeGreaterThanOrEqual(button.panelLeft); expect(button.right).toBeLessThanOrEqual(button.panelRight + 1) }
+    await dialog.getByRole('button', { name: 'Keep my current picture', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(flow.cancelCalls()).toBe(1); expect(flow.applyCalls()).toBe(0); expect(flow.generation()).toBe(0)
+    await page.getByRole('button', { name: 'Review start over', exact: true }).click()
+    await acknowledgeRestart(dialog)
+    await dialog.getByRole('button', { name: 'Start over with my real numbers', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(flow.applyCalls()).toBe(1); expect(flow.generation()).toBe(1)
+    await expect(page.getByRole('status').filter({ hasText: 'Your financial picture is ready for a fresh start.' })).toBeVisible()
+    await assertRestartUnknownMoney(page)
+  })
+}
+
+test('BOG UI financial restart resolves an exact lost reply without applying a second restart', async ({ page }) => {
+  const flow = await mockFinancialRestartBrowser(page, { lostReply: true })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openAccountHelp(page)
+  await page.locator('.shell-account-menu').getByRole('button', { name: 'Start over with my real numbers', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Start over with my real numbers', exact: true })
+  await acknowledgeRestart(dialog)
+  await dialog.getByRole('button', { name: 'Start over with my real numbers', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: 'Check whether start over finished', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Close and check later', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
+  await openAccountHelp(page)
+  await page.locator('.shell-account-menu').getByRole('button', { name: 'Start over with my real numbers', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Your financial picture is ready for a fresh start.' })).toBeVisible()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(flow.applyCalls).toBe(1)
+  expect(flow.previewCalls()).toBe(1)
+  expect(flow.statusChecks).toContain('?review_id=1301')
+  await assertRestartUnknownMoney(page)
+})
+
+for (const delayedPath of ['', '/context']) {
+  test(`BOG UI financial restart discards a stale baseline ${delayedPath ? 'source choices' : 'head'} reply and its old draft`, async ({ page }) => {
+    const flow = await mockFinancialRestartBrowser(page)
+    let delayed = false, reached = false
+    let release: () => void = () => undefined
+    const gate = new Promise<void>(resolve => { release = resolve })
+    await page.route('http://api.test/api/v1/financial_baseline**', async route => {
+      const path = new URL(route.request().url()).pathname.replace('/api/v1/financial_baseline', '')
+      if (delayed && path === delayedPath) { reached = true; await gate }
+      const gen = flow.generation()
+      return route.fulfill({ headers: { 'X-Financial-Generation': String(gen), 'Access-Control-Expose-Headers': 'X-Financial-Generation' }, json: path === '/context' ? { ...baselineContext, records: gen > 0 ? [] : baselineContext.records } : baselineCurrent() })
+    })
+    await page.goto('/?pilot_e2e_role=participant#Statements')
+    await page.evaluate(() => document.fonts.ready)
+    await page.getByRole('button', { name: 'Review spending baseline', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Review your spending baseline', exact: true })
+    await expect(dialog).toBeVisible()
+    await dialog.getByLabel('Period begins').fill('2026-08-01')
+    await dialog.getByLabel('Period ends').fill('2026-08-31')
+    await dialog.getByLabel('Missing account history').fill('Old practice account draft')
+    delayed = true
+    await dialog.getByRole('button', { name: 'Refresh current baseline and choices', exact: true }).click()
+    await expect.poll(() => reached).toBe(true)
+    flow.changePicture(); release()
+    await expect(dialog).toHaveCount(0)
+    await assertRestartUnknownMoney(page)
+    await openSection(page, 'Statements')
+    delayed = false
+    await page.getByRole('button', { name: 'Review spending baseline', exact: true }).click()
+    await expect(dialog.getByLabel('Period begins')).not.toHaveValue('2026-08-01')
+    await expect(dialog.getByLabel('Missing account history')).toHaveValue('')
+    await expect(dialog).not.toContainText('Fictional-checking.pdf')
+  })
+}
