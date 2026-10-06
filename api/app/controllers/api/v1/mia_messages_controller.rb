@@ -73,6 +73,9 @@ module Api
         return if request_handled
         @active_mia_message_request = message_request
 
+        if attached_imports.empty? && ::Mia::SetupHelpRequest.matches?(content, session: session)
+          return render_setup_help_response(session, content, message_request: message_request)
+        end
         if attached_imports.empty? && ::Mia::FinancialRestartRequest.matches?(content, session: session)
           return render_financial_restart_response(session, content, message_request: message_request)
         end
@@ -391,13 +394,17 @@ module Api
 
       def render_financial_restart_response(session, content, message_request:)
         available = HouseholdFinance::FinancialRestart::Flow.new(current_household, user: current_user, cohort_membership: current_cohort_membership).status[:available]
-        answer = if available
-          "Yes. Open Reset my test workspace to review a fresh financial picture, including income, spending plans and actuals, debts, accounts, goals and setup. Your login, household members, BOG savings and optional card reviews remain. Your active conversation starts fresh, with earlier conversations retained privately as read-only history. Earlier records and uploads are retained as history; saved memory context is paused. Nothing changes until you explicitly confirm the review."
-        else
-          "Starting over is an administrator testing tool. I can help you correct your income, spending categories, debts, accounts or goals individually. Tell me which record and replacement value to use, or open My Money. You review each change before applying it. Nothing changed."
-        end
+        return render_setup_help_response(session, content, message_request: message_request) unless available
+
+        answer = "Yes. Open Reset my test workspace to review a fresh financial picture, including income, spending plans and actuals, debts, accounts, goals and setup. Your login, household members, BOG savings and optional card reviews remain. Your active conversation starts fresh, with earlier conversations retained privately as read-only history. Earlier records and uploads are retained as history; saved memory context is paused. Nothing changes until you explicitly confirm the review."
         render_household_read_response(session, content, answer, message_request: message_request,
-          topic: { "type" => "financial_restart" }, financial_restart: { available: available, state: available ? "review_available" : "unavailable" })
+          topic: { "type" => "financial_restart" }, financial_restart: { available: true, state: "review_available" })
+      end
+
+      def render_setup_help_response(session, content, message_request:)
+        answer = "Open Fix my setup to correct your income, spending categories, debts, accounts or goals, restart unfinished setup when it is safe, or request a reviewed restart from support. Your BOG enrollment, approved savings, evidence and history stay in place. You review each change before applying it. Nothing changed."
+        render_household_read_response(session, content, answer, message_request: message_request,
+          topic: { "type" => "setup_help" }, financial_restart: { available: false, state: "unavailable" }, setup_help: { available: true })
       end
 
       def render_saved_records_response(session, content, result, message_request:)
@@ -424,7 +431,7 @@ module Api
           message_request: message_request)
       end
 
-      def render_household_read_response(session, content, answer, message_request:, topic: {}, financial_restart: nil)
+      def render_household_read_response(session, content, answer, message_request:, topic: {}, financial_restart: nil, setup_help: nil)
         ApplicationRecord.transaction do
           current_household.lock!
           chat_session_scope.authorize!
@@ -438,6 +445,11 @@ module Api
             assistant_message.update!(financial_restart: financial_restart)
             payload[:assistant_message] = serialize_chat_message(assistant_message)
             payload[:financial_restart] = financial_restart
+          end
+          if setup_help
+            assistant_message.update!(setup_help: setup_help)
+            payload[:assistant_message] = serialize_chat_message(assistant_message)
+            payload[:setup_help] = setup_help
           end
           complete_message_request(message_request, payload)
           record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: [])

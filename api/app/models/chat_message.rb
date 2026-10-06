@@ -43,6 +43,7 @@ class ChatMessage < ApplicationRecord
       author: author || (role == "assistant" ? assistant_author.presence || "Mia" : "You"),
       content: content,
       financial_restart: financial_restart.presence,
+      setup_help: setup_help.presence,
       attachments: attachments,
       presentation: presentation,
       citations: citations.map do |citation|

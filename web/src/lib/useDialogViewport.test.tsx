@@ -109,3 +109,32 @@ test('content reflow reveals focused controls before all fonts finish and discon
   mounted.unmount()
   expect(disconnect).toHaveBeenCalled()
 })
+
+test.each(['pilot-dialog-body', 'mia-assist-body'])('content inside a fixed %s is observed and reveals its focused field', className => {
+  const viewport = Object.assign(new EventTarget(), { height: 320, offsetTop: 0, scale: 1 })
+  vi.stubGlobal('visualViewport', viewport)
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 1 })
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+  let resized: ResizeObserverCallback | undefined
+  const observed = new Set<Element>()
+  const disconnect = vi.fn(() => observed.clear())
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback: ResizeObserverCallback) { resized = callback }
+    observe(element: Element) { observed.add(element) }
+    disconnect = disconnect
+  })
+  const mounted = render(<><Probe /><section role="dialog"><header>Persistent header</header><div className={className}><form><p>Late copy</p><textarea aria-label="Nested reflow field" /></form></div></section></>)
+  const field = mounted.getByLabelText('Nested reflow field'), body = field.closest<HTMLElement>(`.${className}`)!, form = field.closest('form')!
+  vi.spyOn(body, 'getBoundingClientRect').mockReturnValue({ top: 160, bottom: 377, height: 217 } as DOMRect)
+  Object.defineProperty(body, 'clientHeight', { configurable: true, value: 217 })
+  const fieldRect = vi.spyOn(field, 'getBoundingClientRect').mockReturnValue({ top: 283, bottom: 377, height: 94 } as DOMRect)
+  field.focus()
+  fieldRect.mockReturnValue({ top: 331, bottom: 425, height: 94 } as DOMRect)
+  // A resize notification only reaches the hook if it watches this content;
+  // neither the dialog nor the fixed scrolling body has changed size.
+  act(() => { if (observed.has(form)) resized?.([], {} as ResizeObserver) })
+  expect(body.scrollTop).toBe(48)
+  expect(document.activeElement).toBe(field)
+  mounted.unmount()
+  expect(observed.size).toBe(0)
+})

@@ -49,6 +49,11 @@ export function useDialogViewport() {
       if (!dialog) return
       observer?.observe(dialog)
       Array.from(dialog.children).forEach(child => observer?.observe(child))
+      // Constrained scrolling bodies keep the same box when their form or
+      // other content reflows. Watch that content as well as the fixed body.
+      dialog.querySelectorAll('.pilot-dialog-body, .mia-assist-body').forEach(body => {
+        Array.from(body.children).forEach(child => observer?.observe(child))
+      })
     }
     document.addEventListener('focusin', watchFocusedDialog)
     watchFocusedDialog()

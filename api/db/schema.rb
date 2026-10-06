@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_07_061000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_140000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -330,6 +330,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_061000) do
     t.jsonb "financial_restart", default: {}, null: false
     t.jsonb "presentation", default: {}, null: false
     t.string "role", null: false
+    t.jsonb "setup_help", default: {}, null: false
     t.datetime "updated_at", null: false
     t.index ["chat_session_id", "created_at"], name: "index_chat_messages_on_chat_session_id_and_created_at"
     t.index ["chat_session_id"], name: "index_chat_messages_on_chat_session_id"
@@ -1999,13 +2000,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_061000) do
     t.jsonb "inventory", default: {}, null: false
     t.string "inventory_fingerprint", null: false
     t.jsonb "previous_setup", default: {}, null: false
+    t.string "purpose", default: "admin_test", null: false
     t.bigint "requested_by_user_id", null: false
     t.integer "result_generation"
+    t.bigint "setup_support_request_id"
     t.string "status", default: "pending", null: false
     t.datetime "updated_at", null: false
     t.index ["cohort_id"], name: "index_financial_restart_reviews_on_cohort_id"
     t.index ["household_id"], name: "index_financial_restart_reviews_on_household_id"
     t.index ["requested_by_user_id"], name: "index_financial_restart_reviews_on_requested_by_user_id"
+    t.index ["setup_support_request_id"], name: "index_financial_restart_reviews_on_setup_support_request_id"
+    t.check_constraint "purpose::text = ANY (ARRAY['admin_test'::character varying, 'self_setup'::character varying, 'supported_setup'::character varying]::text[])", name: "financial_restart_purpose"
   end
 
   create_table "financial_source_accounts", force: :cascade do |t|
@@ -3077,6 +3082,45 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_061000) do
     t.index ["savings_enrollment_id"], name: "index_savings_zero_attestations_on_savings_enrollment_id"
   end
 
+  create_table "setup_help_request_keys", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.string "idempotency_key", limit: 200, null: false
+    t.string "request_fingerprint", null: false
+    t.bigint "setup_support_request_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["household_id", "user_id", "idempotency_key"], name: "setup_help_request_identity", unique: true
+    t.index ["household_id"], name: "index_setup_help_request_keys_on_household_id"
+    t.index ["setup_support_request_id"], name: "index_setup_help_request_keys_on_setup_support_request_id"
+    t.index ["user_id"], name: "index_setup_help_request_keys_on_user_id"
+  end
+
+  create_table "setup_support_requests", force: :cascade do |t|
+    t.bigint "cohort_id"
+    t.datetime "created_at", null: false
+    t.bigint "financial_restart_review_id"
+    t.bigint "household_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "participant_membership_id"
+    t.datetime "participant_membership_started_at"
+    t.bigint "prepared_by_user_id"
+    t.string "reason", null: false
+    t.bigint "requested_by_user_id", null: false
+    t.string "status", default: "requested", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cohort_id"], name: "index_setup_support_requests_on_cohort_id"
+    t.index ["financial_restart_review_id"], name: "index_setup_support_requests_on_financial_restart_review_id"
+    t.index ["household_id", "requested_by_user_id", "cohort_id"], name: "setup_support_active_program", unique: true, where: "((cohort_id IS NOT NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying])::text[])))"
+    t.index ["household_id", "requested_by_user_id"], name: "setup_support_active_personal", unique: true, where: "((cohort_id IS NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying])::text[])))"
+    t.index ["household_id"], name: "index_setup_support_requests_on_household_id"
+    t.index ["prepared_by_user_id"], name: "index_setup_support_requests_on_prepared_by_user_id"
+    t.index ["requested_by_user_id"], name: "index_setup_support_requests_on_requested_by_user_id"
+    t.check_constraint "cohort_id IS NULL AND participant_membership_id IS NULL AND participant_membership_started_at IS NULL OR cohort_id IS NOT NULL AND participant_membership_id IS NOT NULL AND participant_membership_started_at IS NOT NULL", name: "setup_support_program_identity"
+    t.check_constraint "reason::text = ANY (ARRAY['practice_numbers'::character varying, 'wrong_setup'::character varying, 'upload_problem'::character varying, 'other'::character varying]::text[])", name: "setup_support_reason"
+    t.check_constraint "status::text = ANY (ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying, 'applied'::character varying, 'canceled'::character varying, 'declined'::character varying]::text[])", name: "setup_support_status"
+  end
+
   create_table "solid_cache_entries", force: :cascade do |t|
     t.integer "byte_size", null: false
     t.datetime "created_at", null: false
@@ -3881,6 +3925,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_061000) do
   add_foreign_key "financial_extraction_revisions", "households"
   add_foreign_key "financial_restart_reviews", "cohorts"
   add_foreign_key "financial_restart_reviews", "households"
+  add_foreign_key "financial_restart_reviews", "setup_support_requests"
   add_foreign_key "financial_restart_reviews", "users", column: "requested_by_user_id"
   add_foreign_key "financial_source_accounts", "financial_extraction_revisions"
   add_foreign_key "financial_source_accounts", "financial_extraction_revisions", column: ["financial_extraction_revision_id", "household_id"], primary_key: ["id", "household_id"], name: "source_accounts_revision_household_fk"
@@ -4051,6 +4096,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_061000) do
   add_foreign_key "savings_zero_attestations", "savings_enrollments"
   add_foreign_key "savings_zero_attestations", "savings_zero_attestations", column: "previous_attestation_id"
   add_foreign_key "savings_zero_attestations", "users", column: "approved_by_user_id"
+  add_foreign_key "setup_help_request_keys", "households"
+  add_foreign_key "setup_help_request_keys", "setup_support_requests"
+  add_foreign_key "setup_help_request_keys", "users"
+  add_foreign_key "setup_support_requests", "cohorts"
+  add_foreign_key "setup_support_requests", "financial_restart_reviews"
+  add_foreign_key "setup_support_requests", "households"
+  add_foreign_key "setup_support_requests", "users", column: "prepared_by_user_id"
+  add_foreign_key "setup_support_requests", "users", column: "requested_by_user_id"
   add_foreign_key "solid_queue_blocked_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_claimed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_failed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade

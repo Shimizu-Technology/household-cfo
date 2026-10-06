@@ -31,6 +31,7 @@ import { Button } from './components/Button'
 import { ChatHistory } from './components/ChatHistory'
 import { MiaAssistPanels } from './components/MiaAssistPanels'
 import { FinancialRestartDialog } from './components/FinancialRestartDialog'
+import { SetupHelpDialog } from './components/SetupHelpDialog'
 import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
@@ -586,6 +587,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const showMiaSuggestions = assistPanel === 'prompts'
   const chatContextTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [financialRestartOpen, setFinancialRestartOpen] = useState(false)
+  const [setupHelpOpen, setSetupHelpOpen] = useState(false)
+  const [setupRestart, setSetupRestart] = useState<{ requestId?: number } | null>(null)
+  const [staleSetupReview, setStaleSetupReview] = useState<{ requestId: number; reviewId: number } | null>(null)
   const [showChatScrollButton, setShowChatScrollButton] = useState(false)
   const [voiceRecording, setVoiceRecording] = useState(false)
   const [voiceTranscribing, setVoiceTranscribing] = useState(false)
@@ -1942,6 +1946,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       void refreshDocumentImports({ quiet: true })
       const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
       setMessages((current) => [...current.slice(0, -1), userMessageWithPreviews, response.assistant_message])
+      if (response.setup_help?.available && activeSectionRef.current === 'Ask Mia') { setAssistPanel(null); setSetupHelpOpen(true) }
       if (auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && response.financial_restart?.available && activeSectionRef.current === 'Ask Mia') { setAssistPanel(null); setFinancialRestartOpen(true) }
       if (response.transaction_draft) {
         captureAnalyticsEvent('transaction_draft_presented_in_chat', {
@@ -3420,6 +3425,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               )}
 
               <ChatHistory
+                  onSetupHelp={isRealWorkspace ? () => setSetupHelpOpen(true) : undefined}
                   onFinancialRestart={auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
                   messages={visibleMessages}
                   totalMessageCount={currentMessages.length}
@@ -3582,6 +3588,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onGuide={() => setPilotGuideOpen(true)} onFeedback={() => setPilotFeedbackOpen(true)}
               onClearChat={() => { if (chatContextTriggerRef.current) handleClearMessagesRequest({ currentTarget: chatContextTriggerRef.current }) }}
               onHistory={isRealWorkspace && historicalMessageCount > 0 ? () => setEarlierConversationsOpen(true) : undefined}
+              onFixSetup={isRealWorkspace ? () => setSetupHelpOpen(true) : undefined}
               onStartOver={isRealWorkspace && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
               updatePrompts={isSavingsExperience ? SAVINGS_UPDATE_PROMPTS : MIA_UPDATE_PROMPTS}
               questionPrompts={(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : data.mia.quick_prompts).map(message => ({ label: message, message }))}
@@ -3667,6 +3674,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             title="Your household money"
             copy={isSavingsExperience ? 'Optional household tools. Your challenge progress and approved savings stay in Savings.' : `See your income, spending, debt, accounts, and goals. Update them here or ask ${assistantName} to prepare a change.`}
           />
+          {isRealWorkspace && <Button variant="secondary" size="compact" className="money-setup-help" onClick={() => setSetupHelpOpen(true)}>Fix my setup</Button>}
           <nav className="money-topics" aria-label="My Money topics">
             {moneyTopics.map(topic => (
               <button type="button" key={topic.id} aria-pressed={moneyTopic === topic.id} aria-controls="money-topic-content" onClick={() => {
@@ -4204,6 +4212,22 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {baselineOpen && isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <BaselineReview key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} scope={{ user_id: auth.currentUser.id, household_id: data.workspace.household_id }} onClose={() => setBaselineOpen(false)} onReviewStatements={() => { setBaselineOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} />}
       {showMiaLauncher && <Button className="mia-launcher" aria-label={`Open ${assistantName}`} title={`Open ${assistantName}`} onClick={() => switchSection('Ask Mia')}><FeedbackIcon /><span>{assistantName}</span></Button>}
       {earlierConversationsOpen && <EarlierMiaConversations key={chatStorageKey} onClose={() => setEarlierConversationsOpen(false)} />}
+      {setupHelpOpen && isRealWorkspace && auth.currentUser && data.workspace.household_id && <SetupHelpDialog key={chatStorageKey} scopeKey={restartScopeKey} userId={auth.currentUser.id} householdId={data.workspace.household_id}
+        blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind || question.trim() || voiceRecording || voiceTranscribing ? 'Save or cancel your open edits, finish or clear your draft message, and let current requests finish before reviewing a restart.' : null}
+        staleReview={staleSetupReview} onReviewReopened={() => setStaleSetupReview(null)} onClose={() => setSetupHelpOpen(false)}
+        onTopic={topic => {
+          const destination = topic === 'statements' ? 'Statements' : 'My Money'
+          if (!visibleSections.includes(destination) || blockFinancialTransition('opening correction tools')) return false
+          if (!switchSection(destination)) return false
+          setMoneyTopic(topic); setRouteAnnouncement(`${moneyTopics.find(item => item.id === topic)?.label ?? 'Money'} correction tools loaded.`); return true
+        }} onAskMia={() => {
+          if (!switchSection('Ask Mia')) return false
+          if (!question.trim()) prepareMiaUpdate('Help me correct a saved income, spending, debt, account or goal record. Ask which record needs correcting and then prepare a review. Do not reset my household.')
+          window.requestAnimationFrame(() => composerRef.current?.focus()); return true
+        }} onRestart={requestId => { setSetupHelpOpen(false); setSetupRestart({ requestId }) }} />}
+      {setupRestart && isRealWorkspace && <FinancialRestartDialog key={`${chatStorageKey}:setup:${setupRestart.requestId ?? 'self'}`} scopeKey={restartScopeKey} setupHelp={setupRestart}
+        blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind || question.trim() || voiceRecording || voiceTranscribing ? 'Save or cancel your open edits, finish or clear your draft message, and let current requests finish before reviewing a restart.' : null}
+        onClose={() => setSetupRestart(null)} onReturnToSetupHelp={(requestId, reviewId) => { setSetupRestart(null); setStaleSetupReview(requestId == null || reviewId == null ? null : { requestId, reviewId }); setSetupHelpOpen(true) }} onApplied={finishFinancialRestart} />}
       {financialRestartOpen && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && <FinancialRestartDialog key={chatStorageKey} scopeKey={restartScopeKey}
         blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind ? 'Save or cancel your open edits and let current requests finish before preparing a restart review.' : null}
         onClose={() => setFinancialRestartOpen(false)} onApplied={finishFinancialRestart} />}

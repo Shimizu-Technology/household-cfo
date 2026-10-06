@@ -44,6 +44,7 @@ import { CoachProgramSettings } from './CoachProgramSettings'
 import { WorkspaceCollaborators } from './WorkspaceCollaborators'
 import { CoachGroupsParticipants } from './CoachGroupsParticipants'
 import { CoachChallengeDashboard } from './CoachChallengeDashboard'
+import { SetupSupportInbox } from './SetupSupportInbox'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { ReleaseAndRolloutStudio } from './ReleaseAndRolloutStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
@@ -102,6 +103,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [experienceDirty, setExperienceDirty] = useState(false)
   const [selectedCohortId, setSelectedCohortId] = useState<number | null>(null)
   const [studioSection, setStudioSection] = useState<StudioSection>('groups')
+  const [setupSupportOpen, setSetupSupportOpen] = useState(false)
   const [groupsNotice, setGroupsNotice] = useState<string | null>(null)
   const [groupsDirty, setGroupsDirty] = useState(false)
   const [libraryDirty, setLibraryDirty] = useState(false)
@@ -767,6 +769,12 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
           {cohorts.length > 0 && <label className="coach-group-context">Group<select value={selectedCohortId ?? ''} disabled={pendingAction !== null || workspaceMutations.pending || loading} onChange={(event) => { if (groupsDirty && !window.confirm('Discard unsaved group or invitation changes?')) return; setGroupsDirty(false); setGroupsNotice(null); setSelectedCohortId(Number(event.target.value)) }}>{cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}</select></label>}
           {groupsNotice && <p className="coach-studio-alert is-success" role="status">{groupsNotice}</p>}
           {activeWorkspaceId !== null && <CoachChallengeDashboard userId={currentUser.id} workspaceId={activeWorkspaceId} cohorts={cohorts} selectedCohortId={selectedCohortId} />}
+          <div className="setup-support-disclosure">
+            <Button className="setup-support-disclosure-button" variant="secondary" aria-expanded={setupSupportOpen} aria-controls="coach-setup-support-inbox" disabled={pendingAction !== null || workspaceMutations.pending} onClick={() => setSetupSupportOpen((open) => !open)}>Setup help requests</Button>
+            {setupSupportOpen && <div id="coach-setup-support-inbox">{activeWorkspaceId !== null && selectedCohortId !== null
+              ? <SetupSupportInbox actorId={currentUser.id} workspaceId={activeWorkspaceId} cohortId={selectedCohortId} isAdmin={currentUser.is_admin} disabled={pendingAction !== null || loading} mutationLifecycle={workspaceMutations} />
+              : <p className="coach-studio-muted">Choose a workspace and group to view setup help requests.</p>}</div>}
+          </div>
           <details className="coach-access-disclosure"><summary>Group invitations &amp; access</summary>
           <CoachGroupsParticipants onContextNotice={setGroupsNotice} selectedCohortId={selectedCohortId} onSelectedCohortIdChange={setSelectedCohortId} key={activeWorkspaceId ?? 'platform'} currentUser={currentUser} workspaceId={activeWorkspaceId} mutationLifecycle={workspaceMutations} onDirtyChange={setGroupsDirty} onGroupsChanged={() => {
             const workspaceId = activeWorkspaceId

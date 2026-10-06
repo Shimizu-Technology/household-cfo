@@ -53,7 +53,16 @@ async function openDetails(page: Page, label: string | RegExp) {
   const summary = page.locator('details > summary').filter({ hasText: label })
   await expect(summary).toHaveCount(1)
   const disclosure = summary.locator('..')
-  if (!(await disclosure.evaluate((node: HTMLDetailsElement) => node.open))) await summary.click()
+  if (!(await disclosure.evaluate((node: HTMLDetailsElement) => node.open))) {
+    // WebKit can calculate a tap from the scrolled layout before the visible
+    // viewport paints it. Settle fonts and that scroll before the single tap.
+    await summary.evaluate(() => document.fonts.ready)
+    await summary.scrollIntoViewIfNeeded()
+    await summary.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
+    await expect(summary).toBeInViewport()
+    await summary.click()
+  }
+  await expect(disclosure).toHaveJSProperty('open', true)
 }
 
 async function selectBudgetEditMonth(page: Page, index: number) {
@@ -75,6 +84,14 @@ async function openChatContext(page: Page) {
 
 function chatAssistPanel(page: Page) {
   return page.locator('.mia-assist-panel')
+}
+
+async function settleChatLayout(page: Page) {
+  // Branded fonts start loading when the workspace mounts, after the initial
+  // page load. Measure the rendered chat only after fonts and composer layout settle.
+  await expect(page.locator('.mia-chat-shell')).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
 }
 
 async function closeChatAssistPanel(page: Page) {
@@ -4173,6 +4190,7 @@ test('compact phone layouts keep a stable shell and overlay secondary tools with
   await page.locator('.screen-grid').evaluate(async (screen) => {
     await Promise.all(screen.getAnimations().map((animation) => animation.finished.catch(() => undefined)))
   })
+  await settleChatLayout(page)
   const chatLayout = await page.locator('.mia-chat-shell').evaluate((shell) => {
     const shellBox = shell.getBoundingClientRect()
     const conversationBox = shell.querySelector('.chat-card-wrap')?.getBoundingClientRect()
@@ -4205,6 +4223,7 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   await expect(suggestionsButton).toHaveAttribute('aria-expanded', 'false')
   await expect(suggestedQuestion).toBeHidden()
 
+  await settleChatLayout(page)
   const compactLayout = await page.locator('.mia-chat-shell').evaluate((shell) => {
     const history = shell.querySelector('.chat-card-wrap')?.getBoundingClientRect()
     const shellBox = shell.getBoundingClientRect()
@@ -8411,6 +8430,7 @@ test('BOG UI desktop and tablet help collapse without shrinking history', async 
   await expect(prompts).toHaveAttribute('aria-expanded', 'false')
   const guide = page.getByRole('heading', { name: 'What would you like to do?', exact: true })
   await expect(guide).toBeHidden()
+  await settleChatLayout(page)
   const before = await page.locator('.chat-card-wrap').evaluate((node) => node.getBoundingClientRect().height)
   await prompts.click()
   await expect(guide).toBeVisible()
@@ -9051,6 +9071,7 @@ test('BOG UI compact normal chat shows history and composer on first screen with
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await composer.fill('Keep this draft while I check context.')
   const shell = page.locator('.mia-chat-shell')
+  await settleChatLayout(page)
   const before = await shell.evaluate((node) => {
     const history = node.querySelector('.chat-card-wrap')!.getBoundingClientRect()
     const composer = node.querySelector('textarea')!.getBoundingClientRect()
@@ -9104,6 +9125,7 @@ test('BOG UI program chooser shares the compact chat masthead without overlappin
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await composer.fill('Keep this draft while checking my program.')
   await expect(summary).toHaveAccessibleName(`Program · ${name}`)
+  await settleChatLayout(page)
   const geometry = await summary.evaluate(node => {
     const trigger = node.getBoundingClientRect(), privacy = document.querySelector('.shell-account-menu > summary')!.getBoundingClientRect()
     const history = document.querySelector('.chat-card-wrap')!.getBoundingClientRect()
@@ -9747,6 +9769,38 @@ test('BOG UI visual viewport reduction keeps feedback above the keyboard and fol
   })
   await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--dialog-viewport-height'))).toBe('660px')
   await assertDialogVisibleHeight(dialog)
+})
+
+test('BOG UI feedback reveals the focused field after content reflows inside a fixed scroll body', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => {
+    const viewport = window.visualViewport!
+    Object.defineProperty(viewport, 'height', { configurable: true, get: () => Number(document.documentElement.dataset.testViewportHeight ?? 844) })
+    Object.defineProperty(viewport, 'offsetTop', { configurable: true, get: () => 0 })
+  })
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Feedback', exact: true }).click()
+  const dialog = page.getByRole('dialog'), field = dialog.getByLabel('What did you attempt?')
+  await page.evaluate(() => document.fonts.ready)
+  await field.fill('Fictional content reflow test')
+  await page.evaluate(() => {
+    document.documentElement.dataset.testViewportHeight = '320'
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+  })
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--dialog-viewport-height'))).toBe('320px')
+  await assertDialogVisibleHeight(dialog)
+  const geometry = () => field.evaluate(el => {
+    const control = el.getBoundingClientRect(), body = el.closest<HTMLElement>('.pilot-dialog-body')!, panel = body.getBoundingClientRect()
+    return { contained: control.top >= panel.top && control.bottom <= panel.bottom, top: control.top, bottom: control.bottom, bodyTop: panel.top, bodyBottom: panel.bottom, scrollTop: body.scrollTop, clientHeight: body.clientHeight }
+  })
+  await expect.poll(geometry).toMatchObject({ contained: true })
+  const before = await dialog.evaluate(el => ({ bodyHeight: el.querySelector('.pilot-dialog-body')!.getBoundingClientRect().height, header: el.querySelector('header')!.getBoundingClientRect().toJSON(), pageScroll: window.scrollY }))
+  // Async copy or an individual font can grow content without resizing the
+  // constrained body, leaving its ResizeObserver silent.
+  await dialog.locator('.pilot-privacy-note').evaluate(el => { (el as HTMLElement).style.paddingBottom = '48px' })
+  await expect.poll(geometry).toMatchObject({ contained: true })
+  await expect(field).toBeFocused()
+  expect(await dialog.evaluate(el => ({ bodyHeight: el.querySelector('.pilot-dialog-body')!.getBoundingClientRect().height, header: el.querySelector('header')!.getBoundingClientRect().toJSON(), pageScroll: window.scrollY }))).toEqual(before)
 })
 
 test('BOG UI local preview and clear chat keep their content and actions inside a short viewport', async ({ page }) => {
@@ -10867,3 +10921,471 @@ test('BOG UI stale financial-generation Plaid callbacks cannot restore a prior c
   await expect(page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })).toBeVisible()
   expect(exchanges).toBe(0)
 })
+
+function setupSupportBrowserRecord(status: 'requested' | 'ready' = 'requested') {
+  return {
+    id: 1701, status, reason: 'practice_numbers', reason_label: 'I entered practice numbers',
+    participant_name: 'Test Participant', user_id: 901, household_id: 77, cohort_id: 41, program_name: 'BOG',
+    lock_version: 2, review_id: status === 'ready' ? 1801 : null,
+    review_expires_at: status === 'ready' ? new Date(Date.now() + 15 * 60_000).toISOString() : null,
+    review_state: status === 'ready' ? 'pending' : 'none',
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+  }
+}
+
+async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolean; ready?: boolean; expired?: boolean; staleApply?: boolean; ownerRequired?: boolean; lostCreate?: boolean; userId?: number; cohortId?: number | null; miaSetupOffer?: boolean; onceDeniedPreview?: 403 | 422 } = {}) {
+  const userId = options.userId ?? 901
+  const cohortId = options.cohortId === undefined ? 41 : options.cohortId
+  const householdName = userId === 902 ? 'Coach’s own household' : 'Test Participant Household'
+  const supportRecord = (status: 'requested' | 'ready' = 'requested') => ({ ...setupSupportBrowserRecord(status), user_id: userId, cohort_id: cohortId, program_name: cohortId === null ? null : 'BOG' })
+  let generation = 0, previewCalls = 0, applyCalls = 0, reopenCalls = 0, reviewId = 1801
+  let latest: Record<string, unknown> | null = options.ready ? supportRecord('ready') : null
+  if (options.expired && latest) latest = { ...latest, review_state: 'expired', review_expires_at: new Date(Date.now() - 1_000).toISOString() }
+  const creates: Array<{ body: Record<string, unknown>; key: string | undefined }> = []
+  const restartInputs: Array<{ action: string; body: Record<string, unknown> | null }> = []
+  const state = () => ({
+    household_id: 77, cohort_id: cohortId, financial_generation: generation, available: true,
+    owner_required: Boolean(options.ownerRequired), setup_complete: !options.selfEligible,
+    self_restart_available: Boolean(options.selfEligible && !options.ownerRequired),
+    blockers: options.selfEligible ? [] : [{ code: 'saved_financial_facts', label: 'Your setup contains saved financial facts.' }], latest_request: latest,
+  })
+  const workspace = () => {
+    const base = generation > 0 || options.selfEligible ? restartBrowserWorkspace(1) : realWorkspaceData(true)
+    return {
+      ...base,
+      workspace: { ...base.workspace, financial_generation: generation, experience_mode: 'household_cfo', cohort: cohortId === null ? null : { ...realWorkspaceData(true).workspace.cohort, id: cohortId }, setup_values: { ...base.workspace.setup_values, household_name: householdName } },
+      budget: { ...base.budget, financial_generation: generation },
+      mia: { ...base.mia, messages: generation > 0 ? [] : [{ id: 1601, role: 'assistant', author: 'Mia', content: 'Your earlier setup conversation.', ...(options.miaSetupOffer ? { setup_help: { available: true } } : {}), created_at: new Date().toISOString() }], historical_message_count: generation > 0 ? 1 : 0, oldest_message_id: generation > 0 ? null : 1601, older_message_count: 0, has_older_messages: false },
+    }
+  }
+  const generationHeaders = () => ({ 'X-Financial-Generation': String(generation), 'Access-Control-Expose-Headers': 'X-Financial-Generation' })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ headers: generationHeaders(), json: workspace() }))
+  await page.route('http://api.test/api/v1/mia/messages**', route => {
+    if (route.request().method() === 'POST' && options.miaSetupOffer) return route.fulfill({ json: {
+      setup_help: { available: true }, financial_restart: { available: false, state: 'unavailable' },
+      user_message: { id: 1901, role: 'user', author: 'You', content: route.request().postDataJSON().message, created_at: new Date().toISOString() },
+      assistant_message: { id: 1902, role: 'assistant', author: 'Mia', content: 'Open Fix my setup for your own household.', setup_help: { available: true }, created_at: new Date().toISOString() },
+      budget: null, transaction_draft: null, mia_action_draft: null,
+    } })
+    return route.fulfill({ headers: generationHeaders(), json: workspace().mia })
+  })
+  await page.route('http://api.test/api/v1/setup_help**', route => {
+    const url = new URL(route.request().url()), method = route.request().method()
+    const body = method === 'POST' ? route.request().postDataJSON() : null
+    if (url.pathname === '/api/v1/setup_help') return route.fulfill({ json: { setup_help: state() } })
+    if (url.pathname === '/api/v1/setup_help/requests') {
+      creates.push({ body, key: route.request().headers()['idempotency-key'] })
+      if (options.lostCreate && creates.length === 1) return route.abort('failed')
+      latest = { ...supportRecord(), reason: body.reason, reason_label: body.reason === 'wrong_setup' ? 'Several setup answers need correcting' : 'I entered practice numbers' }
+      return route.fulfill({ status: 201, json: { request: latest, setup_help: state() } })
+    }
+    if (url.pathname.endsWith('/reopen')) {
+      reopenCalls += 1
+      expect(body.expected_lock_version).toBe(latest?.lock_version)
+      latest = { ...latest, status: 'requested', review_state: 'none', review_id: null, lock_version: Number(latest?.lock_version) + 1 }
+      return route.fulfill({ json: { request: latest, setup_help: state() } })
+    }
+    if (url.pathname.includes('/restart/')) {
+      const action = url.pathname.split('/').at(-1)!
+      restartInputs.push({ action, body })
+      const review = {
+        id: reviewId, status: 'pending', financial_generation: generation, household_name: householdName,
+        expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), shared_member_count: 0,
+        counts: { income_sources: options.selfEligible ? 0 : 3, debts: 0, transaction_drafts: 0 },
+        reset_fields: ['Financial setup'], preserved: ['BOG enrollment, approved savings, evidence and challenge history', 'Earlier private chats'], paused: ['Earlier chat coaching context'], clears_chat: false, clears_memories: false,
+      }
+      const restartState = { household_id: 77, household_name: householdName, available: true, financial_generation: generation, owner_required: false, latest_review: null }
+      if (action === 'status') return route.fulfill({ json: { financial_restart: restartState } })
+      if (options.ready) expect(body.request_id).toBe(1701)
+      else expect(body).not.toHaveProperty('request_id')
+      if (action === 'preview') {
+        previewCalls += 1
+        if (options.onceDeniedPreview && previewCalls === 1) return route.fulfill({ status: options.onceDeniedPreview, json: { code: 'setup_help_stale', errors: ['A prepared review is not available yet. No records changed.'] } })
+        return route.fulfill({ json: { financial_restart: { ...restartState, review } } })
+      }
+      if (action === 'apply') {
+        applyCalls += 1
+        expect(body).toMatchObject({ review_id: reviewId, confirmation: 'START OVER', shared_household_acknowledged: false })
+        if (options.staleApply) return route.fulfill({ status: 409, json: { code: 'setup_help_stale', errors: ['Your saved information changed after this review.'] } })
+        generation += 1
+        if (latest) latest = { ...latest, status: 'applied', review_state: 'applied' }
+        return route.fulfill({ headers: generationHeaders(), json: { financial_restart: { ...restartState, financial_generation: generation, review: { ...review, status: 'applied', result_generation: generation }, setup_required: true } } })
+      }
+      if (action === 'cancel') return route.fulfill({ json: { financial_restart: { ...restartState, review: { ...review, status: 'canceled' } } } })
+    }
+    throw new Error(`Unexpected setup help route: ${method} ${url.pathname}`)
+  })
+  return { generation: () => generation, previewCalls: () => previewCalls, applyCalls: () => applyCalls, reopenCalls: () => reopenCalls, creates, restartInputs, setupState: state, prepareNextReview: () => { reviewId += 1; latest = { ...latest, status: 'ready', review_id: reviewId, review_state: 'pending', lock_version: Number(latest?.lock_version ?? 0) + 1 } } }
+}
+
+async function openFixSetupFromChat(page: Page) {
+  await openChatContext(page)
+  await chatAssistPanel(page).getByRole('button', { name: 'Fix my setup', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
+async function acknowledgeSetupRestart(dialog: Locator, title: string) {
+  const confirmation = dialog.getByRole('checkbox', { name: /I reviewed what starts fresh/ })
+  await settleRestartPointerControl(confirmation)
+  const apply = dialog.getByRole('button', { name: title, exact: true })
+  await expect(apply).toBeDisabled()
+  await confirmation.check()
+  await expect(apply).toBeEnabled()
+}
+
+test('BOG UI setup help guides participants from Context and My Money to their income and debt records', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page)
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  let dialog = await openFixSetupFromChat(page)
+  await expect(dialog.locator('.setup-help-topics').getByRole('button')).toHaveCount(6)
+  await expect(dialog).toContainText('Your setup contains saved financial facts.')
+  await dialog.locator('.setup-help-topics').getByRole('button', { name: 'Income', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.income-source-manager-heading')).toBeVisible()
+  await page.getByRole('button', { name: 'Fix my setup', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
+  await dialog.locator('.setup-help-topics').getByRole('button', { name: 'Debt', exact: true }).click()
+  await expect(page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: 'Debt', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByLabel('Canonical debt totals')).toBeVisible()
+  expect(flow.creates).toEqual([])
+  expect(flow.previewCalls()).toBe(0)
+})
+
+test('BOG UI unfinished setup restart requires an owner review and starts a fresh financial generation and chat', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { selfEligible: true })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const help = await openFixSetupFromChat(page)
+  await expect(help).toContainText('no saved financial facts')
+  await help.getByRole('button', { name: 'Review starting setup again', exact: true }).click()
+  const review = page.getByRole('dialog', { name: 'Start setup again', exact: true })
+  await expect(review).toContainText('BOG enrollment, approved savings, evidence and challenge history')
+  expect(flow.applyCalls()).toBe(0)
+  await acknowledgeSetupRestart(review, 'Start setup again')
+  await review.getByRole('button', { name: 'Start setup again', exact: true }).click()
+  await expect(review).toHaveCount(0)
+  await expect(page.getByText('Your earlier setup conversation.', { exact: true })).toHaveCount(0)
+  await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Mia is ready when you are.', exact: true })).toBeVisible()
+  expect(flow.generation()).toBe(1)
+  expect(flow.previewCalls()).toBe(1)
+  expect(flow.applyCalls()).toBe(1)
+  await assertRestartUnknownMoney(page)
+})
+
+test('BOG UI saved setup support shares metadata only with explicit consent and retries a lost reply using the same reference', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { lostCreate: true })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await page.getByRole('button', { name: 'Fix my setup', exact: true }).click()
+  const help = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
+  const send = help.getByRole('button', { name: 'Request support review', exact: true })
+  await expect(send).toBeDisabled()
+  await help.getByRole('combobox', { name: 'What needs help?', exact: true }).selectOption('wrong_setup')
+  const consent = help.getByRole('checkbox', { name: /Share this request’s reason and status with support/ })
+  await settleRestartPointerControl(consent)
+  await consent.check()
+  await send.click()
+  await expect(help.getByRole('button', { name: 'Retry the same request', exact: true })).toBeEnabled()
+  await help.getByRole('button', { name: 'Check request status', exact: true }).click()
+  await expect(help.getByRole('button', { name: 'Retry the same request', exact: true })).toBeEnabled()
+  await help.getByRole('button', { name: 'Retry the same request', exact: true }).click()
+  await expect(help.getByRole('heading', { name: 'Waiting for support', exact: true })).toBeVisible()
+  await expect(help.getByRole('status')).toContainText('Your financial information and chat have not changed.')
+  expect(flow.creates).toHaveLength(2)
+  expect(flow.creates[0].body).toEqual({ reason: 'wrong_setup', share_metadata: true })
+  expect(flow.creates[1].body).toEqual(flow.creates[0].body)
+  expect(flow.creates[0].key).toMatch(/^[0-9a-f-]{36}$/)
+  expect(flow.creates[1].key).toBe(flow.creates[0].key)
+  expect(flow.applyCalls()).toBe(0)
+  expect(flow.generation()).toBe(0)
+})
+
+test('BOG UI support preparation leaves records untouched until the owner confirms the prepared restart', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { ready: true })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const help = await openFixSetupFromChat(page)
+  await expect(help.getByRole('heading', { name: 'Your review is ready', exact: true })).toBeVisible()
+  expect(flow.generation()).toBe(0)
+  expect(flow.applyCalls()).toBe(0)
+  await help.getByRole('button', { name: 'Review prepared restart', exact: true }).click()
+  const review = page.getByRole('dialog', { name: 'Review prepared restart', exact: true })
+  await expect(review.getByRole('button', { name: 'Review prepared restart', exact: true })).toBeDisabled()
+  await review.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(review).toHaveCount(0)
+  expect(flow.restartInputs.filter(input => input.action === 'cancel')).toEqual([])
+  expect(flow.applyCalls()).toBe(0)
+  await openFixSetupFromChat(page)
+  await help.getByRole('button', { name: 'Review prepared restart', exact: true }).click()
+  await acknowledgeSetupRestart(review, 'Review prepared restart')
+  await review.getByRole('button', { name: 'Review prepared restart', exact: true }).click()
+  await expect(review).toHaveCount(0)
+  expect(flow.applyCalls()).toBe(1)
+  expect(flow.generation()).toBe(1)
+  await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
+})
+
+for (const expired of [true, false]) {
+  test(`BOG UI ${expired ? 'expired' : 'stale'} support review reopens a fresh request without a preparation loop`, async ({ page }) => {
+    const flow = await mockSetupHelpBrowser(page, { ready: true, expired, staleApply: !expired })
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    const help = await openFixSetupFromChat(page)
+    if (!expired) {
+      await help.getByRole('button', { name: 'Review prepared restart', exact: true }).click()
+      const review = page.getByRole('dialog', { name: 'Review prepared restart', exact: true })
+      await acknowledgeSetupRestart(review, 'Review prepared restart')
+      await review.getByRole('button', { name: 'Review prepared restart', exact: true }).click()
+      await expect(review.getByRole('alert')).toContainText('Your saved information changed')
+      await expect(review.getByRole('button', { name: 'Prepare a fresh review', exact: true })).toHaveCount(0)
+      await review.getByRole('button', { name: 'Return to Fix my setup', exact: true }).click()
+    }
+    await expect(help.getByRole('button', { name: 'Review prepared restart', exact: true })).toHaveCount(0)
+    await help.getByRole('button', { name: 'Request a fresh review', exact: true }).click()
+    await expect(help.getByRole('heading', { name: 'Waiting for support', exact: true })).toBeVisible()
+    expect(flow.reopenCalls()).toBe(1)
+    expect(flow.generation()).toBe(0)
+    expect(flow.previewCalls()).toBe(expired ? 0 : 1)
+    expect(flow.applyCalls()).toBe(expired ? 0 : 1)
+  })
+}
+
+test('BOG UI setup help fits a 320px phone and blocks restarts while preserving a draft message', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 })
+  const flow = await mockSetupHelpBrowser(page, { selfEligible: true })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await composer.fill('Keep my correction draft until I decide.')
+  let help = await openFixSetupFromChat(page)
+  await expect(help).toContainText('finish or clear your draft message')
+  await expect(help.getByRole('button', { name: 'Review starting setup again', exact: true })).toBeDisabled()
+  await assertDialogVisibleHeight(help)
+  await expect(help.getByRole('button', { name: 'Close', exact: true })).toBeInViewport()
+  expect(await help.evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1)
+  expect(flow.restartInputs).toEqual([])
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(composer).toHaveValue('Keep my correction draft until I decide.')
+  await composer.clear()
+  help = await openFixSetupFromChat(page)
+  await expect(help.getByRole('button', { name: 'Review starting setup again', exact: true })).toBeEnabled()
+  const miaCorrection = help.getByRole('button', { name: 'Talk through a correction with Mia', exact: true })
+  await expect(miaCorrection).toHaveClass(/button--primary/)
+  expect(await miaCorrection.evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgb(123, 74, 88)')
+  await help.getByRole('button', { name: 'Review starting setup again', exact: true }).click()
+  const review = page.getByRole('dialog', { name: 'Start setup again', exact: true })
+  await expect(review).toBeVisible()
+  await assertDialogVisibleHeight(review)
+  const apply = review.getByRole('button', { name: 'Start setup again', exact: true })
+  await expect(apply).toHaveClass(/button--primary/)
+  expect(await apply.evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgb(123, 74, 88)')
+  await review.getByText('View empty record types', { exact: true }).click()
+  for (const label of ['Income sources', 'Household debts', 'Unreviewed transactions']) await expect(review.getByText(label, { exact: true })).toBeVisible()
+  await expect(review.getByRole('button', { name: 'Keep my current picture', exact: true })).toBeInViewport()
+  expect(flow.applyCalls()).toBe(0)
+})
+
+test('BOG UI a non-owner can correct records but cannot restart shared setup or submit owner support', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { selfEligible: true, ownerRequired: true })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const help = await openFixSetupFromChat(page)
+  await expect(help).toContainText('The household owner needs to review')
+  await expect(help.locator('.setup-help-topics').getByRole('button')).toHaveCount(6)
+  await expect(help.getByRole('button', { name: /Review starting setup again|Request support review|Review prepared restart/ })).toHaveCount(0)
+  expect(flow.restartInputs).toEqual([])
+  expect(flow.creates).toEqual([])
+})
+
+for (const role of ['coach', 'admin'] as const) {
+  test(`BOG UI ${role} setup support respects preparation permissions and never applies participant records`, async ({ page }) => {
+    let record = { ...setupSupportBrowserRecord(), cohort_id: role === 'admin' ? null : 41, program_name: role === 'admin' ? null : 'BOG', permissions: { triage: true, prepare: true, decline: true } }
+    const supportActions: Array<{ action: string; body: Record<string, unknown> }> = []
+    const restartWrites: string[] = []
+    page.on('request', request => { if (request.method() === 'POST' && request.url().includes('/setup_help/restart/')) restartWrites.push(request.url()) })
+    await page.route('http://api.test/api/v1/setup_support_requests**', route => {
+      if (route.request().method() === 'GET') return route.fulfill({ json: { records: [record], next_cursor: null } })
+      const action = new URL(route.request().url()).pathname.split('/').at(-1)!
+      const body = route.request().postDataJSON()
+      supportActions.push({ action, body })
+      expect(body).toEqual({ expected_lock_version: record.lock_version })
+      record = { ...record, status: action === 'prepare' ? 'ready' : 'in_review', lock_version: record.lock_version + 1 } as typeof record
+      return route.fulfill({ json: { request: record } })
+    })
+    if (role === 'coach') {
+      await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+      await page.getByRole('tab', { name: /Daily coaching/ }).click()
+      await expect(page.getByRole('combobox', { name: 'Group', exact: true })).toBeVisible()
+      await page.getByRole('button', { name: 'Setup help requests', exact: true }).click()
+    } else {
+      await page.goto('/?pilot_e2e_role=admin#Admin')
+      await page.getByRole('navigation', { name: 'Administration areas' }).getByRole('button', { name: 'Support inbox', exact: true }).click()
+      await page.getByRole('navigation', { name: 'Support inbox views' }).getByRole('button', { name: 'Setup requests', exact: true }).click()
+    }
+    const inbox = page.getByRole('article', { name: 'Setup help requests', exact: true })
+    const request = inbox.getByRole('region', { name: 'Request #1701', exact: true })
+    await expect(request).toContainText('I entered practice numbers')
+    await expect(inbox).toContainText('Financial details, documents and private conversations stay private.')
+    await expect(inbox.getByRole('button', { name: /Apply|Start setup again|Reset my test workspace/ })).toHaveCount(0)
+    if (role === 'coach') {
+      // Even a stale server permission must not turn a coach into an administrator.
+      await expect(request.getByRole('button', { name: 'Prepare participant review', exact: true })).toHaveCount(0)
+      await request.getByRole('button', { name: 'Mark in review', exact: true }).click()
+      await expect(inbox.getByRole('status')).toContainText('Request #1701: In review.')
+      expect(supportActions).toEqual([{ action: 'triage', body: { expected_lock_version: 2 } }])
+    } else {
+      await request.getByRole('button', { name: 'Prepare participant review', exact: true }).click()
+      expect(supportActions).toEqual([])
+      const confirmation = request.getByRole('group', { name: 'Confirm review preparation for request #1701', exact: true })
+      await expect(confirmation).toContainText('The participant must review the exact scope and confirm')
+      await confirmation.getByRole('button', { name: 'Confirm preparation', exact: true }).click()
+      await expect(inbox.getByRole('status')).toContainText('No financial records changed.')
+      expect(supportActions).toEqual([{ action: 'prepare', body: { expected_lock_version: 2 } }])
+    }
+    expect(restartWrites).toEqual([])
+  })
+}
+
+test('BOG UI a selected coach can open own setup help from Context My Money and Mia and confirm an eligible own-household restart', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { selfEligible: true, userId: 902, cohortId: null, miaSetupOffer: true })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Ask%20Mia')
+  let help = await openFixSetupFromChat(page)
+  await expect(help.getByRole('button', { name: 'Review starting setup again', exact: true })).toBeEnabled()
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await openSection(page, 'My Money')
+  await page.locator('.money-setup-help').click()
+  help = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
+  await expect(help).toBeVisible()
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await openSection(page, 'Ask Mia')
+  await page.locator('.chat-card').getByRole('button', { name: 'Fix my setup', exact: true }).click()
+  await expect(help).toBeVisible()
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Help me fix my own household setup.')
+  await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
+  await expect(help).toBeVisible()
+  await help.getByRole('button', { name: 'Review starting setup again', exact: true }).click()
+  const review = page.getByRole('dialog', { name: 'Start setup again', exact: true })
+  await expect(review).toContainText('Coach’s own household')
+  expect(flow.applyCalls()).toBe(0)
+  await acknowledgeSetupRestart(review, 'Start setup again')
+  await review.getByRole('button', { name: 'Start setup again', exact: true }).click()
+  await expect(review).toHaveCount(0)
+  await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
+  expect(flow.setupState()).toMatchObject({ household_id: 77, cohort_id: null, financial_generation: 1 })
+  expect(flow.restartInputs.filter(input => input.action === 'preview')).toEqual([{ action: 'preview', body: {} }])
+  expect(flow.restartInputs.filter(input => input.action === 'apply')).toEqual([{ action: 'apply', body: { review_id: 1801, confirmation: 'START OVER', shared_household_acknowledged: false } }])
+  expect(flow.applyCalls()).toBe(1)
+})
+
+test('BOG UI a selected coach with saved own facts sends an explicitly shared metadata request to platform support', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { userId: 902, cohortId: null })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Ask%20Mia')
+  const help = await openFixSetupFromChat(page)
+  await expect(help).toContainText('platform support when no program is assigned')
+  await expect(help).toContainText('Your setup contains saved financial facts.')
+  const send = help.getByRole('button', { name: 'Request support review', exact: true })
+  await expect(send).toBeDisabled()
+  const consent = help.getByRole('checkbox', { name: /Share this request’s reason and status with support/ })
+  await settleRestartPointerControl(consent)
+  await consent.check()
+  await send.click()
+  await expect(help.getByRole('heading', { name: 'Waiting for support', exact: true })).toBeVisible()
+  expect(flow.creates).toHaveLength(1)
+  expect(flow.creates[0].body).toEqual({ reason: 'practice_numbers', share_metadata: true })
+  expect(flow.setupState().latest_request).toMatchObject({ user_id: 902, household_id: 77, cohort_id: null, program_name: null })
+  expect(flow.generation()).toBe(0)
+  expect(flow.restartInputs).toEqual([])
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByText('Your earlier setup conversation.', { exact: true })).toBeVisible()
+})
+
+test('BOG UI changing a selected coach workspace ignores late own-help state and discards an earlier restart acknowledgement', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { selfEligible: true, userId: 902, cohortId: null })
+  let first = true, reached = false, completed = false
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('http://api.test/api/v1/setup_help', async route => {
+    if (first) {
+      first = false; reached = true
+      await gate
+      await route.fulfill({ json: { setup_help: { ...flow.setupState(), owner_required: true, self_restart_available: false, blockers: [{ code: 'old_scope', label: 'Late prior-workspace setup state must stay hidden.' }] } } })
+      completed = true
+      return
+    }
+    return route.fulfill({ json: { setup_help: flow.setupState() } })
+  })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Ask%20Mia')
+  let help = await openFixSetupFromChat(page)
+  await expect.poll(() => reached).toBe(true)
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await openSection(page, 'Coach Studio')
+  await page.getByLabel('Coach workspace').selectOption('2')
+  await expect(page.getByLabel('Coach workspace')).toHaveValue('2')
+  await openSection(page, 'Ask Mia')
+  help = await openFixSetupFromChat(page)
+  await expect(help.getByRole('button', { name: 'Review starting setup again', exact: true })).toBeEnabled()
+  release()
+  await expect.poll(() => completed).toBe(true)
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await expect(help).not.toContainText('Late prior-workspace setup state must stay hidden.')
+  await expect(help).not.toContainText('The household owner needs to review')
+  await help.getByRole('button', { name: 'Review starting setup again', exact: true }).click()
+  const review = page.getByRole('dialog', { name: 'Start setup again', exact: true })
+  await acknowledgeSetupRestart(review, 'Start setup again')
+  await review.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(review).toHaveCount(0)
+  await openSection(page, 'Coach Studio')
+  await page.getByLabel('Coach workspace').selectOption('1')
+  await expect(page.getByLabel('Coach workspace')).toHaveValue('1')
+  await openSection(page, 'Ask Mia')
+  help = await openFixSetupFromChat(page)
+  await help.getByRole('button', { name: 'Review starting setup again', exact: true }).click()
+  await expect(review.getByRole('checkbox', { name: /I reviewed what starts fresh/ })).not.toBeChecked()
+  await expect(review.getByRole('button', { name: 'Start setup again', exact: true })).toBeDisabled()
+  expect(flow.applyCalls()).toBe(0)
+  expect(flow.generation()).toBe(0)
+})
+
+test('BOG UI a selected coach who is an own-household partner can correct facts but cannot authorize an owner restart', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { selfEligible: true, ownerRequired: true, userId: 902, cohortId: null })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#My%20Money')
+  await page.locator('.money-setup-help').click()
+  const help = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
+  await expect(help).toContainText('The household owner needs to review a restart of shared setup.')
+  await expect(help.locator('.setup-help-topics').getByRole('button')).toHaveCount(6)
+  await expect(help.getByRole('button', { name: /Review starting setup again|Request support review|Review prepared restart/ })).toHaveCount(0)
+  await help.locator('.setup-help-topics').getByRole('button', { name: 'Income', exact: true }).click()
+  await expect(help).toHaveCount(0)
+  await expect(page.locator('.income-source-manager-heading')).toBeVisible()
+  expect(flow.creates).toEqual([])
+  expect(flow.restartInputs).toEqual([])
+})
+
+for (const status of [403, 422] as const) {
+  test(`BOG UI an unidentified ${status} prepared-preview denial does not block the next support review`, async ({ page }) => {
+    const flow = await mockSetupHelpBrowser(page, { ready: true, onceDeniedPreview: status })
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    const help = await openFixSetupFromChat(page)
+    await help.getByRole('button', { name: 'Review prepared restart', exact: true }).click()
+    const review = page.getByRole('dialog', { name: 'Review prepared restart', exact: true })
+    await expect(review.getByRole('alert')).toContainText('A prepared review is not available yet.')
+    await expect(review.getByRole('checkbox', { name: /I reviewed what starts fresh/ })).toHaveCount(0)
+    await expect(review.getByRole('button', { name: 'Prepare a fresh review', exact: true })).toHaveCount(0)
+    expect(flow.previewCalls()).toBe(1)
+    expect(flow.applyCalls()).toBe(0)
+    // Support prepares a new concrete ID after the denial, which returned
+    // neither a review nor a latest_review. It must not inherit a blanket stale flag.
+    flow.prepareNextReview()
+    expect(flow.setupState().latest_request).toMatchObject({ review_id: 1802, review_state: 'pending' })
+    await review.getByRole('button', { name: 'Return to Fix my setup', exact: true }).click()
+    await expect(help.getByRole('heading', { name: 'Your review is ready', exact: true })).toBeVisible()
+    await expect(help.getByRole('button', { name: 'Request a fresh review', exact: true })).toHaveCount(0)
+    await expect(help.getByRole('button', { name: 'Review prepared restart', exact: true })).toBeEnabled()
+    await help.getByRole('button', { name: 'Review prepared restart', exact: true }).click()
+    await expect(review.getByRole('checkbox', { name: /I reviewed what starts fresh/ })).not.toBeChecked()
+    await expect(review.getByRole('button', { name: 'Review prepared restart', exact: true })).toBeDisabled()
+    expect(flow.previewCalls()).toBe(2)
+    expect(flow.reopenCalls()).toBe(0)
+    expect(flow.applyCalls()).toBe(0)
+    expect(flow.generation()).toBe(0)
+  })
+}
