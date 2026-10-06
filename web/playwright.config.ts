@@ -16,7 +16,7 @@ export default defineConfig({
     { name: 'desktop-chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
     {
       name: 'tablet-768-chrome',
-      grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory|BOG UI/,
+      grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory|BOG UI|Admin UI|Auth recovery/,
       use: {
         channel: 'chrome',
         viewport: { width: 768, height: 1024 },
@@ -26,7 +26,7 @@ export default defineConfig({
     },
     {
       name: 'tablet-1024-chrome',
-      grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory|BOG UI/,
+      grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory|BOG UI|Admin UI|Auth recovery/,
       use: {
         channel: 'chrome',
         viewport: { width: 1024, height: 768 },
@@ -56,7 +56,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-webkit',
-      grep: /large financial values|Ask Mia renders bounded history|compact phone layouts|mobile Ask Mia|PDF document preview|Coach Studio|Mia memory|BOG UI/,
+      grep: /large financial values|Ask Mia renders bounded history|compact phone layouts|mobile Ask Mia|PDF document preview|Coach Studio|Mia memory|BOG UI|Admin UI|Auth recovery/,
       use: {
         browserName: 'webkit',
         viewport: { width: 390, height: 844 },

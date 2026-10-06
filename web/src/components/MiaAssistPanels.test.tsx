@@ -17,7 +17,7 @@ test('context is a named modal on phones, with flattened status and separate res
   expect(screen.getByRole('dialog', { name: 'Context & help' }).getAttribute('aria-modal')).toBe('true')
   expect(screen.getByRole('heading', { name: 'Your saved picture' })).toBeTruthy()
   expect(screen.getByText('Income saved. Account balance not entered.')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Start over with my real numbers' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Reset my test workspace' }))
   expect(p.onClose).toHaveBeenCalledOnce(); expect(p.onStartOver).toHaveBeenCalledOnce(); expect(p.onClearChat).not.toHaveBeenCalled()
 })
 test('context keeps the complete guidance disclosure available verbatim', () => {
@@ -45,7 +45,7 @@ test('mobile keyboard focus is trapped and restored to the trigger on close', as
   const p = props(); const view = render(<MiaAssistPanels {...p} />)
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' })))
   fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
-  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Start over with my real numbers' }))
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Reset my test workspace' }))
   fireEvent.keyDown(document, { key: 'Tab' }); expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
   fireEvent.keyDown(document, { key: 'Escape' }); expect(p.onClose).toHaveBeenCalledOnce()
   act(() => view.unmount()); expect(document.activeElement).toBe(trigger); trigger.remove()
@@ -58,7 +58,7 @@ test('desktop context is a companion rather than a modal, unless expanded chat r
 test('busy chat disables reset, clear and prompts while help remains available', () => {
   const p = props(); const view = render(<MiaAssistPanels {...p} busy />)
   expect(screen.getByRole('button', { name: 'Clear chat' })).toHaveProperty('disabled', true)
-  expect(screen.getByRole('button', { name: 'Start over with my real numbers' })).toHaveProperty('disabled', true)
+  expect(screen.getByRole('button', { name: 'Reset my test workspace' })).toHaveProperty('disabled', true)
   expect(screen.getByRole('button', { name: 'Guide' })).toHaveProperty('disabled', false)
   view.rerender(<MiaAssistPanels {...p} panel="prompts" busy />)
   expect(screen.getByRole('button', { name: 'Update income' })).toHaveProperty('disabled', true)

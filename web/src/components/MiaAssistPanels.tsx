@@ -25,6 +25,7 @@ type Props = {
   onFeedback: () => void
   onClearChat: () => void
   onStartOver?: () => void
+  onHistory?: () => void
   updatePrompts: Prompt[]
   questionPrompts: Prompt[]
   onChoosePrompt: (message: string) => void
@@ -76,9 +77,10 @@ function PanelContent(props: Props) {
           </> : <p>Sign in to upload and review your own files.</p>}
         </section>
         {props.realWorkspace && <section className="mia-assist-section" aria-label="Help"><h3>Help</h3><div className="mia-assist-actions"><button type="button" className="secondary-button" onClick={() => act(props.onGuide)}>Guide</button><button type="button" className="secondary-button" onClick={() => act(props.onFeedback)}>Report a problem</button></div></section>}
-        {(props.hasMessages || props.onStartOver) && <section className="mia-assist-section" aria-label="Conversation and setup"><h3>Conversation & setup</h3>
-          {props.hasMessages && <div className="mia-assist-conversation-action"><p>Clear this conversation while keeping your saved financial information.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onClearChat)}>Clear chat</button></div>}
-          {props.onStartOver && <div className="mia-assist-conversation-action"><p>Replace practice information with your real numbers. Review what starts fresh and what stays first.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onStartOver!)}>Start over with my real numbers</button></div>}
+        {(props.hasMessages || props.onStartOver || props.onHistory) && <section className="mia-assist-section" aria-label="Conversation and setup"><h3>{props.onStartOver ? 'Conversation & testing' : 'Conversation'}</h3>
+          {props.hasMessages && <div className="mia-assist-conversation-action"><p>Clear the active conversation while keeping your saved financial information and earlier conversations.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onClearChat)}>Clear chat</button></div>}
+          {props.onHistory && <div className="mia-assist-conversation-action"><p>Read conversations from before a reset. Earlier messages do not supply your current numbers.</p><button type="button" className="secondary-button" onClick={() => act(props.onHistory!)}>Earlier conversations</button></div>}
+          {props.onStartOver && <div className="mia-assist-conversation-action"><p>Admin testing only. Review what starts fresh and what stays before resetting your household’s test data.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onStartOver!)}>Reset my test workspace</button></div>}
         </section>}
         {props.disclaimer && <section className="mia-assist-section" aria-label={`About ${props.assistantName}`}><h3>About {props.assistantName}</h3><p>{props.disclaimer}</p></section>}
       </>}

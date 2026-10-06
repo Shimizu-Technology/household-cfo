@@ -1,15 +1,35 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useAuth, useUser } from '@clerk/clerk-react'
-import { fetchCurrentUser, setActiveCoachWorkspaceId, setApiActorIdentity, setAuthTokenGetter } from '../api'
+import { useAuth } from '@clerk/clerk-react'
+import { ApiRequestError, fetchCurrentUser, setActiveCoachWorkspaceId, setApiActorIdentity, setAuthTokenGetter } from '../api'
 import type { CurrentUser } from '../api'
 import { AuthContext } from './authContextValue'
 import type { AuthContextValue } from './authContextValue'
 
+export const AUTH_VERIFICATION_TIMEOUT_MS = 30_000
+
+export type AuthSession = {
+  userId: string | null | undefined
+  isLoaded: boolean
+  isSignedIn: boolean | undefined
+  getToken: () => Promise<string | null>
+  signOut: () => Promise<unknown>
+}
+
 function ClerkAuthBridge({ children }: { children: ReactNode }) {
-  const { getToken, isLoaded, isSignedIn, signOut } = useAuth()
-  const { user: clerkUser } = useUser()
-  const authIdentityId = clerkUser?.id ?? null
+  const session = useAuth()
+  return <AuthVerificationBridge session={session}>{children}</AuthVerificationBridge>
+}
+
+// The session identity is sufficient for verification; a separate full-profile
+// request must not keep a signed-in user waiting forever.
+export function AuthVerificationBridge({ children, session }: { children: ReactNode; session: AuthSession }) {
+  const { getToken, isLoaded, isSignedIn, signOut } = session
+  const authIdentityId = session.userId ?? null
+  const latestGetToken = useRef(getToken)
+  const verificationAbort = useRef<AbortController | null>(null)
+  const [verificationAttempt, setVerificationAttempt] = useState(0)
+  const [authRecoveryRequired, setAuthRecoveryRequired] = useState(false)
   const latestAuthIdentityId = useRef(authIdentityId)
   const verificationRequest = useRef(0)
   const [apiCurrentUser, setApiCurrentUser] = useState<CurrentUser | null>(null)
@@ -23,10 +43,12 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
     setApiActorIdentity(authIdentityId)
   }, [authIdentityId])
 
+  useLayoutEffect(() => { latestGetToken.current = getToken }, [getToken])
+
   useEffect(() => {
     setAuthTokenGetter(async () => {
       try {
-        return await getToken()
+        return await latestGetToken.current()
       } catch (error) {
         console.warn('Unable to load Clerk token', error)
         return null
@@ -34,10 +56,14 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
     })
 
     return () => setAuthTokenGetter(null)
-  }, [getToken])
+  }, [])
 
   const refreshCurrentUser = useCallback(async () => {
-    if (!isLoaded) return
+    verificationAbort.current?.abort()
+    setVerificationAttempt(attempt => attempt + 1)
+    setAuthRecoveryRequired(false)
+    setAuthError(null)
+    if (!isLoaded || (isSignedIn && !authIdentityId)) return
 
     const requestId = ++verificationRequest.current
     const requestedIdentityId = authIdentityId
@@ -54,7 +80,9 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
     setIsVerifyingApi(true)
     setAuthError(null)
     try {
-      const user = await fetchCurrentUser()
+      const controller = new AbortController()
+      verificationAbort.current = controller
+      const user = await fetchCurrentUser(controller.signal)
       if (requestId !== verificationRequest.current || latestAuthIdentityId.current !== requestedIdentityId) return
       if (user.clerk_id !== requestedIdentityId) {
         throw new Error('Unable to verify program access for this account')
@@ -71,6 +99,7 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
       setVerifiedAuthIdentityId(null)
       setActiveCoachWorkspaceState(null)
       setActiveCoachWorkspaceId(null)
+      setAuthRecoveryRequired(!(error instanceof ApiRequestError && error.status === 403))
       setAuthError(error instanceof Error ? error.message : 'Unable to verify program access')
     } finally {
       if (requestId === verificationRequest.current && latestAuthIdentityId.current === requestedIdentityId) {
@@ -93,17 +122,36 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true
+      verificationRequest.current += 1
+      verificationAbort.current?.abort()
     }
   }, [refreshCurrentUser])
 
   const hasVerifiedIdentity = Boolean(
-    isSignedIn
+    isLoaded && isSignedIn
     && authIdentityId
     && verifiedAuthIdentityId === authIdentityId
     && apiCurrentUser,
   )
   const currentUser = hasVerifiedIdentity ? apiCurrentUser : null
   const isApiIdentityPending = Boolean(isSignedIn) && !authError && (!authIdentityId || !hasVerifiedIdentity || isVerifyingApi)
+
+  const verificationPending = !authError && (!isLoaded || Boolean(isSignedIn && (!hasVerifiedIdentity || isVerifyingApi)))
+  useEffect(() => {
+    if (!verificationPending) return
+    const timer = window.setTimeout(() => {
+      verificationRequest.current += 1
+      verificationAbort.current?.abort()
+      setApiCurrentUser(null)
+      setVerifiedAuthIdentityId(null)
+      setActiveCoachWorkspaceState(null)
+      setActiveCoachWorkspaceId(null)
+      setIsVerifyingApi(false)
+      setAuthRecoveryRequired(true)
+      setAuthError('The secure sign-in check took too long. Reload the page or try checking access again.')
+    }, AUTH_VERIFICATION_TIMEOUT_MS)
+    return () => window.clearTimeout(timer)
+  }, [verificationPending, authIdentityId, verificationAttempt])
 
   const value = useMemo<AuthContextValue>(() => ({
     isClerkEnabled: true,
@@ -114,10 +162,11 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
     currentUser,
     activeCoachWorkspaceId: hasVerifiedIdentity ? activeCoachWorkspaceId : null,
     authError,
+    authRecoveryRequired,
     refreshCurrentUser,
     selectCoachWorkspace,
-    signOut: () => signOut(),
-  }), [activeCoachWorkspaceId, authError, authIdentityId, currentUser, hasVerifiedIdentity, isApiIdentityPending, isLoaded, isSignedIn, refreshCurrentUser, selectCoachWorkspace, signOut])
+    signOut: async () => { await signOut() },
+  }), [activeCoachWorkspaceId, authError, authRecoveryRequired, authIdentityId, currentUser, hasVerifiedIdentity, isApiIdentityPending, isLoaded, isSignedIn, refreshCurrentUser, selectCoachWorkspace, signOut])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

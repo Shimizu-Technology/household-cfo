@@ -127,15 +127,16 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
 
   return <div className="pilot-dialog-overlay financial-restart-overlay" role="presentation">
     <section ref={dialogRef} className="pilot-dialog financial-restart-dialog" role="dialog" aria-modal="true" aria-labelledby="financial-restart-title" tabIndex={-1}>
-      <header><div><p className="eyebrow">A fresh financial picture</p><h2 id="financial-restart-title">Start over with my real numbers</h2></div>
+      <header><div><p className="eyebrow">A fresh financial picture</p><h2 id="financial-restart-title">Reset my test workspace</h2></div>
         <button type="button" className="secondary-button" disabled={busy} onClick={() => void close()}>Close</button></header>
       <div className="pilot-dialog-body">
         {blockedReason && <p role="status">{blockedReason}</p>}
         {!blockedReason && phase === 'loading' && <p role="status">Preparing your review. Your saved information stays as it is until you confirm.</p>}
         {error && <p className="document-alert" role="alert">{error}</p>}
-        {!blockedReason && state?.owner_required && <p>Only the household owner can restart this shared financial picture. Ask the owner to review it with you. Your private chat and notes are separate.</p>}
+        {!blockedReason && state?.admin_required && <p>Resetting test data is available only to administrators in their own test workspace. Use Mia or My Money to review updates to individual records.</p>}
+        {!blockedReason && !state?.admin_required && state?.owner_required && <p>Only the household owner can restart this shared financial picture. Ask the owner to review it with you. Your private chat and notes are separate.</p>}
         {!blockedReason && review && <>
-          <p>Your earlier financial history is retained. It will stop contributing to your new plan, and setup will return to <strong>not entered</strong>.</p>
+          <p>Your active chat and financial picture will start fresh. Earlier records and conversations stay in private history, and setup returns to <strong>not entered</strong>.</p>
           {(review.household_name ?? state.household_name) && <p><strong>Household:</strong> {review.household_name ?? state.household_name}</p>}
           <h3>What starts fresh</h3>
           <dl className="financial-restart-counts">{Object.entries(review.counts).map(([key, count]) => <div key={key}><dt>{countLabels[key] ?? key.replaceAll('_', ' ')}</dt><dd>{count}</dd></div>)}</dl>
@@ -145,15 +146,15 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
           <p>Earlier household chat context and saved notes will not supply old practice numbers to your new starting picture. This flow does not delete your account or forget private notes.</p>
           <p className="financial-restart-expiry">Review valid until {new Date(review.expires_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. Changes made elsewhere require a new review.</p>
           {!uncertain && !stale && review.status === 'pending' && <fieldset disabled={busy}>
-            <label className="financial-restart-confirm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />I reviewed what starts fresh and what stays. Start over with my real numbers.</label>
+            <label className="financial-restart-confirm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />I reviewed what starts fresh and what stays. Reset my test workspace.</label>
             {review.shared_member_count > 0 && <label className="financial-restart-confirm"><input type="checkbox" checked={sharedConfirmed} onChange={event => setSharedConfirmed(event.target.checked)} />I understand this changes the shared financial picture for {review.shared_member_count} other household {review.shared_member_count === 1 ? 'member' : 'members'}.</label>}
           </fieldset>}
         </>}
       </div>
       <footer className="financial-restart-actions">
         {uncertain ? <button type="button" className="primary-button" disabled={busy} onClick={() => void checkStatus()}>{phase === 'checking' ? 'Checking status…' : 'Check whether start over finished'}</button>
-          : !blockedReason && (stale || (!review && !state?.owner_required && phase === 'ready')) ? <button type="button" className="primary-button" disabled={busy} onClick={() => void loadPreview()}>Prepare a fresh review</button>
-          : review && <button type="button" className="primary-button" disabled={busy || !confirmed || (review.shared_member_count > 0 && !sharedConfirmed)} onClick={() => void apply()}>{phase === 'applying' ? 'Starting over…' : 'Start over with my real numbers'}</button>}
+          : !blockedReason && (stale || (!review && !state?.owner_required && !state?.admin_required && phase === 'ready')) ? <button type="button" className="primary-button" disabled={busy} onClick={() => void loadPreview()}>Prepare a fresh review</button>
+          : review && <button type="button" className="primary-button" disabled={busy || !confirmed || (review.shared_member_count > 0 && !sharedConfirmed)} onClick={() => void apply()}>{phase === 'applying' ? 'Starting over…' : 'Reset my test workspace'}</button>}
         <button type="button" className="secondary-button" disabled={busy} onClick={() => void close()}>{phase === 'canceling' ? 'Canceling…' : uncertain ? 'Close and check later' : 'Keep my current picture'}</button>
       </footer>
     </section>

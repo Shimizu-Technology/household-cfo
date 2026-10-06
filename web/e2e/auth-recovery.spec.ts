@@ -35,6 +35,7 @@ test.describe('BOG UI auth verification recovery', () => {
         await expect(page.getByRole('heading', { name: 'We couldn’t finish checking your access.' })).toBeVisible()
       }
       await page.getByRole('combobox', { name: 'Session state' }).selectOption('ready')
+      if (mode === 'token-pending') await page.getByRole('button', { name: 'Check access again' }).click()
       await expect(page.getByTestId('verified-workspace')).toBeVisible()
     })
   }

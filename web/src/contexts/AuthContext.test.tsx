@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CurrentUser } from '../api'
@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   setActiveCoachWorkspaceId: vi.fn(),
   setAuthTokenGetter: vi.fn(),
   clerkUserId: 'clerk-1' as string | null,
+  isLoaded: true,
+  isSignedIn: true,
 }))
 
 vi.mock('@clerk/clerk-react', () => ({
@@ -19,11 +21,12 @@ vi.mock('@clerk/clerk-react', () => ({
   UserButton: () => null,
   useAuth: () => ({
     getToken: vi.fn(async () => 'test-token'),
-    isLoaded: true,
-    isSignedIn: true,
+    userId: mocks.clerkUserId,
+    isLoaded: mocks.isLoaded,
+    isSignedIn: mocks.isSignedIn,
     signOut: vi.fn(async () => undefined),
   }),
-  useUser: () => ({ user: mocks.clerkUserId ? { id: mocks.clerkUserId } : null }),
+  useUser: () => ({ isLoaded: false, user: null }),
 }))
 
 vi.mock('../api', async (importOriginal) => {
@@ -36,7 +39,8 @@ vi.mock('../api', async (importOriginal) => {
   }
 })
 
-import { AuthProvider } from './AuthContext'
+import { AUTH_VERIFICATION_TIMEOUT_MS, AuthProvider } from './AuthContext'
+import { ApiRequestError } from '../api'
 import App from '../App'
 
 function AuthProbe() {
@@ -50,6 +54,7 @@ function AuthProbe() {
       <button onClick={() => auth.selectCoachWorkspace(2)}>Choose workspace</button>
       <button onClick={() => void auth.refreshCurrentUser()}>Refresh account</button>
       <span data-testid="error">{auth.authError ?? 'none'}</span>
+      <span data-testid="recovery">{String(Boolean(auth.authRecoveryRequired))}</span>
     </div>
   )
 }
@@ -77,16 +82,18 @@ function apiUser(clerkId: string): CurrentUser {
 
 beforeEach(() => {
   mocks.clerkUserId = 'clerk-1'
+  mocks.isLoaded = true
+  mocks.isSignedIn = true
   mocks.fetchCurrentUser.mockReset()
   mocks.setActiveCoachWorkspaceId.mockReset()
   mocks.setAuthTokenGetter.mockReset()
 })
 
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); vi.useRealTimers() })
 
 describe('AuthProvider identity verification', () => {
   it('settles into access denied state after API verification fails', async () => {
-    mocks.fetchCurrentUser.mockRejectedValue(new Error('Program access is unavailable'))
+    mocks.fetchCurrentUser.mockRejectedValue(new ApiRequestError('Program access is unavailable', { status: 403 }))
 
     render(<AuthProvider isClerkEnabled><AuthProbe /><App /></AuthProvider>)
 
@@ -95,6 +102,59 @@ describe('AuthProvider identity verification', () => {
     expect(screen.getByTestId('error').textContent).toBe('Program access is unavailable')
     expect(screen.getByRole('heading', { name: 'Your sign-in is active, but VERA has not linked your program seat.' })).toBeTruthy()
     expect(mocks.setActiveCoachWorkspaceId).toHaveBeenLastCalledWith(null)
+  })
+
+  it('verifies the session identity even when the full Clerk profile never loads', async () => {
+    mocks.fetchCurrentUser.mockResolvedValue(apiUser('clerk-1'))
+    render(<AuthProvider isClerkEnabled><AuthProbe /></AuthProvider>)
+    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('clerk-1'))
+    expect(screen.getByTestId('verification').textContent).toBe('settled')
+    expect(mocks.fetchCurrentUser).toHaveBeenCalledOnce()
+  })
+
+  it.each(['sdk', 'identity', 'request'])('provides recovery for stalled %s verification without exposing a workspace', async stage => {
+    vi.useFakeTimers()
+    if (stage === 'sdk') mocks.isLoaded = false
+    if (stage === 'identity') mocks.clerkUserId = null
+    let complete!: (user: CurrentUser) => void
+    mocks.fetchCurrentUser.mockImplementation(() => new Promise<CurrentUser>(resolve => { complete = resolve }))
+    render(<AuthProvider isClerkEnabled><AuthProbe /><App /></AuthProvider>)
+    await act(async () => { await Promise.resolve() })
+    await act(async () => { await vi.advanceTimersByTimeAsync(AUTH_VERIFICATION_TIMEOUT_MS + 1) })
+    expect(screen.getByRole('heading', { name: 'We couldn’t finish checking your access.' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Reload page' })).toBeTruthy()
+    expect(screen.getByTestId('user').textContent).toBe('none')
+    if (stage === 'request') {
+      await act(async () => { complete(apiUser('clerk-1')); await Promise.resolve() })
+      expect(screen.getByTestId('user').textContent).toBe('none')
+      const signal = mocks.fetchCurrentUser.mock.calls[0][0] as AbortSignal
+      expect(signal.aborted).toBe(true)
+    } else expect(mocks.fetchCurrentUser).not.toHaveBeenCalled()
+  })
+
+  it('retries a connection failure without claiming that the program seat is missing', async () => {
+    mocks.fetchCurrentUser.mockRejectedValueOnce(new Error('Network unavailable')).mockResolvedValueOnce(apiUser('clerk-1'))
+    render(<AuthProvider isClerkEnabled><AuthProbe /><App /></AuthProvider>)
+    await screen.findByRole('heading', { name: 'We couldn’t finish checking your access.' })
+    expect(screen.queryByText(/has not linked your program seat/)).toBeNull()
+    await act(async () => { screen.getByRole('button', { name: 'Check access again' }).click() })
+    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('clerk-1'))
+  })
+
+  it('installs one token getter across verification renders and cancels reads on identity changes', async () => {
+    let resolveOld!: (user: CurrentUser) => void
+    mocks.fetchCurrentUser.mockImplementationOnce(() => new Promise<CurrentUser>(resolve => { resolveOld = resolve }))
+    const view = render(<AuthProvider isClerkEnabled><AuthProbe /></AuthProvider>)
+    await waitFor(() => expect(mocks.fetchCurrentUser).toHaveBeenCalledOnce())
+    const oldSignal = mocks.fetchCurrentUser.mock.calls[0][0] as AbortSignal
+    mocks.clerkUserId = 'clerk-2'
+    mocks.fetchCurrentUser.mockResolvedValueOnce(apiUser('clerk-2'))
+    view.rerender(<AuthProvider isClerkEnabled><AuthProbe /></AuthProvider>)
+    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('clerk-2'))
+    await act(async () => { resolveOld(apiUser('clerk-1')); await Promise.resolve() })
+    expect(screen.getByTestId('user').textContent).toBe('clerk-2')
+    expect(oldSignal.aborted).toBe(true)
+    expect(mocks.setAuthTokenGetter).toHaveBeenCalledOnce()
   })
 
   it('rejects an API user that does not match the active Clerk identity', async () => {
