@@ -177,6 +177,7 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     id = response.parsed_body.dig("financial_restart", "review", "id")
     assert_equal @household.name, response.parsed_body.dig("financial_restart", "review", "household_name")
+    assert_equal @household.name, response.parsed_body.dig("financial_restart", "household_name")
     post "/api/v1/financial_restart/apply", params: { review_id: id, confirmation: "START OVER" }, headers: auth, as: :json
     assert_response :success
     assert_equal 1, @household.reload.financial_generation

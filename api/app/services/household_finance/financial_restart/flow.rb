@@ -38,7 +38,7 @@ module HouseholdFinance
         reviews = household.financial_restart_reviews.where(requested_by_user: user, cohort_id: cohort_id)
         latest = review_id ? reviews.find(review_id) : reviews.order(id: :desc).first
         { available: role == "owner", owner_required: role != "owner", financial_generation: household.reload.financial_generation,
-          household_id: household.id, latest_review: latest && serialize(latest) }
+          household_id: household.id, household_name: household.name, latest_review: latest && serialize(latest) }
       end
 
       def preview

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_07_060800) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_060900) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -4463,17 +4463,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_060800) do
      RETURNS trigger
      LANGUAGE plpgsql
     AS $function$
-    BEGIN
-      IF NEW.household_id IS DISTINCT FROM OLD.household_id THEN
-        PERFORM 1 FROM households WHERE id=OLD.household_id FOR UPDATE;
-        IF (
-          EXISTS (SELECT 1 FROM savings_debt_cards WHERE household_debt_id=OLD.id) OR
-          EXISTS (SELECT 1 FROM savings_debt_drafts WHERE household_debt_id=OLD.id) OR
-          EXISTS (SELECT 1 FROM savings_debt_versions WHERE household_debt_id=OLD.id)
-        ) THEN RAISE EXCEPTION 'optional card review history household identity cannot change'; END IF;
-      END IF;
-      RETURN NEW;
-    END; $function$
+        BEGIN
+          IF NEW.household_id IS DISTINCT FROM OLD.household_id THEN
+            PERFORM 1 FROM households WHERE id=OLD.household_id FOR UPDATE;
+            IF (
+              EXISTS (SELECT 1 FROM savings_debt_cards WHERE household_debt_id=OLD.id) OR
+              EXISTS (SELECT 1 FROM savings_debt_drafts WHERE household_debt_id=OLD.id) OR
+              EXISTS (SELECT 1 FROM savings_debt_versions WHERE household_debt_id=OLD.id)
+            ) THEN RAISE EXCEPTION 'optional card review history household identity cannot change'; END IF;
+          END IF;
+          RETURN NEW;
+        END; $function$
   SQL
   execute <<~'SQL'
     CREATE TRIGGER debts_optional_card_identity_guard BEFORE UPDATE OF household_id ON public.debts FOR EACH ROW EXECUTE FUNCTION debts_optional_card_identity_guard();
