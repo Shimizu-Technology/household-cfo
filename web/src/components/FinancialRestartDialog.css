@@ -1,4 +1,4 @@
-.financial-restart-dialog { display: flex; flex-direction: column; overflow: hidden; }
+.financial-restart-dialog { display: flex; flex-direction: column; gap: 0; overflow: hidden; }
 .financial-restart-dialog > header, .financial-restart-actions { flex: 0 0 auto; }
 .financial-restart-dialog .pilot-dialog-body { display: block; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 4px; }
 .financial-restart-dialog .pilot-dialog-body > h3 { margin: 20px 0 10px; font-size: 1rem; }
@@ -20,3 +20,10 @@
 .mia-wait-status { font-size: .85rem; color: var(--muted); }
 .mia-message-restart { min-height: 44px; margin-top: 12px; }
 @media (max-width: 620px) { .financial-restart-actions { flex-direction: column; } .financial-restart-actions button { width: 100%; } }
+@media (max-height: 400px) {
+  .financial-restart-dialog { padding: 14px; }
+  .financial-restart-dialog > header h2 { font-size: 1.25rem; line-height: 1.15; }
+  .financial-restart-dialog .pilot-dialog-body { padding: 10px 4px; }
+  .financial-restart-actions { flex-direction: row; padding-top: 10px; gap: 10px; }
+  .financial-restart-actions button { flex: 1 1 0; min-width: 0; width: auto; padding: 8px 10px; font-size: .875rem; line-height: 1.3; }
+}
