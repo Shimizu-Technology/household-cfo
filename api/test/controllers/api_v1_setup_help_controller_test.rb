@@ -157,6 +157,41 @@ class ApiV1SetupHelpControllerTest < ActionDispatch::IntegrationTest
     refute_includes response.body, "private-reset-prompt"
   end
 
+  test "literal setup-help intent and continuations offer deterministic guidance while negation does not" do
+    [ "Fix my setup", "Everything", "help me correct my setup" ].each_with_index do |message, index|
+      assert_no_difference [ "FinancialRestartReview.count", "SetupSupportRequest.count", "IncomeSource.count" ] do
+        post "/api/v1/mia/messages", params: { message: message, request_id: "guided-literal-#{index}" }, headers: auth, as: :json
+      end
+      assert_response :created
+      assert_equal true, response.parsed_body.dig("setup_help", "available")
+      assert_equal "setup_help", @household.chat_sessions.find_by!(user: @user, cohort_id: nil).active_topic["type"]
+    end
+    session = @household.chat_sessions.find_by!(user: @user, cohort_id: nil)
+    [ "Don't fix my setup", "Do not help me correct my setup", "I don't want to fix my setup" ].each do |message|
+      assert_not Mia::SetupHelpRequest.matches?(message, session: session)
+    end
+    post "/api/v1/mia/messages", params: { message: "Don't fix my setup. I only want an explanation.", request_id: "guided-negation" }, headers: auth, as: :json
+    assert_response :created
+    assert_nil response.parsed_body["setup_help"]
+  end
+
+  test "administrator guided setup topic avoids test reset until explicit reset outside guided context" do
+    @user.update!(role: "admin")
+    [ "Fix my setup", "Everything", "Please start over with all my information" ].each_with_index do |message, index|
+      post "/api/v1/mia/messages", params: { message: message, request_id: "admin-guided-#{index}" }, headers: auth, as: :json
+      assert_response :created
+      assert_equal true, response.parsed_body.dig("setup_help", "available")
+      assert_equal false, response.parsed_body.dig("financial_restart", "available")
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Fix my setup"
+    end
+    delete "/api/v1/mia/messages", headers: auth
+    assert_response :no_content
+    post "/api/v1/mia/messages", params: { message: "Reset all my information and start over", request_id: "admin-explicit-test-reset" }, headers: auth, as: :json
+    assert_response :created
+    assert_equal true, response.parsed_body.dig("financial_restart", "available")
+    assert_nil response.parsed_body["setup_help"]
+  end
+
   private
   def auth(user = @user)
     { "Authorization" => "Bearer test_token_#{user.id}", "Idempotency-Key" => SecureRandom.uuid }
