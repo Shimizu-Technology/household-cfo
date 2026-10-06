@@ -752,6 +752,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return [...participantSections, ...staffSections, ...adminSections]
   }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff, data])
   const activeSection = !visibleSections.includes(active) ? sections[0] : active
+  const activeSectionRef = useRef(activeSection)
+  activeSectionRef.current = activeSection
   const selectedImport = useMemo(() => {
     const explicitImport = selectedImportId ? documentImports.find((documentImport) => documentImport.id === selectedImportId) : null
     return explicitImport ?? documentImports.find(documentNeedsReview) ?? documentImports[0] ?? null
@@ -1931,6 +1933,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       void refreshDocumentImports({ quiet: true })
       const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
       setMessages((current) => [...current.slice(0, -1), userMessageWithPreviews, response.assistant_message])
+      if (response.financial_restart?.available && activeSectionRef.current === 'Ask Mia') { setAssistPanel(null); setFinancialRestartOpen(true) }
       if (response.transaction_draft) {
         captureAnalyticsEvent('transaction_draft_presented_in_chat', {
           source_type: response.transaction_draft.source_type ?? 'manual_chat',
@@ -3401,8 +3404,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 />
               )}
 
-              {currentMessages.some(message => message.financial_restart?.available) && <div className="mia-restart-entry"><p>A reviewed start over is available. Your information changes only after you confirm the review.</p><button type="button" className="secondary-button" onClick={() => setFinancialRestartOpen(true)}>Review start over</button></div>}
               <ChatHistory
+                  onFinancialRestart={() => setFinancialRestartOpen(true)}
                   messages={visibleMessages}
                   totalMessageCount={currentMessages.length}
                   hiddenMessageCount={hiddenMessageCount}
@@ -3613,6 +3616,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 )}
               </article>
               <PlaidConnections
+                householdId={data.workspace.household_id}
                 userId={String(auth.currentUser.id)}
                 variant="activity"
                 refreshKey={plaidActivityRefreshKey}
@@ -3861,6 +3865,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           <ProfileDisclosure label="Optional bank connections" forceOpen={canResumePlaidOAuthReturn}>
           {isRealWorkspace && auth.currentUser && !isFirstSessionSetup && (
             <PlaidConnections
+              householdId={data.workspace.household_id}
               userId={String(auth.currentUser.id)}
               variant="connections"
               onDraftsCreated={refreshWorkspaceAfterPlaidDrafts}

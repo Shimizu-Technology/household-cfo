@@ -8,7 +8,11 @@ const countLabels: Record<string, string> = {
   expense_items: 'Recurring expenses', budget_years: 'Annual plans', budget_categories: 'Spending categories',
   budget_allocations: 'Planned category amounts', debts: 'Household debts', accounts: 'Accounts and assets',
   goals: 'Household goals', transactions: 'Recorded transactions', transaction_drafts: 'Unreviewed transactions',
-  mia_reviews: 'Pending Mia reviews',
+  mia_reviews: 'Pending Mia reviews', household_transactions: 'Recorded transactions',
+  mia_action_drafts: 'Mia review records', merchant_category_rules: 'Saved merchant categories',
+  document_imports: 'Document reviews', plaid_items: 'Bank connections',
+  bank_connections: 'Bank connections', transaction_splits: 'Transaction splits',
+  transaction_draft_splits: 'Unreviewed transaction splits',
 }
 
 export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApplied }: {
@@ -57,7 +61,7 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
       clearRecovery()
       const preview = await previewFinancialRestart()
       if (!mounted.current || id !== request.current) return
-      setState(preview); setUncertain(false)
+      setState({ ...status, ...preview, household_name: preview.household_name ?? status.household_name }); setUncertain(false)
     } catch (caught) {
       if (mounted.current && id === request.current) setError(caught instanceof Error ? caught.message : 'Your restart review could not be loaded.')
     } finally { if (mounted.current && id === request.current) setPhase('ready') }
@@ -132,7 +136,7 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
         {!blockedReason && state?.owner_required && <p>Only the household owner can restart this shared financial picture. Ask the owner to review it with you. Your private chat and notes are separate.</p>}
         {!blockedReason && review && <>
           <p>Your earlier financial history is retained. It will stop contributing to your new plan, and setup will return to <strong>not entered</strong>.</p>
-          {state.household_name && <p><strong>Household:</strong> {state.household_name}</p>}
+          {(review.household_name ?? state.household_name) && <p><strong>Household:</strong> {review.household_name ?? state.household_name}</p>}
           <h3>What starts fresh</h3>
           <dl className="financial-restart-counts">{Object.entries(review.counts).map(([key, count]) => <div key={key}><dt>{countLabels[key] ?? key.replaceAll('_', ' ')}</dt><dd>{count}</dd></div>)}</dl>
           <p>Your money setup answers, household goal and financial profile will need to be entered again.</p>

@@ -2216,7 +2216,7 @@ export function subscribeFinancialPictureChanges(listener: (generation: number) 
 }
 class FinancialPictureChangedError extends Error {}
 function financialDataPath(path: string) {
-  return /^\/api\/v1\/(workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|goals|profile|household_memories|mia_memory_settings|document_imports|spending_report|mia|plaid)(\/|\?|$)/.test(path)
+  return /^\/api\/v1\/(workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid)(\/|\?|$)/.test(path)
 }
 function checkedFinancialReply(generation: number | null, expected: number | null) {
   if (generation === null || expected === null || generation === expected) return
@@ -3814,6 +3814,7 @@ export type MiaMessageResponse = {
 
 export type FinancialRestartReview = {
   id: number
+  household_name?: string
   status: 'pending' | 'applied' | 'canceled' | 'expired'
   expires_at: string
   financial_generation: number

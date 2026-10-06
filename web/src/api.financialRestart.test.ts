@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { captureApiOperation, createIncomeSource, fetchAppData, fetchBudget, fetchFinancialRestartStatus, setActiveParticipantCohortId, setApiActorIdentity, setApiFinancialGeneration, setAuthTokenGetter, subscribeFinancialPictureChanges } from './api'
+import { applyMiaActionDraft, confirmTransactionDraft, fetchDocumentSourceReview, fetchTrackedSourceAccounts, fetchFinancialBaseline, captureApiOperation, createIncomeSource, fetchAppData, fetchBudget, fetchFinancialRestartStatus, setActiveParticipantCohortId, setApiActorIdentity, setApiFinancialGeneration, setAuthTokenGetter, subscribeFinancialPictureChanges } from './api'
 
 function json(value: unknown, generation?: number) {
   return new Response(JSON.stringify(value), { status: 200, headers: { 'Content-Type': 'application/json', ...(generation == null ? {} : { 'X-Financial-Generation': String(generation) }) } })
@@ -8,6 +8,18 @@ beforeEach(() => { setAuthTokenGetter(null); setApiActorIdentity(null); setActiv
 afterEach(() => { setAuthTokenGetter(null); setApiActorIdentity(null); setActiveParticipantCohortId(null); setApiFinancialGeneration(null); vi.unstubAllGlobals() })
 
 describe('financial picture request boundaries', () => {
+  it.each([
+    ['baseline', () => fetchFinancialBaseline()],
+    ['source review', () => fetchDocumentSourceReview(1, 2, 1, 'all')],
+    ['source accounts', () => fetchTrackedSourceAccounts(null)],
+    ['Mia apply', () => applyMiaActionDraft(1, 'qa-review')],
+    ['transaction apply', () => confirmTransactionDraft(1, {}, 'qa-transaction')],
+  ])('refreshes the complete picture when a %s reply belongs to a newer generation', async (_name, operation) => {
+    setApiFinancialGeneration(1)
+    const changed = vi.fn(); const unsubscribe = subscribeFinancialPictureChanges(changed)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({}, 2)))
+    try { await expect(operation()).rejects.toThrow(/financial picture changed/); expect(changed).toHaveBeenCalledWith(2) } finally { unsubscribe() }
+  })
   it('adopts a coherent workspace version and includes it on subsequent financial writes', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(json({ workspace: { financial_generation: 2 } }, 2)).mockResolvedValueOnce(json({ income_source: { id: 1 } }, 2))
     vi.stubGlobal('fetch', fetch)
