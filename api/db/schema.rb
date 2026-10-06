@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_07_060400) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_060700) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -74,7 +74,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_060400) do
     t.index ["household_id", "active"], name: "index_accounts_on_household_id_and_active"
     t.index ["household_id"], name: "index_accounts_on_household_id"
     t.index ["id", "household_id"], name: "accounts_source_review_household_identity", unique: true
-    t.index ["plaid_account_id"], name: "index_accounts_on_unique_plaid_account", unique: true, where: "(plaid_account_id IS NOT NULL)"
+    t.index ["plaid_account_id", "financial_generation"], name: "index_accounts_on_unique_plaid_account", unique: true, where: "(plaid_account_id IS NOT NULL)"
     t.check_constraint "(account_type::text = ANY (ARRAY['checking'::character varying, 'savings'::character varying]::text[])) OR balance_cents >= 0", name: "accounts_balance_signed_only_for_cash"
     t.check_constraint "active = true AND archived_at IS NULL OR active = false AND archived_at IS NOT NULL", name: "accounts_archive_state_valid"
     t.check_constraint "balance_known = true OR balance_cents = 0 AND balance_as_of_on IS NULL", name: "accounts_unknown_balance_zero_without_date"
@@ -2540,6 +2540,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_060400) do
     t.string "error_code"
     t.string "error_message"
     t.integer "financial_generation", default: 0, null: false
+    t.datetime "financial_resumed_at"
     t.bigint "household_id", null: false
     t.string "institution_id"
     t.string "institution_name"
@@ -2562,6 +2563,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_060400) do
     t.datetime "created_at", null: false
     t.string "detailed_category"
     t.string "drafted_source_fingerprint"
+    t.integer "financial_generation", default: 0, null: false
     t.string "iso_currency_code"
     t.string "merchant_name"
     t.string "name", null: false
@@ -4838,11 +4840,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_060400) do
     BEGIN
       SELECT financial_generation INTO current_generation FROM households WHERE id = NEW.household_id FOR UPDATE;
       IF NEW.financial_generation IS DISTINCT FROM current_generation THEN
+        IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'transaction_drafts' THEN
+          IF (to_jsonb(NEW) - ARRAY['raw_input', 'draft_payload', 'merchant', 'updated_at']) = (to_jsonb(OLD) - ARRAY['raw_input', 'draft_payload', 'merchant', 'updated_at'])
+            AND NEW.raw_input IS NULL AND NEW.draft_payload = '{}'::jsonb
+            AND (NEW.merchant = OLD.merchant OR (NEW.merchant = 'Source row' AND OLD.status IN ('pending', 'ignored'))) THEN
+            RETURN NEW;
+          END IF;
+        END IF;
+        IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'mia_action_drafts' THEN
+          IF (to_jsonb(NEW) - ARRAY['source_chat_message_id', 'assistant_chat_message_id', 'metadata', 'updated_at']) = (to_jsonb(OLD) - ARRAY['source_chat_message_id', 'assistant_chat_message_id', 'metadata', 'updated_at'])
+            AND (NEW.source_chat_message_id IS NULL OR NEW.source_chat_message_id = OLD.source_chat_message_id)
+            AND (NEW.assistant_chat_message_id IS NULL OR NEW.assistant_chat_message_id = OLD.assistant_chat_message_id)
+            AND (NEW.metadata - 'review_program_scope') = (OLD.metadata - 'review_program_scope') THEN
+            RETURN NEW;
+          END IF;
+        END IF;
         RAISE EXCEPTION 'financial_generation_stale: reload the current financial picture' USING ERRCODE = '23514';
       END IF;
-      IF TG_OP = 'UPDATE' AND TG_TABLE_NAME <> 'household_profiles' AND
-          (NEW.financial_generation IS DISTINCT FROM OLD.financial_generation OR NEW.household_id IS DISTINCT FROM OLD.household_id) THEN
-        RAISE EXCEPTION 'financial picture identity cannot change' USING ERRCODE = '23514';
+      IF TG_OP = 'UPDATE' AND TG_TABLE_NAME <> 'household_profiles' AND NEW.financial_generation IS DISTINCT FROM OLD.financial_generation THEN
+        RAISE EXCEPTION 'financial picture generation cannot change' USING ERRCODE = '23514';
       END IF;
       RETURN NEW;
     END;
@@ -4901,6 +4917,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_060400) do
   SQL
   execute <<~'SQL'
     CREATE TRIGGER chat_sessions_financial_picture_guard BEFORE INSERT OR UPDATE ON public.chat_sessions FOR EACH ROW EXECUTE FUNCTION financial_chat_write_guard();
+  SQL
+  execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.bank_activity_generation_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF NEW.financial_generation IS DISTINCT FROM OLD.financial_generation OR NEW.plaid_item_id IS DISTINCT FROM OLD.plaid_item_id THEN
+        RAISE EXCEPTION 'bank activity financial generation cannot change' USING ERRCODE = '23514';
+      END IF;
+      RETURN NEW;
+    END;
+    $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER plaid_transactions_financial_generation_guard BEFORE UPDATE ON public.plaid_transactions FOR EACH ROW EXECUTE FUNCTION bank_activity_generation_guard();
   SQL
 execute <<~SQL
   CREATE OR REPLACE FUNCTION prevent_cohort_release_mutation()

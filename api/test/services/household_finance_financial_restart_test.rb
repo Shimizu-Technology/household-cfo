@@ -115,9 +115,40 @@ class HouseholdFinanceFinancialRestartTest < ActiveSupport::TestCase
     assert_equal [], HouseholdFinance::ConversationTranscriptBuilder.new(session).call
     assert_equal [], HouseholdFinance::MiaMemoryContextBuilder.new(@household, user: @user).call[:memories]
     assert memory.reload.as_api_json(viewer: @user)[:context_paused_by_restart]
+    assistant = session.chat_messages.create!(role: "assistant", content: "New setup is missing")
+    assert_equal false, HouseholdFinance::ConversationCompactor.new(session, user_message: message, assistant_message: assistant).call
+    assert_nil session.reload.rolling_summary
+    FinancialPicture.set(household_id: @household.id, generation: 0) do
+      assert_raises(HouseholdFinance::Operations::Base::StaleOperation) do
+        session.with_lock { session.update!(rolling_summary: "Old fake salary") }
+      end
+    end
     memory.update!(display_value: "Use brief explanations")
     assert_not memory.reload.as_api_json(viewer: @user)[:context_paused_by_restart]
     assert_equal 1, HouseholdFinance::MiaMemoryContextBuilder.new(@household, user: @user).call[:memories].length
+  end
+
+  test "exact fingerprints reject SQL money changes even without updated timestamps" do
+    debt = @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 5_000)
+    preview = @flow.preview
+    debt.update_columns(balance_cents: 200_000)
+    assert_raises(HouseholdFinance::FinancialRestart::Flow::StaleReview) { apply(preview) }
+    assert_equal 0, @household.reload.financial_generation
+  end
+
+  test "retained source evidence can be erased without changing prior approved financial amounts" do
+    document = @household.financial_document_imports.create!(uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.pdf", content_type: "application/pdf", byte_size: 1, s3_key: "synthetic.pdf")
+    draft = @household.transaction_drafts.create!(financial_document_import: document, occurred_on: Date.current, merchant: "Private source description", total_amount_cents: 1_200, source_type: "statement", status: "pending", raw_input: "Private source", draft_payload: { extracted: "private" })
+    apply(@flow.preview)
+    FinancialDocuments::SourceEvidenceEraser.call(document)
+    assert_nil draft.reload.raw_input
+    assert_equal({}, draft.draft_payload)
+    assert_equal "Source row", draft.merchant
+    assert_equal 1_200, draft.total_amount_cents
+    assert_empty @household.transaction_drafts
+    assert_raises(ActiveRecord::StatementInvalid) do
+      TransactionDraft.transaction(requires_new: true) { draft.update_columns(total_amount_cents: 2_000) }
+    end
   end
 
   private

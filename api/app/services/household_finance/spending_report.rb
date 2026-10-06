@@ -177,7 +177,7 @@ module HouseholdFinance
 
     def bank_activity
       @bank_activity ||= begin
-        transactions = household.plaid_transactions.joins(:plaid_item).where(plaid_items: { financial_generation: household.financial_generation }).visible.includes(:transaction_draft).where(occurred_on: start_on..end_on).to_a
+        transactions = household.plaid_transactions.current_picture.visible.includes(:transaction_draft).where(occurred_on: start_on..end_on).to_a
         posted_outflows = transactions.select { |transaction| !transaction.pending? && transaction.amount_cents.positive? }
         pending = transactions.select { |transaction| transaction.pending? && transaction.amount_cents.positive? }
         inflows = transactions.select { |transaction| !transaction.pending? && transaction.amount_cents.negative? }

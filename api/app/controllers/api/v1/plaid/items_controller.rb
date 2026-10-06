@@ -51,6 +51,18 @@ module Api
           render json: { errors: [ e.message ] }, status: :unprocessable_entity
         end
 
+        def resume_financial_picture
+          item = current_household.plaid_items.find(params[:id])
+          HouseholdFinance::FinancialRestart::BankResume.new(item, user: current_user).call(
+            accepted: params[:accepted], expected_item_financial_generation: params[:expected_item_financial_generation])
+          PlaidTransactionSyncJob.perform_later(item.id)
+          render json: payload
+        rescue ActiveRecord::RecordNotFound
+          render json: { errors: [ "Bank connection not found" ] }, status: :not_found
+        rescue ArgumentError, ActiveRecord::RecordInvalid => error
+          render json: { errors: [ error.message ] }, status: :unprocessable_entity
+        end
+
         def update
           item = current_household.plaid_items.connected.find(params[:id])
           item.update!(auto_confirm_trusted_merchants: ActiveModel::Type::Boolean.new.cast(params[:auto_confirm_trusted_merchants]))
@@ -97,6 +109,9 @@ module Api
         def serialize_item(item)
           {
             id: item.id,
+            financial_generation: item.financial_generation,
+            context_paused_by_restart: !item.current_financial_picture?,
+            financial_resumed_at: item.financial_resumed_at&.iso8601,
             institution_name: item.institution_name,
             status: item.status,
             environment: item.environment,

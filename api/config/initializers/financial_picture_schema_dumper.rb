@@ -2,7 +2,7 @@ module FinancialPictureSchemaDumper
   private
 
   def trailer(stream)
-    %w[financial_picture_write_guard() financial_chat_write_guard()].each do |signature|
+    %w[financial_picture_write_guard() financial_chat_write_guard() bank_activity_generation_guard()].each do |signature|
     function = @connection.select_value("SELECT pg_get_functiondef(to_regprocedure(#{@connection.quote(signature)}))")
     if function.present?
       stream.puts "  execute <<~'SQL'\n#{function.lines.map { |line| "    #{line}" }.join}  SQL"

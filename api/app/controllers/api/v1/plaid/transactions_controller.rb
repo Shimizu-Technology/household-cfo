@@ -54,8 +54,9 @@ module Api
         private
 
         def activity_scope
-          current_household.plaid_transactions
-            .where("plaid_transactions.removed_at IS NULL OR plaid_transactions.transaction_draft_id IS NOT NULL")
+          scope = current_household.plaid_transactions
+          scope = scope.current_picture unless params[:picture].to_s == "history"
+          scope.where("plaid_transactions.removed_at IS NULL OR plaid_transactions.transaction_draft_id IS NOT NULL")
         end
 
         def apply_activity_view(scope, view)
@@ -144,6 +145,7 @@ module Api
           confirmed_transaction = draft&.confirmed_transaction
           {
             id: transaction.id,
+            context_paused_by_restart: !transaction.current_financial_picture?,
             account_id: transaction.plaid_account_id,
             account_name: transaction.plaid_account.name,
             account_mask: transaction.plaid_account.mask,

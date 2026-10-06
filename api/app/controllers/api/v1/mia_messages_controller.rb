@@ -365,7 +365,7 @@ module Api
 
       def detach_action_reviews_before_clearing(session)
         message_ids = session.chat_messages.select(:id)
-        scope = current_household.mia_action_drafts
+        scope = current_household.historical_mia_action_drafts
         scope.where(source_chat_message_id: message_ids).or(scope.where(assistant_chat_message_id: message_ids))
           .includes(source_chat_message: :chat_session, assistant_chat_message: :chat_session).find_each do |draft|
           origin = draft.source_chat_message&.chat_session || draft.assistant_chat_message&.chat_session
@@ -1068,7 +1068,7 @@ module Api
         end
 
         fingerprint = message_request_fingerprint(content, attached_imports)
-        session.with_lock do
+        session.with_financial_picture_lock do
           existing_request = session.mia_message_requests.find_by(request_key: request_key)
           return [ existing_request, true ] if existing_request && render_existing_message_request(existing_request, fingerprint)
 

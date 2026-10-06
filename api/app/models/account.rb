@@ -12,7 +12,7 @@ class Account < ApplicationRecord
   validates :account_type, inclusion: { in: ACCOUNT_TYPES }
   validates :source_type, inclusion: { in: SOURCE_TYPES }
   validates :balance_cents, numericality: { only_integer: true }
-  validates :plaid_account_id, uniqueness: true, allow_nil: true
+  validates :plaid_account_id, uniqueness: { scope: :financial_generation }, allow_nil: true
   validate :active_name_is_unique
   validate :archive_state_is_consistent
   validate :balance_state_is_consistent

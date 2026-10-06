@@ -164,6 +164,7 @@ Rails.application.routes.draw do
           end
           member do
             post :sync
+            post :resume_financial_picture
             post :update_link_token
           end
         end

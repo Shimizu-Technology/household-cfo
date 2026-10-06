@@ -19,7 +19,9 @@ module HouseholdFinance
     def call
       return false unless chat_session && intent_result && user_message && assistant_message
 
-      chat_session.with_lock do
+      chat_session.with_financial_picture_lock do
+        generation = Household.where(id: chat_session.household_id).pick(:financial_generation)
+        return false unless user_message.financial_generation == generation && assistant_message.financial_generation == generation
         current = normalized_topic(chat_session.active_topic)
         topic = topic_for(current)
         topic = stamp_assistant_context(topic) if topic

@@ -31,7 +31,9 @@ module HouseholdFinance
       )
       return false unless evidence
 
-      chat_session.with_lock do
+      chat_session.with_financial_picture_lock do
+        generation = Household.where(id: chat_session.household_id).pick(:financial_generation)
+        return false unless user_message.financial_generation == generation && assistant_message.financial_generation == generation
         topics = normalized_topics(chat_session.open_topics)
         previous = topics.find { |topic| DocumentEvidenceContinuity.topic?(topic) }
         topic = evidence_topic(evidence, previous)
@@ -65,7 +67,7 @@ module HouseholdFinance
     attr_reader :chat_session, :document_imports, :user_message, :assistant_message, :query_scope, :activate, :persona_context_id
 
     def retire
-      chat_session.with_lock do
+      chat_session.with_financial_picture_lock do
         topics = normalized_topics(chat_session.open_topics).reject { |topic| DocumentEvidenceContinuity.topic?(topic) }
         active = normalized_topic(chat_session.active_topic)
         active = {} if DocumentEvidenceContinuity.topic?(active)

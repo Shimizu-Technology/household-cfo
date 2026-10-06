@@ -85,6 +85,91 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, @household.financial_generation
   end
 
+  test "prior bank OAuth callbacks and saved memory confirmations require the current financial picture" do
+    @savings_membership.destroy!
+    flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
+    preview = flow.preview
+    flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
+    [ "/api/v1/plaid/items/exchange", "/api/v1/plaid/items/link_token", "/api/v1/plaid/transactions/stage" ].each do |path|
+      post path, params: {}, headers: auth.merge("X-Financial-Generation" => "0"), as: :json
+      assert_response :conflict
+      assert_equal "financial_generation_stale", response.parsed_body["code"]
+    end
+    post "/api/v1/household_memories", params: { household_memory: { display_value: "Old fake balance", category: "goal" } }, headers: auth.merge("X-Financial-Generation" => "0"), as: :json
+    assert_response :conflict
+  end
+
+  test "workspace and budget reads crossing a restart discard mixed payloads and expose fresh generation" do
+    @savings_membership.destroy!
+    [ [ :workspace, "/api/v1/workspace" ], [ :budget, "/api/v1/budget" ] ].each do |method_name, path|
+      flow = HouseholdFinance::FinancialRestart::Flow.new(@household.reload, user: @user)
+      preview = flow.preview
+      expected = @household.financial_generation + 1
+      original = HouseholdFinance::DataPresenter.instance_method(method_name)
+      restart = lambda { flow.apply(review_id: preview[:review][:id], confirmation: "START OVER") }
+      HouseholdFinance::DataPresenter.define_method(method_name) do
+        restart.call
+        original.bind_call(self)
+      end
+      begin
+        get path, headers: auth.merge("Origin" => "https://householdcfomethod.com")
+        assert_response :conflict
+        assert_equal "financial_generation_stale", response.parsed_body["code"]
+        assert_equal expected, response.parsed_body["financial_generation"]
+        assert_equal expected.to_s, response.headers["X-Financial-Generation"]
+        assert_includes response.headers["Access-Control-Expose-Headers"], "X-Financial-Generation"
+        assert_nil response.parsed_body["workspace"]
+        assert_nil response.parsed_body["budget"]
+      ensure
+        HouseholdFinance::DataPresenter.define_method(method_name, original)
+      end
+    end
+  end
+
+  test "a preview captured before a restart cannot silently review the next financial picture" do
+    @savings_membership.destroy!
+    flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
+    first = flow.preview
+    FinancialPicture.set(household_id: @household.id, generation: 0) do
+      flow.apply(review_id: first[:review][:id], confirmation: "START OVER")
+      assert_raises(HouseholdFinance::Operations::Base::StaleOperation) { flow.preview }
+    end
+    post "/api/v1/financial_restart/preview", headers: auth.merge("X-Financial-Generation" => "0"), as: :json
+    assert_response :conflict
+    assert_equal "financial_generation_stale", response.parsed_body["code"]
+  end
+
+  test "clearing retained conversations preserves old reviews without leaving foreign-key blockers" do
+    @savings_membership.destroy!
+    session = @household.chat_sessions.create!(user: @user)
+    user_message = session.chat_messages.create!(role: "user", content: "Fake income change")
+    assistant_message = session.chat_messages.create!(role: "assistant", content: "Fake review")
+    draft = @household.mia_action_drafts.create!(requested_by_user: @user, source_chat_message: user_message,
+      assistant_chat_message: assistant_message, draft_type: "household_setup", title: "Fake review", summary: "Retained audit", year: 2026)
+    flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
+    preview = flow.preview
+    flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
+    delete "/api/v1/mia/messages", headers: auth
+    assert_response :no_content
+    assert_nil draft.reload.source_chat_message_id
+    assert_nil draft.assistant_chat_message_id
+    assert_equal 0, draft.financial_generation
+    assert_equal @user.id, draft.metadata.dig("review_program_scope", "user_id")
+    assert_empty @household.reload.mia_action_drafts
+    assert_empty session.reload.chat_messages
+  end
+
+  test "a stale financial epoch does not block independent crisis guidance" do
+    @savings_membership.destroy!
+    flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
+    preview = flow.preview
+    flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
+    post "/api/v1/mia/messages", params: { message: "I want to end it all.", request_id: "crisis-after-restart" }, headers: auth.merge("X-Financial-Generation" => "0"), as: :json
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "911"
+    assert_empty @household.reload.income_sources
+  end
+
   private
   def auth
     { "Authorization" => "Bearer test_token_#{@user.id}", "Idempotency-Key" => SecureRandom.uuid }.tap { |headers| headers["X-Cohort-Id"] = @savings_cohort.id.to_s unless @savings_membership.destroyed? }
