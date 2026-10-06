@@ -11,7 +11,7 @@ class SavingsEntryVersion < ApplicationRecord
 
   def projection_input
     {
-      logical_entry_id: "entry-#{savings_entry_id}", version_id: "version-#{id}", approval_state: "approved", current_head: true,
+      logical_entry_id: "entry-#{savings_entry_id.to_s.rjust(20, '0')}", version_id: "version-#{id}", approval_state: "approved", current_head: true,
       effective_on: effective_on, signed_cents: signed_cents, currency: currency,
       funding_source: funding_source, evidence_supported_cents: evidence_supported_cents
     }
