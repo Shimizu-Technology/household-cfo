@@ -53,7 +53,7 @@ import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/f
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import { guamTodayIso } from './lib/householdDate'
-import { miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer } from './lib/workspaceView'
+import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
 import { documentNeedsReview, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
@@ -498,7 +498,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const publicBrand = useBrand()
   const participantActorId = auth.currentUser?.id
   const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isClerkEnabled || Boolean(auth.currentUser))
-  const [{ data, homeBudget, budgets, homeBudgetStale, dataBudgetStale }, setData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
+  const [{ data, homeBudget, budgets, homeBudgetStale, dataBudgetStale }, dispatchWorkspaceData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
+  const financialMutationGenerationRef = useRef(0)
+  const setData = useCallback((action: WorkspaceViewAction) => {
+    if (isFinancialWorkspaceCommit(action)) financialMutationGenerationRef.current += 1
+    dispatchWorkspaceData(action)
+  }, [])
   const [workspaceLoadAttempt, setWorkspaceLoadAttempt] = useState(0)
   const workspaceMounted = useRef(true)
   useEffect(() => { workspaceMounted.current = true; return () => { workspaceMounted.current = false } }, [])
@@ -923,6 +928,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   useEffect(() => {
     if (!canLoadWorkspace) return
 
+    const generation = financialMutationGenerationRef.current
     let cancelled = false
 
     const selectionCheck = selectedCohortId !== undefined && participantActorId !== undefined && shouldUseRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId
@@ -934,7 +940,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       : Promise.resolve(true)
     selectionCheck.then(verified => verified && !cancelled ? fetchAppData(shouldUseRealWorkspace) : null)
       .then((payload) => {
-        if (cancelled || !payload) return
+        if (cancelled || generation !== financialMutationGenerationRef.current || !payload) return
         if (selectedCohortId !== undefined && payload.workspace?.cohort?.id !== selectedCohortId) throw new Error('The returned program could not be verified. Choose your program or try again.')
         if (payload.workspace?.mode === 'real' && payload.workspace.cohort?.id) onProgramVerified(payload.workspace.cohort.id)
         const realWorkspace = payload.workspace?.mode === 'real'
@@ -950,14 +956,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         historyExpandedRef.current = false
       })
       .catch((caught) => {
-        if (cancelled) return
+        if (cancelled || generation !== financialMutationGenerationRef.current) return
         setError(caught instanceof Error ? caught.message : 'Your workspace is offline for a moment. Check your connection and try again.')
       })
 
     return () => {
       cancelled = true
     }
-  }, [canLoadWorkspace, auth.currentUser?.id, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId, onProgramVerified, onProgramUnavailable, participantActorId])
+  }, [canLoadWorkspace, auth.currentUser?.id, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId, onProgramVerified, onProgramUnavailable, participantActorId, setData])
 
   useEffect(() => {
     if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending && !hasUnsavedMoneyChanges) return
@@ -1036,10 +1042,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (lastWorkspaceDraftSignatureRef.current === importDraftSignature) return
 
     const signature = importDraftSignature
+    const generation = financialMutationGenerationRef.current
     let cancelled = false
     fetchAppData(true)
       .then((payload) => {
-        if (cancelled) return
+        if (cancelled || generation !== financialMutationGenerationRef.current) return
         lastWorkspaceDraftSignatureRef.current = signature
         setData(payload)
         setSetupDraft((current) => {
@@ -1055,7 +1062,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => {
       cancelled = true
     }
-  }, [chatStorageKey, importDraftSignature, isFirstSessionSetup, isRealWorkspace, miaLoading, replaceMiaHistory])
+  }, [chatStorageKey, importDraftSignature, isFirstSessionSetup, isRealWorkspace, miaLoading, replaceMiaHistory, setData])
 
   useEffect(() => {
     if (!isRealWorkspace || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return
@@ -1827,7 +1834,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               },
             }
           : response.budget
-        setData((current) => current ? { ...current, budget: responseBudget } : current)
+        setData({ type: 'financial_mutation', update: (current) => current ? { ...current, budget: responseBudget } : current })
         const responseMonthIndex = response.transaction_draft ? monthIndexFromIsoDate(response.transaction_draft.occurred_on) : selectedBudgetMonthIndex
         if (response.transaction_draft && response.budget.annual_plan) {
           setBudgetView({ year: response.budget.annual_plan.year, monthIndex: responseMonthIndex })
@@ -2012,32 +2019,40 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
   async function restoreSelectedBudgetPlan(returnedBudget: BudgetData) {
     if (!budgetView || returnedBudget.annual_plan?.year === budgetView.year) return
+    const generation = financialMutationGenerationRef.current
     try {
       const selected = await fetchBudget(budgetView.year)
+      if (generation !== financialMutationGenerationRef.current) return
       if (selected.annual_plan?.year !== budgetView.year) throw new Error('The selected budget year could not be refreshed.')
       setData((current) => current ? { ...current, budget: selected } : current)
       setWorkspaceRefreshNotice(current => current?.kind === 'selected' ? null : current)
     } catch {
+      if (generation !== financialMutationGenerationRef.current) return
       setWorkspaceRefreshNotice({ kind: 'selected', message: 'Your change was saved, but the selected budget year could not refresh. Reopen that year before using its totals.' })
     }
   }
 
   async function refreshCurrentHomeAfterSharedChange(budget: BudgetData) {
     if (budget.annual_plan?.year === data?.dashboard.action_center.current_year) return
+    const generation = financialMutationGenerationRef.current
     try {
       const payload = await fetchAppData(true)
+      if (generation !== financialMutationGenerationRef.current) return
       setData(payload)
       setWorkspaceRefreshNotice(current => current?.kind === 'home' ? null : current)
     } catch {
+      if (generation !== financialMutationGenerationRef.current) return
       setWorkspaceRefreshNotice({ kind: 'home', message: 'Your change was saved, but the current household view could not refresh. Reload before using those totals.' })
     }
   }
 
   async function refreshWorkspaceAfterIncomeChange(fallbackBudget: BudgetData, errorTarget: 'budget' | 'profile') {
     setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: fallbackBudget } : current })
+    const generation = financialMutationGenerationRef.current
     refreshSpendingReportForBudget(fallbackBudget)
     try {
       const payload = await fetchAppData(true)
+      if (generation !== financialMutationGenerationRef.current) return
       setData(payload)
       setWorkspaceRefreshNotice(current => current?.kind === 'home' ? null : current)
       const refreshedDraft = payload.workspace?.setup_values
@@ -2055,6 +2070,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       replaceMiaHistory(payload.mia)
       await restoreSelectedBudgetPlan(fallbackBudget)
     } catch {
+      if (generation !== financialMutationGenerationRef.current) return
       const message = 'The income change was saved, but the latest totals could not be refreshed. Reload to see the canonical workspace.'
       setWorkspaceRefreshNotice({ kind: 'home', message })
       if (errorTarget === 'profile') setSetupError(message)
@@ -2187,18 +2203,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     const requestId = ++budgetViewRequestRef.current
     const scope = budgetViewScope
+    const generation = financialMutationGenerationRef.current
     const isCurrent = () => requestId === budgetViewRequestRef.current && scope === budgetViewScopeRef.current
     setPendingBudgetView({ requestId, scope, year: normalizedYear })
     setBudgetError(null)
     try {
       const budget = await fetchBudget(normalizedYear)
-      if (!isCurrent()) return
+      if (!isCurrent() || generation !== financialMutationGenerationRef.current) return
       if (budget.annual_plan?.year !== normalizedYear) throw new Error('The server returned a different budget year. Your previous period remains selected.')
       setData((current) => current ? { ...current, budget } : current)
       setBudgetView(requestedView)
       setWorkspaceRefreshNotice(current => current?.kind === 'selected' || normalizedYear === data.dashboard.action_center.current_year ? null : current)
     } catch (caught) {
-      if (isCurrent()) setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded. Your previous period remains selected.')
+      if (isCurrent() && generation === financialMutationGenerationRef.current) setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded. Your previous period remains selected.')
     } finally {
       if (isCurrent()) setPendingBudgetView(null)
     }
@@ -2227,7 +2244,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         budgetOperationKeysRef.current.complete(signature)
         appliedChanges += 1
       }
-      setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current } : (current) => current ? { ...current, budget: latestBudget } : current)
+      setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current } : { type: 'financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current })
       refreshSpendingReportForBudget(latestBudget)
       if (changes.categories.length > 0) await refreshCurrentHomeAfterSharedChange(latestBudget)
       captureAnalyticsEvent('budget_edits_saved', {
@@ -2241,7 +2258,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Budget edits could not be saved.'
       if (appliedChanges > 0) {
-        setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current } : (current) => current ? { ...current, budget: latestBudget } : current)
+        setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current } : { type: 'financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current })
         refreshSpendingReportForBudget(latestBudget)
       if (changes.categories.length > 0) await refreshCurrentHomeAfterSharedChange(latestBudget)
         setBudgetError(`${message} Earlier changes were saved; your remaining edits are still available to retry.`)
@@ -2313,7 +2330,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     try {
       const workspace = await applyMiaActionDraft(draft.id, budgetOperationKeysRef.current.keyFor(signature), selection)
       budgetOperationKeysRef.current.complete(signature)
-      setData(miaDraftChangesSharedFinancialRecords(draft, selection) ? { type: 'shared_financial_mutation', update: workspace } : workspace)
+      setData(miaDraftChangesSharedFinancialRecords(draft, selection) ? { type: 'shared_financial_mutation', update: workspace } : { type: 'financial_mutation', update: workspace })
       if (draft.draft_type === 'household_setup') {
         setSetupDraft(workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(workspace.workspace.setup_values, workspace.workspace.setup_status) : null)
       }
@@ -2347,7 +2364,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     try {
       const workspace = await cancelMiaActionDraft(draft.id, budgetOperationKeysRef.current.keyFor(signature))
       budgetOperationKeysRef.current.complete(signature)
-      setData(workspace)
+      setData({ type: 'financial_mutation', update: workspace })
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
       replaceMiaHistory(workspace.mia)
@@ -2377,7 +2394,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const response = await createTransactionDraft(values, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
-      setData(response.workspace)
+      setData({ type: 'financial_mutation', update: response.workspace })
       if (response.workspace.budget.annual_plan) setBudgetView({ year: response.workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       replaceMiaHistory(response.workspace.mia)
@@ -2403,7 +2420,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const response = await updateTransactionDraft(draft.id, values, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
-      setData(response.workspace)
+      setData({ type: 'financial_mutation', update: response.workspace })
       setDocumentImports((current) => replaceImportTransactionDraft(current, response.transaction_draft))
       if (response.workspace.budget.annual_plan) setBudgetView({ year: response.workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
@@ -2430,7 +2447,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const workspace = await confirmTransactionDraft(draft.id, {}, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
-      setData(workspace)
+      setData({ type: 'financial_mutation', update: workspace })
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
@@ -2461,7 +2478,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const workspace = await ignoreTransactionDraft(draft.id, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
-      setData(workspace)
+      setData({ type: 'financial_mutation', update: workspace })
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
@@ -2508,7 +2525,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         ? await bulkConfirmTransactionDrafts(ids, selectedBudgetYear, `CONFIRM ${ids.length}`, transactionOperationKeysRef.current.keyFor(signature))
         : await bulkIgnoreTransactionDrafts(ids, selectedBudgetYear, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
-      setData(workspace)
+      setData({ type: 'financial_mutation', update: workspace })
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
       void refreshDocumentImports({ quiet: true })
@@ -2540,7 +2557,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const workspace = await matchTransactionDraft(draft.id, matchId, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
-      setData(workspace)
+      setData({ type: 'financial_mutation', update: workspace })
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
@@ -2572,7 +2589,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const workspace = await reopenTransactionDraft(draft.id, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
-      setData(workspace)
+      setData({ type: 'financial_mutation', update: workspace })
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
@@ -2762,8 +2779,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const item = await updateDocumentImportItem(documentImportId, itemId, values)
       setDocumentImports((current) => replaceImportItem(current, documentImportId, item))
       if (item.applied_at) {
+        setData({ type: 'shared_financial_commit' })
+        const generation = financialMutationGenerationRef.current
         try {
           const refreshed = await fetchAppData(isRealWorkspace)
+          if (generation !== financialMutationGenerationRef.current) return
           setData(refreshed)
           setSetupDraft(refreshed.workspace?.setup_values ? workspaceSetupDraftFromValues(refreshed.workspace.setup_values, refreshed.workspace.setup_status) : setupDraft)
           replaceMiaHistory(refreshed.mia)
@@ -2946,8 +2966,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     // The record write committed before this callback. Older plans can no longer
     // be treated as current, even if either reload fails.
     setData({ type: 'shared_financial_commit' })
+    const generation = financialMutationGenerationRef.current
     const refreshScope = budgetViewScope
-    const isCurrent = () => workspaceMounted.current && budgetViewScopeRef.current === refreshScope
+    const isCurrent = () => workspaceMounted.current && budgetViewScopeRef.current === refreshScope && generation === financialMutationGenerationRef.current
     const currentReload = fetchAppData(true).then(payload => {
       if (isCurrent()) {
         setData(payload)

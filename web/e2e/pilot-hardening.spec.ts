@@ -10002,3 +10002,67 @@ test('BOG UI income refresh failure stays visible after leaving the income edito
   await page.getByRole('link', { name: 'Home', exact: true }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'income change was saved' })).toBeVisible()
 })
+
+
+for (const refreshFails of [false, true]) {
+  test(`BOG UI delayed precommit import hydration cannot overwrite a financial commit (refresh ${refreshFails ? 'fails' : 'succeeds'})`, async ({ page }) => {
+    const initial = realWorkspaceData(true)
+    initial.workspace.accounts = [{ id: 1, label: 'Checking', account_type: 'checking', balance: 100, balance_as_of_on: null, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {}, plaid_link: null }]
+    const canonical = structuredClone(initial)
+    canonical.workspace.accounts[0].balance = 200
+    const latePayload = JSON.stringify(initial)
+    let workspaceRequests = 0
+    let committed = false
+    let releaseBackground!: () => void
+    let backgroundStarted!: () => void
+    const started = new Promise<void>(resolve => { backgroundStarted = resolve })
+    const pendingBackground = new Promise<void>(resolve => { releaseBackground = resolve })
+    const budgetRequests: number[] = []
+    await page.route('http://api.test/api/v1/workspace', async route => {
+      workspaceRequests += 1
+      if (workspaceRequests === 2) {
+        backgroundStarted()
+        await pendingBackground
+        return route.fulfill({ contentType: 'application/json', body: latePayload })
+      }
+      return committed && refreshFails ? route.fulfill({ status: 503, json: { errors: ['Fictional canonical refresh outage'] } }) : route.fulfill({ json: committed ? canonical : initial })
+    })
+    await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: [{
+      id: 999, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'synthetic-background.pdf', content_type: 'application/pdf', byte_size: 100,
+      document_date: null, period_start_on: null, period_end_on: null, extracted_summary: null, extraction_error: null, processed_at: null, applied_at: null,
+      source_deleted_at: null, updated_at: `${currentYear}-10-01T00:00:00Z`, source_available: false, details_included: false, uploaded_by: null, applied_by: null, source_deleted_by: null,
+      metadata: {}, items: [], attempts: [], transaction_drafts: [{ id: 999, occurred_on: `${currentYear}-10-01`, merchant: 'Synthetic pending row', amount: 20, status: 'pending', category_id: null, category_name: null }],
+    }] } }))
+    await page.route('http://api.test/api/v1/budget?**', route => {
+      const year = Number(new URL(route.request().url()).searchParams.get('year'))
+      budgetRequests.push(year)
+      return committed && refreshFails ? route.fulfill({ status: 503, json: { errors: ['Fictional budget outage'] } }) : route.fulfill({ json: budgetFixtureForYear(year) })
+    })
+    await page.route('http://api.test/api/v1/accounts/1', route => { committed = true; return route.fulfill({ json: { account: canonical.workspace.accounts[0] } }) })
+    await page.goto('/?pilot_e2e_role=participant#My%20Money')
+    await started
+    await page.getByRole('button', { name: 'Next income year' }).click()
+    await expect(page.locator('.money-period-controls')).toContainText(String(currentYear + 1))
+    const topics = page.getByRole('navigation', { name: 'My Money topics' })
+    await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+    await page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.locator('.account-form').getByLabel('Approved balance').fill('200')
+    await page.getByRole('button', { name: 'Save account' }).click()
+    if (refreshFails) await expect(page.getByRole('alert').filter({ hasText: 'Previous totals are stale' })).toBeVisible()
+    else await expect(page.locator('.account-row')).toContainText('$200.00')
+    const finishedBackground = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+    releaseBackground()
+    await finishedBackground
+    if (refreshFails) {
+      await topics.getByRole('button', { name: 'Income', exact: true }).click()
+      await page.getByRole('button', { name: 'Use current year', exact: true }).click()
+      await expect.poll(() => budgetRequests.filter(year => year === currentYear).length).toBe(1)
+      await expect(page.getByRole('alert').filter({ hasText: 'Previous totals are stale' })).toBeVisible()
+    } else {
+      await topics.getByRole('button', { name: 'Debt', exact: true }).click()
+      await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+      await expect(page.locator('.account-row')).toContainText('$200.00')
+      await expect(page.locator('.account-row')).not.toContainText('$100.00')
+    }
+  })
+}

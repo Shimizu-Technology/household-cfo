@@ -1,7 +1,7 @@
 import type { SetStateAction } from 'react'
 import type { AppData, BudgetData, MiaActionDraft } from '../api'
 
-export type WorkspaceMutation = { type: 'shared_financial_mutation'; update: SetStateAction<AppData | null> }
+export type WorkspaceMutation = { type: 'shared_financial_mutation' | 'financial_mutation'; update: SetStateAction<AppData | null> }
 export type WorkspaceViewAction = SetStateAction<AppData | null> | WorkspaceMutation | { type: 'shared_financial_commit' }
 export type WorkspaceView = { data: AppData | null; homeBudget: BudgetData | null; budgets: Record<number, BudgetData>; homeBudgetStale?: boolean; dataBudgetStale?: boolean }
 
@@ -13,7 +13,8 @@ export function workspaceViewReducer(state: WorkspaceView, action: WorkspaceView
     return { ...state, budgets: {}, homeBudgetStale: true, dataBudgetStale: true }
   }
   const invalidatesPlans = typeof action === 'object' && action !== null && 'type' in action && action.type === 'shared_financial_mutation'
-  const update = invalidatesPlans ? action.update : action as SetStateAction<AppData | null>
+  const mutation = typeof action === 'object' && action !== null && 'type' in action && (action.type === 'shared_financial_mutation' || action.type === 'financial_mutation')
+  const update = mutation ? action.update : action as SetStateAction<AppData | null>
   const data = typeof update === 'function' ? update(state.data) : update
   if (!data) return { data: null, homeBudget: null, budgets: {} }
   const sameWorkspace = state.data?.workspace.household_id === data.workspace.household_id
@@ -44,4 +45,10 @@ export function miaDraftChangesSharedFinancialRecords(draft: MiaActionDraft, ite
 export function sameOptionalMoneyValue(left: string, right: string) {
   const value = (text: string) => text.trim() === '' ? null : Number(text)
   return value(left) === value(right)
+}
+
+
+export function isFinancialWorkspaceCommit(action: WorkspaceViewAction) {
+  return typeof action === 'object' && action !== null && 'type' in action &&
+    (action.type === 'shared_financial_commit' || action.type === 'shared_financial_mutation' || action.type === 'financial_mutation')
 }

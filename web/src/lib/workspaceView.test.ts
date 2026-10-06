@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AppData, MiaActionDraft } from '../api'
-import { miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer } from './workspaceView'
+import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer } from './workspaceView'
 
 function workspace(year: number, householdId = 1, actual = 25): AppData {
   return {
@@ -131,4 +131,18 @@ it('compares summary money numerically while preserving unknown versus zero', ()
   expect(sameOptionalMoneyValue('', '0')).toBe(false)
   expect(sameOptionalMoneyValue('0.00', '0')).toBe(true)
   expect(sameOptionalMoneyValue('25.51', '25.5')).toBe(false)
+})
+
+
+it('recognizes local and shared financial commits without treating ordinary hydration as a commit', () => {
+  expect(isFinancialWorkspaceCommit(workspace(2026))).toBe(false)
+  expect(isFinancialWorkspaceCommit(current => current)).toBe(false)
+  expect(isFinancialWorkspaceCommit({ type: 'shared_financial_commit' })).toBe(true)
+  expect(isFinancialWorkspaceCommit({ type: 'shared_financial_mutation', update: workspace(2026) })).toBe(true)
+  expect(isFinancialWorkspaceCommit({ type: 'financial_mutation', update: workspace(2026) })).toBe(true)
+  let state = workspaceViewReducer({ data: null, homeBudget: null, budgets: {} }, workspace(2026))
+  state = workspaceViewReducer(state, workspace(2027))
+  state = workspaceViewReducer(state, { type: 'financial_mutation', update: workspace(2026, 1, 90) })
+  expect(state.budgets[2027]).toBeDefined()
+  expect(state.homeBudget?.annual_plan?.rows[0].months[0].actual).toBe(90)
 })
