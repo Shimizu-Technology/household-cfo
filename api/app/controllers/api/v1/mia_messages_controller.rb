@@ -19,7 +19,7 @@ module Api
       def index
         render json: current_data_presenter.mia(
           before_id: params[:before_id],
-          limit: params[:limit]
+          limit: params[:limit], picture: params[:picture]
         )
       end
 
@@ -380,14 +380,14 @@ module Api
       end
 
       def render_financial_restart_response(session, content, message_request:)
-        available = current_household.household_memberships.exists?(user_id: current_user.id, role: "owner")
+        available = HouseholdFinance::FinancialRestart::Flow.new(current_household, user: current_user, cohort_membership: current_cohort_membership).status[:available]
         answer = if available
-          "Yes. Open Start over to review a fresh financial picture, including income, spending plans and actuals, debts, accounts, goals and setup. Your login, household members, BOG savings and optional card reviews remain. Earlier records and uploads are retained as history; earlier chat and memory context are paused. Nothing changes until you explicitly confirm the review."
+          "Yes. Open Start over to review a fresh financial picture, including income, spending plans and actuals, debts, accounts, goals and setup. Your login, household members, BOG savings and optional card reviews remain. Your active conversation starts fresh, with earlier conversations retained privately as read-only history. Earlier records and uploads are retained as history; saved memory context is paused. Nothing changes until you explicitly confirm the review."
         else
-          "This is a shared household. Only its owner can start a new financial picture for everyone. Ask the household owner to open Start over and review the impact. Your BOG savings and optional card reviews remain. Nothing changed."
+          "Starting over is an administrator testing tool. I can help you correct your income, spending categories, debts, accounts or goals individually. Tell me which record and replacement value to use, or open My Money. You review each change before applying it. Nothing changed."
         end
         render_household_read_response(session, content, answer, message_request: message_request,
-          topic: { "type" => "financial_restart" }, financial_restart: { available: available, state: available ? "review_available" : "owner_required" })
+          topic: { "type" => "financial_restart" }, financial_restart: { available: available, state: available ? "review_available" : "unavailable" })
       end
 
       def render_saved_records_response(session, content, result, message_request:)

@@ -2,14 +2,17 @@ module Api
   module V1
     class FinancialRestartsController < BaseController
       before_action :authenticate_user!
+      rescue_from HouseholdFinance::FinancialRestart::Flow::Error do |error|
+        render json: { errors: [ error.message ] }, status: :unprocessable_entity
+      end
+      rescue_from HouseholdFinance::FinancialRestart::Flow::AdminRequired do |error|
+        render json: { errors: [ error.message ], code: "financial_restart_admin_required" }, status: :forbidden
+      end
       rescue_from HouseholdFinance::FinancialRestart::Flow::OwnerRequired do |error|
         render json: { errors: [ error.message ], code: "financial_restart_owner_required" }, status: :forbidden
       end
       rescue_from HouseholdFinance::FinancialRestart::Flow::StaleReview do |error|
         render json: { errors: [ error.message ], code: "financial_restart_review_stale" }, status: :conflict
-      end
-      rescue_from HouseholdFinance::FinancialRestart::Flow::Error do |error|
-        render json: { errors: [ error.message ] }, status: :unprocessable_entity
       end
       rescue_from ActiveRecord::RecordNotFound do
         render json: { errors: [ "Financial restart review not found for this account and program." ] }, status: :not_found

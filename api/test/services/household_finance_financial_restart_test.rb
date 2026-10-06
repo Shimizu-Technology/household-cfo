@@ -2,7 +2,7 @@ require "test_helper"
 
 class HouseholdFinanceFinancialRestartTest < ActiveSupport::TestCase
   setup do
-    @user = User.create!(clerk_id: "restart_#{SecureRandom.hex(6)}", email: "restart-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+    @user = User.create!(clerk_id: "restart_#{SecureRandom.hex(6)}", email: "restart-#{SecureRandom.hex(6)}@example.com", role: "admin", invitation_status: "accepted")
     @household = Household.create!(created_by_user: @user, name: "Restart household", primary_goal: "Fake goal", confirmed_setup_fields: %w[monthly_income fixed_expenses flexible_expenses emergency_fund debt_balance])
     @household.household_memberships.create!(user: @user, role: "owner")
     @flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
@@ -77,14 +77,14 @@ class HouseholdFinanceFinancialRestartTest < ActiveSupport::TestCase
   end
 
   test "owner boundary actor-scoped receipts and explicit shared consent" do
-    partner = User.create!(clerk_id: "partner_#{SecureRandom.hex(6)}", email: "partner-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+    partner = User.create!(clerk_id: "partner_#{SecureRandom.hex(6)}", email: "partner-#{SecureRandom.hex(6)}@example.com", role: "admin", invitation_status: "accepted")
     @household.household_memberships.create!(user: partner, role: "partner")
     partner_flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: partner)
     assert partner_flow.status[:owner_required]
     assert_raises(HouseholdFinance::FinancialRestart::Flow::OwnerRequired) { partner_flow.preview }
     preview = @flow.preview
     assert_equal 1, preview[:review][:shared_member_count]
-    assert_raises(ActiveRecord::RecordNotFound) { partner_flow.status(review_id: preview[:review][:id]) }
+    assert_raises(HouseholdFinance::FinancialRestart::Flow::OwnerRequired) { partner_flow.status(review_id: preview[:review][:id]) }
     assert_raises(HouseholdFinance::FinancialRestart::Flow::Error) { apply(preview) }
     @flow.apply(review_id: preview[:review][:id], confirmation: "START OVER", shared_household_acknowledged: true)
     assert_equal 1, @household.reload.financial_generation

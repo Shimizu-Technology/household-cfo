@@ -2,7 +2,7 @@ require "test_helper"
 
 class HouseholdFinanceFinancialRestartBankResumeTest < ActiveSupport::TestCase
   setup do
-    @user = User.create!(clerk_id: "resume_#{SecureRandom.hex(6)}", email: "resume-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+    @user = User.create!(clerk_id: "resume_#{SecureRandom.hex(6)}", email: "resume-#{SecureRandom.hex(6)}@example.com", role: "admin", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
     @item = @household.plaid_items.create!(connected_by_user: @user, plaid_item_id: "item-#{SecureRandom.hex(6)}", environment: "sandbox", status: "active", consented_at: Time.current, consent_policy_version: "1", access_token_ciphertext: "synthetic-unused", auto_confirm_trusted_merchants: true, last_synced_at: 1.day.ago)
     @account = @item.plaid_accounts.create!(plaid_account_id: "account-#{SecureRandom.hex(6)}", name: "Synthetic checking", account_type: "depository", account_subtype: "checking", active: true, current_balance_cents: 100_000)

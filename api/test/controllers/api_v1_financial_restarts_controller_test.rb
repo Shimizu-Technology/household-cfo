@@ -10,6 +10,7 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
 
   test "ordinary Mia recognizes complete reset and Everything continuations without provider or writes" do
     @savings_membership.destroy!
+    @user.update!(role: "admin")
     assert_no_difference [ "Debt.count", "IncomeSource.count", "FinancialRestartReview.count" ] do
       [ "So these aren't my actual numbers - are you able to reset it all and we can start from scratch?", "Everything", "All the information that I have" ].each_with_index do |message, index|
         post "/api/v1/mia/messages", params: { message: message, request_id: "restart-loop-#{index}" }, headers: auth, as: :json
@@ -25,7 +26,7 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
     assert response.body.include?("review_available")
   end
 
-  test "BOG reset routing preserves challenge progress evidence optional terms and source provenance" do
+  test "BOG participant reset routing remains unavailable and preserves challenge progress and optional terms" do
     travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 15, 12) do
       with_evidence_operations do
         savings_enroll
@@ -33,38 +34,33 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
         entry = savings_approve(savings_draft(20_000))
         source, document = evidence_source
         evidence_attach(entry, [ evidence_proof(source, amount: 15_000) ])
-        household_debt = @household.debts.create!(label: "Fake Visa", debt_type: "credit_card", balance_cents: 30_000, minimum_payment_cents: 1_000)
-        candidate = SavingsChallenge::Debt::HouseholdMapping.new(@household).candidate(household_debt)
-        draft = savings_run("debt.stage", { terms: debt_terms, expected_version_id: nil, expected_head_lock_version: 0,
-          household_debt_mapping: { household_debt_id: household_debt.id, fingerprint: candidate[:fingerprint] } }).subject
-        terms = debt_approve(draft)
+        terms = debt_approve(debt_stage)
         before = savings_projection.slice(:reported_cents, :evidence_supported_cents)
         3.times do |index|
           message = [ "Please reset all my information and start over", "Everything", "All the information that I have" ][index]
           post "/api/v1/mia/messages", params: { message: message, request_id: "bog-restart-#{index}" }, headers: auth, as: :json
           assert_response :created
-          assert_equal "review_available", response.parsed_body.dig("financial_restart", "state")
+          assert_equal false, response.parsed_body.dig("financial_restart", "available")
+          assert_includes response.parsed_body.dig("assistant_message", "content"), "correct your income"
         end
-        post "/api/v1/financial_restart/preview", headers: auth, as: :json
-        assert_response :created
-        id = response.parsed_body.dig("financial_restart", "review", "id")
-        post "/api/v1/financial_restart/apply", params: { review_id: id, confirmation: "START OVER" }, headers: auth, as: :json
-        assert_response :success
-        assert_equal 1, response.parsed_body.dig("financial_restart", "financial_generation")
+        assert_no_difference "FinancialRestartReview.count" do
+          post "/api/v1/financial_restart/preview", headers: auth, as: :json
+          assert_response :forbidden
+          assert_equal "financial_restart_admin_required", response.parsed_body["code"]
+        end
+        assert_equal 0, @household.reload.financial_generation
         assert_equal before, savings_projection.slice(:reported_cents, :evidence_supported_cents)
         assert_equal 15_000, savings_projection[:evidence_supported_cents]
         assert_equal terms.terms, terms.reload.terms
         assert_equal document.id, FinancialDocumentImport.find(document.id).id
         assert_equal source.id, SourceReviewVersion.find(source.id).id
-        assert_equal household_debt.id, terms.household_debt.id
-        assert_empty @household.reload.debts
-        assert debt_read[:cards].first[:household_terms_changed]
       end
     end
   end
 
   test "stale financial writes reject but privacy controls remain available and apply status is exact" do
     @savings_membership.destroy!
+    @user.update!(role: "admin")
     post "/api/v1/financial_restart/preview", headers: auth, as: :json
     id = response.parsed_body.dig("financial_restart", "review", "id")
     post "/api/v1/financial_restart/apply", params: { review_id: id, confirmation: "START OVER" }, headers: auth, as: :json
@@ -87,6 +83,7 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
 
   test "prior bank OAuth callbacks and saved memory confirmations require the current financial picture" do
     @savings_membership.destroy!
+    @user.update!(role: "admin")
     flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
     preview = flow.preview
     flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
@@ -101,6 +98,7 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
 
   test "workspace and budget reads crossing a restart discard mixed payloads and expose fresh generation" do
     @savings_membership.destroy!
+    @user.update!(role: "admin")
     [ [ :workspace, "/api/v1/workspace" ], [ :budget, "/api/v1/budget" ] ].each do |method_name, path|
       flow = HouseholdFinance::FinancialRestart::Flow.new(@household.reload, user: @user)
       preview = flow.preview
@@ -128,6 +126,7 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
 
   test "a preview captured before a restart cannot silently review the next financial picture" do
     @savings_membership.destroy!
+    @user.update!(role: "admin")
     flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
     first = flow.preview
     FinancialPicture.set(household_id: @household.id, generation: 0) do
@@ -141,6 +140,7 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
 
   test "clearing retained conversations preserves old reviews without leaving foreign-key blockers" do
     @savings_membership.destroy!
+    @user.update!(role: "admin")
     session = @household.chat_sessions.create!(user: @user)
     user_message = session.chat_messages.create!(role: "user", content: "Fake income change")
     assistant_message = session.chat_messages.create!(role: "assistant", content: "Fake review")
@@ -161,6 +161,7 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
 
   test "a stale financial epoch does not block independent crisis guidance" do
     @savings_membership.destroy!
+    @user.update!(role: "admin")
     flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
     preview = flow.preview
     flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
@@ -172,6 +173,7 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
 
   test "an admin owner can restart their own ordinary household" do
     @savings_membership.destroy!
+    @user.update!(role: "admin")
     @user.update!(role: "admin")
     post "/api/v1/financial_restart/preview", headers: auth, as: :json
     assert_response :created
@@ -199,6 +201,115 @@ class ApiV1FinancialRestartsControllerTest < ActionDispatch::IntegrationTest
         assert_equal "monthly", context.dig(:active_topic, :action, :cadence)
       end
     end
+  end
+
+  test "participant and coach owners cannot use reset capabilities or mutate an earlier admin review" do
+    @savings_membership.destroy!
+    @user.update!(role: "admin")
+    flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
+    id = flow.preview[:review][:id]
+    %w[participant coach].each do |role|
+      @user.update!(role: role)
+      get "/api/v1/financial_restart/status", headers: auth
+      assert_response :success
+      assert_equal false, response.parsed_body.dig("financial_restart", "available")
+      assert_equal true, response.parsed_body.dig("financial_restart", "admin_required")
+      assert_nil response.parsed_body.dig("financial_restart", "latest_review")
+      get "/api/v1/financial_restart/status", params: { review_id: id }, headers: auth
+      assert_response :forbidden
+      %w[preview apply cancel].each do |action|
+        post "/api/v1/financial_restart/#{action}", params: { review_id: id, confirmation: "START OVER" }, headers: auth, as: :json
+        assert_response :forbidden
+        assert_equal "financial_restart_admin_required", response.parsed_body["code"]
+      end
+      post "/api/v1/mia/messages", params: { message: "Reset everything and start over", request_id: "denied-reset-#{role}" }, headers: auth, as: :json
+      assert_response :created
+      assert_equal false, response.parsed_body.dig("financial_restart", "available")
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "correct your income"
+      post "/api/v1/income_sources", params: { income_source: { label: "Allowed #{role}", amount: 200, source_type: "job", cadence: "monthly" } }, headers: auth, as: :json
+      assert_response :created
+    end
+    assert_equal 0, @household.reload.financial_generation
+    assert_equal "pending", FinancialRestartReview.find(id).status
+  end
+
+  test "platform admin still requires household ownership to restart" do
+    @savings_membership.destroy!
+    @user.update!(role: "admin")
+    @household.household_memberships.find_by!(user: @user).update!(role: "partner")
+    get "/api/v1/financial_restart/status", headers: auth
+    assert_response :success
+    assert_equal false, response.parsed_body.dig("financial_restart", "available")
+    assert_equal true, response.parsed_body.dig("financial_restart", "owner_required")
+    post "/api/v1/financial_restart/preview", headers: auth, as: :json
+    assert_response :forbidden
+    assert_equal "financial_restart_owner_required", response.parsed_body["code"]
+  end
+
+  test "admin role does not bypass private BOG household access" do
+    travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 15, 12) do
+      with_savings_runtime { savings_enroll }
+      @user.update!(role: "admin")
+      [ "status", "preview" ].each do |action|
+        if action == "status"
+          get "/api/v1/financial_restart/status", headers: auth
+        else
+          post "/api/v1/financial_restart/preview", headers: auth, as: :json
+        end
+        assert_response :forbidden
+        assert_includes response.body, "Participant finances are private"
+      end
+      assert_equal 0, @household.reload.financial_generation
+    end
+  end
+
+  test "reset starts empty active chat and separately pages private read-only earlier conversations" do
+    @savings_membership.destroy!
+    @user.update!(role: "admin")
+    session = @household.chat_sessions.create!(user: @user)
+    old_messages = 5.times.map do |index|
+      session.chat_messages.create!(role: "assistant", content: "Old private message #{index}", financial_restart: { available: true, state: "review_available" })
+    end
+    other_user = User.create!(clerk_id: "history-other-#{SecureRandom.hex(6)}", email: "history-other-#{SecureRandom.hex(6)}@example.com", role: "participant")
+    @household.household_memberships.create!(user: other_user, role: "partner")
+    other_session = @household.chat_sessions.create!(user: other_user)
+    other_message = other_session.chat_messages.create!(role: "user", content: "Another person's private message")
+    flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
+    preview = flow.preview
+    assert_equal true, preview[:review][:clears_chat]
+    flow.apply(review_id: preview[:review][:id], confirmation: "START OVER", shared_household_acknowledged: true)
+    get "/api/v1/mia/messages", headers: auth
+    assert_response :success
+    assert_empty response.parsed_body["messages"]
+    assert_equal 5, response.parsed_body["historical_message_count"]
+    assert_equal false, response.parsed_body["has_older_messages"]
+    get "/api/v1/workspace", headers: auth
+    assert_response :success
+    assert_empty response.parsed_body.dig("mia", "messages")
+    fresh = session.chat_messages.create!(role: "user", content: "New real numbers")
+    get "/api/v1/mia/messages", params: { before_id: fresh.id }, headers: auth
+    assert_response :success
+    assert_empty response.parsed_body["messages"]
+    assert_equal 0, response.parsed_body["older_message_count"]
+    get "/api/v1/mia/messages", params: { picture: "history", limit: 2 }, headers: auth
+    assert_response :success
+    history = response.parsed_body
+    assert_equal true, history["read_only"]
+    assert_equal "history", history["picture"]
+    assert_empty history["quick_prompts"]
+    assert_nil history["disclaimer"]
+    assert_equal old_messages.last(2).map(&:id), history["messages"].map { |message| message["id"] }
+    assert history["messages"].all? { |message| message["read_only"] && message["financial_restart"].nil? && message["presentation"] == {} }
+    assert_equal 3, history["older_message_count"]
+    get "/api/v1/mia/messages", params: { picture: "history", limit: 10, before_id: history["oldest_message_id"] }, headers: auth
+    assert_response :success
+    assert_equal old_messages.first(3).map(&:id), response.parsed_body["messages"].map { |message| message["id"] }
+    assert_equal 0, response.parsed_body["older_message_count"]
+    assert_equal 7, ChatMessage.where(chat_session: [ session, other_session ]).count
+    get "/api/v1/mia/messages", params: { picture: "history" }, headers: { "Authorization" => "Bearer test_token_#{other_user.id}" }
+    assert_response :success
+    assert_equal [ other_message.id ], response.parsed_body["messages"].map { |message| message["id"] }
+    assert_equal 1, response.parsed_body["historical_message_count"]
   end
 
   private

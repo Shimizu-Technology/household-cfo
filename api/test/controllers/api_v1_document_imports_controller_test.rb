@@ -32,6 +32,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       token = response.parsed_body.fetch("upload_token")
       metadata = Rails.application.message_verifier(:financial_document_direct_upload).verify(token).deep_symbolize_keys
       assert_equal 0, metadata[:financial_generation]
+      @user.update!(role: "admin")
       flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
       preview = flow.preview
       flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
@@ -49,6 +50,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       post "/api/v1/document_imports", params: { file: uploaded_csv, document_kind: "spreadsheet" }, headers: auth_headers(@user)
       assert_response :created
       previous = FinancialDocumentImport.last
+      @user.update!(role: "admin")
       flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
       preview = flow.preview
       flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
