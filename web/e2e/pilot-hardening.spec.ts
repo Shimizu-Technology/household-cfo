@@ -9771,6 +9771,38 @@ test('BOG UI visual viewport reduction keeps feedback above the keyboard and fol
   await assertDialogVisibleHeight(dialog)
 })
 
+test('BOG UI feedback reveals the focused field after content reflows inside a fixed scroll body', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => {
+    const viewport = window.visualViewport!
+    Object.defineProperty(viewport, 'height', { configurable: true, get: () => Number(document.documentElement.dataset.testViewportHeight ?? 844) })
+    Object.defineProperty(viewport, 'offsetTop', { configurable: true, get: () => 0 })
+  })
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Feedback', exact: true }).click()
+  const dialog = page.getByRole('dialog'), field = dialog.getByLabel('What did you attempt?')
+  await page.evaluate(() => document.fonts.ready)
+  await field.fill('Fictional content reflow test')
+  await page.evaluate(() => {
+    document.documentElement.dataset.testViewportHeight = '320'
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+  })
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--dialog-viewport-height'))).toBe('320px')
+  await assertDialogVisibleHeight(dialog)
+  const geometry = () => field.evaluate(el => {
+    const control = el.getBoundingClientRect(), body = el.closest<HTMLElement>('.pilot-dialog-body')!, panel = body.getBoundingClientRect()
+    return { contained: control.top >= panel.top && control.bottom <= panel.bottom, top: control.top, bottom: control.bottom, bodyTop: panel.top, bodyBottom: panel.bottom, scrollTop: body.scrollTop, clientHeight: body.clientHeight }
+  })
+  await expect.poll(geometry).toMatchObject({ contained: true })
+  const before = await dialog.evaluate(el => ({ bodyHeight: el.querySelector('.pilot-dialog-body')!.getBoundingClientRect().height, header: el.querySelector('header')!.getBoundingClientRect().toJSON(), pageScroll: window.scrollY }))
+  // Async copy or an individual font can grow content without resizing the
+  // constrained body, leaving its ResizeObserver silent.
+  await dialog.locator('.pilot-privacy-note').evaluate(el => { (el as HTMLElement).style.paddingBottom = '48px' })
+  await expect.poll(geometry).toMatchObject({ contained: true })
+  await expect(field).toBeFocused()
+  expect(await dialog.evaluate(el => ({ bodyHeight: el.querySelector('.pilot-dialog-body')!.getBoundingClientRect().height, header: el.querySelector('header')!.getBoundingClientRect().toJSON(), pageScroll: window.scrollY }))).toEqual(before)
+})
+
 test('BOG UI local preview and clear chat keep their content and actions inside a short viewport', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 280 })
   await page.goto('/#Ask%20Mia')
