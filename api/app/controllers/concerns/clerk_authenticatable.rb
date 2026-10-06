@@ -12,6 +12,15 @@ module ClerkAuthenticatable
       return
     end
 
+    if auth_provider == "workos"
+      authenticate_workos!(token)
+      return
+    end
+    unless auth_provider == "clerk"
+      render_service_unavailable("Authentication provider is not configured")
+      return
+    end
+
     unless ClerkAuth.configured? || test_auth_token?(token)
       render_service_unavailable("Clerk authentication is not configured")
       return
@@ -23,6 +32,9 @@ module ClerkAuthenticatable
       return
     end
 
+    @auth_provider = "clerk"
+    @auth_subject = decoded["sub"]
+    @authentication_claims = decoded
     @authorization_failure_message = nil
     @current_user = find_or_create_user_from_clerk(decoded)
     if @current_user
@@ -36,6 +48,7 @@ module ClerkAuthenticatable
   def authenticate_user_optional
     token = bearer_token
     return if token.blank?
+    return authenticate_user! unless auth_provider == "clerk"
     return unless ClerkAuth.configured? || test_auth_token?(token)
 
     decoded = ClerkAuth.verify(token)
@@ -45,9 +58,27 @@ module ClerkAuthenticatable
   end
 
   def authenticate_user_if_clerk_configured!
-    return unless ClerkAuth.configured?
+    return if auth_provider == "clerk" && !ClerkAuth.configured? && !Rails.env.production?
 
     authenticate_user!
+  end
+
+  def auth_provider
+    ENV.fetch("AUTH_PROVIDER", "clerk")
+  end
+
+  def authenticate_workos!(token)
+    @authentication_claims = WorkosAuth.verify(token)
+    @auth_provider = "workos"
+    @auth_subject = @authentication_claims.fetch("sub")
+    @current_user = WorkosIdentityResolver.resolve!(claims: @authentication_claims)
+    Sentry.set_user(id: @current_user.id, role: @current_user.role) if defined?(Sentry)
+  rescue WorkosAuth::Unavailable => e
+    render_service_unavailable(e.message)
+  rescue WorkosAuth::InvalidToken => e
+    render_unauthorized(e.message)
+  rescue WorkosIdentityResolver::Forbidden => e
+    render_forbidden(e.message)
   end
 
   def current_user
@@ -107,10 +138,10 @@ module ClerkAuthenticatable
     @authorization_failure_message = "This Household CFO account has not been invited yet."
     nil
   rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique => e
-    existing_user = User.find_by(clerk_id: clerk_id) || User.find_by("LOWER(email) = ?", email.to_s.downcase)
-    return existing_user if existing_user && user_uniqueness_conflict?(e)
+    existing_user = User.find_by(clerk_id: clerk_id)
+    return sync_existing_user(existing_user, email: nil, first_name: nil, last_name: nil) if existing_user && user_uniqueness_conflict?(e)
 
-    Rails.logger.warn("[ClerkAuth] Unable to sync local user for Clerk user #{clerk_id}: #{e.message}")
+    Rails.logger.warn("[ClerkAuth] Unable to sync local user")
     nil
   end
 

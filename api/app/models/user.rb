@@ -1,4 +1,5 @@
 class User < ApplicationRecord
+  has_many :authentication_identities, dependent: :restrict_with_exception
   has_many :released_cohort_releases, class_name: "CohortRelease", foreign_key: :released_by_user_id,
     dependent: :restrict_with_exception, inverse_of: :released_by_user
   has_many :coach_operation_executions, foreign_key: :actor_user_id,
@@ -87,11 +88,11 @@ class User < ApplicationRecord
   end
 
   def invitation_pending?
-    invitation_status == "pending" || clerk_id.to_s.start_with?("pending_")
+    invitation_status == "pending"
   end
 
   def invitation_accepted?
-    invitation_status == "accepted" && clerk_id.present? && !clerk_id.start_with?("pending_")
+    invitation_status == "accepted"
   end
 
   def revoked?
