@@ -9113,6 +9113,10 @@ test('BOG UI program chooser shares the compact chat masthead without overlappin
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await composer.fill('Keep this draft while checking my program.')
   await expect(summary).toHaveAccessibleName(`Program · ${name}`)
+  // The workspace's branded fonts begin loading after the initial page font
+  // wait. Settle that mounted workspace and the filled composer before measuring.
+  await page.evaluate(() => document.fonts.ready)
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
   const geometry = await summary.evaluate(node => {
     const trigger = node.getBoundingClientRect(), privacy = document.querySelector('.shell-account-menu > summary')!.getBoundingClientRect()
     const history = document.querySelector('.chat-card-wrap')!.getBoundingClientRect()
