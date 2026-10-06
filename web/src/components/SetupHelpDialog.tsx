@@ -34,7 +34,7 @@ export function SetupHelpDialog(props: Props) {
   const recoveryKey = `household-cfo:setup-support:${props.scopeKey}`
   const request = state?.latest_request ?? null
   const activeRequest = activeSetupRequest(request)
-  const needsFreshReview = request?.status === 'ready' && (props.staleReview?.requestId === request.id && (props.staleReview.reviewId == null || props.staleReview.reviewId === request.review_id) || ['expired', 'stale', 'canceled'].includes(request.review_state))
+  const needsFreshReview = request?.status === 'ready' && (props.staleReview?.requestId === request.id && (props.staleReview.reviewId != null && props.staleReview.reviewId === request.review_id) || ['expired', 'stale', 'canceled'].includes(request.review_state))
 
   function acceptState(next: SetupHelpState) {
     if (!next || next.household_id !== props.householdId || typeof next.self_restart_available !== 'boolean'
@@ -87,7 +87,10 @@ export function SetupHelpDialog(props: Props) {
     try {
       const key = requestKey.current ?? crypto.randomUUID()
       // Keep the same reference and reason if the reply is lost or the page reloads.
-      window.sessionStorage.setItem(recoveryKey, JSON.stringify({ key, reason }))
+      try { window.sessionStorage.setItem(recoveryKey, JSON.stringify({ key, reason })) }
+      catch {
+        setError('Your browser cannot keep the recovery reference. No support request was sent this time. Enable session storage or try another browser, then retry.'); return
+      }
       requestKey.current = key
       const result = await createSetupSupportRequest(reason, key)
       if (!mounted.current) return

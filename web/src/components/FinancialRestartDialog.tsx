@@ -114,7 +114,7 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
 
   async function close(cancelSupportedRequest = false) {
     if (busy || applied.current) return
-    if (uncertain || setupHelp?.requestId && !cancelSupportedRequest) { onClose(); return }
+    if (uncertain || (setupHelp?.requestId && !cancelSupportedRequest)) { onClose(); return }
     if (!review || review.status !== 'pending' || stale) { onClose(); return }
     setPhase('canceling'); setError(null)
     try {

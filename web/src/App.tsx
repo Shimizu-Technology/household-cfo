@@ -589,7 +589,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [financialRestartOpen, setFinancialRestartOpen] = useState(false)
   const [setupHelpOpen, setSetupHelpOpen] = useState(false)
   const [setupRestart, setSetupRestart] = useState<{ requestId?: number } | null>(null)
-  const [staleSetupReview, setStaleSetupReview] = useState<{ requestId: number; reviewId?: number } | null>(null)
+  const [staleSetupReview, setStaleSetupReview] = useState<{ requestId: number; reviewId: number } | null>(null)
   const [showChatScrollButton, setShowChatScrollButton] = useState(false)
   const [voiceRecording, setVoiceRecording] = useState(false)
   const [voiceTranscribing, setVoiceTranscribing] = useState(false)
@@ -4227,7 +4227,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         }} onRestart={requestId => { setSetupHelpOpen(false); setSetupRestart({ requestId }) }} />}
       {setupRestart && isRealWorkspace && <FinancialRestartDialog key={`${chatStorageKey}:setup:${setupRestart.requestId ?? 'self'}`} scopeKey={restartScopeKey} setupHelp={setupRestart}
         blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind || question.trim() || voiceRecording || voiceTranscribing ? 'Save or cancel your open edits, finish or clear your draft message, and let current requests finish before reviewing a restart.' : null}
-        onClose={() => setSetupRestart(null)} onReturnToSetupHelp={(requestId, reviewId) => { setSetupRestart(null); setStaleSetupReview(requestId == null ? null : { requestId, reviewId }); setSetupHelpOpen(true) }} onApplied={finishFinancialRestart} />}
+        onClose={() => setSetupRestart(null)} onReturnToSetupHelp={(requestId, reviewId) => { setSetupRestart(null); setStaleSetupReview(requestId == null || reviewId == null ? null : { requestId, reviewId }); setSetupHelpOpen(true) }} onApplied={finishFinancialRestart} />}
       {financialRestartOpen && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && <FinancialRestartDialog key={chatStorageKey} scopeKey={restartScopeKey}
         blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind ? 'Save or cancel your open edits and let current requests finish before preparing a restart review.' : null}
         onClose={() => setFinancialRestartOpen(false)} onApplied={finishFinancialRestart} />}

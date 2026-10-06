@@ -9,7 +9,7 @@ const request: SetupSupportRequest = { id: 9, status: 'requested', reason: 'prac
 const saved: SetupHelpState = { household_id: 1, cohort_id: 2, financial_generation: 0, available: true, owner_required: false, setup_complete: false, self_restart_available: false, blockers: [{ code: 'saved_financial_records', label: 'You have saved financial information' }], latest_request: null }
 const props = { scopeKey: 'actor901:hh1:cohort2', userId: 901, householdId: 1, onClose: vi.fn(), onTopic: vi.fn(() => true), onAskMia: vi.fn(() => true), onRestart: vi.fn() }
 beforeEach(() => { vi.resetAllMocks(); window.sessionStorage.clear(); mocks.fetchSetupHelp.mockResolvedValue(saved); props.onTopic.mockReturnValue(true); props.onAskMia.mockReturnValue(true) })
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 function sharing() { fireEvent.click(screen.getByRole('checkbox', { name: /Share this request/ })) }
 it('routes a correction without requesting or restarting anything', async () => {
   render(<SetupHelpDialog {...props} />)
@@ -125,5 +125,27 @@ it('requires verified current status and fresh sharing before replacing an unusa
   fireEvent.click(screen.getByRole('button', { name: 'Check request status' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Start a new support request' }))
   expect(screen.getByRole('button', { name: 'Request support review' })).toHaveProperty('disabled', true)
+  expect(mocks.createSetupSupportRequest).toHaveBeenCalledOnce()
+})
+
+it('does not treat an unidentified earlier review as a permanent stale marker', async () => {
+  mocks.fetchSetupHelp.mockResolvedValue({ ...saved, latest_request: { ...request, status: 'ready', review_id: 14, review_state: 'pending' } })
+  render(<SetupHelpDialog {...props} staleReview={{ requestId: 9 }} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Review prepared restart' }))
+  expect(props.onRestart).toHaveBeenCalledWith(9)
+  expect(screen.queryByRole('button', { name: 'Request a fresh review' })).toBeNull()
+})
+it('reports blocked recovery storage before sending a support request and allows a safe later attempt', async () => {
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError') })
+  render(<SetupHelpDialog {...props} />)
+  await screen.findByRole('button', { name: 'Request support review' }); sharing()
+  fireEvent.click(screen.getByRole('button', { name: 'Request support review' }))
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Your browser cannot keep the recovery reference. No support request was sent this time. Enable session storage or try another browser, then retry.')
+  expect(mocks.createSetupSupportRequest).not.toHaveBeenCalled()
+  expect(screen.queryByRole('button', { name: 'Check request status' })).toBeNull()
+  write.mockRestore()
+  mocks.createSetupSupportRequest.mockResolvedValue({ request, setup_help: { ...saved, latest_request: request } })
+  fireEvent.click(screen.getByRole('button', { name: 'Request support review' }))
+  await screen.findByText('Your request is saved. Your financial information and chat have not changed.')
   expect(mocks.createSetupSupportRequest).toHaveBeenCalledOnce()
 })
