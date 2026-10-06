@@ -653,6 +653,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const restartRefreshHandled = useRef<number | null>(null)
   const observedFinancialGeneration = useRef<number | null>(null)
   function finishFinancialRestart(generation: number) {
+    restartRefreshHandled.current = generation
     setApiFinancialGeneration(generation)
     clearMiaRetryRequest(chatStorageKey)
     if (data?.workspace.household_id) {
@@ -680,7 +681,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       if (notice.household_id !== householdId || typeof next !== 'number' || !Number.isSafeInteger(next) || next <= generation || (restartRefreshHandled.current ?? -1) >= next) return
       restartRefreshHandled.current = next
       setApiFinancialGeneration(next)
-      onFinancialRestart('Your household financial picture restarted in another tab. Earlier entries are retained separately; reopen setup before editing.')
+      onFinancialRestart('Your household financial picture restarted. Earlier entries are retained separately; reopen setup before editing.')
     }
     const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('household-cfo:financial-picture')
     if (channel) channel.onmessage = event => accept(event.data)
@@ -764,7 +765,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     [documentImports],
   )
   const processingImportsCount = useMemo(
-    () => documentImports.filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
+    () => documentImports.filter((documentImport) => !documentImport.context_paused_by_restart && PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
     [documentImports],
   )
   const budgetForView = budgetView
@@ -839,7 +840,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
   const documentStatusSignature = useMemo(
     () => documentImports
-      .filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status))
+      .filter((documentImport) => !documentImport.context_paused_by_restart && PROCESSING_IMPORT_STATUSES.has(documentImport.status))
       .map((documentImport) => `${documentImport.id}:${documentImport.status}`)
       .join('|'),
     [documentImports],
@@ -8427,7 +8428,7 @@ function AnnualIncomePlanner({
           <h4 id="annual-income-title">Set it once, then schedule what changes.</h4>
           <p>Base income repeats forward. Raises, income endings, and bonuses affect only the months where they belong.</p>
         </div>
-        <span>{currency.format(sumMoney(Object.values(plan.monthly_income)))} annual income</span>
+        <span>{plan.income_sources.length === 0 ? 'Annual income not entered' : `${currency.format(sumMoney(Object.values(plan.monthly_income)))} annual income`}</span>
       </div>
 
       {plan.income_sources.length === 0 ? (
