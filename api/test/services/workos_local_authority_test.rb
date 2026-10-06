@@ -5,12 +5,13 @@ class WorkosLocalAuthorityTest < ActiveSupport::TestCase
     user = workos_user
     assert user.invitation_accepted?
     assert User.accepted_linked_identity.exists?(user.id)
-    user.update_columns(invitation_status: "revoked")
+    User.find(user.id).update_columns(invitation_status: "revoked")
     refute user.invitation_accepted?
     refute User.accepted_linked_identity.exists?(user.id)
-    user.update_columns(invitation_status: "pending")
+    User.find(user.id).update_columns(invitation_status: "pending")
     refute user.invitation_accepted?
-    user.update_columns(invitation_status: "accepted")
+    User.find(user.id).update_columns(invitation_status: "accepted")
+    user.authentication_identities.load
     AuthenticationIdentity.where(user_id: user.id).delete_all
     refute user.invitation_accepted?
     user.update!(clerk_id: "workos_user_unsupported")
@@ -67,12 +68,13 @@ class WorkosLocalAuthorityTest < ActiveSupport::TestCase
     refute policy.currently_authorized?(workspace: workspace, reviewer: reviewer)
     membership.update!(role: "reviewer")
     %w[pending revoked].each do |status|
-      reviewer.update_columns(invitation_status: status)
+      User.find(reviewer.id).update_columns(invitation_status: status)
       refute policy.currently_authorized?(workspace: workspace, reviewer: reviewer)
     end
-    reviewer.update_columns(invitation_status: "accepted", role: "participant")
+    User.find(reviewer.id).update_columns(invitation_status: "accepted", role: "participant")
     refute policy.currently_authorized?(workspace: workspace, reviewer: reviewer)
-    reviewer.update_columns(role: "coach")
+    User.find(reviewer.id).update_columns(role: "coach")
+    reviewer.authentication_identities.load
     AuthenticationIdentity.where(user_id: reviewer.id).delete_all
     refute policy.currently_authorized?(workspace: workspace, reviewer: reviewer)
   end
