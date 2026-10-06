@@ -330,6 +330,51 @@ class SetupHelpTest < ActiveSupport::TestCase
     end
   end
 
+  test "disabling a challenge blocks supported confirmation and receipt replay for its existing enrollment" do
+    setup_savings_context
+    travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 15, 12) do
+      with_savings_runtime do
+        savings_enroll
+        participant = SetupHelp::Participant.new(@savings_household, user: @savings_user, cohort_membership: @savings_membership)
+        first = participant.create_request(reason: "other", share_metadata: true, idempotency_key: "disabled-confirmation")[:request]
+        @savings_owner.update!(role: "admin")
+        staff = SetupHelp::Staff.new(user: @savings_owner)
+        ready = staff.transition(id: first[:id], action: "prepare", expected_lock_version: 0)[:request]
+        supported = SetupHelp::Restart.new(@savings_household, user: @savings_user, cohort_membership: @savings_membership, request_id: first[:id])
+        @savings_cohort.update!(savings_challenge_enabled: false)
+        assert_raises(SetupHelp::Denied) { supported.preview }
+        assert_raises(SetupHelp::Denied) { supported.apply(review_id: ready[:review_id], confirmation: "START OVER") }
+        assert_empty staff.list(cohort_id: @savings_cohort.id)[:records]
+        assert_equal 0, @savings_household.reload.financial_generation
+        @savings_cohort.update!(savings_challenge_enabled: true)
+        supported.apply(review_id: ready[:review_id], confirmation: "START OVER")
+        @savings_cohort.update!(savings_challenge_enabled: false)
+        assert_raises(SetupHelp::Denied) { supported.apply(review_id: ready[:review_id], confirmation: "START OVER") }
+        assert_equal 1, @savings_household.reload.financial_generation
+      end
+    end
+  end
+
+  test "a disabled and withdrawn enrollment still denies new requests and staff preparation" do
+    setup_savings_context
+    travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 15, 12) do
+      with_savings_runtime do
+        savings_enroll
+        participant = SetupHelp::Participant.new(@savings_household, user: @savings_user, cohort_membership: @savings_membership)
+        first = participant.create_request(reason: "other", share_metadata: true, idempotency_key: "disabled-withdrawn")[:request]
+        @savings_owner.update!(role: "admin")
+        @savings_cohort.update!(savings_challenge_enabled: false)
+        @savings_enrollment.update!(status: "withdrawn")
+        assert_raises(SetupHelp::Denied) { participant.status }
+        assert_raises(SetupHelp::Denied) { participant.create_request(reason: "other", share_metadata: true, idempotency_key: "disabled-withdrawn-new") }
+        staff = SetupHelp::Staff.new(user: @savings_owner)
+        assert_empty staff.list(cohort_id: @savings_cohort.id)[:records]
+        assert_raises(SetupHelp::Denied) { staff.transition(id: first[:id], action: "prepare", expected_lock_version: 0) }
+        assert_equal 0, @savings_household.reload.financial_generation
+      end
+    end
+  end
+
   test "an enrollment bound to another household is not treated as never enrolled" do
     setup_savings_context
     travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 15, 12) do
