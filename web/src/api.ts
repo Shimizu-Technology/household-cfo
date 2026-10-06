@@ -1713,6 +1713,8 @@ export type AdminPilotFeedbackScreenshotUrl = {
 
 export type CurrentUser = {
   id: number
+  auth_provider?: 'clerk' | 'workos'
+  auth_subject?: string
   clerk_id: string
   email: string
   first_name: string | null
@@ -2537,6 +2539,9 @@ async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortS
       ...(signal ? { signal } : {}),
     })
     assertCurrentContext()
+    if (response.status === 401 && token && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('household-cfo:auth-expired'))
+    }
     if (financialDataPath(path) && !path.startsWith('/api/v1/workspace')) checkedFinancialReply(financialResponseGeneration(response), financialGeneration)
     return response
   } catch (error) {

@@ -1,5 +1,5 @@
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
-import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
+import { SignInButton, SignUpButton, UserButton } from './components/AuthControls'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
 import './App.css'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
@@ -502,8 +502,8 @@ function App() {
   const auth = useAuthContext()
   const [restartNonce, setRestartNonce] = useState(0)
   const [restartNotice, setRestartNotice] = useState<string | null>(null)
-  const identity = `${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
-  return <ParticipantProgramSession identity={identity} authIdentityId={auth.authIdentityId} actorId={auth.currentUser?.id} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)}>
+  const identity = `${auth.authProvider}:${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
+  return <ParticipantProgramSession identity={identity} authIdentityId={auth.authProvider === 'workos' ? `${auth.authProvider}:${auth.authIdentityId}` : auth.authIdentityId} legacyAuthIdentityId={auth.authProvider === 'workos' ? auth.currentUser?.clerk_id : undefined} actorId={auth.currentUser?.id} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)}>
     {selection => <WorkspaceApp key={`${identity}:${selection.selectedCohortId ?? 'default'}:${restartNonce}`} {...selection} restartNotice={restartNotice} onDismissRestartNotice={() => setRestartNotice(null)} onFinancialRestart={message => { setRestartNotice(message); setRestartNonce(value => value + 1) }} />}
   </ParticipantProgramSession>
 }
@@ -512,7 +512,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const auth = useAuthContext()
   const publicBrand = useBrand()
   const participantActorId = auth.currentUser?.id
-  const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isClerkEnabled || Boolean(auth.currentUser))
+  const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isAuthEnabled || Boolean(auth.currentUser))
   const [{ data, homeBudget, budgets, homeBudgetStale, dataBudgetStale }, dispatchWorkspaceData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
   const financialMutationGenerationRef = useRef(0)
   const setData = useCallback((action: WorkspaceViewAction) => {
@@ -721,7 +721,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
   const visibleMessages = currentMessages.slice(hiddenMessageCount)
   const e2eRealWorkspace = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && Boolean(auth.currentUser)
-  const shouldUseRealWorkspace = auth.isClerkEnabled || e2eRealWorkspace
+  const shouldUseRealWorkspace = auth.isAuthEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
   const isSavingsExperience = data?.workspace.experience_mode === 'savings_challenge'
   const assistantName = data?.profile.coach.name.trim() || 'your assistant'
@@ -869,13 +869,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     captureSectionPageview(activeSection, {
       workspace_mode: data.workspace?.mode ?? 'demo',
-      auth_mode: auth.isClerkEnabled ? 'clerk' : 'preview',
+      auth_mode: auth.authProvider,
       app_role: auth.currentUser?.role ?? 'preview',
       pending_imports: pendingImportsCount,
       processing_imports: processingImportsCount,
     })
     lastTrackedSectionRef.current = signature
-  }, [activeSection, auth.currentUser?.role, auth.isClerkEnabled, data, pendingImportsCount, processingImportsCount])
+  }, [activeSection, auth.currentUser?.role, auth.authProvider, data, pendingImportsCount, processingImportsCount])
 
   const refreshDocumentImports = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
     if (!isRealWorkspace) {
@@ -1530,7 +1530,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       if (lastHandledLocationRef.current === locationKey) return
 
       const requestedSection = sectionFromLocation()
-      if (requestedSection === ADMIN_SECTION && auth.isClerkEnabled && !auth.currentUser) return
+      if (requestedSection === ADMIN_SECTION && auth.isAuthEnabled && !auth.currentUser) return
       lastHandledLocationRef.current = locationKey
       const unavailableCapability = data.workspace.capabilities.modules.find((module) => module.id === sectionCapabilityIds[requestedSection] && !module.enabled)
       if (unavailableCapability) {
@@ -1572,7 +1572,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       window.removeEventListener('popstate', followBrowserLocation)
       window.removeEventListener('hashchange', followBrowserLocation)
     }
-  }, [active, activeSection, auth.currentUser, auth.isClerkEnabled, canResumePlaidOAuthReturn, data, switchSection, visibleSections])
+  }, [active, activeSection, auth.currentUser, auth.isAuthEnabled, canResumePlaidOAuthReturn, data, switchSection, visibleSections])
 
   useEffect(() => {
     if (!data || !unavailableModuleNotice) return
@@ -3176,25 +3176,25 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     })
   }
 
-  if (auth.isClerkEnabled && auth.authRecoveryRequired && auth.authError) {
-    return <AuthAccessPanel title="We couldn’t finish checking your access." copy={auth.authError} recovering
-      onRetry={!auth.isLoading && auth.authIdentityId ? auth.refreshCurrentUser : undefined} onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
+  if (auth.isAuthEnabled && auth.authRecoveryRequired && auth.authError) {
+    return <AuthAccessPanel title={auth.authErrorStatus === 503 ? 'Secure access is temporarily unavailable.' : auth.authErrorStatus === 401 ? 'Sign in again to continue.' : 'We couldn’t finish checking your access.'} copy={auth.authError} recovering
+      onRetry={!auth.isLoading && auth.authIdentityId && auth.authErrorStatus !== 401 ? auth.refreshCurrentUser : undefined} onSignIn={auth.authErrorStatus === 401 ? auth.signIn : undefined} onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
   }
 
-  if (auth.isClerkEnabled && (auth.isLoading || auth.isVerifyingApi)) {
+  if (auth.isAuthEnabled && (auth.isLoading || auth.isVerifyingApi)) {
     return <AuthAccessPanel title={`Verifying your ${publicBrand.brand.product_name} access`} copy="Checking your secure program invitation before opening the workspace."
       onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
   }
 
-  if (auth.isClerkEnabled && !auth.isSignedIn) {
+  if (auth.isAuthEnabled && !auth.isSignedIn) {
     return <AuthLanding />
   }
 
-  if (auth.isClerkEnabled && auth.authError) {
+  if (auth.isAuthEnabled && auth.authError) {
     return <AccessDenied message={auth.authError} onSignOut={auth.signOut} onRetry={auth.refreshCurrentUser} />
   }
 
-  if (auth.isClerkEnabled && !auth.currentUser) {
+  if (auth.isAuthEnabled && !auth.currentUser) {
     return <AuthAccessPanel title="Preparing your workspace" copy={`${publicBrand.brand.product_name} is waiting for the invitation check to finish.`} footer={<BrandFooter />} />
   }
 
@@ -3278,7 +3278,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 <div className="account-pill">
                   <span>{auth.currentUser.full_name}</span>
                   <small>{auth.currentUser.role}</small>
-                  {auth.isClerkEnabled && <UserButton afterSignOutUrl="/" />}
+                  {auth.isAuthEnabled && <UserButton afterSignOutUrl="/" />}
                 </div>
               )}
               <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />
@@ -4395,12 +4395,12 @@ function AccessDenied({ message, onSignOut, onRetry }: { message: string; onSign
       <section className="hero-panel auth-panel">
         <BrandLogo brand={brand} />
         <p className="eyebrow">{brandByline(brand)}</p>
-        <h1>Your sign-in is active, but {brand.product_name} has not linked your program seat.</h1>
+        <h1>This account cannot open this program.</h1>
         <p>{message}</p>
         <div className="auth-actions">
-          <button type="button" onClick={() => void onRetry()}>Check access again</button>
+          <button type="button" onClick={() => void onRetry().catch(() => undefined)}>Check access again</button>
           <button type="button" onClick={() => window.location.reload()}>Reload page</button>
-          <button type="button" onClick={() => void onSignOut?.()}>Sign out</button>
+          <button type="button" onClick={() => void onSignOut?.().catch(() => undefined)}>Sign out</button>
           <div className="user-button-wrap"><UserButton afterSignOutUrl="/" /></div>
         </div>
       </section>

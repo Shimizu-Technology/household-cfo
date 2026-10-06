@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { AuthVerificationBridge, type AuthSession } from '../contexts/AuthContext'
 import { useAuthContext } from '../contexts/authContextValue'
 import { BrandContext, NEUTRAL_BRAND } from '../contexts/brandContextValue'
+import { UserButton } from '../components/AuthControls'
 import { AuthAccessPanel } from '../components/AuthAccessPanel'
 import { EarlierMiaConversations } from '../components/EarlierMiaConversations'
 import '../index.css'
@@ -14,8 +15,9 @@ const modes: SessionMode[] = ['ready', 'sdk-pending', 'identity-pending', 'token
 const params = new URLSearchParams(window.location.search)
 const initialMode = params.get('mode') as SessionMode | null
 const qaIdentity = 'qa_auth_recovery_user'
+const provider = params.get('provider') === 'workos' ? 'workos' : 'clerk'
 const fictionalUser = {
-  id: 901, clerk_id: qaIdentity, email: 'auth-recovery@pilot.test', first_name: 'Fictional',
+  id: 901, clerk_id: qaIdentity, auth_provider: provider, auth_subject: qaIdentity, email: 'auth-recovery@pilot.test', first_name: 'Fictional',
   last_name: 'Participant', full_name: 'Fictional Participant', role: 'participant',
   is_admin: false, is_coach: false, is_participant: true, is_staff: false,
 }
@@ -46,8 +48,9 @@ if (import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && params.ge
 function VerificationSurface({ onHistory }: { onHistory?: () => void }) {
   const auth = useAuthContext()
   if (auth.authRecoveryRequired && auth.authError) {
-    return <AuthAccessPanel title="We couldn’t finish checking your access." copy={auth.authError} recovering
-      onRetry={!auth.isLoading && auth.authIdentityId ? auth.refreshCurrentUser : undefined}
+    return <AuthAccessPanel title={auth.authErrorStatus === 503 ? 'Secure access is temporarily unavailable.' : auth.authErrorStatus === 401 ? 'Sign in again to continue.' : 'We couldn’t finish checking your access.'} copy={auth.authError} recovering
+      onRetry={!auth.isLoading && auth.authIdentityId && auth.authErrorStatus !== 401 ? auth.refreshCurrentUser : undefined}
+      onSignIn={auth.authErrorStatus === 401 ? auth.signIn : undefined}
       onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} />
   }
   if (auth.isLoading || auth.isVerifyingApi) {
@@ -62,6 +65,7 @@ function VerificationSurface({ onHistory }: { onHistory?: () => void }) {
   return <main className="app" data-testid="verified-workspace"><h1>Verified workspace</h1>
     <p>{auth.currentUser.full_name}</p><p>Verified session: {auth.authIdentityId}</p>
     <p>This fixture never requests a full Clerk profile.</p>
+    {provider === 'workos' && <div style={{ display: 'flex', justifyContent: 'flex-end' }}><UserButton /></div>}
     {onHistory && <button type="button" onClick={onHistory}>Earlier conversations</button>}</main>
 }
 
@@ -74,6 +78,7 @@ export function AuthRecoveryQa() {
     : Promise.resolve('fictional-qa-session-token'), [mode])
   const signOut = useCallback(async () => { setMode('signed-out') }, [])
   const session = useMemo<AuthSession>(() => ({
+    provider, signIn: async () => setMode('ready'),
     userId: mode === 'identity-pending' || mode === 'signed-out' ? null : qaIdentity,
     isLoaded: mode !== 'sdk-pending', isSignedIn: mode !== 'signed-out', getToken, signOut,
   }), [getToken, mode, signOut])

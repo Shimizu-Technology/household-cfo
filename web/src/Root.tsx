@@ -1,4 +1,9 @@
 import { ClerkProvider } from '@clerk/clerk-react'
+import { AuthKitProvider } from '@workos-inc/authkit-react'
+import { authConfiguration } from './lib/authConfig'
+import { restoreAuthReturn } from './lib/authNavigation'
+import { AuthAccessPanel } from './components/AuthAccessPanel'
+import { AuthLoginRoute } from './components/AuthLoginRoute'
 import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
 import { PostHogProvider } from './providers/PostHogProvider'
@@ -7,13 +12,7 @@ import { BrandDocument } from './components/BrandDocument'
 import { IdentityBoundary } from './components/IdentityBoundary'
 import { useBrand } from './contexts/brandContextValue'
 
-const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
-const placeholderClerkKeys = new Set(['pk_test_xxx', 'pk_test_dummy', 'your_clerk_publishable_key', 'YOUR_PUBLISHABLE_KEY'])
-const isClerkEnabled = Boolean(clerkPublishableKey && !placeholderClerkKeys.has(clerkPublishableKey))
-
-if (!isClerkEnabled) {
-  console.warn('Clerk is not configured. The coaching workspace is running in local preview mode without authentication.')
-}
+const config = authConfiguration(import.meta.env, window.location.hostname)
 
 function Root() {
   const { brand, status } = useBrand()
@@ -21,20 +20,25 @@ function Root() {
     return <><BrandDocument /><BrandBootstrapState /></>
   }
 
+  if (config.error) return <><BrandDocument /><AuthAccessPanel title="Secure sign-in is unavailable." copy={config.error} /></>
+
   const app = (
-    <AuthProvider isClerkEnabled={isClerkEnabled}>
+    <AuthProvider provider={config.provider}>
       <PostHogProvider>
         <BrandDocument />
-        <IdentityBoundary><App /></IdentityBoundary>
+        <IdentityBoundary>{config.provider === 'workos' && window.location.pathname === '/login' ? <AuthLoginRoute /> : <App />}</IdentityBoundary>
       </PostHogProvider>
     </AuthProvider>
   )
 
-  if (!isClerkEnabled) return app
+  if (config.provider === 'preview') return app
+  if (config.provider === 'workos') return <AuthKitProvider clientId={config.clientId!} apiHostname={config.apiHostname} devMode={config.devMode}
+    redirectUri={`${window.location.origin}/auth/callback`} onRedirectCallback={restoreAuthReturn}
+    onRefreshFailure={() => window.dispatchEvent(new Event('household-cfo:auth-expired'))}>{app}</AuthKitProvider>
 
   return (
     <ClerkProvider
-      publishableKey={clerkPublishableKey}
+      publishableKey={config.clerkKey!}
       afterSignOutUrl="/"
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"

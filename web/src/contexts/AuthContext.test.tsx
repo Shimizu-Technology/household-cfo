@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   fetchCurrentUser: vi.fn(),
   setActiveCoachWorkspaceId: vi.fn(),
   setAuthTokenGetter: vi.fn(),
+  setApiActorIdentity: vi.fn(),
   clerkUserId: 'clerk-1' as string | null,
   isLoaded: true,
   isSignedIn: true,
@@ -36,10 +37,11 @@ vi.mock('../api', async (importOriginal) => {
     fetchCurrentUser: mocks.fetchCurrentUser,
     setActiveCoachWorkspaceId: mocks.setActiveCoachWorkspaceId,
     setAuthTokenGetter: mocks.setAuthTokenGetter,
+    setApiActorIdentity: mocks.setApiActorIdentity,
   }
 })
 
-import { AUTH_VERIFICATION_TIMEOUT_MS, AuthProvider } from './AuthContext'
+import { AUTH_VERIFICATION_TIMEOUT_MS, AuthProvider, AuthVerificationBridge, type AuthSession } from './AuthContext'
 import { ApiRequestError } from '../api'
 import App from '../App'
 
@@ -87,6 +89,7 @@ beforeEach(() => {
   mocks.fetchCurrentUser.mockReset()
   mocks.setActiveCoachWorkspaceId.mockReset()
   mocks.setAuthTokenGetter.mockReset()
+  mocks.setApiActorIdentity.mockReset()
 })
 
 afterEach(() => { cleanup(); vi.useRealTimers() })
@@ -100,7 +103,7 @@ describe('AuthProvider identity verification', () => {
     await waitFor(() => expect(screen.getByTestId('verification').textContent).toBe('settled'))
     expect(screen.getByTestId('user').textContent).toBe('none')
     expect(screen.getByTestId('error').textContent).toBe('Program access is unavailable')
-    expect(screen.getByRole('heading', { name: 'Your sign-in is active, but VERA has not linked your program seat.' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'This account cannot open this program.' })).toBeTruthy()
     expect(mocks.setActiveCoachWorkspaceId).toHaveBeenLastCalledWith(null)
   })
 
@@ -214,5 +217,65 @@ describe('opt-in local real API QA authentication', () => {
     expect(screen.getByTestId('user').textContent).toBe('none')
     expect(screen.getByTestId('workspace').textContent).toBe('none')
     expect(mocks.setActiveCoachWorkspaceId).toHaveBeenLastCalledWith(null)
+  })
+})
+
+
+describe('WorkOS verified identity boundary', () => {
+  const session = (overrides: Partial<AuthSession> = {}): AuthSession => ({
+    provider: 'workos', userId: 'workos-1', isLoaded: true, isSignedIn: true,
+    getToken: async () => 'workos-token', signOut: async () => undefined, ...overrides,
+  })
+  const workosUser = (overrides: Partial<CurrentUser> = {}): CurrentUser => ({
+    ...apiUser('legacy-clerk'), auth_provider: 'workos', auth_subject: 'workos-1', ...overrides,
+  })
+  it('accepts only the verified WorkOS subject and preserves the permanent local user ID', async () => {
+    mocks.fetchCurrentUser.mockResolvedValue(workosUser())
+    render(<AuthVerificationBridge session={session()}><AuthProbe /></AuthVerificationBridge>)
+    await waitFor(() => expect(screen.getByTestId('name').textContent).toBe('Test Participant'))
+    expect(mocks.setApiActorIdentity).toHaveBeenLastCalledWith('workos:workos-1:1:')
+  })
+  it.each([{ auth_subject: 'other-user' }, { auth_provider: 'clerk' as const }, { auth_subject: undefined, auth_provider: undefined }])('rejects cross-provider or mismatched WorkOS identity %j', overrides => {
+    mocks.fetchCurrentUser.mockResolvedValue(workosUser(overrides))
+    render(<AuthVerificationBridge session={session()}><AuthProbe /></AuthVerificationBridge>)
+    return waitFor(() => {
+      expect(screen.getByTestId('error').textContent).toBe('Unable to verify program access for this account')
+      expect(screen.getByTestId('name').textContent).toBe('none')
+    })
+  })
+  it('discards late verification when the same raw subject changes providers', async () => {
+    let resolveOld!: (user: CurrentUser) => void
+    mocks.fetchCurrentUser.mockImplementationOnce(() => new Promise<CurrentUser>(resolve => { resolveOld = resolve }))
+    const ui = render(<AuthVerificationBridge session={session({ provider: 'clerk', userId: 'same-subject' })}><AuthProbe /></AuthVerificationBridge>)
+    await waitFor(() => expect(mocks.fetchCurrentUser).toHaveBeenCalledOnce())
+    mocks.fetchCurrentUser.mockResolvedValueOnce(workosUser({ auth_subject: 'same-subject', full_name: 'WorkOS account' }))
+    ui.rerender(<AuthVerificationBridge session={session({ userId: 'same-subject' })}><AuthProbe /></AuthVerificationBridge>)
+    await screen.findByText('WorkOS account')
+    await act(async () => resolveOld(apiUser('same-subject')))
+    expect(screen.getByTestId('name').textContent).toBe('WorkOS account')
+  })
+  it('withholds verified data immediately when organization scope changes', async () => {
+    mocks.fetchCurrentUser.mockResolvedValueOnce(workosUser())
+    const ui = render(<AuthVerificationBridge session={session({ sessionScope: 'org-a' })}><AuthProbe /></AuthVerificationBridge>)
+    await screen.findByText('Test Participant')
+    mocks.fetchCurrentUser.mockImplementationOnce(() => new Promise(() => undefined))
+    ui.rerender(<AuthVerificationBridge session={session({ sessionScope: 'org-b' })}><AuthProbe /></AuthVerificationBridge>)
+    expect(screen.getByTestId('name').textContent).toBe('none')
+  })
+  it.each([401, 403, 503])('keeps HTTP %i separate in protected recovery', async status => {
+    mocks.fetchCurrentUser.mockRejectedValue(new ApiRequestError('Access check failed', { status }))
+    render(<AuthVerificationBridge session={session()}><AuthProbe /><App /></AuthVerificationBridge>)
+    const heading = status === 401 ? 'Sign in again to continue.' : status === 503 ? 'Secure access is temporarily unavailable.' : 'This account cannot open this program.'
+    await screen.findByRole('heading', { name: heading })
+    expect(screen.getByTestId('name').textContent).toBe('none')
+    expect(screen.getByTestId('recovery').textContent).toBe(String(status !== 403))
+  })
+  it('closes a verified workspace immediately on SDK refresh failure', async () => {
+    mocks.fetchCurrentUser.mockResolvedValueOnce(workosUser())
+    const ui = render(<AuthVerificationBridge session={session()}><AuthProbe /></AuthVerificationBridge>)
+    await screen.findByText('Test Participant')
+    ui.rerender(<AuthVerificationBridge session={session({ sessionError: 'Secure session expired' })}><AuthProbe /></AuthVerificationBridge>)
+    expect(screen.getByTestId('name').textContent).toBe('none')
+    expect(screen.getByTestId('error').textContent).toBe('Secure session expired')
   })
 })
