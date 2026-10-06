@@ -27,16 +27,18 @@ function goalDraftWithProposal(base: Draft, payload: MiaManualPayload): Draft {
   }
 }
 
-export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequest, onFocusRequestHandled }: {
+export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequest, onFocusRequestHandled, onUnsavedChangesChange }: {
   sectionRef?: Ref<HTMLElement>
   goals: GoalRecord[]
   portfolio: GoalPortfolio
   onChanged: () => Promise<void>
   focusRequest?: GoalFocusRequest | null
   onFocusRequestHandled?: () => void
+  onUnsavedChangesChange?: (dirty: boolean) => void
 }) {
   const [editing, setEditing] = useState<number | 'new' | null>(null)
   const [draft, setDraft] = useState<Draft>(emptyDraft)
+  const [draftBaseline, setDraftBaseline] = useState<Draft>(emptyDraft)
   const [saving, setSaving] = useState(false)
   const [archiveId, setArchiveId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -52,16 +54,23 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
   const active = goals.filter((goal) => goal.active)
   const archived = goals.filter((goal) => !goal.active)
 
+  const formDirty = editing !== null && Object.entries(draftBaseline).some(([key, value]) => draft[key as keyof Draft] !== value)
+  const hasUnsavedChanges = saving || archiveId !== null || formDirty
+  useEffect(() => {
+    onUnsavedChangesChange?.(hasUnsavedChanges)
+    return () => onUnsavedChangesChange?.(false)
+  }, [hasUnsavedChanges, onUnsavedChangesChange])
+
   useEffect(() => {
     if (!focusRequest || handledFocusKeyRef.current === focusRequest.key) return
     handledFocusKeyRef.current = focusRequest.key
     const goal = goals.find((candidate) => candidate.id === focusRequest.goalId)
     requestAnimationFrame(() => {
       if (focusRequest.actionType === 'create_goal') {
-        setDraft(goalDraftWithProposal(emptyDraft, focusRequest.payload)); setEditing('new'); setArchiveId(null); setError(null)
+        setDraftBaseline(emptyDraft); setDraft(goalDraftWithProposal(emptyDraft, focusRequest.payload)); setEditing('new'); setArchiveId(null); setError(null)
         requestAnimationFrame(() => labelInputRef.current?.focus())
       } else if (focusRequest.actionType === 'update_goal' && goal?.active) {
-        setDraft(goalDraftWithProposal({ label: goal.label, goal_type: goal.goal_type, target_amount: goal.target_amount === null ? '' : String(goal.target_amount), current_amount: goal.current_amount === null ? '' : String(goal.current_amount), target_on: goal.target_on ?? '' }, focusRequest.payload))
+        setDraftBaseline({ label: goal.label, goal_type: goal.goal_type, target_amount: goal.target_amount === null ? '' : String(goal.target_amount), current_amount: goal.current_amount === null ? '' : String(goal.current_amount), target_on: goal.target_on ?? '' }); setDraft(goalDraftWithProposal({ label: goal.label, goal_type: goal.goal_type, target_amount: goal.target_amount === null ? '' : String(goal.target_amount), current_amount: goal.current_amount === null ? '' : String(goal.current_amount), target_on: goal.target_on ?? '' }, focusRequest.payload))
         setEditing(goal.id); setArchiveId(null); setError(null)
         requestAnimationFrame(() => labelInputRef.current?.focus())
       } else if (focusRequest.actionType === 'archive_goal' || focusRequest.actionType === 'restore_goal') {
@@ -104,12 +113,14 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
     revealAndFocus(focusTarget)
   }, [goals, editing, returnFocusRequest, saving])
   function beginCreate(trigger?: HTMLElement | null) {
-    rememberFocus(trigger); setDraft(emptyDraft); setEditing('new'); setArchiveId(null); setError(null)
+    if (formDirty || saving) { setError('Save or cancel this goal draft before opening another record.'); return }
+    rememberFocus(trigger); setDraftBaseline(emptyDraft); setDraft(emptyDraft); setEditing('new'); setArchiveId(null); setError(null)
     requestAnimationFrame(() => labelInputRef.current?.focus())
   }
   function beginEdit(goal: GoalRecord, trigger?: HTMLElement | null) {
+    if (formDirty || saving) { setError('Save or cancel this goal draft before opening another record.'); return }
     rememberFocus(trigger)
-    setDraft({ label: goal.label, goal_type: goal.goal_type, target_amount: goal.target_amount === null ? '' : String(goal.target_amount), current_amount: goal.current_amount === null ? '' : String(goal.current_amount), target_on: goal.target_on ?? '' })
+    setDraftBaseline({ label: goal.label, goal_type: goal.goal_type, target_amount: goal.target_amount === null ? '' : String(goal.target_amount), current_amount: goal.current_amount === null ? '' : String(goal.current_amount), target_on: goal.target_on ?? '' }); setDraft({ label: goal.label, goal_type: goal.goal_type, target_amount: goal.target_amount === null ? '' : String(goal.target_amount), current_amount: goal.current_amount === null ? '' : String(goal.current_amount), target_on: goal.target_on ?? '' })
     setEditing(goal.id); setArchiveId(null); setError(null)
     requestAnimationFrame(() => labelInputRef.current?.focus())
   }
@@ -139,6 +150,7 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
     finally { setSaving(false) }
   }
   async function mutate(signature: string, action: (key: string) => Promise<GoalRecord>, selector: string) {
+    if (formDirty || saving) { setError('Save or cancel this goal draft before making another change.'); return }
     setSaving(true); setError(null)
     try {
       await action(keys.current.keyFor(signature)); keys.current.complete(signature); setEditing(null); setArchiveId(null)
@@ -151,21 +163,21 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
   const knownProgressSummary = portfolio.active_count === 0 ? 'Not entered' : portfolio.progress_known_count === 0 ? 'Needs progress' : portfolio.progress_known_count === portfolio.active_count ? money.format(portfolio.progress_total) : `${money.format(portfolio.progress_total)} known so far`
 
   return <article ref={sectionRef} className="panel goal-manager">
-    <div className="row-between goal-manager-heading"><div><p className="eyebrow">Tracked goals</p><h3>Turn a household priority into a goal you can update.</h3><p>These targets track intent and progress. They never move money or change accounts, debt, the budget, runway, or safe-to-spend.</p></div>{editing === null && <button ref={addButtonRef} type="button" onClick={(event) => beginCreate(event.currentTarget)}>Add a goal</button>}</div>
+    <div className="row-between goal-manager-heading"><div><p className="eyebrow">Tracked goals</p><h3>Turn a household priority into a goal you can update.</h3><p>These targets track intent and progress. They never move money or change accounts, debt, the budget, runway, or safe-to-spend.</p></div>{editing === null && <button ref={addButtonRef} type="button" disabled={saving} onClick={(event) => beginCreate(event.currentTarget)}>Add a goal</button>}</div>
     <div className="goal-summary" aria-label="Tracked goal totals"><span><small>Known targets</small><strong>{knownTargetSummary}</strong></span><span><small>Known progress</small><strong>{knownProgressSummary}</strong></span><span><small>Active goals</small><strong>{portfolio.active_count}</strong></span></div>
     {active.length === 0 && editing === null && <div className="goal-empty"><strong>No tracked goals yet.</strong><p>Add a goal when you want to name a target and follow its progress. Your primary household focus and runway policy stay separate.</p></div>}
     {active.length > 0 && <div className="goal-list">{active.map((goal) => <div className="goal-row" data-goal-id={goal.id} key={goal.id}>
       <div><strong>{goal.label}</strong><span>{goalTypeLabels[goal.goal_type]}{goal.target_on ? ` · Target ${new Date(`${goal.target_on}T00:00:00`).toLocaleDateString()}` : ' · No target date'}</span></div>
       <div><small>Progress</small><strong>{displayAmount(goal.current_amount)} <span aria-hidden="true">/</span> {displayAmount(goal.target_amount)}</strong></div>
-      <div className="goal-row-actions"><button type="button" data-goal-action="edit" className="secondary-button" disabled={saving} onClick={(event) => beginEdit(goal, event.currentTarget)}>Edit</button><button type="button" data-goal-action="archive" className={archiveId === goal.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={(event) => { rememberFocus(event.currentTarget); if (archiveId === goal.id) void mutate(`archive:${goal.id}`, (key) => archiveGoal(goal.id, key), `[data-goal-id="${goal.id}"] [data-goal-action="restore"]`); else setArchiveId(goal.id) }}>{archiveId === goal.id ? 'Confirm archive' : 'Archive'}</button></div>
+      <div className="goal-row-actions"><button type="button" data-goal-action="edit" className="secondary-button" disabled={saving} onClick={(event) => beginEdit(goal, event.currentTarget)}>Edit</button><button type="button" data-goal-action="archive" className={archiveId === goal.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={(event) => { rememberFocus(event.currentTarget); if (archiveId === goal.id) void mutate(`archive:${goal.id}`, (key) => archiveGoal(goal.id, key), `[data-goal-id="${goal.id}"] [data-goal-action="restore"]`); else setArchiveId(goal.id) }}>{archiveId === goal.id ? 'Confirm archive' : 'Archive'}</button>{archiveId === goal.id && <button type="button" className="secondary-button" aria-label={`Cancel archiving ${goal.label}`} disabled={saving} onClick={() => { setArchiveId(null); focusLater(`[data-goal-id="${goal.id}"] [data-goal-action="archive"]`) }}>Cancel</button>}</div>
     </div>)}</div>}
-    {editing !== null && <form className="goal-form" onSubmit={save}><div className="goal-form-grid">
+    {editing !== null && <form className="goal-form" onSubmit={save}><fieldset className="goal-form-grid" disabled={saving} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}><legend className="sr-only">Goal fields</legend>
       <label className="setup-field text-wide"><span>Goal name</span><input ref={labelInputRef} required value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="Family trip" /></label>
       <label className="setup-field"><span>Type</span><select value={draft.goal_type} onChange={(event) => setDraft((current) => ({ ...current, goal_type: event.target.value as GoalType }))}>{goalTypes.map((type) => <option key={type} value={type}>{goalTypeLabels[type]}</option>)}</select></label>
       <label className="setup-field"><span>Target amount</span><span className="money-input-shell"><span aria-hidden="true">$</span><input ref={targetInputRef} type="number" min="0" inputMode="decimal" step="0.01" value={draft.target_amount} onChange={(event) => setDraft((current) => ({ ...current, target_amount: event.target.value }))} placeholder="Unknown" /></span><small>Blank means unknown. Use 0 only when confirmed.</small></label>
       <label className="setup-field"><span>Current progress</span><span className="money-input-shell"><span aria-hidden="true">$</span><input ref={progressInputRef} type="number" min="0" inputMode="decimal" step="0.01" value={draft.current_amount} onChange={(event) => setDraft((current) => ({ ...current, current_amount: event.target.value }))} placeholder="Unknown" /></span><small>Enter the amount you have intentionally assigned to this goal. This does not read or change an account.</small></label>
       <label className="setup-field"><span>Target date</span><input type="date" value={draft.target_on} onChange={(event) => setDraft((current) => ({ ...current, target_on: event.target.value }))} /><small>Optional. Leave blank when timing is undecided.</small></label>
-    </div>{error && <p className="setup-error" role="alert">{error}</p>}<div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancel}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editing === 'new' ? 'Add goal' : 'Save goal'}</button></div></form>}
+    </fieldset>{error && <p className="setup-error" role="alert">{error}</p>}<div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancel}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editing === 'new' ? 'Add goal' : 'Save goal'}</button></div></form>}
     {archived.length > 0 && <details className="debt-archive"><summary>Archived goals ({archived.length})</summary><p>Archived goals keep their history but leave active goal totals.</p>{archived.map((goal) => <div className="goal-row" data-goal-id={goal.id} key={goal.id}><div><strong>{goal.label}</strong><span>{goalTypeLabels[goal.goal_type]}</span></div><strong>{displayAmount(goal.current_amount)} / {displayAmount(goal.target_amount)}</strong><button type="button" data-goal-action="restore" className="secondary-button" disabled={saving} onClick={(event) => { rememberFocus(event.currentTarget); void mutate(`restore:${goal.id}`, (key) => restoreGoal(goal.id, key), `[data-goal-id="${goal.id}"] [data-goal-action="edit"]`) }}>Restore</button></div>)}</details>}
     {error && editing === null && <p className="setup-error" role="alert">{error}</p>}
   </article>

@@ -31,6 +31,28 @@ class SavingsEvidenceDomainTest < ActiveSupport::TestCase
     end
   end
 
+  test "same-day evidence FIFO uses numeric entry chronology across a decimal identity boundary" do
+    with_evidence_operations do
+      savings_enroll
+      identities = [ 999_999_999, 1_000_000_000, 1_000_000_001 ].map do |id|
+        SavingsEntry.create!(id: id, savings_enrollment: @savings_enrollment)
+      end
+      first = savings_approve(savings_draft(20_000, entry: identities[0]))
+      second = savings_approve(savings_draft(10_000, entry: identities[1]))
+      source, = evidence_source
+      evidence_attach(first, [ evidence_proof(source, amount: 20_000) ])
+      before_withdrawal = @savings_enrollment.reload.approval_sequence
+      withdrawal = savings_approve(savings_draft(-15_000, entry: identities[2], funding: "withdrawal"))
+      current = savings_projection
+      assert_equal 15_000, current[:reported_cents]
+      assert_equal 5_000, current[:evidence_supported_cents]
+      assert_equal [ first, second, withdrawal ].map { |version| "version-#{version.id}" }, current[:included_version_ids]
+      earlier = savings_projection(approval_sequence: before_withdrawal)
+      assert_equal 30_000, earlier[:reported_cents]
+      assert_equal 20_000, earlier[:evidence_supported_cents]
+    end
+  end
+
   test "one partial lot supports fifty then withdrawal twenty five leaves supported twenty five" do
     with_evidence_operations do
       savings_enroll

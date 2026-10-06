@@ -1329,6 +1329,10 @@ h3 {
   z-index: 52;
   display: grid;
   width: min(390px, calc(100vw - 32px));
+  max-height: calc(100vh - var(--tools-top, 0px) - 16px);
+  max-height: calc(100dvh - var(--tools-top, 0px) - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 14px;
   border: 1px solid rgba(31, 36, 33, 0.1);
   border-radius: 22px;
@@ -10354,3 +10358,43 @@ body:has([role="dialog"][aria-modal="true"], dialog[open]) .app > .mia-launcher 
   .app.is-chat-page { padding-inline: calc(10px + env(safe-area-inset-left)) calc(10px + env(safe-area-inset-right)); }
   .shell-actions .participant-program-switch > summary { font-family: inherit; font-weight: 600; font-size: .7rem; }
 }
+
+/* Financial topics share existing editors while keeping the primary journey compact. */
+.money-topic-content { display: grid; gap: 16px; min-width: 0; }
+.money-topics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; min-width: 0; }
+.money-topics button { min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); color: var(--ink); font-weight: 700; }
+.money-topics button[aria-pressed="true"] { background: var(--emerald); color: var(--brand-on-primary); border-color: var(--emerald); }
+.money-topics button:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 3px; }
+.money-screen .budget-loading-boundary { display: grid; gap: 16px; }
+.money-topic-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.money-topic-heading p { margin-bottom: 0; }
+.money-topic-actions, .money-period-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.money-topic-actions { margin: 16px 0; }
+.money-period-controls { justify-content: center; }
+.money-record-list { list-style: none; margin: 0; padding: 0; }
+.money-record-list li { display: flex; justify-content: space-between; align-items: start; gap: 16px; padding: 14px 0; border-top: 1px solid var(--line); }
+.money-record-list li > div { display: grid; gap: 4px; min-width: 0; }
+.money-record-list li > div:last-child { text-align: right; }
+.money-record-list strong { overflow-wrap: anywhere; }
+.money-record-list span { color: var(--muted); font-size: .85rem; }
+.money-income-schedule { min-width: 0; }
+.budget-status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.annual-budget-actions { justify-items: stretch; gap: 10px; }
+.budget-view-controls .budget-year-arrow, .money-period-controls .budget-year-arrow { width: 44px; min-width: 44px; min-height: 44px; padding: 0; font-size: 1.4rem; }
+.budget-year-label { color: var(--ink); }
+@media (max-width: 900px) {
+  .annual-budget-actions { justify-content: stretch; }
+  .budget-primary-actions { margin-top: 0; }
+  .budget-status-row { justify-content: flex-start; }
+}
+@media (max-width: 600px) {
+  .money-topics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .money-topic-heading { display: grid; }
+  .money-topic-actions > button { flex: 1 1 160px; }
+  .money-record-list li { gap: 10px; font-size: .9rem; }
+  .budget-view-controls { gap: 6px; }
+  .budget-view-controls select { min-width: 80px; }
+  .annual-budget-heading { gap: 12px; }
+  .annual-budget-actions .budget-status-row span { padding: 5px 8px; }
+}
+.mia-action-scope-note { padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--muted); font-size: .85rem; }

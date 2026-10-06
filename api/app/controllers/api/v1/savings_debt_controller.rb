@@ -20,6 +20,7 @@ module Api
 
       def show = render json: reader.call
       def records = render json: reader.records(kind: params[:kind].to_s, cursor: params[:cursor])
+      def household_candidates = render json: reader.household_candidates(cursor: params[:cursor])
       def source_candidates = render json: reader.candidates(cursor: params[:cursor])
 
       def mutate

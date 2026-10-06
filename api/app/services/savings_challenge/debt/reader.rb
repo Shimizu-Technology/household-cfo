@@ -29,10 +29,19 @@ module SavingsChallenge
         end
       end
 
+      def household_candidates(cursor: nil)
+        private_read do
+          rows = @enrollment.household.debts.active.where(debt_type: "credit_card").where("id > ?", cursor.nil? ? 0 : Inputs.id!(cursor)).order(:id).limit(51).to_a
+          mapping = HouseholdMapping.new(@enrollment.household)
+          links = SavingsDebtCard.where(savings_enrollment: @enrollment, household_debt_id: rows.map(&:id)).pluck(:household_debt_id, :id).to_h
+          { records: rows.first(50).map { |debt| mapping.candidate(debt).merge(linked_card_id: links[debt.id]) }, next_cursor: rows.length > 50 ? rows[49].id : nil, actor_scope: actor_scope, enrollment_id: @enrollment.id, cohort_id: @enrollment.cohort_id }
+        end
+      end
+
       def self.record(record)
         case record
         when SavingsDebtCard
-          record.attributes.slice("id", "savings_enrollment_id", "lock_version", "current_version_id", "source_tracked_account_id").merge("current_version" => record.current_version && self.record(record.current_version))
+          record.attributes.slice("id", "savings_enrollment_id", "lock_version", "current_version_id", "source_tracked_account_id", "household_debt_id").merge("current_version" => record.current_version && self.record(record.current_version))
         when SavingsDebtDraft, SavingsDebtVersion
           record.attributes.except("created_at", "updated_at")
         else raise ArgumentError, "Unsupported optional card record"
@@ -66,7 +75,9 @@ module SavingsChallenge
           next unless version
           terms = version.terms
           stale = !mapping.current?(version)
+          household_changed = !HouseholdMapping.new(@enrollment.household).current?(version)
           reasons = []
+          reasons << "linked_household_terms_changed" if household_changed
           reasons << "source_terms_stale" if stale
           reasons << "archived" if terms["status"] == "archived"
           reasons << "paid_off" if terms["balance_cents"] == 0 || terms["status"] == "paid_off"
@@ -76,7 +87,7 @@ module SavingsChallenge
           promotional = %w[promotional_apr_bps promotional_expires_on post_promo_apr_bps].any? { |key| !terms[key].nil? }
           reasons << "promotional_terms_need_review" if promotional
           reasons << "multiple_or_partial_rates" if terms.fetch("rate_segments").any?
-          row = { card_id: card.id, version_id: version.id, label: terms.fetch("label"), terms: terms, source_stale: stale, qualifications: reasons,
+          row = { card_id: card.id, version_id: version.id, label: terms.fetch("label"), terms: terms, source_stale: stale, household_debt_id: version.household_debt_id, household_terms_changed: household_changed, qualifications: reasons,
             promotional_expired: terms["promotional_expires_on"] && Date.iso8601(terms["promotional_expires_on"]) < @enrollment.local_today }
           eligible = !stale && terms["status"] == "active" && terms["balance_cents"]&.positive?
           row.merge(snowball_eligible: !!eligible, avalanche_eligible: !!(eligible && terms["apr_bps"] && !promotional && terms.fetch("rate_segments").empty?))

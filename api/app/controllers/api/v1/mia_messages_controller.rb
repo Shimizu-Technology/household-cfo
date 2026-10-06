@@ -82,7 +82,38 @@ module Api
           )
         end
 
-        return render_savings_response(session, content, attached_imports, message_request: message_request) if savings_program_selected?
+        if attached_imports.empty? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+          saved_reader = HouseholdFinance::SavedFinancialRecordsAnswerer.new(current_household,
+            message: content, year: budget_year_param, month: budget_month_param)
+          saved_answer = saved_reader.call
+          if saved_reader.decline_reason == :ambiguous_period
+            return render_household_read_response(session, content,
+              "I could not identify one valid month for that saved-record question. Use a month and year, such as October 2026 or 2026-10. No financial records or plans changed.",
+              message_request: message_request)
+          end
+          if saved_answer
+            if savings_program_selected? && saved_answer.metadata[:topic].in?(%w[debts goals]) && !content.match?(/\b(?:household|tracked)\b/i)
+              return render_household_scope_clarification(session, content, message_request: message_request)
+            end
+            return render_saved_records_response(session, content, saved_answer, message_request: message_request)
+          end
+        end
+
+        if savings_program_selected?
+          household_request = attached_imports.empty? ? ::Mia::HouseholdPlanRequest.classify(content, household: current_household) : :challenge
+          if household_request == :challenge && attached_imports.empty? && household_plan_continuation?(session, content)
+            household_request = :household
+          end
+          if household_request == :ambiguous
+            return render_household_scope_clarification(session, content, message_request: message_request)
+          end
+          unless household_request.in?(%i[household household_read])
+            return render_savings_response(session, content, attached_imports, message_request: message_request)
+          end
+
+          @savings_household_request = true
+          @savings_household_read = household_request == :household_read
+        end
 
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
           session,
@@ -97,7 +128,7 @@ module Api
 
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
         intent_plan = annual_budget_manager.read_only_plan_data
-        global_read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(content)
+        global_read_only_request = @savings_household_read || ::Mia::FinancialReadOnlyRequest.matches?(content)
         conversation_context = HouseholdFinance::ConversationContextBuilder.new(
           session,
           household: current_household,
@@ -125,6 +156,9 @@ module Api
         end
         retire_prior_document_evidence = attached_imports.empty? && document_evidence_topic_present?(session)
         conversation_context = HouseholdFinance::DocumentEvidenceContinuity.without_evidence(conversation_context) if retire_prior_document_evidence
+        intent_plan = intent_plan.merge(pending_mia_action_drafts: ::Mia::ActionDraftScope.reviews(
+          household: current_household, user: current_user, membership: current_cohort_membership,
+          year: intent_plan.fetch(:year), limit: HouseholdFinance::MiaIntentContextBuilder::MAX_PENDING_DRAFTS))
         intent_context = HouseholdFinance::MiaIntentContextBuilder.new(
           current_household,
           annual_plan: intent_plan,
@@ -143,6 +177,10 @@ module Api
             resolved_message: content, needs_clarification: false, clarification: "",
             topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic"
           )
+        end
+        allowed_household_intent = @savings_household_read ? ::Mia::HouseholdPlanRequest.allowed_read_intent?(intent_result) : ::Mia::HouseholdPlanRequest.allowed_intent?(intent_result)
+        if @savings_household_request && intent_result && !allowed_household_intent
+          return render_household_scope_clarification(session, content, message_request: message_request)
         end
         if attached_imports.any?
           return render_attached_document_response(
@@ -169,7 +207,7 @@ module Api
           )
         else
           intent_plan = annual_budget_manager.plan_data
-          routed = route_legacy_message(
+          routed = (@savings_household_request ? method(:route_household_plan_without_provider) : method(:route_legacy_message)).call(
             content,
             conversation_context: conversation_context,
             annual_budget_manager: annual_budget_manager
@@ -224,6 +262,10 @@ module Api
         )
         assistant_content = append_persona_capability_boundary(content, assistant_content)
         assistant_content = append_prompt_injection_boundary(content, assistant_content)
+        if @savings_household_request
+          chat_session_scope.authorize!
+          assistant_content = "#{assistant_content}\n\nHousehold plan: this review does not approve challenge savings, change your challenge target, or update optional card terms."
+        end
         user_message, assistant_message = persist_chat_messages(
           session,
           content,
@@ -232,6 +274,10 @@ module Api
           assistant_presentation: assistant_presentation
         )
         mia_action_draft = action_result&.existing_draft || persist_mia_action_draft(action_result, user_message, assistant_message)
+        if mia_action_draft && !::Mia::ActionDraftScope.visible?(mia_action_draft, user: current_user, membership: current_cohort_membership)
+          mia_action_draft = nil
+          assistant_message.update!(content: "Open the program where Mia prepared that review card. Nothing changed.")
+        end
         if action_result&.proposal && mia_action_draft.nil?
           assistant_message.update!(content: action_draft_persistence_failure_message)
           assistant_message.coach_content_citations.delete_all
@@ -259,6 +305,9 @@ module Api
           )
         end
         retire_document_evidence_state(session) if retire_prior_document_evidence
+        if @savings_household_request
+          session.update!(active_topic: session.reload.active_topic.to_h.merge("record_scope" => "household_plan"))
+        end
 
         response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
@@ -290,6 +339,7 @@ module Api
               return
             end
 
+            detach_action_reviews_before_clearing(session)
             session.chat_messages.delete_all
             session.mia_message_requests.delete_all
             session.update!(rolling_summary: nil, open_topics: [], active_topic: {}, last_compacted_message_id: nil, last_compacted_at: nil)
@@ -299,6 +349,70 @@ module Api
       end
 
       private
+
+      def household_plan_continuation?(session, content)
+        return false unless session.active_topic.to_h["record_scope"] == "household_plan"
+        text = content.to_s.squish
+        return false if text.match?(::Mia::HouseholdPlanRequest::CHALLENGE) || text.match?(/\b(?:set\s+(?:(?:it|that)\s+)?aside|saved|spent|bought|paid|withdrew|withdrawn|contributed)\b/i)
+        confirmation = confirmation_message?(text) || text.match?(/\A(?:okay|ok|apply it|go ahead)[\s.!?,]*\z/i)
+        correction = text.match?(/\b(?:that|it|same|those)\b/i) && text.match?(::Mia::HouseholdPlanRequest::WRITE)
+        confirmation || correction
+      end
+
+      def detach_action_reviews_before_clearing(session)
+        message_ids = session.chat_messages.select(:id)
+        scope = current_household.mia_action_drafts
+        scope.where(source_chat_message_id: message_ids).or(scope.where(assistant_chat_message_id: message_ids))
+          .includes(source_chat_message: :chat_session, assistant_chat_message: :chat_session).find_each do |draft|
+          origin = draft.source_chat_message&.chat_session || draft.assistant_chat_message&.chat_session
+          metadata = draft.metadata.to_h
+          metadata = metadata.merge("review_program_scope" => { "cohort_id" => origin&.cohort_id, "user_id" => origin&.user_id }) unless metadata.key?("review_program_scope")
+          attributes = { metadata: metadata }
+          attributes[:source_chat_message_id] = nil if draft.source_chat_message&.chat_session_id == session.id
+          attributes[:assistant_chat_message_id] = nil if draft.assistant_chat_message&.chat_session_id == session.id
+          draft.update!(attributes)
+        end
+      end
+
+      def render_saved_records_response(session, content, result, message_request:)
+        records = Array(result.metadata[:records])
+        record = records.one? && result.metadata[:total_count] == 1 ? records.first : nil
+        topic = { "schema_version" => 2, "type" => "household_inventory", "record_scope" => "household_plan",
+          "subject" => record&.fetch(:name, record[:label]), "title" => "Saved household #{result.metadata[:topic]}",
+          "persona_context_id" => current_participant_runtime.continuity_id }
+        render_household_read_response(session, content, result.answer, message_request: message_request, topic: topic)
+      end
+
+      def route_household_plan_without_provider(content, conversation_context:, annual_budget_manager:)
+        followup = HouseholdFinance::ConversationFollowupResolver.new(content, conversation_context: conversation_context).call
+        action_result = HouseholdFinance::MiaActionDraftBuilder.new(current_household, content,
+          user: current_user, annual_budget_manager: annual_budget_manager,
+          selected_month: budget_month_param, raw_input: content).call
+        { followup: followup, action_result: action_result,
+          annual_plan: action_result&.annual_plan || annual_budget_manager.read_only_plan_data,
+          direct_answer: action_result ? nil : "I could not safely prepare that household edit. Restate the record, replacement value, and effective month, or use My Money. Nothing changed." }
+      end
+
+      def render_household_scope_clarification(session, content, message_request:)
+        render_household_read_response(session, content, ::Mia::HouseholdPlanRequest.clarification,
+          message_request: message_request)
+      end
+
+      def render_household_read_response(session, content, answer, message_request:, topic: {})
+        ApplicationRecord.transaction do
+          current_household.lock!
+          chat_session_scope.authorize!
+          user_message, assistant_message = persist_chat_messages(session, content, [], answer)
+          retire_document_evidence_state(session) if document_evidence_topic_present?(session)
+          session.update!(active_topic: topic)
+          payload = { user_message: serialize_chat_message(user_message, author: "You"),
+            assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil,
+            transaction_draft: nil, budget: nil, spending_report: nil }
+          complete_message_request(message_request, payload)
+          record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: [])
+          render json: payload, status: :created
+        end
+      end
 
       def savings_program_selected?
         current_cohort_membership&.cohort&.savings_challenge_enabled == true
@@ -329,6 +443,7 @@ module Api
           current_household.lock!
           require_savings_chat_access!
           user_message, assistant_message = persist_chat_messages(session, content, attached_imports, answer)
+          session.update!(active_topic: {})
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
             assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil, transaction_draft: nil,
             budget: nil, spending_report: nil,
@@ -1085,7 +1200,10 @@ module Api
       def persist_mia_action_draft(action_result, user_message, assistant_message)
         return unless action_result&.proposal
 
-        action_result.proposal.create_draft!(source_chat_message: user_message, assistant_chat_message: assistant_message)
+        current_household.with_lock do
+          chat_session_scope.authorize!
+          action_result.proposal.create_draft!(source_chat_message: user_message, assistant_chat_message: assistant_message)
+        end
       rescue StandardError => e
         Rails.logger.error("Mia action draft could not be persisted chat_message_id=#{assistant_message&.id}: #{e.class}: #{e.message}")
         nil
@@ -1530,9 +1648,10 @@ module Api
 
       def read_only_answer_plan(intent_result, content)
         return intent_result.read_only_plan if intent_result.read_only_plan?
-        return unless ::Mia::FinancialReadOnlyRequest.matches?(content)
+        return unless @savings_household_read || ::Mia::FinancialReadOnlyRequest.matches?(content)
 
         kind = intent_result.intent.in?(HouseholdFinance::MiaIntentResolver::READ_ONLY_KINDS) ? intent_result.intent : "coaching"
+        kind = "budget_question" if @savings_household_read && HouseholdFinance::BudgetQuestionAnswerer.budget_question?(content)
         question = intent_result.resolved_message.presence || content
         question = content if content.match?(HouseholdFinance::MiaCoachAnswerer::READ_ONLY_AMOUNT_EDIT_PATTERN)
         {

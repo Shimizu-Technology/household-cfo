@@ -8,6 +8,7 @@ module HouseholdFinance
           def predicted_after(_before, _input) = { "private_change_completed" => true }
           def canonical_after_snapshot(_subject, _input, prepared:) = { "private_change_completed" => true }
           def stale_message = "Card terms changed. Review the current draft, approved version and source mapping. Nothing changed."
+          def household_mapping = SavingsChallenge::Debt::HouseholdMapping.new(household)
           def mapping = SavingsChallenge::Debt::SourceMapping.new(household)
           def card_for(id) = SavingsDebtCard.where(savings_enrollment: @enrollment).lock.find(id)
 

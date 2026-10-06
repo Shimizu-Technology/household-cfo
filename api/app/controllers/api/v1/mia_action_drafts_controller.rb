@@ -11,7 +11,7 @@ module Api
           return render json: { errors: [ "Idempotency-Key header is required" ] }, status: :unprocessable_entity
         end
         idempotency_key = "legacy-mia-action:#{@draft.id}:#{current_user.id}" if idempotency_key.blank?
-        result = HouseholdFinance::MiaActionDraftApplier.new(@draft, user: current_user).call(
+        result = HouseholdFinance::MiaActionDraftApplier.new(@draft, user: current_user, cohort_membership: current_cohort_membership).call(
           idempotency_key: idempotency_key,
           selected_item_ids: params[:item_ids]
         )
@@ -37,7 +37,7 @@ module Api
         if idempotency_key.blank? && @draft.draft_type == "action_plan"
           return render json: { errors: [ "Idempotency-Key header is required" ] }, status: :unprocessable_entity
         end
-        result = HouseholdFinance::MiaActionDraftCanceler.new(@draft, user: current_user).call(idempotency_key: idempotency_key)
+        result = HouseholdFinance::MiaActionDraftCanceler.new(@draft, user: current_user, cohort_membership: current_cohort_membership).call(idempotency_key: idempotency_key)
         unless result.success?
           return render json: { errors: result.errors }, status: result.conflict? ? :conflict : :unprocessable_entity
         end
@@ -59,8 +59,11 @@ module Api
 
       def set_draft
         @draft = current_household.mia_action_drafts.includes(:mia_action_items).find(params[:id])
+        ::Mia::ActionDraftScope.authorize!(@draft, user: current_user, membership: current_cohort_membership)
       rescue ActiveRecord::RecordNotFound
         render json: { errors: [ "Mia action draft not found" ] }, status: :not_found
+      rescue ::Mia::ActionDraftScope::Mismatch => error
+        render json: { errors: [ error.message ] }, status: :conflict
       end
 
       def append_chat_status_message(content)

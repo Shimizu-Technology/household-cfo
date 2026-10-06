@@ -9,6 +9,8 @@ module HouseholdFinance
         id: draft.id,
         status: draft.status,
         draft_type: draft.draft_type,
+        record_scope: "household_plan",
+        scope_note: "Household plan — changes here do not approve challenge savings, change the challenge target, or update optional card terms.",
         year: draft.year,
         title: draft.title,
         summary: draft.summary,

@@ -1,6 +1,33 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  test "provider grammar limits do not prevent a grounded supervised action" do
+    transport = ->(request) do
+      schema = request.dig(:response_format, :json_schema, :schema)
+      assert request.dig(:response_format, :json_schema, :strict)
+      assert_equal "json_schema", request.dig(:response_format, :type)
+      assert_equal false, schema.fetch(:additionalProperties)
+      assert_includes schema.dig(:properties, :action, :properties, :type, :enum), "set_allocation"
+      bounded_nodes = ->(node) do
+        case node
+        when Hash then node.keys.any? { |key| %i[maxLength maximum maxItems].include?(key) } || node.values.any? { |child| bounded_nodes.call(child) }
+        when Array then node.any? { |child| bounded_nodes.call(child) }
+        else false
+        end
+      end
+      # Mirrors the observed provider rejection, not the requested financial edit.
+      raise ArgumentError, "Provider grammar has too many states" if bounded_nodes.call(schema)
+      resolution_json(intent: "budget_action", continuation: false, resolved_message: "Set Fixed essentials to $650 for July 2026",
+        topic: { type: "budget_edit", title: "Fixed essentials", subject: "Fixed essentials" },
+        action: default_action.merge(type: "set_allocation", category_id: 42, category_name: "Fixed essentials", amount: "650", months: [ 7 ], year: 2026))
+    end
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: "Set Fixed essentials to $650 for July 2026",
+      context: intent_context, api_key: "synthetic", model: "google/gemini-2.5-flash", transport: transport).call
+    assert result&.actionable?, result.to_h.inspect
+    assert_equal 42, result.action.fetch(:category_id)
+    assert_equal "650", result.action.fetch(:amount)
+  end
+
   test "review regression read only purchase fallback remains useful without a provider" do
     [ nil, ->(_) { nil }, ->(_) { raise Net::ReadTimeout }, ->(_) { JSON.generate(intent: nil) } ].each do |transport|
       result = HouseholdFinance::MiaIntentResolver.new(

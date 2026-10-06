@@ -4,6 +4,7 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
   include ActiveSupport::Testing::TimeHelpers
 
   setup do
+    travel_to Time.zone.local(2026, 10, 6, 12)
     @user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",
       email: "household-actions-#{SecureRandom.hex(4)}@example.com",
@@ -27,6 +28,8 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     @manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
     @manager.ensure_plan!
   end
+
+  teardown { travel_back }
 
   test "drafts and applies multiple approved household values through the supervised boundary" do
     result = build_command(
@@ -522,6 +525,161 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     assert_nil result.proposal
     assert_includes result.response, "valid month"
     assert_equal 550_000, entry.reload.amount_cents
+  end
+
+  test "setup global impact is omitted when other or rental income is outside starting fields" do
+    %w[other rental].each do |kind|
+      source = @household.income_sources.create!(label: "Synthetic #{kind} income", source_type: kind, amount_cents: 50_000, cadence: "monthly", starts_on: Date.current.beginning_of_month)
+      @household.reload
+      assert_no_difference [ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count", "MiaActionDraft.count" ] do
+        result = build_command(type: "update_household_setup", setup_updates: { target_runway_months: "9" })
+        assert result.proposal
+        refute result.proposal.metadata.key?(:impact)
+        runway = result.proposal.items.find { |item| item.action_type == "update_runway_policy" }
+        assert_equal 6.0, runway.before_snapshot.fetch(:target_months)
+        assert_equal 9.0, runway.after_snapshot.fetch(:target_months)
+      end
+      source.destroy!
+      @household.reload
+    end
+  end
+
+  test "setup global impact is omitted when current one-time income changes monthly plan cash in" do
+    source = @household.income_sources.find_by!(source_type: "job")
+    source.income_schedule_entries.create!(entry_type: "one_time", label: "Synthetic bonus", amount_cents: 50_000, cadence: "one_time", effective_on: Date.current.beginning_of_month)
+    result = build_command(type: "update_household_setup", setup_updates: { target_runway_months: "9" })
+    assert result.proposal
+    refute result.proposal.metadata.key?(:impact)
+    plan = @manager.read_only_plan_data
+    period = plan.fetch(:months).fetch(Date.current.month - 1)
+    assert_equal 6_000.0, plan.fetch(:monthly_income).fetch(period.fetch(:id))
+  end
+
+  test "setup global impact omits custom allocations and offsetting stack differences" do
+    reading = @manager.create_category!(name: "Synthetic Reading", stack_key: "discretionary", monthly_amount: 0)
+    reading_allocation = reading.budget_allocations.joins(:budget_period).find_by!(budget_periods: { starts_on: Date.current.beginning_of_month })
+    @manager.update_allocation!(reading_allocation, "30")
+    result = build_command(type: "update_household_setup", setup_updates: { target_runway_months: "9" })
+    assert result.proposal
+    refute result.proposal.metadata.key?(:impact)
+    @manager.archive_category!(reading)
+    period = @manager.current_period_for(Date.current)
+    fixed = period.budget_allocations.joins(:budget_category).find_by!(budget_categories: { stack_key: "non_discretionary", active: true })
+    flexible = period.budget_allocations.joins(:budget_category).find_by!(budget_categories: { stack_key: "discretionary", active: true })
+    @manager.update_allocation!(fixed, "2600")
+    @manager.update_allocation!(flexible, "650")
+    result = build_command(type: "update_household_setup", setup_updates: { fixed_expenses: "3000" })
+    assert result.proposal
+    refute result.proposal.metadata.key?(:impact)
+    change = result.proposal.items.find { |item| item.action_type == "update_allocation" }.payload.fetch(:changes).find { |row| row[:month] == Date.current.month }
+    assert_equal 260_000, change.fetch(:before_cents)
+    assert_equal 300_000, change.fetch(:after_cents)
+  end
+
+  test "future-year setup policy review has exact item values without a current-month global panel" do
+    @manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2027)
+    @manager.ensure_plan!
+    assert_no_difference [ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count" ] do
+      result = build_command(type: "update_household_setup", setup_updates: { target_runway_months: "9" })
+      assert result.proposal
+      refute result.proposal.metadata.key?(:impact)
+      assert_equal 2027, result.proposal.year
+    end
+  end
+
+  test "explicit recurring cadences apply with impact equal to the canonical income timeline" do
+    %w[weekly biweekly annual].each do |cadence|
+      source = @household.income_sources.find_by!(source_type: "job")
+      result = build_command(type: "schedule_income_change", income_source_id: source.id, entry_type: "recurring_change", amount: "150", cadence: cadence, effective_on: "2026-11-01")
+      assert result.proposal, result.response
+      item = result.proposal.items.sole
+      assert_equal cadence, item.payload.fetch(:cadence)
+      assert_equal cadence, item.after_snapshot.fetch(:cadence)
+      equivalent = HouseholdFinance::Money.period_cents(15_000, cadence, month: 11)
+      assert_equal equivalent, item.after_snapshot.fetch(:effective_monthly_cents)
+      draft = persist(result.proposal)
+      applied = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
+      assert applied.success?, applied.errors.to_sentence
+      entry = source.income_schedule_entries.find_by!(effective_on: Date.new(2026, 11, 1))
+      assert_equal 15_000, entry.amount_cents
+      assert_equal cadence, entry.cadence
+      plan = HouseholdFinance::AnnualBudgetManager.new(@household.reload, year: 2026).plan_data
+      period = plan.fetch(:months).fetch(10)
+      assert_equal plan.fetch(:monthly_income).fetch(period.fetch(:id)), result.proposal.metadata.dig(:impact, :after_monthly_income)
+      assert_equal equivalent, HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source.reload, on: Date.new(2026, 11, 1))
+      duplicate = build_command(type: "schedule_income_change", income_source_id: source.id, entry_type: "recurring_change", amount: "150", cadence: cadence, effective_on: "2026-11-01")
+      assert_nil duplicate.proposal
+      assert_includes duplicate.response, "already scheduled"
+    end
+  end
+
+  test "invalid recurring cadence is rejected and one-time entry keeps its fixed cadence" do
+    source = @household.income_sources.find_by!(source_type: "job")
+    [ "daily", "one_time" ].each do |cadence|
+      result = build_command(type: "schedule_income_change", income_source_id: source.id, entry_type: "recurring_change", amount: "150", cadence: cadence, effective_on: "2026-11-01")
+      assert_nil result.proposal
+      assert_includes result.response, "supported recurring income cadence"
+    end
+    result = build_command(type: "schedule_income_change", income_source_id: source.id, entry_type: "one_time", amount: "150", cadence: "weekly", effective_on: "2026-11-01")
+    assert_equal "one_time", result.proposal.items.sole.payload.fetch(:cadence)
+  end
+
+  test "schedule preview does not create a missing future budget year" do
+    source = @household.income_sources.find_by!(source_type: "job")
+    assert_no_difference [ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count", "IncomeScheduleEntry.count" ] do
+      result = build_command(type: "schedule_income_change", income_source_id: source.id, entry_type: "recurring_change", amount: "150", cadence: "weekly", effective_on: "2027-01-01")
+      assert result.proposal
+      assert_nil result.proposal.metadata[:impact]
+      assert_equal "weekly", result.proposal.items.sole.payload.fetch(:cadence)
+      assert_equal 65_000, result.proposal.items.sole.after_snapshot.fetch(:effective_monthly_cents)
+    end
+  end
+
+  test "schedule impact preserves unknown outflow instead of inferring missing debt minimums as zero" do
+    @household.household_profile.update!(debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: false)
+    source = @household.income_sources.find_by!(source_type: "job")
+    result = build_command(type: "schedule_income_change", income_source_id: source.id, entry_type: "recurring_change", amount: "150", cadence: "weekly", effective_on: "2026-11-01")
+    assert result.proposal
+    assert_equal 1150.0, result.proposal.metadata.dig(:impact, :after_monthly_income)
+    assert_nil result.proposal.metadata.dig(:impact, :before_monthly_outflow)
+    assert_nil result.proposal.metadata.dig(:impact, :after_baseline_surplus)
+  end
+
+  test "income impact excludes archived category plans retained with historical actuals" do
+    historical = @manager.create_category!(name: "Archived synthetic spending", stack_key: "discretionary", monthly_amount: 100)
+    period = @manager.current_period_for(Date.new(2026, 9, 1))
+    transaction = @household.household_transactions.create!(budget_period: period, occurred_on: "2026-09-02", merchant: "Synthetic historical purchase", total_amount_cents: 1_000, source_type: "manual_ui", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: historical, amount_cents: 1_000)
+    @manager.archive_category!(historical)
+    @household.income_sources.each { |source| source.update!(starts_on: "2026-01-01") }
+    source = @household.income_sources.find_by!(source_type: "job")
+    plan = HouseholdFinance::AnnualBudgetManager.new(@household.reload, year: 2026).read_only_plan_data
+    archived = plan.fetch(:rows).find { |row| row[:id] == historical.id }
+    assert_equal false, archived.fetch(:active)
+    assert_equal 100.0, archived.fetch(:months).fetch(8).fetch(:planned)
+    result = build_command(type: "schedule_income_change", income_source_id: source.id, entry_type: "one_time", amount: "150", effective_on: "2026-09-01")
+    assert result.proposal
+    snapshot = HouseholdFinance::SnapshotBuilder.new(@household, reference_date: Date.new(2026, 9, 1), ensure_plan: false).call
+    assert_equal 3_400.0, result.proposal.metadata.dig(:impact, :before_monthly_outflow)
+    assert_equal snapshot.fetch(:total_outflow_cents), HouseholdFinance::Money.cents(result.proposal.metadata.dig(:impact, :after_monthly_outflow))
+  end
+
+  test "income impact keeps future outflow unknown when an active category allocation is missing" do
+    future = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2027)
+    future.ensure_plan!
+    category = @manager.create_category!(name: "New synthetic category", stack_key: "discretionary", monthly_amount: 50)
+    missing = future.read_only_plan_data.fetch(:rows).find { |row| row[:id] == category.id }.fetch(:months).first
+    assert_equal true, missing.fetch(:allocation_missing)
+    source = @household.income_sources.find_by!(source_type: "job")
+    assert_no_difference [ "BudgetYear.count", "BudgetAllocation.count" ] do
+      result = build_command(type: "schedule_income_change", income_source_id: source.id, entry_type: "recurring_change", amount: "150", cadence: "weekly", effective_on: "2027-01-01")
+      assert result.proposal
+      assert_equal 1150.0, result.proposal.metadata.dig(:impact, :after_monthly_income)
+      assert_nil result.proposal.metadata.dig(:impact, :before_monthly_outflow)
+      assert_nil result.proposal.metadata.dig(:impact, :after_monthly_outflow)
+      assert_nil result.proposal.metadata.dig(:impact, :before_baseline_surplus)
+      assert_nil result.proposal.metadata.dig(:impact, :after_baseline_surplus)
+    end
   end
 
   private

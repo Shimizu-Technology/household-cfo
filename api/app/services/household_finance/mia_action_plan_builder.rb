@@ -78,7 +78,7 @@ module HouseholdFinance
         action_positions << local_positions
       end
       return validation("This plan expands to more than #{MAX_ACTIONS} review steps. Split it into smaller plans. Nothing changed.") if combined_items.length > MAX_ACTIONS
-      return validation("Two requested changes target the same saved record. Combine them into one clear instruction. Nothing changed.") if conflicting_targets?(combined_items, combined_action_indexes)
+      return validation("Two requested changes target the same saved record. Ask for one change at a time and review it before requesting the next one. Nothing changed.") if conflicting_targets?(combined_items, combined_action_indexes)
 
       proposal = MiaActionDraftBuilder::Proposal.new(
         household: household,

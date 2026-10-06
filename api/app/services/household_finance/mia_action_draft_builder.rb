@@ -54,7 +54,10 @@ module HouseholdFinance
             summary: summary,
             rationale: rationale,
             source_prompt: source_prompt,
-            metadata: metadata
+            metadata: metadata.merge(review_program_scope: {
+              cohort_id: source_chat_message.chat_session.cohort_id,
+              user_id: source_chat_message.chat_session.user_id
+            })
           )
 
           items.each_with_index do |item, index|
@@ -342,7 +345,12 @@ module HouseholdFinance
       amount_match = body.match(/(?:at|for|with|to)\s+(?<amount>#{MONEY_PATTERN})(?:\s*(?:per month|monthly|\/month))?/i)
       amount_cents = amount_match ? amount_cents_from(amount_match[:amount]) : 0
       stack_key = stack_key_from_text(body) || "discretionary"
-      name = clean_new_category_name(body.sub(amount_match.to_s, ""))
+      name_body = body.sub(amount_match.to_s, "")
+      # Scope/stack descriptors before an explicit name are not part of its label.
+      # Keep words such as "household" when the participant includes them after
+      # "called"/"named", rather than stripping them from every category name.
+      name_body = name_body.split(/\b(?:called|named)\s+/i, 2).last
+      name = clean_new_category_name(name_body)
       name = name.gsub(/\b(?:for|in)\s+(?:#{MonthTerms.pattern})(?:\s+\d{4})?\b/i, " ").squish
       name = name.gsub(/\b(?:budget|category|line item|row|for|called|named|new|#{stack_alias_pattern})\b/i, " ").squish
       return validation_result("Tell me the category name before I draft a new budget row.") if name.blank?
@@ -473,12 +481,25 @@ module HouseholdFinance
     end
 
     def compound_category_mentions(authored)
+      # In "household budget category Groceries", household/budget describe
+      # the scope rather than additional rows with those coincidental names.
+      quoted_ranges = authored.to_enum(:scan, /["“][^"”]+["”]|'[^']+'/).map { [ Regexp.last_match.begin(0), Regexp.last_match.end(0) ] }
+      active_rows.each do |row|
+        authored.to_enum(:scan, /(?<![[:alnum:]])#{Regexp.escape(row.fetch(:name))}(?![[:alnum:]])/i).each do
+          start, finish = Regexp.last_match.begin(0), Regexp.last_match.end(0)
+          quoted_ranges << [ start, finish ] if authored[0...start].match?(/\b(?:named|called)\s+\z/i)
+        end
+      end
+      searchable = authored.gsub(/\bhousehold\s+budget\s+categor(?:y|ies)\b/i) do |scope|
+        start, finish = Regexp.last_match.begin(0), Regexp.last_match.end(0)
+        quoted_ranges.any? { |left, right| start < right && finish > left } ? scope : " " * scope.length
+      end
       categories = household.budget_categories.active.where(id: active_rows.map { |row| row.fetch(:id) }).index_by(&:id)
       candidates = active_rows.flat_map do |row|
         category = categories[row.fetch(:id).to_i]
         next [] unless category
 
-        authored.to_enum(:scan, /(?<![[:alnum:]])#{Regexp.escape(category.name)}(?![[:alnum:]])/i).map do
+        searchable.to_enum(:scan, /(?<![[:alnum:]])#{Regexp.escape(category.name)}(?![[:alnum:]])/i).map do
           { category: category, starts_at: Regexp.last_match.begin(0), ends_at: Regexp.last_match.end(0) }
         end
       end.sort_by { |mention| [ mention.fetch(:starts_at), -(mention.fetch(:ends_at) - mention.fetch(:starts_at)) ] }

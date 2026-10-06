@@ -68,6 +68,259 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "household category chat prepares an explicit review and applies once without changing savings" do
+    assert_no_difference [ "SavingsEntryVersion.count", "SavingsPlanVersion.count", "SavingsDebtVersion.count", "HouseholdTransaction.count" ] do
+      post "/api/v1/mia/messages", params: { message: "Create a new household discretionary category called Books with $25 for November 2026", year: 2026, month: 11, request_id: "household-category" }, headers: auth, as: :json
+      assert_response :created
+      card = response.parsed_body.fetch("mia_action_draft")
+      assert card, response.parsed_body.inspect
+      assert_equal "household_plan", card.fetch("record_scope")
+      assert_includes card.fetch("scope_note"), "do not approve challenge savings"
+      assert_nil @savings_household.budget_categories.find_by(name: "Books")
+      assert_nil response.parsed_body.fetch("transaction_draft")
+      assert_equal @savings_cohort.id, MiaActionDraft.find(card.fetch("id")).source_chat_message.chat_session.cohort_id
+
+      headers = auth.merge("Idempotency-Key" => "apply-household-category")
+      post "/api/v1/mia_action_drafts/#{card.fetch('id')}/apply", headers: headers, as: :json
+      assert_response :success
+      category = @savings_household.budget_categories.find_by!(name: "Books")
+      assert_equal 2500, category.budget_allocations.joins(:budget_period).find_by!(budget_periods: { starts_on: Date.new(2026, 11, 1) }).planned_amount_cents
+      assert_no_difference [ "BudgetCategory.count", "HouseholdOperationExecution.count" ] do
+        post "/api/v1/mia_action_drafts/#{card.fetch('id')}/apply", headers: headers, as: :json
+        assert_response :success
+      end
+    end
+  end
+
+  test "ambiguous goal and debt edits ask which records without creating annual setup" do
+    [ "Update my goal to $700", "Change my card balance to $900", "Update household debt and my challenge target" ].each_with_index do |message, index|
+      assert_no_difference [ "BudgetYear.count", "MiaActionDraft.count", "SavingsPlanDraft.count", "SavingsDebtDraft.count" ] do
+        post "/api/v1/mia/messages", params: { message: message, request_id: "scope-#{index}" }, headers: auth, as: :json
+        assert_response :created
+        assert_includes response.parsed_body.dig("assistant_message", "content"), "household plan or your savings challenge"
+        assert_nil response.parsed_body.fetch("mia_action_draft")
+      end
+    end
+  end
+
+  test "household review cards cannot apply or cancel in another program or after a hold" do
+    post "/api/v1/mia/messages", params: { message: "Create a new discretionary category called Reading with $30 for November 2026", year: 2026, month: 11, request_id: "scope-card" }, headers: auth, as: :json
+    assert_response :created
+    id = response.parsed_body.dig("mia_action_draft", "id")
+    delete "/api/v1/mia/messages", headers: auth, as: :json
+    assert_response :success
+    assert_nil MiaActionDraft.find(id).source_chat_message_id
+    ordinary = Cohort.create!(name: "Ordinary coaching", status: "active", created_by_user: @savings_owner)
+    ordinary.cohort_memberships.create!(user: @savings_user, role: "participant")
+    ordinary_headers = auth.merge("X-Cohort-Id" => ordinary.id.to_s, "Idempotency-Key" => "wrong-program")
+    %w[apply cancel].each do |operation|
+      assert_no_difference "MiaActionDraftApplication.count" do
+        post "/api/v1/mia_action_drafts/#{id}/#{operation}", headers: ordinary_headers, as: :json
+        assert_response :conflict
+      end
+    end
+    @savings_cohort.update!(savings_challenge_release_hold: true)
+    assert_no_difference [ "BudgetCategory.count", "MiaActionDraftApplication.count" ] do
+      post "/api/v1/mia_action_drafts/#{id}/apply", headers: auth.merge("Idempotency-Key" => "held-card"), as: :json
+      assert_response :forbidden
+    end
+    assert_equal "pending", MiaActionDraft.find(id).status
+  end
+
+  test "model cannot route a household request to a transaction write" do
+    result = HouseholdFinance::MiaIntentResolver::Result.new(intent: "transaction_report", confidence: 1.0,
+      action: { type: "create_transaction_draft", merchant: "Other", amount: "25", occurred_on: "2026-11-15" },
+      read_only_plan: {}, resolved_message: "I spent $25 at Other today")
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { result }
+    with_intent_resolver(resolver) do
+      assert_no_difference [ "BudgetYear.count", "TransactionDraft.count", "HouseholdTransaction.count", "MiaActionDraft.count" ] do
+        post "/api/v1/mia/messages", params: { message: "Update my household income to $2500 monthly", request_id: "misclassified-household" }, headers: auth, as: :json
+        assert_response :created
+        assert_nil response.parsed_body.fetch("transaction_draft")
+        assert_includes response.parsed_body.dig("assistant_message", "content"), "household plan or your savings challenge"
+      end
+    end
+  end
+
+  test "BOG saved income lookup is grounded without provider or financial writes" do
+    @savings_household.income_sources.create!(label: "Primary salary", source_type: "job", amount_cents: 400_000, cadence: "monthly")
+    @savings_household.income_sources.create!(label: "Tutoring", source_type: "business", amount_cents: 30_000, cadence: "monthly")
+    assert_no_difference [ "BudgetYear.count", "MiaActionDraft.count", "SavingsEntryVersion.count" ] do
+      post "/api/v1/mia/messages", params: { message: "List all my saved income sources and their amounts", year: 2026, month: 11, request_id: "saved-income" }, headers: auth, as: :json
+      assert_response :created
+      answer = response.parsed_body.dig("assistant_message", "content")
+      assert_includes answer, "Primary salary"
+      assert_includes answer, "Tutoring"
+      assert_includes answer, "$4,300.00"
+      assert_nil response.parsed_body.fetch("budget")
+      assert_nil response.parsed_body.fetch("mia_action_draft")
+    end
+  end
+
+  test "BOG uses the shared reviewed income debt account and tracked goal operations" do
+    requests = [
+      [ "income_action", "Create a household income source Freelance for $500 monthly starting November 2026", { type: "create_income_source", income_source_name: "Freelance", source_type: "business", amount: "500", cadence: "monthly", effective_on: "2026-11-01" }, IncomeSource, "Freelance" ],
+      [ "debt_action", "Create a household credit card debt named Test Visa with unknown balance and minimum", { type: "create_debt", debt_name: "Test Visa", debt_type: "credit_card", amount: "unknown", minimum_payment: "unknown" }, Debt, "Test Visa" ],
+      [ "asset_action", "Create a household checking account named Test checking with a $0 balance", { type: "create_account", account_name: "Test checking", account_type: "checking", amount: "0" }, Account, "Test checking" ],
+      [ "goal_action", "Create a household tracked travel goal named Trip with target $1000 and unknown progress", { type: "create_goal", goal_name: "Trip", goal_type: "travel", target_amount: "1000", current_amount: "unknown" }, Goal, "Trip" ]
+    ]
+    requests.each_with_index do |(intent, message, action, model, label), index|
+      result = HouseholdFinance::MiaIntentResolver::Result.new(intent: intent, confidence: 1.0, resolved_message: message,
+        action: action, read_only_plan: {}, topic: {}, source: "model")
+      resolver = Object.new
+      resolver.define_singleton_method(:call) { result }
+      with_intent_resolver(resolver) do
+        assert_no_difference [ "#{model.name}.count", "SavingsEntryVersion.count", "SavingsDebtVersion.count", "SavingsPlanVersion.count", "HouseholdTransaction.count" ] do
+          post "/api/v1/mia/messages", params: { message: message, year: 2026, month: 11, request_id: "household-family-#{index}" }, headers: auth, as: :json
+          assert_response :created
+        end
+      end
+      card = response.parsed_body.fetch("mia_action_draft")
+      assert card, response.parsed_body.inspect
+      assert_equal "household_plan", card.fetch("record_scope")
+      assert_difference "#{model.name}.count", 1 do
+        assert_no_difference [ "SavingsEntryVersion.count", "SavingsDebtVersion.count", "SavingsPlanVersion.count", "HouseholdTransaction.count" ] do
+          post "/api/v1/mia_action_drafts/#{card.fetch('id')}/apply", headers: auth.merge("Idempotency-Key" => "apply-family-#{index}"), as: :json
+          assert_response :success
+        end
+      end
+      record = model.find_by!(household: @savings_household, label: label)
+      refute record.balance_known? if model == Debt
+      refute record.current_amount_known? if model == Goal
+      assert_equal 0, record.balance_cents if model == Account
+    end
+  end
+
+  test "a natural income update in BOG prepares household review without changing challenge records" do
+    assert_no_difference [ "IncomeSource.count", "SavingsEntryVersion.count", "SavingsPlanVersion.count" ] do
+      post "/api/v1/mia/messages", params: { message: "My take-home pay is now $6,200 a month", request_id: "natural-income" }, headers: auth, as: :json
+      assert_response :created
+      card = response.parsed_body.fetch("mia_action_draft")
+      assert card, response.parsed_body.inspect
+      assert_equal "household_plan", card.fetch("record_scope")
+      assert_includes card.fetch("items").to_json, "620000"
+    end
+  end
+
+  test "named household records route to reviewed edits without requiring a financial keyword" do
+    category = @savings_household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary")
+    assert_equal :household, Mia::HouseholdPlanRequest.classify("Set Dining Out to $200 next month", household: @savings_household)
+    assert_equal :household, Mia::HouseholdPlanRequest.classify("Rename Dining Out to Restaurants", household: @savings_household)
+    @savings_household.income_sources.create!(label: "Primary salary", source_type: "job", cadence: "monthly", amount_cents: 400_000)
+    assert_equal :household, Mia::HouseholdPlanRequest.classify("Archive Primary salary", household: @savings_household)
+    HouseholdFinance::AnnualBudgetManager.new(@savings_household, year: 2026).ensure_plan!
+    assert_no_difference [ "BudgetAllocation.count", "SavingsEntryVersion.count", "HouseholdTransaction.count" ] do
+      post "/api/v1/mia/messages", params: { message: "Set Dining Out to $200 next month", year: 2026, month: 11, request_id: "named-category" }, headers: auth, as: :json
+      assert_response :created
+      assert_equal category.id, response.parsed_body.dig("mia_action_draft", "items", 0, "target_record_id")
+    end
+  end
+
+  test "scoping before review limits preserves each program queue and its count" do
+    ordinary = Cohort.create!(name: "Ordinary queue", status: "active", created_by_user: @savings_owner)
+    membership = ordinary.cohort_memberships.create!(user: @savings_user, role: "participant")
+    old = @savings_household.mia_action_drafts.create!(requested_by_user: @savings_user, draft_type: "budget_edit", year: 2026,
+      title: "Ordinary review", summary: "Ordinary plan review", metadata: { review_program_scope: { cohort_id: nil, user_id: @savings_user.id } })
+    11.times do |index|
+      @savings_household.mia_action_drafts.create!(requested_by_user: @savings_user, draft_type: "budget_edit", year: 2026,
+        title: "Challenge household review #{index}", summary: "Challenge household plan review",
+        metadata: { review_program_scope: { cohort_id: @savings_cohort.id, user_id: @savings_user.id } })
+    end
+    ordinary_presenter = HouseholdFinance::DataPresenter.new(@savings_household, user: @savings_user, cohort_membership: membership)
+    assert_equal [ old.id ], ordinary_presenter.budget.fetch(:annual_plan).fetch(:pending_mia_action_drafts).map { |draft| draft[:id] }
+    assert_equal 1, ordinary_presenter.dashboard.fetch(:action_center).fetch(:mia_action_review_count)
+    challenge_presenter = HouseholdFinance::DataPresenter.new(@savings_household, user: @savings_user, cohort_membership: @savings_membership)
+    assert_equal 10, challenge_presenter.budget.fetch(:annual_plan).fetch(:pending_mia_action_drafts).length
+    assert_equal 11, challenge_presenter.dashboard.fetch(:action_center).fetch(:mia_action_review_count)
+    refute_includes challenge_presenter.budget.fetch(:annual_plan).fetch(:pending_mia_action_drafts).map { |draft| draft[:id] }, old.id
+  end
+
+  test "unsupported read periods clarify without creating a monthly plan in either program" do
+    ordinary = Cohort.create!(name: "Ordinary reads", status: "active", created_by_user: @savings_owner)
+    ordinary.cohort_memberships.create!(user: @savings_user, role: "participant")
+    [ @savings_cohort.id, ordinary.id ].each do |cohort_id|
+      assert_no_difference [ "BudgetYear.count", "BudgetAllocation.count", "MiaActionDraft.count" ] do
+        post "/api/v1/mia/messages", params: { message: "Show my income for 2026-13", request_id: "invalid-read-#{cohort_id}" }, headers: auth.merge("X-Cohort-Id" => cohort_id.to_s), as: :json
+        assert_response :created
+        assert_includes response.parsed_body.dig("assistant_message", "content"), "one valid month"
+        assert_nil response.parsed_body.fetch("budget")
+      end
+    end
+  end
+
+  test "explicit household budget analysis stays read only and a model cannot turn it into an edit" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@savings_household, year: 2026)
+    dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 200)
+    manager.create_category!(name: "Housing", stack_key: "non_discretionary", monthly_amount: 300)
+    dining.budget_allocations.joins(:budget_period).find_by!(budget_periods: { starts_on: Date.new(2026, 7, 1) }).update!(planned_amount_cents: 50_000)
+    assert_no_difference [ "BudgetYear.count", "BudgetAllocation.count", "MiaActionDraft.count", "HouseholdTransaction.count", "SavingsEntryVersion.count" ] do
+      post "/api/v1/mia/messages", params: { message: "What is my largest household budget category?", year: 2026, month: 7, request_id: "household-analysis" }, headers: auth, as: :json
+      assert_response :created
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Dining Out"
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "$500 planned"
+      assert_nil response.parsed_body.fetch("budget")
+      assert_nil response.parsed_body.fetch("mia_action_draft")
+    end
+    category = @savings_household.budget_categories.find_by!(name: "Dining Out")
+    result = HouseholdFinance::MiaIntentResolver::Result.new(intent: "budget_action", confidence: 1.0,
+      action: { type: "set_allocation", category_id: category.id, category_name: category.name, amount: "500", months: [ 11 ], year: 2026 },
+      read_only_plan: {}, resolved_message: "Set Dining Out to $500")
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { result }
+    with_intent_resolver(resolver) do
+      assert_no_difference [ "MiaActionDraft.count", "BudgetAllocation.count" ] do
+        post "/api/v1/mia/messages", params: { message: "What is my largest household budget category?", request_id: "read-misclassified" }, headers: auth, as: :json
+        assert_response :created
+        assert_nil response.parsed_body.fetch("mia_action_draft")
+      end
+    end
+  end
+
+  test "household pronoun corrections continue the selected thread and challenge reports retire it" do
+    @savings_household.goals.create!(label: "Today", goal_type: "savings", record_kind: "tracked", target_amount_cents: 100_000)
+    post "/api/v1/mia/messages", params: { message: "Create a discretionary category called Books with $25 for November 2026", year: 2026, month: 11, request_id: "thread-create" }, headers: auth, as: :json
+    assert_response :created
+    assert response.parsed_body.fetch("mia_action_draft")
+    session = @savings_household.chat_sessions.find_by!(user: @savings_user, cohort: @savings_cohort)
+    assert_equal "household_plan", session.reload.active_topic["record_scope"]
+    post "/api/v1/mia/messages", params: { message: "Change it to $30", year: 2026, month: 11, request_id: "thread-correct" }, headers: auth, as: :json
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "Household plan:"
+    assert_nil response.parsed_body.fetch("transaction_draft")
+    post "/api/v1/mia/messages", params: { message: "I set aside $20 today", request_id: "thread-challenge" }, headers: auth, as: :json
+    assert_response :created
+    assert_equal "contribution", response.parsed_body.dig("savings_intake", "kind")
+    assert_nil response.parsed_body.fetch("mia_action_draft")
+    assert_empty session.reload.active_topic
+    [ "Yes, I set aside $20 today", "Yep, I set aside $20 today", "Okay. I set aside $20 today", "We just set aside $20 today" ].each_with_index do |message, index|
+      session.update!(active_topic: { "schema_version" => 2, "record_scope" => "household_plan" })
+      post "/api/v1/mia/messages", params: { message: message, request_id: "ack-challenge-#{index}" }, headers: auth, as: :json
+      assert_response :created
+      assert_equal "contribution", response.parsed_body.dig("savings_intake", "kind")
+      assert_nil response.parsed_body.fetch("mia_action_draft")
+      refute_includes response.parsed_body.dig("assistant_message", "content"), "Household plan:"
+      assert_empty session.reload.active_topic
+    end
+    session.update!(active_topic: { "schema_version" => 2, "record_scope" => "household_plan" })
+    post "/api/v1/mia/messages", params: { message: "Change it to $600 for my savings goal", request_id: "explicit-challenge" }, headers: auth, as: :json
+    assert_response :created
+    assert_nil response.parsed_body.fetch("mia_action_draft")
+    refute_includes response.parsed_body.dig("assistant_message", "content"), "Household plan:"
+    assert_empty session.reload.active_topic
+  end
+
   private
+  def with_intent_resolver(resolver)
+    singleton = class << HouseholdFinance::MiaIntentResolver; self; end
+    defined_before = singleton.method_defined?(:new, false)
+    original_new = singleton.instance_method(:new) if defined_before
+    singleton.define_method(:new) { |**_kwargs| resolver }
+    yield
+  ensure
+    singleton.send(:remove_method, :new) if singleton.method_defined?(:new, false)
+    singleton.define_method(:new, original_new) if defined_before
+  end
+
   def auth = { "Authorization" => "Bearer test_token_#{@savings_user.id}", "X-Cohort-Id" => @savings_cohort.id.to_s }
 end

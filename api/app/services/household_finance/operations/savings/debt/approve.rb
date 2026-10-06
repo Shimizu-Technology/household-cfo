@@ -38,13 +38,19 @@ module HouseholdFinance
                 fingerprint: draft.source_fingerprint }, as_of_on: draft.terms.fetch("as_of_on"))
               raise StaleOperation, stale_message unless source == mapping.values(draft)
             end
+            if draft.household_debt_id
+              household_source = household_mapping.resolve!({ household_debt_id: draft.household_debt_id, fingerprint: draft.household_debt_fingerprint })
+              raise StaleOperation, stale_message unless household_source == household_mapping.values(draft)
+              duplicate_household = SavingsDebtCard.where(savings_enrollment: @enrollment, household_debt_id: draft.household_debt_id).where.not(id: @card.id)
+              raise ArgumentError, "This saved household card already has an optional identity. Review its existing terms." if duplicate_household.exists?
+            end
             duplicate = SavingsDebtCard.where(savings_enrollment: @enrollment, source_tracked_account_id: draft.source_tracked_account_id).where.not(id: @card.id)
             raise ArgumentError, "This liability account already has a card identity. Review its existing terms." if draft.source_tracked_account_id && duplicate.exists?
             previous = @card.current_version
-            attributes = mapping.values(draft).merge(savings_enrollment: @enrollment, approved_by_user: user, previous_version: previous,
+            attributes = mapping.values(draft).merge(household_mapping.values(draft)).merge(savings_enrollment: @enrollment, approved_by_user: user, previous_version: previous,
               version_number: previous ? previous.version_number + 1 : 1, terms: draft.terms, reason: draft.reason, approved_at: Time.current)
-            version = @card.savings_debt_versions.create!(**attributes, digest: PreparedOperation.fingerprint(terms: draft.terms, source: mapping.values(draft), previous_version_id: previous&.id))
-            @card.update!(current_version: version, source_tracked_account_id: version.source_tracked_account_id)
+            version = @card.savings_debt_versions.create!(**attributes, digest: PreparedOperation.fingerprint(terms: draft.terms, source: mapping.values(draft), household_source: household_mapping.values(draft), previous_version_id: previous&.id))
+            @card.update!(current_version: version, source_tracked_account_id: version.source_tracked_account_id, household_debt_id: version.household_debt_id)
             draft.update!(status: "approved", approved_version: version)
             version
           end

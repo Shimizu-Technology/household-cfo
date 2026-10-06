@@ -271,6 +271,41 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     assert_not_includes payload.to_json, "private/s3/key"
   end
 
+  test "answer context includes grounded selected-month income and bounded upcoming schedules" do
+    user = User.create!(clerk_id: "income_context_#{SecureRandom.hex(6)}", email: "income-context@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Income context")
+    salary = household.income_sources.create!(label: "Salary <untrusted>", source_type: "job", amount_cents: 100_000, cadence: "monthly", active: true)
+    salary.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 120_000, cadence: "monthly", effective_on: "2026-06-01")
+    14.times do |index|
+      salary.income_schedule_entries.create!(entry_type: "one_time", label: "Bonus <data> #{index}", amount_cents: 100, cadence: "one_time", effective_on: Date.new(2026, 6, 1).next_month(index))
+    end
+    payload = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household, annual_plan: annual_plan(2026), reference_month: 6).call)
+    inventory = payload.fetch("income_sources")
+    assert_equal "2026-06-01", inventory.fetch("starts_on")
+    assert_equal 1200.0, inventory.fetch("recurring_monthly_amount")
+    assert_equal 1201.0, inventory.fetch("selected_month_amount")
+    source = inventory.fetch("records").sole
+    assert_equal "Salary untrusted", source.fetch("label")
+    assert_equal 1000.0, source.fetch("base_amount")
+    assert_equal 1200.0, source.fetch("effective_amount")
+    assert_equal 15, source.fetch("upcoming_schedule_count")
+    assert_equal 12, source.fetch("schedule_entries").length
+    assert_equal "bounded_current_and_future_entries", source.fetch("schedule_coverage")
+    assert_not_includes source.fetch("schedule_entries").to_json, "<data>"
+  end
+
+  test "income context discloses bounded source coverage without truncating the total" do
+    user = User.create!(clerk_id: "bounded_context_#{SecureRandom.hex(6)}", email: "bounded-income-context@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Bounded income context")
+    51.times { |index| household.income_sources.create!(label: "Income #{index}", source_type: "other", amount_cents: 100, cadence: "monthly", active: true) }
+    payload = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household, annual_plan: annual_plan(2026), reference_month: 6).call)
+    inventory = payload.fetch("income_sources")
+    assert_equal 51, inventory.fetch("total_count")
+    assert_equal 50, inventory.fetch("shown_count")
+    assert_equal "bounded_saved_records", inventory.fetch("coverage")
+    assert_equal 51.0, inventory.fetch("selected_month_amount")
+  end
+
   private
 
   def annual_plan(year)

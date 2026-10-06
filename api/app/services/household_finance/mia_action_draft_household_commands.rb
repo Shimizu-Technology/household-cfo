@@ -66,13 +66,15 @@ module HouseholdFinance
       return items if items.is_a?(MiaActionDraftBuilder::Result)
 
       impact = setup_impact(before_values, normalized)
+      metadata = { source: "mia_chat", parser: "model_intent" }
+      metadata[:impact] = impact if impact
       proposal_result(
         draft_type: "household_setup",
         title: changed.one? ? "Update an approved household value" : "Update approved household values",
         summary: "I prepared #{changed.length} household #{'change'.pluralize(changed.length)} for your review.",
         rationale: "These values shape Mia’s coaching and the Home snapshot. They stay unchanged until you approve this card.",
         items: items,
-        metadata: { source: "mia_chat", parser: "model_intent", impact: impact }
+        metadata: metadata
       )
     end
 
@@ -87,20 +89,23 @@ module HouseholdFinance
       return validation_result("Tell me the month when this income change starts. Nothing changed.") unless effective_on
       return validation_result("That income date is outside the supported planning range. Nothing changed.") unless AnnualBudgetManager.supported_year?(effective_on.year)
 
+      cadence = entry_type == "one_time" ? "one_time" : command[:cadence].presence || "monthly"
+      return validation_result("Choose a supported recurring income cadence. Nothing changed.") unless cadence.in?(entry_type == "one_time" ? [ "one_time" ] : IncomeSource::CADENCES - [ "one_time" ])
       amount_cents = Money.cents!(command[:amount], message: "Income amount must be a number")
       return validation_result("One-time income must be greater than $0. Nothing changed.") if entry_type == "one_time" && !amount_cents.positive?
+      effective_monthly_cents = entry_type == "one_time" ? nil : Money.period_cents(amount_cents, cadence, month: effective_on.month)
 
       existing_entry = entry_type == "recurring_change" ? source.income_schedule_entries.find_by(effective_on: effective_on) : nil
       current_source_cents = IncomeTimeline.recurring_monthly_cents(source, on: effective_on)
-      if existing_entry && existing_entry.amount_cents == amount_cents && existing_entry.cadence == "monthly"
-        return validation_result("#{source.label} is already scheduled at #{money(amount_cents)} per month beginning #{effective_on.strftime('%B %Y')}. I did not create a duplicate draft.")
+      if existing_entry && existing_entry.amount_cents == amount_cents && existing_entry.cadence == cadence
+        return validation_result("#{source.label} is already scheduled at #{money(amount_cents)} #{income_cadence_label(cadence)} beginning #{effective_on.strftime('%B %Y')}. I did not create a duplicate draft.")
       end
 
       label = command[:schedule_label].to_s.squish.truncate(80, omission: "…").presence
       item = MiaActionDraftBuilder::Item.new(
         action_type: "upsert_income_schedule_entry",
-        label: income_schedule_item_label(source, entry_type, amount_cents),
-        description: income_schedule_description(source, entry_type, current_source_cents, amount_cents, effective_on),
+        label: income_schedule_item_label(source, entry_type, amount_cents, cadence),
+        description: income_schedule_description(source, entry_type, current_source_cents, amount_cents, effective_on, cadence),
         target_record_type: existing_entry ? "IncomeScheduleEntry" : "IncomeSource",
         target_record_id: existing_entry&.id || source.id,
         payload: {
@@ -110,7 +115,7 @@ module HouseholdFinance
           entry_type: entry_type,
           label: label,
           amount_cents: amount_cents,
-          cadence: entry_type == "one_time" ? "one_time" : "monthly",
+          cadence: cadence,
           effective_on: effective_on.iso8601
         },
         before_snapshot: {
@@ -130,18 +135,18 @@ module HouseholdFinance
           income_source_label: source.label,
           entry_id: existing_entry&.id,
           amount_cents: amount_cents,
-          cadence: entry_type == "one_time" ? "one_time" : "monthly",
+          cadence: cadence,
           effective_on: effective_on.iso8601,
-          effective_monthly_cents: entry_type == "one_time" ? current_source_cents : amount_cents
+          effective_monthly_cents: entry_type == "one_time" ? current_source_cents : effective_monthly_cents
         }
       )
-      impact = income_schedule_impact(source, entry_type, current_source_cents, amount_cents, effective_on)
+      impact = income_schedule_impact(source, entry_type, current_source_cents, amount_cents, effective_on, cadence)
 
       proposal_result(
         draft_type: "income_schedule",
         year: effective_on.year,
         title: entry_type == "one_time" ? "Add one-time income" : "Schedule an income change",
-        summary: income_schedule_summary(source, entry_type, amount_cents, effective_on),
+        summary: income_schedule_summary(source, entry_type, amount_cents, effective_on, cadence),
         rationale: "The income timeline and future monthly cash-flow view update only after you approve this card.",
         items: [ item ],
         metadata: { source: "mia_chat", parser: "model_intent", impact: impact }
@@ -455,6 +460,8 @@ module HouseholdFinance
       after_income = setup_money_total(after_values, :primary_income, :business_income)
       before_outflow = setup_money_total(before_values, :fixed_expenses, :flexible_spend, :expected_sinking_fund, :unexpected_sinking_fund, :debt_payment)
       after_outflow = setup_money_total(after_values, :fixed_expenses, :flexible_spend, :expected_sinking_fund, :unexpected_sinking_fund, :debt_payment)
+      return unless setup_impact_matches_current_plan?(before_values, before_income, before_outflow)
+
       {
         scope: "Current monthly snapshot",
         before_monthly_income: before_income,
@@ -464,6 +471,34 @@ module HouseholdFinance
         before_baseline_surplus: money_difference(before_income, before_outflow),
         after_baseline_surplus: money_difference(after_income, after_outflow)
       }
+    end
+
+    # Setup fields cover only the starting-picture records. A global preview
+    # is truthful only when those fields reconcile with the current saved plan.
+    def setup_impact_matches_current_plan?(values, before_income, before_outflow)
+      today = Date.current
+      return false unless annual_budget_manager.year == today.year
+
+      plan = AnnualBudgetManager.new(household, year: today.year).read_only_plan_data
+      return false unless plan.fetch(:plan_available)
+      period = plan.fetch(:months).find { |month| Date.iso8601(month.fetch(:starts_on)).month == today.month }
+      return false unless period && before_income
+      snapshot = SnapshotBuilder.new(household, reference_date: today, ensure_plan: false).call
+      income_cents = Money.cents(before_income)
+      return false unless income_cents == snapshot.fetch(:monthly_income_cents) && income_cents == Money.cents(plan.fetch(:monthly_income).fetch(period.fetch(:id)))
+
+      rows = plan.fetch(:rows).select { |row| row.fetch(:active) }
+      return false if rows.any? { |row| row.fetch(:months).fetch(today.month - 1).fetch(:allocation_missing) }
+      stacks = { fixed_expenses: "non_discretionary", flexible_spend: "discretionary", expected_sinking_fund: "sinking_expected", unexpected_sinking_fund: "sinking_unexpected" }
+      return false unless stacks.all? do |key, stack|
+        planned = rows.select { |row| row.fetch(:stack_key) == stack }.sum { |row| Money.cents(row.fetch(:months).fetch(today.month - 1).fetch(:planned)) }
+        values[key] && Money.cents(values[key]) == planned && planned == snapshot.fetch(:stack_totals_cents).fetch(stack)
+      end
+      return !snapshot.fetch(:debt_minimums_known) && !plan.fetch(:monthly_debt_minimums_known) if before_outflow.nil?
+      return false unless snapshot.fetch(:debt_minimums_known) && plan.fetch(:monthly_debt_minimums_known)
+
+      planned_outflow = rows.sum { |row| Money.cents(row.fetch(:months).fetch(today.month - 1).fetch(:planned)) } + Money.cents(plan.fetch(:monthly_debt_minimums))
+      Money.cents(before_outflow) == snapshot.fetch(:total_outflow_cents) && Money.cents(before_outflow) == planned_outflow
     end
 
     def setup_money_total(values, *keys)
@@ -495,44 +530,54 @@ module HouseholdFinance
       nil
     end
 
-    def income_schedule_item_label(source, entry_type, amount_cents)
-      return "Add #{money(amount_cents)} of one-time #{source.label}" if entry_type == "one_time"
-
-      "Set #{source.label} to #{money(amount_cents)} per month"
+    def income_cadence_label(cadence)
+      { "monthly" => "per month", "weekly" => "per week", "biweekly" => "every two weeks", "semi_monthly" => "twice a month", "annual" => "per year" }.fetch(cadence)
     end
 
-    def income_schedule_description(source, entry_type, current_cents, amount_cents, effective_on)
+    def income_schedule_item_label(source, entry_type, amount_cents, cadence = "monthly")
+      return "Add #{money(amount_cents)} of one-time #{source.label}" if entry_type == "one_time"
+
+      "Set #{source.label} to #{money(amount_cents)} #{income_cadence_label(cadence)}"
+    end
+
+    def income_schedule_description(source, entry_type, current_cents, amount_cents, effective_on, cadence = "monthly")
       month = effective_on.strftime("%B %Y")
       return "Add #{money(amount_cents)} to #{month}; the recurring #{source.label} amount remains #{money(current_cents)} per month." if entry_type == "one_time"
 
-      "Beginning #{month}: #{money(current_cents)} → #{money(amount_cents)} per month."
+      return "Beginning #{month}: #{money(current_cents)} → #{money(amount_cents)} per month." if cadence == "monthly"
+
+      monthly = Money.period_cents(amount_cents, cadence, month: effective_on.month)
+      "Beginning #{month}: #{money(amount_cents)} #{income_cadence_label(cadence)}; the monthly planning equivalent changes from #{money(current_cents)} to #{money(monthly)}."
     end
 
-    def income_schedule_summary(source, entry_type, amount_cents, effective_on)
+    def income_schedule_summary(source, entry_type, amount_cents, effective_on, cadence = "monthly")
       month = effective_on.strftime("%B %Y")
       return "I prepared adding #{money(amount_cents)} of one-time #{source.label} in #{month}." if entry_type == "one_time"
 
-      "I prepared setting #{source.label} to #{money(amount_cents)} per month beginning #{month}."
+      "I prepared setting #{source.label} to #{money(amount_cents)} #{income_cadence_label(cadence)} beginning #{month}."
     end
 
-    def income_schedule_impact(source, entry_type, current_source_cents, amount_cents, effective_on)
-      plan = AnnualBudgetManager.new(household, year: effective_on.year).plan_data.deep_symbolize_keys
+    def income_schedule_impact(source, entry_type, current_source_cents, amount_cents, effective_on, cadence = "monthly")
+      plan = AnnualBudgetManager.new(household, year: effective_on.year).read_only_plan_data.deep_symbolize_keys
+      return unless plan.fetch(:plan_available)
+
       period = Array(plan[:months]).find { |month| Date.iso8601(month.fetch(:starts_on)).month == effective_on.month }
       before_income_cents = period ? Money.cents(plan.fetch(:monthly_income).fetch(period.fetch(:id))) : 0
-      source_delta_cents = entry_type == "one_time" ? amount_cents : amount_cents - current_source_cents
-      outflow_cents = plan.fetch(:rows).sum do |row|
-        Money.cents(row.fetch(:months).fetch(effective_on.month - 1).fetch(:planned))
+      source_delta_cents = entry_type == "one_time" ? amount_cents : Money.period_cents(amount_cents, cadence, month: effective_on.month) - current_source_cents
+      active_rows = plan.fetch(:rows).select { |row| row.fetch(:active) }
+      allocations_known = active_rows.none? { |row| row.fetch(:months).fetch(effective_on.month - 1).fetch(:allocation_missing) }
+      outflow_cents = if plan.fetch(:monthly_debt_minimums_known) && allocations_known
+        active_rows.sum { |row| Money.cents(row.fetch(:months).fetch(effective_on.month - 1).fetch(:planned)) } + Money.cents(plan.fetch(:monthly_debt_minimums))
       end
-      outflow_cents += Money.cents(plan.fetch(:monthly_debt_minimums))
       after_income_cents = before_income_cents + source_delta_cents
       {
         scope: effective_on.strftime("%B %Y"),
         before_monthly_income: Money.dollars(before_income_cents),
         after_monthly_income: Money.dollars(after_income_cents),
-        before_monthly_outflow: Money.dollars(outflow_cents),
-        after_monthly_outflow: Money.dollars(outflow_cents),
-        before_baseline_surplus: Money.dollars(before_income_cents - outflow_cents),
-        after_baseline_surplus: Money.dollars(after_income_cents - outflow_cents)
+        before_monthly_outflow: outflow_cents && Money.dollars(outflow_cents),
+        after_monthly_outflow: outflow_cents && Money.dollars(outflow_cents),
+        before_baseline_surplus: outflow_cents && Money.dollars(before_income_cents - outflow_cents),
+        after_baseline_surplus: outflow_cents && Money.dollars(after_income_cents - outflow_cents)
       }
     end
 

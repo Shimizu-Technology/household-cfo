@@ -1733,7 +1733,7 @@ test('participant workflow remains usable when Plaid is not configured', async (
   await openSection(page, 'Review')
   await expect(page.getByText('Manual activity is ready.')).toBeVisible()
   await expect(page.getByText('Connect an account from My Profile.', { exact: false })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: 'Budget', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'My Money', exact: true })).toBeVisible()
 })
 
 test('configured Plaid clearly supports a participant with no connections', async ({ page }) => {
@@ -2353,7 +2353,7 @@ test('account manager routes Mia account reviews to the exact mobile-safe manual
   await expect(card).toContainText('Emergency Fund')
   await card.getByRole('button', { name: 'Open manual controls' }).click()
 
-  await expect(page).toHaveURL(/#My%20Profile$/)
+  await expect(page).toHaveURL(/#My%20Money$/)
   const manager = page.locator('.account-manager')
   const accountName = manager.getByLabel('Account name')
   await expect(accountName).toHaveValue('Emergency reserve')
@@ -2715,6 +2715,9 @@ test('profile summary edits focus the matching manual field', async ({ page }) =
   const savingsCard = page.locator('.profile-section').filter({ hasText: 'Savings & Debt' })
   await incomeCard.getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(page.locator('.income-source-form').getByRole('textbox', { name: 'Name' })).toBeFocused()
+  await expect(page).toHaveURL(/#My%20Money$/)
+  await openSection(page, 'My Profile')
+  await openDetails(page, 'Saved household summary')
   await expensesCard.getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Editing household numbers' })).toBeVisible()
   await expect(page.getByLabel('Fixed essentials')).toBeFocused()
@@ -3363,8 +3366,8 @@ test('Ask Mia uploads an attachment with its question and renders the grounded r
 
 test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Money in, money out, and what is left.' })).toBeVisible()
+  await openSection(page, 'Budget')
+  await expect(page.getByRole('heading', { name: 'Your annual plan' })).toBeVisible()
   const outflowBreakdown = page.getByRole('group', { name: 'Monthly money out breakdown' })
   await expect(outflowBreakdown).toContainText('Category plan')
   await expect(outflowBreakdown).toContainText('$5,300.00')
@@ -3697,7 +3700,7 @@ test('continuing job income is never assumed and requires explicit participant a
 
   await page.clock.setFixedTime(new Date(Date.UTC(currentYear, 8, 30, 15, 30)))
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await page.getByRole('button', { name: 'Manage manually' }).click()
   await page.getByRole('button', { name: 'Schedule income' }).click()
   const sourceSelect = page.locator('.income-schedule-form label').filter({ hasText: 'Income source' }).locator('select')
@@ -3724,7 +3727,7 @@ test('continuing job income is never assumed and requires explicit participant a
 
 test('Budget keeps headline, cockpit, and chart on the selected report month', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
 
   const reportMonth = page.getByLabel('Report month')
   const headline = page.locator('.budget-period-summary')
@@ -3753,7 +3756,7 @@ test('Budget keeps headline, cockpit, and chart on the selected report month', a
 
 test('focused manual budget tools expose exact controls without a page hunt and protect dirty edits', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await page.getByRole('button', { name: 'Manage manually' }).click()
 
   const manager = page.locator('.budget-manual-manager')
@@ -3779,7 +3782,7 @@ test('focused manual budget tools expose exact controls without a page hunt and 
   await page.getByRole('link', { name: 'Home', exact: true }).click()
   await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')
   await expect(januaryDining).toHaveValue('650')
-  await expect(page.getByRole('heading', { name: 'Money in, money out, and what is left.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your annual plan' })).toBeVisible()
   await page.goBack()
   await expect(page).toHaveURL(/#Budget$/)
   await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')
@@ -3818,7 +3821,7 @@ test('a partially saved budget keeps the approved change and protects unapplied 
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await page.getByRole('button', { name: 'Manage manually' }).click()
   await page.getByRole('button', { name: 'Edit monthly plan' }).click()
 
@@ -3852,7 +3855,7 @@ test('participant navigation remains available after deep scrolling', async ({ p
   await page.goto('/')
   await page.evaluate(() => document.fonts.ready)
   const homeHeaderHeight = await page.locator('.shell-header').evaluate((element) => element.getBoundingClientRect().height)
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   const budgetHeaderHeight = await page.locator('.shell-header').evaluate((element) => element.getBoundingClientRect().height)
   expect(Math.abs(budgetHeaderHeight - homeHeaderHeight)).toBeLessThanOrEqual(1)
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
@@ -3869,6 +3872,7 @@ test('participant links preserve browser history, heading focus, and section scr
   test.skip(testInfo.project.name.includes('mobile'), 'desktop history and focus assertion')
   await page.goto('/#Home')
 
+  await page.getByRole('button', { name: 'Tools', exact: true }).click()
   const budgetLink = page.getByRole('link', { name: 'Budget', exact: true })
   await expect(budgetLink).toHaveAttribute('href', '#Budget')
   await budgetLink.click()
@@ -3941,7 +3945,7 @@ test('unfinished Plaid returns keep Profile and the URL aligned through reload a
   await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 
@@ -4001,7 +4005,7 @@ test('stale Plaid return queries recover normal participant navigation', async (
   await expect(page).toHaveURL(/\?pilot_e2e_role=participant#My%20Profile$/)
   await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
 
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Budget$/)
   await expect(page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })).toBeFocused()
 
@@ -4100,7 +4104,7 @@ test('desktop Tools stays anchored to its trigger and contains keyboard focus', 
   expect(dialogBox?.y ?? 0).toBeGreaterThanOrEqual((triggerBox?.y ?? 0) + (triggerBox?.height ?? 0) + 6)
   expect((dialogBox?.y ?? 0) + (dialogBox?.height ?? 0)).toBeLessThanOrEqual(page.viewportSize()?.height ?? 720)
 
-  await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeFocused()
+  await expect(page.getByRole('link', { name: 'Budget', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(dialog.getByRole('button', { name: 'Close tools' })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
@@ -6960,7 +6964,7 @@ test('admin can privately review and resolve submitted pilot feedback', async ({
 
 test('real review controls keep transaction and Mia changes behind explicit participant actions', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
 
   const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await expect(transactionCard).toContainText('Actuals stay unchanged until you confirm.')
@@ -7083,9 +7087,9 @@ test('390px action-plan account link opens and focuses the exact account editor'
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
   const item = page.locator('.mia-action-item').filter({ hasText: 'Update Everyday checking' })
-  await item.getByRole('button', { name: 'Open My Profile' }).click()
+  await item.getByRole('button', { name: 'Open My Money' }).click()
 
-  await expect(page).toHaveURL(/#My%20Profile$/)
+  await expect(page).toHaveURL(/#My%20Money$/)
   const accountName = page.locator('.account-manager').getByLabel('Account name')
   await expect(accountName).toHaveValue('Everyday checking')
   await expect(accountName).toBeFocused()
@@ -7112,9 +7116,9 @@ test('320px action-plan goal link opens and focuses the exact goal editor', asyn
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
   const item = page.locator('.mia-action-item').filter({ hasText: 'Update Family trip' })
-  await item.getByRole('button', { name: 'Open My Profile' }).click()
+  await item.getByRole('button', { name: 'Open My Money' }).click()
 
-  await expect(page).toHaveURL(/#My%20Profile$/)
+  await expect(page).toHaveURL(/#My%20Money$/)
   const goalName = page.locator('.goal-manager').getByLabel('Goal name')
   await expect(goalName).toHaveValue('Family trip')
   await expect(goalName).toBeFocused()
@@ -7285,9 +7289,13 @@ test('desktop setup-confirmation manual route prefills the reviewed runway targe
 
   await page.locator('.mia-action-item').filter({ hasText: 'Confirm household name' }).getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Target runway months')).toHaveValue('6')
+  await expect(page.locator('.setup-form input[name="household_name"]')).toBeFocused()
+  await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
   await openSection(page, 'Ask Mia')
   await page.locator('.mia-action-item').filter({ hasText: 'Clear runway target' }).getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Target runway months')).toHaveValue('')
+  await expect(page.getByLabel('Target runway months')).toBeFocused()
+  await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
   await openSection(page, 'Ask Mia')
   await page.locator('.mia-action-item').filter({ hasText: 'Confirm runway target' }).getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Target runway months')).toHaveValue('9')
@@ -7312,7 +7320,7 @@ test('desktop action-plan debt link focuses the exact debt editor', async ({ pag
   })]
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
-  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   await expect(page.locator('.debt-form').getByLabel('Debt name')).toHaveValue('Visa Gold')
   await expect(page.locator('.debt-form').getByLabel('Debt name')).toBeFocused()
   const debtAmounts = page.locator('.debt-form input[placeholder="Unknown"]')
@@ -7331,7 +7339,7 @@ test('320px action-plan income-source link focuses the exact profile control', a
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
-  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   const sourceName = page.locator('.income-source-form').getByLabel('Name', { exact: true })
   await expect(sourceName).toHaveValue('Primary income')
   await expect(sourceName).toBeFocused()
@@ -7371,7 +7379,7 @@ test('mobile Ask Mia 390px action-plan schedule-create link preloads and focuses
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
-  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   const scheduleForm = page.locator('.income-schedule-form')
   await expect(scheduleForm.getByLabel('Income source')).toHaveValue('2')
   await expect(scheduleForm.getByLabel('Starting month')).toHaveValue(`${currentYear}-11`)
@@ -7392,7 +7400,7 @@ test('mobile Ask Mia 390px schedule-update link merges proposed values into the 
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
-  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   const scheduleForm = page.locator('.income-schedule-form')
   await expect(scheduleForm.getByLabel('Income source')).toHaveValue('1')
   await expect(scheduleForm.getByLabel('Starting month')).toHaveValue(`${currentYear}-10`)
@@ -7413,9 +7421,8 @@ test('a missing scheduled-income manual target is cleared after the first routin
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
-  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
-  await expect(page.locator('.budget-manual-manager')).toBeVisible()
-  await page.getByRole('button', { name: 'Close manual tools' }).click()
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
+  await expect(page.locator('.income-schedule-form')).toBeVisible()
   await openSection(page, 'Home')
   await openSection(page, 'Budget')
 
@@ -7570,7 +7577,7 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   const card = page.locator('.transaction-draft-card').filter({ hasText: "Tita's Demo Market" })
   await expect(card.getByText('3 splits need a category')).toBeVisible()
   await expect(card.getByText('Cleaning products')).toBeVisible()
@@ -7758,7 +7765,7 @@ test('a late spending report cannot overwrite the refresh triggered by a transac
 
   await page.goto('/?pilot_e2e_role=participant')
   await firstRequestStarted
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
 
@@ -7812,7 +7819,7 @@ test('a late Mia response cannot replace the ledger after the participant change
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   await page.getByLabel('Report month').selectOption(String(targetMonthIndex))
   await page.getByText('Monthly activity and transactions', { exact: true }).click()
   await expect(page.getByText('Selected month transaction')).toBeVisible()
@@ -7873,7 +7880,7 @@ test('a same-month Mia response cannot undo a newer transaction refresh', async 
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
-  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await openSection(page, 'Budget')
   const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
   const monthSummary = page.getByRole('region', { name: `${currentShortMonth} ${currentYear} plan position` })
@@ -7986,10 +7993,25 @@ test('Coach Studio first launch requires impact review and stays usable on phone
     }
     return route.fulfill({ status: 200, json: { launch: preview() } })
   })
+  // A first launch requires an existing sealed record; release evidence loads
+  // alongside the independent launch preview in this combined panel.
+  await page.route('http://api.test/api/v1/admin/cohorts/41/releases', route => route.fulfill({ json: {
+    cohort_release_studio: {
+      cohort: { id: 41, name: 'Mrs. Mel launch cohort', status: 'active' },
+      runtime_truth: { changes_participant_runtime: false, message: 'Sealing prepares this record; first launch activates it.' },
+      permissions: { view: true, seal: true, restore: true },
+      candidate: { ready: true, seal_needed: false, expected_latest_release_id: 405, manifest_schema: 'cohort_release_manifest_v2', bundle_digest: 'first-launch-sealed', assignment_id: 91, persona_version_id: 6, experience_version_id: 8, brand_mode: 'published_version', brand_version_id: 9, brand_snapshot_digest: 'brand-v9', registry_digest: 'registry-v3', registry_version: 3, blockers: [], warnings: [], checks: [] },
+      latest_release_match: true, history: { limit: 30, total_count: 1, truncated: false },
+      releases: [{ id: 405, release_number: 1, manifest_schema: 'cohort_release_manifest_v2', event_type: 'release', released_at: `${currentYear}-10-01T00:00:00Z`, actor_user_id: 901, bundle_digest: 'first-launch-sealed', persona_version_id: 6, experience_version_id: 8, brand_mode: 'published_version', brand_version_id: 9, brand_snapshot_digest: 'brand-v9', registry_digest: 'registry-v3', registry_version: 3, source_release_id: null, restore_allowed: false, restore_reason: null }],
+    },
+  } }))
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Release & rollout/ }).click()
+  await expect(page.getByText('Latest sealed record', { exact: true })).toBeVisible()
+  await expect(page.getByText('Checking the exact release evidence…', { exact: true })).toHaveCount(0)
   const card = page.locator('.initial-cohort-launch')
+  await expect(card.getByText('Checking launch readiness…', { exact: true })).toHaveCount(0)
   await card.getByRole('button', { name: 'Review first launch' }).click()
   await expect(card.getByRole('heading', { name: 'Review first cohort launch' })).toBeFocused()
   await expect(card.getByText(/6 current participants will use this release/)).toBeVisible()
@@ -9610,14 +9632,13 @@ async function assertDialogVisibleHeight(dialog: ReturnType<Page['getByRole']>) 
 test('BOG UI route headings stay semantic without decorative outlines and keyboard controls keep focus', async ({ page }) => {
   await page.goto('/#Home')
   for (const section of ['Review', 'Ask Mia', 'Budget', 'Home']) {
-    const link = page.getByRole('link', { name: section, exact: true })
-    await link.click()
+    await openSection(page, section)
     const heading = page.locator('[data-page-heading]').first()
     await expect(heading).toBeFocused()
     await expect(heading).toHaveCSS('outline-style', 'none')
     await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(`${section} screen loaded.`)
   }
-  const budgetLink = page.getByRole('link', { name: 'Budget', exact: true })
+  const budgetLink = page.getByRole('link', { name: 'My Money', exact: true })
   await budgetLink.focus()
   await page.keyboard.press('Tab')
   const focus = await page.evaluate(() => ({ tag: document.activeElement?.tagName, style: getComputedStyle(document.activeElement!).outlineStyle, width: getComputedStyle(document.activeElement!).outlineWidth }))
@@ -9765,4 +9786,588 @@ test('BOG UI source preview keeps a long filename and final help reachable with 
   await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport()
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
+})
+
+
+test('BOG UI My Money groups saved records and opens category editing without mobile overflow', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const topics = page.getByRole('navigation', { name: 'My Money topics' })
+  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.income-source-manager-card').first()).toBeVisible()
+  await expect(page.locator('.income-schedule-form')).toBeVisible()
+  await topics.getByRole('button', { name: 'Spending', exact: true }).click()
+  await expect(page.locator('.money-record-list')).toContainText('Fixed essentials')
+  await page.getByRole('button', { name: 'Add category', exact: true }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(page.getByRole('textbox', { name: 'New category' })).toBeFocused()
+  await openSection(page, 'My Money')
+  await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+  await expect(page.locator('.account-manager')).toBeVisible()
+  await topics.getByRole('button', { name: 'Goals', exact: true }).click()
+  await expect(page.locator('.goal-manager')).toBeVisible()
+  await topics.getByRole('button', { name: 'Statements', exact: true }).click()
+  await page.getByRole('button', { name: 'Open Statements', exact: true }).click()
+  await expect(page).toHaveURL(/#Statements$/)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('BOG UI financial review cards stay available in Mia with their explicit household scope', async ({ page }) => {
+  const regular = realWorkspaceData(true)
+  const workspace = { ...regular, workspace: { ...regular.workspace, experience_mode: 'savings_challenge' } }
+  const scopedDraft = { ...miaCompoundActionPlan, record_scope: 'household_plan', scope_note: 'Household plan — changes here do not approve challenge savings, change the challenge target, or update optional card terms.' }
+  workspace.budget.annual_plan.pending_mia_action_drafts = [scopedDraft]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.locator('.mia-action-scope-note')).toHaveText(scopedDraft.scope_note)
+  await expect(page.locator('.mia-action-draft-card')).toBeVisible()
+  const navigation = page.getByRole('navigation', { name: /participant sections/ })
+  await expect(navigation.getByRole('link', { name: 'My Money', exact: true })).toHaveCount(0)
+  await openSection(page, 'My Money')
+  await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: 'Debt', exact: true }).click()
+  await expect(page.locator('.money-scope-note')).toContainText('changes here do not update it')
+  await expect(page.locator('.debt-manager')).toBeVisible()
+})
+
+
+test('BOG UI My Money blocks transitions until income source and schedule drafts are saved or canceled', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  let yearRequests = 0
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/budget?**', route => { yearRequests += 1; return route.fulfill({ json: budgetFixtureForYear(currentYear + 1) }) })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const topics = page.getByRole('navigation', { name: 'My Money topics' })
+  const source = page.locator('.income-source-form')
+  await source.getByLabel('Name', { exact: true }).fill('Unsaved side work')
+  await source.getByLabel('Starting amount').fill('500')
+  await topics.getByRole('button', { name: 'Spending', exact: true }).click()
+  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('alert').filter({ hasText: 'You have unsaved income changes. Save or cancel them before switching money topics.' })).toBeVisible()
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await expect(page).toHaveURL(/#My%20Money$/)
+  await page.getByRole('button', { name: 'Next income year' }).click()
+  await expect(page.locator('.money-period-controls')).toContainText(String(currentYear))
+  expect(yearRequests).toBe(0)
+  await source.getByRole('button', { name: 'Cancel', exact: true }).click()
+  const schedule = page.locator('.income-schedule-form')
+  await schedule.getByLabel('Amount', { exact: true }).fill('650')
+  await topics.getByRole('button', { name: 'Goals', exact: true }).click()
+  await expect(schedule.getByLabel('Amount', { exact: true })).toHaveValue('650')
+  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await schedule.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await topics.getByRole('button', { name: 'Spending', exact: true }).click()
+  await expect(topics.getByRole('button', { name: 'Spending', exact: true })).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('BOG UI source saves preserve sibling schedule input and invalidate a previously cached future year', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  let future = budgetFixtureForYear(currentYear + 1)
+  let yearRequests = 0
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/budget?**', route => { yearRequests += 1; return route.fulfill({ json: future }) })
+  await page.route('http://api.test/api/v1/income_sources?**', async route => {
+    const input = route.request().postDataJSON().income_source
+    const added = { id: 2, label: input.label, source_type: input.source_type, base_amount: Number(input.amount), base_cadence: input.cadence, starts_on: input.starts_on, ends_on: null, active: true, schedule_entries: [] }
+    workspace.budget.annual_plan.income_sources.push(added)
+    workspace.workspace.income_sources.push(added)
+    future = structuredClone(future)
+    future.annual_plan.income_sources.push(added)
+    return route.fulfill({ status: 201, json: { income_source: added, budget: workspace.budget } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await page.getByRole('button', { name: 'Next income year' }).click()
+  await expect(page.locator('.money-period-controls')).toContainText(String(currentYear + 1))
+  expect(yearRequests).toBe(1)
+  await page.getByRole('button', { name: 'Previous income year' }).click()
+  await expect(page.locator('.money-period-controls')).toContainText(String(currentYear))
+  const schedule = page.locator('.income-schedule-form')
+  await schedule.getByLabel('Amount', { exact: true }).fill('650')
+  const source = page.locator('.income-source-form')
+  await source.getByLabel('Name', { exact: true }).fill('Sibling side work')
+  const startingAmount = source.getByLabel('Starting amount')
+  await startingAmount.fill('500')
+  // Finish number-field editing before a touch tap can race WebKit's focus scroll.
+  await startingAmount.blur()
+  await expect(startingAmount).not.toBeFocused()
+  const savedSource = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/income_sources')
+  await source.getByRole('button', { name: 'Add source' }).click()
+  expect((await savedSource).postDataJSON().income_source).toMatchObject({ label: 'Sibling side work', amount: '500' })
+  await expect(source.getByLabel('Name', { exact: true })).toHaveValue('')
+  await expect(schedule.getByLabel('Amount', { exact: true })).toHaveValue('650')
+  await schedule.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('button', { name: 'Next income year' }).click()
+  await expect(page.locator('.money-period-controls')).toContainText(String(currentYear + 1))
+  expect(yearRequests).toBe(2)
+  await expect(page.locator('.income-source-manager-list')).toContainText('Sibling side work')
+})
+
+
+test('BOG UI My Money preserves account goal and debt drafts until save or cancel', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const topics = page.getByRole('navigation', { name: 'My Money topics' })
+  for (const scenario of [
+    { topic: 'Accounts', add: 'Add an account', form: '.account-form', field: 'Account name', value: 'Unsaved checking' },
+    { topic: 'Goals', add: 'Add a goal', form: '.goal-form', field: 'Goal name', value: 'Unsaved travel' },
+    { topic: 'Debt', add: 'Add a debt', form: '.debt-form', field: 'Debt name', value: 'Unsaved credit card' },
+  ]) {
+    await topics.getByRole('button', { name: scenario.topic, exact: true }).click()
+    await page.getByRole('button', { name: scenario.add, exact: true }).click()
+    const form = page.locator(scenario.form)
+    await form.getByLabel(scenario.field).fill(scenario.value)
+    await topics.getByRole('button', { name: 'Income', exact: true }).click()
+    await expect(topics.getByRole('button', { name: scenario.topic, exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(form.getByLabel(scenario.field)).toHaveValue(scenario.value)
+    await page.getByRole('link', { name: 'Home', exact: true }).click()
+    await expect(page).toHaveURL(/#My%20Money$/)
+    await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await topics.getByRole('button', { name: 'Income', exact: true }).click()
+    await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  }
+  await topics.getByRole('button', { name: 'Debt', exact: true }).click()
+  await page.getByRole('radio', { name: /One household summary/ }).check()
+  await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+  await expect(topics.getByRole('button', { name: 'Debt', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Cancel tracking changes', exact: true }).click()
+  await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+  await expect(topics.getByRole('button', { name: 'Accounts', exact: true })).toHaveAttribute('aria-pressed', 'true')
+})
+
+
+test('BOG UI debt summary decimal formats stay clean and decimal saves release navigation', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.debt_portfolio = { mode: 'summary', total_balance: 150, monthly_minimum: 25.5, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 }
+  let finishSave!: () => void
+  const pendingSave = new Promise<void>(resolve => { finishSave = resolve })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/debts/tracking', async route => {
+    const values = route.request().postDataJSON().debt_tracking
+    await pendingSave
+    workspace.workspace.debt_portfolio = { ...workspace.workspace.debt_portfolio, total_balance: values.summary_balance, monthly_minimum: values.summary_minimum_payment }
+    return route.fulfill({ json: { debt_portfolio: workspace.workspace.debt_portfolio } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const topics = page.getByRole('navigation', { name: 'My Money topics' })
+  await topics.getByRole('button', { name: 'Debt', exact: true }).click()
+  const balance = page.getByLabel('Total debt balance')
+  const minimum = page.getByLabel('Total monthly minimums')
+  await balance.fill('150.00')
+  await minimum.fill('25.50')
+  await expect(page.getByRole('button', { name: 'Save tracking choice' })).toBeDisabled()
+  await topics.getByRole('button', { name: 'Income', exact: true }).click()
+  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await topics.getByRole('button', { name: 'Debt', exact: true }).click()
+  await balance.fill('175.25')
+  await minimum.fill('26.50')
+  await page.getByRole('button', { name: 'Save tracking choice' }).click()
+  await expect(balance).toBeDisabled()
+  await expect(minimum).toBeDisabled()
+  finishSave()
+  await expect(page.getByRole('button', { name: 'Save tracking choice' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Cancel tracking changes' })).toHaveCount(0)
+  await topics.getByRole('button', { name: 'Income', exact: true }).click()
+  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+})
+
+for (const currentRefreshWorks of [false, true]) {
+  test(`BOG UI committed account change retains global refresh warning and invalidates future cache (current refresh ${currentRefreshWorks ? 'succeeds' : 'fails'})`, async ({ page }) => {
+    const workspace = realWorkspaceData(true)
+    workspace.workspace.accounts = [{ id: 1, label: 'Checking', account_type: 'checking', balance: 100, balance_as_of_on: null, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {}, plaid_link: null }]
+    let committed = false
+    let yearRequests = 0
+    await page.route('http://api.test/api/v1/workspace', route => committed && !currentRefreshWorks ? route.fulfill({ status: 503, json: { errors: ['Fictional reload outage'] } }) : route.fulfill({ json: workspace }))
+    await page.route('http://api.test/api/v1/budget?**', route => {
+      yearRequests += 1
+      return committed ? route.fulfill({ status: 503, json: { errors: ['Fictional future-year outage'] } }) : route.fulfill({ json: budgetFixtureForYear(currentYear + 1) })
+    })
+    await page.route('http://api.test/api/v1/accounts/1', route => {
+      committed = true
+      workspace.workspace.accounts[0].balance = Number(route.request().postDataJSON().account.balance)
+      return route.fulfill({ json: { account: workspace.workspace.accounts[0] } })
+    })
+    await page.goto('/?pilot_e2e_role=participant#My%20Money')
+    await page.getByRole('button', { name: 'Next income year' }).click()
+    await expect(page.locator('.money-period-controls')).toContainText(String(currentYear + 1))
+    const topics = page.getByRole('navigation', { name: 'My Money topics' })
+    await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+    await page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.locator('.account-form').getByLabel('Approved balance').fill('200')
+    await page.getByRole('button', { name: 'Save account' }).click()
+    const warning = page.getByRole('alert').filter({ hasText: currentRefreshWorks ? 'current household workspace refreshed' : 'Previous totals are stale' })
+    await expect(warning).toBeVisible()
+    expect(yearRequests).toBe(2)
+    if (currentRefreshWorks) await expect(page.locator('.account-row')).toContainText('$200.00')
+    await page.getByRole('link', { name: 'Home', exact: true }).click()
+    await expect(warning).toBeVisible()
+    await openSection(page, 'My Money')
+    await topics.getByRole('button', { name: 'Income', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Reload selected year' })).toBeVisible()
+    await page.getByRole('button', { name: 'Reload selected year' }).click()
+    await expect.poll(() => yearRequests).toBe(3)
+    await expect(warning).toBeVisible()
+  })
+}
+
+test('BOG UI income refresh failure stays visible after leaving the income editor', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  let committed = false
+  await page.route('http://api.test/api/v1/workspace', route => committed ? route.fulfill({ status: 503, json: { errors: ['Fictional reload outage'] } }) : route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/income_sources?**', route => {
+    committed = true
+    return route.fulfill({ status: 201, json: { income_source: {}, budget: workspace.budget } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await page.locator('.income-source-form').getByLabel('Name', { exact: true }).fill('Saved source during outage')
+  await page.locator('.income-source-form').getByLabel('Starting amount').fill('500')
+  await page.getByRole('button', { name: 'Add source', exact: true }).click()
+  const warning = page.getByRole('alert').filter({ hasText: 'income change was saved' }).first()
+  await expect(warning).toBeVisible()
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'income change was saved' })).toBeVisible()
+})
+
+
+for (const refreshFails of [false, true]) {
+  test(`BOG UI delayed precommit import hydration cannot overwrite a financial commit (refresh ${refreshFails ? 'fails' : 'succeeds'})`, async ({ page }) => {
+    const initial = realWorkspaceData(true)
+    initial.workspace.accounts = [{ id: 1, label: 'Checking', account_type: 'checking', balance: 100, balance_as_of_on: null, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {}, plaid_link: null }]
+    const canonical = structuredClone(initial)
+    canonical.workspace.accounts[0].balance = 200
+    const latePayload = JSON.stringify(initial)
+    let workspaceRequests = 0
+    let committed = false
+    let releaseBackground!: () => void
+    let backgroundStarted!: () => void
+    const started = new Promise<void>(resolve => { backgroundStarted = resolve })
+    const pendingBackground = new Promise<void>(resolve => { releaseBackground = resolve })
+    const budgetRequests: number[] = []
+    await page.route('http://api.test/api/v1/workspace', async route => {
+      workspaceRequests += 1
+      if (workspaceRequests === 2) {
+        backgroundStarted()
+        await pendingBackground
+        return route.fulfill({ contentType: 'application/json', body: latePayload })
+      }
+      return committed && refreshFails ? route.fulfill({ status: 503, json: { errors: ['Fictional canonical refresh outage'] } }) : route.fulfill({ json: committed ? canonical : initial })
+    })
+    await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: [{
+      id: 999, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'synthetic-background.pdf', content_type: 'application/pdf', byte_size: 100,
+      document_date: null, period_start_on: null, period_end_on: null, extracted_summary: null, extraction_error: null, processed_at: null, applied_at: null,
+      source_deleted_at: null, updated_at: `${currentYear}-10-01T00:00:00Z`, source_available: false, details_included: false, uploaded_by: null, applied_by: null, source_deleted_by: null,
+      metadata: {}, items: [], attempts: [], transaction_drafts: [{ id: 999, occurred_on: `${currentYear}-10-01`, merchant: 'Synthetic pending row', amount: 20, status: 'pending', category_id: null, category_name: null }],
+    }] } }))
+    await page.route('http://api.test/api/v1/budget?**', route => {
+      const year = Number(new URL(route.request().url()).searchParams.get('year'))
+      budgetRequests.push(year)
+      return committed && refreshFails ? route.fulfill({ status: 503, json: { errors: ['Fictional budget outage'] } }) : route.fulfill({ json: budgetFixtureForYear(year) })
+    })
+    await page.route('http://api.test/api/v1/accounts/1', route => { committed = true; return route.fulfill({ json: { account: canonical.workspace.accounts[0] } }) })
+    await page.goto('/?pilot_e2e_role=participant#My%20Money')
+    await started
+    await page.getByRole('button', { name: 'Next income year' }).click()
+    await expect(page.locator('.money-period-controls')).toContainText(String(currentYear + 1))
+    const topics = page.getByRole('navigation', { name: 'My Money topics' })
+    await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+    await page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.locator('.account-form').getByLabel('Approved balance').fill('200')
+    await page.getByRole('button', { name: 'Save account' }).click()
+    if (refreshFails) await expect(page.getByRole('alert').filter({ hasText: 'Previous totals are stale' })).toBeVisible()
+    else await expect(page.locator('.account-row')).toContainText('$200.00')
+    const finishedBackground = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+    releaseBackground()
+    await finishedBackground
+    if (refreshFails) {
+      await topics.getByRole('button', { name: 'Income', exact: true }).click()
+      await page.getByRole('button', { name: 'Use current year', exact: true }).click()
+      await expect.poll(() => budgetRequests.filter(year => year === currentYear).length).toBe(1)
+      await expect(page.getByRole('alert').filter({ hasText: 'Previous totals are stale' })).toBeVisible()
+    } else {
+      await topics.getByRole('button', { name: 'Debt', exact: true }).click()
+      await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+      await expect(page.locator('.account-row')).toContainText('$200.00')
+      await expect(page.locator('.account-row')).not.toContainText('$100.00')
+    }
+  })
+}
+
+
+for (const variant of ['activity', 'connections'] as const) {
+  test(`BOG UI delayed Plaid ${variant} reload cannot restore a precommit Mia budget`, async ({ page }) => {
+    const initial = realWorkspaceData(true)
+    const canonical = structuredClone(initial)
+    canonical.budget.annual_plan.pending_mia_action_drafts = []
+    canonical.budget.annual_plan.rows[3].months[7].planned = 400
+    let workspaceRequests = 0
+    let completedSync = false
+    let releasePlaidReload!: () => void
+    let plaidReloadStarted!: () => void
+    const started = new Promise<void>(resolve => { plaidReloadStarted = resolve })
+    const pendingReload = new Promise<void>(resolve => { releasePlaidReload = resolve })
+    const item = {
+      id: 17, institution_name: 'Synthetic Bank', status: 'active', environment: 'sandbox', consented_at: `${currentYear}-10-01T00:00:00Z`, last_synced_at: `${currentYear}-10-01T00:00:00Z`,
+      health: { state: 'healthy', label: 'Feed current', message: 'Synthetic feed ready', requires_attention: false, last_successful_update_at: `${currentYear}-10-01T00:00:00Z`, stale_after: `${currentYear}-10-03T00:00:00Z` },
+      error_message: null, disconnected_at: null, auto_confirm_trusted_merchants: false, accounts: [],
+    }
+    const overview = () => ({ configured: true, environment: 'sandbox', consent_policy_version: 'test', items: [{ ...item, last_synced_at: completedSync ? `${currentYear}-10-02T00:00:00Z` : item.last_synced_at }] })
+    await page.route('http://api.test/api/v1/workspace', async route => {
+      workspaceRequests += 1
+      if (workspaceRequests > 1) {
+        plaidReloadStarted()
+        await pendingReload
+      }
+      return route.fulfill({ json: initial })
+    })
+    await page.route('http://api.test/api/v1/plaid/items', route => route.fulfill({ json: overview() }))
+    await page.route('http://api.test/api/v1/plaid/transactions**', route => route.fulfill({ json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary } }))
+    await page.route('http://api.test/api/v1/plaid/items/17/sync', route => {
+      const response = overview()
+      completedSync = true
+      return route.fulfill({ json: response })
+    })
+    await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', route => route.fulfill({ json: { workspace: canonical } }))
+    await page.goto('/?pilot_e2e_role=participant')
+    if (variant === 'connections') { await openSection(page, 'My Profile'); await openDetails(page, 'Optional bank connections') }
+    else await openSection(page, 'Review')
+    await page.getByRole('button', { name: variant === 'connections' ? 'Sync now' : 'Sync Synthetic Bank', exact: true }).click()
+    await started
+    await openSection(page, 'Ask Mia')
+    await page.getByRole('button', { name: 'Apply reviewed change', exact: true }).click()
+    await expect(page.locator('.mia-action-draft-card')).toHaveCount(0)
+    const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+    releasePlaidReload()
+    await completedReload
+    await openSection(page, 'Home')
+    await openSection(page, 'Ask Mia')
+    await expect(page.locator('.mia-action-draft-card')).toHaveCount(0)
+  })
+}
+
+
+test('BOG UI Plaid reload preserves a Profile edit begun while its response waits', async ({ page }) => {
+    const initial = realWorkspaceData(true)
+    const canonical = structuredClone(initial)
+    let workspaceRequests = 0
+    let completedSync = false
+    let releasePlaidReload!: () => void
+    let plaidReloadStarted!: () => void
+    const started = new Promise<void>(resolve => { plaidReloadStarted = resolve })
+    const pendingReload = new Promise<void>(resolve => { releasePlaidReload = resolve })
+    const item = {
+      id: 17, institution_name: 'Synthetic Bank', status: 'active', environment: 'sandbox', consented_at: `${currentYear}-10-01T00:00:00Z`, last_synced_at: `${currentYear}-10-01T00:00:00Z`,
+      health: { state: 'healthy', label: 'Feed current', message: 'Synthetic feed ready', requires_attention: false, last_successful_update_at: `${currentYear}-10-01T00:00:00Z`, stale_after: `${currentYear}-10-03T00:00:00Z` },
+      error_message: null, disconnected_at: null, auto_confirm_trusted_merchants: false, accounts: [],
+    }
+    const overview = () => ({ configured: true, environment: 'sandbox', consent_policy_version: 'test', items: [{ ...item, last_synced_at: completedSync ? `${currentYear}-10-02T00:00:00Z` : item.last_synced_at }] })
+    await page.route('http://api.test/api/v1/workspace', async route => {
+      workspaceRequests += 1
+      if (workspaceRequests > 1) {
+        plaidReloadStarted()
+        await pendingReload
+      }
+      return route.fulfill({ json: initial })
+    })
+    await page.route('http://api.test/api/v1/plaid/items', route => route.fulfill({ json: overview() }))
+    await page.route('http://api.test/api/v1/plaid/transactions**', route => route.fulfill({ json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary } }))
+    await page.route('http://api.test/api/v1/plaid/items/17/sync', route => {
+      const response = overview()
+      completedSync = true
+      return route.fulfill({ json: response })
+    })
+    await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', route => route.fulfill({ json: { workspace: canonical } }))
+    await page.goto('/?pilot_e2e_role=participant')
+    await openSection(page, 'My Profile')
+    await openDetails(page, 'Optional bank connections')
+    await page.getByRole('button', { name: 'Sync now', exact: true }).click()
+    await started
+    await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+    const householdName = page.locator('.setup-form input[name="household_name"]')
+    await householdName.fill('Keep my unsaved household name')
+    const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+    releasePlaidReload()
+    await completedReload
+    await expect(page.getByText('Sync complete. Posted expenses are ready for household review, and Mia can read the updated bank activity now.')).toBeVisible()
+    await expect(householdName).toHaveValue('Keep my unsaved household name')
+})
+
+
+for (const variant of ['activity', 'connections'] as const) {
+  for (const mode of ['current', 'superseded', 'recovery'] as const) {
+  test(`BOG UI failed Plaid ${variant} reload ${mode === 'superseded' ? 'ignores an obsolete failure' : mode === 'recovery' ? 'clears the warning after retry succeeds' : 'keeps the refresh warning across pages'}`, async ({ page }) => {
+    const initial = realWorkspaceData(true)
+    const canonical = structuredClone(initial)
+    canonical.budget.annual_plan.pending_mia_action_drafts = []
+    canonical.budget.annual_plan.rows[3].months[7].planned = 400
+    let workspaceRequests = 0
+    let completedSync = false
+    let releasePlaidReload!: () => void
+    let plaidReloadStarted!: () => void
+    const started = new Promise<void>(resolve => { plaidReloadStarted = resolve })
+    const pendingReload = new Promise<void>(resolve => { releasePlaidReload = resolve })
+    const item = {
+      id: 17, institution_name: 'Synthetic Bank', status: 'active', environment: 'sandbox', consented_at: `${currentYear}-10-01T00:00:00Z`, last_synced_at: `${currentYear}-10-01T00:00:00Z`,
+      health: { state: 'healthy', label: 'Feed current', message: 'Synthetic feed ready', requires_attention: false, last_successful_update_at: `${currentYear}-10-01T00:00:00Z`, stale_after: `${currentYear}-10-03T00:00:00Z` },
+      error_message: null, disconnected_at: null, auto_confirm_trusted_merchants: false, accounts: [],
+    }
+    const overview = () => ({ configured: true, environment: 'sandbox', consent_policy_version: 'test', items: [{ ...item, last_synced_at: completedSync ? `${currentYear}-10-02T00:00:00Z` : item.last_synced_at }] })
+    await page.route('http://api.test/api/v1/workspace', async route => {
+      workspaceRequests += 1
+      if (workspaceRequests > 1) {
+        plaidReloadStarted()
+        await pendingReload
+      }
+      return route.fulfill(workspaceRequests > 1 && !(mode === 'recovery' && workspaceRequests > 2) ? { status: 503, json: { error: 'Synthetic workspace refresh failure.' } } : { json: initial })
+    })
+    await page.route('http://api.test/api/v1/plaid/items', route => route.fulfill({ json: overview() }))
+    await page.route('http://api.test/api/v1/plaid/transactions**', route => route.fulfill({ json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary } }))
+    await page.route('http://api.test/api/v1/plaid/items/17/sync', route => {
+      const response = overview()
+      completedSync = true
+      return route.fulfill({ json: response })
+    })
+    await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', route => route.fulfill({ json: { workspace: canonical } }))
+    await page.goto('/?pilot_e2e_role=participant')
+    if (variant === 'connections') { await openSection(page, 'My Profile'); await openDetails(page, 'Optional bank connections') }
+    else await openSection(page, 'Review')
+    await page.getByRole('button', { name: variant === 'connections' ? 'Sync now' : 'Sync Synthetic Bank', exact: true }).click()
+    await started
+    if (mode === 'superseded') {
+      await openSection(page, 'Ask Mia')
+      await page.getByRole('button', { name: 'Apply reviewed change', exact: true }).click()
+      await expect(page.locator('.mia-action-draft-card')).toHaveCount(0)
+    }
+    const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 503)
+    releasePlaidReload()
+    await completedReload
+    const warning = page.getByRole('alert').filter({ hasText: 'Bank activity updated, but the household workspace could not refresh.' })
+    if (mode !== 'superseded') await expect(warning).toBeVisible()
+    if (mode === 'recovery') {
+      await expect(page.getByText('Sync complete. Posted expenses are ready for household review, and Mia can read the updated bank activity now.')).toBeVisible()
+      await expect(warning).toHaveCount(0)
+    }
+    await openSection(page, 'Home')
+    await openSection(page, 'Ask Mia')
+    if (mode === 'superseded') {
+      await expect(warning).toHaveCount(0)
+      await expect(page.locator('.mia-action-draft-card')).toHaveCount(0)
+    } else {
+      if (mode === 'current') await expect(warning).toBeVisible()
+      else await expect(warning).toHaveCount(0)
+      await expect(page.locator('.mia-action-draft-card')).toHaveCount(1)
+    }
+  })
+  }
+}
+
+test('BOG UI account-save reload preserves a Profile edit begun while its response waits', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.accounts = [{ id: 1, label: 'Checking', account_type: 'checking', balance: 100, balance_as_of_on: null, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {}, plaid_link: null }]
+  let committed = false
+  let releaseReload!: () => void
+  let reloadStarted!: () => void
+  const started = new Promise<void>(resolve => { reloadStarted = resolve })
+  const pendingReload = new Promise<void>(resolve => { releaseReload = resolve })
+  await page.route('http://api.test/api/v1/workspace', async route => {
+    if (committed) { reloadStarted(); await pendingReload }
+    return route.fulfill({ json: workspace })
+  })
+  await page.route('http://api.test/api/v1/accounts/1', route => {
+    committed = true
+    workspace.workspace.accounts[0].balance = Number(route.request().postDataJSON().account.balance)
+    return route.fulfill({ json: { account: workspace.workspace.accounts[0] } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await openDetails(page, 'Accounts and assets')
+  await page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true }).click()
+  await page.locator('.account-form').getByLabel('Approved balance').fill('200')
+  await page.getByRole('button', { name: 'Save account', exact: true }).click()
+  await started
+  await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+  const householdName = page.locator('.setup-form input[name="household_name"]')
+  await householdName.fill('Keep my profile edit after the saved account refresh')
+  const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+  releaseReload()
+  await completedReload
+  await expect(page.locator('.account-row')).toContainText('$200.00')
+  await expect(page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true })).toBeEnabled()
+  await expect(householdName).toHaveValue('Keep my profile edit after the saved account refresh')
+  await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.locator('.setup-form input[name="household_name"]')).toHaveValue('Test Participant Household')
+})
+
+test('BOG UI income-save reload preserves a new Profile edit while refreshing calculated income', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  let committed = false
+  let releaseReload!: () => void
+  let reloadStarted!: () => void
+  const started = new Promise<void>(resolve => { reloadStarted = resolve })
+  const pendingReload = new Promise<void>(resolve => { releaseReload = resolve })
+  await page.route('http://api.test/api/v1/workspace', async route => {
+    if (committed) { reloadStarted(); await pendingReload }
+    return route.fulfill({ json: workspace })
+  })
+  await page.route('http://api.test/api/v1/income_sources**', route => {
+    const values = route.request().postDataJSON().income_source
+    committed = true
+    const source = { id: 90, label: values.label, source_type: values.source_type, base_amount: Number(values.amount), base_cadence: values.cadence, starts_on: values.starts_on, ends_on: null, active: true, schedule_entries: [] }
+    workspace.workspace.income_sources = [...workspace.workspace.income_sources, source]
+    workspace.budget.annual_plan.income_sources = [...workspace.budget.annual_plan.income_sources, source]
+    workspace.workspace.setup_values.business_income = 200
+    return route.fulfill({ json: { income_source: source, budget: workspace.budget } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await openDetails(page, 'Income sources and schedule')
+  await page.locator('.income-source-form').getByLabel('Name', { exact: true }).fill('Synthetic extra work')
+  await page.locator('.income-source-form label').filter({ hasText: 'Type' }).locator('select').selectOption('business')
+  await page.getByRole('spinbutton', { name: 'Starting amount', exact: true }).fill('200')
+  await page.getByRole('button', { name: 'Add source', exact: true }).click()
+  await started
+  await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+  const householdName = page.locator('.setup-form input[name="household_name"]')
+  await householdName.fill('Keep my new Profile name after income reload')
+  const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+  releaseReload()
+  await completedReload
+  await expect(page.getByRole('button', { name: 'Add source', exact: true })).toBeEnabled()
+  await expect(householdName).toHaveValue('Keep my new Profile name after income reload')
+  await page.getByText('Add details for a stronger CFO read', { exact: true }).click()
+  await expect(page.getByRole('spinbutton', { name: 'Business income total (calculated)' })).toHaveValue('200')
+  await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(householdName).toHaveValue('Test Participant Household')
+})
+
+test('BOG UI background import hydration preserves a Profile edit begun while its response waits', async ({ page }) => {
+  const initial = realWorkspaceData(true)
+  const refreshed = structuredClone(initial)
+  refreshed.profile.household.name = 'Synthetic refreshed household'
+  refreshed.workspace.setup_values.household_name = 'Synthetic refreshed household'
+  let workspaceRequests = 0
+  let releaseBackground!: () => void
+  let backgroundStarted!: () => void
+  const started = new Promise<void>(resolve => { backgroundStarted = resolve })
+  const pendingBackground = new Promise<void>(resolve => { releaseBackground = resolve })
+  await page.route('http://api.test/api/v1/workspace', async route => {
+    workspaceRequests += 1
+    if (workspaceRequests === 2) { backgroundStarted(); await pendingBackground }
+    return route.fulfill({ json: workspaceRequests > 1 ? refreshed : initial })
+  })
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: [{
+    id: 999, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'synthetic-background.pdf', content_type: 'application/pdf', byte_size: 100,
+    document_date: null, period_start_on: null, period_end_on: null, extracted_summary: null, extraction_error: null, processed_at: null, applied_at: null,
+    source_deleted_at: null, updated_at: `${currentYear}-10-01T00:00:00Z`, source_available: false, details_included: false, uploaded_by: null, applied_by: null, source_deleted_by: null,
+    metadata: {}, items: [], attempts: [], transaction_drafts: [{ id: 999, occurred_on: `${currentYear}-10-01`, merchant: 'Synthetic pending row', amount: 20, status: 'pending', category_id: null, category_name: null }],
+  }] } }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await started
+  await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+  const householdName = page.locator('.setup-form input[name="household_name"]')
+  await householdName.fill('Keep my new Profile name during document hydration')
+  const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
+  releaseBackground()
+  await completedReload
+  await expect(page.getByRole('heading', { name: 'Synthetic refreshed household', exact: true })).toBeVisible()
+  await expect(householdName).toHaveValue('Keep my new Profile name during document hydration')
+  await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(householdName).toHaveValue('Synthetic refreshed household')
 })

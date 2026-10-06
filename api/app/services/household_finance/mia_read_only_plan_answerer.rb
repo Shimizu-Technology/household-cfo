@@ -109,6 +109,11 @@ module HouseholdFinance
         return "This read-only answer is limited to the approved #{annual_budget_manager.year} plan already open. Open #{requested_year} and ask again so I do not create or infer another year's plan. No records or reviews changed."
       end
 
+      normalized = BudgetQuestionAnswerer.normalized(question)
+      if normalized.match?(BudgetQuestionAnswerer::LARGEST_CATEGORY_PATTERN) || normalized.match?(BudgetQuestionAnswerer::SMALLEST_CATEGORY_PATTERN)
+        return BudgetQuestionAnswerer.new(question, annual_plan: prepared_annual_plan, reference_month: reference_month).call
+      end
+
       MiaCoachAnswerer.new(
         household,
         question,
@@ -118,7 +123,7 @@ module HouseholdFinance
         conversation_messages: conversation_messages,
         ensure_plan: false
       ).call.presence ||
-        BudgetQuestionAnswerer.new(question, annual_plan: prepared_annual_plan).call
+        BudgetQuestionAnswerer.new(question, annual_plan: prepared_annual_plan, reference_month: reference_month).call
     end
 
     def answer_spending_report(question)

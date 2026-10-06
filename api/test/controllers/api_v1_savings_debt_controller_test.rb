@@ -138,6 +138,45 @@ class ApiV1SavingsDebtControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "saved household candidates are scoped paginated known values and never infer a terms date" do
+    with_savings_runtime do
+      savings_enroll
+      debt = @savings_household.debts.create!(label: "Fictional current card", debt_type: "credit_card", balance_known: false, minimum_payment_known: true, minimum_payment_cents: 0)
+      @savings_household.debts.create!(label: "Fictional loan", debt_type: "auto_loan")
+      get "#{path}/household_candidates", headers: headers
+      assert_response :success
+      row = response.parsed_body.fetch("records").sole
+      assert_equal debt.id, row["household_debt_id"]
+      assert_nil row.dig("proposed_terms", "balance_cents")
+      assert_equal 0, row.dig("proposed_terms", "minimum_payment_cents")
+      refute row.fetch("proposed_terms").key?("as_of_on")
+      assert_equal @savings_enrollment.id, response.parsed_body["enrollment_id"]
+      get "#{path}/household_candidates", headers: headers(user: @savings_owner)
+      assert_not_equal 200, response.status
+      refute_includes response.body, "Fictional current card"
+    end
+  end
+
+  test "ordinary debt kind correction leaves optional card review readable and flagged as changed" do
+    with_savings_runtime do
+      savings_enroll
+      debt = @savings_household.debts.create!(label: "Corrected fictional debt", debt_type: "credit_card", balance_cents: 30_000)
+      candidate = SavingsChallenge::Debt::HouseholdMapping.new(@savings_household).candidate(debt)
+      draft = savings_run("debt.stage", { terms: debt_terms, expected_version_id: nil, expected_head_lock_version: 0,
+        household_debt_mapping: { household_debt_id: debt.id, fingerprint: candidate[:fingerprint] } }).subject
+      approved = debt_approve(draft)
+      patch "/api/v1/debts/#{debt.id}", params: { debt: { debt_type: "auto_loan" } }, headers: headers, as: :json
+      assert_response :success
+      assert_equal "auto_loan", debt.reload.debt_type
+      get path, headers: headers
+      assert_response :success
+      row = response.parsed_body.fetch("cards").sole
+      assert_equal true, row["household_terms_changed"]
+      assert_equal approved.id, row["version_id"]
+      assert_equal 30_000, row.dig("terms", "balance_cents")
+    end
+  end
+
   private
   def path = "/api/v1/savings_challenge/debt"
   def stage_input = { terms: debt_terms, expected_version_id: nil, expected_head_lock_version: 0 }
