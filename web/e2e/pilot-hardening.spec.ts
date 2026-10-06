@@ -86,6 +86,14 @@ function chatAssistPanel(page: Page) {
   return page.locator('.mia-assist-panel')
 }
 
+async function settleChatLayout(page: Page) {
+  // Branded fonts start loading when the workspace mounts, after the initial
+  // page load. Measure the rendered chat only after fonts and composer layout settle.
+  await expect(page.locator('.mia-chat-shell')).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
+}
+
 async function closeChatAssistPanel(page: Page) {
   await chatAssistPanel(page).getByRole('button', { name: 'Close', exact: true }).click()
   await expect(chatAssistPanel(page)).toHaveCount(0)
@@ -4182,6 +4190,7 @@ test('compact phone layouts keep a stable shell and overlay secondary tools with
   await page.locator('.screen-grid').evaluate(async (screen) => {
     await Promise.all(screen.getAnimations().map((animation) => animation.finished.catch(() => undefined)))
   })
+  await settleChatLayout(page)
   const chatLayout = await page.locator('.mia-chat-shell').evaluate((shell) => {
     const shellBox = shell.getBoundingClientRect()
     const conversationBox = shell.querySelector('.chat-card-wrap')?.getBoundingClientRect()
@@ -4214,6 +4223,7 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   await expect(suggestionsButton).toHaveAttribute('aria-expanded', 'false')
   await expect(suggestedQuestion).toBeHidden()
 
+  await settleChatLayout(page)
   const compactLayout = await page.locator('.mia-chat-shell').evaluate((shell) => {
     const history = shell.querySelector('.chat-card-wrap')?.getBoundingClientRect()
     const shellBox = shell.getBoundingClientRect()
@@ -8420,6 +8430,7 @@ test('BOG UI desktop and tablet help collapse without shrinking history', async 
   await expect(prompts).toHaveAttribute('aria-expanded', 'false')
   const guide = page.getByRole('heading', { name: 'What would you like to do?', exact: true })
   await expect(guide).toBeHidden()
+  await settleChatLayout(page)
   const before = await page.locator('.chat-card-wrap').evaluate((node) => node.getBoundingClientRect().height)
   await prompts.click()
   await expect(guide).toBeVisible()
@@ -9060,6 +9071,7 @@ test('BOG UI compact normal chat shows history and composer on first screen with
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await composer.fill('Keep this draft while I check context.')
   const shell = page.locator('.mia-chat-shell')
+  await settleChatLayout(page)
   const before = await shell.evaluate((node) => {
     const history = node.querySelector('.chat-card-wrap')!.getBoundingClientRect()
     const composer = node.querySelector('textarea')!.getBoundingClientRect()
@@ -9113,10 +9125,7 @@ test('BOG UI program chooser shares the compact chat masthead without overlappin
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await composer.fill('Keep this draft while checking my program.')
   await expect(summary).toHaveAccessibleName(`Program · ${name}`)
-  // The workspace's branded fonts begin loading after the initial page font
-  // wait. Settle that mounted workspace and the filled composer before measuring.
-  await page.evaluate(() => document.fonts.ready)
-  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
+  await settleChatLayout(page)
   const geometry = await summary.evaluate(node => {
     const trigger = node.getBoundingClientRect(), privacy = document.querySelector('.shell-account-menu > summary')!.getBoundingClientRect()
     const history = document.querySelector('.chat-card-wrap')!.getBoundingClientRect()
