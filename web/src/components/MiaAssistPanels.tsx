@@ -10,6 +10,7 @@ type Props = {
   assistantName: string
   modal?: boolean
   contextSummary: string
+  disclaimer?: string
   setupContent?: ReactNode
   pendingCount: number
   processingCount: number
@@ -79,6 +80,7 @@ function PanelContent(props: Props) {
           {props.hasMessages && <div className="mia-assist-conversation-action"><p>Clear this conversation while keeping your saved financial information.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onClearChat)}>Clear chat</button></div>}
           {props.onStartOver && <div className="mia-assist-conversation-action"><p>Replace practice information with your real numbers. Review what starts fresh and what stays first.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onStartOver!)}>Start over with my real numbers</button></div>}
         </section>}
+        {props.disclaimer && <section className="mia-assist-section" aria-label={`About ${props.assistantName}`}><h3>About {props.assistantName}</h3><p>{props.disclaimer}</p></section>}
       </>}
     </div>
   </>

@@ -3358,10 +3358,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 <span className="message-avatar" aria-hidden="true">{assistantInitial(assistantName)}</span>
                 <div className="chat-shell-copy">
                   <h3 id="mia-chat-title" aria-label={`Ask ${assistantName}`}><span className="chat-heading-verb">Ask </span>{assistantName}</h3>
-                  <p className="chat-period-context">{isSavingsExperience ? 'Optional plan context' : 'Plan context'}: {selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
+                  <p className="chat-period-context"><span className="chat-period-prefix">{isSavingsExperience ? 'Optional plan context' : 'Plan context'}: </span>{selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
                 </div>
                 <div className="chat-actions">
-                  {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <button type="button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
+                  {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <button type="button" className="secondary-button chat-today-button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
                   {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <button type="button" className="chat-memory-button" onClick={() => {
                     setIsChatExpanded(false)
                     switchSection('My Profile')
@@ -3559,7 +3559,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 </button>
               </form>
             </section>
-            <MiaAssistPanels panel={assistPanel} onClose={() => setAssistPanel(null)} assistantName={assistantName} modal={isChatExpanded}
+            <MiaAssistPanels panel={assistPanel} onClose={() => setAssistPanel(null)} assistantName={assistantName} modal={isChatExpanded} disclaimer={data.mia.disclaimer}
               contextSummary={isFirstSessionSetup ? 'Your household setup is still incomplete. Share what you know; missing answers stay unknown.' : isSavingsExperience ? 'Your approved challenge records and household plan are separate. A bank movement or upload does not establish new savings.' : `Your saved household plan for ${selectedBudgetMonth?.label ?? 'this month'} ${selectedBudgetYear} is available. Dates and missing values still matter.`}
               setupContent={isFirstSessionSetup ? <FirstSessionSetupProgress status={data.workspace.setup_status} onStartChat={() => { setAssistPanel(null); startChatFirstSession() }} onShareAll={() => { setAssistPanel(null); shareAllFirstSession() }} onManual={() => { setAssistPanel(null); startManualFirstSession() }} /> : undefined}
               pendingCount={pendingImportsCount} processingCount={processingImportsCount}
@@ -3573,7 +3573,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               questionPrompts={(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : data.mia.quick_prompts).map(message => ({ label: message, message }))}
               onChoosePrompt={prepareMiaUpdate} />
           </div>
-          <p className="disclaimer">{data.mia.disclaimer}</p>
+          <p className={`disclaimer${data.mia.disclaimer.length > 120 ? ' has-compact-disclaimer' : ''}`}><span className="mia-disclaimer-full">{data.mia.disclaimer}</span><span className="mia-disclaimer-compact">{assistantName} offers coaching and education. Details in Context &amp; help.</span></p>
         </section>
       )}
 

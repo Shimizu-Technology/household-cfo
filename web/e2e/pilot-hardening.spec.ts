@@ -10383,6 +10383,35 @@ test('BOG UI background import hydration preserves a Profile edit begun while it
 })
 
 
+test('BOG UI compact savings chat preserves room for five files and the complete guidance disclosure', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 })
+  const base = realWorkspaceData(true)
+  const disclaimer = 'Mia is a coaching and education tool inside Household CFO Method powered by VERA. She does not replace legal, tax, investment, accounting, therapeutic, or financial advice.'
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: { ...base, workspace: { ...base.workspace, experience_mode: 'savings_challenge' }, mia: { ...base.mia, disclaimer } } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Review these files.\nHelp me understand my spending.')
+  await page.locator('.ask-row input[type="file"]').setInputFiles(Array.from({ length: 5 }, (_, index) => ({ name: `QA-statement-${index + 1}.pdf`, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nQA') })))
+  await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
+  expect(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(100)
+  await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeInViewport()
+  await expect(page.locator('.mia-disclaimer-compact')).toBeVisible()
+  await expect(page.locator('.mia-disclaimer-full')).toBeHidden()
+  const titleFits = await page.locator('.chat-shell-header').evaluate(node => {
+    const heading = node.querySelector('h3')!.getBoundingClientRect()
+    const actions = node.querySelector('.chat-actions')!.getBoundingClientRect()
+    return heading.right <= actions.left
+  })
+  expect(titleFits).toBe(true)
+  await openChatContext(page)
+  const about = chatAssistPanel(page).getByRole('region', { name: 'About Mia' })
+  await about.scrollIntoViewIfNeeded()
+  await expect(about.getByText(disclaimer, { exact: true })).toBeInViewport()
+  await expect(about).toContainText(disclaimer)
+  await closeChatAssistPanel(page)
+  await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+})
+
 test('BOG UI chat assist panels keep spaced actions readable and preserve a draft across help and prompts', async ({ page }) => {
   const sentMessages: string[] = []
   page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/api/v1/mia/messages')) sentMessages.push(request.postData() ?? '') })
@@ -10412,7 +10441,7 @@ test('BOG UI chat assist panels keep spaced actions readable and preserve a draf
     expect(bounds.fits).toBe(true)
     expect(bounds.height).toBeGreaterThanOrEqual(44)
   }
-  const spacing = await panel.evaluate(node => Array.from(node.querySelectorAll('.mia-assist-section')).map(section => {
+  const spacing = await panel.evaluate(node => Array.from(node.querySelectorAll('.mia-assist-section')).filter(section => section.querySelector('button')).map(section => {
     const buttons = Array.from(section.querySelectorAll('button'))
     const box = section.getBoundingClientRect(), first = buttons[0].getBoundingClientRect(), last = buttons.at(-1)!.getBoundingClientRect()
     return { above: first.top - box.top, below: box.bottom - last.bottom, bordered: parseFloat(getComputedStyle(section).borderBottomWidth) > 0 }

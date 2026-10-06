@@ -10207,6 +10207,20 @@ h3 {
 .is-chat-page .tabs-more-toggle { min-height: 44px; }
 .is-chat-page .composer-attachment-workflow > p { display: none; }
 .is-chat-page .mia-screen > .disclaimer { flex: 0 0 auto; margin: 0; font-size: .65rem; line-height: 1.3; }
+.mia-disclaimer-compact { display: none; }
+@media (max-width: 350px) {
+  .is-chat-page .shell-brand h1 { font-size: 1rem; }
+  .has-compact-disclaimer .mia-disclaimer-full { display: none; }
+  .has-compact-disclaimer .mia-disclaimer-compact { display: inline; }
+}
+@media (max-width: 620px) {
+  .mia-chat-shell:not(.is-expanded) .chat-today-button { display: none; }
+}
+@media (max-width: 350px) {
+  .mia-chat-shell.is-expanded .chat-shell-header { grid-template-columns: minmax(0, 1fr); }
+  .mia-chat-shell.is-expanded .chat-shell-header .chat-actions { grid-column: 1; grid-row: 2; justify-self: end; }
+  .mia-chat-shell.is-expanded .chat-period-context { grid-row: 3; }
+}
 .mia-page-title { min-width: 0; }
 .mia-setup-count { display: block; color: var(--muted); font-size: .65rem; line-height: 1.3; }
 .mia-context-drawer .first-session-setup-progress { margin: 8px 0; border: 1px solid var(--line); border-radius: 12px; }
@@ -10452,4 +10466,7 @@ body:has([role="dialog"][aria-modal="true"], dialog[open]) .app > .mia-launcher 
     line-height: 1.3;
   }
   .is-chat-page .mia-chat-shell:not(.is-expanded) .composer-attachment-tray { grid-row: 1; }
+  .is-chat-page .mia-chat-shell:not(.is-expanded) .chat-shell-copy h3 { align-self: start; padding-top: 2px; }
+  .is-chat-page .mia-chat-shell:not(.is-expanded) .chat-period-context { grid-column: 1; grid-row: 1; align-self: end; margin: 0; font-size: .65rem; line-height: 1.2; white-space: nowrap; }
+  .is-chat-page .mia-chat-shell:not(.is-expanded) .chat-period-prefix { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 }

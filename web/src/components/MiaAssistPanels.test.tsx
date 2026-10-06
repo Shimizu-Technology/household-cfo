@@ -20,6 +20,11 @@ test('context is a named modal on phones, with flattened status and separate res
   fireEvent.click(screen.getByRole('button', { name: 'Start over with my real numbers' }))
   expect(p.onClose).toHaveBeenCalledOnce(); expect(p.onStartOver).toHaveBeenCalledOnce(); expect(p.onClearChat).not.toHaveBeenCalled()
 })
+test('context keeps the complete guidance disclosure available verbatim', () => {
+  const disclaimer = 'Mia is a coaching and education tool. She does not replace legal or financial advice.'
+  render(<MiaAssistPanels {...props()} disclaimer={disclaimer} />)
+  expect(screen.getByRole('region', { name: 'About Mia' }).textContent).toContain(disclaimer)
+})
 test('both prompt groups only prepare the composer after closing the surface', () => {
   const p = props(); const order: string[] = []; p.onClose.mockImplementation(() => { order.push('close') }); p.onChoosePrompt.mockImplementation(() => { order.push('prepare') })
   render(<MiaAssistPanels {...p} panel="prompts" />)
