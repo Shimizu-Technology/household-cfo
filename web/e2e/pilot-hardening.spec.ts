@@ -10879,14 +10879,18 @@ function setupSupportBrowserRecord(status: 'requested' | 'ready' = 'requested') 
   }
 }
 
-async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolean; ready?: boolean; expired?: boolean; staleApply?: boolean; ownerRequired?: boolean; lostCreate?: boolean } = {}) {
+async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolean; ready?: boolean; expired?: boolean; staleApply?: boolean; ownerRequired?: boolean; lostCreate?: boolean; userId?: number; cohortId?: number | null; miaSetupOffer?: boolean } = {}) {
+  const userId = options.userId ?? 901
+  const cohortId = options.cohortId === undefined ? 41 : options.cohortId
+  const householdName = userId === 902 ? 'Coach’s own household' : 'Test Participant Household'
+  const supportRecord = (status: 'requested' | 'ready' = 'requested') => ({ ...setupSupportBrowserRecord(status), user_id: userId, cohort_id: cohortId, program_name: cohortId === null ? null : 'BOG' })
   let generation = 0, previewCalls = 0, applyCalls = 0, reopenCalls = 0
-  let latest: Record<string, unknown> | null = options.ready ? setupSupportBrowserRecord('ready') : null
+  let latest: Record<string, unknown> | null = options.ready ? supportRecord('ready') : null
   if (options.expired && latest) latest = { ...latest, review_state: 'expired', review_expires_at: new Date(Date.now() - 1_000).toISOString() }
   const creates: Array<{ body: Record<string, unknown>; key: string | undefined }> = []
   const restartInputs: Array<{ action: string; body: Record<string, unknown> | null }> = []
   const state = () => ({
-    household_id: 77, cohort_id: 41, financial_generation: generation, available: true,
+    household_id: 77, cohort_id: cohortId, financial_generation: generation, available: true,
     owner_required: Boolean(options.ownerRequired), setup_complete: !options.selfEligible,
     self_restart_available: Boolean(options.selfEligible && !options.ownerRequired),
     blockers: options.selfEligible ? [] : [{ code: 'saved_financial_facts', label: 'Your setup contains saved financial facts.' }], latest_request: latest,
@@ -10895,14 +10899,22 @@ async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolea
     const base = generation > 0 || options.selfEligible ? restartBrowserWorkspace(1) : realWorkspaceData(true)
     return {
       ...base,
-      workspace: { ...base.workspace, financial_generation: generation, experience_mode: 'household_cfo', cohort: realWorkspaceData(true).workspace.cohort, setup_values: { ...base.workspace.setup_values, household_name: 'Test Participant Household' } },
+      workspace: { ...base.workspace, financial_generation: generation, experience_mode: 'household_cfo', cohort: cohortId === null ? null : { ...realWorkspaceData(true).workspace.cohort, id: cohortId }, setup_values: { ...base.workspace.setup_values, household_name: householdName } },
       budget: { ...base.budget, financial_generation: generation },
-      mia: { ...base.mia, messages: generation > 0 ? [] : [{ id: 1601, role: 'assistant', author: 'Mia', content: 'Your earlier setup conversation.', created_at: new Date().toISOString() }], historical_message_count: generation > 0 ? 1 : 0, oldest_message_id: generation > 0 ? null : 1601, older_message_count: 0, has_older_messages: false },
+      mia: { ...base.mia, messages: generation > 0 ? [] : [{ id: 1601, role: 'assistant', author: 'Mia', content: 'Your earlier setup conversation.', ...(options.miaSetupOffer ? { setup_help: { available: true } } : {}), created_at: new Date().toISOString() }], historical_message_count: generation > 0 ? 1 : 0, oldest_message_id: generation > 0 ? null : 1601, older_message_count: 0, has_older_messages: false },
     }
   }
   const generationHeaders = () => ({ 'X-Financial-Generation': String(generation), 'Access-Control-Expose-Headers': 'X-Financial-Generation' })
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ headers: generationHeaders(), json: workspace() }))
-  await page.route('http://api.test/api/v1/mia/messages**', route => route.fulfill({ headers: generationHeaders(), json: workspace().mia }))
+  await page.route('http://api.test/api/v1/mia/messages**', route => {
+    if (route.request().method() === 'POST' && options.miaSetupOffer) return route.fulfill({ json: {
+      setup_help: { available: true }, financial_restart: { available: false, state: 'unavailable' },
+      user_message: { id: 1901, role: 'user', author: 'You', content: route.request().postDataJSON().message, created_at: new Date().toISOString() },
+      assistant_message: { id: 1902, role: 'assistant', author: 'Mia', content: 'Open Fix my setup for your own household.', setup_help: { available: true }, created_at: new Date().toISOString() },
+      budget: null, transaction_draft: null, mia_action_draft: null,
+    } })
+    return route.fulfill({ headers: generationHeaders(), json: workspace().mia })
+  })
   await page.route('http://api.test/api/v1/setup_help**', route => {
     const url = new URL(route.request().url()), method = route.request().method()
     const body = method === 'POST' ? route.request().postDataJSON() : null
@@ -10910,7 +10922,7 @@ async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolea
     if (url.pathname === '/api/v1/setup_help/requests') {
       creates.push({ body, key: route.request().headers()['idempotency-key'] })
       if (options.lostCreate && creates.length === 1) return route.abort('failed')
-      latest = { ...setupSupportBrowserRecord(), reason: body.reason, reason_label: body.reason === 'wrong_setup' ? 'Several setup answers need correcting' : 'I entered practice numbers' }
+      latest = { ...supportRecord(), reason: body.reason, reason_label: body.reason === 'wrong_setup' ? 'Several setup answers need correcting' : 'I entered practice numbers' }
       return route.fulfill({ status: 201, json: { request: latest, setup_help: state() } })
     }
     if (url.pathname.endsWith('/reopen')) {
@@ -10923,12 +10935,12 @@ async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolea
       const action = url.pathname.split('/').at(-1)!
       restartInputs.push({ action, body })
       const review = {
-        id: 1801, status: 'pending', financial_generation: generation, household_name: 'Test Participant Household',
+        id: 1801, status: 'pending', financial_generation: generation, household_name: householdName,
         expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), shared_member_count: 0,
         counts: { income_sources: options.selfEligible ? 0 : 3, debts: 0, transaction_drafts: 0 },
         reset_fields: ['Financial setup'], preserved: ['BOG enrollment, approved savings, evidence and challenge history', 'Earlier private chats'], paused: ['Earlier chat coaching context'], clears_chat: false, clears_memories: false,
       }
-      const restartState = { household_id: 77, household_name: 'Test Participant Household', available: true, financial_generation: generation, owner_required: false, latest_review: null }
+      const restartState = { household_id: 77, household_name: householdName, available: true, financial_generation: generation, owner_required: false, latest_review: null }
       if (action === 'status') return route.fulfill({ json: { financial_restart: restartState } })
       if (options.ready) expect(body.request_id).toBe(1701)
       else expect(body).not.toHaveProperty('request_id')
@@ -10948,7 +10960,7 @@ async function mockSetupHelpBrowser(page: Page, options: { selfEligible?: boolea
     }
     throw new Error(`Unexpected setup help route: ${method} ${url.pathname}`)
   })
-  return { generation: () => generation, previewCalls: () => previewCalls, applyCalls: () => applyCalls, reopenCalls: () => reopenCalls, creates, restartInputs }
+  return { generation: () => generation, previewCalls: () => previewCalls, applyCalls: () => applyCalls, reopenCalls: () => reopenCalls, creates, restartInputs, setupState: state }
 }
 
 async function openFixSetupFromChat(page: Page) {
@@ -11176,3 +11188,119 @@ for (const role of ['coach', 'admin'] as const) {
     expect(restartWrites).toEqual([])
   })
 }
+
+test('BOG UI a selected coach can open own setup help from Context My Money and Mia and confirm an eligible own-household restart', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { selfEligible: true, userId: 902, cohortId: null, miaSetupOffer: true })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Ask%20Mia')
+  let help = await openFixSetupFromChat(page)
+  await expect(help.getByRole('button', { name: 'Review starting setup again', exact: true })).toBeEnabled()
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await openSection(page, 'My Money')
+  await page.locator('.money-setup-help').click()
+  help = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
+  await expect(help).toBeVisible()
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await openSection(page, 'Ask Mia')
+  await page.locator('.chat-card').getByRole('button', { name: 'Fix my setup', exact: true }).click()
+  await expect(help).toBeVisible()
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Help me fix my own household setup.')
+  await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
+  await expect(help).toBeVisible()
+  await help.getByRole('button', { name: 'Review starting setup again', exact: true }).click()
+  const review = page.getByRole('dialog', { name: 'Start setup again', exact: true })
+  await expect(review).toContainText('Coach’s own household')
+  expect(flow.applyCalls()).toBe(0)
+  await acknowledgeSetupRestart(review, 'Start setup again')
+  await review.getByRole('button', { name: 'Start setup again', exact: true }).click()
+  await expect(review).toHaveCount(0)
+  await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
+  expect(flow.setupState()).toMatchObject({ household_id: 77, cohort_id: null, financial_generation: 1 })
+  expect(flow.restartInputs.filter(input => input.action === 'preview')).toEqual([{ action: 'preview', body: {} }])
+  expect(flow.restartInputs.filter(input => input.action === 'apply')).toEqual([{ action: 'apply', body: { review_id: 1801, confirmation: 'START OVER', shared_household_acknowledged: false } }])
+  expect(flow.applyCalls()).toBe(1)
+})
+
+test('BOG UI a selected coach with saved own facts sends an explicitly shared metadata request to platform support', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { userId: 902, cohortId: null })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Ask%20Mia')
+  const help = await openFixSetupFromChat(page)
+  await expect(help).toContainText('platform support when no program is assigned')
+  await expect(help).toContainText('Your setup contains saved financial facts.')
+  const send = help.getByRole('button', { name: 'Request support review', exact: true })
+  await expect(send).toBeDisabled()
+  const consent = help.getByRole('checkbox', { name: /Share this request’s reason and status with support/ })
+  await settleRestartPointerControl(consent)
+  await consent.check()
+  await send.click()
+  await expect(help.getByRole('heading', { name: 'Waiting for support', exact: true })).toBeVisible()
+  expect(flow.creates).toHaveLength(1)
+  expect(flow.creates[0].body).toEqual({ reason: 'practice_numbers', share_metadata: true })
+  expect(flow.setupState().latest_request).toMatchObject({ user_id: 902, household_id: 77, cohort_id: null, program_name: null })
+  expect(flow.generation()).toBe(0)
+  expect(flow.restartInputs).toEqual([])
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByText('Your earlier setup conversation.', { exact: true })).toBeVisible()
+})
+
+test('BOG UI changing a selected coach workspace ignores late own-help state and discards an earlier restart acknowledgement', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { selfEligible: true, userId: 902, cohortId: null })
+  let first = true, reached = false, completed = false
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('http://api.test/api/v1/setup_help', async route => {
+    if (first) {
+      first = false; reached = true
+      await gate
+      await route.fulfill({ json: { setup_help: { ...flow.setupState(), owner_required: true, self_restart_available: false, blockers: [{ code: 'old_scope', label: 'Late prior-workspace setup state must stay hidden.' }] } } })
+      completed = true
+      return
+    }
+    return route.fulfill({ json: { setup_help: flow.setupState() } })
+  })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Ask%20Mia')
+  let help = await openFixSetupFromChat(page)
+  await expect.poll(() => reached).toBe(true)
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await openSection(page, 'Coach Studio')
+  await page.getByLabel('Coach workspace').selectOption('2')
+  await expect(page.getByLabel('Coach workspace')).toHaveValue('2')
+  await openSection(page, 'Ask Mia')
+  help = await openFixSetupFromChat(page)
+  await expect(help.getByRole('button', { name: 'Review starting setup again', exact: true })).toBeEnabled()
+  release()
+  await expect.poll(() => completed).toBe(true)
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await expect(help).not.toContainText('Late prior-workspace setup state must stay hidden.')
+  await expect(help).not.toContainText('The household owner needs to review')
+  await help.getByRole('button', { name: 'Review starting setup again', exact: true }).click()
+  const review = page.getByRole('dialog', { name: 'Start setup again', exact: true })
+  await acknowledgeSetupRestart(review, 'Start setup again')
+  await review.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(review).toHaveCount(0)
+  await openSection(page, 'Coach Studio')
+  await page.getByLabel('Coach workspace').selectOption('1')
+  await expect(page.getByLabel('Coach workspace')).toHaveValue('1')
+  await openSection(page, 'Ask Mia')
+  help = await openFixSetupFromChat(page)
+  await help.getByRole('button', { name: 'Review starting setup again', exact: true }).click()
+  await expect(review.getByRole('checkbox', { name: /I reviewed what starts fresh/ })).not.toBeChecked()
+  await expect(review.getByRole('button', { name: 'Start setup again', exact: true })).toBeDisabled()
+  expect(flow.applyCalls()).toBe(0)
+  expect(flow.generation()).toBe(0)
+})
+
+test('BOG UI a selected coach who is an own-household partner can correct facts but cannot authorize an owner restart', async ({ page }) => {
+  const flow = await mockSetupHelpBrowser(page, { selfEligible: true, ownerRequired: true, userId: 902, cohortId: null })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#My%20Money')
+  await page.locator('.money-setup-help').click()
+  const help = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
+  await expect(help).toContainText('The household owner needs to review a restart of shared setup.')
+  await expect(help.locator('.setup-help-topics').getByRole('button')).toHaveCount(6)
+  await expect(help.getByRole('button', { name: /Review starting setup again|Request support review|Review prepared restart/ })).toHaveCount(0)
+  await help.locator('.setup-help-topics').getByRole('button', { name: 'Income', exact: true }).click()
+  await expect(help).toHaveCount(0)
+  await expect(page.locator('.income-source-manager-heading')).toBeVisible()
+  expect(flow.creates).toEqual([])
+  expect(flow.restartInputs).toEqual([])
+})
