@@ -855,7 +855,7 @@ module HouseholdFinance
           clarification = ""
         else
           needs_clarification = true
-          clarification = "I could not verify every requested change. Restate each change with its exact amount, record, and timing. Nothing changed." if clarification.blank?
+          clarification = "I could not verify every requested change. Please ask for one change at a time, naming the record, amount, and timing. Review that change before requesting the next one. Nothing changed." if clarification.blank?
         end
       end
       read_only_plan = normalize_read_only_plan(parsed.fetch(:read_only_plan, {}), action: action, intent: intent, continuation: continuation)
