@@ -261,6 +261,7 @@ module HouseholdFinance
 
         {
           household_id: draft.household_id,
+          financial_generation: draft.financial_generation,
           budget_category_id: category.id,
           merchant_pattern: pattern,
           confidence: MERCHANT_RULE_INITIAL_CONFIDENCE,

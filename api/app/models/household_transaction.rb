@@ -1,4 +1,5 @@
 class HouseholdTransaction < ApplicationRecord
+  include CurrentFinancialPicture
   STATUSES = %w[confirmed reconciled ignored].freeze
   SOURCE_TYPES = %w[manual_chat manual_ui receipt screenshot statement import plaid].freeze
 

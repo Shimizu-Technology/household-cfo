@@ -1,4 +1,5 @@
 class MiaActionDraft < ApplicationRecord
+  include CurrentFinancialPicture
   STATUSES = %w[pending partially_applied applied canceled].freeze
   DRAFT_TYPES = %w[budget_edit household_setup income_schedule debt_plan asset_plan goal_plan action_plan].freeze
 

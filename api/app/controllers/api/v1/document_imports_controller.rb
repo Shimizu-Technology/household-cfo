@@ -695,6 +695,7 @@ module Api
       def serialize_document_import(document_import, include_attempts: false, include_details: true)
         {
           id: document_import.id,
+          context_paused_by_restart: !document_import.current_financial_picture?,
           household_id: document_import.household_id,
           document_kind: document_import.document_kind,
           status: document_import.status,

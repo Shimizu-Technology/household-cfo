@@ -1,4 +1,5 @@
 class ChatSession < ApplicationRecord
+  include CurrentFinancialPicture
   belongs_to :household
   belongs_to :user
   belongs_to :cohort, optional: true

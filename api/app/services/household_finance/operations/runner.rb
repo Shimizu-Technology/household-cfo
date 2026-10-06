@@ -23,6 +23,7 @@ module HouseholdFinance
         )
         ApplicationRecord.transaction do
           household.lock!
+          FinancialGenerationGuard.request!(household)
           ensure_actor_membership!
           if (existing = household.household_operation_executions.find_by(idempotency_key: key))
             return replay_invocation(existing, invocation_fingerprint) if existing.invocation_fingerprint.present?
@@ -49,6 +50,7 @@ module HouseholdFinance
 
         ApplicationRecord.transaction do
           household.lock!
+          FinancialGenerationGuard.request!(household)
           ensure_actor_membership!
           execute_inside_transaction!(prepared, idempotency_key: idempotency_key, source: source, reviewable: reviewable)
         end
@@ -61,6 +63,7 @@ module HouseholdFinance
         raise InvalidPreparedOperation, "Only actor-scoped private requests can be resolved" unless actor_required?(operation_class) && sensitive_operation?(operation_class)
         ApplicationRecord.transaction do
           household.lock!
+          FinancialGenerationGuard.request!(household)
           ensure_actor_membership!
           execution = household.household_operation_executions.find_by(idempotency_key: storage_idempotency_key(operation_class, idempotency_key))
           return nil unless execution
@@ -137,6 +140,9 @@ module HouseholdFinance
       end
 
       def replay(execution, request_fingerprint)
+        if financial_operation?(execution.operation_key) && execution.financial_generation != household.financial_generation
+          raise InvalidPreparedOperation, "This operation belongs to your previous financial picture. Nothing changed."
+        end
         unless secure_equal?(execution.request_fingerprint, request_fingerprint)
           raise IdempotencyConflict, "That idempotency key was already used for a different household change. Nothing changed."
         end
@@ -170,11 +176,18 @@ module HouseholdFinance
       end
 
       def replay_invocation(execution, invocation_fingerprint)
+        if financial_operation?(execution.operation_key) && execution.financial_generation != household.financial_generation
+          raise InvalidPreparedOperation, "This operation belongs to your previous financial picture. Nothing changed."
+        end
         unless secure_equal?(execution.invocation_fingerprint, invocation_fingerprint)
           raise IdempotencyConflict, "That idempotency key was already used for a different household change. Nothing changed."
         end
 
         replay(execution, execution.request_fingerprint)
+      end
+
+      def financial_operation?(key)
+        key.start_with?("income.", "debt.", "account.", "goal.", "budget.", "profile.", "transaction.", "baseline.", "source_review.")
       end
 
       def subject_belongs_to_household?(subject)

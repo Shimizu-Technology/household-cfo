@@ -44,6 +44,7 @@ module HouseholdFinance
         mode: "real",
         experience_mode: participant_experience_mode,
         household_id: household.id,
+        financial_generation: household.financial_generation,
         setup_complete: status.complete?,
         setup_status: status.as_json,
         setup_values: setup_values,

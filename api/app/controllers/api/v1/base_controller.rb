@@ -3,6 +3,8 @@ module Api
     class BaseController < ApplicationController
       include ClerkAuthenticatable
 
+      around_action :financial_picture_request
+
       class InvalidIdempotencyKey < StandardError; end
 
       rescue_from ::Mia::EffectiveCohortResolver::InvalidSelection, with: :render_invalid_cohort_selection
@@ -17,6 +19,38 @@ module Api
       end
 
       private
+
+      def financial_picture_request
+        return yield unless financial_picture_controller?
+        authenticate_user! unless current_user
+        return if performed?
+        household = current_household
+        generation = household.reload.financial_generation
+        candidate = request.headers["X-Financial-Generation"].to_s
+        if !request.get? && financial_generation_required? && generation.positive? && candidate != generation.to_s
+          return render json: { errors: [ "Your financial picture changed. Reload before saving or sending again. Nothing changed." ],
+            code: "financial_generation_stale", financial_generation: generation }, status: :conflict
+        end
+        response.set_header("X-Financial-Generation", generation.to_s)
+        FinancialPicture.set(household_id: household.id, generation: generation) { yield }
+      rescue ActiveRecord::StatementInvalid => error
+        raise unless error.message.include?("financial_generation_stale")
+        render json: { errors: [ "Your financial picture changed during this request. Reload and review again. Nothing changed." ],
+          code: "financial_generation_stale", financial_generation: household.reload.financial_generation }, status: :conflict
+      end
+
+      def financial_picture_controller?
+        names = %w[workspaces households spending_reports income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines financial_restarts mia_messages mia_transcriptions household_memories mia_memory_settings]
+        names.include?(controller_name) || controller_path.start_with?("api/v1/plaid/")
+      end
+
+      def financial_generation_required?
+        names = %w[workspaces income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines]
+        return true if names.include?(controller_name)
+        return false unless controller_name == "mia_messages" && action_name == "create"
+        return true unless current_cohort_membership&.cohort&.savings_challenge_enabled == true
+        ::Mia::HouseholdPlanRequest.classify(params[:message].to_s, household: current_household).in?(%i[household household_read])
+      end
 
       def current_household
         @current_household ||= HouseholdFinance::WorkspaceResolver.new(current_user).household

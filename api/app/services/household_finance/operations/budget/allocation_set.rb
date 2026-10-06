@@ -104,7 +104,7 @@ module HouseholdFinance
         def scoped_allocations
           BudgetAllocation.includes(:budget_category, budget_period: :budget_year)
             .joins(:budget_category, budget_period: :budget_year)
-            .where(budget_categories: { household_id: household.id }, budget_years: { household_id: household.id })
+            .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation }, budget_years: { household_id: household.id, financial_generation: household.financial_generation })
         end
 
         def allocation_snapshot(allocation)

@@ -32,6 +32,7 @@ module HouseholdFinance
       results = []
       household.transaction do
         household.lock!
+        FinancialGenerationGuard.request!(household)
         if household.household_operation_executions.exists?(idempotency_key: idempotency_key)
           results << run_confirmation(normalized)
         else
@@ -148,8 +149,8 @@ module HouseholdFinance
 
       allocations = if categories.any?
         BudgetAllocation.joins(:budget_category, budget_period: :budget_year)
-          .where(budget_categories: { household_id: household.id, id: categories.map(&:id) })
-          .where(budget_years: { household_id: household.id, year: year })
+          .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation, id: categories.map(&:id) })
+          .where(budget_years: { household_id: household.id, financial_generation: household.financial_generation, year: year })
           .order("budget_periods.starts_on", :id).to_a
       else
         []

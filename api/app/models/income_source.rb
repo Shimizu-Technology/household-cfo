@@ -1,4 +1,5 @@
 class IncomeSource < ApplicationRecord
+  include CurrentFinancialPicture
   CADENCES = %w[weekly biweekly semi_monthly monthly annual one_time].freeze
   SOURCE_TYPES = %w[job business rental passive bonus other].freeze
 
@@ -6,7 +7,7 @@ class IncomeSource < ApplicationRecord
   has_many :income_schedule_entries, dependent: :destroy
 
   validates :label, presence: true, length: { maximum: 120 }, uniqueness: {
-    scope: [ :household_id, :source_type ], case_sensitive: false, conditions: -> { where(active: true) }
+    scope: [ :financial_generation, :household_id, :source_type ], case_sensitive: false, conditions: -> { where(active: true) }
   }, if: :active?
   validates :cadence, inclusion: { in: CADENCES }
   validates :source_type, inclusion: { in: SOURCE_TYPES }
@@ -59,7 +60,7 @@ class IncomeSource < ApplicationRecord
     return if !active? && starts_on.present? && ends_on == starts_on
 
     scope = self.class
-      .where(household_id: household_id, source_type: source_type)
+      .where(financial_generation: financial_generation, household_id: household_id, source_type: source_type)
       .where("LOWER(label) = ?", label.downcase)
       .where("active = TRUE OR ends_on IS NOT NULL")
       .where.not("active = FALSE AND starts_on IS NOT NULL AND ends_on = starts_on")

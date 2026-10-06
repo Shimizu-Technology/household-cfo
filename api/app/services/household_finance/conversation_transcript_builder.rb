@@ -19,7 +19,7 @@ module HouseholdFinance
     def call
       return [] unless chat_session
 
-      candidates = chat_session.chat_messages.order(created_at: :desc, id: :desc).limit(FETCH_LIMIT).to_a.reverse
+      candidates = chat_session.chat_messages.where(financial_generation: chat_session.household.reload.financial_generation).order(created_at: :desc, id: :desc).limit(FETCH_LIMIT).to_a.reverse
       selected = []
       used_characters = 0
 

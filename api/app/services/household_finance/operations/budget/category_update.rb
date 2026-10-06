@@ -29,7 +29,7 @@ module HouseholdFinance
 
         def full_category_snapshot(category, input, lock:, expense_ids: [])
           allocations = category.budget_allocations.joins(budget_period: :budget_year)
-            .where(budget_years: { household_id: household.id, year: input.fetch(:year) }).order(:id)
+            .where(budget_years: { household_id: household.id, financial_generation: household.financial_generation, year: input.fetch(:year) }).order(:id)
           allocations = allocations.lock if lock
           {
             category: category_snapshot(category),

@@ -121,24 +121,27 @@ module FinancialDocuments
       end
 
       def source_event(id)
-        FinancialSourceEvent.where(household_id: household.id).find(id)
+        FinancialSourceEvent.where(household_id: household.id).find(id).tap { |event| HouseholdFinance::FinancialGenerationGuard.source!(event.financial_extraction_revision.financial_document_import) }
       end
 
       def source_account(id)
-        FinancialSourceAccount.where(household_id: household.id).find(id)
+        FinancialSourceAccount.where(household_id: household.id).find(id).tap { |account| HouseholdFinance::FinancialGenerationGuard.source!(account.financial_extraction_revision.financial_document_import) }
       end
 
       def revision(id)
-        FinancialExtractionRevision.where(household_id: household.id).find(id)
+        FinancialExtractionRevision.where(household_id: household.id).find(id).tap { |revision| HouseholdFinance::FinancialGenerationGuard.source!(revision.financial_document_import) }
       end
 
-      def heads = SourceReviewHead.where(household_id: household.id)
-      def drafts = SourceReviewDraft.where(household_id: household.id)
-      def versions = SourceReviewVersion.where(household_id: household.id)
-      def account_heads = SourceAccountReviewHead.where(household_id: household.id)
-      def identities = SourceAccountIdentityVersion.where(household_id: household.id)
-      def groups = SourceEconomicGroup.where(household_id: household.id)
-      def tracked_account(id) = SourceTrackedAccount.where(household_id: household.id).find(id)
+      def current_revisions = FinancialExtractionRevision.where(household_id: household.id, financial_document_import_id: household.financial_document_imports.current_picture.select(:id))
+      def current_events = FinancialSourceEvent.where(household_id: household.id, financial_extraction_revision_id: current_revisions.select(:id))
+      def current_accounts = FinancialSourceAccount.where(household_id: household.id, financial_extraction_revision_id: current_revisions.select(:id))
+      def heads = SourceReviewHead.where(household_id: household.id, financial_source_event_id: current_events.select(:id))
+      def drafts = SourceReviewDraft.where(household_id: household.id, source_review_head_id: heads.select(:id))
+      def versions = SourceReviewVersion.where(household_id: household.id, source_review_head_id: heads.select(:id))
+      def account_heads = SourceAccountReviewHead.where(household_id: household.id, financial_source_account_id: current_accounts.select(:id))
+      def identities = SourceAccountIdentityVersion.where(household_id: household.id, source_account_review_head_id: account_heads.select(:id))
+      def groups = SourceEconomicGroup.current_picture.where(household_id: household.id)
+      def tracked_account(id) = SourceTrackedAccount.current_picture.where(household_id: household.id).find(id)
       def digest(value) = HouseholdFinance::Operations::PreparedOperation.fingerprint(value)
 
       def current_identity!(event, id)
@@ -154,6 +157,7 @@ module FinancialDocuments
         records = FinancialExtractionRevision.where(household_id: household.id, id: ids.uniq).order(:id).to_a
         raise ActiveRecord::RecordNotFound unless records.length == ids.uniq.length
         FinancialDocumentImport.where(household_id: household.id, id: records.filter_map(&:financial_document_import_id)).order(:id).lock.load
+        records.each { |revision| HouseholdFinance::FinancialGenerationGuard.source!(revision.financial_document_import) }
         records.each(&:lock!)
       end
 

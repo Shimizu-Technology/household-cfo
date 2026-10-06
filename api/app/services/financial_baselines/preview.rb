@@ -28,7 +28,7 @@ module FinancialBaselines
       @request = input
       @start_on, @end_on = Date.iso8601(input[:window_start_on]), Date.iso8601(input[:window_end_on])
       @deficiencies = []
-      @source = FinancialDocuments::SourceReview::ApprovedSourceReader.new(household).call(revision_ids: input[:revision_ids])
+      @source = FinancialDocuments::SourceReview::ApprovedSourceReader.new(household).call(current_financial_picture: true, revision_ids: input[:revision_ids])
       source[:revisions].each do |revision|
         deficiencies << "source_coverage_not_complete:#{revision[:id]}" unless revision[:participant_approved] && revision[:coverage_status] == "complete"
       end
@@ -193,7 +193,7 @@ module FinancialBaselines
         end
         missing = missing_ranges(intervals)
         deficiencies << "account_window_incomplete:#{id}" if missing.any?
-        { tracked_account_id: id, account_basis: SourceTrackedAccount.where(household: household).find(id).account_basis,
+        { tracked_account_id: id, account_basis: SourceTrackedAccount.current_picture.where(household: household).find(id).account_basis,
           approved_intervals: intervals, missing_ranges: missing, complete: missing.empty? }
       end.tap { deficiencies << "no_declared_statement_accounts" if request[:tracked_account_ids].empty? }
     end

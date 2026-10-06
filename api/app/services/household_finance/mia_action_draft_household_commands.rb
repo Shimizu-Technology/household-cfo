@@ -262,7 +262,7 @@ module HouseholdFinance
     def structured_income_schedule_entry
       id = command[:income_schedule_entry_id].to_i
       return if id.zero?
-      IncomeScheduleEntry.joins(:income_source).where(income_sources: { household_id: household.id }).find_by(id: id)
+      IncomeScheduleEntry.joins(:income_source).where(income_sources: { household_id: household.id, financial_generation: household.financial_generation }).find_by(id: id)
     end
 
     def normalize_setup_updates(requested)

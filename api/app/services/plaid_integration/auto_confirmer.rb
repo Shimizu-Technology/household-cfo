@@ -10,6 +10,8 @@ module PlaidIntegration
     end
 
     def call
+      return [] unless plaid_item.current_financial_picture?
+
       candidates.filter_map { |draft| confirm_if_trusted(draft) }
     end
 

@@ -17,7 +17,10 @@ module PlaidIntegration
         raise Error, "One or more bank transactions were not found" unless transactions.length == transaction_ids.length
         raise Error, "Only unreviewed, posted expenses can be drafted" unless transactions.all?(&:stageable?)
 
-        transactions.map { |transaction| stage!(transaction) }
+        transactions.each { |transaction| HouseholdFinance::FinancialGenerationGuard.source!(transaction.plaid_item) }
+        transactions.map do |transaction|
+          FinancialPicture.set(household_id: household.id, generation: transaction.plaid_item.financial_generation) { stage!(transaction) }
+        end
       end
       Result.new(drafts: drafts, errors: [])
     rescue ActiveRecord::RecordInvalid => e

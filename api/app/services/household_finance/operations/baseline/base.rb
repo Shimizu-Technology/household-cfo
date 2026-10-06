@@ -42,7 +42,7 @@ module HouseholdFinance
           CohortReleases::OperationAccess.require!(household: household, user: user, key: self.class::KEY, membership: release_membership)
         end
         def ensure_plan!(_input) = nil
-        def heads = FinancialBaselineHead.where(household: household, participant_user: user)
+        def heads = FinancialBaselineHead.current_picture.where(household: household, participant_user: user)
         def subject_for(_input, lock:) = (lock ? heads.lock.first : heads.first) || household
 
         def normalize(raw)

@@ -90,7 +90,7 @@ module HouseholdFinance
         annual_budget_manager.current_period_for(reference_date)
       else
         BudgetPeriod.joins(:budget_year).find_by(
-          budget_years: { household_id: household.id, year: reference_date.year },
+          budget_years: { household_id: household.id, financial_generation: household.financial_generation, year: reference_date.year },
           starts_on: reference_date.beginning_of_month
         )
       end
@@ -104,7 +104,7 @@ module HouseholdFinance
         .joins(:budget_category)
         .where(
           budget_period: current_period,
-          budget_categories: { household_id: household.id, active: true }
+          budget_categories: { household_id: household.id, financial_generation: household.financial_generation, active: true }
         )
         .to_a
     end

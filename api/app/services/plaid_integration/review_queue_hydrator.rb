@@ -7,6 +7,8 @@ module PlaidIntegration
     end
 
     def call
+      return [] unless plaid_item.current_financial_picture?
+
       staged = []
       plaid_item.plaid_transactions.stageable.in_batches(of: BATCH_SIZE) do |batch|
         transaction_ids = batch.pluck(:id)

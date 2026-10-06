@@ -158,7 +158,7 @@ module HouseholdFinance
     def evidence_entities
       @evidence_entities ||= begin
         ids = document_imports.map(&:id)
-        merchants = TransactionDraft.where(household_id: household.id, financial_document_import_id: ids).pluck(:merchant)
+        merchants = TransactionDraft.current_picture.where(household_id: household.id, financial_document_import_id: ids).pluck(:merchant)
         categories = TransactionDraft
           .where(household_id: household.id, financial_document_import_id: ids)
           .left_joins(:budget_category, :transaction_draft_splits)

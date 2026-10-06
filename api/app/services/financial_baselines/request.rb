@@ -15,7 +15,7 @@ module FinancialBaselines
       raise ArgumentError, "Select no more than sixty source revisions" if ids.length > 60
       raise ActiveRecord::RecordNotFound unless FinancialExtractionRevision.where(household: household, id: ids).count == ids.length
       accounts = Array(input.fetch(:tracked_account_ids, [])).map { |id| integer(id) }.uniq.sort
-      raise ActiveRecord::RecordNotFound unless SourceTrackedAccount.where(household: household, id: accounts).count == accounts.length
+      raise ActiveRecord::RecordNotFound unless SourceTrackedAccount.current_picture.where(household: household, id: accounts).count == accounts.length
       categories = Array(input.fetch(:category_eligibility, [])).map do |raw_category|
         category = raw_category.to_h.deep_symbolize_keys
         record = household.budget_categories.find(category[:budget_category_id]) if category[:budget_category_id]
@@ -31,7 +31,7 @@ module FinancialBaselines
         type = actual.fetch(:event_type, "purchase").to_s
         disposition = actual.fetch(:disposition, "include").to_s
         raise ArgumentError, "Unsupported actual classification" unless ACTUAL_TYPES.include?(type) && disposition.in?(%w[include exclude match])
-        tracked = actual[:tracked_account_id] && SourceTrackedAccount.where(household: household).find(actual[:tracked_account_id])
+        tracked = actual[:tracked_account_id] && SourceTrackedAccount.current_picture.where(household: household).find(actual[:tracked_account_id])
         source = actual[:source_review_version_id] && SourceReviewVersion.where(household: household).find(actual[:source_review_version_id])
         target = actual[:matched_transaction_id] && household.household_transactions.find(actual[:matched_transaction_id])
         overlap = actual.fetch(:overlap_disposition, "new").to_s

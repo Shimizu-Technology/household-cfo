@@ -69,7 +69,7 @@ module HouseholdFinance
 
     def structured_account_link_proposal
       account = structured_account(active: true)
-      observation = ::PlaidAccount.joins(:plaid_item).where(plaid_items: { household_id: household.id }).find_by(id: command[:plaid_account_id].to_i)
+      observation = ::PlaidAccount.joins(:plaid_item).where(plaid_items: { household_id: household.id, financial_generation: household.financial_generation }).find_by(id: command[:plaid_account_id].to_i)
       eligibility = observation && PlaidIntegration::AccountEligibility.new(observation)
       return validation_result("Choose an active saved account and eligible bank observation. Nothing changed.") unless account && eligibility&.active_observation? && eligibility.allowed_account_types.include?(account.account_type)
       return validation_result("That household account is already matched to a bank observation. Unmatch it before choosing another one. Nothing changed.") if account.plaid_account_id

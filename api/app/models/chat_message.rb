@@ -22,7 +22,13 @@ class ChatMessage < ApplicationRecord
   validate :release_attribution_is_complete
   validate :session_program_matches
 
+  before_validation :stamp_financial_generation, on: :create
+
   before_validation :set_global_assistant_author, on: :create
+
+  def stamp_financial_generation
+    self.financial_generation = FinancialPicture.generation || chat_session.household.financial_generation
+  end
 
   def as_api_json(author: nil)
     citations = if association(:coach_content_citations).loaded?
@@ -36,6 +42,7 @@ class ChatMessage < ApplicationRecord
       role: role,
       author: author || (role == "assistant" ? assistant_author.presence || "Mia" : "You"),
       content: content,
+      financial_restart: financial_restart.presence,
       attachments: attachments,
       presentation: presentation,
       citations: citations.map do |citation|
