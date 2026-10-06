@@ -77,7 +77,7 @@ function PanelContent(props: Props) {
         {props.realWorkspace && <section className="mia-assist-section" aria-label="Help"><h3>Help</h3><div className="mia-assist-actions"><button type="button" className="secondary-button" onClick={() => act(props.onGuide)}>Guide</button><button type="button" className="secondary-button" onClick={() => act(props.onFeedback)}>Report a problem</button></div></section>}
         {(props.hasMessages || props.onStartOver) && <section className="mia-assist-section" aria-label="Conversation and setup"><h3>Conversation & setup</h3>
           {props.hasMessages && <div className="mia-assist-conversation-action"><p>Clear this conversation while keeping your saved financial information.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onClearChat)}>Clear chat</button></div>}
-          {props.onStartOver && <div className="mia-assist-conversation-action"><p>Replace practice information with your real numbers. Review what will be removed first.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onStartOver!)}>Start over with my real numbers</button></div>}
+          {props.onStartOver && <div className="mia-assist-conversation-action"><p>Replace practice information with your real numbers. Review what starts fresh and what stays first.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onStartOver!)}>Start over with my real numbers</button></div>}
         </section>}
       </>}
     </div>

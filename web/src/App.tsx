@@ -26,7 +26,8 @@ import { ActivityPreview } from './components/ActivityPreview'
 import { ParticipantTabs } from './components/ParticipantTabs'
 import { Button } from './components/Button'
 import { ChatHistory } from './components/ChatHistory'
-import { ChatContextDisclosure } from './components/ChatContextDisclosure'
+import { MiaAssistPanels } from './components/MiaAssistPanels'
+import { FinancialRestartDialog } from './components/FinancialRestartDialog'
 import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
@@ -83,6 +84,9 @@ import {
   fetchDocumentImportSourceUrl,
   fetchDocumentImportSourceContent,
   fetchDocumentImports,
+  setApiFinancialGeneration,
+  fetchFinancialRestartStatus,
+  subscribeFinancialPictureChanges,
   fetchMiaMessages,
   fetchSpendingReport,
   ignoreTransactionDraft,
@@ -187,16 +191,16 @@ const MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS = 300_000
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
-const SAVINGS_UPDATE_EXAMPLES = [
-  'I set aside $20 today from money left after expenses. Help me review it.',
-  'Help me find one comfortable spending change this week.',
-  'Help me understand my statement before I approve anything.',
-]
 const SAVINGS_QUICK_PROMPTS = ['Help me with today’s check-in.', 'What is a comfortable savings target for me?', 'Explain my approved savings progress.']
-const MIA_UPDATE_EXAMPLES = [
-  'My take-home pay is now $6,200 a month.',
-  'My credit card balance is $3,100 and my monthly minimum is $175.',
-  'Set Dining Out to $250 per month beginning next month.',
+const MIA_UPDATE_PROMPTS = [
+  { label: 'Update my income', message: 'Help me update my household income sources and schedules.' },
+  { label: 'Update a debt', message: 'Help me update one of my household debts.' },
+  { label: 'Change my spending plan', message: 'Help me change a spending category in my household plan.' },
+]
+const SAVINGS_UPDATE_PROMPTS = [
+  { label: 'Report money set aside', message: 'Help me review money I actually set aside for the savings challenge.' },
+  { label: 'Find a comfortable change', message: 'Help me find one comfortable spending change this week.' },
+  { label: 'Understand a statement', message: 'Help me understand my statement before I approve anything.' },
 ]
 
 type SectionHistoryMode = 'none' | 'push' | 'replace'
@@ -309,6 +313,7 @@ const documentUploadCards: Array<{
   label: string
   eyebrow: string
   accepts: string
+  formats: string
   helper: string
   sizeGuidance: string
 }> = [
@@ -317,6 +322,7 @@ const documentUploadCards: Array<{
     label: 'Budget file',
     eyebrow: 'Expense stack',
     accepts: '.xlsx,.xls,.csv,.pdf,.docx',
+    formats: 'Excel, CSV, PDF or Word',
     helper: 'Upload an Excel workbook, CSV, PDF, or Word budget. Your assistant drafts income, expenses, assets, and debts for review.',
     sizeGuidance: 'PDF up to 12 MB · CSV, Excel, and Word up to 20 MB',
   },
@@ -325,6 +331,7 @@ const documentUploadCards: Array<{
     label: 'Bank or card statement',
     eyebrow: 'Fresh balances',
     accepts: '.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
+    formats: 'PDF, Excel, CSV or photos',
     helper: 'Upload a PDF, CSV, spreadsheet, or statement screenshot to stage transaction rows, propose matches, and reconcile actuals by month.',
     sizeGuidance: 'Images and PDFs up to 12 MB · CSV and Excel up to 20 MB',
   },
@@ -333,6 +340,7 @@ const documentUploadCards: Array<{
     label: 'Pay stub',
     eyebrow: 'Income proof',
     accepts: '.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
+    formats: 'PDF, Word or photos',
     helper: 'Upload a pay stub photo or PDF to draft take-home income. You approve before it becomes official.',
     sizeGuidance: 'Images and PDFs up to 12 MB · Word up to 20 MB',
   },
@@ -341,6 +349,7 @@ const documentUploadCards: Array<{
     label: 'Receipt or quick evidence',
     eyebrow: 'Quick evidence',
     accepts: '.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
+    formats: 'PDF or photos',
     helper: 'Upload a receipt, PDF, or photo so your assistant can draft a reviewable transaction, including split receipts like groceries plus cigarettes.',
     sizeGuidance: 'Images and PDFs up to 12 MB',
   },
@@ -487,13 +496,15 @@ function BrandFooter() {
 function App() {
   useDialogViewport()
   const auth = useAuthContext()
+  const [restartNonce, setRestartNonce] = useState(0)
+  const [restartNotice, setRestartNotice] = useState<string | null>(null)
   const identity = `${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
   return <ParticipantProgramSession identity={identity} authIdentityId={auth.authIdentityId} actorId={auth.currentUser?.id} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)}>
-    {selection => <WorkspaceApp key={`${identity}:${selection.selectedCohortId ?? 'default'}`} {...selection} />}
+    {selection => <WorkspaceApp key={`${identity}:${selection.selectedCohortId ?? 'default'}:${restartNonce}`} {...selection} restartNotice={restartNotice} onDismissRestartNotice={() => setRestartNotice(null)} onFinancialRestart={message => { setRestartNotice(message); setRestartNonce(value => value + 1) }} />}
   </ParticipantProgramSession>
 }
 
-function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onProgramUnavailable, selectionNotice}: {selectedCohortId?: number; onChooseProgram: (cohortId: number) => void; onProgramVerified: (cohortId: number) => void; onProgramUnavailable: () => void; selectionNotice: string | null}) {
+function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onProgramUnavailable, selectionNotice, onFinancialRestart, restartNotice, onDismissRestartNotice}: {onFinancialRestart: (message: string) => void; restartNotice: string | null; onDismissRestartNotice: () => void; selectedCohortId?: number; onChooseProgram: (cohortId: number) => void; onProgramVerified: (cohortId: number) => void; onProgramUnavailable: () => void; selectionNotice: string | null}) {
   const auth = useAuthContext()
   const publicBrand = useBrand()
   const participantActorId = auth.currentUser?.id
@@ -535,6 +546,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false)
   const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
+  const [miaWaitLong, setMiaWaitLong] = useState(false)
+  useEffect(() => {
+    if (!miaLoading) return
+    const timer = window.setTimeout(() => setMiaWaitLong(true), 10_000)
+    return () => window.clearTimeout(timer)
+  }, [miaLoading])
   const [miaClearing, setMiaClearing] = useState(false)
   const [confirmClearChat, setConfirmClearChat] = useState(false)
   const [miaError, setMiaError] = useState<string | null>(null)
@@ -560,7 +577,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [spendingReportError, setSpendingReportError] = useState<string | null>(null)
   const [newBudgetCategory, setNewBudgetCategory] = useState<NewBudgetCategoryDraft>(blankBudgetCategoryDraft)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
-  const [showMiaSuggestions, setShowMiaSuggestions] = useState(false)
+  const [assistPanel, setAssistPanel] = useState<'context' | 'prompts' | null>(null)
+  const showMiaSuggestions = assistPanel === 'prompts'
+  const chatContextTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const [financialRestartOpen, setFinancialRestartOpen] = useState(false)
   const [showChatScrollButton, setShowChatScrollButton] = useState(false)
   const [voiceRecording, setVoiceRecording] = useState(false)
   const [voiceTranscribing, setVoiceTranscribing] = useState(false)
@@ -611,8 +631,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const challengeIntakeScope = `${auth.authIdentityId}:${auth.currentUser?.id}:${data?.workspace.household_id}:${data?.workspace.cohort?.id}`
   const challengeParticipantScope = useMemo(() => auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data?.workspace.household_id ? {user_id:auth.currentUser.id,household_id:data.workspace.household_id} : undefined, [auth.currentUser?.is_participant,auth.currentUser?.id,auth.activeCoachWorkspaceId,data?.workspace.household_id])
   useLayoutEffect(() => {
-    setActiveParticipantCohortId(canLoadWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? selectedCohortId ?? (data?.workspace.mode === 'real' ? data.workspace.cohort?.id ?? null : null) : null)
-  }, [canLoadWorkspace, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, selectedCohortId, data?.workspace.mode, data?.workspace.cohort?.id])
+    const cohortId = canLoadWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? selectedCohortId ?? (data?.workspace.mode === 'real' ? data.workspace.cohort?.id ?? null : null) : null
+    setActiveParticipantCohortId(cohortId)
+    if (data?.workspace.mode === 'real' && (data.workspace.cohort?.id ?? null) === cohortId) setApiFinancialGeneration(data.workspace.financial_generation ?? 0)
+  }, [canLoadWorkspace, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, selectedCohortId, data?.workspace.mode, data?.workspace.cohort?.id, data?.workspace.financial_generation])
   const challengeIntakeScopeRef = useRef(challengeIntakeScope)
   useEffect(() => {
     challengeIntakeScopeRef.current = challengeIntakeScope
@@ -623,9 +645,53 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [pilotGuideOpen, setPilotGuideOpen] = useState(false)
   const [pilotFeedbackOpen, setPilotFeedbackOpen] = useState(false)
   const chatStorageKey = useMemo(() => {
-    return miaWorkspaceStorageKey(MIA_CHAT_STORAGE_PREFIX, auth.currentUser?.id, auth.activeCoachWorkspaceId, data?.workspace.household_id, data?.workspace.cohort?.id ?? selectedCohortId)
-  }, [auth.currentUser?.id, auth.activeCoachWorkspaceId, data?.workspace.household_id, data?.workspace.cohort?.id, selectedCohortId])
+    return `${miaWorkspaceStorageKey(MIA_CHAT_STORAGE_PREFIX, auth.currentUser?.id, auth.activeCoachWorkspaceId, data?.workspace.household_id, data?.workspace.cohort?.id ?? selectedCohortId)}:picture:${data?.workspace.financial_generation ?? 0}`
+  }, [auth.currentUser?.id, auth.activeCoachWorkspaceId, data?.workspace.household_id, data?.workspace.cohort?.id, data?.workspace.financial_generation, selectedCohortId])
   const [messagesStorageKey, setMessagesStorageKey] = useState(chatStorageKey)
+  const restartScopeKey = `${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}:${data?.workspace.household_id ?? 'pending'}:${data?.workspace.cohort?.id ?? selectedCohortId ?? 'default'}`
+  const restartRefreshHandled = useRef<number | null>(null)
+  const observedFinancialGeneration = useRef<number | null>(null)
+  function finishFinancialRestart(generation: number) {
+    setApiFinancialGeneration(generation)
+    clearMiaRetryRequest(chatStorageKey)
+    if (data?.workspace.household_id) {
+      const notification = { household_id: data.workspace.household_id, financial_generation: generation }
+      if (typeof BroadcastChannel !== 'undefined') { const channel = new BroadcastChannel('household-cfo:financial-picture'); channel.postMessage(notification); channel.close() }
+      try { window.localStorage.setItem('household-cfo:financial-picture-changed', JSON.stringify(notification)); window.localStorage.removeItem('household-cfo:financial-picture-changed') } catch { /* Server versions still reject stale writes. */ }
+    }
+    onFinancialRestart('Your financial picture is ready for a fresh start. Enter your real numbers; missing values are not confirmed zero.')
+  }
+  useEffect(() => {
+    const householdId = data?.workspace.household_id
+    if (data?.workspace.mode !== 'real' || !householdId) return
+    const generation = data.workspace.financial_generation ?? 0
+    if (observedFinancialGeneration.current !== null && generation > observedFinancialGeneration.current) {
+      observedFinancialGeneration.current = generation
+      onFinancialRestart('Your household financial picture changed. Reopen setup before editing the new picture.')
+      return
+    }
+    observedFinancialGeneration.current = generation
+    let active = true
+    function accept(value: unknown) {
+      if (!active || !value || typeof value !== 'object') return
+      const notice = value as { household_id?: unknown; financial_generation?: unknown }
+      const next = notice.financial_generation
+      if (notice.household_id !== householdId || typeof next !== 'number' || !Number.isSafeInteger(next) || next <= generation || (restartRefreshHandled.current ?? -1) >= next) return
+      restartRefreshHandled.current = next
+      setApiFinancialGeneration(next)
+      onFinancialRestart('Your household financial picture restarted in another tab. Earlier entries are retained separately; reopen setup before editing.')
+    }
+    const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('household-cfo:financial-picture')
+    if (channel) channel.onmessage = event => accept(event.data)
+    const unsubscribeVersion = subscribeFinancialPictureChanges(next => accept({ household_id: householdId, financial_generation: next }))
+    const storage = (event: StorageEvent) => {
+      if (event.key !== 'household-cfo:financial-picture-changed' || !event.newValue) return
+      try { accept(JSON.parse(event.newValue)) } catch { /* Ignore malformed browser notifications. */ }
+    }
+    const check = () => { void fetchFinancialRestartStatus().then(value => accept(value)).catch(() => { /* Normal workspace reload remains available. */ }) }
+    window.addEventListener('storage', storage); window.addEventListener('focus', check)
+    return () => { active = false; unsubscribeVersion(); channel?.close(); window.removeEventListener('storage', storage); window.removeEventListener('focus', check) }
+  }, [data?.workspace.household_id, data?.workspace.financial_generation, data?.workspace.mode, onFinancialRestart])
   const chatCardRef = useRef<HTMLElement | null>(null)
   const historyExpandedRef = useRef(false)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
@@ -947,7 +1013,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         if (selectedCohortId !== undefined && payload.workspace?.cohort?.id !== selectedCohortId) throw new Error('The returned program could not be verified. Choose your program or try again.')
         if (payload.workspace?.mode === 'real' && payload.workspace.cohort?.id) onProgramVerified(payload.workspace.cohort.id)
         const realWorkspace = payload.workspace?.mode === 'real'
-        const payloadStorageKey = miaWorkspaceStorageKey(MIA_CHAT_STORAGE_PREFIX, auth.currentUser?.id, auth.activeCoachWorkspaceId, payload.workspace?.household_id, payload.workspace?.cohort?.id ?? selectedCohortId)
+        const payloadStorageKey = `${miaWorkspaceStorageKey(MIA_CHAT_STORAGE_PREFIX, auth.currentUser?.id, auth.activeCoachWorkspaceId, payload.workspace?.household_id, payload.workspace?.cohort?.id ?? selectedCohortId)}:picture:${payload.workspace.financial_generation ?? 0}`
         const restoredMessages = realWorkspace ? payload.mia.messages : loadStoredMiaMessages(payloadStorageKey)
         setMessagesStorageKey(payloadStorageKey)
         setData(payload)
@@ -1116,7 +1182,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const focusableSelector = 'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
     const focusableElements = () => Array.from(shell?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
       .filter((element) => element.getClientRects().length > 0)
-    const nestedDialogIsOpen = () => Boolean(document.querySelector('.clear-chat-dialog'))
+    const nestedDialogIsOpen = () => Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).some(dialog => dialog !== shell && dialog.getClientRects().length > 0)
 
     function keepFocusInExpandedChat(event: globalThis.KeyboardEvent) {
       if (event.key !== 'Tab' || nestedDialogIsOpen()) return
@@ -1159,7 +1225,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [isChatExpanded])
 
   useEffect(() => {
-    if (!isChatExpanded && !showMiaSuggestions && !confirmClearChat) return
+    if (!isChatExpanded && !assistPanel && !confirmClearChat) return
 
     function handleEscape(event: globalThis.KeyboardEvent) {
       if (event.key !== 'Escape') return
@@ -1168,8 +1234,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         window.requestAnimationFrame(() => clearChatTriggerRef.current?.focus())
         return
       }
-      if (showMiaSuggestions) {
-        setShowMiaSuggestions(false)
+      if (assistPanel) {
+        setAssistPanel(null)
         return
       }
       setIsChatExpanded(false)
@@ -1177,7 +1243,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [confirmClearChat, isChatExpanded, showMiaSuggestions])
+  }, [confirmClearChat, isChatExpanded, assistPanel])
 
   useEffect(() => {
     if (!previewImport && !previewAttachment) return
@@ -1398,7 +1464,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     setActive(targetSection)
     if (targetSection !== 'Ask Mia') {
       setIsChatExpanded(false)
-      setShowMiaSuggestions(false)
+      setAssistPanel(null)
     }
     if (targetSection !== 'My Profile') setFirstSessionUploadOpen(false)
 
@@ -1758,6 +1824,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const messageContent = cleanPrompt || 'Please review this upload.'
     const optimisticMessageId = clientSideId('mia-message')
     const spendingReportRequestAtSend = spendingReportRequestRef.current
+    setMiaWaitLong(false)
     setMiaLoading(true)
     setMiaError(null)
     setQuestion('')
@@ -1897,6 +1964,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       if (workspaceMounted.current) {
         setMiaAttachmentNotice(null)
         setMiaLoading(false)
+        setMiaWaitLong(false)
         requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
       }
     }
@@ -3193,12 +3261,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />
               <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotGuideOpen(true) }}><GuideIcon /> Guide</Button>
               {isRealWorkspace && <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotFeedbackOpen(true) }}><FeedbackIcon /> Report a problem</Button>}
+              {isRealWorkspace && !auth.activeCoachWorkspaceId && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFinancialRestartOpen(true) }}>Start over with my real numbers</Button>}
             </div>
           </details>
         </div>
       </header>
 
       {selectionNotice && <p className="document-alert" role="status">{selectionNotice}</p>}
+      {restartNotice && <div className="document-alert financial-restart-notice" role="status"><p>{restartNotice}</p><button type="button" className="secondary-button" onClick={onDismissRestartNotice}>Dismiss</button></div>}
       <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} onToday={isSavingsExperience && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => { setDailyIntake(null); setDailyOpen(true) } : undefined} />
 
       {isRealWorkspace && !isSavingsExperience && activeSection !== ADMIN_SECTION && activeSection !== COACH_STUDIO_SECTION && activeSection !== 'Ask Mia' && (
@@ -3260,61 +3330,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
               {isFirstSessionSetup && <span className="mia-setup-count">{data.workspace.setup_status.completed_count} of {data.workspace.setup_status.required_count} essentials confirmed</span>}
             </div>
-            <ChatContextDisclosure>
-              {isFirstSessionSetup && !isChatExpanded && (
-                <FirstSessionSetupProgress
-                  status={data.workspace.setup_status}
-                  onStartChat={startChatFirstSession}
-                  onShareAll={shareAllFirstSession}
-                  onManual={startManualFirstSession}
-                />
-              )}
-              <p className="mia-context-introduction">Update income, savings, debt, goals, or the plan in plain language. {assistantName} prepares a review; you approve before anything changes.</p>
-              <p className="mia-context-introduction">Attach up to five files, choose their document types, and describe what you want reviewed. {FINANCIAL_UPLOAD_SIZE_GUIDANCE}</p>
-              {data.workspace.experience_mode === 'savings_challenge' && <p className="mia-workspace-context">Savings challenge workspace. Savings records and approved progress are available on Home.</p>}
-              <article className="mia-context panel">
-                <div className="mia-context-heading">
-                  <span className="spark" aria-hidden="true"><MiaMark /></span>
-                  <div>
-                    <span>Assistant context</span>
-                    <h3>{isFirstSessionSetup ? `Build your starting picture with ${assistantName}` : 'Approved data loaded'}</h3>
-                  </div>
-                </div>
-                <p>{isFirstSessionSetup
-                  ? `Tell ${assistantName} what you know in ordinary language. Your assistant will prepare one review card, and your financial picture stays unchanged until you approve it.`
-                  : data.workspace.experience_mode === 'savings_challenge'
-                    ? `Only approved household context is available to ${assistantName}. Uploading a bank movement does not establish new savings.`
-                    : `Profile, Expense Stack, annual runway, debt pressure, Optionality scenario, and approved document freshness are ready for ${assistantName} to use.`}
-                </p>
-                {isRealWorkspace ? (
-                  <DocumentContextCard
-                    imports={documentImports}
-                    pendingCount={pendingImportsCount}
-                    processingCount={processingImportsCount}
-                    onOpenProfile={() => openDocumentReview()}
-                    onAttach={() => miaAttachmentInputRef.current?.click()}
-                    uploading={Boolean(uploadingKind)}
-                  />
-                ) : (
-                  <div className="upload-strip" aria-label="Demo-only upload affordances">
-                    <button type="button" disabled title="Uploads require a signed-in real workspace.">
-                      <AttachmentIcon />
-                      Spreadsheet import demo-only
-                    </button>
-                    <button type="button" disabled title="Uploads require a signed-in real workspace.">
-                      <StatementIcon />
-                      Statement import demo-only
-                    </button>
-                  </div>
-                )}
-              </article>
-              {isRealWorkspace && <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />}
-              {currentMessages.length > 0 && <Button className="mia-context-clear" variant="secondary" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>Clear chat</Button>}
-              <BrandFooter />
-            </ChatContextDisclosure>
+            <button ref={chatContextTriggerRef} type="button" className="secondary-button mia-context-trigger" aria-expanded={assistPanel === 'context'} aria-controls="mia-assist-title" onClick={() => setAssistPanel(current => current === 'context' ? null : 'context')}>Context &amp; help</button>
           </div>
 
-          <div className="mia-layout">
+          <div className={`mia-layout${assistPanel && !isChatExpanded ? ' has-assist-panel' : ''}`}>
             {isChatExpanded && (
               <div
                 className="mia-chat-backdrop"
@@ -3352,8 +3371,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     type="button"
                     className="chat-suggestions-button"
                     aria-expanded={showMiaSuggestions}
-                    aria-controls="mia-suggestions-panel"
-                    onClick={() => setShowMiaSuggestions((visible) => !visible)}
+                    aria-controls="mia-assist-title"
+                    onClick={() => setAssistPanel(current => current === 'prompts' ? null : 'prompts')}
                   >
                     Prompts
                   </button>
@@ -3364,7 +3383,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     aria-pressed={isChatExpanded}
                     title={isChatExpanded ? `Collapse Ask ${assistantName} chat` : `Expand Ask ${assistantName} chat`}
                     onClick={() => {
-                      setShowMiaSuggestions(false)
+                      setAssistPanel(null)
                       setIsChatExpanded((expanded) => !expanded)
                     }}
                   >
@@ -3382,40 +3401,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 />
               )}
 
-              <div id="mia-suggestions-panel" className={`mia-suggestions-panel${showMiaSuggestions ? ' is-open' : ''}`} aria-label={`${assistantName} prompts`}>
-                <div className="mia-update-guide" aria-labelledby="mia-update-guide-title">
-                  <div>
-                    <span className="eyebrow">Fastest way to update your plan</span>
-                    <strong id="mia-update-guide-title">Say what changed in your own words.</strong>
-                    <small>{assistantName} will show you a review card. Nothing changes until you tap Apply.</small>
-                  </div>
-                  <div className="mia-update-examples" aria-label={`Example updates for ${assistantName}`}>
-                    {(isSavingsExperience ? SAVINGS_UPDATE_EXAMPLES : MIA_UPDATE_EXAMPLES).map((prompt) => (
-                      <button type="button" key={prompt} onClick={() => {
-                        setShowMiaSuggestions(false)
-                        prepareMiaUpdate(prompt)
-                      }} disabled={miaLoading}>
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="chat-prompts-shell">
-                  <div className="quick-prompts chat-prompts" aria-label={`Suggested questions for ${assistantName}`}>
-                    {(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : data.mia.quick_prompts).map((prompt) => (
-                      <button type="button" key={prompt} onClick={() => {
-                        setShowMiaSuggestions(false)
-                        void handleAskMia(prompt)
-                      }} disabled={miaLoading}>
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="chat-prompts-cue" aria-hidden="true">More prompts →</span>
-                </div>
-              </div>
-
+              {currentMessages.some(message => message.financial_restart?.available) && <div className="mia-restart-entry"><p>A reviewed start over is available. Your information changes only after you confirm the review.</p><button type="button" className="secondary-button" onClick={() => setFinancialRestartOpen(true)}>Review start over</button></div>}
               <ChatHistory
                   messages={visibleMessages}
                   totalMessageCount={currentMessages.length}
@@ -3484,6 +3470,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
               {voiceNotice && <p className={`voice-status${voiceRecording ? ' is-recording' : ''}`} role="status">{voiceNotice}</p>}
 
+              {miaLoading && miaWaitLong && <p className="mia-wait-status" role="status">Still working on your request. Your approved numbers change only after you review and apply.</p>}
               <form className="ask-row" onSubmit={handleAskMiaSubmit}>
                 <input
                   type="file"
@@ -3567,6 +3554,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 </button>
               </form>
             </section>
+            <MiaAssistPanels panel={assistPanel} onClose={() => setAssistPanel(null)} assistantName={assistantName} modal={isChatExpanded}
+              contextSummary={isFirstSessionSetup ? 'Your household setup is still incomplete. Share what you know; missing answers stay unknown.' : isSavingsExperience ? 'Your approved challenge records and household plan are separate. A bank movement or upload does not establish new savings.' : `Your saved household plan for ${selectedBudgetMonth?.label ?? 'this month'} ${selectedBudgetYear} is available. Dates and missing values still matter.`}
+              setupContent={isFirstSessionSetup ? <FirstSessionSetupProgress status={data.workspace.setup_status} onStartChat={() => { setAssistPanel(null); startChatFirstSession() }} onShareAll={() => { setAssistPanel(null); shareAllFirstSession() }} onManual={() => { setAssistPanel(null); startManualFirstSession() }} /> : undefined}
+              pendingCount={pendingImportsCount} processingCount={processingImportsCount}
+              latestSource={latestAppliedImport(documentImports) ? `Latest approved file: ${documentKindLabel(latestAppliedImport(documentImports)!.document_kind)} · ${importPeriodLabel(latestAppliedImport(documentImports)!)}.` : undefined}
+              realWorkspace={isRealWorkspace} uploading={Boolean(uploadingKind)} hasMessages={currentMessages.length > 0} busy={miaLoading || Boolean(budgetAction)}
+              onAttach={() => miaAttachmentInputRef.current?.click()} onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
+              onGuide={() => setPilotGuideOpen(true)} onFeedback={() => setPilotFeedbackOpen(true)}
+              onClearChat={() => { if (chatContextTriggerRef.current) handleClearMessagesRequest({ currentTarget: chatContextTriggerRef.current }) }}
+              onStartOver={isRealWorkspace && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
+              updatePrompts={isSavingsExperience ? SAVINGS_UPDATE_PROMPTS : MIA_UPDATE_PROMPTS}
+              questionPrompts={(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : data.mia.quick_prompts).map(message => ({ label: message, message }))}
+              onChoosePrompt={prepareMiaUpdate} />
           </div>
           <p className="disclaimer">{data.mia.disclaimer}</p>
         </section>
@@ -4182,6 +4182,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {dailyOpen && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <ChallengeToday key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} cohortId={data.workspace.cohort?.id} initialPurchase={dailyIntake?.scope===challengeIntakeScope?dailyIntake.intake:null} scope={{user_id:auth.currentUser.id,household_id:data.workspace.household_id}} onClose={() => {setDailyOpen(false);setDailyIntake(null)}} onStatements={() => { setDailyOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} onBaseline={() => { setDailyOpen(false); setBaselineOpen(true) }} />}
       {baselineOpen && isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <BaselineReview key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} scope={{ user_id: auth.currentUser.id, household_id: data.workspace.household_id }} onClose={() => setBaselineOpen(false)} onReviewStatements={() => { setBaselineOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} />}
       {showMiaLauncher && <Button className="mia-launcher" aria-label={`Open ${assistantName}`} title={`Open ${assistantName}`} onClick={() => switchSection('Ask Mia')}><FeedbackIcon /><span>{assistantName}</span></Button>}
+      {financialRestartOpen && <FinancialRestartDialog key={chatStorageKey} scopeKey={restartScopeKey}
+        blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind ? 'Save or cancel your open edits and let current requests finish before preparing a restart review.' : null}
+        onClose={() => setFinancialRestartOpen(false)} onApplied={finishFinancialRestart} />}
       {pilotGuideOpen && <PilotGuideDialog savingsChallenge={isSavingsExperience} onClose={() => setPilotGuideOpen(false)} />}
       {pilotFeedbackOpen && (
         <PilotFeedbackDialog
@@ -4555,6 +4558,7 @@ function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () =
           </div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
+        <div className="pilot-dialog-body">
         <ol className="pilot-guide-steps">
           {savingsChallenge ? <>
             <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested $500 over 90 days is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
@@ -4572,6 +4576,7 @@ function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () =
           <ShieldIcon />
           <p>Use Report a problem if you get stuck. Avoid typing account numbers or financial values into the report, and crop screenshots to the problem area.</p>
         </footer>
+        </div>
       </section>
     </div>
   )
@@ -4589,49 +4594,6 @@ function milestoneSummary(milestone: WealthData['milestones'][number]) {
   if (milestone.kind === 'debt_remaining') return `${currency.format(milestone.current)} remaining`
 
   return milestone.unit
-}
-
-function DocumentContextCard({
-  imports,
-  pendingCount,
-  processingCount,
-  onOpenProfile,
-  onAttach,
-  uploading,
-}: {
-  imports: FinancialDocumentImport[]
-  pendingCount: number
-  processingCount: number
-  onOpenProfile: () => void
-  onAttach: () => void
-  uploading: boolean
-}) {
-  const { assistantName } = useBrand()
-  const latestApplied = latestAppliedImport(imports)
-
-  return (
-    <div className="document-context-card">
-      <div className="document-context-stats" aria-label={`Document import context for ${assistantName}`}>
-        <span><strong>{pendingCount}</strong> waiting review</span>
-        <span><strong>{processingCount}</strong> processing</span>
-      </div>
-      <p>
-        {latestApplied
-          ? `Latest approved source: ${documentKindLabel(latestApplied.document_kind)} · ${importPeriodLabel(latestApplied)}.`
-          : `No approved document sources yet. ${assistantName} will use manual numbers until you apply extracted values.`}
-      </p>
-      <div className="upload-strip">
-        <button type="button" onClick={onAttach} disabled={uploading}>
-          <AttachmentIcon />
-          {uploading ? 'Uploading privately' : 'Attach document'}
-        </button>
-        <button type="button" onClick={onOpenProfile}>
-          <StatementIcon />
-          Review imports
-        </button>
-      </div>
-    </div>
-  )
 }
 
 function DocumentImportWorkspace({
@@ -4833,7 +4795,7 @@ function DocumentUploadCard({
         <span>{card.eyebrow}</span>
         <h4>{card.label}</h4>
         <p>{card.helper}</p>
-        <small>{card.accepts.replaceAll(',', ' · ')}</small>
+        <small>{card.formats}</small>
         <small>{card.sizeGuidance}</small>
         <strong>{uploading ? 'Uploading privately' : 'Choose file'}</strong>
       </label>
@@ -8122,7 +8084,7 @@ function IncomeSourceManager({
           <h3 id="income-source-manager-title">Keep each source clear and editable.</h3>
           <p>Totals are calculated from these records. Choose the first month an ending source should be $0 so prior plans remain accurate.</p>
         </div>
-        <strong>{currency.format(sources.filter(incomeSourceIsCurrent).reduce((total, source) => total + monthlyIncomeAmount(source), 0))} current monthly</strong>
+        <strong>{sources.length === 0 ? 'Income not entered' : `${currency.format(sources.filter(incomeSourceIsCurrent).reduce((total, source) => total + monthlyIncomeAmount(source), 0))} current monthly`}</strong>
       </div>
 
       {error && <p className="setup-error" role="alert">{error}</p>}

@@ -25,6 +25,8 @@ const demoHouseholdData = readFileSync(resolve(__dirname, '../../api/app/service
 const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
 const brandContext = readFileSync(resolve(__dirname, '../src/contexts/BrandContext.tsx'), 'utf8')
 const brandDocument = readFileSync(resolve(__dirname, '../src/components/BrandDocument.tsx'), 'utf8')
+const assistPanel = readFileSync(resolve(__dirname, '../src/components/MiaAssistPanels.tsx'), 'utf8')
+const assistCss = readFileSync(resolve(__dirname, '../src/components/MiaAssistPanels.css'), 'utf8')
 
 const expectedNav = "['Home', 'Review', 'Ask Mia', 'My Money', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']"
 assert.ok(
@@ -36,8 +38,8 @@ assert.ok(!app.includes("'Dashboard'"), 'Dashboard label should be converted to 
 assert.ok(!app.includes("'Cohort'"), 'Cohort/admin should not appear in participant nav')
 assert.ok(app.includes('<h1>{brand.short_name}</h1>'), 'every participant destination should use the release-pinned product header')
 assert.ok(!app.includes('compactShell'), 'participant destinations should not switch shell geometry')
-assert.ok(app.includes('chat-prompts-cue') && app.includes('More prompts →'), 'Mia prompts should disclose horizontal choices')
-assert.ok(css.includes('.chat-prompts-cue {\n    display: none;'), 'wrapped mobile prompts should not show a misleading horizontal-scroll cue')
+assert.ok(assistPanel.includes('Update my information') && assistPanel.includes('Ask a question') && app.includes('onChoosePrompt={prepareMiaUpdate}'), 'Mia prompt groups should use consistent prepare-first behavior')
+assert.ok(!assistPanel.includes('More prompts') && assistCss.includes('.mia-assist-prompts { display: grid'), 'all prompt choices should be visible without a misleading horizontal cue')
 assert.ok(css.includes('@media (prefers-reduced-motion: reduce)'), 'screen motion should respect reduced-motion preferences')
 assert.ok(home.includes('home-detail-disclosure'), 'Home should progressively disclose deeper annual-plan details')
 assert.ok(app.includes('<ActivityPreview'), 'demo Review should provide a useful plan view instead of a dead end')
@@ -111,7 +113,7 @@ assert.ok(app.includes('demoUploads.map') && app.includes('<h3>{upload.label}</h
 for (const uploadLabel of ['Upload spreadsheet', 'Upload statement', 'Upload pay stub']) {
   assert.ok(demoHouseholdData.includes(`label: "${uploadLabel}"`), `the demo API should supply the visible ${uploadLabel} card`)
 }
-assert.ok(app.includes('Approved data loaded'), 'the visible workspace status should identify approved data')
+assert.ok(assistPanel.includes('Your saved picture') && app.includes('Your saved household plan'), 'workspace help should identify saved data without implying missing values are complete')
 assert.ok(!app.includes('Source-derived design requirements'), 'production accessibility output must not contain test-only source copy')
 
 for (const token of ['--cream', '--ink', '--ink-soft', '--paper-deep', '--emerald', '--berry', '--font-display', '--serif-font', '--status-green', '--status-yellow', '--status-red']) {

@@ -18,6 +18,7 @@ export function workspaceViewReducer(state: WorkspaceView, action: WorkspaceView
   const data = typeof update === 'function' ? update(state.data) : update
   if (!data) return { data: null, homeBudget: null, budgets: {} }
   const sameWorkspace = state.data?.workspace.household_id === data.workspace.household_id
+    && (state.data?.workspace.financial_generation ?? 0) === (data.workspace.financial_generation ?? 0)
     && state.data?.workspace.mode === data.workspace.mode
     && state.data?.workspace.cohort?.id === data.workspace.cohort?.id
   const currentYear = data.dashboard.action_center.current_year
