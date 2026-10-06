@@ -6,6 +6,7 @@ module HouseholdFinance
       Error = Class.new(ArgumentError)
       StaleReview = Class.new(Error)
       OwnerRequired = Class.new(Error)
+      AdminRequired = Class.new(Error)
       ROOTS = %w[income_sources expense_items debts accounts goals budget_years budget_categories household_transactions transaction_drafts mia_action_drafts merchant_category_rules].freeze
       ROW_DIGESTS = {
         "income_sources" => Arel.sql("encode(sha256(convert_to(row_to_json(income_sources.*)::text, 'UTF8')), 'hex')"),
@@ -26,7 +27,7 @@ module HouseholdFinance
         "transaction_splits" => Arel.sql("encode(sha256(convert_to(row_to_json(transaction_splits.*)::text, 'UTF8')), 'hex')"),
         "transaction_draft_splits" => Arel.sql("encode(sha256(convert_to(row_to_json(transaction_draft_splits.*)::text, 'UTF8')), 'hex')")
       }.freeze
-      PRESERVED = [ "Login, household name and members", "BOG enrollment, savings, evidence and optional card reviews", "Original uploads and bank connections", "Audit and previous financial history", "Earlier chats for reference", "Saved private memories (paused in Mia until reviewed)" ].freeze
+      PRESERVED = [ "Login, household name and members", "BOG enrollment, savings, evidence and optional card reviews", "Original uploads and bank connections", "Audit and previous financial history", "Earlier conversations retained privately as read-only history", "Saved private memories (paused in Mia until reviewed)" ].freeze
       PAUSED = [ "Earlier document applications", "Earlier bank transaction staging and automatic confirmation", "Previous chat continuity and saved-memory context" ].freeze
 
       def initialize(household, user:, cohort_membership: nil)
@@ -34,10 +35,17 @@ module HouseholdFinance
       end
 
       def status(review_id: nil)
-        role = household.household_memberships.find_by(user_id: user.id)&.role
-        reviews = household.financial_restart_reviews.where(requested_by_user: user, cohort_id: cohort_id)
-        latest = review_id ? reviews.find(review_id) : reviews.order(id: :desc).first
-        { available: role == "owner", owner_required: role != "owner", financial_generation: household.reload.financial_generation,
+        ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user)
+        actor = User.find_by(id: user.id)
+        owner = household.household_memberships.exists?(user_id: user.id, role: "owner")
+        available = actor&.admin? && !actor.revoked? && owner
+        if review_id
+          authorize!
+          latest = household.financial_restart_reviews.where(requested_by_user: user, cohort_id: cohort_id).find(review_id)
+        elsif available
+          latest = household.financial_restart_reviews.where(requested_by_user: user, cohort_id: cohort_id).order(id: :desc).first
+        end
+        { available: !!available, admin_required: !actor&.admin?, owner_required: !owner, financial_generation: household.reload.financial_generation,
           household_id: household.id, household_name: household.name, latest_review: latest && serialize(latest) }
       end
 
@@ -104,7 +112,8 @@ module HouseholdFinance
       def authorize!
         actor = User.lock.find_by(id: user.id)
         raise OwnerRequired, "This account no longer has permission to restart financial records. Nothing changed." unless actor && !actor.revoked?
-        raise OwnerRequired, "Only the household owner can start a new shared financial picture. Ask the owner to review Start over. Nothing changed." unless household.household_memberships.exists?(user_id: user.id, role: "owner")
+        raise AdminRequired, "Starting over is an administrator testing tool. Update individual records through Mia or My Money instead. Nothing changed." unless actor.admin?
+        raise OwnerRequired, "Only an administrator who owns this household can reset its test financial picture. Nothing changed." unless household.household_memberships.exists?(user_id: user.id, role: "owner")
         selected = ::Mia::EffectiveCohortResolver.new(user: user, role: "participant", requested_cohort_id: cohort_id).call if cohort_id
         if selected&.cohort&.savings_challenge_enabled
           SavingsChallenge::AccessPolicy.new(household: household, user: user, cohort: selected.cohort).call!
@@ -128,8 +137,8 @@ module HouseholdFinance
         { household_id: household.id, household_name: household.name, financial_generation: household.financial_generation,
           shared_member_count: shared_member_count, counts: rows.transform_values(&:length),
           version_fingerprint: fingerprint(rows.merge(setup: household.attributes.slice("confirmed_setup_fields", "primary_goal"), profile: household.household_profile.attributes, memberships: household.household_memberships.order(:id).pluck(:id, :role))),
-          reset_fields: [ "Financial setup and confirmations", "Income (including historical and future schedules)", "Spending categories, plans and actuals", "Debts, accounts and goals" ],
-          preserved: PRESERVED, paused: PAUSED, clears_chat: false, clears_memories: false }
+          reset_fields: [ "Financial setup and confirmations", "Income (including historical and future schedules)", "Spending categories, plans and actuals", "Debts, accounts and goals", "Active Mia conversation (earlier conversations move to private history)" ],
+          preserved: PRESERVED, paused: PAUSED, clears_chat: true, clears_memories: false }
       end
 
       def fingerprint(value) = Digest::SHA256.hexdigest(JSON.generate(value))

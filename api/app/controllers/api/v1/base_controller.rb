@@ -73,6 +73,7 @@ module Api
         return !action_name.in?(%w[destroy reject]) if controller_name == "household_memories"
         names = %w[workspaces income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines]
         return true if names.include?(controller_name)
+        return params[:picture] != "all" if controller_name == "mia_messages" && action_name == "destroy"
         return false unless controller_name == "mia_messages" && action_name == "create"
         return true unless current_cohort_membership&.cohort&.savings_challenge_enabled == true
         session = current_household.chat_sessions.find_by(user_id: current_user.id, cohort_id: current_cohort_membership&.cohort_id)

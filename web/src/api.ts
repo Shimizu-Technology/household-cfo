@@ -846,7 +846,7 @@ export type MiaAnswerPresentation = {
 }
 
 export type MiaMessage = {
-  financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' } | null
+  financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
   id?: number
   client_id?: string
   role: 'assistant' | 'user'
@@ -866,6 +866,7 @@ export type MiaMessage = {
 }
 
 export type MiaMessagesData = {
+  historical_message_count?: number
   messages: MiaMessage[]
   oldest_message_id: number | null
   older_message_count: number
@@ -2676,15 +2677,15 @@ async function apiRequestError(response: Response, fallback: string) {
   })
 }
 
-export async function fetchCurrentUser(): Promise<CurrentUser> {
+export async function fetchCurrentUser(signal?: AbortSignal): Promise<CurrentUser> {
   try {
-    const payload = await fetchJson<{ user: CurrentUser }>('/api/v1/auth/me')
+    const payload = await fetchJson<{ user: CurrentUser }>('/api/v1/auth/me', { signal })
     return payload.user
   } catch (error) {
     if (!(error instanceof ApiRequestError) || error.status !== 404 || !activeCoachWorkspaceId) throw error
 
     setActiveCoachWorkspaceId(null)
-    const payload = await fetchJson<{ user: CurrentUser }>('/api/v1/auth/me')
+    const payload = await fetchJson<{ user: CurrentUser }>('/api/v1/auth/me', { signal })
     return payload.user
   }
 }
@@ -3804,7 +3805,7 @@ export async function fetchSpendingReport(startOn: string, endOn: string): Promi
 }
 
 export type MiaMessageResponse = {
-  financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' } | null
+  financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
   savings_intake?: import('./lib/savingsChallenge').SavingsIntake | null
   user_message: MiaMessage
   assistant_message: MiaMessage
@@ -3832,6 +3833,7 @@ export type FinancialRestartReview = {
 }
 
 export type FinancialRestartState = {
+  admin_required?: boolean
   household_id: number
   available: boolean
   owner_required: boolean
@@ -3869,6 +3871,15 @@ export async function fetchMiaMessages(realWorkspace = false, beforeId?: number 
 
   const query = beforeId ? `?before_id=${encodeURIComponent(beforeId)}&limit=60` : '?limit=60'
   return fetchJson<MiaMessagesData>(`/api/v1/mia/messages${query}`)
+}
+
+export type EarlierMiaMessages = Pick<MiaMessagesData, 'messages' | 'oldest_message_id' | 'older_message_count' | 'has_older_messages'> & { picture: 'history'; read_only: true }
+export async function fetchEarlierMiaMessages(beforeId?: number | null, signal?: AbortSignal): Promise<EarlierMiaMessages> {
+  const query = new URLSearchParams({ picture: 'history', limit: '60' })
+  if (beforeId) query.set('before_id', String(beforeId))
+  const result = await fetchJson<EarlierMiaMessages>(`/api/v1/mia/messages?${query}`, { signal, cache: 'no-store' })
+  if (result.picture !== 'history' || result.read_only !== true) throw new Error('Earlier conversations could not be verified. Reload and try again.')
+  return result
 }
 
 export async function fetchHouseholdMemories(): Promise<MiaMemoryData> {

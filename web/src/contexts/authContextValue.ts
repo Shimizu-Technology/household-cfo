@@ -9,6 +9,7 @@ export type AuthContextValue = {
   isVerifyingApi: boolean
   currentUser: CurrentUser | null
   activeCoachWorkspaceId: number | null
+  authRecoveryRequired?: boolean
   authError: string | null
   refreshCurrentUser: () => Promise<void>
   selectCoachWorkspace: (workspaceId: number | null) => void

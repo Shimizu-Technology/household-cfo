@@ -140,6 +140,7 @@ class PlaidIntegrationTransactionSyncTest < ActiveSupport::TestCase
   end
 
   def restart_and_resume!
+    @user.update!(role: "admin")
     flow = HouseholdFinance::FinancialRestart::Flow.new(@household.reload, user: @user)
     review = flow.preview
     flow.apply(review_id: review[:review][:id], confirmation: "START OVER")

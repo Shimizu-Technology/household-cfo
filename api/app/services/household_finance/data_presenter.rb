@@ -219,16 +219,20 @@ module HouseholdFinance
       }
     end
 
-    def mia(before_id: nil, limit: 60)
+    def mia(before_id: nil, limit: 60, picture: nil)
       ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
-      page = chat_message_page(before_id: before_id, limit: limit)
+      history = picture == "history"
+      page = chat_message_page(before_id: before_id, limit: limit, history: history)
       {
         messages: page.fetch(:messages),
         oldest_message_id: page[:oldest_message_id],
         older_message_count: page.fetch(:older_message_count),
         has_older_messages: page.fetch(:older_message_count).positive?,
-        quick_prompts: quick_prompts,
-        disclaimer: persona.disclaimer
+        historical_message_count: chat_session ? chat_session.chat_messages.where("financial_generation < ?", household.financial_generation).count : 0,
+        picture: history ? "history" : "current",
+        read_only: history,
+        quick_prompts: history ? [] : quick_prompts,
+        disclaimer: history ? nil : persona.disclaimer
       }
     end
 
@@ -1024,12 +1028,18 @@ module HouseholdFinance
       ]
     end
 
-    def chat_message_page(before_id:, limit:)
+    def chat_message_page(before_id:, limit:, history: false)
       return { messages: [], oldest_message_id: nil, older_message_count: 0 } unless user
       return { messages: [], oldest_message_id: nil, older_message_count: 0 } unless chat_session
 
       page_limit = (limit.presence || 60).to_i.clamp(1, 100)
-      relation = chat_session.chat_messages.includes(
+      generation = FinancialPicture.generation || household.financial_generation
+      scoped_messages = if history
+        chat_session.chat_messages.where("financial_generation < ?", generation)
+      else
+        chat_session.chat_messages.where(financial_generation: generation)
+      end
+      relation = scoped_messages.includes(
         coach_content_citations: [
           :coach_content_pack_version,
           { coach_content_item_version: :coach_content_item }
@@ -1039,9 +1049,12 @@ module HouseholdFinance
       messages = relation.order(id: :desc).limit(page_limit).to_a.reverse
       imports_by_id = attachment_imports_by_id(messages)
       oldest_message_id = messages.first&.id
-      older_message_count = oldest_message_id ? chat_session.chat_messages.where("id < ?", oldest_message_id).count : 0
+      older_message_count = oldest_message_id ? scoped_messages.where("id < ?", oldest_message_id).count : 0
       {
-        messages: messages.map { |message| serialize_chat_message(message, imports_by_id: imports_by_id) },
+        messages: messages.map do |message|
+          payload = serialize_chat_message(message, imports_by_id: imports_by_id)
+          history ? payload.merge(financial_restart: nil, presentation: {}, read_only: true) : payload
+        end,
         oldest_message_id: oldest_message_id,
         older_message_count: older_message_count
       }

@@ -10492,32 +10492,32 @@ function restartBrowserWorkspace(generation: number) {
   return {
     ...base,
     workspace: {
-      ...base.workspace, financial_generation: generation, experience_mode: 'savings_challenge',
+      ...base.workspace, financial_generation: generation, experience_mode: 'household_cfo', cohort: null,
       income_sources: empty ? [] : base.workspace.income_sources,
       debts: empty ? [] : [{ id: 601, label: 'Practice Visa', debt_type: 'credit_card', balance: 3400, minimum_payment: 175, interest_rate_percent: 19.9, active: true, source_type: 'manual', archived_at: null }],
       debt_portfolio: { ...base.workspace.debt_portfolio, total_balance: empty ? null : 3400, monthly_minimum: empty ? null : 175, balance_known: !empty, minimum_payment_known: !empty, active_count: empty ? 0 : 1 },
-      setup_values: { ...base.workspace.setup_values, primary_goal: empty ? '' : 'Practice goal', primary_income: empty ? null : 5000, business_income: empty ? null : 0, fixed_expenses: empty ? null : 2500, flexible_spend: empty ? null : 600, credit_card_debt: empty ? null : 3400, debt_payment: empty ? null : 175 },
+      setup_values: { ...base.workspace.setup_values, household_name: 'Admin Test Household', primary_goal: empty ? '' : 'Practice goal', primary_income: empty ? null : 5000, business_income: empty ? null : 0, fixed_expenses: empty ? null : 2500, flexible_spend: empty ? null : 600, credit_card_debt: empty ? null : 3400, debt_payment: empty ? null : 175 },
     },
     budget: { ...base.budget, financial_generation: generation, annual_plan: { ...plan, rows: empty ? [] : plan.rows, income_sources: empty ? [] : plan.income_sources, monthly_income: empty ? {} : plan.monthly_income, pending_mia_action_drafts: [], pending_transaction_drafts: [], recent_transactions: [], archived_categories: [] } },
-    mia: { ...base.mia, messages: [], oldest_message_id: null, older_message_count: 0 },
+    mia: { ...base.mia, messages: [], oldest_message_id: null, older_message_count: 0, historical_message_count: empty ? 2 : 0 },
   }
 }
 
-async function mockFinancialRestartBrowser(page: Page, options: { lostReply?: boolean; sharedMembers?: number } = {}) {
+async function mockFinancialRestartBrowser(page: Page, options: { lostReply?: boolean; sharedMembers?: number; baselineParticipant?: boolean } = {}) {
   let generation = 0, previewCalls = 0, applyCalls = 0, cancelCalls = 0
   const statusChecks: string[] = []
   const applies: Array<Record<string, unknown>> = []
   let review: Record<string, unknown> | null = null
   const pending = (id: number) => ({
-    id, status: 'pending', financial_generation: generation, household_name: 'Test Participant Household',
+    id, status: 'pending', financial_generation: generation, household_name: 'Admin Test Household',
     expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), shared_member_count: options.sharedMembers ?? 2,
     counts: { income_sources: 3, income_schedule_entries: 8, expense_items: 6, budget_years: 4, budget_categories: 6, budget_allocations: 288, debts: 2, accounts: 3, goals: 2, household_transactions: 121, transaction_drafts: 4, mia_action_drafts: 2, merchant_category_rules: 7, document_imports: 5, bank_connections: 1 },
     reset_fields: ['Financial setup and confirmations', 'Income including historical and future schedules', 'Spending categories, plans and actuals', 'Debts, accounts and goals'],
-    preserved: ['Login, household name and members', 'BOG enrollment, savings, evidence and optional card reviews', 'Original uploads and bank connections', 'Audit and previous financial history', 'Earlier chats for reference', 'Saved private memories (paused in Mia until reviewed)'],
+    preserved: ['Login, household name and members', 'BOG enrollment, savings, evidence and optional card reviews', 'Original uploads and bank connections', 'Audit and previous financial history', 'Earlier chats kept as private history', 'Saved private memories (paused in Mia until reviewed)'],
     paused: ['Earlier document applications', 'Earlier bank transaction staging and automatic confirmation', 'Previous chat continuity and saved-memory context'], clears_chat: false, clears_memories: false,
   })
-  const state = () => ({ household_id: 77, household_name: 'Test Participant Household', available: true, owner_required: false, financial_generation: generation, latest_review: review })
-  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ headers: { 'X-Financial-Generation': String(generation), 'Access-Control-Expose-Headers': 'X-Financial-Generation' }, json: restartBrowserWorkspace(generation) }))
+  const state = () => ({ household_id: 77, household_name: 'Admin Test Household', available: true, owner_required: false, admin_required: false, financial_generation: generation, latest_review: review })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ headers: { 'X-Financial-Generation': String(generation), 'Access-Control-Expose-Headers': 'X-Financial-Generation' }, json: options.baselineParticipant ? { ...restartBrowserWorkspace(generation), workspace: { ...restartBrowserWorkspace(generation).workspace, experience_mode: 'household_cfo', cohort: realWorkspaceData(true).workspace.cohort } } : restartBrowserWorkspace(generation) }))
   await page.route('http://api.test/api/v1/financial_restart/**', async route => {
     const path = new URL(route.request().url()).pathname, input = route.request().method() === 'POST' ? route.request().postDataJSON() : null
     if (path.endsWith('/status')) {
@@ -10542,7 +10542,20 @@ async function mockFinancialRestartBrowser(page: Page, options: { lostReply?: bo
     }
     throw new Error(`Unexpected fictional restart route: ${path}`)
   })
-  await page.route('http://api.test/api/v1/mia/messages', route => {
+  const earlierMessages = [
+    { id: 201, role: 'user', author: 'You', content: 'My old practice debt was $3,400.', created_at: new Date().toISOString() },
+    { id: 202, role: 'assistant', author: 'Mia', content: 'Earlier practice coaching.', financial_restart: { available: true, state: 'review_available' }, created_at: new Date().toISOString() },
+  ]
+  const historyRequests: string[] = []
+  await page.route('http://api.test/api/v1/mia/messages**', route => {
+    if (route.request().method() === 'GET') {
+      const url = new URL(route.request().url())
+      if (url.searchParams.get('picture') === 'history') {
+        historyRequests.push(url.search)
+        return route.fulfill({ json: { messages: earlierMessages, picture: 'history', read_only: true, oldest_message_id: 201, older_message_count: 0, has_older_messages: false } })
+      }
+      return route.fulfill({ headers: { 'X-Financial-Generation': String(generation), 'Access-Control-Expose-Headers': 'X-Financial-Generation' }, json: { messages: [], oldest_message_id: null, older_message_count: 0, has_older_messages: false, historical_message_count: generation > 0 ? earlierMessages.length : 0, quick_prompts: [], disclaimer: 'Education only.' } })
+    }
     const message = route.request().postDataJSON().message
     return route.fulfill({ json: {
       financial_restart: { available: true, state: 'review_available' },
@@ -10551,7 +10564,7 @@ async function mockFinancialRestartBrowser(page: Page, options: { lostReply?: bo
       budget: null, transaction_draft: null, mia_action_draft: null,
     } })
   })
-  return { generation: () => generation, previewCalls: () => previewCalls, applyCalls: () => applyCalls, cancelCalls: () => cancelCalls, statusChecks, applies, changePicture: () => { generation += 1 } }
+  return { generation: () => generation, previewCalls: () => previewCalls, applyCalls: () => applyCalls, cancelCalls: () => cancelCalls, statusChecks, applies, historyRequests, changePicture: () => { generation += 1 } }
 }
 
 async function assertRestartUnknownMoney(page: Page) {
@@ -10582,7 +10595,7 @@ async function acknowledgeRestart(dialog: ReturnType<Page['getByRole']>) {
   const ownConfirmation = dialog.getByRole('checkbox', { name: /I reviewed what starts fresh/ })
   await settleRestartPointerControl(ownConfirmation)
   await ownConfirmation.check()
-  const apply = dialog.getByRole('button', { name: 'Start over with my real numbers', exact: true })
+  const apply = dialog.getByRole('button', { name: 'Reset my test workspace', exact: true })
   await expect(apply).toBeDisabled()
   const sharedConfirmation = dialog.getByRole('checkbox', { name: /I understand this changes the shared financial picture/ })
   await settleRestartPointerControl(sharedConfirmation)
@@ -10591,15 +10604,15 @@ async function acknowledgeRestart(dialog: ReturnType<Page['getByRole']>) {
 }
 
 for (const size of [null, { width: 390, height: 844 }, { width: 320, height: 568 }, { width: 320, height: 280 }]) {
-  test(`BOG UI financial restart opens a concrete review from Mia and requires shared confirmation at ${size ? `${size.width}x${size.height}` : 'desktop'}`, async ({ page }) => {
+  test(`Admin UI financial restart opens a concrete review from Mia and requires shared confirmation at ${size ? `${size.width}x${size.height}` : 'desktop'}`, async ({ page }) => {
     if (size) await page.setViewportSize(size)
     const flow = await mockFinancialRestartBrowser(page)
-    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    await page.goto('/?pilot_e2e_role=admin#Ask%20Mia')
     await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('These are practice numbers. Can you reset everything so I can use my real information?')
     await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: 'Start over with my real numbers', exact: true })
+    const dialog = page.getByRole('dialog', { name: 'Reset my test workspace', exact: true })
     await expect(dialog).toBeVisible()
-    await expect(dialog).toContainText('Test Participant Household')
+    await expect(dialog).toContainText('Admin Test Household')
     await expect(dialog.locator('.financial-restart-counts > div')).toHaveCount(15)
     await expect(dialog).toContainText('BOG enrollment, savings, evidence and optional card reviews')
     await assertDialogVisibleHeight(dialog)
@@ -10618,7 +10631,7 @@ for (const size of [null, { width: 390, height: 844 }, { width: 320, height: 568
     expect(flow.cancelCalls()).toBe(1); expect(flow.applyCalls()).toBe(0); expect(flow.generation()).toBe(0)
     await page.getByRole('button', { name: 'Review start over', exact: true }).click()
     await acknowledgeRestart(dialog)
-    await dialog.getByRole('button', { name: 'Start over with my real numbers', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Reset my test workspace', exact: true }).click()
     await expect(dialog).toHaveCount(0)
     expect(flow.applyCalls()).toBe(1); expect(flow.generation()).toBe(1)
     await expect(page.getByRole('status').filter({ hasText: 'Your financial picture is ready for a fresh start.' })).toBeVisible()
@@ -10626,21 +10639,21 @@ for (const size of [null, { width: 390, height: 844 }, { width: 320, height: 568
   })
 }
 
-test('BOG UI financial restart resolves an exact lost reply without applying a second restart', async ({ page }) => {
+test('Admin UI financial restart resolves an exact lost reply without applying a second restart', async ({ page }) => {
   const flow = await mockFinancialRestartBrowser(page, { lostReply: true })
-  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.goto('/?pilot_e2e_role=admin#Ask%20Mia')
   await openAccountHelp(page)
-  await page.locator('.shell-account-menu').getByRole('button', { name: 'Start over with my real numbers', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Start over with my real numbers', exact: true })
+  await page.locator('.shell-account-menu').getByRole('button', { name: 'Reset my test workspace', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Reset my test workspace', exact: true })
   await acknowledgeRestart(dialog)
-  await dialog.getByRole('button', { name: 'Start over with my real numbers', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Reset my test workspace', exact: true }).click()
   await expect(dialog.getByRole('button', { name: 'Check whether start over finished', exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: 'Close and check later', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await page.reload()
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
   await openAccountHelp(page)
-  await page.locator('.shell-account-menu').getByRole('button', { name: 'Start over with my real numbers', exact: true }).click()
+  await page.locator('.shell-account-menu').getByRole('button', { name: 'Reset my test workspace', exact: true }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Your financial picture is ready for a fresh start.' })).toBeVisible()
   await expect(dialog).toHaveCount(0)
   await expect.poll(flow.applyCalls).toBe(1)
@@ -10650,8 +10663,8 @@ test('BOG UI financial restart resolves an exact lost reply without applying a s
 })
 
 for (const delayedPath of ['', '/context']) {
-  test(`BOG UI financial restart discards a stale baseline ${delayedPath ? 'source choices' : 'head'} reply and its old draft`, async ({ page }) => {
-    const flow = await mockFinancialRestartBrowser(page)
+  test(`BOG UI financial generation change discards a stale baseline ${delayedPath ? 'source choices' : 'head'} reply and its old draft`, async ({ page }) => {
+    const flow = await mockFinancialRestartBrowser(page, { baselineParticipant: true })
     let delayed = false, reached = false
     let release: () => void = () => undefined
     const gate = new Promise<void>(resolve => { release = resolve })
@@ -10684,6 +10697,143 @@ for (const delayedPath of ['', '/context']) {
   })
 }
 
+
+for (const role of ['participant', 'coach'] as const) {
+  test(`BOG UI ${role} cannot see or reopen an admin reset from stale Mia offers`, async ({ page }) => {
+    const base = realWorkspaceData(true)
+    const staleOffer = {
+      id: 202, role: 'assistant', author: 'Mia', content: 'An earlier reset offer is retained here.',
+      financial_restart: { available: true, state: 'review_available' }, created_at: new Date().toISOString(),
+    }
+    const restartRequests: string[] = []
+    await page.route('http://api.test/api/v1/financial_restart/**', route => {
+      restartRequests.push(route.request().url())
+      return route.fulfill({ status: 403, json: { error: 'financial_restart_admin_required' } })
+    })
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: { ...base, mia: { ...base.mia, messages: [staleOffer] } } }))
+    await page.route('http://api.test/api/v1/mia/messages**', route => {
+      if (route.request().method() === 'GET') return route.fulfill({ json: { ...base.mia, messages: [staleOffer] } })
+      return route.fulfill({ json: {
+        financial_restart: { available: true, state: 'review_available' },
+        user_message: { id: 203, role: 'user', author: 'You', content: 'Reset everything.', created_at: new Date().toISOString() },
+        assistant_message: { ...staleOffer, id: 204, content: 'An out-of-date server returned another reset offer.' },
+        budget: null, transaction_draft: null, mia_action_draft: null,
+      } })
+    })
+    await page.goto(`/?pilot_e2e_role=${role}#Ask%20Mia`)
+    await expect(page.getByText(staleOffer.content, { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Review start over', exact: true })).toHaveCount(0)
+    await openAccountHelp(page)
+    await expect(page.locator('.shell-account-menu').getByRole('button', { name: 'Reset my test workspace', exact: true })).toHaveCount(0)
+    await page.locator('.shell-account-menu summary').click()
+    await openChatContext(page)
+    await expect(chatAssistPanel(page).getByRole('button', { name: 'Reset my test workspace', exact: true })).toHaveCount(0)
+    await expect(chatAssistPanel(page)).not.toContainText('Admin testing only')
+    await closeChatAssistPanel(page)
+    await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Reset everything.')
+    await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
+    await expect(page.getByText('An out-of-date server returned another reset offer.', { exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Reset my test workspace', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Review start over', exact: true })).toHaveCount(0)
+    expect(restartRequests).toEqual([])
+  })
+}
+
+test('Admin UI financial restart starts an empty chat and exposes old messages only as explicit private history', async ({ page }) => {
+  const flow = await mockFinancialRestartBrowser(page)
+  await page.goto('/?pilot_e2e_role=admin#Ask%20Mia')
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Reset my practice numbers.')
+  await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
+  const reset = page.getByRole('dialog', { name: 'Reset my test workspace', exact: true })
+  await acknowledgeRestart(reset)
+  await reset.getByRole('button', { name: 'Reset my test workspace', exact: true }).click()
+  await expect(reset).toHaveCount(0)
+  await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Review start over', exact: true })).toHaveCount(0)
+  expect(flow.historyRequests).toEqual([])
+  await openChatContext(page)
+  await chatAssistPanel(page).getByRole('button', { name: 'Earlier conversations', exact: true }).click()
+  const history = page.getByRole('dialog', { name: 'Earlier conversations', exact: true })
+  await expect(history).toBeVisible()
+  await expect(history).toContainText('read-only')
+  await expect(history.getByText('My old practice debt was $3,400.', { exact: true })).toBeVisible()
+  await expect(history.getByRole('button', { name: 'Review start over', exact: true })).toHaveCount(0)
+  await expect(history.getByRole('button', { name: /Apply|Reset my test workspace/ })).toHaveCount(0)
+  expect(flow.historyRequests).toEqual(['?picture=history&limit=60'])
+  await assertDialogVisibleHeight(history)
+  await history.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(history).toHaveCount(0)
+  await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
+  await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
+  await expect(page.getByText('My old practice debt was $3,400.', { exact: true })).toHaveCount(0)
+})
+
+test('BOG UI fresh chat ignores old browser caches and paginates earlier messages without restoring their actions', async ({ page }) => {
+  const base = realWorkspaceData(true)
+  const cached = { id: 201, role: 'assistant', author: 'Mia', content: 'Cached practice salary was $5,000.', financial_restart: { available: true, state: 'review_available' }, created_at: new Date().toISOString() }
+  await page.addInitScript(message => {
+    for (const generation of [0, 1]) {
+      window.localStorage.setItem(`household-cfo:mia-chat:v1:user-901:participant:77:41:picture:${generation}`, JSON.stringify([message]))
+    }
+  }, cached)
+  const currentMia = { ...base.mia, messages: [], oldest_message_id: null, historical_message_count: 2, older_message_count: 0, has_older_messages: false }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ headers: { 'X-Financial-Generation': '1', 'Access-Control-Expose-Headers': 'X-Financial-Generation' }, json: { ...base, workspace: { ...base.workspace, financial_generation: 1 }, mia: currentMia } }))
+  const historyRequests: string[] = []
+  await page.route('http://api.test/api/v1/mia/messages**', route => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('picture') !== 'history') return route.fulfill({ json: currentMia })
+    historyRequests.push(url.search)
+    const older = url.searchParams.get('before_id') === '201'
+    return route.fulfill({ json: {
+      picture: 'history', read_only: true,
+      messages: [{ ...cached, id: older ? 200 : 201, content: older ? 'An older private conversation.' : 'Latest earlier private conversation.', attachments: [{ filename: 'earlier-fictional-statement.pdf' }] }],
+      oldest_message_id: older ? 200 : 201, older_message_count: older ? 0 : 1, has_older_messages: !older,
+    } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
+  await expect(page.getByText(cached.content, { exact: true })).toHaveCount(0)
+  await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Keep my current draft.')
+  await openChatContext(page)
+  await chatAssistPanel(page).getByRole('button', { name: 'Earlier conversations', exact: true }).click()
+  const history = page.getByRole('dialog', { name: 'Earlier conversations', exact: true })
+  await expect(history.getByText('Latest earlier private conversation.', { exact: true })).toBeVisible()
+  await history.getByRole('button', { name: 'Load earlier messages (1 remaining)', exact: true }).click()
+  await expect(history.getByText('An older private conversation.', { exact: true })).toBeVisible()
+  await expect(history.locator('.earlier-mia-messages article')).toHaveCount(2)
+  await expect(history.locator('.earlier-mia-messages article').first()).toContainText('An older private conversation.')
+  await expect(history).toContainText('Earlier attachments: earlier-fictional-statement.pdf')
+  await expect(history.getByRole('button', { name: /Apply|Review start over|Reset my test workspace|Load earlier messages/ })).toHaveCount(0)
+  expect(historyRequests).toEqual(['?picture=history&limit=60', '?picture=history&limit=60&before_id=201'])
+  await history.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue('Keep my current draft.')
+  await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
+})
+
+test('BOG UI earlier history fails closed when a reply is not marked private read-only history and allows retry', async ({ page }) => {
+  const base = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: { ...base, workspace: { ...base.workspace, financial_generation: 1 }, mia: { ...base.mia, messages: [], historical_message_count: 1 } } }))
+  let attempts = 0
+  await page.route('http://api.test/api/v1/mia/messages**', route => {
+    if (new URL(route.request().url()).searchParams.get('picture') !== 'history') return route.fulfill({ json: { ...base.mia, messages: [], historical_message_count: 1 } })
+    attempts += 1
+    return route.fulfill({ json: { picture: attempts === 1 ? 'current' : 'history', read_only: attempts > 1, messages: [{ id: 201, role: 'assistant', author: 'Mia', content: attempts === 1 ? 'Unverified history must stay hidden.' : 'Verified earlier private message.' }], oldest_message_id: 201, older_message_count: 0, has_older_messages: false } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openChatContext(page)
+  await chatAssistPanel(page).getByRole('button', { name: 'Earlier conversations', exact: true }).click()
+  const history = page.getByRole('dialog', { name: 'Earlier conversations', exact: true })
+  await expect(history.getByRole('alert')).toContainText('Earlier conversations could not be verified')
+  await expect(history.getByText('Unverified history must stay hidden.', { exact: true })).toHaveCount(0)
+  await history.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(history.getByText('Verified earlier private message.', { exact: true })).toBeVisible()
+  await expect(history.getByRole('alert')).toHaveCount(0)
+  await history.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
+})
 
 test('BOG UI stale financial-generation Plaid callbacks cannot restore a prior connection', async ({ page }) => {
   const workspace = { ...realWorkspaceData(true), workspace: { ...realWorkspaceData(true).workspace, financial_generation: 1 } }

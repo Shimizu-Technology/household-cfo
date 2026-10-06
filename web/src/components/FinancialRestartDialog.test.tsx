@@ -34,7 +34,7 @@ it('shows exact scope and more than twelve records, and requires both explicit a
   fake(path => path.endsWith('/apply') ? json({ financial_restart: { ...state, financial_generation: 1, review: { ...review, status: 'applied', result_generation: 1 } } }) : undefined)
   const { onApplied } = await open()
   expect(screen.getByText('30')).toBeTruthy(); expect(screen.getByText('18')).toBeTruthy()
-  const apply = screen.getByRole('button', { name: 'Start over with my real numbers' })
+  const apply = screen.getByRole('button', { name: 'Reset my test workspace' })
   expect((apply as HTMLButtonElement).disabled).toBe(true)
   fireEvent.click(screen.getByLabelText(/I reviewed what starts fresh/))
   expect((apply as HTMLButtonElement).disabled).toBe(true)
@@ -60,7 +60,7 @@ it('recovers the original pending request after a lost reply, then checks its ex
     if (path.endsWith('/status?review_id=13')) return json({ financial_restart: { ...state, financial_generation: recoveries++ ? 1 : 0, latest_review: { ...review, status: recoveries > 1 ? 'applied' : 'pending', result_generation: recoveries > 1 ? 1 : null } } })
     return undefined
   })
-  const first = await open(); confirm(); fireEvent.click(screen.getByRole('button', { name: 'Start over with my real numbers' }))
+  const first = await open(); confirm(); fireEvent.click(screen.getByRole('button', { name: 'Reset my test workspace' }))
   await screen.findByRole('alert')
   await screen.findByRole('button', { name: 'Check whether start over finished' })
   expect(window.sessionStorage.getItem(storageKey)).toBe('13')
@@ -75,11 +75,11 @@ it('recovers the original pending request after a lost reply, then checks its ex
 
 it('requires a fresh review after concurrent changes and clears the old acknowledgment', async () => {
   fake(path => path.endsWith('/apply') ? json({ code: 'financial_restart_review_stale', errors: ['The financial picture changed.'] }, 409) : undefined)
-  await open(); confirm(); fireEvent.click(screen.getByRole('button', { name: 'Start over with my real numbers' }))
+  await open(); confirm(); fireEvent.click(screen.getByRole('button', { name: 'Reset my test workspace' }))
   await screen.findByText('The financial picture changed.')
   fireEvent.click(screen.getByRole('button', { name: 'Prepare a fresh review' }))
   await waitFor(() => expect(calls.filter(call => call.path.endsWith('/preview'))).toHaveLength(2))
-  expect((screen.getByRole('button', { name: 'Start over with my real numbers' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Reset my test workspace' }) as HTMLButtonElement).disabled).toBe(true)
   expect(calls.filter(call => call.path.endsWith('/apply'))).toHaveLength(1)
 })
 
@@ -94,7 +94,16 @@ it('does not request another household member’s inventory when owner access is
 it('fails before applying if safe request recovery cannot be retained', async () => {
   fake(); await open(); confirm()
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Blocked') })
-  fireEvent.click(screen.getByRole('button', { name: 'Start over with my real numbers' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Reset my test workspace' }))
   await screen.findByText(/cannot keep the request reference/)
   expect(calls.some(call => call.path.endsWith('/apply'))).toBe(false)
+})
+
+it('does not prepare an inventory or expose apply controls when administrator permission is missing', async () => {
+  fake(path => path.endsWith('/status') ? json({ financial_restart: { ...state, available: false, admin_required: true } }) : undefined)
+  render(<FinancialRestartDialog scopeKey="ordinary-participant" onClose={vi.fn()} onApplied={vi.fn()} />)
+  await screen.findByText(/available only to administrators/)
+  expect(calls.some(call => call.path.endsWith('/preview') || call.path.endsWith('/apply'))).toBe(false)
+  expect(screen.queryByRole('button', { name: 'Reset my test workspace' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Prepare a fresh review' })).toBeNull()
 })

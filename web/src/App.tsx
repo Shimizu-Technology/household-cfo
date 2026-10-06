@@ -2,6 +2,8 @@ import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/mone
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
 import './App.css'
+import { AuthAccessPanel } from './components/AuthAccessPanel'
+import { EarlierMiaConversations } from './components/EarlierMiaConversations'
 import { PausedDocumentImportPanel } from './components/PausedDocumentImportPanel'
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
 import { usePilotDialog } from './lib/usePilotDialog'
@@ -541,6 +543,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const pendingSectionNavigationRef = useRef<PendingSectionNavigation | null>(null)
   const lastHandledLocationRef = useRef('')
   const [messages, setMessages] = useState<MiaMessage[]>([])
+  const [historicalMessageCount, setHistoricalMessageCount] = useState(0)
+  const [earlierConversationsOpen, setEarlierConversationsOpen] = useState(false)
   const [visibleMessageCount, setVisibleMessageCount] = useState(CHAT_HISTORY_PAGE_SIZE)
   const [oldestServerMessageId, setOldestServerMessageId] = useState<number | null>(null)
   const [olderServerMessageCount, setOlderServerMessageCount] = useState(0)
@@ -896,6 +900,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const replaceMiaHistory = useCallback((mia: MiaMessagesData) => {
     setMessagesStorageKey(chatStorageKey)
     setMessages(mia.messages)
+    setHistoricalMessageCount(mia.historical_message_count ?? 0)
     setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
     setOldestServerMessageId(mia.oldest_message_id)
     setOlderServerMessageCount(mia.older_message_count)
@@ -907,6 +912,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     try {
       const mia = await fetchMiaMessages(true)
+      setHistoricalMessageCount(mia.historical_message_count ?? 0)
       setMessagesStorageKey(chatStorageKey)
       setMessages((current) => historyExpandedRef.current ? mergeLatestMiaMessages(current, mia.messages) : mia.messages)
       if (!historyExpandedRef.current) {
@@ -1023,6 +1029,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         setData(payload)
         setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
         setMessages(restoredMessages)
+        setHistoricalMessageCount(realWorkspace ? payload.mia.historical_message_count ?? 0 : 0)
         setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
         setOldestServerMessageId(realWorkspace ? payload.mia.oldest_message_id : null)
         setOlderServerMessageCount(realWorkspace ? payload.mia.older_message_count : 0)
@@ -1935,7 +1942,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       void refreshDocumentImports({ quiet: true })
       const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
       setMessages((current) => [...current.slice(0, -1), userMessageWithPreviews, response.assistant_message])
-      if (response.financial_restart?.available && activeSectionRef.current === 'Ask Mia') { setAssistPanel(null); setFinancialRestartOpen(true) }
+      if (auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && response.financial_restart?.available && activeSectionRef.current === 'Ask Mia') { setAssistPanel(null); setFinancialRestartOpen(true) }
       if (response.transaction_draft) {
         captureAnalyticsEvent('transaction_draft_presented_in_chat', {
           source_type: response.transaction_draft.source_type ?? 'manual_chat',
@@ -3164,8 +3171,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     })
   }
 
+  if (auth.isClerkEnabled && auth.authRecoveryRequired && auth.authError) {
+    return <AuthAccessPanel title="We couldn’t finish checking your access." copy={auth.authError} recovering
+      onRetry={!auth.isLoading && auth.authIdentityId ? auth.refreshCurrentUser : undefined} onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
+  }
+
   if (auth.isClerkEnabled && (auth.isLoading || auth.isVerifyingApi)) {
-    return <AuthStatePanel title={`Verifying your ${publicBrand.brand.product_name} access`} copy="Checking your secure program invitation before opening the workspace." />
+    return <AuthAccessPanel title={`Verifying your ${publicBrand.brand.product_name} access`} copy="Checking your secure program invitation before opening the workspace."
+      onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
   }
 
   if (auth.isClerkEnabled && !auth.isSignedIn) {
@@ -3173,11 +3186,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   if (auth.isClerkEnabled && auth.authError) {
-    return <AccessDenied message={auth.authError} onSignOut={auth.signOut} />
+    return <AccessDenied message={auth.authError} onSignOut={auth.signOut} onRetry={auth.refreshCurrentUser} />
   }
 
   if (auth.isClerkEnabled && !auth.currentUser) {
-    return <AuthStatePanel title="Preparing your workspace" copy={`${publicBrand.brand.product_name} is waiting for the invitation check to finish.`} />
+    return <AuthAccessPanel title="Preparing your workspace" copy={`${publicBrand.brand.product_name} is waiting for the invitation check to finish.`} footer={<BrandFooter />} />
   }
 
   if (!data) {
@@ -3266,7 +3279,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />
               <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotGuideOpen(true) }}><GuideIcon /> Guide</Button>
               {isRealWorkspace && <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotFeedbackOpen(true) }}><FeedbackIcon /> Report a problem</Button>}
-              {isRealWorkspace && !auth.activeCoachWorkspaceId && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFinancialRestartOpen(true) }}>Start over with my real numbers</Button>}
+              {isRealWorkspace && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFinancialRestartOpen(true) }}>Reset my test workspace</Button>}
             </div>
           </details>
         </div>
@@ -3407,7 +3420,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               )}
 
               <ChatHistory
-                  onFinancialRestart={() => setFinancialRestartOpen(true)}
+                  onFinancialRestart={auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
                   messages={visibleMessages}
                   totalMessageCount={currentMessages.length}
                   hiddenMessageCount={hiddenMessageCount}
@@ -3568,7 +3581,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onAttach={() => miaAttachmentInputRef.current?.click()} onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
               onGuide={() => setPilotGuideOpen(true)} onFeedback={() => setPilotFeedbackOpen(true)}
               onClearChat={() => { if (chatContextTriggerRef.current) handleClearMessagesRequest({ currentTarget: chatContextTriggerRef.current }) }}
-              onStartOver={isRealWorkspace && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
+              onHistory={isRealWorkspace && historicalMessageCount > 0 ? () => setEarlierConversationsOpen(true) : undefined}
+              onStartOver={isRealWorkspace && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
               updatePrompts={isSavingsExperience ? SAVINGS_UPDATE_PROMPTS : MIA_UPDATE_PROMPTS}
               questionPrompts={(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : data.mia.quick_prompts).map(message => ({ label: message, message }))}
               onChoosePrompt={prepareMiaUpdate} />
@@ -4189,7 +4203,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {dailyOpen && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <ChallengeToday key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} cohortId={data.workspace.cohort?.id} initialPurchase={dailyIntake?.scope===challengeIntakeScope?dailyIntake.intake:null} scope={{user_id:auth.currentUser.id,household_id:data.workspace.household_id}} onClose={() => {setDailyOpen(false);setDailyIntake(null)}} onStatements={() => { setDailyOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} onBaseline={() => { setDailyOpen(false); setBaselineOpen(true) }} />}
       {baselineOpen && isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <BaselineReview key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} scope={{ user_id: auth.currentUser.id, household_id: data.workspace.household_id }} onClose={() => setBaselineOpen(false)} onReviewStatements={() => { setBaselineOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} />}
       {showMiaLauncher && <Button className="mia-launcher" aria-label={`Open ${assistantName}`} title={`Open ${assistantName}`} onClick={() => switchSection('Ask Mia')}><FeedbackIcon /><span>{assistantName}</span></Button>}
-      {financialRestartOpen && <FinancialRestartDialog key={chatStorageKey} scopeKey={restartScopeKey}
+      {earlierConversationsOpen && <EarlierMiaConversations key={chatStorageKey} onClose={() => setEarlierConversationsOpen(false)} />}
+      {financialRestartOpen && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && <FinancialRestartDialog key={chatStorageKey} scopeKey={restartScopeKey}
         blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind ? 'Save or cancel your open edits and let current requests finish before preparing a restart review.' : null}
         onClose={() => setFinancialRestartOpen(false)} onApplied={finishFinancialRestart} />}
       {pilotGuideOpen && <PilotGuideDialog savingsChallenge={isSavingsExperience} onClose={() => setPilotGuideOpen(false)} />}
@@ -4349,7 +4364,7 @@ export function AuthLanding() {
   )
 }
 
-function AccessDenied({ message, onSignOut }: { message: string; onSignOut?: () => Promise<void> }) {
+function AccessDenied({ message, onSignOut, onRetry }: { message: string; onSignOut?: () => Promise<void>; onRetry: () => Promise<void> }) {
   const { brand } = useBrand()
   return (
     <main className="app loading-state auth-state">
@@ -4359,24 +4374,11 @@ function AccessDenied({ message, onSignOut }: { message: string; onSignOut?: () 
         <h1>Your sign-in is active, but {brand.product_name} has not linked your program seat.</h1>
         <p>{message}</p>
         <div className="auth-actions">
+          <button type="button" onClick={() => void onRetry()}>Check access again</button>
+          <button type="button" onClick={() => window.location.reload()}>Reload page</button>
           <button type="button" onClick={() => void onSignOut?.()}>Sign out</button>
           <div className="user-button-wrap"><UserButton afterSignOutUrl="/" /></div>
         </div>
-      </section>
-      <BrandFooter />
-    </main>
-  )
-}
-
-function AuthStatePanel({ title, copy }: { title: string; copy: string }) {
-  const { brand } = useBrand()
-  return (
-    <main className="app loading-state auth-state">
-      <section className="hero-panel auth-panel">
-        <BrandLogo brand={brand} />
-        <p className="eyebrow">{brandByline(brand)}</p>
-        <h1>{title}</h1>
-        <p>{copy}</p>
       </section>
       <BrandFooter />
     </main>
