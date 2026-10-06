@@ -49,7 +49,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
     }
   }, [])
 
-  const load = useCallback(async (pageCursor: number | null, verifyId: number | null = null) => {
+  const load = useCallback(async (pageCursor: number | null, verifyId: number | null = null, actionMessage?: string) => {
     if (!canLoadScope) return
     controller.current?.abort()
     const abort = new AbortController()
@@ -58,6 +58,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
     const current = () => live.current && requestSequence === sequence.current && !abort.signal.aborted
     setLoading(true)
     setError(null)
+    setNotice(null)
     setConfirmation(null)
     try {
       const page = await fetchSetupSupportRequests(cohortId, pageCursor, abort.signal)
@@ -86,17 +87,22 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
       if (verifyId !== null) {
         if (verified || exhausted) {
           setUncertainId(null)
-          setNotice(verified ? `Request #${verifyId} has been reloaded. Check its current status before acting again.` : `Request #${verifyId} is no longer available in this scope.`)
+          const verification = verified ? `Request #${verifyId} has been reloaded. Check its current status before acting again.` : `Request #${verifyId} is no longer available in this scope.`
+          setNotice(actionMessage ? `${actionMessage} No action was repeated. ${verification}` : verification)
         } else {
           setUncertainId(verifyId)
-          setError(`Request #${verifyId} could not be verified. Fresh requests will check again; no action has been repeated.`)
+          setError(`${actionMessage ? `${actionMessage} ` : ''}Request #${verifyId} could not be verified. Fresh requests will check again; no action has been repeated.`)
         }
       }
     } catch (caught) {
       if (!current()) return
       setRecords([])
       setNextCursor(null)
-      setError(errorMessage(caught, 'Setup requests could not be loaded.'))
+      const verificationError = errorMessage(caught, 'Setup requests could not be loaded.')
+      if (verifyId !== null) {
+        setUncertainId(verifyId)
+        setError(`${actionMessage ? `${actionMessage} ` : ''}Request #${verifyId} could not be verified: ${verificationError} No action was repeated. Refresh its status before acting again.`)
+      } else setError(verificationError)
     } finally {
       if (current()) setLoading(false)
     }
@@ -130,8 +136,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
       if (!current()) return
       setUncertainId(record.id)
       const message = errorMessage(caught, 'The request action could not be confirmed.')
-      await load(cursor, record.id)
-      if (current()) setError(`${message} No action was repeated. Check the reloaded request before trying again.`)
+      await load(cursor, record.id, message)
     } finally {
       if (ticket) lifecycle!.finish(ticket)
       savingRef.current = false
