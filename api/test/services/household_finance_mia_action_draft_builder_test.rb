@@ -56,7 +56,7 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     @manager.create_category!(name: "Budget", stack_key: "discretionary", monthly_amount: 60)
     scoped = @manager.create_category!(name: "Household budget category Budget", stack_key: "discretionary", monthly_amount: 50)
     [ 'Set "Household budget category Budget" to $650 and Groceries to $675 for October 2026',
-      'Set category named Household budget category Budget to $650 and Groceries to $675 for October 2026' ].each do |prompt|
+      "Set category named Household budget category Budget to $650 and Groceries to $675 for October 2026" ].each do |prompt|
       result = HouseholdFinance::MiaActionDraftBuilder.new(@household, prompt, user: @user, annual_budget_manager: @manager, selected_month: 10, raw_input: prompt).call
       assert result.proposal, result.response
       assert_equal [ scoped.id, @groceries.id ], result.proposal.items.map { |item| item.payload.fetch(:category_id) }
