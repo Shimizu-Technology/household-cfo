@@ -68,11 +68,18 @@ async function openAccountHelp(page: Page) {
 }
 
 async function openChatContext(page: Page) {
-  const disclosure = page.locator('.mia-context-disclosure')
-  if (decodeURIComponent(new URL(page.url()).hash) === '#Ask Mia') await expect(disclosure.locator('summary')).toBeVisible()
-  if (await disclosure.count() && !(await disclosure.evaluate((node: HTMLDetailsElement) => node.open))) {
-    await disclosure.locator('summary').click()
-  }
+  const trigger = page.getByRole('button', { name: 'Context & help', exact: true })
+  if (decodeURIComponent(new URL(page.url()).hash) === '#Ask Mia') await expect(trigger).toBeVisible()
+  if (await trigger.count() && await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+}
+
+function chatAssistPanel(page: Page) {
+  return page.locator('.mia-assist-panel')
+}
+
+async function closeChatAssistPanel(page: Page) {
+  await chatAssistPanel(page).getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(chatAssistPanel(page)).toHaveCount(0)
 }
 
 async function showLibraryArea(page: Page, area: 'Private sources' | 'Teaching items' | 'Published collections') {
@@ -1291,7 +1298,7 @@ async function mockEmptyPlaidState(page: Page, configured: boolean) {
 test.beforeEach(async ({ page }) => {
   await mockDemoApi(page)
   await page.addInitScript((messages) => {
-    window.localStorage.setItem('household-cfo:mia-chat:v1:preview', JSON.stringify(messages))
+    window.localStorage.setItem('household-cfo:mia-chat:v1:preview:picture:0', JSON.stringify(messages))
   }, chatMessages(100))
 })
 
@@ -2111,9 +2118,8 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await page.getByRole('button', { name: 'Prompts', exact: true }).click()
   await expect(suggestedQuestion).toBeVisible()
   const promptCue = page.getByText('More prompts →')
-  if ((page.viewportSize()?.width ?? 0) <= 620) await expect(promptCue).toBeHidden()
-  else await expect(promptCue).toBeVisible()
-  await page.getByRole('button', { name: 'Prompts', exact: true }).click()
+  await expect(promptCue).toBeHidden()
+  await closeChatAssistPanel(page)
   await expect(page.locator('.message-row')).toHaveCount(60)
   await expect(page.getByRole('button', { name: 'Load earlier messages (40 remaining)' })).toBeVisible()
   await expect(page.locator('.message-attachment-card img')).toHaveAttribute('loading', 'lazy')
@@ -2143,7 +2149,7 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
 
 test('Mia preserves accessible financial lists and emphasis instead of flattening the answer', async ({ page }) => {
   await page.addInitScript(() => {
-    window.localStorage.setItem('household-cfo:mia-chat:v1:preview', JSON.stringify([{
+    window.localStorage.setItem('household-cfo:mia-chat:v1:preview:picture:0', JSON.stringify([{
       id: 9901,
       role: 'assistant',
       author: 'Mia',
@@ -2165,7 +2171,7 @@ test('Mia preserves accessible financial lists and emphasis instead of flattenin
 test('mobile Ask Mia renders ordered read-only answers and isolates scenario values', async ({ page }) => {
   const lead = 'Protect the required minimums before directing extra money to debt.'
   await page.addInitScript(({ leadText }) => {
-    window.localStorage.setItem('household-cfo:mia-chat:v1:preview', JSON.stringify([{
+    window.localStorage.setItem('household-cfo:mia-chat:v1:preview:picture:0', JSON.stringify([{
       id: 9902,
       role: 'assistant',
       author: 'Mia',
@@ -2245,7 +2251,7 @@ test('mobile Ask Mia renders ordered read-only answers and isolates scenario val
 
 test('Mia falls back to plain content when read-only presentation metadata is malformed', async ({ page }) => {
   await page.addInitScript(() => {
-    window.localStorage.setItem('household-cfo:mia-chat:v1:preview', JSON.stringify([{
+    window.localStorage.setItem('household-cfo:mia-chat:v1:preview:picture:0', JSON.stringify([{
       id: 9903,
       role: 'assistant',
       author: 'Mia',
@@ -2291,11 +2297,11 @@ test('chat-first Mia preserves legacy reviews without structured before and afte
   await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Prompts', exact: true }).click()
-  await expect(page.getByText('Nothing changes until you tap Apply.')).toBeVisible()
-  const example = page.getByRole('button', { name: 'My take-home pay is now $6,200 a month.' })
+  await expect(chatAssistPanel(page)).toContainText('Changes always need your review.')
+  const example = page.getByRole('button', { name: 'Update my income', exact: true })
   await example.click()
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
-  await expect(composer).toHaveValue('My take-home pay is now $6,200 a month.')
+  await expect(composer).toHaveValue('Help me update my household income sources and schedules.')
   await expect(composer).toBeFocused()
 
   const householdCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Update an approved household number' })
@@ -3210,9 +3216,9 @@ test('Ask Mia restores uploaded attachment context and its exact request ID afte
   const message = 'Please review this receipt.'
   const month = new Date().getMonth() + 1
   const requestId = 'mia-request-attachment-reload-1'
-  const signature = JSON.stringify({ workspace: 'household-cfo:mia-chat:v1:user-901:participant:77:41', message, attachmentIds: [501], year: currentYear, month })
+  const signature = JSON.stringify({ workspace: 'household-cfo:mia-chat:v1:user-901:participant:77:41:picture:0', message, attachmentIds: [501], year: currentYear, month })
   await page.addInitScript(({ storedRequest }) => {
-    window.sessionStorage.setItem('household-cfo:mia-chat:v1:user-901:participant:77:41:pending-request', JSON.stringify(storedRequest))
+    window.sessionStorage.setItem('household-cfo:mia-chat:v1:user-901:participant:77:41:picture:0:pending-request', JSON.stringify(storedRequest))
   }, {
     storedRequest: {
       id: requestId,
@@ -3342,8 +3348,9 @@ test('Ask Mia uploads an attachment with its question and renders the grounded r
     buffer: Buffer.from('mock-receipt-evidence'),
   })
   await openChatContext(page)
-  await expect(page.getByRole('region', { name: 'Chat context and help' })).toContainText('Images and PDFs up to 12 MB · CSV, Excel, and Word up to 20 MB')
-  await page.getByRole('button', { name: 'Close context' }).click()
+  await chatAssistPanel(page).getByText('Supported files and sizes', { exact: true }).click()
+  await expect(chatAssistPanel(page)).toContainText('Images and PDFs up to 12 MB each; CSV, Excel and Word up to 20 MB each.')
+  await chatAssistPanel(page).getByRole('button', { name: 'Close', exact: true }).click()
   await expect(page.locator('.composer-attachment-tray').getByRole('button', { name: 'receipt.png', exact: true })).toBeVisible()
 
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Does this grocery receipt fit my plan?')
@@ -4166,17 +4173,15 @@ test('compact phone layouts keep a stable shell and overlay secondary tools with
       composerBottom: composerBox?.bottom ?? Number.POSITIVE_INFINITY,
     }
   })
-  const promptButtons = page.locator('.chat-prompts button')
-  const promptWidths = await promptButtons.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().width))
-  expect(Math.max(...promptWidths)).toBeLessThanOrEqual(chatLayout.shell.width - 20)
-  await expect(page.locator('.mia-context')).toBeHidden()
+  await expect(chatAssistPanel(page)).toBeHidden()
   await openChatContext(page)
-  const contextBox = await page.locator('.mia-context').boundingBox()
+  const contextBox = await chatAssistPanel(page).boundingBox()
   expect(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBe(chatLayout.conversationHeight)
   expect(chatLayout.conversationHeight).toBeGreaterThan(100)
   expect(chatLayout.composerBottom).toBeLessThanOrEqual(chatLayout.shell.bottom + 1)
   expect(contextBox).not.toBeNull()
-  expect(chatLayout.shell.y).toBeLessThan(contextBox?.y ?? 0)
+  expect(contextBox!.y).toBeGreaterThanOrEqual(0)
+  expect(contextBox!.y + contextBox!.height).toBeLessThanOrEqual(page.viewportSize()!.height)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
@@ -4215,9 +4220,9 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   await expect(suggestionsButton).toBeFocused()
   await suggestionsButton.click()
 
-  await page.getByRole('button', { name: 'My take-home pay is now $6,200 a month.' }).click()
+  await page.getByRole('button', { name: 'Update my income', exact: true }).click()
   await expect(suggestionsButton).toHaveAttribute('aria-expanded', 'false')
-  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue('My take-home pay is now $6,200 a month.')
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue('Help me update my household income sources and schedules.')
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeFocused()
 
   const expandButton = page.getByRole('button', { name: 'Expand Ask Mia chat' })
@@ -4297,15 +4302,11 @@ test('compact Ask Mia header keeps its title and controls separate at 320px', as
 
   const promptsButton = page.getByRole('button', { name: 'Prompts', exact: true })
   await promptsButton.click()
-  const suggestionsPanel = page.getByLabel('Mia prompts')
+  const suggestionsPanel = chatAssistPanel(page)
   await expect(suggestionsPanel).toBeVisible()
-  const openPanel = await suggestionsPanel.evaluate((panel) => {
-    const panelBox = panel.getBoundingClientRect()
-    const headerBox = document.querySelector('.chat-shell-header')?.getBoundingClientRect()
-    return { panelTop: panelBox.top, headerBottom: headerBox?.bottom ?? Number.POSITIVE_INFINITY }
-  })
-  expect(openPanel.panelTop).toBeGreaterThanOrEqual(openPanel.headerBottom)
-  await promptsButton.click()
+  await assertDialogVisibleHeight(suggestionsPanel)
+  await expect(suggestionsPanel.getByRole('heading', { name: 'What would you like to do?', exact: true })).toBeInViewport()
+  await closeChatAssistPanel(page)
   await expect(suggestionsPanel).toBeHidden()
 })
 
@@ -4421,9 +4422,12 @@ test('incomplete participants get a short first session, private feedback, and a
   await page.getByRole('button', { name: 'Show setup options' }).click()
   await page.getByRole('button', { name: 'Share everything at once' }).click()
   await expect(guidedComposer).toHaveValue(/Here is everything I know so far: our household is called ___/)
+  await openChatContext(page)
+  await page.getByRole('button', { name: 'Show setup options' }).click()
   await page.getByRole('button', { name: 'Ask me one question at a time' }).click()
   await expect(guidedComposer).toHaveValue(guidedSetupPrompt)
-
+  await openChatContext(page)
+  await page.getByRole('button', { name: 'Show setup options' }).click()
   await page.getByRole('button', { name: 'Enter manually' }).click()
   await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
   await expect(page.getByText('Essential first-session information')).toBeVisible()
@@ -4492,9 +4496,9 @@ test('Mia explains when starting numbers have not been approved yet', async ({ p
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
   await openChatContext(page)
-  const context = page.locator('.mia-context')
-  await expect(context.getByRole('heading', { name: 'Build your starting picture with Mia' })).toBeVisible()
-  await expect(context).toContainText('ordinary language')
+  const context = chatAssistPanel(page)
+  await expect(context.getByRole('heading', { name: 'Your saved picture', exact: true })).toBeVisible()
+  await expect(context).toContainText('Your household setup is still incomplete. Share what you know; missing answers stay unknown.')
   await expect(context.getByText('Approved data loaded')).toHaveCount(0)
   await openChatContext(page)
   const progress = page.locator('.first-session-setup-progress')
@@ -4546,7 +4550,8 @@ test('ignored-only imports remain pending instead of becoming approved Mia conte
 
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await openChatContext(page)
-  await expect(page.getByText('No approved document sources yet. Mia will use manual numbers until you apply extracted values.')).toBeVisible()
+  await expect(chatAssistPanel(page)).toContainText('No approved file sources yet. Uploading a file does not update your numbers until you review and apply it.')
+  await closeChatAssistPanel(page)
 
   await openSection(page, 'Statements')
   await expect(page.getByText('Approved source', { exact: true }).locator('..')).toContainText('Not approved yet')
@@ -8389,13 +8394,13 @@ test('BOG UI desktop and tablet help collapse without shrinking history', async 
   await page.goto('/#Ask%20Mia')
   const prompts = page.getByRole('button', { name: 'Prompts', exact: true })
   await expect(prompts).toHaveAttribute('aria-expanded', 'false')
-  const guide = page.getByText('Fastest way to update your plan', { exact: true })
+  const guide = page.getByRole('heading', { name: 'What would you like to do?', exact: true })
   await expect(guide).toBeHidden()
   const before = await page.locator('.chat-card-wrap').evaluate((node) => node.getBoundingClientRect().height)
   await prompts.click()
   await expect(guide).toBeVisible()
   expect(Math.abs(await page.locator('.chat-card-wrap').evaluate((node) => node.getBoundingClientRect().height) - before)).toBeLessThanOrEqual(1)
-  await prompts.press('Escape')
+  await page.keyboard.press('Escape')
   await expect(guide).toBeHidden()
   await page.getByRole('button', { name: 'Expand Ask Mia chat' }).click()
   await expect(guide).toBeHidden()
@@ -8468,9 +8473,9 @@ test('BOG UI partially reviewed statements keep their remaining coverage visible
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openChatContext(page)
-  await expect(page.getByLabel('Document import context for Mia')).toContainText('1 waiting review')
+  await expect(chatAssistPanel(page).getByLabel('Files to review').locator('.mia-assist-status > div').filter({ hasText: 'Waiting for review' }).locator('dd')).toHaveText('1')
   await openChatContext(page)
-  await page.getByRole('button', { name: 'Review imports', exact: true }).click()
+  await page.getByRole('button', { name: 'Review files', exact: true }).click()
   await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
   await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
   await page.getByLabel('Filter by status').selectOption('needs_review')
@@ -8515,9 +8520,9 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openChatContext(page)
-  await expect(page.getByLabel('Document import context for Mia')).toContainText('1 waiting review')
+  await expect(chatAssistPanel(page).getByLabel('Files to review').locator('.mia-assist-status > div').filter({ hasText: 'Waiting for review' }).locator('dd')).toHaveText('1')
   await openChatContext(page)
-  await page.getByRole('button', { name: 'Review imports', exact: true }).click()
+  await page.getByRole('button', { name: 'Review files', exact: true }).click()
   await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
   await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
   await page.getByRole('button', { name: 'Tools', exact: true }).click()
@@ -8530,7 +8535,7 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await expect(page.getByText('Essential first-session information', { exact: true })).toBeVisible()
   await openSection(page, 'Ask Mia')
   await openChatContext(page)
-  await page.getByRole('button', { name: 'Review imports', exact: true }).click()
+  await page.getByRole('button', { name: 'Review files', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'QA-partial.pdf', exact: true })).toBeVisible()
 })
 
@@ -8555,7 +8560,7 @@ async function openTypedStatementReview(page: Page, failSecondPage = false, part
   })
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openChatContext(page)
-  await page.getByRole('button', { name: 'Review imports', exact: true }).click()
+  await page.getByRole('button', { name: 'Review files', exact: true }).click()
   return page.getByRole('region', { name: 'Statement source accounting', exact: true })
 }
 
@@ -9040,18 +9045,17 @@ test('BOG UI compact normal chat shows history and composer on first screen with
   expect(before.historyTop).toBeLessThan(250)
   expect(before.historyHeight).toBeGreaterThan((page.viewportSize()?.width ?? 0) <= 350 ? 150 : 200)
   expect(before.composerBottom).toBeLessThanOrEqual(before.viewport)
-  const disclosure = page.locator('.mia-context-disclosure')
-  const summary = disclosure.locator('summary')
-  await expect(page.getByRole('region', { name: 'Chat context and help' })).toBeHidden()
+  const summary = page.getByRole('button', { name: 'Context & help', exact: true })
+  await expect(chatAssistPanel(page)).toBeHidden()
   await summary.focus()
   await summary.press('Enter')
-  const context = page.getByRole('region', { name: 'Chat context and help' })
+  const context = chatAssistPanel(page)
   await expect(context).toBeVisible()
   await expect(context.getByRole('button', { name: 'Guide', exact: true })).toBeVisible()
-  await expect(context.getByRole('button', { name: 'Review imports', exact: true })).toBeVisible()
+  await expect(context.getByRole('button', { name: 'Review files', exact: true })).toBeVisible()
   // Fractional grid tracks may round by one CSS pixel when a disclosure opens.
   expect(Math.abs(await shell.locator('.chat-card-wrap').evaluate((node) => node.getBoundingClientRect().height) - before.historyHeight)).toBeLessThanOrEqual(1)
-  await context.getByRole('button', { name: 'Close context' }).focus()
+  await context.getByRole('button', { name: 'Close', exact: true }).focus()
   await page.keyboard.press('Escape')
   await expect(context).toBeHidden()
   await expect(summary).toBeFocused()
@@ -9117,8 +9121,8 @@ test('BOG UI compact chat context names savings workspace without claiming savin
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openChatContext(page)
-  await expect(page.locator('.mia-workspace-context')).toHaveText('Savings challenge workspace. Savings records and approved progress are available on Home.')
-  await page.getByRole('button', { name: 'Close context' }).click()
+  await expect(chatAssistPanel(page).getByLabel('Your saved picture')).toContainText('Your approved challenge records and household plan are separate. A bank movement or upload does not establish new savings.')
+  await chatAssistPanel(page).getByRole('button', { name: 'Close', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
 })
 
@@ -9662,6 +9666,7 @@ test('BOG UI guide and feedback keep both ends reachable on short phones landsca
     await expect(guide.getByRole('heading')).toBeInViewport()
     await guide.locator('footer').scrollIntoViewIfNeeded()
     await expect(guide.locator('footer')).toBeInViewport()
+    await expect(guide.getByRole('button', { name: 'Close', exact: true })).toBeInViewport()
     await page.keyboard.press('Escape')
     await expect(guideButton).toBeFocused()
     const feedbackButton = page.getByRole('button', { name: 'Feedback', exact: true })
@@ -9679,6 +9684,7 @@ test('BOG UI guide and feedback keep both ends reachable on short phones landsca
     await submit.focus()
     await expect(submit).toBeInViewport()
     await expect(submit).toBeEnabled()
+    await expect(feedback.getByRole('button', { name: 'Close', exact: true })).toBeInViewport()
     await page.keyboard.press('Tab')
     await expect(feedback.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
     await expect(feedback.getByRole('heading')).toBeInViewport()
@@ -10370,4 +10376,67 @@ test('BOG UI background import hydration preserves a Profile edit begun while it
   await expect(householdName).toHaveValue('Keep my new Profile name during document hydration')
   await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(householdName).toHaveValue('Synthetic refreshed household')
+})
+
+
+test('BOG UI chat assist panels keep spaced actions readable and preserve a draft across help and prompts', async ({ page }) => {
+  const sentMessages: string[] = []
+  page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/api/v1/mia/messages')) sentMessages.push(request.postData() ?? '') })
+  await page.goto('/#Ask%20Mia')
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  const draft = 'Keep my own draft while I look for help.'
+  await composer.fill(draft)
+  const prompts = page.getByRole('button', { name: 'Prompts', exact: true })
+  await prompts.click()
+  const panel = chatAssistPanel(page)
+  await expect(panel).toHaveCount(1)
+  await expect(panel.getByRole('heading', { name: 'What would you like to do?', exact: true })).toBeVisible()
+  await expect(page.getByText('More prompts →')).toHaveCount(0)
+  const compact = page.viewportSize()!.width < 1000
+  await expect(panel).toHaveClass(compact ? /is-modal/ : /is-companion/)
+  if (compact) await assertDialogVisibleHeight(panel)
+  const questionButtons = panel.getByLabel('Ask a question').getByRole('button')
+  await expect(questionButtons).toHaveCount(4)
+  for (let index = 0; index < await questionButtons.count(); index++) {
+    const button = questionButtons.nth(index)
+    await button.focus()
+    await expect(button).toBeInViewport()
+    const bounds = await button.evaluate(node => {
+      const button = node.getBoundingClientRect(), panel = node.closest('.mia-assist-panel')!.getBoundingClientRect()
+      return { fits: button.left >= panel.left && button.right <= panel.right, height: button.height }
+    })
+    expect(bounds.fits).toBe(true)
+    expect(bounds.height).toBeGreaterThanOrEqual(44)
+  }
+  const spacing = await panel.evaluate(node => Array.from(node.querySelectorAll('.mia-assist-section')).map(section => {
+    const buttons = Array.from(section.querySelectorAll('button'))
+    const box = section.getBoundingClientRect(), first = buttons[0].getBoundingClientRect(), last = buttons.at(-1)!.getBoundingClientRect()
+    return { above: first.top - box.top, below: box.bottom - last.bottom, bordered: parseFloat(getComputedStyle(section).borderBottomWidth) > 0 }
+  }))
+  for (const section of spacing) {
+    expect(section.above).toBeGreaterThanOrEqual(12)
+    if (section.bordered) expect(section.below).toBeGreaterThanOrEqual(12)
+  }
+  if (compact) await closeChatAssistPanel(page)
+  await openChatContext(page)
+  await expect(panel).toHaveCount(1)
+  await expect(panel.getByRole('heading', { name: 'Context & help', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'What would you like to do?', exact: true })).toHaveCount(0)
+  await expect(prompts).toHaveAttribute('aria-expanded', 'false')
+  const clear = panel.getByRole('button', { name: 'Clear chat', exact: true })
+  await clear.focus()
+  await expect(clear).toBeInViewport()
+  expect(await clear.evaluate(node => {
+    const action = node.closest('.mia-assist-conversation-action')!, text = action.querySelector('p')!
+    return node.getBoundingClientRect().top - text.getBoundingClientRect().bottom
+  })).toBeGreaterThanOrEqual(12)
+  await expect(panel.getByRole('button', { name: 'Close', exact: true })).toBeInViewport()
+  await closeChatAssistPanel(page)
+  await expect(composer).toHaveValue(draft)
+  await prompts.click()
+  await panel.getByRole('button', { name: 'Why is my readiness Red?', exact: true }).click()
+  await expect(panel).toHaveCount(0)
+  await expect(composer).toHaveValue('Why is my readiness Red?')
+  await expect(composer).toBeFocused()
+  expect(sentMessages).toEqual([])
 })
