@@ -4411,6 +4411,26 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_06_110000) do
     CREATE TRIGGER savings_debt_versions_household_link_guard BEFORE INSERT OR UPDATE ON public.savings_debt_versions FOR EACH ROW EXECUTE FUNCTION savings_debt_household_link_guard();
   SQL
   execute <<~'SQL'
+    CREATE OR REPLACE FUNCTION public.debts_optional_card_identity_guard()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    BEGIN
+      IF NEW.household_id IS DISTINCT FROM OLD.household_id THEN
+        PERFORM 1 FROM households WHERE id=OLD.household_id FOR UPDATE;
+        IF (
+          EXISTS (SELECT 1 FROM savings_debt_cards WHERE household_debt_id=OLD.id) OR
+          EXISTS (SELECT 1 FROM savings_debt_drafts WHERE household_debt_id=OLD.id) OR
+          EXISTS (SELECT 1 FROM savings_debt_versions WHERE household_debt_id=OLD.id)
+        ) THEN RAISE EXCEPTION 'optional card review history household identity cannot change'; END IF;
+      END IF;
+      RETURN NEW;
+    END; $function$
+  SQL
+  execute <<~'SQL'
+    CREATE TRIGGER debts_optional_card_identity_guard BEFORE UPDATE OF household_id ON public.debts FOR EACH ROW EXECUTE FUNCTION debts_optional_card_identity_guard();
+  SQL
+  execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_daily_version_guard()
      RETURNS trigger
      LANGUAGE plpgsql

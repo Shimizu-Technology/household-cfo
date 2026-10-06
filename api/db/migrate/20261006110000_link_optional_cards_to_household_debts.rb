@@ -31,6 +31,19 @@ class LinkOptionalCardsToHouseholdDebts < ActiveRecord::Migration[8.1]
         END IF;
         RETURN NEW;
       END; $$;
+      CREATE FUNCTION debts_optional_card_identity_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.household_id IS DISTINCT FROM OLD.household_id THEN
+          PERFORM 1 FROM households WHERE id=OLD.household_id FOR UPDATE;
+          IF (
+            EXISTS (SELECT 1 FROM savings_debt_cards WHERE household_debt_id=OLD.id) OR
+            EXISTS (SELECT 1 FROM savings_debt_drafts WHERE household_debt_id=OLD.id) OR
+            EXISTS (SELECT 1 FROM savings_debt_versions WHERE household_debt_id=OLD.id)
+          ) THEN RAISE EXCEPTION 'optional card review history household identity cannot change'; END IF;
+        END IF;
+        RETURN NEW;
+      END; $$;
+      CREATE TRIGGER debts_optional_card_identity_guard BEFORE UPDATE OF household_id ON debts FOR EACH ROW EXECUTE FUNCTION debts_optional_card_identity_guard();
       CREATE TRIGGER savings_debt_cards_household_link_guard BEFORE INSERT OR UPDATE ON savings_debt_cards FOR EACH ROW EXECUTE FUNCTION savings_debt_household_link_guard();
       CREATE TRIGGER savings_debt_drafts_household_link_guard BEFORE INSERT OR UPDATE ON savings_debt_drafts FOR EACH ROW EXECUTE FUNCTION savings_debt_household_link_guard();
       CREATE TRIGGER savings_debt_versions_household_link_guard BEFORE INSERT OR UPDATE ON savings_debt_versions FOR EACH ROW EXECUTE FUNCTION savings_debt_household_link_guard();
@@ -41,6 +54,8 @@ class LinkOptionalCardsToHouseholdDebts < ActiveRecord::Migration[8.1]
     execute "LOCK TABLE savings_debt_cards,savings_debt_drafts,savings_debt_versions IN ACCESS EXCLUSIVE MODE"
     raise ActiveRecord::IrreversibleMigration, "Reviewed household card links must be retained" if select_value("SELECT EXISTS (SELECT 1 FROM savings_debt_versions WHERE household_debt_id IS NOT NULL UNION ALL SELECT 1 FROM savings_debt_drafts WHERE household_debt_id IS NOT NULL)")
     %i[savings_debt_cards savings_debt_drafts savings_debt_versions].each { |table| execute "DROP TRIGGER #{table}_household_link_guard ON #{table}" }
+    execute "DROP TRIGGER IF EXISTS debts_optional_card_identity_guard ON debts"
+    execute "DROP FUNCTION IF EXISTS debts_optional_card_identity_guard()"
     execute "DROP FUNCTION savings_debt_household_link_guard()"
     remove_index :savings_debt_cards, name: "savings_debt_household_identity_once"
     %i[savings_debt_drafts savings_debt_versions].each do |table|

@@ -7,7 +7,7 @@ module SavingsDebtSchemaDumper
   end
 
   def trailer(stream)
-    dump_debt_functions(stream, %w[savings_debt_scope_guard() savings_debt_household_link_guard()])
+    dump_debt_functions(stream, %w[savings_debt_scope_guard() savings_debt_household_link_guard() debts_optional_card_identity_guard()])
     super
   end
 

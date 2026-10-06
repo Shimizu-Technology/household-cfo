@@ -169,7 +169,86 @@ class SavingsHouseholdDebtLinkTest < ActiveSupport::TestCase
     end
   end
 
+  test "parent household moves fail for pending current and historical review references" do
+    with_savings_runtime do
+      savings_enroll
+      other = Household.create!(created_by_user: @savings_owner, name: "Other synthetic household")
+      pending_debt = household_card(label: "Pending saved card")
+      linked_stage(debt_terms, debt: pending_debt)
+      assert_parent_household_move_blocked(pending_debt, other)
+      current_debt = household_card(label: "Current saved card")
+      first = debt_approve(linked_stage(debt_terms, debt: current_debt))
+      assert_parent_household_move_blocked(current_debt, other)
+      unlink = unlink_stage(first.savings_debt_card.reload)
+      debt_approve(unlink)
+      assert_nil first.savings_debt_card.reload.household_debt_id
+      assert_parent_household_move_blocked(current_debt, other)
+      assert_equal @savings_household.id, current_debt.reload.household_id
+      assert_equal current_debt.id, first.reload.household_debt_snapshot["id"]
+    end
+  end
+
+  test "kind corrections mark current optional terms changed without rewriting the dated approval" do
+    with_savings_runtime do
+      savings_enroll
+      debt = household_card
+      first = debt_approve(linked_stage(debt_terms, debt: debt))
+      reviewed = first.household_debt_snapshot.deep_dup
+      debt.update!(debt_type: "auto_loan", balance_cents: 40_000)
+      assert_equal "auto_loan", debt.reload.debt_type
+      assert_equal first.id, first.savings_debt_card.reload.current_version_id
+      assert_equal reviewed, first.reload.household_debt_snapshot
+      assert_equal "credit_card", reviewed["debt_type"]
+      assert_equal false, SavingsChallenge::Debt::HouseholdMapping.new(@savings_household).current?(first)
+      assert debt_read[:cards].sole[:household_terms_changed]
+      assert_equal 30_000, debt_read[:cards].sole[:terms]["balance_cents"]
+      assert_equal [], SavingsChallenge::Debt::Reader.new(@savings_enrollment, user: @savings_user).household_candidates[:records]
+      assert_raises(HouseholdFinance::Operations::Base::StaleOperation) { linked_stage(debt_terms, debt: debt, card: first.savings_debt_card, fingerprint: first.household_debt_fingerprint) }
+    end
+  end
+
+  test "kind corrections with pending links reject later approval safely and explicit unlink permits ordinary edits" do
+    with_savings_runtime do
+      savings_enroll
+      debt = household_card
+      pending = linked_stage(debt_terms, debt: debt)
+      debt.update!(debt_type: "personal_loan")
+      assert_raises(HouseholdFinance::Operations::Base::StaleOperation) { debt_approve(pending) }
+      assert_equal "pending", pending.reload.status
+      assert_nil pending.savings_debt_card.reload.current_version_id
+      debt.update!(debt_type: "credit_card")
+      first = debt_approve(linked_stage(debt_terms, debt: debt))
+      second = debt_approve(unlink_stage(first.savings_debt_card.reload))
+      debt.update!(debt_type: "auto_loan", balance_cents: 45_000)
+      assert_nil second.savings_debt_card.reload.household_debt_id
+      assert_equal "auto_loan", debt.reload.debt_type
+      assert_equal 45_000, debt.balance_cents
+      assert_equal "credit_card", first.reload.household_debt_snapshot["debt_type"]
+      unrelated = household_card(label: "Unlinked saved debt")
+      unrelated.update!(debt_type: "other", balance_cents: 50_000)
+      assert_equal "other", unrelated.reload.debt_type
+      other = Household.create!(created_by_user: @savings_owner, name: "Unlinked transfer destination")
+      unrelated.update!(household: other)
+      assert_equal other.id, unrelated.reload.household_id
+    end
+  end
+
   private
+
+  def assert_parent_household_move_blocked(debt, other)
+    error = assert_raises(ActiveRecord::RecordInvalid) { debt.update!(household: other) }
+    assert_includes error.message, "optional card review history belongs to this household"
+    debt.reload
+    assert_raises(ActiveRecord::StatementInvalid) do
+      Debt.transaction(requires_new: true) { debt.update_columns(household_id: other.id) }
+    end
+    assert_equal @savings_household.id, debt.reload.household_id
+  end
+
+  def unlink_stage(card)
+    savings_run("debt.stage", { card_id: card.id, terms: debt_terms, source_mapping: nil, household_debt_mapping: nil,
+      expected_version_id: card.current_version_id, expected_head_lock_version: card.lock_version, reason: "Deliberately unlink dated terms" }).subject
+  end
 
   def household_card(**attributes)
     Debt.create!({ household: @savings_household, label: "Fictional saved card", debt_type: "credit_card", balance_cents: 30_000, minimum_payment_cents: 0, source_type: "manual_ui" }.merge(attributes))

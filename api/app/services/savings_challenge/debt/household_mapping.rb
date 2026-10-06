@@ -30,9 +30,9 @@ module SavingsChallenge
 
       def current?(record)
         return true unless record.household_debt_id
-        resolve!({ household_debt_id: record.household_debt_id, fingerprint: record.household_debt_fingerprint }) == values(record)
-      rescue ArgumentError, ActiveRecord::RecordNotFound
-        false
+        debt = @household.debts.find_by(id: record.household_debt_id)
+        current = debt && candidate(debt)
+        !!(current && current[:fingerprint] == record.household_debt_fingerprint && current[:snapshot] == record.household_debt_snapshot)
       end
 
       def candidate(debt)

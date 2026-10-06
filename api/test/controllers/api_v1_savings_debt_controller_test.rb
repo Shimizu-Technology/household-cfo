@@ -157,6 +157,26 @@ class ApiV1SavingsDebtControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "ordinary debt kind correction leaves optional card review readable and flagged as changed" do
+    with_savings_runtime do
+      savings_enroll
+      debt = @savings_household.debts.create!(label: "Corrected fictional debt", debt_type: "credit_card", balance_cents: 30_000)
+      candidate = SavingsChallenge::Debt::HouseholdMapping.new(@savings_household).candidate(debt)
+      draft = savings_run("debt.stage", { terms: debt_terms, expected_version_id: nil, expected_head_lock_version: 0,
+        household_debt_mapping: { household_debt_id: debt.id, fingerprint: candidate[:fingerprint] } }).subject
+      approved = debt_approve(draft)
+      patch "/api/v1/debts/#{debt.id}", params: { debt: { debt_type: "auto_loan" } }, headers: headers, as: :json
+      assert_response :success
+      assert_equal "auto_loan", debt.reload.debt_type
+      get path, headers: headers
+      assert_response :success
+      row = response.parsed_body.fetch("cards").sole
+      assert_equal true, row["household_terms_changed"]
+      assert_equal approved.id, row["version_id"]
+      assert_equal 30_000, row.dig("terms", "balance_cents")
+    end
+  end
+
   private
   def path = "/api/v1/savings_challenge/debt"
   def stage_input = { terms: debt_terms, expected_version_id: nil, expected_head_lock_version: 0 }
