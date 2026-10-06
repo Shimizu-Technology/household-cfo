@@ -151,7 +151,7 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
           {(review.household_name ?? state.household_name) && <p><strong>Household:</strong> {review.household_name ?? state.household_name}</p>}
           <h3>What starts fresh</h3>
           <dl className="financial-restart-counts">{Object.entries(review.counts).filter(([, count]) => !setupHelp || count > 0).map(([key, count]) => <div key={key}><dt>{countLabels[key] ?? key.replaceAll('_', ' ')}</dt><dd>{count}</dd></div>)}</dl>
-          {setupHelp && Object.values(review.counts).some(count => count === 0) && <details className="financial-restart-empty"><summary>View empty record types</summary><dl className="financial-restart-counts">{Object.entries(review.counts).filter(([, count]) => count === 0).map(([key, count]) => <div key={key}><dt>{countLabels[key] ?? key.replaceAll('_', ' ')}</dt><dd>{count}</dd></div>)}</dl></details>}
+          {setupHelp && Object.values(review.counts).some(count => count === 0) && <details className="financial-restart-empty"><summary tabIndex={0}>View empty record types</summary><dl className="financial-restart-counts">{Object.entries(review.counts).filter(([, count]) => count === 0).map(([key, count]) => <div key={key}><dt>{countLabels[key] ?? key.replaceAll('_', ' ')}</dt><dd>{count}</dd></div>)}</dl></details>}
           <p>Your money setup answers, household goal and financial profile will need to be entered again.</p>
           <h3>What stays</h3><ul>{review.preserved.map(value => <li key={value}>{value}</li>)}</ul>
           <h3>What needs a fresh review</h3><ul>{review.paused.map(value => <li key={value}>{value}</li>)}</ul>

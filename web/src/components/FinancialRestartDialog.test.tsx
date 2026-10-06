@@ -145,3 +145,19 @@ it('does not expose an unsafe prepare loop when participant permission is denied
   expect(screen.getByRole('button', { name: 'Return to Fix my setup' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Prepare a fresh review' })).toBeNull()
 })
+
+it('keeps empty record disclosure keyboard reachable while confirmation is pending', async () => {
+  fake(path => {
+    if (path.endsWith('/preview')) return json({ financial_restart: { ...state, review: { ...review, counts: { income_sources: 30, accounts: 0 } } } })
+    if (path.endsWith('/apply')) return new Promise<Response>(() => {})
+    return undefined
+  })
+  render(<FinancialRestartDialog scopeKey="keyboard-user-901" setupHelp={{ requestId: 9 }} onClose={vi.fn()} onApplied={vi.fn()} />)
+  await screen.findByText('Practice household'); confirm()
+  fireEvent.click(screen.getByRole('button', { name: 'Review prepared restart' }))
+  await screen.findByRole('button', { name: 'Starting over…' })
+  const dialog = screen.getByRole('dialog')
+  dialog.focus(); fireEvent.keyDown(document, { key: 'Tab' })
+  expect(document.activeElement).toBe(screen.getByText('View empty record types'))
+  expect(calls.filter(call => call.path.endsWith('/apply'))).toHaveLength(1)
+})
