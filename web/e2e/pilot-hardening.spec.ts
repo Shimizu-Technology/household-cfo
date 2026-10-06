@@ -3943,6 +3943,8 @@ test('unfinished Plaid returns keep Profile and the URL aligned through reload a
       userId: '901',
       linkToken: 'link-oauth-regression',
       updateItemId: null,
+      householdId: 77,
+      financialGeneration: 0,
       createdAt: Date.now(),
     }))
   })
@@ -3992,6 +3994,8 @@ test('query-only Plaid returns preserve callback state while the workspace loads
       userId: '901',
       linkToken: 'link-oauth-delayed-workspace',
       updateItemId: null,
+      householdId: 77,
+      financialGeneration: 0,
       createdAt: Date.now(),
     }))
   })
@@ -10622,3 +10626,37 @@ for (const delayedPath of ['', '/context']) {
     await expect(dialog).not.toContainText('Fictional-checking.pdf')
   })
 }
+
+
+test('BOG UI stale financial-generation Plaid callbacks cannot restore a prior connection', async ({ page }) => {
+  const workspace = { ...realWorkspaceData(true), workspace: { ...realWorkspaceData(true).workspace, financial_generation: 1 } }
+  let exchanges = 0
+  await mockEmptyPlaidState(page, true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ headers: { 'X-Financial-Generation': '1', 'Access-Control-Expose-Headers': 'X-Financial-Generation' }, json: workspace }))
+  await page.route('http://api.test/api/v1/plaid/items/exchange', route => {
+    exchanges += 1
+    return route.fulfill({ status: 422, json: { errors: ['A prior-picture callback must not reach token exchange.'] } })
+  })
+  await page.route('https://cdn.plaid.com/link/v2/stable/link-initialize.js', route => route.fulfill({
+    contentType: 'text/javascript', body: `
+      window.__restartPlaidOpenCount = 0;
+      window.Plaid = { create: function (config) {
+        setTimeout(function () { if (config.onLoad) config.onLoad(); }, 0);
+        return { open: function () { window.__restartPlaidOpenCount++; config.onSuccess('public-prior-picture', {}); }, submit: function () {}, exit: function (_options, callback) { if (callback) callback(); }, destroy: function () {} };
+      } };
+    `,
+  }))
+  await page.addInitScript(() => {
+    window.localStorage.setItem('household-cfo:plaid-oauth:v1', JSON.stringify({ userId: '901', householdId: 77, financialGeneration: 0, linkToken: 'link-prior-financial-picture', updateItemId: null, createdAt: Date.now() }))
+  })
+  await page.goto('/?pilot_e2e_role=participant&oauth_state_id=prior-picture#Budget')
+  await expect(page).toHaveURL(/\?pilot_e2e_role=participant#My%20Profile$/)
+  await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem('household-cfo:plaid-oauth:v1'))).toBeNull()
+  expect(await page.evaluate(() => (window as unknown as { __restartPlaidOpenCount?: number }).__restartPlaidOpenCount ?? 0)).toBe(0)
+  expect(exchanges).toBe(0)
+  await openSection(page, 'Budget')
+  await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Budget$/)
+  await expect(page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })).toBeVisible()
+  expect(exchanges).toBe(0)
+})
