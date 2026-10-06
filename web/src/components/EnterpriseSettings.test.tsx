@@ -2,6 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../enterpriseApi'
+import { ApiRequestError } from '../api'
+import { AuthContext } from '../contexts/authContextValue'
 import { EnterpriseSettings } from './EnterpriseSettings'
 import { enterpriseDetail, enterpriseMember, enterpriseOrganization, enterpriseUser } from '../qa/enterpriseFixtures'
 vi.mock('../enterpriseApi')
@@ -121,5 +123,66 @@ describe('enterprise response isolation and recovery', () => {
     await screen.findByText('The setup link expired. Open a new setup session.')
     expect(screen.getByRole('button', { name: 'Configure user provisioning' })).toHaveProperty('disabled', false)
     expect(api.openEnterprisePortal).toHaveBeenCalledWith(1, 'dsync', `${window.location.origin}/?enterprise=1`)
+  })
+})
+
+describe('organization-specific admission controls', () => {
+  it('uses the selected organization’s opaque ID for SSO recovery after minimal list metadata', async () => {
+    const signIn = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(api.fetchEnterpriseOrganizations).mockResolvedValue({ enterprise_organizations: [{ id: 1, name: 'Fictional Company', workos_organization_id: 'org_FICTIONAL1' }] })
+    vi.mocked(api.fetchEnterpriseOrganization).mockRejectedValue(new ApiRequestError('Sign in to this organization first.', { status: 403, code: 'enterprise_organization_signin_required' }))
+    render(<AuthContext.Provider value={{ isClerkEnabled: false, authProvider: 'workos', authIdentityId: 'fictional', isSignedIn: true, isLoading: false, isVerifyingApi: false, currentUser: enterpriseUser(), activeCoachWorkspaceId: null, authError: null, refreshCurrentUser: async () => undefined, selectCoachWorkspace: () => undefined, signIn }}><EnterpriseSettings currentUser={enterpriseUser()} onClose={vi.fn()} /></AuthContext.Provider>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in to Fictional Company' }))
+    await waitFor(() => expect(signIn).toHaveBeenCalledWith({ organizationId: 'org_FICTIONAL1', returnTo: '/organization-access' }))
+    expect(screen.queryByRole('button', { name: 'Configure company sign-in' })).toBeNull()
+  })
+  it('requires platform admin review before pausing automatic account creation', async () => {
+    vi.mocked(api.updateEnterpriseOrganization).mockResolvedValue({ enterprise_organization: { ...enterpriseOrganization(), directory_provisioning_enabled: false } })
+    await open(true)
+    const pause = screen.getByRole('button', { name: 'Pause automatic accounts' })
+    expect(pause).toHaveProperty('disabled', true)
+    fireEvent.click(screen.getByLabelText('I reviewed the impact of pausing automatic account creation.'))
+    fireEvent.click(pause)
+    await waitFor(() => expect(api.updateEnterpriseOrganization).toHaveBeenCalledWith(1, { directory_provisioning_enabled: false }))
+  })
+  it('keeps automatic account creation controls hidden from IT contacts', async () => {
+    await open()
+    expect(screen.queryByRole('heading', { name: 'Automatic participant accounts' })).toBeNull()
+    expect(api.updateEnterpriseOrganization).not.toHaveBeenCalled()
+  })
+  it.each(['connection', 'directory', 'groups'])('blocks enablement despite review when %s setup is not active', async missing => {
+    const detail = enterpriseDetail()
+    detail.enterprise_organization = { ...detail.enterprise_organization, directory_provisioning_enabled: false, connection_state: missing === 'connection' ? 'inactive' : 'active', directory_state: missing === 'directory' ? 'inactive' : 'active' }
+    if (missing === 'groups') detail.group_mappings = []
+    vi.mocked(api.fetchEnterpriseOrganization).mockResolvedValue(detail)
+    await open(true)
+    fireEvent.click(screen.getByRole('checkbox'))
+    const enable = screen.getByRole('button', { name: 'Enable automatic accounts' })
+    expect(enable).toHaveProperty('disabled', true)
+    fireEvent.click(enable)
+    expect(api.updateEnterpriseOrganization).not.toHaveBeenCalled()
+  })
+  it('enables reviewed admission only after active company sign-in, directory, and approved groups', async () => {
+    const detail = enterpriseDetail()
+    detail.enterprise_organization = { ...detail.enterprise_organization, directory_provisioning_enabled: false, connection_state: 'active', directory_state: 'active' }
+    vi.mocked(api.fetchEnterpriseOrganization).mockResolvedValue(detail)
+    vi.mocked(api.updateEnterpriseOrganization).mockResolvedValue({ enterprise_organization: { ...detail.enterprise_organization, directory_provisioning_enabled: true } })
+    await open(true)
+    const enable = screen.getByRole('button', { name: 'Enable automatic accounts' })
+    expect(enable).toHaveProperty('disabled', true)
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(enable)
+    await waitFor(() => expect(api.updateEnterpriseOrganization).toHaveBeenCalledWith(1, { directory_provisioning_enabled: true }))
+  })
+  it('never grants IT access to an unbound pre-provisioned directory member', async () => {
+    vi.mocked(api.fetchEnterpriseOrganization).mockResolvedValue(enterpriseDetail(1, true))
+    vi.mocked(api.fetchEnterpriseMembers).mockResolvedValue({ memberships: [{ ...enterpriseMember(), user_id: null, email: null, full_name: null }] })
+    await open(true)
+    expect(screen.getByText('Awaiting participant admission')).toBeTruthy()
+    const grant = screen.getByRole('button', { name: 'Review IT access' })
+    expect(grant).toHaveProperty('disabled', true)
+    fireEvent.click(grant)
+    expect(screen.queryByRole('heading', { name: 'Grant IT configuration access?' })).toBeNull()
+    expect(api.updateEnterpriseMember).not.toHaveBeenCalled()
   })
 })

@@ -35,3 +35,12 @@ it('admits platform administrators without implicitly requiring an enterprise me
   render(<AuthContext.Provider value={auth({ currentUser: enterpriseUser(true, false) })}><EnterpriseAccessPage /></AuthContext.Provider>)
   expect(screen.getByText('Company configuration')).toBeTruthy()
 })
+
+it('offers recovery after a verification deadline even while the SDK remains loading', () => {
+  render(<AuthContext.Provider value={auth({ isLoading: true, isVerifyingApi: true, currentUser: null, authError: 'The secure sign-in check took too long.' })}><EnterpriseAccessPage /></AuthContext.Provider>)
+  expect(screen.getByRole('heading', { name: 'Organization access could not be verified.' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Check access again' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Reload page' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Checking organization access.' })).toBeNull()
+  expect(enterpriseSettings).not.toHaveBeenCalled()
+})
