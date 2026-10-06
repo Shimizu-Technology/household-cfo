@@ -1053,7 +1053,7 @@ module HouseholdFinance
       {
         messages: messages.map do |message|
           payload = serialize_chat_message(message, imports_by_id: imports_by_id)
-          history ? payload.merge(financial_restart: nil, presentation: {}, read_only: true) : payload
+          history ? payload.merge(financial_restart: nil, setup_help: nil, presentation: {}, read_only: true) : payload
         end,
         oldest_message_id: oldest_message_id,
         older_message_count: older_message_count

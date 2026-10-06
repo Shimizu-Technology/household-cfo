@@ -36,6 +36,7 @@ class Household < ApplicationRecord
   has_many :plaid_transactions, through: :plaid_items
   has_many :pilot_feedback_reports, dependent: :destroy
 
+  has_many :setup_support_requests, dependent: :restrict_with_exception
   has_many :financial_restart_reviews, dependent: :destroy
 
   validates :name, presence: true, length: { maximum: 120 }

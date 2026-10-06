@@ -46,6 +46,21 @@ Rails.application.routes.draw do
       %w[consent support_request support_grant support_revoke source_authorize source_revoke].each do |action|
         post "savings_challenge/:enrollment_id/privacy/#{action}", to: "challenge_privacy##{action}"
       end
+      get "setup_help", to: "setup_help#show"
+      post "setup_help/requests", to: "setup_help#create_request"
+      post "setup_help/requests/:id/cancel", to: "setup_help#cancel_request"
+      post "setup_help/requests/:id/reopen", to: "setup_help#reopen_request"
+      get "setup_help/restart/status", to: "setup_help#restart_status"
+      post "setup_help/restart/preview", to: "setup_help#restart_preview"
+      post "setup_help/restart/apply", to: "setup_help#restart_apply"
+      post "setup_help/restart/cancel", to: "setup_help#restart_cancel"
+      resources :setup_support_requests, only: :index do
+        member do
+          post :triage
+          post :prepare
+          post :decline
+        end
+      end
       get "financial_restart/status", to: "financial_restarts#status"
       post "financial_restart/preview", to: "financial_restarts#preview"
       post "financial_restart/cancel", to: "financial_restarts#cancel"

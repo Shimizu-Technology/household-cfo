@@ -41,7 +41,7 @@ module Api
         FinancialPicture.set(household_id: household.id, generation: generation) { yield }
         latest_generation = Household.where(id: household.id).pick(:financial_generation)
         response.set_header("X-Financial-Generation", latest_generation.to_s)
-        if latest_generation != generation && controller_name != "financial_restarts" && !financial_history_response?
+        if latest_generation != generation && !controller_name.in?(%w[financial_restarts setup_help]) && !financial_history_response?
           self.status = :conflict
           response.content_type = "application/json"
           self.response_body = { errors: [ "Your financial picture changed during this request. Reload before continuing." ],
@@ -58,7 +58,7 @@ module Api
       end
 
       def financial_picture_controller?
-        names = %w[workspaces households spending_reports income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines financial_restarts mia_messages household_memories mia_memory_settings]
+        names = %w[workspaces households spending_reports income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines financial_restarts setup_help mia_messages household_memories mia_memory_settings]
         names.include?(controller_name) || controller_path.start_with?("api/v1/plaid/")
       end
 
@@ -69,6 +69,7 @@ module Api
       def financial_generation_required?
         return false if controller_name == "document_imports" && action_name.in?(%w[destroy destroy_source])
         return action_name == "preview" if controller_name == "financial_restarts"
+        return action_name.in?(%w[restart_preview create_request]) if controller_name == "setup_help"
         return action_name != "destroy" if controller_path.start_with?("api/v1/plaid/")
         return !action_name.in?(%w[destroy reject]) if controller_name == "household_memories"
         names = %w[workspaces income_sources income_schedule_entries debts accounts goals budget_categories budget_allocations mia_action_drafts transaction_drafts document_imports document_import_items source_reviews financial_baselines]
