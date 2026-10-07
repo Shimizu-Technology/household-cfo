@@ -15,7 +15,7 @@ module CoachWorkspaces
       {
         workspace_id: workspace.id,
         permissions: { manage: true },
-        members: workspace.coach_workspace_memberships.includes(:user).order(:id).map { |membership| serialize(membership) },
+        members: workspace.coach_workspace_memberships.includes(user: :authentication_identities).order(:id).map { |membership| serialize(membership) },
         sign_in_url: sign_in_url
       }
     end
@@ -131,8 +131,8 @@ module CoachWorkspaces
       end
       return unless membership.role == "owner" && next_role != "owner" && membership.user.invitation_accepted?
 
-      other_owners = workspace.coach_workspace_memberships.joins(:user).where(role: "owner", users: { role: %w[coach admin], invitation_status: "accepted" })
-        .where.not(id: membership.id).where.not("users.clerk_id LIKE ?", "pending_%")
+      other_owners = workspace.coach_workspace_memberships.joins(:user).where(role: "owner", users: { role: %w[coach admin] })
+        .merge(User.accepted_linked_identity).where.not(id: membership.id)
       raise Invalid, "Add another active owner before removing or reducing this owner's access." unless other_owners.exists?
     end
 
@@ -140,7 +140,7 @@ module CoachWorkspaces
       user = membership.user
       {
         id: membership.id, user_id: user.id, email: user.email, full_name: user.full_name,
-        role: membership.role, status: user.revoked? ? "revoked" : user.invitation_accepted? ? "accepted" : "pending",
+        role: membership.role, status: user.revoked? ? "revoked" : user.invitation_accepted?(fresh: false) ? "accepted" : "pending",
         platform_admin: user.admin?, is_self: user.id == actor.id, cohort_managed: membership.cohort_managed?
       }
     end

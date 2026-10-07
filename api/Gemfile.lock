@@ -404,6 +404,10 @@ GEM
       base64
       websocket-extensions (>= 0.1.0)
     websocket-extensions (0.1.5)
+    workos (10.4.0)
+      jwt (~> 3.1)
+      logger (~> 1.7)
+      zeitwerk (~> 2.6)
     zeitwerk (2.8.3)
 
 PLATFORMS
@@ -446,6 +450,7 @@ DEPENDENCIES
   solid_queue
   thruster
   tzinfo-data
+  workos (~> 10.4)
 
 CHECKSUMS
   Ascii85 (2.0.1) sha256=15cb5d941808543cbb9e7e6aea3c8ec3877f154c3461e8b3673e97f7ecedbe5a
@@ -603,6 +608,7 @@ CHECKSUMS
   useragent (0.16.11) sha256=700e6413ad4bb954bb63547fa098dddf7b0ebe75b40cc6f93b8d54255b173844
   websocket-driver (0.8.2) sha256=97c556b019bf3410b4961002ac501621e9322d3f8a7bc02161a09301cc4c4146
   websocket-extensions (0.1.5) sha256=1c6ba63092cda343eb53fc657110c71c754c56484aad42578495227d717a8241
+  workos (10.4.0) sha256=a93079ff4c6b403b3dd1a14402ec6bb755d4f113d6ca574d7e2b2f3a4d903ae9
   zeitwerk (2.8.3) sha256=2c85125a8467ce069e20123d1e709a08955c9d29c118c25b46b7b7fafdbb92e5
 
 BUNDLED WITH

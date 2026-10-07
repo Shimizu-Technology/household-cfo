@@ -35,9 +35,8 @@ module Mia
       def current_review_role(workspace:, reviewer:)
         return nil unless reviewer&.id
 
-        role, invitation_status, clerk_id = User.where(id: reviewer.id).pick(:role, :invitation_status, :clerk_id)
-        return nil unless role.in?(%w[admin coach]) && invitation_status == "accepted"
-        return nil if clerk_id.blank? || clerk_id.start_with?("pending_")
+        role = User.accepted_linked_identity.where(id: reviewer.id).pick(:role)
+        return nil unless role.in?(%w[admin coach])
         return "platform_admin" if role == "admin"
 
         membership_role = CoachWorkspaceMembership.where(

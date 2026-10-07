@@ -1,4 +1,5 @@
 class User < ApplicationRecord
+  has_many :authentication_identities, dependent: :restrict_with_exception
   has_many :released_cohort_releases, class_name: "CohortRelease", foreign_key: :released_by_user_id,
     dependent: :restrict_with_exception, inverse_of: :released_by_user
   has_many :coach_operation_executions, foreign_key: :actor_user_id,
@@ -11,6 +12,22 @@ class User < ApplicationRecord
   ROLES = %w[admin coach participant].freeze
   INVITATION_STATUSES = %w[pending accepted revoked].freeze
   INVITATION_EMAIL_STATUSES = %w[not_sent skipped sent failed].freeze
+
+  # Identity rows are written only by server-verified provider/mapping paths.
+  # EXISTS preserves one row per user when this scope is merged into policy joins.
+  scope :linked_authentication_identity, -> {
+    where(<<~SQL.squish, providers: %w[clerk workos])
+      (BTRIM(users.clerk_id) <> '' AND LEFT(users.clerk_id, 8) <> 'pending_' AND LEFT(users.clerk_id, 7) <> 'workos_')
+      OR EXISTS (
+        SELECT 1 FROM authentication_identities
+        WHERE authentication_identities.user_id = users.id
+          AND authentication_identities.provider IN (:providers)
+          AND BTRIM(authentication_identities.issuer) <> ''
+          AND BTRIM(authentication_identities.subject) <> ''
+      )
+    SQL
+  }
+  scope :accepted_linked_identity, -> { where(invitation_status: "accepted").merge(linked_authentication_identity) }
 
   normalizes :email, with: ->(email) { email.to_s.strip.downcase }
 
@@ -87,11 +104,24 @@ class User < ApplicationRecord
   end
 
   def invitation_pending?
-    invitation_status == "pending" || clerk_id.to_s.start_with?("pending_")
+    invitation_status == "pending"
   end
 
-  def invitation_accepted?
-    invitation_status == "accepted" && clerk_id.present? && !clerk_id.start_with?("pending_")
+  # Authorization stays authoritative even if a list previously preloaded this
+  # association. Only display serializers opt into the loaded snapshot.
+  def invitation_accepted?(fresh: true)
+    return persisted? && self.class.accepted_linked_identity.where(id: id).exists? if fresh || !authentication_identities.loaded?
+    invitation_status == "accepted" && linked_authentication_identity?(fresh: false)
+  end
+
+  def linked_authentication_identity?(fresh: true)
+    return persisted? && self.class.linked_authentication_identity.where(id: id).exists? if fresh || !authentication_identities.loaded?
+    return false unless persisted?
+    legacy_id = clerk_id.to_s
+    legacy = legacy_id.match?(/[^ ]/) && !legacy_id.start_with?("pending_", "workos_")
+    legacy || authentication_identities.any? do |identity|
+      identity.persisted? && identity.provider.in?(%w[clerk workos]) && identity.issuer.to_s.match?(/[^ ]/) && identity.subject.to_s.match?(/[^ ]/)
+    end
   end
 
   def revoked?

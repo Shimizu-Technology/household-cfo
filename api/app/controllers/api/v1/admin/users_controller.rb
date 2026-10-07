@@ -12,7 +12,7 @@ module Api
         rescue_from ParticipantMutationNotAuthorized, with: :render_mutation_not_authorized
 
         def index
-          users = users_scope.to_a
+          users = users_scope.includes(:authentication_identities).to_a
           preload_recent_invitation_email_attempts(users) unless workspace_scoped_mode?
           progress_by_user_id = HouseholdFinance::PilotProgressBatchBuilder.new(users).call
           render json: {
@@ -280,7 +280,7 @@ module Api
           end
 
           was_revoked = user.revoked?
-          target_status = linked_to_clerk?(user) ? "accepted" : "pending"
+          target_status = user.linked_authentication_identity? ? "accepted" : "pending"
           workspace_guard_error = nil
           with_stable_invitation_membership_locks(
             user,
@@ -473,11 +473,7 @@ module Api
           return user.invitation_status unless requested.in?(User::INVITATION_STATUSES)
           return "revoked" if requested == "revoked"
 
-          linked_to_clerk?(user) ? "accepted" : "pending"
-        end
-
-        def linked_to_clerk?(user)
-          user.clerk_id.present? && !user.clerk_id.start_with?("pending_")
+          user.linked_authentication_identity? ? "accepted" : "pending"
         end
 
         def cohort_membership_params_present?(attributes)
@@ -635,8 +631,8 @@ module Api
           return unless user.invitation_accepted? && (!role.in?(%w[coach admin]) || invitation_status != "accepted")
 
           CoachWorkspaceMembership.where(user_id: user.id, role: "owner").order(:coach_workspace_id).pluck(:coach_workspace_id).each do |workspace_id|
-            available_owner = CoachWorkspaceMembership.joins(:user).where(coach_workspace_id: workspace_id, role: "owner", users: { role: %w[coach admin], invitation_status: "accepted" })
-              .where.not(user_id: user.id).where.not("users.clerk_id LIKE ?", "pending_%").exists?
+            available_owner = CoachWorkspaceMembership.joins(:user).where(coach_workspace_id: workspace_id, role: "owner", users: { role: %w[coach admin] })
+              .merge(User.accepted_linked_identity).where.not(user_id: user.id).exists?
             return "Assign another active owner in every owned workspace before changing this account's access." unless available_owner
           end
           nil
@@ -744,7 +740,7 @@ module Api
           user.with_lock do
             attempt = user.invitation_email_attempts.create!(
               status: result.fetch(:status),
-              provider: "resend",
+              provider: result[:provider].presence || "resend",
               provider_message_id: result[:provider_message_id],
               error: result[:error],
               attempted_at: attempted_at,
@@ -788,7 +784,7 @@ module Api
           serialized_user_identity(user).merge(
             invited_by: workspace_scoped_mode? ? nil : serialize_inviter(user.invited_by_user),
             invite_email: serialize_invite_email(user),
-            can_resend_invitation: user.participant? && !user.invitation_accepted? && !user.revoked? &&
+            can_resend_invitation: user.participant? && !user.invitation_accepted?(fresh: false) && !user.revoked? &&
               !(workspace_scoped_mode? && user_shared_outside_active_workspace?(user)),
             cohorts: serialized_memberships(user),
             workspace: progress
