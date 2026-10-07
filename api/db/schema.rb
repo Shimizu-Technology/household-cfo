@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_07_200004) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_200006) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -3699,6 +3699,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_200004) do
   end
 
   create_table "workos_browser_login_attempts", force: :cascade do |t|
+    t.boolean "popup", default: false, null: false
     t.string "browser_digest", null: false
     t.string "client_id", null: false
     t.datetime "created_at", null: false
@@ -3710,6 +3711,31 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_200004) do
     t.datetime "updated_at", null: false
     t.index ["expires_at"], name: "index_workos_browser_login_attempts_on_expires_at"
     t.index ["state_digest"], name: "index_workos_browser_login_attempts_on_state_digest", unique: true
+  end
+
+  create_table "workos_email_delivery_limits", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "delivery_count", default: 0, null: false
+    t.string "identity_digest", null: false
+    t.datetime "updated_at", null: false
+    t.datetime "window_started_at", null: false
+    t.index ["identity_digest"], name: "index_workos_email_delivery_limits_on_identity_digest", unique: true
+    t.index ["updated_at"], name: "index_workos_email_delivery_limits_on_updated_at"
+  end
+
+  create_table "workos_email_challenges", force: :cascade do |t|
+    t.string "browser_digest", null: false
+    t.string "challenge_digest", null: false
+    t.string "client_id", null: false
+    t.datetime "created_at", null: false
+    t.text "encrypted_context", null: false
+    t.datetime "expires_at", null: false
+    t.string "frontend_origin", null: false
+    t.datetime "resend_at", null: false
+    t.datetime "updated_at", null: false
+    t.integer "verification_attempts", default: 0, null: false
+    t.index ["challenge_digest"], name: "index_workos_email_challenges_on_challenge_digest", unique: true
+    t.index ["expires_at"], name: "index_workos_email_challenges_on_expires_at"
   end
 
   create_table "workos_browser_sessions", force: :cascade do |t|

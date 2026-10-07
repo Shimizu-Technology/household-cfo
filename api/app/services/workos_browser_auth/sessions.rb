@@ -18,9 +18,12 @@ module WorkosBrowserAuth
       @provider = provider
     end
 
-    def login(origin:, browser:, return_to:, screen_hint:, organization_id: nil, invitation_token: nil)
+    def login(origin:, browser:, return_to:, screen_hint:, organization_id: nil, invitation_token: nil, authentication_method: nil, login_hint: nil, popup: false)
       origin = Origins.approved!(origin)
       raise WorkosAuth::InvalidToken, "Invalid sign-in option" unless screen_hint.in?(%w[sign-in sign-up])
+      raise WorkosAuth::InvalidToken, "Invalid sign-in option" unless popup == true || popup == false
+      raise WorkosAuth::InvalidToken, "Invalid sign-in method" unless authentication_method.nil? || (authentication_method == "google" && ENV["WORKOS_GOOGLE_ENABLED"] == "true")
+      raise WorkosAuth::InvalidToken, "Invalid sign-in method" if authentication_method == "google" && organization_id.present?
       raise WorkosAuth::InvalidToken, "Invalid organization" unless organization_id.nil? || organization_id.to_s.match?(/\Aorg_[A-Za-z0-9]+\z/)
       raise WorkosAuth::InvalidToken, "Invalid invitation" unless invitation_token.nil? || (invitation_token.is_a?(String) && invitation_token.present? && invitation_token.bytesize <= 4096 && !invitation_token.match?(/[[:space:]\x00-\x1f\x7f]/))
       state = SecureRandom.urlsafe_base64(32)
@@ -29,8 +32,8 @@ module WorkosBrowserAuth
       WorkosBrowserSession.where("expires_at < ?", Time.current).delete_all
       attempt = WorkosBrowserLoginAttempt.create!(state_digest: self.class.digest(state), browser_digest: self.class.digest(browser),
         frontend_origin: origin, return_to: Origins.return_to!(return_to, origin: origin), client_id: WorkosAuth.client_id,
-        encrypted_verifier: Encryption.encrypt(pkce.fetch(:code_verifier), purpose: Encryption::PKCE_PURPOSE), expires_at: LOGIN_TTL.from_now)
-      @provider.authorization_url(provider: "authkit", redirect_uri: "#{origin}/api/auth/callback", state: state,
+        encrypted_verifier: Encryption.encrypt(pkce.fetch(:code_verifier), purpose: Encryption::PKCE_PURPOSE), expires_at: LOGIN_TTL.from_now, popup: popup)
+      @provider.authorization_url(provider: authentication_method == "google" ? "GoogleOAuth" : "authkit", redirect_uri: "#{origin}/api/auth/callback", state: state, login_hint: login_hint,
         screen_hint: screen_hint, organization_id: organization_id, invitation_token: invitation_token,
         code_challenge: pkce.fetch(:code_challenge), code_challenge_method: "S256")
     rescue StandardError
@@ -56,9 +59,35 @@ module WorkosBrowserAuth
 
     def finish_login(attempt:, code:)
       raise WorkosAuth::InvalidToken, "Invalid sign-in code" unless code.is_a?(String) && code.present? && code.bytesize <= 2048
-      credentials = validate_response!(@provider.exchange(code: code, verifier: Encryption.decrypt(attempt.encrypted_verifier, purpose: Encryption::PKCE_PURPOSE)))
+      establish_session(response: @provider.exchange(code: code, verifier: Encryption.decrypt(attempt.encrypted_verifier, purpose: Encryption::PKCE_PURPOSE)), origin: attempt.frontend_origin)
+    end
+
+    def establish_session(response:, origin:, admit: false)
+      credentials = validate_response!(response)
+      if admit
+        claims = WorkosAuth.verify(credentials.fetch("access_token"))
+        begin
+          begin
+            user = WorkosIdentityResolver.resolve!(claims: claims)
+          rescue WorkosIdentityResolver::NotInvited
+            user = Enterprise::Admission.resolve!(subject: claims.fetch("sub"), claims: claims,
+              profile: WorkosAuth.fetch_user_profile(claims.fetch("sub")))
+          end
+          EnterpriseAccess.authorize!(user: user, claims: claims)
+        rescue WorkosIdentityResolver::Forbidden, EnterpriseAccess::Denied, Enterprise::Client::Unavailable
+          # These freshly issued credentials were never made available to this
+          # browser. Revoke that exact provider session, preserving any prior
+          # local session and retaining the original authorization failure.
+          begin
+            @provider.revoke(session_id: credentials.fetch("sid"))
+          rescue WorkosAuth::Unavailable, WorkosAuth::InvalidToken, Provider::RateLimited, Provider::PolicyRequired
+            nil
+          end
+          raise
+        end
+      end
       token = SecureRandom.urlsafe_base64(32)
-      record = WorkosBrowserSession.create!(cookie_digest: self.class.digest(token), frontend_origin: attempt.frontend_origin,
+      record = WorkosBrowserSession.create!(cookie_digest: self.class.digest(token), frontend_origin: Origins.approved!(origin),
         client_id: WorkosAuth.client_id, subject: credentials.fetch("user").fetch("id"), provider_session_id: credentials.fetch("sid"),
         encrypted_credentials: Encryption.encrypt(credentials), expires_at: SESSION_TTL.from_now)
       [ record, token ]
