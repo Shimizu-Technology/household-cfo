@@ -194,6 +194,8 @@ class ApiAuthBrowserSessionsControllerTest < ActionDispatch::IntegrationTest
       assert_equal 0, WorkosBrowserLoginAttempt.count
       refute_includes response.location, "private-detail"
       assert_empty @provider.exchanges
+      post "/api/auth/login/status", params: { state: @provider.options[:state] }, headers: HEADERS, as: :json
+      assert_equal({ "status" => "cancelled" }, response.parsed_body)
     end
   end
 
@@ -221,6 +223,147 @@ class ApiAuthBrowserSessionsControllerTest < ActionDispatch::IntegrationTest
       assert_equal "#{ORIGIN}/login?auth_error=retry", response.location
       assert_equal 0, WorkosBrowserLoginAttempt.count
       assert_equal 0, WorkosBrowserSession.count
+    end
+  end
+
+  test "Google policy continues in hosted AuthKit with fresh nonce and original popup invitation and destination" do
+    with_browser_auth do
+      previous = ENV["WORKOS_GOOGLE_ENABLED"]
+      ENV["WORKOS_GOOGLE_ENABLED"] = "true"
+      login(return_to: "/#Review", invitation_token: "private-invitation", authentication_method: "google", popup: true)
+      original = @provider.options.dup
+      attempt = WorkosBrowserLoginAttempt.last
+      refute_includes attempt.encrypted_login_context, "private-invitation"
+      @provider.failure = WorkosBrowserAuth::Provider::PolicyRequired.new("Private provider challenge")
+      callback
+      assert_response :see_other
+      assert_equal "authkit", @provider.options.fetch(:provider)
+      refute_equal original.fetch(:state), @provider.options.fetch(:state)
+      refute_equal original.fetch(:code_challenge), @provider.options.fetch(:code_challenge)
+      assert_equal "private-invitation", @provider.options.fetch(:invitation_token)
+      assert_equal @provider.authorization_url(**@provider.options), response.location
+      assert_equal [ "opaque-code" ], @provider.exchanges.map(&:first)
+      assert_equal 0, WorkosBrowserSession.count
+      assert_equal 1, WorkosBrowserLoginAttempt.count
+      fresh = WorkosBrowserLoginAttempt.last
+      assert fresh.popup
+      assert_equal "#{ORIGIN}/#Review", fresh.return_to
+      assert_equal attempt.browser_digest, fresh.browser_digest
+      refute_includes response.location, "Private provider challenge"
+      @provider.failure = nil
+      get "/api/auth/callback", params: { state: original.fetch(:state), code: "do-not-exchange" }
+      assert_redirected_to "#{ORIGIN}/login?auth_error=invalid"
+      assert_equal [ "opaque-code" ], @provider.exchanges.map(&:first)
+      get "/api/auth/callback", params: { state: @provider.options.fetch(:state), code: "hosted-code" }
+      assert_redirected_to "#{ORIGIN}/login/complete"
+      assert_equal [ "opaque-code", "hosted-code" ], @provider.exchanges.map(&:first)
+    ensure
+      previous.nil? ? ENV.delete("WORKOS_GOOGLE_ENABLED") : ENV["WORKOS_GOOGLE_ENABLED"] = previous
+    end
+  end
+
+  test "policy continuation retains organization and handles pre-migration attempts safely" do
+    with_browser_auth do
+      login(return_to: "/organization-access", organization_id: "org_test", invitation_token: "private-invitation")
+      @provider.failure = WorkosBrowserAuth::Provider::PolicyRequired.new("Continue securely")
+      callback
+      assert_response :see_other
+      assert_equal "org_test", @provider.options.fetch(:organization_id)
+      assert_equal "private-invitation", @provider.options.fetch(:invitation_token)
+      @provider.failure = nil
+      login(return_to: "/#Review")
+      WorkosBrowserLoginAttempt.last.update!(encrypted_login_context: nil, workos_browser_login_operation_id: nil)
+      @provider.failure = WorkosBrowserAuth::Provider::PolicyRequired.new("Continue securely")
+      callback
+      assert_response :see_other
+      assert_equal "authkit", @provider.options.fetch(:provider)
+      assert_nil @provider.options[:organization_id]
+      assert_nil @provider.options[:invitation_token]
+      assert_equal "#{ORIGIN}/#Review", WorkosBrowserLoginAttempt.last.return_to
+      assert_equal 0, WorkosBrowserSession.count
+    end
+  end
+
+  test "login cancellation and status are browser bound idempotent and consume no credentials" do
+    with_browser_auth do
+      login(popup: true)
+      state = @provider.options.fetch(:state)
+      browser = cookies["cfo_workos_login"]
+      post "/api/auth/login/status", params: { state: state }, headers: HEADERS, as: :json
+      assert_equal({ "status" => "pending" }, response.parsed_body)
+      post "/api/auth/login/cancel", params: { state: state }, headers: HEADERS.merge("Origin" => "https://evil.example"), as: :json
+      assert_response :unauthorized
+      cookies["cfo_workos_login"] = SecureRandom.urlsafe_base64(32)
+      post "/api/auth/login/cancel", params: { state: state }, headers: HEADERS, as: :json
+      assert_equal({ "status" => "cancelled" }, response.parsed_body)
+      assert_nil WorkosBrowserLoginOperation.last.cancelled_at
+      assert_equal 1, WorkosBrowserLoginAttempt.count
+      post "/api/auth/login/status", params: { state: state }, headers: HEADERS, as: :json
+      assert_equal({ "status" => "cancelled" }, response.parsed_body)
+      cookies["cfo_workos_login"] = browser
+      2.times do
+        post "/api/auth/login/cancel", params: { state: state }, headers: HEADERS, as: :json
+        assert_response :success
+        assert_equal({ "status" => "cancelled" }, response.parsed_body)
+      end
+      assert WorkosBrowserLoginOperation.last.cancelled_at
+      assert_equal 0, WorkosBrowserLoginAttempt.count
+      callback
+      assert_redirected_to "#{ORIGIN}/login?auth_error=invalid"
+      assert_empty @provider.exchanges
+      assert_empty @provider.revocations
+      assert_equal 0, WorkosBrowserSession.count
+    end
+  end
+
+  test "original operation cancels its hosted policy child" do
+    with_browser_auth do
+      login(popup: true, invitation_token: "private-invitation")
+      operation_count = WorkosBrowserLoginOperation.count
+      state = @provider.options.fetch(:state)
+      operation = WorkosBrowserLoginOperation.last
+      @provider.failure = WorkosBrowserAuth::Provider::PolicyRequired.new("Continue securely")
+      callback
+      assert_response :see_other
+      assert_equal operation.id, WorkosBrowserLoginAttempt.last.workos_browser_login_operation_id
+      assert_equal operation_count, WorkosBrowserLoginOperation.count
+      @provider.failure = nil
+      post "/api/auth/login/status", params: { state: state }, headers: HEADERS, as: :json
+      assert_equal({ "status" => "pending" }, response.parsed_body)
+      post "/api/auth/login/cancel", params: { state: state }, headers: HEADERS, as: :json
+      assert_equal({ "status" => "cancelled" }, response.parsed_body)
+      callback
+      assert_redirected_to "#{ORIGIN}/login?auth_error=invalid"
+      assert_equal [ "opaque-code" ], @provider.exchanges.map(&:first)
+      assert_equal 0, WorkosBrowserSession.count
+    end
+  end
+
+  test "completed operation status matches only its cookie and cancellation never revokes another account" do
+    with_browser_auth do
+      login(popup: true)
+      state = @provider.options.fetch(:state)
+      callback
+      assert_redirected_to "#{ORIGIN}/login/complete"
+      own_cookie = cookies["cfo_workos_session"]
+      2.times do
+        post "/api/auth/login/cancel", params: { state: state }, headers: HEADERS, as: :json
+        assert_equal({ "status" => "complete" }, response.parsed_body)
+      end
+      post "/api/auth/login/status", params: { state: state }, headers: HEADERS, as: :json
+      assert_equal({ "status" => "complete" }, response.parsed_body)
+      cookies["cfo_workos_session"] = SecureRandom.urlsafe_base64(32)
+      %w[status cancel].each do |action|
+        post "/api/auth/login/#{action}", params: { state: state }, headers: HEADERS, as: :json
+        assert_equal({ "status" => "account_changed" }, response.parsed_body)
+      end
+      assert_empty @provider.revocations
+      assert_equal 1, WorkosBrowserSession.count
+      cookies["cfo_workos_session"] = own_cookie
+      travel 11.minutes do
+        post "/api/auth/login/status", params: { state: state }, headers: HEADERS, as: :json
+        assert_equal({ "status" => "cancelled" }, response.parsed_body)
+      end
     end
   end
 

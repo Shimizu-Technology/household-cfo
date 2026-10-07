@@ -1,5 +1,5 @@
 import { uniqueBaselineAccountLabels } from '../lib/baselineDisplay'
-import { useCallback, useEffect, useRef, useState, useMemo, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo, type FormEvent } from 'react'
 import { ApiRequestError, fetchBaselineContext, fetchBaselineHistory, fetchFinancialBaseline, previewFinancialBaseline } from '../api'
 import { sameBaselineScope, validateBaselineWindow, type BaselineCategoryChoice, type BaselineContext, type BaselineCurrent, type BaselinePreview, type BaselineRequest, type BaselineScope, type BaselineSource, type BaselineVersion, type BaselineReviewedActual, type BaselineReviewedCash } from '../lib/financialBaseline'
 import { usePilotDialog } from '../lib/usePilotDialog'
@@ -45,6 +45,10 @@ export function BaselineReview({ scope, onClose, onReviewStatements }: { scope: 
   const epoch = useRef(0); const mounted = useRef(false); const controllers = useRef(new Set<AbortController>())
   const onRevoked = useCallback(() => setRevoked(true), [])
   const initialized = useRef(false); const previewHeading = useRef<HTMLHeadingElement>(null)
+  const previewRecord = preview?.record
+  useLayoutEffect(() => {
+    if (previewRecord) previewHeading.current?.focus({ preventScroll: true })
+  }, [previewRecord])
   const refresh = useCallback(() => { epoch.current += 1; setPreview(null); setConsent(false); setReadAttempt((value) => value + 1) }, [])
   const mutation = useBaselineMutation({ scope: current && sameBaselineScope(current.actor_scope,expectedScope) ? current.actor_scope : undefined, refresh })
   const privateReady = !revoked && !mutation.accessDenied && current && context && sameBaselineScope(current.actor_scope,expectedScope) && sameBaselineScope(context.actor_scope,expectedScope) && isBaselineActor(expectedScope)
@@ -87,7 +91,6 @@ export function BaselineReview({ scope, onClose, onReviewStatements }: { scope: 
       if (!mounted.current || epoch.current !== sequence) return
       if (!sameBaselineScope(record.actor_scope,expectedScope)) { setRevoked(true); throw new Error('The private workspace changed. Reopen baseline review.') }
       setPreview({ record,requestKey,baseVersion: current!.approved_version?.id ?? null,lock: current!.lock_version }); setPreviewLoading(false)
-      requestAnimationFrame(() => previewHeading.current?.focus())
     } catch (failure) { if (mounted.current && epoch.current === sequence) { setError(errorMessage(failure)); setPreviewLoading(false); if (failure instanceof ApiRequestError && [401,403,404].includes(failure.status)) setRevoked(true) } }
     finally { controllers.current.delete(controller); if (mounted.current && epoch.current !== sequence) setPreviewLoading(false) }
   }

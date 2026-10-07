@@ -14,6 +14,26 @@ async function period(){await screen.findByText('No approved baseline yet');fire
 async function preview(){fireEvent.click(screen.getByRole('button',{name:'Preview baseline and limitations'}));return screen.findByRole('region',{name:'Proposed baseline preview'})}
 function consent(){fireEvent.change(screen.getByLabelText('Baseline approval explanation'),{target:{value:'Reviewed the exact period and its limits.'}});fireEvent.click(screen.getByRole('checkbox',{name:/I reviewed this period/}))}
 describe('participant spending baseline',()=>{
+ it('focuses each committed preview even if animation frames run before render, without refocusing a stale record',async()=>{
+  const frame = vi.spyOn(window,'requestAnimationFrame').mockImplementation(callback=>{callback(performance.now());return 1})
+  try {
+   vi.mocked(api.approveFinancialBaseline).mockRejectedValueOnce(new api.ApiRequestError('Source changed; preview again.',{status:409}))
+   render(view());await period();const proposal=await preview()
+   const heading=within(proposal).getByRole('heading',{name:'3. Review before approving'})
+   expect(document.activeElement).toBe(heading)
+   const focus=vi.spyOn(heading,'focus')
+   consent();screen.getByLabelText('Baseline approval explanation').focus()
+   fireEvent.click(screen.getByRole('button',{name:'Approve baseline'}))
+   await screen.findByText('Source changed; preview again.')
+   expect(screen.getByText(/preview is out of date/)).toBeTruthy()
+   expect(focus).not.toHaveBeenCalled()
+   await preview()
+   await waitFor(()=>expect(focus).toHaveBeenCalledTimes(1))
+   expect(document.activeElement).toBe(heading)
+   expect(screen.getByLabelText('Baseline approval explanation')).toHaveProperty('value','Reviewed the exact period and its limits.')
+   expect(api.previewFinancialBaseline).toHaveBeenCalledTimes(2)
+  } finally { frame.mockRestore() }
+ })
  it('validates exact dates and a past inclusive period against the server Guam day',()=>{validateBaselineWindow('2026-01-01','2026-10-05','2026-10-05');for(const [start,end] of [['2026-02-30','2026-03-01'],['2026-10-05','2026-10-06'],['2025-10-01','2026-10-05'],['2026-09-30','2026-09-01']])expect(()=>validateBaselineWindow(start,end,'2026-10-05')).toThrow()})
  it('approves an honest limited manual baseline only after separate consent',async()=>{render(view());await period();fireEvent.click(screen.getByRole('button',{name:'Use limited manual context without statements'}));const proposal=await preview();expect(within(proposal).getByText(/Spending observations are unknown/)).toBeTruthy();expect((screen.getByRole('option',{name:'Complete — all coverage checks passed'}) as HTMLOptionElement).disabled).toBe(true);expect((screen.getByRole('button',{name:'Approve baseline'}) as HTMLButtonElement).disabled).toBe(true);consent();fireEvent.click(screen.getByRole('button',{name:'Approve baseline'}));await waitFor(()=>expect(api.approveFinancialBaseline).toHaveBeenCalledTimes(1));expect(api.approveFinancialBaseline).toHaveBeenCalledWith('approve',expect.objectContaining({coverage_status:'manual',base_version_id:null,base_lock_version:0,request:expect.objectContaining({revision_ids:[],tracked_account_ids:[],category_eligibility:[],cash_coverage:'unknown',household_scope_attested:false})}),expect.any(String))})
  it('leaves categories unknown by default and submits only explicit source/account/category choices',async()=>{render(view());await period();fireEvent.click(screen.getByText('Choose reviewed statement sources (0 selected)'));fireEvent.click(screen.getByRole('checkbox',{name:/Fictional-checking.pdf/}));fireEvent.click(screen.getByRole('checkbox',{name:'Fictional checking'}));fireEvent.click(screen.getByRole('checkbox',{name:/I checked which household accounts/}));fireEvent.change(screen.getByLabelText('Cash coverage'),{target:{value:'not_used'}});fireEvent.click(screen.getByText('2. Review category consideration and recurrence'));expect((screen.getByLabelText('Consider Groceries for spending review') as HTMLSelectElement).value).toBe('');fireEvent.change(screen.getByLabelText('Consider Groceries for spending review'),{target:{value:'yes'}});fireEvent.change(screen.getByLabelText('Recurrence for Groceries'),{target:{value:'seasonal'}});fireEvent.change(screen.getByLabelText('Explanation for Groceries'),{target:{value:'School supplies season varies.'}});await preview();expect(api.previewFinancialBaseline).toHaveBeenCalledWith(expect.objectContaining({revision_ids:[88],tracked_account_ids:[2],household_scope_attested:true,cash_coverage:'not_used',category_eligibility:[{budget_category_id:10,eligible:true,recurrence:'seasonal',reason:'School supplies season varies.'}]}),expect.any(AbortSignal))})

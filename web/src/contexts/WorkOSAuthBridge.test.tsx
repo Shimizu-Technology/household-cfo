@@ -87,3 +87,79 @@ it('offers App recovery after an atomic logout conflict and verifies the new coo
     expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/api/auth/login'))).toBe(false)
   } finally { window.removeEventListener('household-cfo:auth-expired', expire) }
 })
+
+it('opens in-app sign-in and verifies the same permanent account without a hosted redirect', async () => {
+  let signedIn = false
+  let codeAttempts = 0
+  fetchMock.mockImplementation(async input => {
+    const path = String(input)
+    if (path.endsWith('/api/auth/session')) return Response.json(signedIn ? browserSession : { client_id: clientId, user: null })
+    if (path.endsWith('/api/auth/options')) return Response.json({ google_enabled: false })
+    if (path.endsWith('/api/auth/email/start')) return Response.json({ step: 'code', challenge_id: 'e'.repeat(43), email: 'fictional@pilot.test', expires_at: new Date(Date.now() + 600_000).toISOString(), resend_after: 60 })
+    if (path.endsWith('/api/auth/email/verify')) {
+      if (++codeAttempts === 1) return Response.json({ code: 'email_code_invalid' }, { status: 401 })
+      signedIn = true
+      return Response.json({ step: 'complete', return_to: `${window.location.origin}/` })
+    }
+    if (path.endsWith('/api/v1/auth/me')) return Response.json({ user: { id: 17, auth_provider: 'workos', auth_subject: 'workos-subject', role: 'participant' } })
+    throw new Error('Unexpected auth transport')
+  })
+  function FrontDoor() {
+    const auth = useAuthContext()
+    return <><Probe /><button onClick={() => void auth.signIn?.()}>Open sign-in dialog</button></>
+  }
+  render(<AuthProvider provider="workos" clientId={clientId}><FrontDoor /></AuthProvider>)
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+  fireEvent.click(screen.getByRole('button', { name: 'Open sign-in dialog' }))
+  await screen.findByRole('dialog')
+  fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'fictional@pilot.test' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }))
+  const code = await screen.findByLabelText('Sign-in code')
+  fireEvent.change(code, { target: { value: '123456' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
+  await screen.findByText('That code did not match. Check the latest email and try again.')
+  expect(screen.getByText('Closed workspace')).toBeTruthy()
+  fireEvent.change(code, { target: { value: '654321' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
+  await screen.findByText('Verified WorkOS account')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/api/auth/login'))).toBe(false)
+})
+
+it('refreshes a completed cookie after explicit cancellation without dismissing the newer email flow', async () => {
+  const popup = { close: vi.fn(), closed: false, location: { href: 'about:blank' } }
+  vi.stubGlobal('open', vi.fn().mockReturnValue(popup))
+  vi.stubGlobal('matchMedia', () => ({ matches: true }))
+  let signedIn = false
+  let finishCancellation: ((response: Response) => void) | undefined
+  const authorize = new URL('https://api.workos.com/user_management/authorize')
+  authorize.searchParams.set('client_id', clientId)
+  authorize.searchParams.set('redirect_uri', `${window.location.origin}/api/auth/callback`)
+  authorize.searchParams.set('state', 's'.repeat(43))
+  fetchMock.mockImplementation(async input => {
+    const path = String(input)
+    if (path.endsWith('/api/auth/session')) return Response.json(signedIn ? browserSession : { client_id: clientId, user: null })
+    if (path.endsWith('/api/auth/options')) return Response.json({ google_enabled: true })
+    if (path.endsWith('/api/auth/login')) return Response.json({ authorization_url: authorize.href })
+    if (path.endsWith('/api/auth/login/status')) return Response.json({ status: 'pending' })
+    if (path.endsWith('/api/auth/login/cancel')) return new Promise<Response>(resolve => { finishCancellation = resolve })
+    if (path.endsWith('/api/v1/auth/me')) return Response.json({ user: { id: 17, auth_provider: 'workos', auth_subject: 'workos-subject' } })
+    throw new Error('Unexpected fictional transport')
+  })
+  function Entry() {
+    const auth = useAuthContext()
+    return <><Probe /><button onClick={() => void auth.signIn?.()}>Open sign-in dialog</button></>
+  }
+  render(<AuthProvider provider="workos" clientId={clientId}><Entry /></AuthProvider>)
+  fireEvent.click(screen.getByRole('button', { name: 'Open sign-in dialog' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue with Google' }))
+  await waitFor(() => expect(popup.location.href).toBe(authorize.href))
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }))
+  await waitFor(() => expect(finishCancellation).toBeTypeOf('function'))
+  fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'new-invited@pilot.test' } })
+  signedIn = true
+  await act(async () => { finishCancellation!(Response.json({ status: 'complete' })) })
+  await screen.findByText('Verified WorkOS account')
+  expect(screen.getByRole('dialog')).toBeTruthy()
+  expect(screen.getByLabelText('Email address')).toHaveProperty('value', 'new-invited@pilot.test')
+})

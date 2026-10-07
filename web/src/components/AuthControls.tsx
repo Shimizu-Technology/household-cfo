@@ -1,8 +1,8 @@
-import { cloneElement, useEffect, useRef, useState, type ReactElement } from 'react'
+import { cloneElement, useEffect, useRef, useState, type ReactElement, type MouseEvent } from 'react'
 import { SignInButton as ClerkSignInButton, SignUpButton as ClerkSignUpButton, UserButton as ClerkUserButton } from '@clerk/clerk-react'
 import { useAuthContext } from '../contexts/authContextValue'
 
-function HostedAuthButton({ children, signUp = false }: { children: ReactElement<{ onClick?: () => void; disabled?: boolean }>; signUp?: boolean }) {
+function HostedAuthButton({ children, signUp = false }: { children: ReactElement<{ onClick?: (event: MouseEvent<HTMLElement>) => void; disabled?: boolean }>; signUp?: boolean }) {
   const auth = useAuthContext()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -17,13 +17,13 @@ function HostedAuthButton({ children, signUp = false }: { children: ReactElement
       setError('Sign-in could not start. Check your connection and try again.')
     } finally { setPending(false) }
   }
-  return <>{cloneElement(children, { disabled: pending, onClick: () => void start() })}{error && <p role="alert">{error}</p>}</>
+  return <>{cloneElement(children, { disabled: pending, onClick: (event: MouseEvent<HTMLElement>) => { event.currentTarget.focus({ preventScroll: true }); void start() } })}{error && <p role="alert">{error}</p>}</>
 }
-export function SignInButton({ children, mode = 'modal' }: { children: ReactElement<{ onClick?: () => void; disabled?: boolean }>; mode?: 'modal' | 'redirect' }) {
+export function SignInButton({ children, mode = 'modal' }: { children: ReactElement<{ onClick?: (event: MouseEvent<HTMLElement>) => void; disabled?: boolean }>; mode?: 'modal' | 'redirect' }) {
   const auth = useAuthContext()
   return auth.authProvider === 'workos' ? <HostedAuthButton>{children}</HostedAuthButton> : <ClerkSignInButton mode={mode}>{children}</ClerkSignInButton>
 }
-export function SignUpButton({ children, mode = 'modal' }: { children: ReactElement<{ onClick?: () => void; disabled?: boolean }>; mode?: 'modal' | 'redirect' }) {
+export function SignUpButton({ children, mode = 'modal' }: { children: ReactElement<{ onClick?: (event: MouseEvent<HTMLElement>) => void; disabled?: boolean }>; mode?: 'modal' | 'redirect' }) {
   const auth = useAuthContext()
   return auth.authProvider === 'workos' ? <HostedAuthButton signUp>{children}</HostedAuthButton> : <ClerkSignUpButton mode={mode}>{children}</ClerkSignUpButton>
 }

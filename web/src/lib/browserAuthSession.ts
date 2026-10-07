@@ -10,6 +10,19 @@ export type BrowserAuthSession = {
   access_token: string
   expires_at: string
 }
+export type EmailAuthStep =
+  | { step: 'code'; challenge_id: string; email: string; expires_at: string; resend_after: number }
+  | { step: 'complete'; return_to: string }
+  | { step: 'redirect'; authorization_url: string }
+
+const EMAIL_ERRORS: Record<string, string> = {
+  email_code_invalid: 'That code did not work. Check the newest email and try again.',
+  email_challenge_expired: 'This code has expired. Start again to receive a new one.',
+  auth_rate_limited: 'Please wait before trying again.',
+  program_access_denied: 'This account cannot open this program. Use the email your program invited.',
+  auth_unavailable: 'Secure sign-in is temporarily unavailable. Try again in a moment.',
+}
+
 export type BrowserSessionSnapshot = { status: 'loading' | 'ready' | 'error'; session: BrowserAuthSession | null; error: ApiRequestError | null }
 const ERROR_COPY = 'Secure sign-in is temporarily unavailable. Try again in a moment.'
 const ACCOUNT_CHANGED_COPY = 'Your account or organization changed. Check the current account before signing out.'
@@ -26,7 +39,7 @@ const CALLBACK_ERRORS: Record<string, string> = {
 export function clearBrowserAuthCallbackParameters(provider: string) {
   if (provider !== 'workos') return
   const url = new URL(window.location.href)
-  if (!['/', '/login', '/organization-access'].includes(url.pathname)) return
+  if (!['/', '/login', '/login/complete', '/organization-access'].includes(url.pathname)) return
   if (!url.searchParams.has('code') && !url.searchParams.has('state')) return
   url.searchParams.delete('code')
   url.searchParams.delete('state')
@@ -118,6 +131,16 @@ export class BrowserSessionClient {
     } catch { throw new ApiRequestError(ERROR_COPY, { status: 503 }) }
     if (!response.ok) {
       const status = response.status === 401 ? 401 : response.status
+      if (path.startsWith('email/')) {
+        let code = 'auth_unavailable'
+        let retryAfter: number | undefined
+        try {
+          const data = await response.json()
+          if (typeof data.code === 'string' && Object.hasOwn(EMAIL_ERRORS, data.code)) code = data.code
+          if (code === 'auth_rate_limited' && Number.isInteger(data.retry_after_sec) && data.retry_after_sec > 0 && data.retry_after_sec <= 3600) retryAfter = data.retry_after_sec
+        } catch { /* Never expose provider errors. */ }
+        throw new ApiRequestError(EMAIL_ERRORS[code], { status, code, payload: retryAfter === undefined ? {} : { retry_after_sec: retryAfter } })
+      }
       if (status === 409) throw new ApiRequestError(ACCOUNT_CHANGED_COPY, { status, code: 'account_changed' })
       throw new ApiRequestError(status === 401 ? 'Your secure session expired. Sign in again to continue.' : ERROR_COPY, { status })
     }
@@ -154,21 +177,94 @@ export class BrowserSessionClient {
     if (expected && identity(session) !== expected) throw new ApiRequestError('Your account or organization changed. Reopen the current workspace.', { status: 409 })
     return session?.access_token ?? null
   }
-  login = async (screenHint: 'sign-in' | 'sign-up', options: AuthSignInOptions = {}) => {
+  login = async (screenHint: 'sign-in' | 'sign-up', options: AuthSignInOptions & { authenticationMethod?: 'google'; popup?: boolean } = {}) => {
     if (options.organizationId && !/^org_[A-Za-z0-9]+$/.test(options.organizationId)) throw new ApiRequestError('The organization sign-in link could not be verified.', { status: 400 })
     const state = authReturnState()
     if (options.returnTo) state.returnTo = safeAuthReturnTo(options.returnTo)
     if (state.navigationKey) {
       try { sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify({ state, createdAt: Date.now() })) } catch { /* Plain safe app navigation remains available. */ }
     }
-    const response = await this.endpoint('login', { screen_hint: screenHint, return_to: state.returnTo,
+    const response = await this.boundedAuth('login', { screen_hint: screenHint, return_to: state.returnTo,
       ...(options.organizationId ? { organization_id: options.organizationId } : {}),
       ...(options.invitationToken ? { invitation_token: options.invitationToken } : {}),
+      ...(options.authenticationMethod ? { authentication_method: options.authenticationMethod } : {}),
+      ...(options.popup ? { popup: true } : {}),
     })
     const redirect = checkedBrowserAuthRedirect(response.authorization_url, 'login')
     const url = new URL(redirect)
     if (url.searchParams.get('client_id') !== this.clientId || url.searchParams.get('redirect_uri') !== `${window.location.origin}/api/auth/callback`) throw new ApiRequestError('Secure sign-in configuration could not be verified.', { status: 503 })
     return redirect
+  }
+  private loginState(authorizationUrl: string): string {
+    const url = new URL(checkedBrowserAuthRedirect(authorizationUrl, 'login'))
+    const state = url.searchParams.get('state')
+    if (url.searchParams.get('client_id') !== this.clientId || url.searchParams.get('redirect_uri') !== `${window.location.origin}/api/auth/callback`
+      || !state || !/^[A-Za-z0-9_-]{43}$/.test(state)) throw new ApiRequestError(ERROR_COPY, { status: 503 })
+    return state
+  }
+  loginStatus = async (authorizationUrl: string): Promise<{ status: 'pending' | 'cancelled' | 'complete' | 'account_changed' }> => {
+    const response = await this.boundedAuth('login/status', { state: this.loginState(authorizationUrl) })
+    if (!['pending', 'cancelled', 'complete', 'account_changed'].includes(response?.status)) throw new ApiRequestError(ERROR_COPY, { status: 503 })
+    return { status: response.status }
+  }
+  cancelLogin = async (authorizationUrl: string): Promise<{ status: 'cancelled' | 'complete' | 'account_changed' }> => {
+    const response = await this.boundedAuth('login/cancel', { state: this.loginState(authorizationUrl) })
+    if (!['cancelled', 'complete', 'account_changed'].includes(response?.status)) throw new ApiRequestError(ERROR_COPY, { status: 503 })
+    return { status: response.status }
+  }
+  private async boundedAuth(path: string, body?: unknown) {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 25_000)
+    try { return await this.endpoint(path, body, controller.signal) } finally { window.clearTimeout(timer) }
+  }
+  authOptions = async (): Promise<{ google_enabled: boolean }> => {
+    const response = await this.boundedAuth('options')
+    if (typeof response?.google_enabled !== 'boolean') throw new ApiRequestError(ERROR_COPY, { status: 503 })
+    return { google_enabled: response.google_enabled }
+  }
+  private checkedEmailStep(response: unknown): EmailAuthStep {
+    const data = response && typeof response === 'object' ? response as Record<string, unknown> : {}
+    if (data.step === 'code' && typeof data.challenge_id === 'string' && /^[A-Za-z0-9_-]{43}$/.test(data.challenge_id)
+      && typeof data.email === 'string' && data.email.length <= 254 && typeof data.expires_at === 'string'
+      && Number.isFinite(Date.parse(data.expires_at)) && typeof data.resend_after === 'number'
+      && Number.isFinite(data.resend_after) && data.resend_after >= 0 && data.resend_after <= 600) {
+      return { step: 'code', challenge_id: data.challenge_id, email: data.email, expires_at: data.expires_at, resend_after: data.resend_after }
+    }
+    if (data.step === 'complete' && typeof data.return_to === 'string') return { step: 'complete', return_to: safeAuthReturnTo(data.return_to) }
+    if (data.step === 'redirect') {
+      const authorization_url = checkedBrowserAuthRedirect(data.authorization_url, 'login')
+      const url = new URL(authorization_url)
+      if (url.searchParams.get('client_id') !== this.clientId || url.searchParams.get('redirect_uri') !== `${window.location.origin}/api/auth/callback`) throw new ApiRequestError(ERROR_COPY, { status: 503 })
+      return { step: 'redirect', authorization_url }
+    }
+    throw new ApiRequestError(ERROR_COPY, { status: 503 })
+  }
+  startEmail = async ({ email, ...options }: AuthSignInOptions & { email: string }): Promise<EmailAuthStep> => {
+    const returnTo = safeAuthReturnTo(options.returnTo ?? window.location.href)
+    const normalized = email.trim().toLowerCase()
+    const response = this.checkedEmailStep(await this.boundedAuth('email/start', { email: normalized, return_to: returnTo,
+      ...(options.invitationToken ? { invitation_token: options.invitationToken } : {}),
+      ...(options.organizationId ? { organization_id: options.organizationId } : {}),
+    }))
+    if (response.step === 'code' && response.email !== normalized) throw new ApiRequestError(ERROR_COPY, { status: 503 })
+    return response
+  }
+  verifyEmail = async (challengeId: string, code: string): Promise<EmailAuthStep> => {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(challengeId) || !/^\d{6}$/.test(code)) throw new ApiRequestError(EMAIL_ERRORS.email_code_invalid, { status: 400, code: 'email_code_invalid' })
+    return this.checkedEmailStep(await this.boundedAuth('email/verify', { challenge_id: challengeId, code }))
+  }
+  resendEmail = async (challengeId: string): Promise<EmailAuthStep> => {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(challengeId)) throw new ApiRequestError(EMAIL_ERRORS.email_challenge_expired, { status: 410, code: 'email_challenge_expired' })
+    return this.checkedEmailStep(await this.boundedAuth('email/resend', { challenge_id: challengeId }))
+  }
+  cancelEmail = async (challengeId: string): Promise<void> => {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(challengeId)) return
+    // Cancellation may return 204; unlike session reads it has no JSON payload.
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 10_000)
+    try { await fetch('/api/auth/email/cancel', { method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'X-Frontend-Origin': window.location.origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challenge_id: challengeId }), signal: controller.signal }) } finally { window.clearTimeout(timer) }
   }
   logout = async () => {
     const expected = identity(this.snapshot.session)

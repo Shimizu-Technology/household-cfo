@@ -18,6 +18,7 @@ class WorkosBrowserAuthConcurrencyTest < ActiveSupport::TestCase
       with_workos_http do
         sessions.login(origin: "https://householdcfomethod.com", browser: browser, return_to: "/", screen_hint: "sign-in")
         state = provider.options.fetch(:state)
+        @owned_operation_id = WorkosBrowserLoginOperation.find_by!(state_digest: WorkosBrowserAuth::Sessions.digest(state)).id
         results = parallel(4) do
           begin
             sessions.consume_login(state: state, browser: browser)
@@ -42,6 +43,7 @@ class WorkosBrowserAuthConcurrencyTest < ActiveSupport::TestCase
     end
   ensure
     WorkosBrowserSession.where(id: @owned_id).delete_all if @owned_id
+    WorkosBrowserLoginOperation.find_by(id: @owned_operation_id)&.destroy! if @owned_operation_id
   end
 
   private

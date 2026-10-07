@@ -81,6 +81,43 @@ class WorkosBrowserAuthProviderTest < ActiveSupport::TestCase
     end
   end
 
+  test "Magic Auth official credential errors and policy challenges are sanitized" do
+    with_workos do
+      management = Object.new
+      client = WorkOS::Client.new(api_key: "test-secret", client_id: "client_cfo")
+      stub_method(client, :user_management, management) do
+        stub_method(WorkOS::Client, :new, client) do
+          %w[invalid_one_time_code one_time_code_expired].each do |code|
+            management.define_singleton_method(:authenticate_with_magic_auth) do |**|
+              raise WorkOS::InvalidRequestError.new(message: "private code response", http_status: 400, code: code)
+            end
+            error = assert_raises(WorkosAuth::InvalidToken) do
+              WorkosBrowserAuth::Provider.new.authenticate_magic_auth(email: "private@example.com", code: "123456")
+            end
+            refute_includes error.message, "private"
+          end
+          WorkosBrowserAuth::Provider::POLICY_ERRORS.each do |code|
+            management.define_singleton_method(:authenticate_with_magic_auth) do |**|
+              raise WorkOS::ForbiddenRequestError.new(message: "private pending response", http_status: 403,
+                body: { "error" => code, "pending_authentication_token" => "secret-pending" })
+            end
+            error = assert_raises(WorkosBrowserAuth::Provider::PolicyRequired) do
+              WorkosBrowserAuth::Provider.new.authenticate_magic_auth(email: "private@example.com", code: "123456")
+            end
+            refute_includes error.message, "private"
+            refute_includes error.message, "secret-pending"
+          end
+          management.define_singleton_method(:create_magic_auth) do |**|
+            raise WorkOS::RateLimitExceededError.new(message: "private response", http_status: 429)
+          end
+          assert_raises(WorkosBrowserAuth::Provider::RateLimited) do
+            WorkosBrowserAuth::Provider.new.create_magic_auth(email: "private@example.com")
+          end
+        end
+      end
+    end
+  end
+
   test "origin policy rejects noncanonical origins and confines development loopback to configured URLs" do
     with_workos do
       previous = ENV["FRONTEND_URL"]
