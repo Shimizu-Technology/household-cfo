@@ -155,6 +155,16 @@ class EnterpriseEventRecoveryTest < ActiveSupport::TestCase
     assert_equal "event_expired", @cursor.reload.cursor
   end
 
+  test "a malformed inbox page rolls back all inserts and the checkpoint together" do
+    @client.reject_after = nil
+    @client.event_rows = [ event("event_valid"), event("event_invalid").merge("event" => nil) ]
+    assert_no_difference("EnterpriseSyncEvent.count") do
+      assert_raises(ActiveRecord::RecordInvalid) { Enterprise::EventPoll.call(client: @client) }
+    end
+    assert_equal "event_expired", @cursor.reload.cursor
+    assert_equal "ActiveRecord::RecordInvalid", @cursor.last_error
+  end
+
   test "replay API outage never commits recovery checkpoint ahead of its inbox" do
     original = @client.method(:events)
     @client.define_singleton_method(:events) do |**options|
@@ -163,8 +173,52 @@ class EnterpriseEventRecoveryTest < ActiveSupport::TestCase
     end
     assert_raises(Enterprise::Client::Unavailable) { Enterprise::EventPoll.call(client: @client) }
     assert_equal "event_expired", @cursor.reload.cursor
-    assert_equal "active", @membership.reload.status
+    assert_equal "inactive", @membership.reload.status
+    assert @organization.reload.last_reconciled_at
     assert_empty EnterpriseSyncEvent.where(processed_at: nil)
+  end
+
+  test "failed tenant recovery continues later organizations and keeps the original cursor" do
+    later = EnterpriseOrganization.create!(name: "Later", workos_organization_id: "org_later", coach_workspace: @organization.coach_workspace)
+    reconciled = []
+    failure = lambda do |organization, **_options|
+      reconciled << organization.id
+      raise EnterpriseAccess::Denied, "Tenant mismatch" if organization.id == @organization.id
+    end
+    stub_method(Enterprise::Reconciliation, :call, failure) do
+      assert_raises(EnterpriseAccess::Denied) { Enterprise::EventPoll.call(client: @client) }
+    end
+    assert_equal [ @organization.id, later.id ], reconciled
+    assert_equal "event_expired", @cursor.reload.cursor
+    assert_equal "EnterpriseAccess::Denied", @cursor.last_error
+  end
+
+  test "hourly recovery isolates tenant errors and retains polling error priority" do
+    later = EnterpriseOrganization.create!(name: "Later", workos_organization_id: "org_later", coach_workspace: @organization.coach_workspace)
+    old_key, old_flag = ENV.values_at("WORKOS_API_KEY", "WORKOS_SYNC_ENABLED")
+    ENV["WORKOS_API_KEY"] = "test_key"
+    ENV["WORKOS_SYNC_ENABLED"] = "true"
+    reconciled = []
+    failure = lambda do |organization, **_options|
+      reconciled << organization.id
+      raise EnterpriseAccess::Denied, "Tenant mismatch" if organization.id == @organization.id
+    end
+    stub_method(Enterprise::EventPoll, :call, ->(*) { raise Enterprise::Client::Unavailable, "Poll outage" }) do
+      stub_method(Enterprise::Reconciliation, :call, failure) do
+        error = assert_raises(Enterprise::Client::Unavailable) { EnterpriseSyncJob.new.perform }
+        assert_equal "Poll outage", error.message
+      end
+    end
+    assert_equal [ @organization.id, later.id ], reconciled
+    reconciled.clear
+    stub_method(Enterprise::EventPoll, :call, ->(*) { }) do
+      stub_method(Enterprise::Reconciliation, :call, failure) do
+        assert_raises(EnterpriseAccess::Denied) { EnterpriseSyncJob.new.perform }
+      end
+    end
+    assert_equal [ @organization.id, later.id ], reconciled
+  ensure
+    ENV["WORKOS_API_KEY"], ENV["WORKOS_SYNC_ENABLED"] = old_key, old_flag
   end
 
   private

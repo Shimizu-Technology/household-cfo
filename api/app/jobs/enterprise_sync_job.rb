@@ -21,10 +21,16 @@ class EnterpriseSyncJob < ApplicationJob
         next
       end
     end
+    reconcile_error = nil
     # Recovery does not depend on a notification surviving the provider retention window.
     EnterpriseOrganization.where("last_reconciled_at IS NULL OR last_reconciled_at < ?", 1.hour.ago).find_each do |organization|
-      Enterprise::Reconciliation.call(organization)
+      begin
+        Enterprise::Reconciliation.call(organization)
+      rescue StandardError => error
+        reconcile_error ||= error
+      end
     end
     raise polling_error if polling_error
+    raise reconcile_error if reconcile_error
   end
 end
