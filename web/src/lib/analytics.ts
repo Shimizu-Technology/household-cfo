@@ -46,7 +46,16 @@ export function redactAnalyticsUrl(value: string) {
   }
 }
 
-function maskCapturedNetworkRequest(request: CapturedNetworkRequest) {
+export function maskCapturedNetworkRequest(request: CapturedNetworkRequest) {
+  // Remote recording settings must never enable capture of session tokens,
+  // financial payloads, uploaded documents or Authorization/Cookie headers.
+  delete request.requestHeaders
+  delete request.responseHeaders
+  delete request.requestBody
+  delete request.responseBody
+  try {
+    if (new URL(request.name, 'https://app.invalid').pathname.startsWith('/api/auth/')) return null
+  } catch { /* URL redaction below still applies to nonstandard request names. */ }
   if (request.name) request.name = redactAnalyticsUrl(request.name)
   return request
 }

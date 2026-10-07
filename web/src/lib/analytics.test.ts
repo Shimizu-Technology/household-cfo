@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { redactAnalyticsEvent, redactAnalyticsUrl } from './analytics'
+import { maskCapturedNetworkRequest, redactAnalyticsEvent, redactAnalyticsUrl } from './analytics'
 
 afterEach(() => vi.unstubAllEnvs())
 
 describe('authentication URL privacy', () => {
+  it('excludes browser session responses from replay even if remote capture includes their token body', () => {
+    expect(maskCapturedNetworkRequest({ name: '/api/auth/session', duration: 30, entryType: 'resource', startTime: 0, responseBody: '{"access_token":"fictional-token"}' })).toBeNull()
+  })
+  it('keeps request timing without exposing credentials, financial payloads or uploaded contents', () => {
+    expect(maskCapturedNetworkRequest({ name: 'https://api.example/api/v1/profile', duration: 30, entryType: 'resource', startTime: 0,
+      requestHeaders: { Authorization: 'Bearer fictional-token' }, responseHeaders: { 'Set-Cookie': 'fictional-session' }, requestBody: 'private statement contents', responseBody: '{"income":4500}' })).toEqual({ name: 'https://api.example/api/v1/profile', duration: 30, entryType: 'resource', startTime: 0 })
+  })
   it('scrubs SDK-generated event and person URL metadata before transmission', () => {
     const secretUrl = 'https://app.example/login?invitation_token=fictional-secret'
     const event = { uuid: 'test', event: '$identify', properties: { $current_url: secretUrl, $set_once: { $initial_current_url: secretUrl }, section: 'income' }, $set: { $referrer: secretUrl } }
