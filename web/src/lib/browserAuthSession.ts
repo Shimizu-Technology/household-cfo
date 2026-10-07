@@ -18,7 +18,7 @@ export type EmailAuthStep =
 const EMAIL_ERRORS: Record<string, string> = {
   email_code_invalid: 'That code did not work. Check the newest email and try again.',
   email_challenge_expired: 'This code has expired. Start again to receive a new one.',
-  auth_rate_limited: 'Please wait a minute before trying again.',
+  auth_rate_limited: 'Please wait before trying again.',
   program_access_denied: 'This account cannot open this program. Use the email your program invited.',
   auth_unavailable: 'Secure sign-in is temporarily unavailable. Try again in a moment.',
 }
@@ -133,8 +133,13 @@ export class BrowserSessionClient {
       const status = response.status === 401 ? 401 : response.status
       if (path.startsWith('email/')) {
         let code = 'auth_unavailable'
-        try { const data = await response.json(); if (typeof data.code === 'string' && Object.hasOwn(EMAIL_ERRORS, data.code)) code = data.code } catch { /* Never expose provider errors. */ }
-        throw new ApiRequestError(EMAIL_ERRORS[code], { status, code })
+        let retryAfter: number | undefined
+        try {
+          const data = await response.json()
+          if (typeof data.code === 'string' && Object.hasOwn(EMAIL_ERRORS, data.code)) code = data.code
+          if (code === 'auth_rate_limited' && Number.isInteger(data.retry_after_sec) && data.retry_after_sec > 0 && data.retry_after_sec <= 3600) retryAfter = data.retry_after_sec
+        } catch { /* Never expose provider errors. */ }
+        throw new ApiRequestError(EMAIL_ERRORS[code], { status, code, payload: retryAfter === undefined ? {} : { retry_after_sec: retryAfter } })
       }
       if (status === 409) throw new ApiRequestError(ACCOUNT_CHANGED_COPY, { status, code: 'account_changed' })
       throw new ApiRequestError(status === 401 ? 'Your secure session expired. Sign in again to continue.' : ERROR_COPY, { status })

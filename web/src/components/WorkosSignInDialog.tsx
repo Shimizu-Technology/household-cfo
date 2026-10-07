@@ -44,6 +44,13 @@ const errorCopy: Record<string, string> = {
 }
 
 function safeError(error: unknown) {
+  if (error instanceof ApiRequestError && error.code === 'auth_rate_limited') {
+    const seconds = error.payload.retry_after_sec
+    if (typeof seconds === 'number' && Number.isInteger(seconds) && seconds > 0 && seconds <= 3600) {
+      const minutes = Math.ceil(seconds / 60)
+      return `Too many sign-in attempts. Try again in about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`
+    }
+  }
   if (error instanceof ApiRequestError && error.code && Object.hasOwn(errorCopy, error.code)) return errorCopy[error.code]
   return 'Sign-in is temporarily unavailable. Please try again.'
 }

@@ -113,7 +113,10 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
       try {
         if (redirect && !completed && (popup || controller.signal.aborted)) {
           const result = await client.cancelLogin(redirect).catch(() => null)
-          if (result?.status === 'complete' && externalAttempt.current === controller && signInSequence.current === dialog.id) await authenticated(dialog.options.returnTo ?? window.location.origin)
+          if (result?.status === 'complete') {
+            if (externalAttempt.current === controller && signInSequence.current === dialog.id) await authenticated(dialog.options.returnTo ?? window.location.origin)
+            else { client.invalidate(); void client.load().catch(() => undefined) }
+          }
         }
       } finally { if (externalAttempt.current === controller) externalAttempt.current = null }
     }

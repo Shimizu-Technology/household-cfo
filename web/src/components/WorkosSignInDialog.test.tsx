@@ -64,6 +64,15 @@ it('uses safe error copy and never displays raw provider output', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
   await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Sign-in is temporarily unavailable. Please try again.'))
 })
+it.each([[60, '1 minute'], [3500, '59 minutes']])('shows the actual rate-limit delay of %s seconds without provider details', async (seconds, copy) => {
+  client.startEmail.mockRejectedValue(new ApiRequestError('SECRET provider detail', { status: 429, code: 'auth_rate_limited', payload: { retry_after_sec: seconds } }))
+  render(<WorkosSignInDialog {...props} />)
+  fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'invited@example.test' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }))
+  expect((await screen.findByRole('alert')).textContent).toBe(`Too many sign-in attempts. Try again in about ${copy}.`)
+  expect(screen.queryByText(/SECRET/)).toBeNull()
+  expect(screen.getByRole('button', { name: 'Close' })).toHaveProperty('disabled', false)
+})
 it('counts down resend cooldown and replaces the challenge and code after resend', async () => {
   vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
   client.resendEmail.mockResolvedValue({ ...challenge, challenge_id: 'challenge_new', resend_after: 60 })
