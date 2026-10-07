@@ -1,5 +1,11 @@
 Rails.application.routes.draw do
   namespace :api do
+    namespace :auth do
+      post "login", to: "browser_sessions#login"
+      get "callback", to: "browser_sessions#callback"
+      get "session", to: "browser_sessions#show"
+      post "logout", to: "browser_sessions#logout"
+    end
     namespace :public do
       resource :brand, only: :show
     end
