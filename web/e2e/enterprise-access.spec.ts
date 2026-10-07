@@ -165,7 +165,7 @@ test.describe('BOG UI organization access', () => {
 
 })
 
-test('a recent synchronization is clearly reported without claiming another job was queued', async ({ page }) => {
+test('BOG UI a recent synchronization is clearly reported without claiming another job was queued', async ({ page }) => {
   await enterpriseRoutes(page)
   await page.route(`${root}/1/reconcile`, route => route.fulfill({ status: 202, json: { queued: false } }))
   await page.goto('/enterprise-access-qa.html?mode=it')
