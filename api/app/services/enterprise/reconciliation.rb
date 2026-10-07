@@ -27,7 +27,7 @@ module Enterprise
           Enrollment.reconcile!(membership)
         end
         deactivate_missing!(organization, seen, observed_at)
-        if organization.directory_id.blank?
+        if organization.directory_state != "linked"
           Provisioner.fresh(organization.enterprise_directory_users, observed_at).update_all(state: "inactive", provider_updated_at: observed_at)
           organization.enterprise_memberships.each { |membership| Enrollment.reconcile!(membership) }
         end
@@ -52,7 +52,7 @@ module Enterprise
       directory = directories.find { |row| row["id"] == organization.directory_id } || (directories.one? ? directories.first : nil)
       memberships = client.memberships(organization_id: organization.workos_organization_id).map do |provider|
         item = { provider: provider }
-        if provider["status"] == "active"
+        if provider["status"] == "active" && directory&.fetch("state") == "linked"
           profile = client.profile(provider.fetch("user_id"))
           raise EnterpriseAccess::Denied, "Enterprise identity mismatch" unless profile["id"] == provider["user_id"]
           item[:profile] = profile

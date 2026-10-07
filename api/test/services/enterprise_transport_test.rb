@@ -11,6 +11,7 @@ class EnterpriseTransportTest < ActiveSupport::TestCase
         "/user_management/users/user_it" => { "id" => "user_it", "email" => "it@bank.test", "email_verified" => true },
         "/user_management/users/user_it/sessions" => page([ session ]),
         "/user_management/organization_memberships" => page([ membership ]),
+        "/directories/directory_bank" => { "id" => "directory_bank", "organization_id" => "org_bank", "state" => "linked" },
         "/directory_users" => page([ directory_user ]),
         "/directory_groups" => page([ { "id" => "directory_group_bank", "directory_id" => "directory_bank", "organization_id" => "org_bank" } ]),
         "/events" => page([]),
@@ -24,12 +25,13 @@ class EnterpriseTransportTest < ActiveSupport::TestCase
         client.profile("user_it")
         client.sessions("user_it")
         client.memberships(organization_id: "org_bank", user_id: "user_it")
+        assert_equal "linked", client.directory("directory_bank").fetch("state")
         client.directory_users(directory_id: "directory_bank")
         client.directory_groups(directory_id: "directory_bank", user_id: "directory_user_it")
         client.events
         client.portal(organization_id: "org_bank", intent: "sso", return_url: "https://app.bank.test")
       end
-      assert_equal 7, captured.size
+      assert_equal 8, captured.size
       assert captured.all? { |host, _path| host == "api.bank.example" }
     end
   end
@@ -159,6 +161,23 @@ class EnterpriseTransportTest < ActiveSupport::TestCase
       stub_method(Net::HTTP, :start, ->(*_args, **_options, &block) { block.call(transport) }) do
         error = assert_raises(Enterprise::Client::Unavailable) { Enterprise::Client.new.events(after: "event_old") }
         refute_kind_of Enterprise::Client::CursorRejected, error
+      end
+    end
+  end
+
+  test "directory transport validates required fields and exact requested id without normalizing raw states" do
+    with_workos do
+      %w[linked unlinked deleting invalid_credentials validating].each do |state|
+        reply = { "id" => "directory_bank", "organization_id" => "org_bank", "state" => state }
+        with_transport(->(*) { reply.to_json }) do
+          assert_equal state, Enterprise::Client.new.directory("directory_bank").fetch("state")
+        end
+      end
+      [ { "id" => "directory_bank" }, { "id" => "directory_other", "organization_id" => "org_bank", "state" => "linked" },
+        { "id" => "directory_bank", "organization_id" => "org_bank", "state" => nil } ].each do |reply|
+        with_transport(->(*) { reply.to_json }) do
+          assert_raises(Enterprise::Client::Unavailable) { Enterprise::Client.new.directory("directory_bank") }
+        end
       end
     end
   end

@@ -5,7 +5,7 @@ class EnterpriseAdmissionTest < ActiveSupport::TestCase
     @admin = User.create!(clerk_id: "admin_#{SecureRandom.hex(6)}", email: "#{SecureRandom.hex(6)}@local.test", role: "admin")
     @workspace = CoachWorkspaces::Provisioner.ensure_for!(@admin)
     @cohort = Cohort.create!(name: "Admission", coach_workspace: @workspace, created_by_user: @admin, status: "active")
-    @organization = EnterpriseOrganization.create!(name: "Bank", coach_workspace: @workspace, workos_organization_id: "org_bank", directory_id: "directory_bank", directory_provisioning_enabled: true)
+    @organization = EnterpriseOrganization.create!(name: "Bank", coach_workspace: @workspace, workos_organization_id: "org_bank", directory_id: "directory_bank", directory_state: "linked", directory_provisioning_enabled: true)
     @organization.enterprise_group_mappings.create!(workos_group_id: "directory_group_participants", cohort: @cohort)
     @client = EnterpriseProvisioningTest::FakeClient.new
     @client.provider_memberships = [ { "id" => "om_new", "user_id" => "user_new", "organization_id" => "org_bank", "status" => "active", "updated_at" => "2026-10-06T20:00:00Z", "role" => { "slug" => "admin" } } ]
@@ -94,6 +94,15 @@ class EnterpriseAdmissionTest < ActiveSupport::TestCase
     existing.authentication_identities.create!(provider: "workos", issuer: WorkosAuth.issuer, subject: "user_new")
     assert EnterpriseAccess.authorize!(user: existing, claims: @claims, client: @client)
     assert_equal existing.id, membership.reload.user_id
+  end
+
+  test "nonlinked directories roll back JIT admission despite active retained assignments" do
+    %w[unlinked deleting invalid_credentials validating].each do |state|
+      @client.directory["state"] = state
+      assert_no_difference([ "User.count", "AuthenticationIdentity.count", "EnterpriseMembership.count", "CohortMembership.count" ]) do
+        assert_raises(EnterpriseAccess::Denied) { resolve }
+      end
+    end
   end
 
   private

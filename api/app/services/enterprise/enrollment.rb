@@ -1,6 +1,7 @@
 module Enterprise
   class Enrollment
     def self.allowed_cohort_ids(membership)
+      return [] unless membership.enterprise_organization.directory_id.present? && membership.enterprise_organization.directory_state == "linked"
       directory_user_ids = membership.enterprise_directory_users.where(state: "active").select(:id)
       group_ids = EnterpriseDirectoryGroupMembership.where(enterprise_directory_user_id: directory_user_ids, active: true).select(:workos_group_id)
       membership.enterprise_organization.enterprise_group_mappings.where(active: true, workos_group_id: group_ids).pluck(:cohort_id).uniq

@@ -7,6 +7,9 @@ module Enterprise
 
     def self.verified(membership:, claims:, client:, cache: Rails.cache)
       organization = membership.enterprise_organization
+      unless membership.it_admin? || (organization.directory_id.present? && organization.directory_state == "linked")
+        raise EnterpriseAccess::Denied, "Your enterprise directory is not linked"
+      end
       components = [ WorkosAuth.client_id, WorkosAuth.issuer, organization.workos_organization_id,
         claims["sub"], claims["sid"], organization.updated_at.to_f, membership.updated_at.to_f ]
       digest = Digest::SHA256.hexdigest(components.to_json)
@@ -25,6 +28,15 @@ module Enterprise
         valid = session && session["status"] == "active" && session["user_id"] == claims["sub"] && session["organization_id"] == organization.workos_organization_id
         raise EnterpriseAccess::Denied, "Your enterprise session is no longer active" unless valid
         unless membership.it_admin?
+          raise EnterpriseAccess::Denied, "Your enterprise directory is unavailable" if organization.directory_id.blank?
+          begin
+            directory = client.directory(organization.directory_id)
+          rescue Client::NotFound
+            raise EnterpriseAccess::Denied, "Your enterprise directory is unavailable"
+          end
+          unless directory["id"] == organization.directory_id && directory["organization_id"] == organization.workos_organization_id && directory["state"] == "linked"
+            raise EnterpriseAccess::Denied, "Your enterprise directory is not linked"
+          end
           snapshot = Provisioner.directory_snapshot(organization, client.profile(claims["sub"]), client: client)
           organization.with_lock { Provisioner.apply_directory_snapshot!(organization, membership, snapshot, observed_at: checked_at) }
         end

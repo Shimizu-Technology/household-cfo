@@ -73,6 +73,12 @@ module Enterprise
       data
     end
 
+    def directory(directory_id)
+      data = record!(request(:get, "/directories/#{safe_id(directory_id)}"), required: %w[id organization_id state])
+      raise Unavailable, "WorkOS directory response is invalid" unless data["id"] == directory_id
+      data
+    end
+
     def directory_users(directory_id:, email: nil)
       list("/directory_users", **{ directory: directory_id, email: email }.compact).each do |row|
         record!(row, required: %w[id directory_id organization_id state updated_at], nullable: %w[email], timestamps: %w[updated_at])

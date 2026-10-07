@@ -17,7 +17,7 @@ class ApiV1WorkosEnterpriseIntegrationTest < ActionDispatch::IntegrationTest
     @workspace = CoachWorkspaces::Provisioner.ensure_for!(operator)
     @cohort = Cohort.create!(name: "Enterprise integration", coach_workspace: @workspace, created_by_user: operator, status: "active")
     @organization = EnterpriseOrganization.create!(name: "Fictional bank", coach_workspace: @workspace,
-      workos_organization_id: "org_bank", directory_id: "directory_bank", directory_provisioning_enabled: true)
+      workos_organization_id: "org_bank", directory_id: "directory_bank", directory_state: "linked", directory_provisioning_enabled: true)
     @organization.enterprise_group_mappings.create!(workos_group_id: "directory_group_participants", cohort: @cohort)
     @client = IntegrationClient.new
     @client.provider_memberships = [ { "id" => "om_test", "user_id" => "user_test", "organization_id" => "org_bank", "status" => "active", "updated_at" => Time.current.iso8601 } ]
@@ -98,6 +98,33 @@ class ApiV1WorkosEnterpriseIntegrationTest < ActionDispatch::IntegrationTest
     get "/api/v1/auth/me", headers: { "Authorization" => "Bearer test_token_#{user.id}" }
     assert_response :forbidden
     assert_equal "accepted", user.reload.invitation_status
+  end
+
+  test "signed participant requests deny confirmed directory unlink and preserve saved private financial records" do
+    user = saved_user
+    household = Household.create!(name: "Saved private household", created_by_user: user)
+    HouseholdMembership.create!(household: household, user: user, role: "owner")
+    account = Account.create!(household: household, label: "Saved savings", account_type: "savings", balance_cents: 98765)
+    provider_requests do
+      bind(user)
+      @organization.enterprise_memberships.create!(user: user, workos_user_id: "user_test", status: "active")
+      get "/api/v1/auth/me", headers: token_headers
+      assert_response :success
+      @client.directory["state"] = "unlinked"
+      travel 31.seconds do
+        assert_no_difference([ "User.count", "Household.count", "HouseholdMembership.count", "Account.count" ]) do
+          get "/api/v1/auth/me", headers: token_headers
+          assert_response :forbidden
+          get "/api/v1/profile", headers: token_headers
+          assert_response :forbidden
+          patch "/api/v1/accounts/#{account.id}", params: { account: { balance_cents: 0 } }, headers: token_headers
+          assert_response :forbidden
+        end
+      end
+      assert_equal 98765, account.reload.balance_cents
+      assert_equal [ household.id ], user.households.pluck(:id)
+      assert_equal "participant", user.reload.role
+    end
   end
 
   private

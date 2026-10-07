@@ -2,7 +2,8 @@ require "test_helper"
 
 class EnterpriseProvisioningTest < ActiveSupport::TestCase
   class FakeClient < Enterprise::Client
-    attr_accessor :provider_memberships, :users, :groups, :directory, :session_rows, :pages, :requests, :fail, :portal_url
+    attr_accessor :provider_memberships, :users, :groups, :session_rows, :pages, :requests, :fail, :portal_url
+    attr_writer :directory
     def initialize
       @provider_memberships = []
       @users = []
@@ -16,7 +17,14 @@ class EnterpriseProvisioningTest < ActiveSupport::TestCase
     def request(method, path, **options)
       @requests << [ method, path, options ]
       raise Enterprise::Client::Unavailable, "Fake provider failure" if fail
+      if path.start_with?("/directories/")
+        raise Enterprise::Client::NotFound, "Fake deleted directory" unless @directory
+        return @directory
+      end
       { "id" => "org_bank" }
+    end
+    def directory(directory_id = nil)
+      directory_id ? super(directory_id) : @directory
     end
     def list(path, **options)
       request(:get, path, **options)
@@ -55,7 +63,7 @@ class EnterpriseProvisioningTest < ActiveSupport::TestCase
     @participant = user
     @workspace = CoachWorkspaces::Provisioner.ensure_for!(@admin)
     @cohort = Cohort.create!(created_by_user: @admin, coach_workspace: @workspace, name: "Bank", status: "active")
-    @organization = EnterpriseOrganization.create!(name: "Bank", workos_organization_id: "org_bank", coach_workspace: @workspace, directory_id: "directory_bank", directory_provisioning_enabled: true)
+    @organization = EnterpriseOrganization.create!(name: "Bank", workos_organization_id: "org_bank", coach_workspace: @workspace, directory_id: "directory_bank", directory_state: "linked", directory_provisioning_enabled: true)
     @membership = @organization.enterprise_memberships.create!(user: @participant, workos_user_id: "user_participant", status: "active")
     @mapping = @organization.enterprise_group_mappings.create!(workos_group_id: "directory_group_participants", cohort: @cohort)
     @client = FakeClient.new
@@ -293,6 +301,60 @@ class EnterpriseProvisioningTest < ActiveSupport::TestCase
     Enterprise::EventPoll.define_singleton_method(:call, original_poll) if original_poll
     ENV["WORKOS_API_KEY"] = previous_key
     ENV["WORKOS_SYNC_ENABLED"] = previous_enabled
+  end
+
+  test "nonlinked reconciliation removes only managed grants and preserves finances manual enrollment and IT scope" do
+    household = Household.create!(created_by_user: @participant, name: "Saved private finances")
+    HouseholdMembership.create!(household: household, user: @participant, role: "owner")
+    account = Account.create!(household: household, label: "Savings history", account_type: "savings", balance_cents: 54321)
+    manual_cohort = Cohort.create!(created_by_user: @admin, coach_workspace: @workspace, name: "Manual history", status: "active")
+    manual = CohortMembership.create!(cohort: manual_cohort, user: @participant, role: "participant")
+    @membership.update!(it_admin: true)
+    %w[unlinked deleting invalid_credentials validating unknown].each do |state|
+      @client.directory["state"] = state
+      assert_no_difference([ "User.count", "Household.count", "HouseholdMembership.count", "Account.count" ]) do
+        Enterprise::Reconciliation.call(@organization, client: @client)
+      end
+      assert_equal state, @organization.reload.directory_state
+      assert_empty Enterprise::Enrollment.allowed_cohort_ids(@membership.reload)
+      assert_empty @membership.enterprise_cohort_grants
+      refute CohortMembership.exists?(cohort: @cohort, user: @participant)
+      assert CohortMembership.exists?(manual.id)
+      assert_equal "active", @membership.status
+      assert @membership.it_admin?
+      assert_equal "participant", @participant.reload.role
+      assert_equal 54321, account.reload.balance_cents
+      assert_equal [ household.id ], @participant.households.pluck(:id)
+    end
+    @client.directory["state"] = "linked"
+    Enterprise::Reconciliation.call(@organization, client: @client)
+    assert CohortMembership.exists?(cohort: @cohort, user: @participant, role: "participant")
+    assert CohortMembership.exists?(manual.id)
+    assert_equal 54321, account.reload.balance_cents
+  end
+
+  test "completed directory deletion ignores retained users and groups while preserving local identity" do
+    @client.directory = nil
+    @client.define_singleton_method(:profile) { |_subject| raise "Deleted directory must not admit by email domain" }
+    Enterprise::Reconciliation.call(@organization, client: @client)
+    assert_nil @organization.reload.directory_id
+    assert_equal "unconfigured", @organization.directory_state
+    assert_empty Enterprise::Enrollment.allowed_cohort_ids(@membership.reload)
+    assert_empty @membership.enterprise_cohort_grants
+    assert User.exists?(@participant.id)
+    assert_equal "active", @membership.status
+    assert_raises(EnterpriseAccess::Denied) { EnterpriseAccess.authorize!(user: @participant, claims: claims, client: @client) }
+  end
+
+  test "failed authoritative directory read preserves the last linked state and assignments" do
+    @client.fail = true
+    before = @organization.attributes.slice("directory_id", "directory_state", "last_reconciled_at")
+    assert_no_difference([ "EnterpriseCohortGrant.count", "CohortMembership.count" ]) do
+      assert_raises(Enterprise::Client::Unavailable) { Enterprise::Reconciliation.call(@organization, client: @client) }
+    end
+    assert_equal before, @organization.reload.attributes.slice("directory_id", "directory_state", "last_reconciled_at")
+    assert_equal "active", @membership.reload.status
+    assert_equal "active", @membership.enterprise_directory_users.sole.state
   end
 
   private
