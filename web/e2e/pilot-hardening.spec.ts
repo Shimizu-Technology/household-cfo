@@ -8973,9 +8973,13 @@ test('BOG UI savings Home pages history preserves composer on refresh and clears
   await expect(home.getByLabel('Amount in US dollars')).toHaveValue('31.75')
   await expect(reviews.getByRole('button', { name: 'Approve savings record #11' })).toBeVisible()
   revoke(); await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-  await expect(home.getByRole('alert')).toContainText('Challenge access revoked.')
+  // Challenge and paged-history reads can deny access concurrently. Either
+  // denial must remove private data, regardless of which response arrives first.
+  await expect(home.getByRole('alert')).toContainText(/(?:Challenge|Private plan) access (?:revoked|is no longer available)\./)
   await expect(home.getByLabel('Amount in US dollars')).toHaveCount(0)
   await expect(home.getByRole('article', { name: 'Approved savings progress' })).toHaveCount(0)
+  await expect(home.getByRole('button', { name: /^Approve savings record/ })).toHaveCount(0)
+  await expect(home).not.toContainText('31.75')
 })
 
 test('BOG UI savings Home resets acceptance when refreshed participation terms change', async ({ page }) => {
