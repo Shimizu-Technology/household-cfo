@@ -6,6 +6,7 @@ module Enterprise
   class Client
     class Unavailable < StandardError; end
     class NotFound < Unavailable; end
+    class CursorRejected < Unavailable; end
     EVENTS = %w[organization_membership.created organization_membership.updated organization_membership.deleted
       dsync.activated dsync.deleted dsync.user.created dsync.user.updated dsync.user.deleted
       dsync.group.created dsync.group.updated dsync.group.deleted dsync.group.user_added dsync.group.user_removed
@@ -21,6 +22,12 @@ module Enterprise
       req["Content-Type"] = "application/json"
       req.body = JSON.generate(body) if body
       response = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 3, read_timeout: 5) { |http| http.request(req) }
+      if path == "/events" && query[:after].present? && %w[400 404 422].include?(response.code)
+        # Some provider versions do not expose a stable invalid-cursor error code.
+        # Recovery verifies full state and retries without `after`; other query
+        # errors still fail closed on that request rather than advancing a cursor.
+        raise CursorRejected, "WorkOS event cursor was rejected"
+      end
       raise NotFound, "WorkOS record is unavailable" if response.code == "404"
       raise Unavailable, "WorkOS request failed (#{response.code})" unless response.is_a?(Net::HTTPSuccess)
       data = object!(JSON.parse(response.body))
@@ -54,7 +61,7 @@ module Enterprise
     end
 
     def memberships(organization_id:, user_id: nil)
-      list("/user_management/organization_memberships", **{ organization_id: organization_id, user_id: user_id }.compact).each do |row|
+      list("/user_management/organization_memberships", **{ organization_id: organization_id, user_id: user_id, statuses: %w[active inactive pending] }.compact).each do |row|
         record!(row, required: %w[id organization_id user_id status updated_at], timestamps: %w[updated_at])
         raise Unavailable, "WorkOS membership response is invalid" unless row["status"].in?(%w[active inactive pending])
       end
@@ -84,8 +91,9 @@ module Enterprise
       end
     end
 
-    def events(after: nil)
-      page = page!(request(:get, "/events", query: { events: EVENTS, limit: 100, order: "asc" }.merge(after ? { after: after } : {})))
+    def events(after: nil, range_start: nil)
+      query = { events: EVENTS, limit: 100, order: "asc" }.merge(after ? { after: after } : {}).merge(range_start ? { range_start: range_start } : {})
+      page = page!(request(:get, "/events", query: query))
       page.fetch("data").each do |row|
         record!(row, required: %w[id event created_at], timestamps: %w[created_at])
         object!(row["data"])

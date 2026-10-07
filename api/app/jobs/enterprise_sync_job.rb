@@ -5,7 +5,12 @@ class EnterpriseSyncJob < ApplicationJob
   def perform
     return unless %w[1 true yes on].include?(ENV.fetch("WORKOS_SYNC_ENABLED", "false").downcase)
     return if ENV["WORKOS_API_KEY"].blank? || !EnterpriseOrganization.exists?
-    Enterprise::EventPoll.call
+    polling_error = nil
+    begin
+      Enterprise::EventPoll.call
+    rescue Enterprise::Client::Unavailable => error
+      polling_error = error
+    end
     reconciled_organization_ids = []
     EnterpriseSyncEvent.where(processed_at: nil).order(:occurred_at, :workos_event_id).limit(100).each do |event|
       begin
@@ -20,5 +25,6 @@ class EnterpriseSyncJob < ApplicationJob
     EnterpriseOrganization.where("last_reconciled_at IS NULL OR last_reconciled_at < ?", 1.hour.ago).find_each do |organization|
       Enterprise::Reconciliation.call(organization)
     end
+    raise polling_error if polling_error
   end
 end

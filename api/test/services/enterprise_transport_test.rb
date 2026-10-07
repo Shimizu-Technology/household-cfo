@@ -126,6 +126,43 @@ class EnterpriseTransportTest < ActiveSupport::TestCase
     end
   end
 
+  test "membership transport explicitly requests active pending and inactive states" do
+    with_workos do
+      captured = nil
+      with_transport(lambda { |request, _host|
+        captured = URI.decode_www_form(request.uri.query)
+        rows = %w[active pending inactive].map { |status| membership.merge("id" => "om_#{status}", "status" => status) }
+        page(rows).to_json
+      }) do
+        assert_equal %w[active pending inactive], Enterprise::Client.new.memberships(organization_id: "org_bank").map { |row| row["status"] }
+      end
+      assert_equal %w[active inactive pending], captured.select { |key, _value| key == "statuses" }.map(&:last)
+    end
+  end
+
+  test "event cursor rejection is distinct from outages and invalid initial queries" do
+    with_workos do
+      [ 400, 404, 422 ].each do |status|
+        response = Net::HTTPResponse.new("1.1", status.to_s, "Rejected")
+        transport = Object.new
+        transport.define_singleton_method(:request) { |_request| response }
+        start = ->(*_args, **_options, &block) { block.call(transport) }
+        stub_method(Net::HTTP, :start, start) do
+          assert_raises(Enterprise::Client::CursorRejected) { Enterprise::Client.new.events(after: "event_old") }
+          error = assert_raises(Enterprise::Client::Unavailable) { Enterprise::Client.new.events(range_start: Time.current.iso8601) }
+          refute_kind_of Enterprise::Client::CursorRejected, error
+        end
+      end
+      response = Net::HTTPResponse.new("1.1", "503", "Unavailable")
+      transport = Object.new
+      transport.define_singleton_method(:request) { |_request| response }
+      stub_method(Net::HTTP, :start, ->(*_args, **_options, &block) { block.call(transport) }) do
+        error = assert_raises(Enterprise::Client::Unavailable) { Enterprise::Client.new.events(after: "event_old") }
+        refute_kind_of Enterprise::Client::CursorRejected, error
+      end
+    end
+  end
+
   private
 
   def with_transport(handler)
