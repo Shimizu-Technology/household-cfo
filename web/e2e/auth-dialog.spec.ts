@@ -53,6 +53,7 @@ test.describe('Auth recovery in-app sign-in dialog', () => {
     await expect(dialog).toBeVisible()
     const width = page.viewportSize()!.width
     await page.setViewportSize({ width, height: 340 })
+    await expect.poll(async () => { const current = await dialog.boundingBox(); return current ? current.y + current.height : Number.POSITIVE_INFINITY }).toBeLessThanOrEqual(341)
     const bounds = await dialog.boundingBox()
     expect(bounds!.x).toBeGreaterThanOrEqual(0)
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
