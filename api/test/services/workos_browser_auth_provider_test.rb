@@ -152,5 +152,4 @@ class WorkosBrowserAuthProviderTest < ActiveSupport::TestCase
       end
     end
   end
-
 end

@@ -769,5 +769,4 @@ class ApiAuthBrowserSessionsControllerTest < ActionDispatch::IntegrationTest
       refute_includes response.body, "private admission detail"
     end
   end
-
 end
