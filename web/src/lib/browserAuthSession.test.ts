@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError } from '../api'
-import { BrowserSessionClient, captureBrowserAuthError, checkedBrowserAuthRedirect, restoreBrowserAuthNavigation } from './browserAuthSession'
+import { BrowserSessionClient, captureBrowserAuthError, checkedBrowserAuthRedirect, clearBrowserAuthCallbackParameters, restoreBrowserAuthNavigation } from './browserAuthSession'
+import { captureAuthInvitation } from './authInvitation'
 const clientId = 'client_FICTIONAL1'
 const session = (id = 'user_FICTIONAL1') => ({ client_id: clientId, user: { id, first_name: 'Fictional', last_name: 'Person', email: 'fictional@pilot.test' }, organization_id: 'org_FICTIONAL1', authentication_method: 'SSO', access_token: `short-lived-${id}`, expires_at: new Date(Date.now() + 120_000).toISOString() })
 const fetchMock = vi.fn()
@@ -125,6 +126,38 @@ describe('same-origin browser session credentials', () => {
 })
 describe('hosted server-session navigation roundtrip', () => {
   it.each([
+    ['/?code=used-code&state=used-state&code=duplicate&state=duplicate#Review', '/#Review'],
+    ['/organization-access?code=used-code&state=used-state', '/organization-access'],
+    ['/?code=used-code&state=used-state&enterprise=1', '/?enterprise=1'],
+    ['/login?returnTo=%2F%23Review&code=used-code&state=used-state', '/login?returnTo=%2F%23Review'],
+    ['/?oauth_state_id=fictional-bank-ref&code=used-code&state=used-state#Review', '/?oauth_state_id=fictional-bank-ref#Review'],
+  ])('cleans the consumed WorkOS callback in %s without changing the app destination', (start, expected) => {
+    window.history.replaceState({ navigation: 'preserved' }, '', start)
+    clearBrowserAuthCallbackParameters('workos')
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(expected)
+    expect(window.history.state).toEqual({ navigation: 'preserved' })
+    clearBrowserAuthCallbackParameters('workos')
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(expected)
+  })
+  it.each(['clerk', 'preview'])('leaves the %s provider URL untouched', provider => {
+    window.history.replaceState(null, '', '/?code=other-provider&state=other-state')
+    clearBrowserAuthCallbackParameters(provider)
+    expect(window.location.search).toBe('?code=other-provider&state=other-state')
+  })
+  it.each(['/api/auth/callback', '/auth/callback', '/other-route'])('leaves the raw callback or unrelated route %s untouched', route => {
+    window.history.replaceState(null, '', `${route}?code=unconsumed&state=unconsumed`)
+    clearBrowserAuthCallbackParameters('workos')
+    expect(window.location.search).toBe('?code=unconsumed&state=unconsumed')
+  })
+  it('keeps one-use invitation capture and callback recovery working together', () => {
+    window.history.replaceState(null, '', '/login?invitation_token=fictional-invite&code=used-code&state=used-state&auth_error=retry')
+    expect(captureAuthInvitation()).toEqual({ token: 'fictional-invite', error: null })
+    clearBrowserAuthCallbackParameters('workos')
+    expect(captureBrowserAuthError()).toContain('temporarily unavailable')
+    expect(window.location.search).toBe('')
+    expect(captureAuthInvitation().token).toBeNull()
+  })
+  it.each([
     ['/?oauth_state_id=fictional-bank-ref&income=4500#Review', '/#Review'],
     ['/?oauth_state_id=fictional-bank-ref&enterprise=1&email=private@example.test', '/organization-access'],
   ])('restores the one-use bank callback and safe destination from %s', async (start, returned) => {
@@ -138,7 +171,8 @@ describe('hosted server-session navigation roundtrip', () => {
     const raw = sessionStorage.getItem('household-cfo:server-auth-navigation')!
     const saved = JSON.parse(raw)
     expect(saved.state.navigationKey).toBeTruthy()
-    window.history.replaceState(null, '', returned)
+    window.history.replaceState(null, '', `${returned.split('#')[0]}?code=used-code&state=used-state${returned.includes('#') ? '#Review' : ''}`)
+    clearBrowserAuthCallbackParameters('workos')
     restoreBrowserAuthNavigation()
     expect(window.location.pathname).toBe(returned.startsWith('/organization-access') ? '/organization-access' : '/')
     expect(window.location.hash).toBe(returned.includes('#') ? '#Review' : '')
