@@ -7,7 +7,7 @@ describe('auth provider configuration', () => {
     expect(authConfiguration({ PROD: true, VITE_CLERK_PUBLISHABLE_KEY: 'pk_live_valid' }, 'cfo.example.com')).toMatchObject({ provider: 'clerk', error: null })
   })
   it('never enables WorkOS localStorage refresh tokens in a production build, even on localhost', () => {
-    expect(authConfiguration({ ...valid, PROD: true, DEV: false }, 'localhost')).toMatchObject({ provider: 'workos', error: null, devMode: false })
+    expect(authConfiguration({ ...valid, PROD: true, DEV: false }, 'localhost')).toMatchObject({ provider: 'workos', error: expect.any(String), devMode: false })
     expect(authConfiguration({ ...valid, DEV: true }, 'localhost').devMode).toBe(true)
     expect(authConfiguration({ ...valid, DEV: true }, 'staging.example.com').devMode).toBe(false)
   })
@@ -18,5 +18,13 @@ describe('auth provider configuration', () => {
     expect(authConfiguration({ DEV: true }, 'localhost').provider).toBe('preview')
     expect(authConfiguration({ DEV: true }, '0.0.0.0').error).toBeTruthy()
     expect(authConfiguration({ ...valid, DEV: true, VITE_WORKOS_CLIENT_ID: '' }, 'localhost').error).toBeTruthy()
+  })
+  it('requires a shared app site for production session cookies, including managed subdomains', () => {
+    expect(authConfiguration({ ...valid, PROD: true }, 'example.com').error).toBeNull()
+    expect(authConfiguration({ ...valid, PROD: true }, 'www.example.com').error).toBeNull()
+    expect(authConfiguration({ ...valid, PROD: true }, 'bank.example.com').error).toBeNull()
+    for (const hostname of ['unrelated-bank.test', 'example.com.evil.test', 'deploy-preview.netlify.app']) {
+      expect(authConfiguration({ ...valid, PROD: true }, hostname).error).toMatch(/not configured for this address/)
+    }
   })
 })

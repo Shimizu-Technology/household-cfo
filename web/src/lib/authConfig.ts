@@ -13,6 +13,14 @@ export function authConfiguration(env: Record<string, unknown>, hostname: string
     if (!/^client_[A-Za-z0-9]+$/.test(clientId) || (apiHostname && !validHostname) || (!localDevelopment && (!validHostname || apiHostname === 'api.workos.com'))) {
       return { provider, error: 'Secure sign-in is unavailable. Please contact your program support team.', devMode: false }
     }
+    // AuthKit's production refresh and session-presence cookies must be
+    // accessible on the app's site. A separate vanity domain needs its own
+    // same-site authentication deployment; CORS alone cannot provide this.
+    const cookieDomain = apiHostname.toLowerCase().split('.').slice(1).join('.')
+    const appHostname = hostname.toLowerCase()
+    if (!localDevelopment && (!cookieDomain.includes('.') || (appHostname !== cookieDomain && !appHostname.endsWith(`.${cookieDomain}`)))) {
+      return { provider, error: 'Secure sign-in is not configured for this address. Open your program’s official app link or contact your program support team.', devMode: false }
+    }
     return { provider, clientId, apiHostname: apiHostname || undefined, devMode: localDevelopment, error: null }
   }
   const clerkKey = String(env.VITE_CLERK_PUBLISHABLE_KEY || '').trim()
