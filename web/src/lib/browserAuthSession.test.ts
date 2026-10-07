@@ -315,3 +315,31 @@ it('offers invited-account recovery after a denied provider callback and consume
   expect(window.location.search).toBe('')
   expect(captureBrowserAuthError()).toBeNull()
 })
+
+it.each([
+  ['hosted', '/#Review'], ['email', '/#Review'],
+  ['hosted', '/organization-access'], ['email', '/organization-access'],
+])('keeps the one-use bank reference when %s explicitly returns to %s instead of the initial section', async (method, destination) => {
+  window.history.replaceState(null, '', '/?oauth_state_id=fictional-explicit-ref&income=4500#Home')
+  fetchMock.mockResolvedValue(Response.json({ ...(method === 'email' ? { step: 'redirect' } : {}), authorization_url: authorization() }))
+  const client = new BrowserSessionClient(clientId)
+  if (method === 'email') await client.startEmail({ email: 'bank@pilot.test', returnTo: destination })
+  else await client.login('sign-in', { returnTo: destination })
+  const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+  expect(body.return_to).toBe(`${window.location.origin}${destination}`)
+  expect(JSON.stringify(body)).not.toContain('fictional-explicit-ref')
+  expect(JSON.stringify(body)).not.toContain('4500')
+  const saved = JSON.parse(sessionStorage.getItem('household-cfo:server-auth-navigation')!)
+  expect(saved.state.returnTo).toBe(body.return_to)
+  const bankKey = `household-cfo:auth-navigation:${saved.state.navigationKey}`
+  expect(JSON.parse(sessionStorage.getItem(bankKey)!).returnTo).toBe(body.return_to)
+  window.history.replaceState(null, '', destination)
+  restoreBrowserAuthNavigation()
+  expect(window.location.search).toBe('?oauth_state_id=fictional-explicit-ref')
+  expect(window.location.hash).toBe(destination.includes('#') ? '#Review' : '')
+  expect(sessionStorage.getItem(bankKey)).toBeNull()
+  expect(sessionStorage.getItem('household-cfo:server-auth-navigation')).toBeNull()
+  window.history.replaceState(null, '', destination)
+  restoreBrowserAuthNavigation()
+  expect(window.location.search).toBe('')
+})
