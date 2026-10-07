@@ -251,7 +251,10 @@ describe('in-app email sign-in transport', () => {
   it.each([60, 3500, '3500', -1, 3601])('keeps only bounded numeric rate-delay metadata (%s)', async retry => {
     fetchMock.mockResolvedValue(Response.json({ code: 'auth_rate_limited', error: 'SECRET provider detail', retry_after_sec: retry, secret: 'SECRET' }, { status: 429 }))
     const payload = typeof retry === 'number' && retry > 0 && retry <= 3600 ? { retry_after_sec: retry } : {}
-    await expect(new BrowserSessionClient(clientId).startEmail({ email: challenge.email })).rejects.toMatchObject({ code: 'auth_rate_limited', status: 429, payload })
+    const error = await new BrowserSessionClient(clientId).startEmail({ email: challenge.email }).catch(caught => caught)
+    expect(error).toBeInstanceOf(ApiRequestError)
+    expect(error).toMatchObject({ code: 'auth_rate_limited', status: 429 })
+    expect(error.payload).toEqual(payload)
   })
   it.each([{ ...challenge, email: 'other@pilot.test' }, { ...challenge, challenge_id: 'unsafe' }, { ...challenge, resend_after: -1 }, { ...challenge, expires_at: 'not-a-date' }, { step: 'redirect', authorization_url: 'https://attacker.test/' }])('rejects unsafe challenge metadata and destinations', async response => {
     fetchMock.mockResolvedValue(Response.json(response))
