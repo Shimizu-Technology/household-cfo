@@ -1,6 +1,6 @@
 require "test_helper"
 require_relative "../support/workos_auth_test_support"
-require_relative "../controllers/api_auth_browser_sessions_controller_test"
+require_relative "../support/workos_browser_auth_test_support"
 
 class WorkosBrowserAuthConcurrencyTest < ActiveSupport::TestCase
   include WorkosAuthTestSupport
@@ -9,10 +9,10 @@ class WorkosBrowserAuthConcurrencyTest < ActiveSupport::TestCase
 
   test "parallel refreshes serialize persisted rotation and nonce consumption is one use" do
     with_workos do
-      response = ApiAuthBrowserSessionsControllerTest::Response.new(
-        user: ApiAuthBrowserSessionsControllerTest::Profile.new(id: "user_test", email: "workos@example.com", email_verified: true),
+      response = WorkosBrowserAuthTestSupport::Response.new(
+        user: WorkosBrowserAuthTestSupport::Profile.new(id: "user_test", email: "workos@example.com", email_verified: true),
         access_token: workos_token, refresh_token: "private-refresh-old", authentication_method: "magic_auth")
-      provider = ApiAuthBrowserSessionsControllerTest::FakeProvider.new(response)
+      provider = WorkosBrowserAuthTestSupport::FakeProvider.new(response)
       sessions = WorkosBrowserAuth::Sessions.new(provider: provider)
       browser = SecureRandom.urlsafe_base64(32)
       with_workos_http do

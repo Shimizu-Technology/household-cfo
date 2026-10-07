@@ -222,8 +222,8 @@ class EnterpriseProvisioningTest < ActiveSupport::TestCase
     result = Enterprise::Portal.call(**arguments)
     assert_equal "https://setup.workos.com?token=secret", result[:url]
     assert_in_delta 300, Time.iso8601(result[:expires_at]) - Time.current, 2
-    assert_raises(ArgumentError) { Enterprise::Portal.call(**arguments.merge(intent: "audit_logs")) }
-    assert_raises(ArgumentError) { Enterprise::Portal.call(**arguments.merge(return_url: "https://evil.test/enterprise")) }
+    assert_raises(Enterprise::InvalidRequest) { Enterprise::Portal.call(**arguments.merge(intent: "audit_logs")) }
+    assert_raises(Enterprise::InvalidRequest) { Enterprise::Portal.call(**arguments.merge(return_url: "https://evil.test/enterprise")) }
     event = @organization.enterprise_audit_events.last
     assert_equal({ "intent" => "sso" }, event.metadata)
     refute_includes event.attributes.to_json, "secret"

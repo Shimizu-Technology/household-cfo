@@ -10,7 +10,7 @@ module Api
           membership = enterprise_organization.enterprise_memberships.find(params[:id])
           attributes = params.require(:membership).permit(:it_admin, :locally_revoked)
           if ActiveModel::Type::Boolean.new.cast(attributes[:it_admin]) && (membership.status != "active" || membership.user.nil?)
-            raise ArgumentError, "Only an admitted active user can administer enterprise configuration"
+            raise Enterprise::InvalidRequest, "Only an admitted active user can administer enterprise configuration"
           end
           membership.update!(attributes)
           Enterprise::Enrollment.reconcile!(membership)

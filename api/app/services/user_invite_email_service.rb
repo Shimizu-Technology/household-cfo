@@ -44,8 +44,8 @@ class UserInviteEmailService
 
     def send_workos_invite(user:, invited_by:)
       if WorkosInvitationService.custom_delivery?
-        return failed_configuration("RESEND_API_KEY is not configured") if ENV["RESEND_API_KEY"].blank?
-        return failed_configuration("MAILER_FROM_EMAIL or RESEND_FROM_EMAIL is not configured") if from_email.blank?
+        return failed_configuration("RESEND_API_KEY is not configured", provider: "workos") if ENV["RESEND_API_KEY"].blank?
+        return failed_configuration("MAILER_FROM_EMAIL or RESEND_FROM_EMAIL is not configured", provider: "workos") if from_email.blank?
         # Validate the trusted destination before any vendor invitation is minted.
         WorkosInvitationService.acceptance_url(frontend_url, "validation")
       end
@@ -62,14 +62,15 @@ class UserInviteEmailService
         { sent: id.present?, status: id.present? ? "sent" : "failed", provider: "resend", provider_message_id: id, error: nil }
       end
     rescue WorkosInvitationService::DeliveryError => error
-      failed_configuration(error.message)
+      failed_configuration(error.message, provider: "workos")
     end
 
-    def failed_configuration(reason)
+    def failed_configuration(reason, provider: nil)
       Rails.logger.error("[InviteEmail] #{reason}; invite email cannot be delivered")
       {
         sent: false,
         status: "failed",
+        provider: provider,
         provider_message_id: nil,
         error: reason
       }
