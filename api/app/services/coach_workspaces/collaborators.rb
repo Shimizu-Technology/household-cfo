@@ -131,8 +131,8 @@ module CoachWorkspaces
       end
       return unless membership.role == "owner" && next_role != "owner" && membership.user.invitation_accepted?
 
-      other_owners = workspace.coach_workspace_memberships.joins(:user).where(role: "owner", users: { role: %w[coach admin], invitation_status: "accepted" })
-        .where.not(id: membership.id).where.not("users.clerk_id LIKE ?", "pending_%")
+      other_owners = workspace.coach_workspace_memberships.joins(:user).where(role: "owner", users: { role: %w[coach admin] })
+        .merge(User.accepted_linked_identity).where.not(id: membership.id)
       raise Invalid, "Add another active owner before removing or reducing this owner's access." unless other_owners.exists?
     end
 

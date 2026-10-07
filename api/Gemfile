@@ -29,6 +29,8 @@ gem "thruster", require: false
 # Verify Clerk JWTs and fetch public signing keys/profile fallbacks
 gem "httparty", "~> 0.24.2"
 gem "jwt", "~> 3.2"
+# Hosted AuthKit authorization, PKCE, and server-managed session exchanges
+gem "workos", "~> 10.4"
 
 # Read-only bank connections and transaction synchronization
 gem "plaid", "~> 47.0"
