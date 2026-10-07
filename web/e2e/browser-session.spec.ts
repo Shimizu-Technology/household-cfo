@@ -82,4 +82,37 @@ test.describe('Auth recovery free server-managed sessions', () => {
     await expect(page.getByRole('heading', { name: 'Fictional hosted sign-in' })).toBeVisible()
     expect(logins).toBe(1)
   })
+  test('confirmed logout uses same-origin JSON and verified vendor navigation after clearing private state', async ({ page }) => {
+    const origin = new URL(test.info().project.use.baseURL!).origin
+    await page.route('**/api/auth/session', route => route.fulfill({ json: session() }))
+    await privateIdentity(page)
+    let body: unknown = null
+    await page.route('**/api/auth/logout', route => {
+      body = route.request().postDataJSON()
+      expect(route.request().headers()['x-frontend-origin']).toBe(origin)
+      return route.fulfill({ json: { redirect_url: `https://api.workos.com/user_management/sessions/logout?session_id=fictional&return_to=${encodeURIComponent(origin)}` } })
+    })
+    await page.route('https://api.workos.com/user_management/sessions/logout**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Fictional session signed out</h1>' }))
+    await page.goto('/browser-session-qa.html')
+    await expect(page.getByTestId('server-verified-workspace')).toBeVisible()
+    await page.getByRole('button', { name: 'Account', exact: true }).click()
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Fictional session signed out' })).toBeVisible()
+    expect(body).toEqual({})
+  })
+  test('stale tab cannot sign out another account after the authoritative cookie changes', async ({ page }) => {
+    let other = false
+    await page.route('**/api/auth/session', route => route.fulfill({ json: session(other ? 'user_OTHER' : 'user_FICTIONAL1') }))
+    await privateIdentity(page, () => other)
+    let logouts = 0
+    await page.route('**/api/auth/logout', route => { logouts += 1; return route.fulfill({ status: 500, json: {} }) })
+    await page.goto('/browser-session-qa.html')
+    await expect(page.getByText('Fictional account', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Account', exact: true }).click()
+    other = true
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+    await expect(page.getByText('Other fictional account', { exact: true })).toBeVisible()
+    expect(logouts).toBe(0)
+  })
+
 })

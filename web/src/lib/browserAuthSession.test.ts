@@ -54,6 +54,19 @@ describe('same-origin browser session credentials', () => {
     await expect(read).rejects.toMatchObject({ status: 409 })
     expect(client.getSnapshot().session).toBeNull()
   })
+  it('allows idempotent logout when the current cookie is already signed out', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json({ client_id: clientId, user: null })).mockResolvedValueOnce(Response.json({ redirect_url: window.location.origin }))
+    const client = new BrowserSessionClient(clientId); await client.load()
+    expect(await client.logout()).toBe(`${window.location.origin}/`)
+    expect(client.getSnapshot().session).toBeNull()
+  })
+  it('does not revoke another cookie account when a stale tab attempts sign-out', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json(session('user_OTHER')))
+    const client = new BrowserSessionClient(clientId); await client.load()
+    await expect(client.logout()).rejects.toMatchObject({ status: 409 })
+    expect(fetchMock.mock.calls.some(([path]) => path === '/api/auth/logout')).toBe(false)
+    expect(client.getSnapshot().session?.user.id).toBe('user_OTHER')
+  })
   it('sends opaque invitation and validated navigation in POST JSON, never URLs or OAuth state', async () => {
     const authorization = new URL('https://api.workos.com/user_management/authorize')
     authorization.searchParams.set('client_id', clientId); authorization.searchParams.set('redirect_uri', `${window.location.origin}/api/auth/callback`)
@@ -68,7 +81,7 @@ describe('same-origin browser session credentials', () => {
     expect(localStorage.length).toBe(0); expect(sessionStorage.length).toBe(0)
   })
   it('clears only in-memory state after confirmed logout and leaves failed logout available to retry', async () => {
-    fetchMock.mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json({}, { status: 503 })).mockResolvedValueOnce(Response.json({ redirect_url: window.location.origin }))
+    fetchMock.mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json({}, { status: 503 })).mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json({ redirect_url: window.location.origin }))
     const client = new BrowserSessionClient(clientId); await client.load()
     await expect(client.logout()).rejects.toMatchObject({ status: 503 })
     expect(client.getSnapshot().session).not.toBeNull()

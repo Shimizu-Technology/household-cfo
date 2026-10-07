@@ -156,6 +156,9 @@ export class BrowserSessionClient {
     return redirect
   }
   logout = async () => {
+    const expected = identity(this.snapshot.session)
+    const current = await this.load()
+    if (current && expected && identity(current) !== expected) throw new ApiRequestError('Your account or organization changed. Check the current account before signing out.', { status: 409 })
     const response = await this.endpoint('logout', {})
     const redirect = checkedBrowserAuthRedirect(response.redirect_url, 'logout')
     this.invalidate()
