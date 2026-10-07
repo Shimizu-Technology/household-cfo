@@ -2,7 +2,7 @@ import { ClerkProvider } from '@clerk/clerk-react'
 import { useSyncExternalStore } from 'react'
 import { captureAuthInvitation } from './lib/authInvitation'
 import { authConfiguration } from './lib/authConfig'
-import { captureBrowserAuthError, restoreBrowserAuthNavigation } from './lib/browserAuthSession'
+import { captureBrowserAuthError, clearBrowserAuthCallbackParameters, restoreBrowserAuthNavigation } from './lib/browserAuthSession'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
 import { AuthLoginRoute } from './components/AuthLoginRoute'
 import { EnterpriseAccessPage } from './components/EnterpriseAccessPage'
@@ -16,6 +16,7 @@ import { useBrand } from './contexts/brandContextValue'
 
 const config = authConfiguration(import.meta.env, window.location.hostname)
 const invitation = captureAuthInvitation()
+clearBrowserAuthCallbackParameters(config.provider)
 const callbackError = captureBrowserAuthError()
 restoreBrowserAuthNavigation()
 const navigationState = () => `${window.location.pathname}:${new URLSearchParams(window.location.search).get('enterprise') === '1'}`

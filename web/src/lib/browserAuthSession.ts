@@ -20,6 +20,19 @@ const CALLBACK_ERRORS: Record<string, string> = {
   cancelled: 'Sign-in was canceled. You can try again when you’re ready.',
 }
 
+// Rails has already consumed the hosted callback before these app routes load.
+// Remove leftover callback parameters without interpreting state or changing
+// invitations, bank callback references, or the intended app destination.
+export function clearBrowserAuthCallbackParameters(provider: string) {
+  if (provider !== 'workos') return
+  const url = new URL(window.location.href)
+  if (!['/', '/login', '/organization-access'].includes(url.pathname)) return
+  if (!url.searchParams.has('code') && !url.searchParams.has('state')) return
+  url.searchParams.delete('code')
+  url.searchParams.delete('state')
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+}
+
 export function captureBrowserAuthError(): string | null {
   const url = new URL(window.location.href)
   if (!url.searchParams.has('auth_error')) return null
