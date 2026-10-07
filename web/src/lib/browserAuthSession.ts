@@ -12,6 +12,7 @@ export type BrowserAuthSession = {
 }
 export type BrowserSessionSnapshot = { status: 'loading' | 'ready' | 'error'; session: BrowserAuthSession | null; error: ApiRequestError | null }
 const ERROR_COPY = 'Secure sign-in is temporarily unavailable. Try again in a moment.'
+const ACCOUNT_CHANGED_COPY = 'Your account or organization changed. Check the current account before signing out.'
 const NAVIGATION_KEY = 'household-cfo:server-auth-navigation'
 const CALLBACK_ERRORS: Record<string, string> = {
   retry: ERROR_COPY,
@@ -104,6 +105,7 @@ export class BrowserSessionClient {
     } catch { throw new ApiRequestError(ERROR_COPY, { status: 503 }) }
     if (!response.ok) {
       const status = response.status === 401 ? 401 : response.status
+      if (status === 409) throw new ApiRequestError(ACCOUNT_CHANGED_COPY, { status, code: 'account_changed' })
       throw new ApiRequestError(status === 401 ? 'Your secure session expired. Sign in again to continue.' : ERROR_COPY, { status })
     }
     try { return await response.json() } catch { throw new ApiRequestError(ERROR_COPY, { status: 503 }) }
@@ -158,8 +160,17 @@ export class BrowserSessionClient {
   logout = async () => {
     const expected = identity(this.snapshot.session)
     const current = await this.load()
-    if (current && expected && identity(current) !== expected) throw new ApiRequestError('Your account or organization changed. Check the current account before signing out.', { status: 409 })
-    const response = await this.endpoint('logout', {})
+    if (current && expected && identity(current) !== expected) throw new ApiRequestError(ACCOUNT_CHANGED_COPY, { status: 409, code: 'account_changed' })
+    let response
+    try {
+      response = await this.endpoint('logout', current ? {
+        expected_subject: current.user.id,
+        expected_organization_id: current.organization_id,
+      } : {})
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 409) this.invalidate(error)
+      throw error
+    }
     const redirect = checkedBrowserAuthRedirect(response.redirect_url, 'logout')
     this.invalidate()
     return redirect

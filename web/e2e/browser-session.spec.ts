@@ -98,7 +98,34 @@ test.describe('Auth recovery free server-managed sessions', () => {
     await page.getByRole('button', { name: 'Account', exact: true }).click()
     await page.getByRole('button', { name: 'Sign out', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Fictional session signed out' })).toBeVisible()
-    expect(body).toEqual({})
+    expect(body).toEqual({ expected_subject: 'user_FICTIONAL1', expected_organization_id: 'org_FICTIONAL1' })
+  })
+  test('atomic logout conflict closes old private content and explicitly recovers the current cookie account', async ({ page }) => {
+    let other = false
+    let logouts = 0
+    await page.route('**/api/auth/session', route => route.fulfill({ json: session(other ? 'user_OTHER' : 'user_FICTIONAL1') }))
+    await privateIdentity(page, () => other)
+    await page.route('**/api/auth/logout', route => {
+      logouts += 1
+      expect(route.request().postDataJSON()).toEqual({ expected_subject: 'user_FICTIONAL1', expected_organization_id: 'org_FICTIONAL1' })
+      other = true
+      return route.fulfill({ status: 409, json: { code: 'account_changed' } })
+    })
+    await page.goto('/browser-session-qa.html')
+    await expect(page.getByText('Fictional account', { exact: true })).toBeVisible()
+    await page.getByLabel('Unsaved private draft').fill('Retain while logout is rejected')
+    await page.getByRole('button', { name: 'Account', exact: true }).click()
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+    await expect(page.getByText('Your account or organization changed. Check the current account before signing out.', { exact: true })).toBeVisible()
+    expect(new URL(page.url()).pathname).toBe('/browser-session-qa.html')
+    await expect(page.getByTestId('server-verified-workspace')).toHaveCount(0)
+    await expect(page.getByText('Fictional account', { exact: true })).toHaveCount(0)
+    await expect(page.getByLabel('Unsaved private draft')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Sign in again' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Check access again', exact: true }).click()
+    await expect(page.getByText('Other fictional account', { exact: true })).toBeVisible()
+    await expect(page.getByLabel('Unsaved private draft')).toHaveValue('')
+    expect(logouts).toBe(1)
   })
   test('stale tab cannot sign out another account after the authoritative cookie changes', async ({ page }) => {
     let other = false
