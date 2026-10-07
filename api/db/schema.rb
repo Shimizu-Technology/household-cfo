@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_07_200003) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_200004) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -3696,6 +3696,34 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_200003) do
     t.index ["last_invite_email_sent_by_user_id"], name: "index_users_on_last_invite_email_sent_by_user_id"
     t.index ["role"], name: "index_users_on_role"
     t.check_constraint "invitation_email_status::text = ANY (ARRAY['not_sent'::character varying, 'skipped'::character varying, 'sent'::character varying, 'failed'::character varying]::text[])", name: "users_invitation_email_status_valid"
+  end
+
+  create_table "workos_browser_login_attempts", force: :cascade do |t|
+    t.string "browser_digest", null: false
+    t.string "client_id", null: false
+    t.datetime "created_at", null: false
+    t.text "encrypted_verifier", null: false
+    t.datetime "expires_at", null: false
+    t.string "frontend_origin", null: false
+    t.string "return_to", null: false
+    t.string "state_digest", null: false
+    t.datetime "updated_at", null: false
+    t.index ["expires_at"], name: "index_workos_browser_login_attempts_on_expires_at"
+    t.index ["state_digest"], name: "index_workos_browser_login_attempts_on_state_digest", unique: true
+  end
+
+  create_table "workos_browser_sessions", force: :cascade do |t|
+    t.string "client_id", null: false
+    t.string "cookie_digest", null: false
+    t.datetime "created_at", null: false
+    t.text "encrypted_credentials", null: false
+    t.datetime "expires_at", null: false
+    t.string "frontend_origin", null: false
+    t.string "provider_session_id", null: false
+    t.string "subject", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cookie_digest"], name: "index_workos_browser_sessions_on_cookie_digest", unique: true
+    t.index ["expires_at"], name: "index_workos_browser_sessions_on_expires_at"
   end
 
   create_table "workspace_brand_configurations", force: :cascade do |t|
