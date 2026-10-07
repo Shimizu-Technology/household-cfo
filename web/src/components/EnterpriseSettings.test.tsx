@@ -152,7 +152,7 @@ describe('organization-specific admission controls', () => {
   })
   it.each(['connection', 'directory', 'groups'])('blocks enablement despite review when %s setup is not active', async missing => {
     const detail = enterpriseDetail()
-    detail.enterprise_organization = { ...detail.enterprise_organization, directory_provisioning_enabled: false, connection_state: missing === 'connection' ? 'inactive' : 'active', directory_state: missing === 'directory' ? 'inactive' : 'active' }
+    detail.enterprise_organization = { ...detail.enterprise_organization, directory_provisioning_enabled: false, connection_state: missing === 'connection' ? 'inactive' : 'active', directory_state: missing === 'directory' ? 'unlinked' : 'linked' }
     if (missing === 'groups') detail.group_mappings = []
     vi.mocked(api.fetchEnterpriseOrganization).mockResolvedValue(detail)
     await open(true)
@@ -162,9 +162,17 @@ describe('organization-specific admission controls', () => {
     fireEvent.click(enable)
     expect(api.updateEnterpriseOrganization).not.toHaveBeenCalled()
   })
-  it('enables reviewed admission only after active company sign-in, directory, and approved groups', async () => {
+  it('does not treat directory user active status as a linked directory', async () => {
     const detail = enterpriseDetail()
     detail.enterprise_organization = { ...detail.enterprise_organization, directory_provisioning_enabled: false, connection_state: 'active', directory_state: 'active' }
+    vi.mocked(api.fetchEnterpriseOrganization).mockResolvedValue(detail)
+    await open(true); fireEvent.click(screen.getByRole('checkbox'))
+    expect(screen.getByRole('button', { name: 'Enable automatic accounts' })).toHaveProperty('disabled', true)
+    expect(api.updateEnterpriseOrganization).not.toHaveBeenCalled()
+  })
+  it('enables reviewed admission only after active company sign-in, directory, and approved groups', async () => {
+    const detail = enterpriseDetail()
+    detail.enterprise_organization = { ...detail.enterprise_organization, directory_provisioning_enabled: false, connection_state: 'active', directory_state: 'linked' }
     vi.mocked(api.fetchEnterpriseOrganization).mockResolvedValue(detail)
     vi.mocked(api.updateEnterpriseOrganization).mockResolvedValue({ enterprise_organization: { ...detail.enterprise_organization, directory_provisioning_enabled: true } })
     await open(true)

@@ -139,4 +139,28 @@ test.describe('BOG UI organization access', () => {
     })).toBe(true)
   })
 
+  test('linked directory and active company sign-in enable explicitly reviewed automatic admission', async ({ page }) => {
+    await enterpriseRoutes(page, { admin: true, count: 1 })
+    let enabled = false
+    await page.route(`${root}/1`, route => {
+      if (route.request().method() === 'PATCH') {
+        expect(route.request().postDataJSON()).toEqual({ enterprise_organization: { directory_provisioning_enabled: true } })
+        enabled = true
+        return route.fulfill({ json: { enterprise_organization: { ...enterpriseOrganization(), directory_provisioning_enabled: true } } })
+      }
+      const detail = enterpriseDetail(1, true)
+      detail.enterprise_organization.directory_provisioning_enabled = enabled
+      return route.fulfill({ json: detail })
+    })
+    await page.goto('/enterprise-access-qa.html?mode=admin')
+    const control = page.getByRole('button', { name: 'Enable automatic accounts' })
+    await expect(control).toBeDisabled()
+    await expect(page.getByText('Connected', { exact: true })).toHaveCount(2)
+    await page.getByRole('checkbox').check()
+    await expect(control).toBeEnabled()
+    await control.click()
+    await expect(page.getByRole('button', { name: 'Pause automatic accounts' })).toBeVisible()
+    expect(enabled).toBe(true)
+  })
+
 })
