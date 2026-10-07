@@ -35,7 +35,11 @@ class ClerkAuth
         options[:verify_iss] = true
       end
 
-      JWT.decode(token, nil, true, options).first
+      claims = JWT.decode(token, nil, true, options).first
+      # Financial workspaces do not permit provider-dashboard impersonation.
+      return nil if claims["act"].present?
+
+      claims
     rescue JWT::ExpiredSignature
       Rails.logger.debug("Clerk JWT token expired")
       nil
