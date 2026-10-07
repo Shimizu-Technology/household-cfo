@@ -9771,18 +9771,45 @@ test('BOG UI visual viewport reduction keeps feedback above the keyboard and fol
   await assertDialogVisibleHeight(dialog)
 })
 
-test('BOG UI feedback reveals the focused field after content reflows inside a fixed scroll body', async ({ page }) => {
+for (const earlyFocus of [false, true]) {
+test(`BOG UI feedback reveals the focused field after content reflows inside a fixed scroll body (${earlyFocus ? 'before opening frame' : 'after opening focus'})`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.addInitScript(() => {
+  await page.addInitScript(({ earlyFocus }) => {
+    if (earlyFocus) {
+      const requestFrame = window.requestAnimationFrame.bind(window)
+      let openingFrame: FrameRequestCallback | undefined
+      window.requestAnimationFrame = callback => {
+        if (!openingFrame && document.querySelector('.pilot-feedback-dialog')) {
+          openingFrame = callback
+          document.documentElement.dataset.openingFrameHeld = 'true'
+          return requestFrame(() => {})
+        }
+        return requestFrame(callback)
+      }
+      document.addEventListener('release-opening-dialog-frame', () => requestFrame(time => {
+        openingFrame?.(time)
+        document.documentElement.dataset.openingFrameReleased = 'true'
+      }), { once: true })
+    }
     const viewport = window.visualViewport!
     Object.defineProperty(viewport, 'height', { configurable: true, get: () => Number(document.documentElement.dataset.testViewportHeight ?? 844) })
     Object.defineProperty(viewport, 'offsetTop', { configurable: true, get: () => 0 })
-  })
+  }, { earlyFocus })
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Feedback', exact: true }).click()
   const dialog = page.getByRole('dialog'), field = dialog.getByLabel('What did you attempt?')
   await page.evaluate(() => document.fonts.ready)
+  if (earlyFocus) await expect.poll(() => page.evaluate(() => document.documentElement.dataset.openingFrameHeld)).toBe('true')
+  else await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
   await field.fill('Fictional content reflow test')
+  await field.focus()
+  await expect(field).toBeFocused()
+  if (earlyFocus) {
+    await page.evaluate(() => document.dispatchEvent(new Event('release-opening-dialog-frame')))
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.openingFrameReleased)).toBe('true')
+    await expect(field).toBeFocused()
+    await expect(field).toHaveValue('Fictional content reflow test')
+  }
   await page.evaluate(() => {
     document.documentElement.dataset.testViewportHeight = '320'
     window.visualViewport!.dispatchEvent(new Event('resize'))
@@ -9791,9 +9818,15 @@ test('BOG UI feedback reveals the focused field after content reflows inside a f
   await assertDialogVisibleHeight(dialog)
   const geometry = () => field.evaluate(el => {
     const control = el.getBoundingClientRect(), body = el.closest<HTMLElement>('.pilot-dialog-body')!, panel = body.getBoundingClientRect()
-    return { contained: control.top >= panel.top && control.bottom <= panel.bottom, top: control.top, bottom: control.bottom, bodyTop: panel.top, bodyBottom: panel.bottom, scrollTop: body.scrollTop, clientHeight: body.clientHeight }
+    return { contained: control.top >= panel.top && control.bottom <= panel.bottom, top: control.top, bottom: control.bottom, bodyTop: panel.top, bodyBottom: panel.bottom, scrollTop: body.scrollTop, clientHeight: body.clientHeight, controlHeight: control.height, active: document.activeElement === el, activeTag: document.activeElement?.tagName, activeText: document.activeElement?.textContent?.slice(0, 50), viewportScale: window.visualViewport?.scale }
   })
-  await expect.poll(geometry).toMatchObject({ contained: true })
+  const samples: Awaited<ReturnType<typeof geometry>>[] = []
+  try {
+    await expect.poll(async () => { const sample = await geometry(); samples.push(sample); return sample }).toMatchObject({ contained: true })
+  } catch (error) {
+    await testInfo.attach('initial-focus-geometry', { body: JSON.stringify(samples, null, 2), contentType: 'application/json' })
+    throw error
+  }
   const before = await dialog.evaluate(el => ({ bodyHeight: el.querySelector('.pilot-dialog-body')!.getBoundingClientRect().height, header: el.querySelector('header')!.getBoundingClientRect().toJSON(), pageScroll: window.scrollY }))
   // Async copy or an individual font can grow content without resizing the
   // constrained body, leaving its ResizeObserver silent.
@@ -9802,6 +9835,7 @@ test('BOG UI feedback reveals the focused field after content reflows inside a f
   await expect(field).toBeFocused()
   expect(await dialog.evaluate(el => ({ bodyHeight: el.querySelector('.pilot-dialog-body')!.getBoundingClientRect().height, header: el.querySelector('header')!.getBoundingClientRect().toJSON(), pageScroll: window.scrollY }))).toEqual(before)
 })
+}
 
 test('BOG UI local preview and clear chat keep their content and actions inside a short viewport', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 280 })
