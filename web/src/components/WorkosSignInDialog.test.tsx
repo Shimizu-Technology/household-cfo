@@ -89,8 +89,10 @@ it('blocks verification of an expired challenge while leaving recovery actions a
   render(<WorkosSignInDialog {...props} />); await startEmail()
   fireEvent.change(screen.getByRole('textbox', { name: 'Sign-in code' }), { target: { value: '123456' } })
   expect(screen.getByRole('button', { name: 'Verify and sign in' })).toHaveProperty('disabled', true)
-  expect(screen.getByRole('button', { name: 'Resend code' })).toHaveProperty('disabled', false)
-  expect(screen.getByText('Your code has expired. Request a new one below.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Start again' })).toHaveProperty('disabled', false)
+  expect(screen.getByText('Your code has expired. Start again with your email.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
+  expect(screen.getByRole('textbox', { name: 'Email address' })).toBeTruthy()
   expect(client.verifyEmail).not.toHaveBeenCalled()
 })
 it('routes a policy redirect to work SSO rather than showing an email-code form', async () => {
@@ -158,4 +160,19 @@ it('returns to the entered email when the server expires the attempt instead of 
   expect(screen.queryByRole('textbox', { name: 'Sign-in code' })).toBeNull()
   expect(screen.getByRole('button', { name: 'Continue with email' })).toHaveProperty('disabled', false)
   expect(screen.getByRole('alert').textContent).toContain('Start again')
+})
+
+it('allows explicit external cancellation and leaves email usable while the old provider settles', async () => {
+  client.authOptions.mockResolvedValue({ google_enabled: true })
+  let finish!: () => void
+  props.onExternalSignIn.mockImplementation(() => new Promise<void>(resolve => { finish = resolve }))
+  const cancel = vi.fn()
+  render(<WorkosSignInDialog {...props} onCancelExternal={cancel} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue with Google' }))
+  await screen.findByRole('button', { name: 'Cancel sign-in' })
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }))
+  expect(cancel).toHaveBeenCalledOnce()
+  expect(screen.getByRole('textbox', { name: 'Email address' })).toHaveProperty('disabled', false)
+  await act(async () => { finish() })
+  expect(screen.getByRole('status').textContent).toContain('Stopped waiting')
 })

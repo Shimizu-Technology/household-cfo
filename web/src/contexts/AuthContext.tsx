@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import type { ReactNode } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { WorkosSignInDialog } from '../components/WorkosSignInDialog'
-import { navigateAuthPopup, openAuthPopup, watchAuthPopup } from '../lib/authPopup'
+import { AuthPopupStopped, navigateAuthPopup, openAuthPopup, watchAuthPopup } from '../lib/authPopup'
 import { safeAuthReturnTo } from '../lib/authNavigation'
 import { BrowserSessionClient, restoreBrowserAuthNavigation } from '../lib/browserAuthSession'
 import type { AuthProviderName } from '../lib/authConfig'
@@ -38,9 +38,10 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
   const client = useMemo(() => new BrowserSessionClient(clientId), [clientId])
   const state = useSyncExternalStore(client.subscribe, client.getSnapshot)
   const [callbackFailure, setCallbackFailure] = useState(callbackError ?? null)
-  const [dialog, setDialog] = useState<{ screen: 'sign-in' | 'sign-up'; options: AuthSignInOptions } | null>(null)
+  const [dialog, setDialog] = useState<{ id: number; screen: 'sign-in' | 'sign-up'; options: AuthSignInOptions } | null>(null)
   const [externalError, setExternalError] = useState<string | null>(null)
   const externalAttempt = useRef<AbortController | null>(null)
+  const signInSequence = useRef(0)
   useEffect(() => {
     void client.load().catch(() => undefined)
     const expire = () => client.invalidate(new ApiRequestError('Your secure session expired. Sign in again to continue.', { status: 401 }))
@@ -53,7 +54,7 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
   const start = useCallback(async (screen: 'sign-in' | 'sign-up', options: AuthSignInOptions = {}) => {
     externalAttempt.current?.abort()
     setExternalError(null)
-    setDialog({ screen, options: { ...options, invitationToken: options.invitationToken ?? invitationToken ?? undefined,
+    setDialog({ id: ++signInSequence.current, screen, options: { ...options, invitationToken: options.invitationToken ?? invitationToken ?? undefined,
       returnTo: options.returnTo ?? safeAuthReturnTo(window.location.pathname === '/login' ? new URLSearchParams(window.location.search).get('returnTo') : window.location.href) } })
   }, [invitationToken])
   const signIn = useCallback((options?: AuthSignInOptions) => start('sign-in', options), [start])
@@ -81,20 +82,38 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
     const controller = new AbortController()
     externalAttempt.current?.abort()
     externalAttempt.current = controller
-    const previousToken = client.getSnapshot().session?.access_token
+    let redirect: string | null = null
+    let completed = false
     try {
-      const redirect = await client.login(dialog.screen, { ...dialog.options, ...(method === 'google' ? { authenticationMethod: 'google' as const } : {}), popup: Boolean(popup) })
+      redirect = await client.login(dialog.screen, { ...dialog.options, ...(method === 'google' ? { authenticationMethod: 'google' as const } : {}), popup: Boolean(popup) })
       if (controller.signal.aborted) { popup?.close(); return }
       if (!popup) { window.location.assign(redirect); return }
-      const completion = watchAuthPopup(popup, () => { client.invalidate(); return client.load() }, previousToken, controller.signal)
+      const completion = watchAuthPopup(popup, async confirmed => {
+        const progress = await client.loginStatus(redirect!)
+        if (progress.status === 'pending' || (progress.status === 'account_changed' && !confirmed)) return null
+        if (progress.status === 'cancelled') throw new AuthPopupStopped('cancelled')
+        if (progress.status === 'account_changed') throw new AuthPopupStopped('account_changed')
+        client.invalidate()
+        const current = await client.load()
+        if (current && dialog.options.organizationId && current.organization_id !== dialog.options.organizationId) throw new AuthPopupStopped('account_changed')
+        return current
+      }, undefined, controller.signal)
       try { navigateAuthPopup(popup, redirect) } catch { controller.abort() }
       await completion
+      completed = true
       if (!controller.signal.aborted) await authenticated(dialog.options.returnTo ?? window.location.origin)
     } catch (error) {
       popup?.close()
-      if (!controller.signal.aborted) setExternalError(error instanceof Error && ['Sign-in was canceled. You can try again or continue with email.', 'Sign-in took too long. Please try again.'].includes(error.message) ? error.message : 'Sign-in could not finish. You can try again or continue with email.')
+      if (!controller.signal.aborted) setExternalError(error instanceof Error && ['Sign-in was canceled. You can try again or continue with email.', 'Sign-in took too long. Please try again.', 'Your account changed in another tab. Check the current account before trying again.'].includes(error.message) ? error.message : 'Sign-in could not finish. You can try again or continue with email.')
       throw error
-    } finally { if (externalAttempt.current === controller) externalAttempt.current = null }
+    } finally {
+      try {
+        if (redirect && !completed && (popup || controller.signal.aborted)) {
+          const result = await client.cancelLogin(redirect).catch(() => null)
+          if (result?.status === 'complete' && externalAttempt.current === controller) await authenticated(dialog.options.returnTo ?? window.location.origin)
+        }
+      } finally { if (externalAttempt.current === controller) externalAttempt.current = null }
+    }
   }
   const signOut = useCallback(async () => { window.location.assign(await client.logout()) }, [client])
   const reloadSession = useCallback(async () => { setCallbackFailure(null); await client.load() }, [client])
@@ -106,9 +125,9 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
     sessionErrorStatus: callbackFailure ? 401 : state.error?.status ?? null,
   }
   return <AuthVerificationBridge session={session}>{children}{dialog && <WorkosSignInDialog
-    client={client} screen={dialog.screen} options={dialog.options} externalError={externalError}
+    key={dialog.id} client={client} screen={dialog.screen} options={dialog.options} externalError={externalError}
     onClose={() => { externalAttempt.current?.abort(); setDialog(null); setExternalError(null) }}
-    onAuthenticated={authenticated} onExternalSignIn={externalSignIn} />}</AuthVerificationBridge>
+    onAuthenticated={authenticated} onExternalSignIn={externalSignIn} onCancelExternal={() => { setExternalError(null); externalAttempt.current?.abort() }} />}</AuthVerificationBridge>
 }
 
 // The session identity is sufficient for verification; a separate full-profile

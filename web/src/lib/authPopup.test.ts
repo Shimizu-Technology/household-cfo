@@ -37,3 +37,18 @@ it('rejects untrusted popup authorization destinations', () => {
   expect(() => navigateAuthPopup(own, 'https://attacker.test')).toThrow()
   expect(own.location.href).toBe('about:blank')
 })
+
+it('continues bounded completion checks when isolation looks closed before a session exists', async () => {
+  vi.useFakeTimers()
+  const own = popup()
+  Object.defineProperty(own, 'closed', { value: true })
+  const read = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(session)
+  const controller = new AbortController()
+  let finished = false
+  const result = watchAuthPopup(own, read, undefined, controller.signal).then(value => { finished = true; return value })
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(finished).toBe(false)
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(await result).toEqual(session)
+  expect(read).toHaveBeenCalledTimes(2)
+})

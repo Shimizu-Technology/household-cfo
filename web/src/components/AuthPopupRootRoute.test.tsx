@@ -11,7 +11,7 @@ vi.mock('../App', () => ({ default: () => { mounted.finance(); return null } }))
 afterEach(() => { cleanup(); vi.resetModules(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 it('handles the popup completion before auth, analytics, or finance providers mount', async () => {
   window.history.replaceState(null, '', '/login/complete')
-  vi.stubGlobal('opener', null)
+  vi.stubGlobal('opener', null); vi.stubGlobal('close', vi.fn())
   const { default: Root } = await import('../Root')
   render(<Root />)
   expect(mounted.auth).not.toHaveBeenCalled()

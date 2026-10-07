@@ -12,7 +12,7 @@ it('signals only completion to the same-origin opener and never sends credential
   expect(close).toHaveBeenCalledOnce()
 })
 it('keeps a usable app return when the provider separates the opener', () => {
-  vi.stubGlobal('opener', null)
+  vi.stubGlobal('opener', null); vi.stubGlobal('close', vi.fn())
   render(<AuthPopupComplete />)
   expect(screen.getByRole('link', { name: 'Return to Household CFO' }).getAttribute('href')).toBe('/')
 })

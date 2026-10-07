@@ -2,6 +2,11 @@ import { checkedBrowserAuthRedirect, type BrowserAuthSession } from './browserAu
 
 export const AUTH_POPUP_MESSAGE = 'household-cfo:auth-complete'
 const CANCELLED = 'Sign-in was canceled. You can try again or continue with email.'
+export class AuthPopupStopped extends Error {
+  constructor(reason: 'cancelled' | 'account_changed') {
+    super(reason === 'cancelled' ? CANCELLED : 'Your account changed in another tab. Check the current account before trying again.')
+  }
+}
 const UNAVAILABLE = 'Sign-in could not finish. You can try again or continue with email.'
 
 export function openAuthPopup(): Window | null {
@@ -10,7 +15,7 @@ export function openAuthPopup(): Window | null {
   try { return window.open('about:blank', '_blank', 'popup=yes,width=520,height=720') } catch { return null }
 }
 
-export function watchAuthPopup(popup: Window, readSession: () => Promise<BrowserAuthSession | null>, previousToken: string | undefined,
+export function watchAuthPopup(popup: Window, readSession: (confirmed: boolean) => Promise<BrowserAuthSession | null>, previousToken: string | undefined,
   signal: AbortSignal): Promise<BrowserAuthSession> {
   return new Promise((resolve, reject) => {
     let finished = false
@@ -34,11 +39,14 @@ export function watchAuthPopup(popup: Window, readSession: () => Promise<Browser
       if (finished || checking) return
       checking = true
       try {
-        const session = await readSession()
+        const session = await readSession(confirmationPending)
         if (finished) return
         if (session && (confirmationPending || session.access_token !== previousToken)) finish(undefined, session)
         else if (confirmationPending) finish(new Error(UNAVAILABLE))
-      } catch { if (confirmationPending && !finished) finish(new Error(UNAVAILABLE)) }
+      } catch (error) {
+        if (!finished && error instanceof AuthPopupStopped) finish(error)
+        else if (confirmationPending && !finished) finish(new Error(UNAVAILABLE))
+      }
       finally { checking = false }
     }
     const message = (event: MessageEvent) => {
@@ -56,11 +64,12 @@ export function watchAuthPopup(popup: Window, readSession: () => Promise<Browser
     const timer = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
       // COOP can sever the window relationship. Check the authoritative cookie
-      // before interpreting a closed handle as cancellation.
+      // and keep waiting for its own operation. Only an explicit cancellation
+      // or deadline ends the attempt; isolation alone cannot prove cancellation.
       try {
-        if (!checking && popup.closed) void check(false).finally(() => { if (!finished) finish(new Error(CANCELLED)) })
+        if (!checking && popup.closed) void check(false)
       } catch { /* Cross-origin windows may restrict window state. */ }
-    }, 1000)
+    }, 2000)
     if (signal.aborted) aborted()
   })
 }

@@ -25,6 +25,7 @@ type Props = {
   onClose: () => void; onAuthenticated: (returnTo: string) => void | Promise<void>
   onExternalSignIn: (method: 'google' | 'sso', authorizationUrl?: string) => Promise<void>
   externalError?: string | null
+  onCancelExternal?: () => void
 }
 
 const errorCopy: Record<string, string> = {
@@ -47,13 +48,14 @@ function safeError(error: unknown) {
   return 'Sign-in is temporarily unavailable. Please try again.'
 }
 
-export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAuthenticated, onExternalSignIn, externalError }: Props) {
+export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAuthenticated, onExternalSignIn, externalError, onCancelExternal }: Props) {
   const id = useId()
   const { brand } = useBrand()
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [challenge, setChallenge] = useState<Extract<DialogEmailAuthStep, { step: 'code' }> | null>(null)
   const [busy, setBusy] = useState(false)
+  const [externalPending, setExternalPending] = useState<'google' | 'sso' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [google, setGoogle] = useState(false)
@@ -145,9 +147,23 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
         }
       }
     } finally {
-      pending.current = false
-      if (mounted.current && generation.current === operation) setBusy(false)
+      if (mounted.current && generation.current === operation) { pending.current = false; setBusy(false) }
     }
+  }
+  async function chooseExternal(method: 'google' | 'sso') {
+    if (pending.current) return
+    const operation = generation.current
+    setExternalPending(method)
+    try { await run(() => onExternalSignIn(method)) } finally {
+      if (mounted.current && generation.current === operation) setExternalPending(null)
+    }
+  }
+  function cancelExternal() {
+    generation.current += 1
+    pending.current = false
+    onCancelExternal?.()
+    setExternalPending(null); setBusy(false); setError(null)
+    setNotice('Stopped waiting for sign-in. You can continue with email or try again.')
   }
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -175,14 +191,15 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
       <div className="pilot-dialog-body workos-sign-in-body">
         <p id={`${id}-description`}>{external ? 'Sign in through your organization’s secure work account.' : challenge ? <>Enter the six-digit code sent to <strong>{challenge.email}</strong>.</> : 'Sign in with the email your program invited. Your saved information stays with your account.'}</p>
         {(error || externalError) && <p className="document-alert" role="alert">{externalError || error}</p>}
-        <div className="workos-sign-in-status" role="status" aria-live="polite">{busy ? 'Checking your secure sign-in…' : notice}</div>
-        {external ? <button type="button" className="button button--primary" disabled={busy} onClick={() => void run(() => onExternalSignIn('sso'))}>Continue with work SSO</button> : <>
-          {!challenge && google && <><button type="button" className="secondary-button workos-google-button" disabled={busy} onClick={() => void run(() => onExternalSignIn('google'))}><img src="/auth/google-g.png" width="20" height="20" alt="" />Continue with Google</button><div className="workos-sign-in-divider"><span>or use email</span></div></>}
+        <div className="workos-sign-in-status" role="status" aria-live="polite">{externalPending ? 'Complete sign-in with your provider. You can cancel and continue here.' : busy ? 'Checking your secure sign-in…' : notice}</div>
+        {externalPending && onCancelExternal && <button type="button" className="secondary-button" onClick={cancelExternal}>Cancel sign-in</button>}
+        {external ? <button type="button" className="button button--primary" disabled={busy} onClick={() => void chooseExternal('sso')}>Continue with work SSO</button> : <>
+          {!challenge && google && <><button type="button" className="secondary-button workos-google-button" disabled={busy} onClick={() => void chooseExternal('google')}><img src="/auth/google-g.png" width="20" height="20" alt="" />Continue with Google</button><div className="workos-sign-in-divider"><span>or use email</span></div></>}
           <form className="workos-sign-in-form" onSubmit={submit} aria-busy={busy}>
-            {challenge ? <><label htmlFor={`${id}-code`}>Sign-in code</label><input ref={codeInput} id={`${id}-code`} className="workos-code-input" name="code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} disabled={busy} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} aria-describedby={`${id}-code-help`} /><p id={`${id}-code-help`} className="workos-sign-in-note">{expired ? 'Your code has expired. Request a new one below.' : 'Use the latest code. You can paste all six digits.'}</p><button type="submit" className="button button--primary" disabled={busy || code.length !== 6 || Boolean(expired)}>{busy ? 'Verifying…' : 'Verify and sign in'}</button></> : <><label htmlFor={`${id}-email`}>Email address</label><input ref={emailInput} id={`${id}-email`} name="email" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} required maxLength={254} value={email} disabled={busy} onChange={event => setEmail(event.target.value)} /><button type="submit" className="button button--primary" disabled={busy || !email.trim()}>{busy ? 'Sending code…' : 'Continue with email'}</button></>}
+            {challenge ? <><label htmlFor={`${id}-code`}>Sign-in code</label><input ref={codeInput} id={`${id}-code`} className="workos-code-input" name="code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} disabled={busy} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} aria-describedby={`${id}-code-help`} /><p id={`${id}-code-help`} className="workos-sign-in-note">{expired ? 'Your code has expired. Start again with your email.' : 'Use the latest code. You can paste all six digits.'}</p><button type="submit" className="button button--primary" disabled={busy || code.length !== 6 || Boolean(expired)}>{busy ? 'Verifying…' : 'Verify and sign in'}</button></> : <><label htmlFor={`${id}-email`}>Email address</label><input ref={emailInput} id={`${id}-email`} name="email" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} required maxLength={254} value={email} disabled={busy} onChange={event => setEmail(event.target.value)} /><button type="submit" className="button button--primary" disabled={busy || !email.trim()}>{busy ? 'Sending code…' : 'Continue with email'}</button></>}
           </form>
-          {challenge && <div className="workos-sign-in-secondary"><button type="button" className="secondary-button" disabled={busy || resendSeconds > 0} onClick={() => void run(() => client.resendEmail(challenge.challenge_id))}>{resendSeconds ? `Resend code in ${resendSeconds}s` : 'Resend code'}</button><button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Use a different email</button></div>}
-          {!challenge && <button type="button" className="secondary-button" disabled={busy} onClick={() => void run(() => onExternalSignIn('sso'))}>Continue with work SSO</button>}
+          {challenge && <div className="workos-sign-in-secondary">{expired ? <button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Start again</button> : <button type="button" className="secondary-button" disabled={busy || resendSeconds > 0} onClick={() => void run(() => client.resendEmail(challenge.challenge_id))}>{resendSeconds ? `Resend code in ${resendSeconds}s` : 'Resend code'}</button>}<button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Use a different email</button></div>}
+          {!challenge && <button type="button" className="secondary-button" disabled={busy} onClick={() => void chooseExternal('sso')}>Continue with work SSO</button>}
           {!challenge && optionsFailed && <div className="workos-sign-in-provider-retry"><p className="workos-sign-in-note">Other sign-in options could not be loaded. You can still continue with email.</p><button type="button" className="secondary-button" disabled={busy} onClick={() => setRetryOptions(value => value + 1)}>Retry sign-in options</button></div>}
         </>}
         <p className="workos-sign-in-note workos-sign-in-footer">Only invited accounts can open a workspace. Need access? Contact your program team.</p>

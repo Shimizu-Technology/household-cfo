@@ -70,8 +70,10 @@ test.describe('Auth recovery in-app sign-in dialog', () => {
     let login: Record<string, unknown> | undefined
     await context.route('**/api/auth/login', route => {
       login = route.request().postDataJSON()
-      return route.fulfill({ json: { authorization_url: `https://api.workos.com/user_management/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`${origin}/api/auth/callback`)}` } })
+      return route.fulfill({ json: { authorization_url: `https://api.workos.com/user_management/authorize?client_id=${clientId}&state=${'s'.repeat(43)}&redirect_uri=${encodeURIComponent(`${origin}/api/auth/callback`)}` } })
     })
+    await page.route('**/api/auth/login/status', route => route.fulfill({ json: { status: 'pending' } }))
+    await page.route('**/api/auth/login/cancel', route => route.fulfill({ json: { status: 'cancelled' } }))
     await context.route('https://api.workos.com/user_management/authorize**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Fictional Google account chooser</h1>' }))
     await page.goto('/browser-session-qa.html')
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
@@ -82,9 +84,10 @@ test.describe('Auth recovery in-app sign-in dialog', () => {
     expect(login).toMatchObject({ authentication_method: 'google', popup: true })
     expect(new URL(page.url()).pathname).toBe('/browser-session-qa.html')
     await popup.close()
+    await page.getByRole('button', { name: 'Cancel sign-in', exact: true }).click()
     await expect(page.getByLabel('Email address', { exact: true })).toBeEnabled()
     await page.getByLabel('Email address', { exact: true }).fill(challenge.email)
     await expect(page.getByRole('button', { name: 'Continue with email' })).toBeEnabled()
-    await expect(page.getByRole('alert')).toContainText('canceled')
+    await expect(page.getByRole('status')).toContainText('Stopped waiting')
   })
 })

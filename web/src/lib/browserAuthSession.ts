@@ -39,7 +39,7 @@ const CALLBACK_ERRORS: Record<string, string> = {
 export function clearBrowserAuthCallbackParameters(provider: string) {
   if (provider !== 'workos') return
   const url = new URL(window.location.href)
-  if (!['/', '/login', '/organization-access'].includes(url.pathname)) return
+  if (!['/', '/login', '/login/complete', '/organization-access'].includes(url.pathname)) return
   if (!url.searchParams.has('code') && !url.searchParams.has('state')) return
   url.searchParams.delete('code')
   url.searchParams.delete('state')
@@ -189,6 +189,23 @@ export class BrowserSessionClient {
     const url = new URL(redirect)
     if (url.searchParams.get('client_id') !== this.clientId || url.searchParams.get('redirect_uri') !== `${window.location.origin}/api/auth/callback`) throw new ApiRequestError('Secure sign-in configuration could not be verified.', { status: 503 })
     return redirect
+  }
+  private loginState(authorizationUrl: string): string {
+    const url = new URL(checkedBrowserAuthRedirect(authorizationUrl, 'login'))
+    const state = url.searchParams.get('state')
+    if (url.searchParams.get('client_id') !== this.clientId || url.searchParams.get('redirect_uri') !== `${window.location.origin}/api/auth/callback`
+      || !state || !/^[A-Za-z0-9_-]{43}$/.test(state)) throw new ApiRequestError(ERROR_COPY, { status: 503 })
+    return state
+  }
+  loginStatus = async (authorizationUrl: string): Promise<{ status: 'pending' | 'cancelled' | 'complete' | 'account_changed' }> => {
+    const response = await this.boundedAuth('login/status', { state: this.loginState(authorizationUrl) })
+    if (!['pending', 'cancelled', 'complete', 'account_changed'].includes(response?.status)) throw new ApiRequestError(ERROR_COPY, { status: 503 })
+    return { status: response.status }
+  }
+  cancelLogin = async (authorizationUrl: string): Promise<{ status: 'cancelled' | 'complete' | 'account_changed' }> => {
+    const response = await this.boundedAuth('login/cancel', { state: this.loginState(authorizationUrl) })
+    if (!['cancelled', 'complete', 'account_changed'].includes(response?.status)) throw new ApiRequestError(ERROR_COPY, { status: 503 })
+    return { status: response.status }
   }
   private async boundedAuth(path: string, body?: unknown) {
     const controller = new AbortController()
