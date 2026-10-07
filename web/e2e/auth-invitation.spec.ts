@@ -1,37 +1,31 @@
 import { expect, test } from '@playwright/test'
-test.describe('Auth recovery hosted invitation transport', () => {
-  for (const action of ['Continue company sign-in', 'Create invited account']) {
-    test(`${action} sanitizes the app URL and sends the opaque credential only as an SDK authorization parameter`, async ({ page }) => {
-      let authorization: URL | null = null
-      await page.route('https://auth-provider.test/**', route => {
-        authorization = new URL(route.request().url())
-        return route.fulfill({ contentType: 'text/html', body: '<h1>Fictional hosted sign-in</h1>' })
-      })
+test.describe('Auth recovery free server session invitation transport', () => {
+  for (const [action, screenHint] of [['Continue company sign-in', 'sign-in'], ['Create invited account', 'sign-up']]) {
+    test(`${action} removes the credential from the URL and sends it only to the same-origin server`, async ({ page }) => {
       const appOrigin = new URL(test.info().project.use.baseURL!).origin
-      // Let Vite finish its cold SDK dependency load without an invitation.
-      // The credential visit then tests the real sanitizer and SDK flow.
-      await page.goto('/auth-invitation-qa.html')
-      await expect(page.getByRole('button', { name: action, exact: true })).toBeEnabled()
-      await page.waitForLoadState('networkidle')
+      let login: Record<string, unknown> | null = null
+      const authorization = new URL('https://api.workos.com/user_management/authorize')
+      authorization.searchParams.set('client_id', 'client_FICTIONAL1')
+      authorization.searchParams.set('redirect_uri', `${appOrigin}/api/auth/callback`)
+      authorization.searchParams.set('state', 'server-generated-opaque-state')
+      await page.route('**/api/auth/session', route => route.fulfill({ json: { client_id: 'client_FICTIONAL1', user: null } }))
+      await page.route('**/api/auth/login', route => {
+        login = route.request().postDataJSON()
+        expect(route.request().headers()['x-frontend-origin']).toBe(appOrigin)
+        return route.fulfill({ json: { authorization_url: authorization.href } })
+      })
+      await page.route('https://api.workos.com/user_management/authorize**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Fictional hosted sign-in</h1>' }))
       await page.goto('/auth-invitation-qa.html?invitation_token=fictional%2Bopaque%2Ftoken%3D')
       const control = page.getByRole('button', { name: action, exact: true })
       await expect(control).toBeEnabled()
-      expect(new URL(page.url()).pathname).toBe('/auth-invitation-qa.html')
       expect(page.url()).not.toContain('invitation_token')
       expect(page.url()).not.toContain('opaque')
+      expect(await page.evaluate(() => localStorage.length)).toBe(0)
       await control.click()
       await expect(page.getByRole('heading', { name: 'Fictional hosted sign-in' })).toBeVisible()
-      expect(authorization).not.toBeNull()
-      const params = authorization!.searchParams
-      expect(params.get('client_id')).toBe('client_FICTIONAL1')
-      expect(params.get('organization_id')).toBe('org_FICTIONAL1')
-      expect(params.get('invitation_token')).toBe('fictional+opaque/token=')
-      expect(params.get('code_challenge_method')).toBe('S256')
-      expect(params.get('code_challenge')).toBeTruthy()
-      const state = JSON.parse(params.get('state')!)
-      expect(state.returnTo).toBe(`${appOrigin}/organization-access`)
-      expect(JSON.stringify(state)).not.toContain('opaque')
-      expect(JSON.stringify(state)).not.toContain('4000')
+      expect(login).toEqual({ screen_hint: screenHint, organization_id: 'org_FICTIONAL1', invitation_token: 'fictional+opaque/token=', return_to: `${appOrigin}/organization-access` })
+      expect(page.url()).not.toContain('opaque%2Ftoken')
+      expect(new URL(page.url()).searchParams.get('state')).toBe('server-generated-opaque-state')
     })
   }
 })

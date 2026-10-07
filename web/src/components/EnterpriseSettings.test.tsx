@@ -186,3 +186,15 @@ describe('organization-specific admission controls', () => {
     expect(api.updateEnterpriseMember).not.toHaveBeenCalled()
   })
 })
+
+it('blocks unactivated company setup without calling the vendor portal while status refresh remains available', async () => {
+  const detail = enterpriseDetail(); detail.enterprise_organization.setup_enabled = false
+  vi.mocked(api.fetchEnterpriseOrganization).mockResolvedValue(detail)
+  await open()
+  expect(screen.getByText('Company sign-in and user provisioning are not activated. Contact your app administrator.')).toBeTruthy()
+  for (const name of ['Configure company sign-in', 'Configure user provisioning']) {
+    const button = screen.getByRole('button', { name }); expect(button).toHaveProperty('disabled', true); fireEvent.click(button)
+  }
+  expect(api.openEnterprisePortal).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Refresh status' })).toHaveProperty('disabled', false)
+})

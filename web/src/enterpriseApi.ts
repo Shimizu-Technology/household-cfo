@@ -2,7 +2,7 @@ import { fetchPrivateJson } from './api'
 
 export type EnterpriseOrganization = {
   id: number; name: string; coach_workspace_id: number; workos_organization_id: string
-  active: boolean; require_sso: boolean; directory_provisioning_enabled: boolean
+  setup_enabled?: boolean; active: boolean; require_sso: boolean; directory_provisioning_enabled: boolean
   directory_id: string | null; connection_state: string | null; directory_state: string | null
   last_reconciled_at: string | null; last_sync_error: string | null
 }

@@ -1,9 +1,8 @@
 import { ClerkProvider } from '@clerk/clerk-react'
-import { AuthKitProvider } from '@workos-inc/authkit-react'
 import { useSyncExternalStore } from 'react'
 import { captureAuthInvitation } from './lib/authInvitation'
 import { authConfiguration } from './lib/authConfig'
-import { restoreAuthReturn } from './lib/authNavigation'
+import { captureBrowserAuthError, restoreBrowserAuthNavigation } from './lib/browserAuthSession'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
 import { AuthLoginRoute } from './components/AuthLoginRoute'
 import { EnterpriseAccessPage } from './components/EnterpriseAccessPage'
@@ -17,6 +16,8 @@ import { useBrand } from './contexts/brandContextValue'
 
 const config = authConfiguration(import.meta.env, window.location.hostname)
 const invitation = captureAuthInvitation()
+const callbackError = captureBrowserAuthError()
+restoreBrowserAuthNavigation()
 const navigationState = () => `${window.location.pathname}:${new URLSearchParams(window.location.search).get('enterprise') === '1'}`
 function subscribeNavigation(callback: () => void) {
   window.addEventListener('hashchange', callback)
@@ -35,7 +36,7 @@ function Root() {
   if (invitation.error) return <><BrandDocument /><AuthAccessPanel title="This invitation needs a fresh link." copy={invitation.error} /></>
 
   const app = (
-    <AuthProvider provider={config.provider} invitationToken={invitation.token}>
+    <AuthProvider provider={config.provider} invitationToken={invitation.token} clientId={config.clientId} callbackError={callbackError}>
       <PostHogProvider>
         <BrandDocument />
         <IdentityBoundary>{config.provider === 'workos' && route.startsWith('/login:') ? <AuthLoginRoute /> : route.startsWith('/organization-access:') || route.endsWith(':true') ? <EnterpriseAccessPage /> : <App />}</IdentityBoundary>
@@ -44,9 +45,7 @@ function Root() {
   )
 
   if (config.provider === 'preview') return app
-  if (config.provider === 'workos') return <AuthKitProvider clientId={config.clientId!} apiHostname={config.apiHostname} devMode={config.devMode}
-    redirectUri={`${window.location.origin}/auth/callback`} onRedirectCallback={restoreAuthReturn}
-    onRefreshFailure={() => window.dispatchEvent(new Event('household-cfo:auth-expired'))}>{app}</AuthKitProvider>
+  if (config.provider === 'workos') return app
 
   return (
     <ClerkProvider

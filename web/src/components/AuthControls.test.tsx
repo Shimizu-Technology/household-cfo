@@ -41,3 +41,12 @@ it('keeps the account menu operable by keyboard and allows sign-out retry', asyn
   expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
   expect(document.activeElement).toBe(trigger)
 })
+
+it('does not automatically restart a failed callback and starts a new login only after explicit retry', async () => {
+  const signIn = vi.fn().mockResolvedValue(undefined)
+  render(<AuthContext.Provider value={auth({ signIn, authError: 'This sign-in link could not be verified. Start sign-in again.' })}><AuthLoginRoute /></AuthContext.Provider>)
+  expect(screen.getByRole('heading', { name: 'Sign-in could not finish.' })).toBeTruthy()
+  expect(signIn).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Check access again' }))
+  await waitFor(() => expect(signIn).toHaveBeenCalledOnce())
+})

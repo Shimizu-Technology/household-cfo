@@ -1,0 +1,85 @@
+import { expect, test, type Page } from '@playwright/test'
+const clientId = 'client_FICTIONAL1'
+const session = (userId = 'user_FICTIONAL1') => ({ client_id: clientId, user: { id: userId, first_name: 'Fictional', last_name: 'Person', email: 'fictional@pilot.test' }, organization_id: 'org_FICTIONAL1', authentication_method: 'SSO', access_token: `short-lived-${userId}`, expires_at: new Date(Date.now() + 120_000).toISOString() })
+const user = (other = false) => ({ id: other ? 902 : 901, clerk_id: 'retained-legacy', auth_provider: 'workos', auth_subject: other ? 'user_OTHER' : 'user_FICTIONAL1', full_name: other ? 'Other fictional account' : 'Fictional account', email: 'fictional@pilot.test', role: 'participant', is_admin: false, is_coach: false, is_staff: false, is_participant: true })
+async function privateIdentity(page: Page, current: () => boolean = () => false) {
+  let calls = 0
+  await page.route('http://api.test/api/v1/auth/me', route => {
+    calls += 1
+    const other = current()
+    expect(route.request().headers().authorization).toBe(`Bearer short-lived-${other ? 'user_OTHER' : 'user_FICTIONAL1'}`)
+    return route.fulfill({ json: { user: user(other) } })
+  })
+  return () => calls
+}
+test.describe('Auth recovery free server-managed sessions', () => {
+  test('cold reload verifies cookie session and Rails actor with no refresh token browser storage', async ({ page }) => {
+    await page.route('**/api/auth/session', route => { expect(route.request().headers()['x-frontend-origin']).toBe(new URL(test.info().project.use.baseURL!).origin); return route.fulfill({ json: session() }) })
+    await privateIdentity(page)
+    await page.goto('/browser-session-qa.html')
+    await expect(page.getByTestId('server-verified-workspace')).toBeVisible()
+    expect(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }))).toEqual({ local: 0, session: 0 })
+    await page.reload()
+    await expect(page.getByTestId('server-verified-workspace')).toBeVisible()
+    expect(await page.evaluate(() => localStorage.length)).toBe(0)
+  })
+  test('initial temporary session outage remains closed and explicit retry verifies without new credentials', async ({ page }) => {
+    let attempt = 0
+    await page.route('**/api/auth/session', route => ++attempt === 1 ? route.fulfill({ status: 503, json: {} }) : route.fulfill({ json: session() }))
+    const calls = await privateIdentity(page)
+    await page.goto('/browser-session-qa.html')
+    await expect(page.getByRole('heading', { name: 'Secure access is temporarily unavailable.' })).toBeVisible()
+    await expect(page.getByTestId('server-verified-workspace')).toHaveCount(0)
+    expect(calls()).toBe(0)
+    await page.getByRole('button', { name: 'Check access again' }).click()
+    await expect(page.getByTestId('server-verified-workspace')).toBeVisible()
+    expect(calls()).toBe(1)
+  })
+  test('wrong expected client cannot request the private Rails identity or mount its workspace', async ({ page }) => {
+    await page.route('**/api/auth/session', route => route.fulfill({ json: { ...session(), client_id: 'client_OTHER' } }))
+    const calls = await privateIdentity(page)
+    await page.goto('/browser-session-qa.html')
+    await expect(page.getByRole('heading', { name: 'Secure access is temporarily unavailable.' })).toBeVisible()
+    expect(calls()).toBe(0)
+    await expect(page.getByTestId('server-verified-workspace')).toHaveCount(0)
+  })
+  test('cookie account switch discards previous private draft before another verified actor appears', async ({ page }) => {
+    let other = false
+    await page.route('**/api/auth/session', route => route.fulfill({ json: session(other ? 'user_OTHER' : 'user_FICTIONAL1') }))
+    await privateIdentity(page, () => other)
+    await page.goto('/browser-session-qa.html')
+    await expect(page.getByText('Fictional account', { exact: true })).toBeVisible()
+    await page.getByLabel('Unsaved private draft').fill('Old account draft must disappear')
+    other = true
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.getByText('Other fictional account', { exact: true })).toBeVisible()
+    await expect(page.getByLabel('Unsaved private draft')).toHaveValue('')
+    await expect(page.getByText('Fictional account', { exact: true })).toHaveCount(0)
+  })
+  test('revoked cookie session closes the private workspace and offers fresh sign-in', async ({ page }) => {
+    let revoked = false
+    await page.route('**/api/auth/session', route => revoked ? route.fulfill({ status: 401, json: {} }) : route.fulfill({ json: session() }))
+    await privateIdentity(page)
+    await page.goto('/browser-session-qa.html')
+    await expect(page.getByTestId('server-verified-workspace')).toBeVisible()
+    revoked = true
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.getByRole('heading', { name: 'Sign in again to continue.' })).toBeVisible()
+    await expect(page.getByTestId('server-verified-workspace')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Sign in again' })).toBeVisible()
+  })
+  test('invalid callback never auto-restarts authorization before explicit user retry', async ({ page }) => {
+    let logins = 0
+    const origin = new URL(test.info().project.use.baseURL!).origin
+    await page.route('**/api/auth/session', route => route.fulfill({ json: { client_id: clientId, user: null } }))
+    await page.route('**/api/auth/login', route => { logins += 1; return route.fulfill({ json: { authorization_url: `https://api.workos.com/user_management/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`${origin}/api/auth/callback`)}` } }) })
+    await page.route('https://api.workos.com/user_management/authorize**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Fictional hosted sign-in</h1>' }))
+    await page.goto('/browser-session-qa.html?auth_error=invalid')
+    await expect(page.getByRole('heading', { name: 'Sign in again to continue.' })).toBeVisible()
+    expect(new URL(page.url()).searchParams.has('auth_error')).toBe(false)
+    expect(logins).toBe(0)
+    await page.getByRole('button', { name: 'Sign in again' }).click()
+    await expect(page.getByRole('heading', { name: 'Fictional hosted sign-in' })).toBeVisible()
+    expect(logins).toBe(1)
+  })
+})

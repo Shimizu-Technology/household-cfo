@@ -8,20 +8,12 @@ export function authConfiguration(env: Record<string, unknown>, hostname: string
   if (provider !== 'clerk' && provider !== 'workos') return { ...base, error: 'Secure sign-in is unavailable. Please contact your program support team.' }
   if (provider === 'workos') {
     const clientId = String(env.VITE_WORKOS_CLIENT_ID || '').trim()
-    const apiHostname = String(env.VITE_WORKOS_API_HOSTNAME || '').trim()
-    const validHostname = /^[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,}$/i.test(apiHostname)
-    if (!/^client_[A-Za-z0-9]+$/.test(clientId) || (apiHostname && !validHostname) || (!localDevelopment && (!validHostname || apiHostname === 'api.workos.com'))) {
+    if (!/^client_[A-Za-z0-9]+$/.test(clientId)) {
       return { provider, error: 'Secure sign-in is unavailable. Please contact your program support team.', devMode: false }
     }
-    // AuthKit's production refresh and session-presence cookies must be
-    // accessible on the app's site. A separate vanity domain needs its own
-    // same-site authentication deployment; CORS alone cannot provide this.
-    const cookieDomain = apiHostname.toLowerCase().split('.').slice(1).join('.')
-    const appHostname = hostname.toLowerCase()
-    if (!localDevelopment && (!cookieDomain.includes('.') || (appHostname !== cookieDomain && !appHostname.endsWith(`.${cookieDomain}`)))) {
-      return { provider, error: 'Secure sign-in is not configured for this address. Open your program’s official app link or contact your program support team.', devMode: false }
-    }
-    return { provider, clientId, apiHostname: apiHostname || undefined, devMode: localDevelopment, error: null }
+    // Rails owns the refresh session behind same-origin /api/auth endpoints.
+    // No paid authentication API domain or browser token storage is required.
+    return { provider, clientId, devMode: false, error: null }
   }
   const clerkKey = String(env.VITE_CLERK_PUBLISHABLE_KEY || '').trim()
   if (!clerkKey || ['pk_test_xxx', 'pk_test_dummy', 'your_clerk_publishable_key', 'YOUR_PUBLISHABLE_KEY'].includes(clerkKey)) {

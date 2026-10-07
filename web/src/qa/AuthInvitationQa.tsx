@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { AuthKitProvider } from '@workos-inc/authkit-react'
 import { AuthProvider } from '../contexts/AuthContext'
 import { useAuthContext } from '../contexts/authContextValue'
 import { captureAuthInvitation } from '../lib/authInvitation'
@@ -28,7 +27,5 @@ export function AuthInvitationQa() {
   </main>
 }
 if (import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true') {
-  createRoot(document.getElementById('root')!).render(<AuthKitProvider clientId="client_FICTIONAL1" apiHostname="auth-provider.test" redirectUri={`${window.location.origin}/auth/callback`} devMode={true}>
-    <AuthProvider provider="workos" invitationToken={invitation.token}><AuthInvitationQa /></AuthProvider>
-  </AuthKitProvider>)
+  createRoot(document.getElementById('root')!).render(<AuthProvider provider="workos" clientId="client_FICTIONAL1" invitationToken={invitation.token}><AuthInvitationQa /></AuthProvider>)
 }

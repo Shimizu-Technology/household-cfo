@@ -3180,7 +3180,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
   if (auth.isAuthEnabled && auth.authRecoveryRequired && auth.authError) {
     return <AuthAccessPanel title={auth.authErrorStatus === 503 ? 'Secure access is temporarily unavailable.' : auth.authErrorStatus === 401 ? 'Sign in again to continue.' : 'We couldn’t finish checking your access.'} copy={auth.authError} recovering
-      onRetry={!auth.isLoading && auth.authIdentityId && auth.authErrorStatus !== 401 ? auth.refreshCurrentUser : undefined} onSignIn={auth.authErrorStatus === 401 ? auth.signIn : undefined} onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
+      onRetry={!auth.isLoading && auth.authErrorStatus !== 401 && (auth.authIdentityId || auth.authProvider === 'workos' && auth.authErrorStatus === 503) ? auth.refreshCurrentUser : undefined} onSignIn={auth.authErrorStatus === 401 ? auth.signIn : undefined} onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
   }
 
   if (auth.isAuthEnabled && (auth.isLoading || auth.isVerifyingApi)) {
