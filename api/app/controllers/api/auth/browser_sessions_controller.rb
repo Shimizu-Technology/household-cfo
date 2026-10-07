@@ -37,8 +37,11 @@ module Api
       end
 
       def email_verify
-        render_email_result(email_challenges.verify(origin: @origin, browser: cookies[browser_cookie_name],
-          challenge_id: params[:challenge_id], code: params[:code], **request_context))
+        browser = cookies[browser_cookie_name]
+        result = email_challenges.verify(origin: @origin, browser: browser,
+          challenge_id: params[:challenge_id], code: params[:code], **request_context)
+        set_cookie(browser_cookie_name, browser, expires: WorkosBrowserAuth::Sessions::LOGIN_TTL.from_now) if result[:step] == "redirect"
+        render_email_result(result)
       end
 
       def email_resend
@@ -169,9 +172,10 @@ module Api
         render json: result.except(:session, :cookie)
       end
 
-      def rate_limited
-        response.headers["Retry-After"] = "60"
-        render json: { error: "Please wait a minute before trying again", code: "auth_rate_limited", retry_after_sec: 60 }, status: :too_many_requests
+      def rate_limited(error = nil)
+        retry_after = error.respond_to?(:retry_after_sec) ? error.retry_after_sec : 60
+        response.headers["Retry-After"] = retry_after.to_s
+        render json: { error: "Please wait before trying again", code: "auth_rate_limited", retry_after_sec: retry_after }, status: :too_many_requests
       end
 
       def sessions

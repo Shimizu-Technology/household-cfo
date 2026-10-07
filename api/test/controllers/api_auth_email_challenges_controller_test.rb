@@ -30,8 +30,8 @@ class ApiAuthEmailChallengesControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  def start_email(**options)
-    post "/api/auth/email/start", params: { email: " WorkOS@example.com ", return_to: "/#AskMia" }.merge(options), headers: HEADERS, as: :json
+  def start_email(headers: HEADERS, **options)
+    post "/api/auth/email/start", params: { email: " WorkOS@example.com ", return_to: "/#AskMia" }.merge(options), headers: headers, as: :json
     assert_response :success
     response.parsed_body
   end
@@ -88,6 +88,7 @@ class ApiAuthEmailChallengesControllerTest < ActionDispatch::IntegrationTest
         assert_equal "email_code_invalid", response.parsed_body.fetch("code")
         assert_equal index + 1, WorkosEmailChallenge.last.verification_attempts
         assert_equal old_cookie, cookies["cfo_workos_session"]
+        refute_includes response.headers["Set-Cookie"].to_s, "cfo_workos_login="
       end
       verify_email(challenge)
       assert_response :gone
@@ -158,6 +159,83 @@ class ApiAuthEmailChallengesControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "a late email code refreshes the same browser cookie through hosted policy completion" do
+    with_auth do
+      mapped_user
+      challenge = start_email
+      browser = cookies["cfo_workos_login"]
+      travel 9.minutes
+      @provider.failure = WorkosBrowserAuth::Provider::PolicyRequired.new("Continue securely")
+      verify_email(challenge)
+      assert_response :success
+      assert_equal "redirect", response.parsed_body.fetch("step")
+      assert_equal browser, cookies["cfo_workos_login"]
+      expiry = response.headers["Set-Cookie"].to_s[/expires=([^;]+)/i, 1]
+      assert expiry
+      assert_in_delta 10.minutes.from_now.to_i, Time.httpdate(expiry).to_i, 1
+      travel 2.minutes
+      @provider.failure = nil
+      @provider.response.access_token = workos_token
+      get "/api/auth/callback", params: { state: @provider.options.fetch(:state), code: "hosted-code" }
+      assert_redirected_to "#{ORIGIN}/#AskMia"
+      assert_equal 1, WorkosBrowserSession.count
+    ensure
+      travel_back
+    end
+  end
+
+  test "hourly email and source limits are atomic and allow different participants from one office" do
+    with_auth do
+      mapped_user
+      before_users = User.count
+      first = HEADERS.merge("REMOTE_ADDR" => "203.0.113.1")
+      second = HEADERS.merge("REMOTE_ADDR" => "203.0.113.2")
+      third = HEADERS.merge("REMOTE_ADDR" => "203.0.113.3")
+      3.times { start_email(headers: first) }
+      travel 61.seconds
+      2.times { start_email(headers: first) }
+      before = WorkosEmailDeliveryLimit.order(:id).pluck(:id, :delivery_count, :window_started_at, :updated_at)
+      post "/api/auth/email/start", params: { email: "workos@example.com", return_to: "/" }, headers: first, as: :json
+      assert_response :too_many_requests
+      assert_operator response.parsed_body.fetch("retry_after_sec"), :>, 3500
+      assert_equal response.parsed_body.fetch("retry_after_sec").to_s, response.headers["Retry-After"]
+      assert_equal before, WorkosEmailDeliveryLimit.order(:id).pluck(:id, :delivery_count, :window_started_at, :updated_at)
+      start_email(headers: second)
+      travel 61.seconds
+      3.times { start_email(headers: second) }
+      travel 61.seconds
+      start_email(headers: second)
+      before = WorkosEmailDeliveryLimit.order(:id).pluck(:id, :delivery_count, :window_started_at, :updated_at)
+      post "/api/auth/email/start", params: { email: "workos@example.com", return_to: "/" }, headers: third, as: :json
+      assert_response :too_many_requests
+      assert_equal before, WorkosEmailDeliveryLimit.order(:id).pluck(:id, :delivery_count, :window_started_at, :updated_at)
+      30.times { |index| start_email(headers: first, email: "office-participant-#{index}@fictional.example") }
+      assert_equal before_users, User.count
+      travel 1.hour
+      3.times { start_email(headers: first) }
+      post "/api/auth/email/start", params: { email: "workos@example.com", return_to: "/" }, headers: first, as: :json
+      assert_response :too_many_requests
+    ensure
+      travel_back
+    end
+  end
+
+  test "missing and invalid source addresses share a bounded unknown-source allowance" do
+    with_auth do
+      limiter = WorkosBrowserAuth::EmailChallenges.new(provider: @provider)
+      3.times { limiter.send(:delivery_limit!, "workos@example.com", ip_address: nil) }
+      travel 61.seconds
+      2.times { limiter.send(:delivery_limit!, "workos@example.com", ip_address: "invalid-address") }
+      before = WorkosEmailDeliveryLimit.order(:id).pluck(:id, :delivery_count, :window_started_at, :updated_at)
+      assert_raises(WorkosBrowserAuth::EmailChallenges::RateLimited) do
+        limiter.send(:delivery_limit!, "workos@example.com", ip_address: nil)
+      end
+      assert_equal before, WorkosEmailDeliveryLimit.order(:id).pluck(:id, :delivery_count, :window_started_at, :updated_at)
+    ensure
+      travel_back
+    end
+  end
+
   test "an uncertain resend keeps its cooldown and does not erase verification attempts" do
     with_auth do
       mapped_user
@@ -194,16 +272,17 @@ class ApiAuthEmailChallengesControllerTest < ActionDispatch::IntegrationTest
 
   test "uninvited email has same public code step without provider account creation" do
     with_auth do
+      User.create!(email: "unrelated-admin@fictional.example", clerk_id: "unrelated-admin", role: "admin", invitation_status: "accepted")
       @provider.define_singleton_method(:create_magic_auth) { |**| raise "Must not create an uninvited WorkOS account" }
-      challenge = start_email(invitation_token: "untrusted-token-is-not-admission")
-      assert_equal "code", challenge.fetch("step")
-      assert_equal "workos@example.com", challenge.fetch("email")
-      verify_email(challenge)
-      assert_response :unauthorized
-      assert_equal "email_code_invalid", response.parsed_body.fetch("code")
-      assert_equal 0, User.count
-      assert_equal 0, AuthenticationIdentity.count
-      assert_equal 0, WorkosBrowserSession.count
+      assert_no_difference [ "User.count", "AuthenticationIdentity.count", "WorkosBrowserSession.count" ] do
+        challenge = start_email(invitation_token: "untrusted-token-is-not-admission")
+        assert_equal "code", challenge.fetch("step")
+        assert_equal "workos@example.com", challenge.fetch("email")
+        verify_email(challenge)
+        assert_response :unauthorized
+        assert_equal "email_code_invalid", response.parsed_body.fetch("code")
+      end
+      refute User.where("LOWER(email) = ?", "workos@example.com").exists?
     end
   end
 

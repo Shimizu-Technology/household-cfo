@@ -318,15 +318,15 @@ class ApiAuthBrowserSessionsControllerTest < ActionDispatch::IntegrationTest
 
   test "original operation cancels its hosted policy child" do
     with_browser_auth do
-      before_operations = WorkosBrowserLoginOperation.count
       login(popup: true, invitation_token: "private-invitation")
+      operation_count = WorkosBrowserLoginOperation.count
       state = @provider.options.fetch(:state)
       operation = WorkosBrowserLoginOperation.last
       @provider.failure = WorkosBrowserAuth::Provider::PolicyRequired.new("Continue securely")
       callback
       assert_response :see_other
       assert_equal operation.id, WorkosBrowserLoginAttempt.last.workos_browser_login_operation_id
-      assert_equal before_operations + 1, WorkosBrowserLoginOperation.count
+      assert_equal operation_count, WorkosBrowserLoginOperation.count
       @provider.failure = nil
       post "/api/auth/login/status", params: { state: state }, headers: HEADERS, as: :json
       assert_equal({ "status" => "pending" }, response.parsed_body)

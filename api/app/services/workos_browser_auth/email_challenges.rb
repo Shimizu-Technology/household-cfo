@@ -1,8 +1,16 @@
+require "ipaddr"
+
 module WorkosBrowserAuth
   class EmailChallenges
     class Expired < StandardError; end
     class InvalidCode < StandardError; end
-    class RateLimited < StandardError; end
+    class RateLimited < StandardError
+      attr_reader :retry_after_sec
+      def initialize(message = "Please wait before requesting another code", retry_after_sec: 60)
+        super(message)
+        @retry_after_sec = [ retry_after_sec.ceil, 1 ].max
+      end
+    end
     PURPOSE = "workos-email-challenge-v1"
     RESEND_WAIT = 60.seconds
     MAX_ATTEMPTS = 5
@@ -20,7 +28,7 @@ module WorkosBrowserAuth
       # provider credential or the emailed six-digit code in browser state.
       destination = Origins.return_to!(return_to, origin: origin)
       validate_invitation!(invitation_token)
-      delivery_limit!(email)
+      delivery_limit!(email, ip_address: ip_address)
       WorkosEmailChallenge.where("expires_at < ?", Time.current).delete_all
       WorkosEmailDeliveryLimit.where("updated_at < ?", 1.day.ago).delete_all
       invited = User.where("LOWER(email) = ?", email).where(invitation_status: %w[pending accepted]).exists?
@@ -89,7 +97,7 @@ module WorkosBrowserAuth
       result = with_challenge(origin, browser, challenge_id) do |record, context|
         raise Expired, "This sign-in expired. Start again" if record.verification_attempts >= MAX_ATTEMPTS
         raise RateLimited, "Please wait before requesting another code" if record.resend_at > Time.current
-        delivery_limit!(context.fetch("email"))
+        delivery_limit!(context.fetch("email"), ip_address: ip_address)
         # Persist the cooldown even if the remote delivery result is uncertain.
         record.update!(resend_at: RESEND_WAIT.from_now)
         begin
@@ -130,9 +138,18 @@ module WorkosBrowserAuth
       end
     end
 
-    def delivery_limit!(email)
-      digest = Sessions.digest("#{WorkosAuth.client_id}\0#{email}")
-      WorkosEmailDeliveryLimit.consume!(identity_digest: digest)
+    def delivery_limit!(email, ip_address:)
+      source = begin
+        IPAddr.new(ip_address.to_s).native.to_s
+      rescue IPAddr::Error
+        "unknown"
+      end
+      namespaces = [ [ "email-minute", 3, 60.seconds ], [ "email-hour", 10, 1.hour ], [ "source-email-hour", 5, 1.hour, source ] ]
+      budgets = namespaces.map do |name, maximum, window, address|
+        identity = [ "workos-email-delivery-v2", WorkosAuth.client_id, name, email, address ].compact.join("\0")
+        { identity_digest: Sessions.digest(identity), maximum: maximum, window: window }
+      end
+      WorkosEmailDeliveryLimit.consume_many!(budgets: budgets)
     end
 
     def with_challenge(origin, browser, opaque)
