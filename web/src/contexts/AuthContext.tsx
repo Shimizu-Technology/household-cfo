@@ -94,7 +94,9 @@ export function AuthVerificationBridge({ children, session }: { children: ReactN
       try {
         return await latestGetToken.current()
       } catch (error) {
-        if (latestProvider.current === 'workos' && error instanceof RefreshError && error.isTransient) {
+        const temporaryFailure = (error instanceof RefreshError && error.isTransient) || error instanceof TypeError ||
+          (error instanceof DOMException && ['AbortError', 'TimeoutError'].includes(error.name))
+        if (latestProvider.current === 'workos' && temporaryFailure) {
           // Keep the SDK's refresh session; don't turn a temporary outage into
           // an unauthenticated request or a forced sign-in.
           throw new ApiRequestError('Secure sign-in is temporarily unavailable. Try again in a moment.', { status: 503 })

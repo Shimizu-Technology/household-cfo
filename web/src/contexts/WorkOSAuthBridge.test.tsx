@@ -57,7 +57,12 @@ it('passes exact organization and opaque invitation to the SDK without putting t
   fireEvent.click(screen.getByRole('button', { name: 'Sign up' }))
   expect(mocks.signUp).toHaveBeenCalledWith(expected)
 })
-it('withholds private verified state during a transient SDK outage while retaining sign-in and allowing a 503 retry', async () => {
+it.each([
+  new RefreshError('Provider unavailable', { isTransient: true, status: 503 }),
+  new TypeError('Failed to fetch'),
+  new DOMException('Request aborted', 'AbortError'),
+  new DOMException('Request timed out', 'TimeoutError'),
+])('withholds private state on %s while retaining the session and allowing a 503 retry', async failure => {
   const expired = vi.fn()
   window.addEventListener('household-cfo:auth-expired', expired)
   mocks.fetchCurrentUser.mockImplementation(async () => {
@@ -68,7 +73,7 @@ it('withholds private verified state during a transient SDK outage while retaini
   try {
     render(<AuthProvider provider="workos"><Probe /></AuthProvider>)
     await screen.findByText('Verified WorkOS account')
-    mocks.getAccessToken.mockRejectedValueOnce(new RefreshError('Provider unavailable', { isTransient: true, status: 503 }))
+    mocks.getAccessToken.mockRejectedValueOnce(failure)
     fireEvent.click(screen.getByRole('button', { name: 'Check access' }))
     await screen.findByText('Secure sign-in is temporarily unavailable. Try again in a moment.')
     expect(screen.getByTestId('status').textContent).toBe('503')
