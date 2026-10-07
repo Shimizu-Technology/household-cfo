@@ -71,6 +71,18 @@ class EnterpriseAdmissionTest < ActiveSupport::TestCase
     end
   end
 
+  test "inactive or foreign organization sessions never materialize an admission" do
+    @client.session_rows.first["status"] = "inactive"
+    assert_no_difference([ "User.count", "AuthenticationIdentity.count", "EnterpriseMembership.count" ]) do
+      assert_raises(EnterpriseAccess::Denied) { resolve }
+    end
+    @client.session_rows.first["status"] = "active"
+    @client.session_rows.first["organization_id"] = "org_other"
+    assert_no_difference([ "User.count", "AuthenticationIdentity.count", "EnterpriseMembership.count" ]) do
+      assert_raises(EnterpriseAccess::Denied) { resolve }
+    end
+  end
+
   test "SCIM reconciliation materializes user once then JIT reuses identity" do
     assert_difference("User.count", 1) { Enterprise::Reconciliation.call(@organization, client: @client) }
     user = AuthenticationIdentity.find_by!(provider: "workos", subject: "user_new").user

@@ -5,18 +5,48 @@ module Enterprise
       raise EnterpriseAccess::Denied, "Your organization is not enabled for enterprise admission" unless organization
       raise EnterpriseAccess::Denied, "Directory provisioning is awaiting vendor enablement" unless organization.directory_provisioning_enabled?
       raise EnterpriseAccess::Denied, "Enterprise identity does not match this session" unless subject == claims["sub"]
-      organization.with_lock do
-        provider = client.memberships(organization_id: organization.workos_organization_id, user_id: subject).find do |row|
-          row["user_id"] == subject && row["organization_id"] == organization.workos_organization_id && row["status"] == "active"
-        end
-        raise EnterpriseAccess::Denied, "An active enterprise membership is required" unless provider
-        membership = Provisioner.membership!(organization, provider)
-        Provisioner.refresh_directory_for!(organization, membership, profile.to_h.stringify_keys, client: client)
-        user = materialize!(membership, profile.to_h.stringify_keys)
-        raise EnterpriseAccess::Denied, "An active mapped directory group is required" unless user
-        EnterpriseAccess.authorize!(user: user, claims: claims, client: client)
-        user
+      profile = profile.to_h.stringify_keys
+      observed_at = Time.current
+      directory_id = organization.directory_id
+      provider = client.memberships(organization_id: organization.workos_organization_id, user_id: subject).find do |row|
+        row["user_id"] == subject && row["organization_id"] == organization.workos_organization_id && row["status"] == "active"
       end
+      raise EnterpriseAccess::Denied, "An active enterprise membership is required" unless provider
+      session = client.sessions(subject).find { |row| row["id"] == claims["sid"] }
+      valid_session = session && session["status"] == "active" && session["user_id"] == subject && session["organization_id"] == organization.workos_organization_id
+      raise EnterpriseAccess::Denied, "Your enterprise session is no longer active" unless valid_session
+      raise EnterpriseAccess::Denied, "Your enterprise directory is not linked" unless directory_id.present? && organization.directory_state == "linked"
+      begin
+        directory = client.directory(directory_id)
+      rescue Client::NotFound
+        raise EnterpriseAccess::Denied, "Your enterprise directory is unavailable"
+      end
+      unless directory["id"] == directory_id && directory["organization_id"] == organization.workos_organization_id && directory["state"] == "linked"
+        raise EnterpriseAccess::Denied, "Your enterprise directory is not linked"
+      end
+      snapshot = Provisioner.directory_snapshot(organization, profile, client: client, directory_id: directory_id)
+      user = organization.with_lock do
+        raise EnterpriseAccess::Denied, "Your organization is not enabled for enterprise admission" unless organization.active? && organization.directory_provisioning_enabled?
+        raise EnterpriseAccess::Denied, "Your enterprise directory is not linked" unless organization.directory_id == directory_id && organization.directory_state == "linked"
+        if organization.require_sso? && session["auth_method"] != "sso"
+          raise EnterpriseAccess::Denied.new("Sign in with your organization’s single sign-on", code: "enterprise_sso_required")
+        end
+        existing = organization.enterprise_memberships.find_by(workos_user_id: subject)
+        raise EnterpriseAccess::Denied, "Your enterprise membership is inactive or revoked" if existing&.locally_revoked? || existing&.user&.revoked?
+        if (organization.last_reconciled_at && organization.last_reconciled_at > observed_at) ||
+            (existing&.provider_updated_at && existing.provider_updated_at > observed_at) || Time.current - observed_at >= ProviderState::TTL
+          raise Client::Unavailable, "Enterprise admission verification was superseded; retry"
+        end
+        membership = Provisioner.membership!(organization, provider, observed_at: observed_at)
+        Provisioner.apply_directory_snapshot!(organization, membership, snapshot, observed_at: observed_at)
+        admitted = materialize!(membership, profile)
+        raise EnterpriseAccess::Denied, "An active mapped directory group is required" unless admitted && (membership.it_admin? || Enrollment.allowed_cohort_ids(membership).any?)
+        admitted
+      end
+      # Recheck current session and assignment proof without holding the cohort's
+      # organization lock or a database transaction across provider requests.
+      EnterpriseAccess.authorize!(user: user, claims: claims, client: client)
+      user
     end
 
     def self.materialize!(membership, profile)
