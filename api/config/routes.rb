@@ -7,6 +7,8 @@ Rails.application.routes.draw do
       post "email/resend", to: "browser_sessions#email_resend"
       post "email/cancel", to: "browser_sessions#email_cancel"
       post "login", to: "browser_sessions#login"
+      post "login/cancel", to: "browser_sessions#login_cancel"
+      post "login/status", to: "browser_sessions#login_status"
       get "callback", to: "browser_sessions#callback"
       get "session", to: "browser_sessions#show"
       post "logout", to: "browser_sessions#logout"

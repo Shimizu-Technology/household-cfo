@@ -62,11 +62,22 @@ module Api
         render json: { authorization_url: url }
       end
 
+      def login_cancel
+        status = sessions.cancel_login(origin: @origin, browser: cookies[browser_cookie_name], state: params[:state], cookie: cookies[session_cookie_name])
+        render json: { status: status }
+      end
+
+      def login_status
+        status = sessions.login_status(origin: @origin, browser: cookies[browser_cookie_name], state: params[:state], cookie: cookies[session_cookie_name])
+        render json: { status: status }
+      end
+
       def callback
         attempt = sessions.consume_login(state: params[:state], browser: cookies[browser_cookie_name])
         # This top-level callback has no custom Origin header. One-use state
         # instead binds the approved frontend and browser.
         if params[:error].present?
+          sessions.abandon_login(attempt: attempt)
           return redirect_to callback_destination(attempt, error: "cancelled"), allow_other_host: true, status: :see_other
         end
         record, token = sessions.finish_login(attempt: attempt, code: params[:code])
@@ -78,13 +89,17 @@ module Api
         end
         set_cookie(session_cookie_name, token, expires: record.expires_at)
         redirect_to callback_destination(attempt), allow_other_host: true, status: :see_other
-      rescue WorkosAuth::InvalidToken, WorkosAuth::Unavailable, WorkosBrowserAuth::Provider::PolicyRequired, WorkosBrowserAuth::Provider::RateLimited, WorkosIdentityResolver::Forbidden => error
-        if attempt
-          reason = error.is_a?(WorkosAuth::Unavailable) ? "retry" : "invalid"
-          redirect_to callback_destination(attempt, error: reason), allow_other_host: true, status: :see_other
-        else
-          redirect_to "#{fallback_frontend_origin}/login?auth_error=invalid", allow_other_host: true, status: :see_other
+      rescue WorkosBrowserAuth::Provider::PolicyRequired
+        begin
+          browser = cookies[browser_cookie_name]
+          url = sessions.policy_continuation(attempt: attempt, browser: browser)
+          set_cookie(browser_cookie_name, browser, expires: WorkosBrowserAuth::Sessions::LOGIN_TTL.from_now)
+          redirect_to url, allow_other_host: true, status: :see_other
+        rescue WorkosAuth::InvalidToken, WorkosAuth::Unavailable, WorkosBrowserAuth::Provider::PolicyRequired, WorkosBrowserAuth::Provider::RateLimited => error
+          callback_failure(attempt, error)
         end
+      rescue WorkosAuth::InvalidToken, WorkosAuth::Unavailable, WorkosBrowserAuth::Provider::RateLimited, WorkosIdentityResolver::Forbidden => error
+        callback_failure(attempt, error)
       end
 
       def show
@@ -109,6 +124,16 @@ module Api
       end
 
       private
+
+      def callback_failure(attempt, error)
+        if attempt
+          sessions.abandon_login(attempt: attempt)
+          reason = error.is_a?(WorkosAuth::Unavailable) ? "retry" : "invalid"
+          redirect_to callback_destination(attempt, error: reason), allow_other_host: true, status: :see_other
+        else
+          redirect_to "#{fallback_frontend_origin}/login?auth_error=invalid", allow_other_host: true, status: :see_other
+        end
+      end
 
       def callback_destination(attempt, error: nil)
         return attempt.return_to if !attempt.popup && error.nil?
