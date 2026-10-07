@@ -86,7 +86,9 @@ module Api
       end
 
       def workos_enabled!
-        raise WorkosAuth::Unavailable, "WorkOS sign-in is not enabled" unless ENV["AUTH_PROVIDER"] == "workos" && WorkosAuth.configured?
+        raise WorkosAuth::Unavailable, "WorkOS sign-in is not enabled" unless AuthenticationProvider.workos_enabled?
+      rescue AuthenticationProvider::ConfigurationError => error
+        raise WorkosAuth::Unavailable, error.message
       end
 
       def verified_origin!

@@ -5,8 +5,7 @@ class UserInviteEmailService
 
   class << self
     def send_invite(user:, invited_by:)
-      provider = ENV.fetch("AUTH_PROVIDER", "clerk")
-      return failed_configuration("Authentication provider is not configured") unless provider.in?(%w[clerk workos])
+      provider = AuthenticationProvider.public_provider
       return send_workos_invite(user: user, invited_by: invited_by) if provider == "workos"
       return failed_configuration("RESEND_API_KEY is not configured") if ENV["RESEND_API_KEY"].blank?
       return failed_configuration("MAILER_FROM_EMAIL or RESEND_FROM_EMAIL is not configured") if from_email.blank?
@@ -25,9 +24,12 @@ class UserInviteEmailService
       {
         sent: true,
         status: "sent",
+        provider: "resend",
         provider_message_id: response_id(response),
         error: nil
       }
+    rescue AuthenticationProvider::ConfigurationError => e
+      failed_configuration(e.message).merge(provider: "unconfigured")
     rescue StandardError => e
       Rails.logger.error("[InviteEmail] Failed for #{user.email}: #{e.class} #{e.message}")
       {

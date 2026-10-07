@@ -15,6 +15,7 @@ module ActiveSupport
       # automated tests opt-in so demo tests validate no-Clerk/no-network preview mode.
       %w[
         AUTH_PROVIDER
+        AUTH_PUBLIC_PROVIDER
         WORKOS_CLIENT_ID
         WORKOS_API_KEY
         WORKOS_ISSUER

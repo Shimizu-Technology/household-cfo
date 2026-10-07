@@ -12,15 +12,10 @@ module ClerkAuthenticatable
       return
     end
 
-    if auth_provider == "workos"
+    if AuthenticationProvider.for_token(token) == "workos"
       authenticate_workos!(token)
       return
     end
-    unless auth_provider == "clerk"
-      render_service_unavailable("Authentication provider is not configured")
-      return
-    end
-
     unless ClerkAuth.configured? || test_auth_token?(token)
       render_service_unavailable("Clerk authentication is not configured")
       return
@@ -44,6 +39,10 @@ module ClerkAuthenticatable
     end
 
     render_forbidden(@authorization_failure_message || "This account is not authorized for Household CFO")
+  rescue AuthenticationProvider::ConfigurationError => error
+    render_service_unavailable(error.message)
+  rescue AuthenticationProvider::InvalidToken => error
+    render_unauthorized(error.message)
   rescue EnterpriseAccess::Denied => error
     @current_user = nil
     render json: { error: error.message, code: error.code }, status: :forbidden

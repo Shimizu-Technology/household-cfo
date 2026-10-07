@@ -5,10 +5,11 @@ require "cgi"
 module CoachWorkspaces
   class CollaboratorInviteEmail
     def self.send_invite(user:, workspace:, role:, invited_by:, sign_in_url:, requested:)
-      user = User.find(user.id) if ENV.fetch("AUTH_PROVIDER", "clerk") == "workos"
+      provider = AuthenticationProvider.public_provider if requested
+      user = User.find(user.id) if provider == "workos"
       result = if !requested
         { sent: false, status: "skipped", provider_message_id: nil }
-      elsif ENV.fetch("AUTH_PROVIDER", "clerk") == "workos" && user.invitation_pending?
+      elsif provider == "workos" && user.invitation_pending?
         if WorkosInvitationService.custom_delivery? && (ENV["RESEND_API_KEY"].blank? || (ENV["RESEND_FROM_EMAIL"].blank? && ENV["MAILER_FROM_EMAIL"].blank?))
           raise WorkosInvitationService::DeliveryError, "The invitation mail sender is not configured."
         end
@@ -40,8 +41,8 @@ module CoachWorkspaces
       end
       record_attempt(user, invited_by, result)
       result
-    rescue WorkosInvitationService::DeliveryError => error
-      result = { sent: false, status: "failed", provider: "workos", provider_message_id: nil, error: error.message }
+    rescue WorkosInvitationService::DeliveryError, AuthenticationProvider::ConfigurationError => error
+      result = { sent: false, status: "failed", provider: provider || "unconfigured", provider_message_id: nil, error: error.message }
       begin
         record_attempt(user, invited_by, result)
       rescue ActiveRecord::ActiveRecordError
