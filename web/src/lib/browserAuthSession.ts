@@ -31,6 +31,7 @@ const CALLBACK_ERRORS: Record<string, string> = {
   retry: ERROR_COPY,
   invalid: 'This sign-in link could not be verified. Start sign-in again.',
   cancelled: 'Sign-in was canceled. You can try again when you’re ready.',
+  denied: 'This account cannot open this program. Sign in with the email your program invited.',
 }
 
 // Rails has already consumed the hosted callback before these app routes load.

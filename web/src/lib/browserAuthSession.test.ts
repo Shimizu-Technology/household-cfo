@@ -308,3 +308,10 @@ describe('owned external login operation transport', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
   })
 })
+
+it('offers invited-account recovery after a denied provider callback and consumes the marker once', () => {
+  window.history.replaceState(null, '', '/login?auth_error=denied')
+  expect(captureBrowserAuthError()).toBe('This account cannot open this program. Sign in with the email your program invited.')
+  expect(window.location.search).toBe('')
+  expect(captureBrowserAuthError()).toBeNull()
+})
