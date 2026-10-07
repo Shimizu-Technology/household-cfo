@@ -80,9 +80,21 @@ class WorkosAuth
     def refresh_jwks
       # Unknown kids may signal rotation. Limit repeated attacker-driven refreshes per process/cache.
       REFRESH_MUTEX.synchronize do
-        return fetch_jwks if Rails.cache.read("#{cache_key}:refresh")
-        Rails.cache.write("#{cache_key}:refresh", true, expires_in: REFRESH_COOLDOWN)
-        fetch_jwks(force: true)
+        marker_key = "#{cache_key}:refresh"
+        marker = Rails.cache.read(marker_key)
+        raise Unavailable, "WorkOS signing keys are temporarily unavailable" if marker.in?(%w[fetching unavailable])
+        return fetch_jwks if marker == "ready"
+        Rails.cache.write(marker_key, "fetching", expires_in: REFRESH_COOLDOWN)
+        begin
+          keys = fetch_jwks(force: true)
+          Rails.cache.write(marker_key, "ready", expires_in: REFRESH_COOLDOWN)
+          keys
+        rescue Unavailable
+          # Preserve dependency failure during the cooldown. Old cached keys
+          # cannot establish that a newly rotated signed session is invalid.
+          Rails.cache.write(marker_key, "unavailable", expires_in: REFRESH_COOLDOWN)
+          raise
+        end
       end
     end
 

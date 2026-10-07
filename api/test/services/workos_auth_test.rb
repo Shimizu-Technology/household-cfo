@@ -110,6 +110,30 @@ class WorkosAuthTest < ActiveSupport::TestCase
     end
   end
 
+  test "a rotated-key dependency outage remains retriable throughout the refresh cooldown" do
+    with_workos do
+      rotated_key = OpenSSL::PKey::RSA.generate(2048)
+      rotated_jwk = JWT::JWK.new(rotated_key, "rotated")
+      calls = 0
+      handler = lambda do |_url, **_options|
+        calls += 1
+        raise Timeout::Error if calls == 2
+        keys = calls == 1 ? [ @signing_jwk.export ] : [ rotated_jwk.export ]
+        WorkosResponse.new(200, { "keys" => keys.map(&:deep_stringify_keys) })
+      end
+      stub_method(HTTParty, :get, handler) do
+        WorkosAuth.verify(workos_token)
+        token = workos_token(key: rotated_key, kid: "rotated")
+        2.times { assert_raises(WorkosAuth::Unavailable) { WorkosAuth.verify(token) } }
+        assert_equal 2, calls
+        travel 31.seconds do
+          assert_equal "user_test", WorkosAuth.verify(token).fetch("sub")
+          assert_equal 3, calls
+        end
+      end
+    end
+  end
+
   test "server profile identity must match and email verification must be a boolean" do
     with_workos do
       with_workos_http(profile: workos_profile.merge("email_verified" => "true")) do
