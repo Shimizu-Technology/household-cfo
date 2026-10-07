@@ -130,6 +130,27 @@ class EnterpriseProvisioningTest < ActiveSupport::TestCase
     assert Household.exists?(household.id)
   end
 
+  test "reactivation with a replacement directory user preserves the application identity and household" do
+    household = Household.create!(created_by_user: @participant, name: "Preserved household")
+    original_directory_user = @membership.enterprise_directory_users.sole
+    user_id = @participant.id
+    @client.provider_memberships.first["status"] = "inactive"
+    @client.users = []
+    Enterprise::Reconciliation.call(@organization, client: @client)
+    assert_equal "inactive", @membership.reload.status
+    refute CohortMembership.exists?(cohort: @cohort, user: @participant)
+
+    @client.provider_memberships.first["status"] = "active"
+    @client.users = [ directory_user.merge("id" => "directory_user_reactivated") ]
+    assert_no_difference("User.count") { Enterprise::Reconciliation.call(@organization, client: @client) }
+    assert_equal user_id, @membership.reload.user_id
+    assert_equal "participant", @participant.reload.role
+    assert_equal user_id, household.reload.created_by_user_id
+    assert_equal "inactive", original_directory_user.reload.state
+    assert_equal "active", @membership.enterprise_directory_users.find_by!(workos_directory_user_id: "directory_user_reactivated").state
+    assert CohortMembership.exists?(cohort: @cohort, user: @participant, role: "participant")
+  end
+
   test "mapping enforces workspace boundary and participant grant cannot promote user" do
     another = user("admin")
     workspace = CoachWorkspaces::Provisioner.ensure_for!(another)
