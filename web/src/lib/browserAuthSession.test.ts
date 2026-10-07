@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError } from '../api'
-import { BrowserSessionClient, captureBrowserAuthError, checkedBrowserAuthRedirect } from './browserAuthSession'
+import { BrowserSessionClient, captureBrowserAuthError, checkedBrowserAuthRedirect, restoreBrowserAuthNavigation } from './browserAuthSession'
 const clientId = 'client_FICTIONAL1'
 const session = (id = 'user_FICTIONAL1') => ({ client_id: clientId, user: { id, first_name: 'Fictional', last_name: 'Person', email: 'fictional@pilot.test' }, organization_id: 'org_FICTIONAL1', authentication_method: 'SSO', access_token: `short-lived-${id}`, expires_at: new Date(Date.now() + 120_000).toISOString() })
 const fetchMock = vi.fn()
+function authorization() {
+  const url = new URL('https://api.workos.com/user_management/authorize')
+  url.searchParams.set('client_id', clientId); url.searchParams.set('redirect_uri', `${window.location.origin}/api/auth/callback`)
+  return url.href
+}
 beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock) })
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); sessionStorage.clear(); window.history.replaceState(null, '', '/') })
 describe('same-origin browser session credentials', () => {
@@ -116,6 +121,67 @@ describe('same-origin browser session credentials', () => {
     expect(client.getSnapshot().session).not.toBeNull()
     expect(await client.logout()).toBe(`${window.location.origin}/`)
     expect(client.getSnapshot().session).toBeNull()
+  })
+})
+describe('hosted server-session navigation roundtrip', () => {
+  it.each([
+    ['/?oauth_state_id=fictional-bank-ref&income=4500#Review', '/#Review'],
+    ['/?oauth_state_id=fictional-bank-ref&enterprise=1&email=private@example.test', '/organization-access'],
+  ])('restores the one-use bank callback and safe destination from %s', async (start, returned) => {
+    window.history.replaceState(null, '', start)
+    fetchMock.mockResolvedValue(Response.json({ authorization_url: authorization() }))
+    await new BrowserSessionClient(clientId).login('sign-in')
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(body.return_to).toBe(`${window.location.origin}${returned}`)
+    expect(JSON.stringify(body)).not.toContain('fictional-bank-ref')
+    expect(JSON.stringify(body)).not.toContain('4500')
+    const raw = sessionStorage.getItem('household-cfo:server-auth-navigation')!
+    const saved = JSON.parse(raw)
+    expect(saved.state.navigationKey).toBeTruthy()
+    window.history.replaceState(null, '', returned)
+    restoreBrowserAuthNavigation()
+    expect(window.location.pathname).toBe(returned.startsWith('/organization-access') ? '/organization-access' : '/')
+    expect(window.location.hash).toBe(returned.includes('#') ? '#Review' : '')
+    expect(window.location.search).toBe('?oauth_state_id=fictional-bank-ref')
+    expect(sessionStorage.getItem('household-cfo:server-auth-navigation')).toBeNull()
+    expect(sessionStorage.getItem(`household-cfo:auth-navigation:${saved.state.navigationKey}`)).toBeNull()
+    window.history.replaceState(null, '', returned)
+    restoreBrowserAuthNavigation()
+    expect(window.location.search).toBe('')
+  })
+  it.each([Date.now() - 31 * 60_000, Date.now() + 60_000])('discards expired or future hosted return snapshots at %s', createdAt => {
+    window.history.replaceState(null, '', '/#Review')
+    sessionStorage.setItem('household-cfo:server-auth-navigation', JSON.stringify({ state: { returnTo: `${window.location.origin}/#Review`, navigationKey: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }, createdAt }))
+    restoreBrowserAuthNavigation()
+    expect(window.location.hash).toBe('#Review'); expect(window.location.search).toBe('')
+    expect(sessionStorage.getItem('household-cfo:server-auth-navigation')).toBeNull()
+  })
+  it.each(['wrong-destination', 'invalid-reference', 'expired-bank-snapshot'])('keeps safe navigation but rejects a bank snapshot with %s', async invalid => {
+    window.history.replaceState(null, '', '/?oauth_state_id=fictional-bank-ref#Review')
+    fetchMock.mockResolvedValue(Response.json({ authorization_url: authorization() }))
+    await new BrowserSessionClient(clientId).login('sign-in')
+    const saved = JSON.parse(sessionStorage.getItem('household-cfo:server-auth-navigation')!)
+    const key = `household-cfo:auth-navigation:${saved.state.navigationKey}`
+    const bank = JSON.parse(sessionStorage.getItem(key)!)
+    if (invalid === 'wrong-destination') bank.returnTo = `${window.location.origin}/#My%20Profile`
+    if (invalid === 'invalid-reference') bank.oauthState = 'invalid/ref!'
+    if (invalid === 'expired-bank-snapshot') bank.createdAt = Date.now() - 31 * 60_000
+    sessionStorage.setItem(key, JSON.stringify(bank))
+    window.history.replaceState(null, '', '/#Review')
+    restoreBrowserAuthNavigation()
+    expect(window.location.hash).toBe('#Review'); expect(window.location.search).toBe('')
+    expect(sessionStorage.getItem(key)).toBeNull()
+    expect(sessionStorage.getItem('household-cfo:server-auth-navigation')).toBeNull()
+  })
+  it('ignores invalid navigation keys and malformed snapshots without exposing arbitrary query or destinations', () => {
+    sessionStorage.setItem('household-cfo:server-auth-navigation', JSON.stringify({ state: { returnTo: 'https://evil.test/?secret=private', navigationKey: '../untrusted' }, createdAt: Date.now() }))
+    restoreBrowserAuthNavigation()
+    expect(window.location.href).toBe(`${window.location.origin}/`)
+    expect(sessionStorage.getItem('household-cfo:server-auth-navigation')).toBeNull()
+    sessionStorage.setItem('household-cfo:server-auth-navigation', '{malformed')
+    restoreBrowserAuthNavigation()
+    expect(window.location.search).toBe('')
+    expect(sessionStorage.getItem('household-cfo:server-auth-navigation')).toBeNull()
   })
 })
 it.each(['https://api.workos.com.evil.test/user_management/authorize', 'http://api.workos.com/user_management/authorize', 'https://api.workos.com:8443/user_management/authorize', 'https://user:secret@api.workos.com/user_management/authorize'])('rejects unverified external authorization redirect %s', value => {

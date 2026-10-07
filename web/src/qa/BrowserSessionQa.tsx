@@ -6,11 +6,12 @@ import { BrandContext, NEUTRAL_BRAND } from '../contexts/brandContextValue'
 import { IdentityBoundary } from '../components/IdentityBoundary'
 import { AuthAccessPanel } from '../components/AuthAccessPanel'
 import { UserButton } from '../components/AuthControls'
-import { captureBrowserAuthError } from '../lib/browserAuthSession'
+import { captureBrowserAuthError, restoreBrowserAuthNavigation } from '../lib/browserAuthSession'
 import '../index.css'
 import '../App.css'
 import '../dialogViewport.css'
 const callbackError = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' ? captureBrowserAuthError() : null
+if (import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true') restoreBrowserAuthNavigation()
 export function BrowserSessionQa() {
   const auth = useAuthContext()
   const [draft, setDraft] = useState('')

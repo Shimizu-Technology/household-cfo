@@ -43,7 +43,7 @@ export function restoreBrowserAuthNavigation() {
     if (safeAuthReturnTo(window.location.href) !== destination || window.location.pathname === '/login') return
     sessionStorage.removeItem(NAVIGATION_KEY)
     // The existing helper validates the one-use tab snapshot and bank session.
-    restoreNavigation(saved.state)
+    restoreNavigation({ state: saved.state })
   } catch { sessionStorage.removeItem(NAVIGATION_KEY) }
 }
 

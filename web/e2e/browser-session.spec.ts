@@ -13,6 +13,49 @@ async function privateIdentity(page: Page, current: () => boolean = () => false)
   return () => calls
 }
 test.describe('Auth recovery free server-managed sessions', () => {
+  for (const destination of ['/#Review', '/organization-access']) {
+    test(`hosted roundtrip restores ${destination} and its one-use bank reference without carrying private query details`, async ({ page }) => {
+      const origin = new URL(test.info().project.use.baseURL!).origin
+      let signedIn = false
+      const restoredPage = async (route: import('@playwright/test').Route) => {
+        const response = await route.fetch({ url: `${origin}/browser-session-qa.html` })
+        return route.fulfill({ response })
+      }
+      await page.route(`${origin}/`, restoredPage)
+      await page.route(`${origin}/organization-access`, restoredPage)
+      await page.route('**/api/auth/session', route => route.fulfill({ json: signedIn ? session() : { client_id: clientId, user: null } }))
+      await privateIdentity(page)
+      await page.route('**/api/auth/login', route => {
+        const input = route.request().postDataJSON()
+        expect(input).toEqual({ screen_hint: 'sign-in', return_to: `${origin}${destination}` })
+        expect(JSON.stringify(input)).not.toContain('fictional-bank-ref')
+        expect(JSON.stringify(input)).not.toContain('4500')
+        return route.fulfill({ json: { authorization_url: `https://api.workos.com/user_management/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`${origin}/api/auth/callback`)}` } })
+      })
+      await page.route('https://api.workos.com/user_management/authorize**', route => {
+        signedIn = true
+        return route.fulfill({ contentType: 'text/html', body: `<h1>Fictional hosted sign-in</h1><a href="${origin}${destination}">Return to app</a>` })
+      })
+      await page.goto('/browser-session-qa.html')
+      await expect(page.getByRole('heading', { name: 'Signed out', exact: true })).toBeVisible()
+      const initial = destination === '/organization-access' ? '/?enterprise=1&oauth_state_id=fictional-bank-ref&income=4500' : '/?oauth_state_id=fictional-bank-ref&income=4500#Review'
+      await page.evaluate(path => window.history.replaceState(null, '', path), initial)
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+      await expect(page.getByRole('heading', { name: 'Fictional hosted sign-in' })).toBeVisible()
+      expect(page.url()).not.toContain('fictional-bank-ref')
+      await page.getByRole('link', { name: 'Return to app', exact: true }).click()
+      await expect(page.getByTestId('server-verified-workspace')).toBeVisible()
+      const restored = new URL(page.url())
+      expect(restored.pathname).toBe(destination === '/organization-access' ? destination : '/')
+      expect(restored.hash).toBe(destination === '/#Review' ? '#Review' : '')
+      expect(restored.searchParams.get('oauth_state_id')).toBe('fictional-bank-ref')
+      expect(restored.searchParams.has('income')).toBe(false)
+      expect(await page.evaluate(() => sessionStorage.length)).toBe(0)
+      await page.goto(`${origin}${destination}`)
+      await expect(page.getByTestId('server-verified-workspace')).toBeVisible()
+      expect(new URL(page.url()).search).toBe('')
+    })
+  }
   test('cold reload verifies cookie session and Rails actor with no refresh token browser storage', async ({ page }) => {
     await page.route('**/api/auth/session', route => { expect(route.request().headers()['x-frontend-origin']).toBe(new URL(test.info().project.use.baseURL!).origin); return route.fulfill({ json: session() }) })
     await privateIdentity(page)
