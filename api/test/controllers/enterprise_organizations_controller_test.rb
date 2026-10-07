@@ -20,7 +20,7 @@ class EnterpriseOrganizationsControllerTest < ActionController::TestCase
     @workspace = CoachWorkspaces::Provisioner.ensure_for!(@admin)
     @organization = EnterpriseOrganization.create!(name: "Bank", coach_workspace: @workspace, workos_organization_id: "org_bank")
     @membership = @organization.enterprise_memberships.create!(user: @it, workos_user_id: "user_it", status: "active", it_admin: true)
-    @it.authentication_identities.create!(provider: "workos", issuer: "https://api.workos.com", subject: "user_it")
+    @it.authentication_identities.create!(provider: "workos", issuer: "https://api.workos.com/user_management/client_cfo", subject: "user_it")
     authenticate(@it)
   end
 
