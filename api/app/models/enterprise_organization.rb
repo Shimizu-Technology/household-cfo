@@ -17,6 +17,7 @@ class EnterpriseOrganization < ApplicationRecord
   def as_api_json
     { id: id, name: name, coach_workspace_id: coach_workspace_id, workos_organization_id: workos_organization_id,
       active: active, require_sso: require_sso, directory_provisioning_enabled: directory_provisioning_enabled,
+      setup_enabled: Enterprise::SetupPolicy.enabled?,
       directory_id: directory_id, connection_state: connection_state, directory_state: directory_state,
       last_reconciled_at: last_reconciled_at, last_sync_error: last_sync_error }
   end

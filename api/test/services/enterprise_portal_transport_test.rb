@@ -7,12 +7,15 @@ class EnterprisePortalTransportTest < ActiveSupport::TestCase
     workspace = CoachWorkspaces::Provisioner.ensure_for!(@admin)
     @organization = EnterpriseOrganization.create!(name: "Bank", workos_organization_id: "org_bank", coach_workspace: workspace)
     @previous = ENV["WORKOS_ADMIN_PORTAL_RETURN_URLS"]
+    @previous_setup = ENV["WORKOS_ENTERPRISE_SETUP_ENABLED"]
+    ENV.delete("WORKOS_ENTERPRISE_SETUP_ENABLED")
     ENV["WORKOS_ADMIN_PORTAL_RETURN_URLS"] = "http://localhost:5186/?enterprise=1"
     @client = Object.new
   end
 
   teardown do
     ENV["WORKOS_ADMIN_PORTAL_RETURN_URLS"] = @previous
+    ENV["WORKOS_ENTERPRISE_SETUP_ENABLED"] = @previous_setup
   end
 
   test "explicit staging return port is allowed while portal credentials require HTTPS port443" do
@@ -27,6 +30,20 @@ class EnterprisePortalTransportTest < ActiveSupport::TestCase
       @client.define_singleton_method(:portal) { |**_options| url }
       assert_no_difference("EnterpriseAuditEvent.count") { assert_raises(Enterprise::Client::Unavailable) { portal } }
     end
+  end
+
+  test "free AuthKit deployment cannot issue a billable enterprise setup portal without separate approval" do
+    refute Enterprise::SetupPolicy.enabled?(production: true)
+    assert Enterprise::SetupPolicy.enabled?(production: false)
+    ENV["WORKOS_ENTERPRISE_SETUP_ENABLED"] = "false"
+    assert_no_difference("EnterpriseAuditEvent.count") do
+      error = assert_raises(EnterpriseAccess::Denied) { portal }
+      assert_equal "enterprise_setup_not_enabled", error.code
+    end
+    ENV["WORKOS_ENTERPRISE_SETUP_ENABLED"] = "true"
+    assert Enterprise::SetupPolicy.enabled?(production: true)
+    @client.define_singleton_method(:portal) { |**_options| "https://setup.workos.com/setup" }
+    assert_equal "https://setup.workos.com/setup", portal[:url]
   end
 
   private

@@ -4,6 +4,7 @@ module Enterprise
     def self.call(organization:, user:, intent:, return_url:, client: Client.new, claims: {}, provider: nil)
       EnterpriseAccess.authorize!(user: user.reload, claims: claims, client: client)
       MutationAuthority.call(actor: user, organization: organization, platform_admin: false, claims: claims, provider: provider) { |_actor| nil }
+      SetupPolicy.authorize!
       begin
         raise ArgumentError, "Choose SSO or Directory Sync setup" unless INTENTS.include?(intent)
         allowed = ENV.fetch("WORKOS_ADMIN_PORTAL_RETURN_URLS", "").split(",").map(&:strip).reject(&:empty?)
@@ -25,6 +26,7 @@ module Enterprise
         raise Client::Unavailable, "Invalid WorkOS portal link" unless parsed.scheme == "https" && parsed.port == 443 && parsed.userinfo.nil? && hosts.include?(parsed.host)
         EnterpriseAccess.authorize!(user: user.reload, claims: claims, client: client)
         MutationAuthority.call(actor: user, organization: organization, platform_admin: false, claims: claims, provider: provider) do |actor|
+          SetupPolicy.authorize!
           organization.enterprise_audit_events.create!(actor_user: actor, action: "portal.issued", metadata: { intent: intent })
           { url: url, expires_at: (issued_at + 5.minutes).iso8601 }
         end
