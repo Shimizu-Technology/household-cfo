@@ -91,3 +91,58 @@ test.describe('Auth recovery in-app sign-in dialog', () => {
     await expect(page.getByRole('status')).toContainText('Stopped waiting')
   })
 })
+
+test.describe('Auth recovery Google completion and browser isolation', () => {
+  for (const isolated of [false, true]) {
+    test(`desktop Google completion ${isolated ? 'survives real opener isolation' : 'returns to the original app window'}`, async ({ page, context }) => {
+      test.skip(test.info().project.name !== 'desktop-chrome', 'Desktop popup flow; mobile redirect is covered separately.')
+      const origin = new URL(test.info().project.use.baseURL!).origin
+      let signedIn = false
+      let operationComplete = false
+      const restored = async (route: import('@playwright/test').Route) => {
+        const response = await route.fetch({ url: `${origin}/browser-session-qa.html` })
+        return route.fulfill({ response })
+      }
+      await page.route(`${origin}/`, restored)
+      await page.route('**/api/auth/session', route => route.fulfill({ json: signedIn ? { ...session, authentication_method: 'GoogleOAuth' } : { client_id: clientId, user: null } }))
+      await page.route('**/api/auth/options', route => route.fulfill({ json: { google_enabled: true } }))
+      await page.route('http://api.test/api/v1/auth/me', route => route.fulfill({ json: { user: { id: 901, auth_provider: 'workos', auth_subject: session.user.id, full_name: 'Original fictional Google account', role: 'participant' } } }))
+      await page.route('**/api/auth/login/status', route => {
+        expect(route.request().postDataJSON().state).toBe('s'.repeat(43))
+        return route.fulfill({ json: { status: operationComplete ? 'complete' : 'pending' } })
+      })
+      await page.route('**/api/auth/login/cancel', route => route.fulfill({ json: { status: operationComplete ? 'complete' : 'cancelled' } }))
+      await page.route('**/api/auth/login', route => {
+        expect(route.request().postDataJSON()).toMatchObject({ authentication_method: 'google', popup: true })
+        return route.fulfill({ json: { authorization_url: `https://api.workos.com/user_management/authorize?client_id=${clientId}&state=${'s'.repeat(43)}&redirect_uri=${encodeURIComponent(`${origin}/api/auth/callback`)}` } })
+      })
+      await context.route('https://api.workos.com/user_management/authorize**', route => route.fulfill({
+        contentType: 'text/html', headers: isolated ? { 'Cross-Origin-Opener-Policy': 'same-origin' } : {},
+        body: `<h1>Fictional Google sign-in</h1><a href="${origin}/login/complete">Complete fictional Google sign-in</a>`,
+      }))
+      await context.route(`${origin}/login/complete`, async route => {
+        operationComplete = true; signedIn = true
+        return restored(route)
+      })
+      await page.goto('/browser-session-qa.html')
+      if (!isolated) await page.evaluate(() => window.history.replaceState(null, '', '/?oauth_state_id=fictional-google-bank-ref&income=4500#Review'))
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+      const opened = context.waitForEvent('page')
+      await page.getByRole('button', { name: 'Continue with Google', exact: true }).click()
+      const popup = await opened
+      await expect(popup.getByRole('heading', { name: 'Fictional Google sign-in' })).toBeVisible()
+      if (isolated) {
+        expect(await popup.evaluate(() => window.opener === null)).toBe(true)
+        await expect(page.getByRole('button', { name: 'Cancel sign-in' })).toBeVisible()
+        await expect(page.getByRole('dialog')).toBeVisible()
+      }
+      await popup.getByRole('link', { name: 'Complete fictional Google sign-in', exact: true }).click()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expect(page.getByText('Original fictional Google account', { exact: true })).toBeVisible()
+      const returned = new URL(page.url())
+      expect(returned.origin).toBe(origin)
+      if (!isolated) { expect(returned.searchParams.get('oauth_state_id')).toBe('fictional-google-bank-ref'); expect(returned.searchParams.has('income')).toBe(false); expect(returned.hash).toBe('#Review') }
+      expect(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }))).toEqual({ local: 0, session: 0 })
+    })
+  }
+})

@@ -4,6 +4,7 @@ import { AuthProvider } from '../contexts/AuthContext'
 import { useAuthContext } from '../contexts/authContextValue'
 import { BrandContext, NEUTRAL_BRAND } from '../contexts/brandContextValue'
 import { IdentityBoundary } from '../components/IdentityBoundary'
+import { AuthPopupComplete } from '../components/AuthPopupComplete'
 import { AuthAccessPanel } from '../components/AuthAccessPanel'
 import { SignInButton, UserButton } from '../components/AuthControls'
 import { captureBrowserAuthError, restoreBrowserAuthNavigation } from '../lib/browserAuthSession'
@@ -26,5 +27,5 @@ export function BrowserSessionQa() {
 }
 if (import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true') {
   const brand = { brand: { ...NEUTRAL_BRAND, product_name: 'Household CFO', organization_name: 'Fictional server session QA' }, assistantName: 'Mia', hostname: 'localhost', source: 'qa', status: 'ready' as const, error: null, retry: () => undefined, isRuntimeBrand: false }
-  createRoot(document.getElementById('root')!).render(<BrandContext.Provider value={brand}><AuthProvider provider="workos" clientId="client_FICTIONAL1" callbackError={callbackError}><IdentityBoundary><BrowserSessionQa /></IdentityBoundary></AuthProvider></BrandContext.Provider>)
+  createRoot(document.getElementById('root')!).render(<BrandContext.Provider value={brand}>{window.location.pathname === '/login/complete' ? <AuthPopupComplete error={callbackError} /> : <AuthProvider provider="workos" clientId="client_FICTIONAL1" callbackError={callbackError}><IdentityBoundary><BrowserSessionQa /></IdentityBoundary></AuthProvider>}</BrandContext.Provider>)
 }
