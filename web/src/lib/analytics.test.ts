@@ -17,6 +17,18 @@ describe('authentication URL privacy', () => {
     expect(redactAnalyticsEvent(event)).toEqual({ uuid: 'test', event: '$identify', properties: { $current_url: 'https://app.example/login?invitation_token=[REDACTED]', $set_once: { $initial_current_url: 'https://app.example/login?invitation_token=[REDACTED]' }, section: 'income' }, $set: { $referrer: 'https://app.example/login?invitation_token=[REDACTED]' } })
     expect(redactAnalyticsEvent(null)).toBeNull()
   })
+  it('scrubs session-entry URL and referrer metadata across later events and person updates', () => {
+    const secretUrl = 'https://app.example/login?access_token=fictional-session-secret&state=fictional-state'
+    const expectedUrl = 'https://app.example/login?access_token=[REDACTED]&state=[REDACTED]'
+    const urls = { $session_entry_url: secretUrl, $session_entry_referrer: secretUrl }
+    const event = { uuid: 'later-event', event: 'budget_opened', properties: { ...urls, $set: { ...urls }, $set_once: { ...urls } }, $set: { ...urls }, $set_once: { ...urls } }
+    const result = redactAnalyticsEvent(event)
+    expect(JSON.stringify(result)).not.toContain('fictional-session-secret')
+    expect(JSON.stringify(result)).not.toContain('fictional-state')
+    for (const properties of [result!.properties, result!.$set!, result!.$set_once!, result!.properties.$set as typeof urls, result!.properties.$set_once as typeof urls]) {
+      expect(properties).toMatchObject({ $session_entry_url: expectedUrl, $session_entry_referrer: expectedUrl })
+    }
+  })
   it('removes OAuth, invitation and session credentials while preserving useful route context', () => {
     const input = 'https://app.example/auth/callback?code=one&state=two&invitation_token=three&access_token=four&refresh_token=five&authorization_session_id=six&section=income'
     const result = redactAnalyticsUrl(input)

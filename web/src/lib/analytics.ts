@@ -64,7 +64,7 @@ export function redactAnalyticsEvent(event: CaptureResult | null) {
   if (!event) return null
   const scrubUrls = (properties: Record<string, unknown> | undefined) => {
     if (!properties) return
-    for (const key of ['$current_url', '$referrer', '$initial_current_url', '$initial_referrer']) {
+    for (const key of ['$current_url', '$referrer', '$initial_current_url', '$initial_referrer', '$session_entry_url', '$session_entry_referrer']) {
       if (typeof properties[key] === 'string') properties[key] = redactAnalyticsUrl(properties[key])
     }
   }

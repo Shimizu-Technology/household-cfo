@@ -10,7 +10,8 @@ export type EnterpriseOrganizationOption = Pick<EnterpriseOrganization, 'id' | '
 export type EnterpriseGroupMapping = { id: number; workos_group_id: string; cohort_id: number; active: boolean; role: 'participant' }
 export type EnterpriseMember = { id: number; user_id: number | null; workos_user_id: string; status: string; it_admin: boolean; locally_revoked: boolean; email: string | null; full_name: string | null }
 export type EnterpriseDetail = { enterprise_organization: EnterpriseOrganization; group_mappings: EnterpriseGroupMapping[]; can_manage_memberships: boolean; eligible_cohorts: Array<{ id: number; name: string }> }
-export type EnterpriseInput = Pick<EnterpriseOrganization, 'name' | 'coach_workspace_id' | 'workos_organization_id' | 'active' | 'require_sso' | 'directory_provisioning_enabled' | 'directory_id'>
+export type EnterpriseCreateInput = Pick<EnterpriseOrganization, 'name' | 'coach_workspace_id' | 'workos_organization_id' | 'require_sso'>
+export type EnterpriseUpdateInput = Partial<Pick<EnterpriseOrganization, 'name' | 'active' | 'require_sso' | 'directory_provisioning_enabled'>>
 
 const path = '/api/v1/enterprise_organizations'
 function json(method: string, body: unknown): RequestInit {
@@ -22,10 +23,10 @@ export function fetchEnterpriseOrganizations(signal?: AbortSignal) {
 export function fetchEnterpriseOrganization(id: number, signal?: AbortSignal) {
   return fetchPrivateJson<EnterpriseDetail>(`${path}/${id}`, { signal, cache: 'no-store' })
 }
-export function createEnterpriseOrganization(values: EnterpriseInput) {
+export function createEnterpriseOrganization(values: EnterpriseCreateInput) {
   return fetchPrivateJson<{ enterprise_organization: EnterpriseOrganization }>(path, json('POST', { enterprise_organization: values }))
 }
-export function updateEnterpriseOrganization(id: number, values: Partial<EnterpriseInput>) {
+export function updateEnterpriseOrganization(id: number, values: EnterpriseUpdateInput) {
   return fetchPrivateJson<{ enterprise_organization: EnterpriseOrganization }>(`${path}/${id}`, json('PATCH', { enterprise_organization: values }))
 }
 export function openEnterprisePortal(id: number, intent: 'sso' | 'dsync', returnUrl: string) {

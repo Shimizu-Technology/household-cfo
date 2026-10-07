@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ApiRequestError, type CurrentUser } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
-import { createEnterpriseGroupMapping, createEnterpriseOrganization, fetchEnterpriseMembers, fetchEnterpriseOrganization, fetchEnterpriseOrganizations, openEnterprisePortal, reconcileEnterpriseOrganization, updateEnterpriseGroupMapping, updateEnterpriseMember, updateEnterpriseOrganization, type EnterpriseDetail, type EnterpriseInput, type EnterpriseMember, type EnterpriseOrganizationOption } from '../enterpriseApi'
+import { createEnterpriseGroupMapping, createEnterpriseOrganization, fetchEnterpriseMembers, fetchEnterpriseOrganization, fetchEnterpriseOrganizations, openEnterprisePortal, reconcileEnterpriseOrganization, updateEnterpriseGroupMapping, updateEnterpriseMember, updateEnterpriseOrganization, type EnterpriseDetail, type EnterpriseCreateInput, type EnterpriseMember, type EnterpriseOrganizationOption } from '../enterpriseApi'
 import { usePilotDialog } from '../lib/usePilotDialog'
 import { Button } from './Button'
 import './EnterpriseSettings.css'
@@ -92,8 +92,8 @@ export function EnterpriseSettings({ currentUser, onClose }: { currentUser: Curr
   function create(event: FormEvent) {
     event.preventDefault()
     if (!currentUser.is_admin || !name.trim() || !/^org_[a-zA-Z0-9]+$/.test(workosId.trim()) || !Number.isSafeInteger(Number(workspaceId)) || Number(workspaceId) <= 0) return
-    const values: EnterpriseInput = { name: name.trim(), workos_organization_id: workosId.trim(), coach_workspace_id: Number(workspaceId), active: true, require_sso: true, directory_provisioning_enabled: false, directory_id: null }
-    void run(async () => { const result = await createEnterpriseOrganization(values); if (!mounted.current) return; setNewOrganization(false); setName(''); setWorkosId(''); setWorkspaceId(''); await load(result.enterprise_organization.id) }, 'Organization connected. Add the approved participant groups before onboarding users.')
+    const values: EnterpriseCreateInput = { name: name.trim(), workos_organization_id: workosId.trim(), coach_workspace_id: Number(workspaceId), require_sso: true }
+    void run(async () => { const result = await createEnterpriseOrganization(values); if (!mounted.current) return; setNewOrganization(false); setName(''); setWorkosId(''); setWorkspaceId(''); setGroupId(''); setCohortId(''); selectedIdRef.current = result.enterprise_organization.id }, 'Organization connected. Add the approved participant groups before onboarding users.')
   }
 
   const organization = detail?.enterprise_organization
