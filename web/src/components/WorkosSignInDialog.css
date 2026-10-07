@@ -1,0 +1,26 @@
+.workos-sign-in-overlay { position: fixed; z-index: 110; top: var(--dialog-viewport-top, 0px); left: 0; right: 0; height: var(--dialog-viewport-height, 100dvh); display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+.workos-sign-in-backdrop { position: absolute; inset: 0; background: rgb(31 36 33 / 58%); backdrop-filter: blur(7px); }
+.workos-sign-in-dialog { position: relative; display: flex; flex-direction: column; width: min(500px, 100%); min-height: 0; max-height: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 24px 70px rgb(31 36 33 / 25%); color: var(--ink); }
+.workos-sign-in-dialog > header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 24px; border-bottom: 1px solid var(--line); }
+.workos-sign-in-dialog h2 { margin: 0; font-size: clamp(1.6rem, 4vw, 2rem); line-height: 1.1; }
+.workos-sign-in-dialog .eyebrow { margin: 0 0 8px; }
+.workos-sign-in-dialog > header button { flex: 0 0 auto; min-height: 44px; }
+.workos-sign-in-dialog .workos-sign-in-body { display: flex; flex-direction: column; gap: 20px; padding: 24px; overflow-wrap: anywhere; }
+.workos-sign-in-body p { margin: 0; line-height: 1.55; }
+.workos-sign-in-body button { min-height: 48px; white-space: normal; }
+.workos-sign-in-form { display: grid; gap: 12px; }
+.workos-sign-in-form label { font-weight: 700; }
+.workos-sign-in-form input { width: 100%; min-width: 0; min-height: 50px; padding: 12px 14px; font: inherit; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); }
+.workos-sign-in-form .workos-code-input { font-size: 1.5rem; font-variant-numeric: tabular-nums; letter-spacing: .18em; }
+.workos-sign-in-secondary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding-top: 4px; }
+.workos-sign-in-note { color: var(--muted); font-size: .85rem; }
+.workos-sign-in-footer { padding-top: 20px; border-top: 1px solid var(--line); }
+.workos-sign-in-status:empty { display: none; }
+.workos-sign-in-status { color: var(--muted); font-size: .9rem; line-height: 1.5; }
+.workos-sign-in-divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: .85rem; }
+.workos-sign-in-divider::before, .workos-sign-in-divider::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
+.workos-google-button { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.workos-google-button svg { flex-shrink: 0; width: 20px; height: 20px; }
+.workos-sign-in-provider-retry { display: grid; gap: 12px; }
+@media (max-width: 390px) { .workos-sign-in-dialog > header { padding: 16px; gap: 12px; } .workos-sign-in-dialog .workos-sign-in-body { padding: 20px 16px; } .workos-sign-in-secondary { grid-template-columns: 1fr; } }
+@media (max-height: 400px) { .workos-sign-in-dialog > header { padding: 12px 16px; } .workos-sign-in-dialog h2 { font-size: 1.2rem; } .workos-sign-in-dialog .eyebrow { display: none; } }
