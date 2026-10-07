@@ -85,9 +85,9 @@ it('counts down resend cooldown and replaces the challenge and code after resend
   expect(client.resendEmail).toHaveBeenCalledWith('challenge_test')
   expect(screen.getByRole('button', { name: 'Resend code in 60s' })).toHaveProperty('disabled', true)
 })
-it('offers work SSO alone for an explicit organization and does not send an email challenge', async () => {
+it('offers the secure organization flow alone for an explicit organization and does not send an email challenge', async () => {
   render(<WorkosSignInDialog {...props} options={{ organizationId: 'org_test' }} />)
-  fireEvent.click(screen.getByRole('button', { name: 'Continue with work SSO' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with your organization' }))
   await waitFor(() => expect(props.onExternalSignIn).toHaveBeenCalledWith('sso'))
   expect(client.authOptions).not.toHaveBeenCalled()
   expect(screen.queryByRole('textbox')).toBeNull()
@@ -184,4 +184,13 @@ it('allows explicit external cancellation and leaves email usable while the old 
   expect(screen.getByRole('textbox', { name: 'Email address' })).toHaveProperty('disabled', false)
   await act(async () => { finish() })
   expect(screen.getByRole('status').textContent).toContain('Stopped waiting')
+})
+
+it.each([false, true])('does not advertise unconfigured work SSO alongside email when Google is %s', async googleEnabled => {
+  client.authOptions.mockResolvedValue({ google_enabled: googleEnabled })
+  render(<WorkosSignInDialog {...props} />)
+  await waitFor(() => expect(client.authOptions).toHaveBeenCalledOnce())
+  if (googleEnabled) expect(await screen.findByRole('button', { name: 'Continue with Google' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /SSO|Continue with your organization/ })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Continue with email' })).toBeTruthy()
 })

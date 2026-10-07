@@ -158,12 +158,16 @@ describe('hosted server-session navigation roundtrip', () => {
     expect(captureAuthInvitation().token).toBeNull()
   })
   it.each([
-    ['/?oauth_state_id=fictional-bank-ref&income=4500#Review', '/#Review'],
-    ['/?oauth_state_id=fictional-bank-ref&enterprise=1&email=private@example.test', '/organization-access'],
-  ])('restores the one-use bank callback and safe destination from %s', async (start, returned) => {
+    ['/?oauth_state_id=fictional-bank-ref&income=4500#Review', '/#Review', 'hosted'],
+    ['/?oauth_state_id=fictional-bank-ref&enterprise=1&email=private@example.test', '/organization-access', 'hosted'],
+    ['/?oauth_state_id=fictional-bank-ref&income=4500#Review', '/#Review', 'email'],
+    ['/?oauth_state_id=fictional-bank-ref&enterprise=1&email=private@example.test', '/organization-access', 'email'],
+  ])('restores the one-use bank callback and safe destination from %s through %s (%s)', async (start, returned, method) => {
     window.history.replaceState(null, '', start)
-    fetchMock.mockResolvedValue(Response.json({ authorization_url: authorization() }))
-    await new BrowserSessionClient(clientId).login('sign-in')
+    fetchMock.mockResolvedValue(Response.json({ ...(method === 'email' ? { step: 'redirect' } : {}), authorization_url: authorization() }))
+    const client = new BrowserSessionClient(clientId)
+    if (method === 'email') await client.startEmail({ email: 'bank@pilot.test' })
+    else await client.login('sign-in')
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body.return_to).toBe(`${window.location.origin}${returned}`)
     expect(JSON.stringify(body)).not.toContain('fictional-bank-ref')

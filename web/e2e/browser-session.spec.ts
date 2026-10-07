@@ -29,12 +29,12 @@ test.describe('Auth recovery free server-managed sessions', () => {
       await page.route(`${origin}/organization-access`, restoredPage)
       await page.route('**/api/auth/session', route => route.fulfill({ json: signedIn ? session() : { client_id: clientId, user: null } }))
       await privateIdentity(page)
-      await page.route('**/api/auth/login', route => {
+      await page.route('**/api/auth/email/start', route => {
         const input = route.request().postDataJSON()
-        expect(input).toEqual({ screen_hint: 'sign-in', return_to: `${origin}${destination}` })
+        expect(input).toEqual({ email: 'bank@pilot.test', return_to: `${origin}${destination}` })
         expect(JSON.stringify(input)).not.toContain('fictional-bank-ref')
         expect(JSON.stringify(input)).not.toContain('4500')
-        return route.fulfill({ json: { authorization_url: `https://api.workos.com/user_management/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`${origin}/api/auth/callback`)}` } })
+        return route.fulfill({ json: { step: 'redirect', authorization_url: `https://api.workos.com/user_management/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`${origin}/api/auth/callback`)}` } })
       })
       await page.route('https://api.workos.com/user_management/authorize**', route => {
         signedIn = true
@@ -45,7 +45,8 @@ test.describe('Auth recovery free server-managed sessions', () => {
       const initial = destination === '/organization-access' ? '/?enterprise=1&oauth_state_id=fictional-bank-ref&income=4500' : '/?oauth_state_id=fictional-bank-ref&income=4500#Review'
       await page.evaluate(path => window.history.replaceState(null, '', path), initial)
       await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-      await page.getByRole('button', { name: 'Continue with work SSO', exact: true }).click()
+      await page.getByLabel('Email address').fill('bank@pilot.test')
+      await page.getByRole('button', { name: 'Continue with email', exact: true }).click()
       await expect(page.getByRole('heading', { name: 'Fictional hosted sign-in' })).toBeVisible()
       expect(page.url()).not.toContain('fictional-bank-ref')
       await page.getByRole('link', { name: 'Return to app', exact: true }).click()
@@ -120,14 +121,15 @@ test.describe('Auth recovery free server-managed sessions', () => {
     let logins = 0
     const origin = new URL(test.info().project.use.baseURL!).origin
     await page.route('**/api/auth/session', route => route.fulfill({ json: { client_id: clientId, user: null } }))
-    await page.route('**/api/auth/login', route => { logins += 1; return route.fulfill({ json: { authorization_url: `https://api.workos.com/user_management/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`${origin}/api/auth/callback`)}` } }) })
+    await page.route('**/api/auth/email/start', route => { logins += 1; return route.fulfill({ json: { step: 'redirect', authorization_url: `https://api.workos.com/user_management/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(`${origin}/api/auth/callback`)}` } }) })
     await page.route('https://api.workos.com/user_management/authorize**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Fictional hosted sign-in</h1>' }))
     await page.goto('/browser-session-qa.html?auth_error=invalid')
     await expect(page.getByRole('heading', { name: 'Sign in again to continue.' })).toBeVisible()
     expect(new URL(page.url()).searchParams.has('auth_error')).toBe(false)
     expect(logins).toBe(0)
     await page.getByRole('button', { name: 'Sign in again' }).click()
-    await page.getByRole('button', { name: 'Continue with work SSO', exact: true }).click()
+    await page.getByLabel('Email address').fill('bank@pilot.test')
+    await page.getByRole('button', { name: 'Continue with email', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Fictional hosted sign-in' })).toBeVisible()
     expect(logins).toBe(1)
   })

@@ -24,7 +24,7 @@ test.describe('Auth recovery free server session invitation transport', () => {
       expect(await page.evaluate(() => localStorage.length)).toBe(0)
       await control.click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      await page.getByRole('button', { name: 'Continue with work SSO', exact: true }).click()
+      await page.getByRole('button', { name: 'Continue with your organization', exact: true }).click()
       await expect(page.getByRole('heading', { name: 'Fictional hosted sign-in' })).toBeVisible()
       expect(login).toEqual({ screen_hint: screenHint, organization_id: 'org_FICTIONAL1', invitation_token: 'fictional+opaque/token=', return_to: `${appOrigin}/organization-access` })
       expect(page.url()).not.toContain('opaque%2Ftoken')

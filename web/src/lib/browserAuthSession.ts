@@ -240,7 +240,14 @@ export class BrowserSessionClient {
     throw new ApiRequestError(ERROR_COPY, { status: 503 })
   }
   startEmail = async ({ email, ...options }: AuthSignInOptions & { email: string }): Promise<EmailAuthStep> => {
-    const returnTo = safeAuthReturnTo(options.returnTo ?? window.location.href)
+    // Email may hand off to hosted organization policy. Keep the same one-use
+    // bank navigation as Google/organization sign-in, only in the originating tab.
+    const state = authReturnState()
+    if (options.returnTo) state.returnTo = safeAuthReturnTo(options.returnTo)
+    if (state.navigationKey) {
+      try { sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify({ state, createdAt: Date.now() })) } catch { /* Plain safe app navigation remains available. */ }
+    }
+    const returnTo = state.returnTo
     const normalized = email.trim().toLowerCase()
     const response = this.checkedEmailStep(await this.boundedAuth('email/start', { email: normalized, return_to: returnTo,
       ...(options.invitationToken ? { invitation_token: options.invitationToken } : {}),
