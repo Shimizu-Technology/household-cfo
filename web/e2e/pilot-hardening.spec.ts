@@ -5658,8 +5658,11 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await expect(page.getByRole('heading', { name: 'Build reusable coaching material' })).toBeVisible()
   await expect(page.getByText('Location labels never create slang, accents, or cultural assumptions.')).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
 
-  await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
+  const teachingItems = page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' })
+  await teachingItems.click()
+  await expect(teachingItems).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'New item' }).click()
   const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
   await itemPanel.getByLabel('Title').fill('Guam family context')
