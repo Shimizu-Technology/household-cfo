@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => {
         transformIndexHtml: (html) => html.replaceAll('__SITE_URL__', siteUrl),
       },
     ],
+    server: { proxy: { '/api/auth': { target: env.VITE_API_BASE_URL || 'http://localhost:3000', changeOrigin: true } } },
     build: {
       rolldownOptions: {
         output: {

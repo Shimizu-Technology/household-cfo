@@ -12,6 +12,7 @@ type Selection = {
 type Props = {
   identity: string
   authIdentityId: string | null
+  legacyAuthIdentityId?: string | null
   actorId?: number
   participant: boolean
   children: (selection: Selection) => ReactNode
@@ -21,10 +22,10 @@ type Props = {
 export function ParticipantProgramSession(props: Props) {
   return <ProgramSession key={props.identity} {...props} />
 }
-function ProgramSession({ authIdentityId, actorId, participant, children }: Props) {
+function ProgramSession({ authIdentityId, legacyAuthIdentityId, actorId, participant, children }: Props) {
   // Read once for this session. Persisting a verified default or another tab's
   // storage writes must never change the live workspace or discard unsaved drafts.
-  const [cohortId, setCohortId] = useState(() => participant ? readParticipantProgram(authIdentityId, actorId) : undefined)
+  const [cohortId, setCohortId] = useState(() => participant ? readParticipantProgram(authIdentityId, actorId) ?? readParticipantProgram(legacyAuthIdentityId, actorId) : undefined)
   const [notice, setNotice] = useState<string | null>(null)
   const chooseProgram = useCallback((nextCohortId: number) => {
     if (!participant) return

@@ -1,0 +1,176 @@
+import { expect, test, type Page } from '@playwright/test'
+import { enterpriseDetail, enterpriseMember, enterpriseOrganization } from '../src/qa/enterpriseFixtures'
+const root = 'http://api.test/api/v1/enterprise_organizations'
+async function enterpriseRoutes(page: Page, { admin = false, count = 5 } = {}) {
+  const requests: string[] = []
+  await page.route('http://api.test/**', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    requests.push(url.pathname)
+    if (url.pathname === '/api/v1/enterprise_organizations') return route.fulfill({ json: { enterprise_organizations: [enterpriseOrganization(), enterpriseOrganization(2)] } })
+    const match = url.pathname.match(/^\/api\/v1\/enterprise_organizations\/(\d+)(.*)$/)
+    if (!match) return route.fulfill({ status: 500, json: { error: 'Unexpected private-finance request in IT fixture' } })
+    const id = Number(match[1])
+    if (match[2] === '/memberships') return route.fulfill({ json: { memberships: Array.from({ length: count }, (_, index) => enterpriseMember(index + 1)) } })
+    if (match[2] === '') return route.fulfill({ json: enterpriseDetail(id, admin) })
+    if (match[2] === '/group_mappings') return route.fulfill({ json: { group_mapping: { id: 2, ...request.postDataJSON().group_mapping } } })
+    if (/^\/memberships\/\d+$/.test(match[2])) return route.fulfill({ json: { membership: { ...enterpriseMember(), ...request.postDataJSON().membership } } })
+    return route.fulfill({ status: 400, json: { error: 'Fixture action requires a dedicated response' } })
+  })
+  return requests
+}
+test.describe('BOG UI organization access', () => {
+  test('designated IT access loads only company configuration and no finance bootstrap', async ({ page }) => {
+    const requests = await enterpriseRoutes(page)
+    await page.goto('/enterprise-access-qa.html?mode=it')
+    await expect(page.getByRole('dialog', { name: 'Sign-in & provisioning' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Configure company sign-in' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Connect an organization' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Review IT access' })).toHaveCount(0)
+    expect(requests.length).toBe(3)
+    expect(requests.every(path => path.startsWith('/api/v1/enterprise_organizations'))).toBe(true)
+  })
+  test('forbidden access never requests enterprise metadata or private financial data', async ({ page }) => {
+    const requests = await enterpriseRoutes(page)
+    await page.goto('/enterprise-access-qa.html?mode=forbidden')
+    await expect(page.getByRole('heading', { name: 'IT configuration access is required.' })).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect(requests).toEqual([])
+  })
+  test('admin participant mappings contain only eligible programs and require explicit IT confirmation', async ({ page }) => {
+    await enterpriseRoutes(page, { admin: true, count: 1 })
+    await page.goto('/enterprise-access-qa.html?mode=admin')
+    await expect(page.getByRole('combobox', { name: 'Program', exact: true })).toBeVisible()
+    await expect(page.getByRole('combobox', { name: 'Program', exact: true }).locator('option')).toHaveText(['Choose a program', 'Approved savings program'])
+    await page.getByLabel('WorkOS directory group ID').fill('group_APPROVED')
+    await page.getByRole('combobox', { name: 'Program', exact: true }).selectOption('81')
+    const mutation = page.waitForRequest(request => request.url() === `${root}/1/group_mappings` && request.method() === 'POST')
+    await page.getByRole('button', { name: 'Approve participant group' }).click()
+    expect((await mutation).postDataJSON()).toEqual({ group_mapping: { workos_group_id: 'group_APPROVED', cohort_id: 81, active: true } })
+    const grants: unknown[] = []
+    page.on('request', request => { if (request.method() === 'PATCH' && request.url().endsWith('/memberships/1')) grants.push(request.postDataJSON()) })
+    await page.getByRole('button', { name: 'Review IT access' }).click()
+    await expect(page.getByRole('heading', { name: 'Grant IT configuration access?' })).toBeVisible()
+    expect(grants).toEqual([])
+    await page.getByRole('button', { name: 'Keep current access' }).click()
+    await expect(page.getByRole('heading', { name: 'Grant IT configuration access?' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Review IT access' }).click()
+    await page.getByRole('button', { name: 'Confirm IT access change' }).click()
+    await expect.poll(() => grants).toEqual([{ membership: { it_admin: true } }])
+  })
+  test('organization switch clears the previous group draft and previous permission controls', async ({ page }) => {
+    await enterpriseRoutes(page, { admin: true, count: 1 })
+    await page.goto('/enterprise-access-qa.html?mode=admin')
+    await page.getByLabel('WorkOS directory group ID').fill('group_ONLY_A')
+    await page.getByRole('combobox', { name: 'Program', exact: true }).selectOption('81')
+    await page.getByRole('combobox', { name: 'Organization', exact: true }).selectOption('2')
+    await expect(page.getByRole('heading', { name: 'Second Company' })).toBeVisible()
+    await expect(page.getByLabel('WorkOS directory group ID')).toHaveValue('')
+    await expect(page.getByRole('combobox', { name: 'Program', exact: true })).toHaveValue('')
+    await expect(page.getByRole('combobox', { name: 'Program', exact: true }).locator('option')).toHaveText(['Choose a program', 'Second approved program'])
+  })
+  test('rejects a lookalike portal host and keeps configuration retry available', async ({ page }) => {
+    await enterpriseRoutes(page)
+    await page.route(`${root}/1/portal`, route => route.fulfill({ json: { url: 'https://setup.workos.com.evil.test/session', expires_at: new Date(Date.now() + 60_000).toISOString() } }))
+    await page.goto('/enterprise-access-qa.html?mode=it')
+    await page.getByRole('button', { name: 'Configure company sign-in' }).click()
+    await expect(page.getByRole('alert')).toContainText('secure setup link could not be verified')
+    await expect(page.getByRole('button', { name: 'Configure company sign-in' })).toBeEnabled()
+    expect(new URL(page.url()).hostname).toBe('127.0.0.1')
+  })
+  test('dialog stays inside the viewport with a fixed header, internal scrolling, and focus restoration', async ({ page, browserName }) => {
+    await enterpriseRoutes(page, { admin: true, count: 12 })
+    await page.goto('/enterprise-access-qa.html?mode=admin&surface=dialog')
+    const opener = page.getByRole('button', { name: 'Open organization settings' })
+    await opener.focus()
+    await page.keyboard.press('Enter')
+    const dialog = page.getByRole('dialog', { name: 'Sign-in & provisioning' })
+    const close = dialog.getByRole('button', { name: 'Close', exact: true })
+    await expect(dialog.getByRole('heading', { name: 'Fictional Company' })).toBeVisible()
+    await expect(close).toBeFocused()
+    const bounds = await dialog.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.y).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height)
+    const headerBefore = await close.boundingBox()
+    const body = dialog.locator('.enterprise-settings-body')
+    const overflow = await body.evaluate(element => ({ height: element.clientHeight, total: element.scrollHeight, overflow: getComputedStyle(element).overflowY }))
+    expect(overflow.total).toBeGreaterThan(overflow.height)
+    expect(['auto', 'scroll']).toContain(overflow.overflow)
+    const last = dialog.getByRole('button', { name: 'Review IT access' }).last()
+    await last.focus()
+    await expect(last).toBeFocused()
+    expect(await body.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+    const headerAfter = await close.boundingBox()
+    expect(Math.abs(headerAfter!.y - headerBefore!.y)).toBeLessThan(1)
+    const heading = await dialog.getByRole('heading', { name: 'Sign-in & provisioning' }).boundingBox()
+    expect(heading!.x + heading!.width).toBeLessThanOrEqual(headerAfter!.x + 1)
+    await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab')
+    await expect(close).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(opener).toBeFocused()
+  })
+  test('standalone IT dialog follows a keyboard-sized and panned visual viewport', async ({ page }) => {
+    await page.addInitScript(() => {
+      const viewport = new EventTarget()
+      Object.assign(viewport, { height: window.innerHeight, width: window.innerWidth, offsetTop: 0, offsetLeft: 0, scale: 1 })
+      Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport })
+    })
+    await enterpriseRoutes(page, { count: 12 })
+    await page.goto('/enterprise-access-qa.html?mode=it')
+    const dialog = page.getByRole('dialog', { name: 'Sign-in & provisioning' })
+    await expect(dialog.getByRole('heading', { name: 'Fictional Company' })).toBeVisible()
+    await page.evaluate(() => {
+      Object.assign(window.visualViewport!, { height: 280, offsetTop: 40 })
+      window.visualViewport!.dispatchEvent(new Event('resize'))
+      window.visualViewport!.dispatchEvent(new Event('scroll'))
+    })
+    await expect.poll(() => dialog.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      return box.top >= 40 && box.bottom <= 320
+    })).toBe(true)
+    const target = dialog.getByRole('button', { name: 'Configure user provisioning' })
+    await target.focus()
+    await expect.poll(() => target.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      return box.top >= 40 && box.bottom <= 320
+    })).toBe(true)
+  })
+
+  test('linked directory and active company sign-in enable explicitly reviewed automatic admission', async ({ page }) => {
+    await enterpriseRoutes(page, { admin: true, count: 1 })
+    let enabled = false
+    await page.route(`${root}/1`, route => {
+      if (route.request().method() === 'PATCH') {
+        expect(route.request().postDataJSON()).toEqual({ enterprise_organization: { directory_provisioning_enabled: true } })
+        enabled = true
+        return route.fulfill({ json: { enterprise_organization: { ...enterpriseOrganization(), directory_provisioning_enabled: true } } })
+      }
+      const detail = enterpriseDetail(1, true)
+      detail.enterprise_organization.directory_provisioning_enabled = enabled
+      return route.fulfill({ json: detail })
+    })
+    await page.goto('/enterprise-access-qa.html?mode=admin')
+    const control = page.getByRole('button', { name: 'Enable automatic accounts' })
+    await expect(control).toBeDisabled()
+    await expect(page.getByText('Connected', { exact: true })).toHaveCount(2)
+    await page.getByRole('checkbox').check()
+    await expect(control).toBeEnabled()
+    await control.click()
+    await expect(page.getByRole('button', { name: 'Pause automatic accounts' })).toBeVisible()
+    expect(enabled).toBe(true)
+  })
+
+})
+
+test('BOG UI a recent synchronization is clearly reported without claiming another job was queued', async ({ page }) => {
+  await enterpriseRoutes(page)
+  await page.route(`${root}/1/reconcile`, route => route.fulfill({ status: 202, json: { queued: false } }))
+  await page.goto('/enterprise-access-qa.html?mode=it')
+  await expect(page.getByRole('heading', { name: 'Fictional Company' })).toBeVisible()
+  await page.getByRole('button', { name: 'Refresh from WorkOS' }).click()
+  await expect(page.getByText('A sync was checked or requested recently. Refresh status in a moment.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Refresh from WorkOS' })).toBeEnabled()
+})

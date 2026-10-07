@@ -8212,7 +8212,7 @@ test('Coach Studio program collaborator controls protect owner access and report
   await mockProgramSettings(page)
   const { writes } = await mockProgramTeam(page)
   await openOwnerProgram(page, /Program settings/)
-  await page.getByText('Team collaborators & access', { exact: true }).click()
+  await openDetails(page, 'Team collaborators & access')
   const team = page.locator('.workspace-collaborators')
   const owner = team.getByRole('region', { name: 'coach@pilot.test team access' })
   const ownerCard = team.locator('.workspace-collaborator').filter({ hasText: 'coach@pilot.test' })
@@ -8973,9 +8973,13 @@ test('BOG UI savings Home pages history preserves composer on refresh and clears
   await expect(home.getByLabel('Amount in US dollars')).toHaveValue('31.75')
   await expect(reviews.getByRole('button', { name: 'Approve savings record #11' })).toBeVisible()
   revoke(); await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-  await expect(home.getByRole('alert')).toContainText('Challenge access revoked.')
+  // Challenge and paged-history reads can deny access concurrently. Either
+  // denial must remove private data, regardless of which response arrives first.
+  await expect(home.getByRole('alert')).toContainText(/(?:Challenge|Private plan) access (?:revoked|is no longer available)\./)
   await expect(home.getByLabel('Amount in US dollars')).toHaveCount(0)
   await expect(home.getByRole('article', { name: 'Approved savings progress' })).toHaveCount(0)
+  await expect(home.getByRole('button', { name: /^Approve savings record/ })).toHaveCount(0)
+  await expect(home).not.toContainText('31.75')
 })
 
 test('BOG UI savings Home resets acceptance when refreshed participation terms change', async ({ page }) => {
@@ -9194,7 +9198,12 @@ test('BOG UI delayed budget year keeps the approved period and pauses editing an
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: current }))
   await page.route('http://api.test/api/v1/budget?**', async (route) => { await gate; return route.fulfill({ json: future }) })
   await page.goto('/?pilot_e2e_role=participant#Budget')
-  await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  await page.evaluate(() => document.fonts.ready)
+  const nextYear = page.getByRole('button', { name: 'Next year', exact: true })
+  await nextYear.scrollIntoViewIfNeeded()
+  const requestedYear = page.waitForRequest('http://api.test/api/v1/budget?**')
+  await nextYear.click()
+  await requestedYear
   await expect(page.getByText(`Annual budget · ${currentYear}`, { exact: true })).toBeVisible()
   await expect(page.getByText(`Annual budget · ${currentYear + 1}`, { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Manage manually' })).toBeDisabled()
@@ -9356,7 +9365,11 @@ test('BOG UI participant split purchase links bank funding then explicitly appro
     context.economic_groups = linked ? [{ id: 70, head: { id: 70, approved_version_id: 701, lock_version: 1 }, approved: { id: 701, digest: 'link-approved', version_number: 1, kind: 'purchase_funding', reason: 'Compared physical funding legs', current: true, members: [{ role: 'purchase', allocation_cents: 2_159, record: wallet }, { role: 'funding', allocation_cents: 97_841, record: bank }] } }] : []
     return data
   })
-  await review.getByRole('button', { name: 'Inspect source row 4', exact: true }).click()
+  await page.evaluate(() => document.fonts.ready)
+  const inspect = review.getByRole('button', { name: 'Inspect source row 4', exact: true })
+  await inspect.scrollIntoViewIfNeeded()
+  await inspect.click()
+  await expect(review.getByRole('button', { name: 'Hide source row 4', exact: true })).toHaveAttribute('aria-expanded', 'true')
   await review.getByText('Review spending effect separately', { exact: true }).click()
   await expect(review.getByRole('button', { name: 'Approve spending creation', exact: true })).toBeDisabled()
   await review.getByText('Create a related-movement link', { exact: true }).click(); await review.getByLabel('Link type').selectOption('purchase_funding'); await review.getByText('Choose another approved physical row', { exact: true }).click()
@@ -9452,7 +9465,26 @@ test('BOG UI baseline uncertain approval survives close and retries the identica
   const{dialog,calls,trigger}=await openBaseline(page,{uncertain:true});await baselinePeriod(dialog);await dialog.getByRole('button',{name:'Preview baseline and limitations',exact:true}).click();await baselineConsent(dialog);await dialog.getByRole('button',{name:'Approve baseline',exact:true}).click();await expect(dialog.getByRole('button',{name:'Retry the same baseline request',exact:true})).toBeVisible();await expect(dialog.getByLabel('Period begins')).toBeDisabled();await dialog.getByRole('button',{name:'Close baseline',exact:true}).click();await trigger.click();await expect(dialog.getByRole('button',{name:'Retry the same baseline request',exact:true})).toBeVisible();const metadata=await page.evaluate(()=>sessionStorage.getItem('baseline-request-identities-v1'));expect(metadata).not.toContain('category_eligibility');expect(metadata).not.toContain('Reviewed this exact fictional');await dialog.getByRole('button',{name:'Retry the same baseline request',exact:true}).click();await expect(dialog).toContainText('Approved baseline · version 1');expect(calls).toHaveLength(2);expect(calls[1]).toEqual(calls[0])
 })
 test('BOG UI baseline stale conflict preserves input and requires a fresh preview',async({page})=>{
-  const{dialog,calls}=await openBaseline(page,{stale:true});await baselinePeriod(dialog);await dialog.getByRole('button',{name:'Preview baseline and limitations',exact:true}).click();await baselineConsent(dialog);await dialog.getByRole('button',{name:'Approve baseline',exact:true}).click();await expect(dialog).toContainText('Source changed. Preview again before approval.');await expect(dialog.getByRole('button',{name:'Approve baseline',exact:true})).toBeDisabled();await expect(dialog.getByLabel('Baseline approval explanation')).toHaveValue('Reviewed this exact fictional window and its listed limits.');await dialog.getByRole('button',{name:'Preview baseline and limitations',exact:true}).click();await baselineConsent(dialog);await dialog.getByRole('button',{name:'Approve baseline',exact:true}).click();await expect(dialog).toContainText('Approved baseline · version 1');expect(calls[1].key).not.toBe(calls[0].key)
+  const { dialog, calls } = await openBaseline(page, { stale: true })
+  await baselinePeriod(dialog)
+  const reviewFreshPreview = async () => {
+    await dialog.getByRole('button', { name: 'Preview baseline and limitations', exact: true }).click()
+    const preview = dialog.getByRole('region', { name: 'Proposed baseline preview', exact: true })
+    await expect(preview).toBeVisible()
+    await expect(preview).not.toContainText('This preview is out of date.')
+    await expect(preview.getByRole('heading', { name: '3. Review before approving', exact: true })).toBeFocused()
+    await baselineConsent(dialog)
+    await expect(dialog.getByLabel('Baseline approval explanation')).toHaveValue('Reviewed this exact fictional window and its listed limits.')
+  }
+  await reviewFreshPreview()
+  await dialog.getByRole('button', { name: 'Approve baseline', exact: true }).click()
+  await expect(dialog).toContainText('Source changed. Preview again before approval.')
+  await expect(dialog.getByRole('button', { name: 'Approve baseline', exact: true })).toBeDisabled()
+  await expect(dialog.getByLabel('Baseline approval explanation')).toHaveValue('Reviewed this exact fictional window and its listed limits.')
+  await reviewFreshPreview()
+  await dialog.getByRole('button', { name: 'Approve baseline', exact: true }).click()
+  await expect(dialog).toContainText('Approved baseline · version 1')
+  expect(calls[1].key).not.toBe(calls[0].key)
 })
 test('BOG UI baseline cash review stages an explicit actual decision and exact withdrawal allocation',async({page})=>{
   const{dialog,previews}=await openBaseline(page);await baselinePeriod(dialog);await dialog.getByText('Choose reviewed statement sources (0 selected)',{exact:true}).click();await dialog.getByRole('checkbox',{name:/Fictional-checking.pdf/}).check();await dialog.getByRole('checkbox',{name:'Fictional checking',exact:true}).check();await dialog.getByLabel('Cash coverage').selectOption('partial');await dialog.getByText('Review existing transactions, duplicates and cash allocations',{exact:true}).click();await dialog.getByText('Fictional cash lunch · 2026-09-15 · recorded amount $10.00 · Unreviewed',{exact:true}).click();await dialog.getByLabel('Classification for Fictional cash lunch').selectOption('purchase');await dialog.getByLabel('Account or cash for Fictional cash lunch').selectOption('cash');await dialog.getByLabel('Transaction review note for Fictional cash lunch').fill('Checked actual cash lunch receipt.');await dialog.getByRole('checkbox',{name:/I checked this recorded amount/}).check();await dialog.getByRole('button',{name:'Use this transaction decision in preview',exact:true}).click();await dialog.getByText('Allocate reviewed cash withdrawals to cash purchases',{exact:true}).click();await dialog.getByRole('radio',{name:/Fictional ATM.*Fictional-checking.pdf.*page 2/}).check();await dialog.getByLabel('Reviewed cash purchase').selectOption('701');await dialog.getByLabel('Cash allocated to this purchase').fill('10.00');await dialog.getByLabel('Cash allocation review note').fill('Compared actual withdrawal and cash receipt.');await dialog.getByRole('checkbox',{name:/I checked this exact withdrawal/}).check();await dialog.getByRole('button',{name:'Use this cash allocation in preview',exact:true}).click();await dialog.getByRole('button',{name:'Preview baseline and limitations',exact:true}).click();await expect(dialog.getByRole('region',{name:'Proposed baseline preview',exact:true})).toBeVisible();expect(previews[0].actual_decisions).toEqual([{transaction_id:701,event_type:'purchase',disposition:'include',tracked_account_id:null,cash:true,overlap_disposition:'new',source_review_version_id:null,matched_transaction_id:null,reason:'Checked actual cash lunch receipt.'}]);expect(previews[0].cash_allocations).toEqual([{source_review_version_id:801,transaction_id:701,amount_cents:1000,reason:'Compared actual withdrawal and cash receipt.'}]);await assertBaselineFits(dialog)

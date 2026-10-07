@@ -90,3 +90,42 @@ test.describe('BOG UI auth verification recovery', () => {
     await expect(page.getByRole('heading', { name: 'Verifying your Household CFO access' })).toBeVisible()
   })
 })
+
+
+test.describe('WorkOS Auth recovery', () => {
+  const workosUser = { ...qaUser, auth_provider: 'workos', auth_subject: qaUser.clerk_id }
+  test('verifies the active subject and keeps the account control usable in the header slot', async ({ page }) => {
+    await page.route(authRoute, route => route.fulfill({ json: { user: workosUser } }))
+    await page.goto('/auth-recovery-qa.html?provider=workos')
+    await expect(page.getByTestId('verified-workspace')).toBeVisible()
+    const account = page.getByRole('button', { name: 'Account', exact: true })
+    await account.click()
+    const menu = page.locator('#auth-account-panel')
+    await expect(menu).toContainText('Fictional Participant')
+    const bounds = await menu.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+    await page.keyboard.press('Escape')
+    await expect(account).toBeFocused()
+    await expect(menu).toHaveCount(0)
+    await account.click()
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Signed out' })).toBeVisible()
+  })
+  for (const status of [401, 403, 503]) {
+    test(`HTTP ${status} stays closed with the right recovery`, async ({ page }) => {
+      await page.route(authRoute, route => route.fulfill({ status, json: { error: status === 503 ? 'Secure access service is unavailable' : 'Access denied' } }))
+      await page.goto('/auth-recovery-qa.html?provider=workos')
+      const heading = status === 401 ? 'Sign in again to continue.' : status === 503 ? 'Secure access is temporarily unavailable.' : 'Your account does not have program access.'
+      await expect(page.getByRole('heading', { name: heading })).toBeVisible()
+      await expect(page.getByTestId('verified-workspace')).toHaveCount(0)
+      await expect(page.getByRole('button', { name: status === 401 ? 'Sign in again' : 'Check access again' })).toBeVisible()
+    })
+  }
+  test('rejects another provider even when its subject matches the active session', async ({ page }) => {
+    await page.route(authRoute, route => route.fulfill({ json: { user: { ...workosUser, auth_provider: 'clerk' } } }))
+    await page.goto('/auth-recovery-qa.html?provider=workos')
+    await expect(page.getByRole('heading', { name: 'We couldn’t finish checking your access.' })).toBeVisible()
+    await expect(page.getByTestId('verified-workspace')).toHaveCount(0)
+  })
+})

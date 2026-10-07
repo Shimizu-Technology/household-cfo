@@ -7,11 +7,12 @@ export function PostHogProvider({ children }: { children: ReactNode }) {
   const identifiedUserIdRef = useRef<number | null>(null)
 
   useEffect(() => {
+    if (auth.isLoading || auth.isVerifyingApi || window.location.pathname === '/auth/callback') return
     initializeAnalytics()
-  }, [])
+  }, [auth.isLoading, auth.isVerifyingApi])
 
   useEffect(() => {
-    if (auth.isLoading || auth.isVerifyingApi) return
+    if (auth.isLoading || auth.isVerifyingApi || window.location.pathname === '/auth/callback') return
 
     if (auth.currentUser) {
       if (identifiedUserIdRef.current !== auth.currentUser.id) {

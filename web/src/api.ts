@@ -1712,7 +1712,10 @@ export type AdminPilotFeedbackScreenshotUrl = {
 }
 
 export type CurrentUser = {
+  enterprise_access?: { can_configure: boolean; organizations: Array<{ id: number; name: string; it_admin: boolean }> }
   id: number
+  auth_provider?: 'clerk' | 'workos'
+  auth_subject?: string
   clerk_id: string
   email: string
   first_name: string | null
@@ -2537,10 +2540,13 @@ async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortS
       ...(signal ? { signal } : {}),
     })
     assertCurrentContext()
+    if (response.status === 401 && token && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('household-cfo:auth-expired'))
+    }
     if (financialDataPath(path) && !path.startsWith('/api/v1/workspace')) checkedFinancialReply(financialResponseGeneration(response), financialGeneration)
     return response
   } catch (error) {
-    if (error instanceof ApiContextChangedError || error instanceof FinancialPictureChangedError) throw error
+    if (error instanceof ApiContextChangedError || error instanceof FinancialPictureChangedError || error instanceof ApiRequestError) throw error
     throw new Error(apiNetworkErrorMessage('API request could not reach the server'), { cause: error })
   }
 }

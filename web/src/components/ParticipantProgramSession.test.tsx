@@ -62,3 +62,15 @@ it('clears revoked membership and restores only a new authenticated actor’s ow
   expect(screen.queryByRole('status')).toBeNull()
   expect((screen.getByLabelText('Unsaved budget draft') as HTMLInputElement).value).toBe('')
 })
+
+it('restores a verified migrated user’s prior program choice without reading another local user’s key', () => {
+  storeParticipantProgram('old-clerk', 1, 42)
+  storeParticipantProgram('old-clerk', 2, 99)
+  const ui = render(<ParticipantProgramSession identity="workos:user-a:1" authIdentityId="workos:user-a" legacyAuthIdentityId="old-clerk" actorId={1} participant>
+    {selection => <><p>Selected: {selection.selectedCohortId}</p><button onClick={() => selection.onProgramVerified(42)}>Confirm program</button></>}
+  </ParticipantProgramSession>)
+  expect(screen.getByText('Selected: 42')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm program' }))
+  expect(readParticipantProgram('workos:user-a', 1)).toBe(42)
+  ui.unmount()
+})

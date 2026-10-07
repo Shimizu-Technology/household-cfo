@@ -1,4 +1,11 @@
 import { ClerkProvider } from '@clerk/clerk-react'
+import { useSyncExternalStore } from 'react'
+import { captureAuthInvitation } from './lib/authInvitation'
+import { authConfiguration } from './lib/authConfig'
+import { captureBrowserAuthError, restoreBrowserAuthNavigation } from './lib/browserAuthSession'
+import { AuthAccessPanel } from './components/AuthAccessPanel'
+import { AuthLoginRoute } from './components/AuthLoginRoute'
+import { EnterpriseAccessPage } from './components/EnterpriseAccessPage'
 import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
 import { PostHogProvider } from './providers/PostHogProvider'
@@ -7,34 +14,42 @@ import { BrandDocument } from './components/BrandDocument'
 import { IdentityBoundary } from './components/IdentityBoundary'
 import { useBrand } from './contexts/brandContextValue'
 
-const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
-const placeholderClerkKeys = new Set(['pk_test_xxx', 'pk_test_dummy', 'your_clerk_publishable_key', 'YOUR_PUBLISHABLE_KEY'])
-const isClerkEnabled = Boolean(clerkPublishableKey && !placeholderClerkKeys.has(clerkPublishableKey))
-
-if (!isClerkEnabled) {
-  console.warn('Clerk is not configured. The coaching workspace is running in local preview mode without authentication.')
+const config = authConfiguration(import.meta.env, window.location.hostname)
+const invitation = captureAuthInvitation()
+const callbackError = captureBrowserAuthError()
+restoreBrowserAuthNavigation()
+const navigationState = () => `${window.location.pathname}:${new URLSearchParams(window.location.search).get('enterprise') === '1'}`
+function subscribeNavigation(callback: () => void) {
+  window.addEventListener('hashchange', callback)
+  window.addEventListener('popstate', callback)
+  return () => { window.removeEventListener('hashchange', callback); window.removeEventListener('popstate', callback) }
 }
 
 function Root() {
+  const route = useSyncExternalStore(subscribeNavigation, navigationState)
   const { brand, status } = useBrand()
   if (status !== 'ready') {
     return <><BrandDocument /><BrandBootstrapState /></>
   }
 
+  if (config.error) return <><BrandDocument /><AuthAccessPanel title="Secure sign-in is unavailable." copy={config.error} /></>
+  if (invitation.error) return <><BrandDocument /><AuthAccessPanel title="This invitation needs a fresh link." copy={invitation.error} /></>
+
   const app = (
-    <AuthProvider isClerkEnabled={isClerkEnabled}>
+    <AuthProvider provider={config.provider} invitationToken={invitation.token} clientId={config.clientId} callbackError={callbackError}>
       <PostHogProvider>
         <BrandDocument />
-        <IdentityBoundary><App /></IdentityBoundary>
+        <IdentityBoundary>{config.provider === 'workos' && route.startsWith('/login:') ? <AuthLoginRoute /> : route.startsWith('/organization-access:') || route.endsWith(':true') ? <EnterpriseAccessPage /> : <App />}</IdentityBoundary>
       </PostHogProvider>
     </AuthProvider>
   )
 
-  if (!isClerkEnabled) return app
+  if (config.provider === 'preview') return app
+  if (config.provider === 'workos') return app
 
   return (
     <ClerkProvider
-      publishableKey={clerkPublishableKey}
+      publishableKey={config.clerkKey!}
       afterSignOutUrl="/"
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"

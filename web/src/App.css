@@ -10472,3 +10472,8 @@ body:has([role="dialog"][aria-modal="true"], dialog[open]) .app > .mia-launcher 
 }
 
 .money-setup-help { justify-self: start; grid-column: 1 / -1; min-height: 44px; }
+
+.auth-account-control { position: relative; flex-shrink: 0; }
+.auth-account-trigger { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; }
+.auth-account-panel { position: absolute; right: 0; top: calc(100% + 8px); z-index: 50; display: grid; gap: 12px; width: min(280px, calc(100vw - 32px)); padding: 18px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgb(0 0 0 / 12%); overflow-wrap: anywhere; }
+.auth-account-panel p { margin: 0; }

@@ -1,0 +1,195 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiRequestError } from '../api'
+import { BrowserSessionClient, captureBrowserAuthError, checkedBrowserAuthRedirect, restoreBrowserAuthNavigation } from './browserAuthSession'
+const clientId = 'client_FICTIONAL1'
+const session = (id = 'user_FICTIONAL1') => ({ client_id: clientId, user: { id, first_name: 'Fictional', last_name: 'Person', email: 'fictional@pilot.test' }, organization_id: 'org_FICTIONAL1', authentication_method: 'SSO', access_token: `short-lived-${id}`, expires_at: new Date(Date.now() + 120_000).toISOString() })
+const fetchMock = vi.fn()
+function authorization() {
+  const url = new URL('https://api.workos.com/user_management/authorize')
+  url.searchParams.set('client_id', clientId); url.searchParams.set('redirect_uri', `${window.location.origin}/api/auth/callback`)
+  return url.href
+}
+beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock) })
+afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); sessionStorage.clear(); window.history.replaceState(null, '', '/') })
+describe('same-origin browser session credentials', () => {
+  it('loads a no-store same-origin session with explicit frontend origin and keeps JWT solely in memory', async () => {
+    fetchMock.mockImplementation(async () => Response.json(session()))
+    const client = new BrowserSessionClient(clientId)
+    expect((await client.load())?.user.id).toBe('user_FICTIONAL1')
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/session', expect.objectContaining({ credentials: 'same-origin', cache: 'no-store', headers: { 'X-Frontend-Origin': window.location.origin } }))
+    expect(await client.getAccessToken()).toBe('short-lived-user_FICTIONAL1')
+    expect(localStorage.length).toBe(0); expect(sessionStorage.length).toBe(0)
+  })
+  it('shares one concurrent session read so callers cannot double-consume rotating refresh credentials', async () => {
+    let finish!: (response: Response) => void
+    fetchMock.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const client = new BrowserSessionClient(clientId)
+    const reads = [client.getAccessToken(), client.getAccessToken(), client.getAccessToken()]
+    expect(fetchMock).toHaveBeenCalledOnce()
+    finish(Response.json(session()))
+    expect(await Promise.all(reads)).toEqual(Array(3).fill('short-lived-user_FICTIONAL1'))
+  })
+  it.each([{ ...session(), client_id: 'client_OTHER' }, { ...session(), refresh_token: 'must-never-be-exposed' }, { ...session(), expires_at: '2020-01-01' }])('rejects unverified or unsafe session payload', async payload => {
+    fetchMock.mockResolvedValue(Response.json(payload))
+    const client = new BrowserSessionClient(clientId)
+    await expect(client.load()).rejects.toMatchObject({ status: 503 })
+    expect(client.getSnapshot().session).toBeNull()
+  })
+  it('closes revoked sessions and keeps transient failures distinct for a successful retry', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json({}, { status: 503 })).mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json({}, { status: 401 }))
+    const client = new BrowserSessionClient(clientId)
+    await client.load(); await expect(client.getAccessToken()).rejects.toMatchObject({ status: 503 })
+    expect(client.getSnapshot().session?.user.id).toBe('user_FICTIONAL1')
+    expect(await client.getAccessToken()).toBe('short-lived-user_FICTIONAL1')
+    await expect(client.getAccessToken()).rejects.toMatchObject({ status: 401 })
+    expect(client.getSnapshot().session).toBeNull()
+  })
+  it('prevents an old logical request from adopting another account after a cookie switch', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json(session('user_OTHER')))
+    const client = new BrowserSessionClient(clientId); await client.load()
+    await expect(client.getAccessToken()).rejects.toMatchObject({ status: 409 })
+    expect(client.getSnapshot().session?.user.id).toBe('user_OTHER')
+  })
+  it('does not reinstate a late session after logout or provider disposal', async () => {
+    let finish!: (response: Response) => void
+    fetchMock.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const client = new BrowserSessionClient(clientId); const read = client.load()
+    client.invalidate(); finish(Response.json(session()))
+    await expect(read).rejects.toMatchObject({ status: 409 })
+    expect(client.getSnapshot().session).toBeNull()
+  })
+  it('allows idempotent logout when the current cookie is already signed out', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json({ client_id: clientId, user: null })).mockResolvedValueOnce(Response.json({ redirect_url: window.location.origin }))
+    const client = new BrowserSessionClient(clientId); await client.load()
+    expect(await client.logout()).toBe(`${window.location.origin}/`)
+    expect(client.getSnapshot().session).toBeNull()
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({})
+  })
+  it.each(['org_FICTIONAL1', null])('fences logout with the fresh subject and exact nullable organization %s', async organizationId => {
+    const current = { ...session(), organization_id: organizationId }
+    fetchMock.mockResolvedValueOnce(Response.json(current)).mockResolvedValueOnce(Response.json(current)).mockResolvedValueOnce(Response.json({ redirect_url: window.location.origin }))
+    const client = new BrowserSessionClient(clientId); await client.load()
+    expect(await client.logout()).toBe(`${window.location.origin}/`)
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/auth/logout')
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ expected_subject: current.user.id, expected_organization_id: organizationId })
+    expect(client.getSnapshot().session).toBeNull()
+  })
+  it('closes obsolete browser access on atomic logout conflict and permits an explicit current-cookie check', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json(session()))
+      .mockResolvedValueOnce(Response.json({ code: 'account_changed', error: 'untrusted private server detail' }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json(session('user_OTHER')))
+    const client = new BrowserSessionClient(clientId); await client.load()
+    await expect(client.logout()).rejects.toMatchObject({ status: 409, code: 'account_changed', message: 'Your account or organization changed. Check the current account before signing out.' })
+    expect(client.getSnapshot()).toMatchObject({ status: 'error', error: { status: 409, code: 'account_changed' }, session: null })
+    expect((await client.load())?.user.id).toBe('user_OTHER')
+    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/auth/logout')).toHaveLength(1)
+  })
+  it('rejects a session appearing between signed-out preflight and POST without assuming logout succeeded', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ client_id: clientId, user: null }))
+      .mockResolvedValueOnce(Response.json({ code: 'account_changed' }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json(session('user_OTHER')))
+    const client = new BrowserSessionClient(clientId)
+    await expect(client.logout()).rejects.toMatchObject({ status: 409, code: 'account_changed' })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({})
+    expect((await client.load())?.user.id).toBe('user_OTHER')
+  })
+  it('does not revoke another cookie account when a stale tab attempts sign-out', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json(session('user_OTHER')))
+    const client = new BrowserSessionClient(clientId); await client.load()
+    await expect(client.logout()).rejects.toMatchObject({ status: 409 })
+    expect(fetchMock.mock.calls.some(([path]) => path === '/api/auth/logout')).toBe(false)
+    expect(client.getSnapshot().session?.user.id).toBe('user_OTHER')
+  })
+  it('sends opaque invitation and validated navigation in POST JSON, never URLs or OAuth state', async () => {
+    const authorization = new URL('https://api.workos.com/user_management/authorize')
+    authorization.searchParams.set('client_id', clientId); authorization.searchParams.set('redirect_uri', `${window.location.origin}/api/auth/callback`)
+    fetchMock.mockResolvedValue(Response.json({ authorization_url: authorization.href }))
+    const client = new BrowserSessionClient(clientId)
+    expect(await client.login('sign-up', { organizationId: 'org_FICTIONAL1', invitationToken: 'fictional+opaque/token=', returnTo: '/organization-access?income=4000' })).toBe(authorization.href)
+    const [url, request] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/auth/login')
+    expect(JSON.parse(request.body)).toEqual({ screen_hint: 'sign-up', organization_id: 'org_FICTIONAL1', invitation_token: 'fictional+opaque/token=', return_to: `${window.location.origin}/organization-access` })
+    expect(request.headers).toEqual({ 'Content-Type': 'application/json', 'X-Frontend-Origin': window.location.origin })
+    expect(request.credentials).toBe('same-origin')
+    expect(localStorage.length).toBe(0); expect(sessionStorage.length).toBe(0)
+  })
+  it('clears only in-memory state after confirmed logout and leaves failed logout available to retry', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json({}, { status: 503 })).mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json({ redirect_url: window.location.origin }))
+    const client = new BrowserSessionClient(clientId); await client.load()
+    await expect(client.logout()).rejects.toMatchObject({ status: 503 })
+    expect(client.getSnapshot().session).not.toBeNull()
+    expect(await client.logout()).toBe(`${window.location.origin}/`)
+    expect(client.getSnapshot().session).toBeNull()
+  })
+})
+describe('hosted server-session navigation roundtrip', () => {
+  it.each([
+    ['/?oauth_state_id=fictional-bank-ref&income=4500#Review', '/#Review'],
+    ['/?oauth_state_id=fictional-bank-ref&enterprise=1&email=private@example.test', '/organization-access'],
+  ])('restores the one-use bank callback and safe destination from %s', async (start, returned) => {
+    window.history.replaceState(null, '', start)
+    fetchMock.mockResolvedValue(Response.json({ authorization_url: authorization() }))
+    await new BrowserSessionClient(clientId).login('sign-in')
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(body.return_to).toBe(`${window.location.origin}${returned}`)
+    expect(JSON.stringify(body)).not.toContain('fictional-bank-ref')
+    expect(JSON.stringify(body)).not.toContain('4500')
+    const raw = sessionStorage.getItem('household-cfo:server-auth-navigation')!
+    const saved = JSON.parse(raw)
+    expect(saved.state.navigationKey).toBeTruthy()
+    window.history.replaceState(null, '', returned)
+    restoreBrowserAuthNavigation()
+    expect(window.location.pathname).toBe(returned.startsWith('/organization-access') ? '/organization-access' : '/')
+    expect(window.location.hash).toBe(returned.includes('#') ? '#Review' : '')
+    expect(window.location.search).toBe('?oauth_state_id=fictional-bank-ref')
+    expect(sessionStorage.getItem('household-cfo:server-auth-navigation')).toBeNull()
+    expect(sessionStorage.getItem(`household-cfo:auth-navigation:${saved.state.navigationKey}`)).toBeNull()
+    window.history.replaceState(null, '', returned)
+    restoreBrowserAuthNavigation()
+    expect(window.location.search).toBe('')
+  })
+  it.each([Date.now() - 31 * 60_000, Date.now() + 60_000])('discards expired or future hosted return snapshots at %s', createdAt => {
+    window.history.replaceState(null, '', '/#Review')
+    sessionStorage.setItem('household-cfo:server-auth-navigation', JSON.stringify({ state: { returnTo: `${window.location.origin}/#Review`, navigationKey: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }, createdAt }))
+    restoreBrowserAuthNavigation()
+    expect(window.location.hash).toBe('#Review'); expect(window.location.search).toBe('')
+    expect(sessionStorage.getItem('household-cfo:server-auth-navigation')).toBeNull()
+  })
+  it.each(['wrong-destination', 'invalid-reference', 'expired-bank-snapshot'])('keeps safe navigation but rejects a bank snapshot with %s', async invalid => {
+    window.history.replaceState(null, '', '/?oauth_state_id=fictional-bank-ref#Review')
+    fetchMock.mockResolvedValue(Response.json({ authorization_url: authorization() }))
+    await new BrowserSessionClient(clientId).login('sign-in')
+    const saved = JSON.parse(sessionStorage.getItem('household-cfo:server-auth-navigation')!)
+    const key = `household-cfo:auth-navigation:${saved.state.navigationKey}`
+    const bank = JSON.parse(sessionStorage.getItem(key)!)
+    if (invalid === 'wrong-destination') bank.returnTo = `${window.location.origin}/#My%20Profile`
+    if (invalid === 'invalid-reference') bank.oauthState = 'invalid/ref!'
+    if (invalid === 'expired-bank-snapshot') bank.createdAt = Date.now() - 31 * 60_000
+    sessionStorage.setItem(key, JSON.stringify(bank))
+    window.history.replaceState(null, '', '/#Review')
+    restoreBrowserAuthNavigation()
+    expect(window.location.hash).toBe('#Review'); expect(window.location.search).toBe('')
+    expect(sessionStorage.getItem(key)).toBeNull()
+    expect(sessionStorage.getItem('household-cfo:server-auth-navigation')).toBeNull()
+  })
+  it('ignores invalid navigation keys and malformed snapshots without exposing arbitrary query or destinations', () => {
+    sessionStorage.setItem('household-cfo:server-auth-navigation', JSON.stringify({ state: { returnTo: 'https://evil.test/?secret=private', navigationKey: '../untrusted' }, createdAt: Date.now() }))
+    restoreBrowserAuthNavigation()
+    expect(window.location.href).toBe(`${window.location.origin}/`)
+    expect(sessionStorage.getItem('household-cfo:server-auth-navigation')).toBeNull()
+    sessionStorage.setItem('household-cfo:server-auth-navigation', '{malformed')
+    restoreBrowserAuthNavigation()
+    expect(window.location.search).toBe('')
+    expect(sessionStorage.getItem('household-cfo:server-auth-navigation')).toBeNull()
+  })
+})
+it.each(['https://api.workos.com.evil.test/user_management/authorize', 'http://api.workos.com/user_management/authorize', 'https://api.workos.com:8443/user_management/authorize', 'https://user:secret@api.workos.com/user_management/authorize'])('rejects unverified external authorization redirect %s', value => {
+  expect(() => checkedBrowserAuthRedirect(value, 'login')).toThrow(ApiRequestError)
+})
+it('consumes callback errors before analytics and keeps retry distinct from invalid or canceled login', () => {
+  window.history.replaceState(null, '', '/login?auth_error=retry')
+  expect(captureBrowserAuthError()).toContain('temporarily unavailable')
+  expect(window.location.search).toBe('')
+  expect(captureBrowserAuthError()).toBeNull()
+})
