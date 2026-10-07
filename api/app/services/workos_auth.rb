@@ -22,12 +22,12 @@ class WorkosAuth
     end
 
     def issuer
-      ENV.fetch("WORKOS_ISSUER", api_origin)
+      ENV.fetch("WORKOS_ISSUER", "#{api_origin}/user_management/#{client_id}")
     end
 
     def configured?
       client_id.match?(/\Aclient_[a-zA-Z0-9]+\z/) && ENV["WORKOS_API_KEY"].present? &&
-        issuer.match?(/\Ahttps:\/\/[a-z0-9]+(?:[.-][a-z0-9]+)*\z/i)
+        issuer.match?(/\Ahttps:\/\/[a-z0-9]+(?:[.-][a-z0-9]+)*(?:\/user_management\/#{Regexp.escape(client_id)})?\z/i)
     rescue Unavailable
       false
     end
@@ -51,6 +51,8 @@ class WorkosAuth
           claims["exp"].is_a?(Numeric) && claims["client_id"] == client_id
         raise InvalidToken, "Invalid authentication token"
       end
+      # Financial workspaces do not support provider-dashboard impersonation.
+      raise InvalidToken, "Impersonated sign-in is not permitted" if claims["act"].present?
       claims
     rescue JWT::DecodeError, ArgumentError, TypeError
       raise InvalidToken, "Invalid or expired authentication token"

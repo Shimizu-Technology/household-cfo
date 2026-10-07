@@ -10,6 +10,9 @@
 #     schedule: at 5am every day
 
 production:
+  synchronize_enterprise_admission:
+    class: EnterpriseSyncJob
+    schedule: every 30 seconds
   recover_document_extraction:
     class: FinancialDocumentExtractionRecoveryJob
     schedule: every 5 minutes

@@ -38,11 +38,18 @@ module ClerkAuthenticatable
     @authorization_failure_message = nil
     @current_user = find_or_create_user_from_clerk(decoded)
     if @current_user
+      EnterpriseAccess.authorize!(user: @current_user, claims: @authentication_claims)
       Sentry.set_user(id: @current_user.id, role: @current_user.role) if defined?(Sentry)
       return
     end
 
     render_forbidden(@authorization_failure_message || "This account is not authorized for Household CFO")
+  rescue EnterpriseAccess::Denied => error
+    @current_user = nil
+    render json: { error: error.message, code: error.code }, status: :forbidden
+  rescue Enterprise::Client::Unavailable
+    @current_user = nil
+    render_service_unavailable("Enterprise access verification is temporarily unavailable")
   end
 
   def authenticate_user_optional
@@ -55,6 +62,9 @@ module ClerkAuthenticatable
     return unless decoded
 
     @current_user = find_or_create_user_from_clerk(decoded)
+    EnterpriseAccess.authorize!(user: @current_user, claims: decoded) if @current_user
+  rescue EnterpriseAccess::Denied, Enterprise::Client::Unavailable
+    @current_user = nil
   end
 
   def authenticate_user_if_clerk_configured!
@@ -71,7 +81,8 @@ module ClerkAuthenticatable
     @authentication_claims = WorkosAuth.verify(token)
     @auth_provider = "workos"
     @auth_subject = @authentication_claims.fetch("sub")
-    @current_user = WorkosIdentityResolver.resolve!(claims: @authentication_claims)
+    @current_user = resolve_workos_identity!
+    EnterpriseAccess.authorize!(user: @current_user, claims: @authentication_claims)
     Sentry.set_user(id: @current_user.id, role: @current_user.role) if defined?(Sentry)
   rescue WorkosAuth::Unavailable => e
     render_service_unavailable(e.message)
@@ -79,6 +90,21 @@ module ClerkAuthenticatable
     render_unauthorized(e.message)
   rescue WorkosIdentityResolver::Forbidden => e
     render_forbidden(e.message)
+  rescue EnterpriseAccess::Denied => e
+    @current_user = nil
+    render json: { error: e.message, code: e.code }, status: :forbidden
+  rescue Enterprise::Client::Unavailable
+    @current_user = nil
+    render_service_unavailable("Enterprise access verification is temporarily unavailable")
+  end
+
+  def resolve_workos_identity!
+    WorkosIdentityResolver.resolve!(claims: @authentication_claims)
+  rescue WorkosIdentityResolver::NotInvited
+    # Only an absent local invitation can enter directory admission. Existing
+    # email/identity conflicts and revocation never fall back to provisioning.
+    Enterprise::Admission.resolve!(subject: @auth_subject, claims: @authentication_claims,
+      profile: WorkosAuth.fetch_user_profile(@auth_subject))
   end
 
   def current_user

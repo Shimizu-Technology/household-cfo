@@ -46,8 +46,8 @@ class EnterpriseTargetScopeControllerTest < ActionController::TestCase
     @a = EnterpriseOrganization.create!(name: "A", workos_organization_id: "org_a", coach_workspace: workspace, require_sso: false)
     @b = EnterpriseOrganization.create!(name: "B", workos_organization_id: "org_b", coach_workspace: workspace, require_sso: true)
     [ @a, @b ].each { |organization| organization.enterprise_memberships.create!(user: @it, workos_user_id: "user_it", status: "active", it_admin: true) }
-    @it.authentication_identities.create!(provider: "workos", issuer: "https://api.workos.com", subject: "user_it")
-    @admin.authentication_identities.create!(provider: "workos", issuer: "https://api.workos.com", subject: "user_admin")
+    @it.authentication_identities.create!(provider: "workos", issuer: "https://api.workos.com/user_management/client_cfo", subject: "user_it")
+    @admin.authentication_identities.create!(provider: "workos", issuer: "https://api.workos.com/user_management/client_cfo", subject: "user_admin")
     @client = ScopedClient.new
   end
 

@@ -4,6 +4,15 @@ Rails.application.routes.draw do
       resource :brand, only: :show
     end
     namespace :v1 do
+      resources :enterprise_organizations, only: %i[index show create update] do
+        member do
+          post :portal
+          post :reconcile
+          get :audit
+        end
+        resources :memberships, only: %i[index update], controller: :enterprise_memberships
+        resources :group_mappings, only: %i[index create update destroy], controller: :enterprise_group_mappings
+      end
       get "participant_programs", to: "participant_programs#index"
       get "savings_challenge/debt", to: "savings_debt#show"
       get "savings_challenge/debt/records", to: "savings_debt#records"

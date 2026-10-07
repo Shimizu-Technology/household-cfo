@@ -36,7 +36,7 @@ module WorkosAuthTestSupport
   end
 
   def workos_token(overrides = {}, key: @signing_key, kid: "current", algorithm: "RS256")
-    claims = { "iss" => "https://api.workos.com", "sub" => "user_test", "sid" => "session_test",
+    claims = { "iss" => WorkosAuth.issuer, "sub" => "user_test", "sid" => "session_test",
       "client_id" => "client_cfo", "exp" => 5.minutes.from_now.to_i, "iat" => Time.current.to_i }.merge(overrides)
     claims.compact!
     JWT.encode(claims, key, algorithm, { "kid" => kid })

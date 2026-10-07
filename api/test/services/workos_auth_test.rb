@@ -4,6 +4,27 @@ require_relative "../support/workos_auth_test_support"
 class WorkosAuthTest < ActiveSupport::TestCase
   include WorkosAuthTestSupport
 
+  test "uses the client namespaced issuer minted by hosted AuthKit and rejects bare or other client issuers" do
+    with_workos do
+      assert_equal "https://api.workos.com/user_management/client_cfo", WorkosAuth.issuer
+      assert WorkosAuth.configured?
+      with_workos_http do
+        assert_equal "user_test", WorkosAuth.verify(workos_token).fetch("sub")
+        [ "https://api.workos.com", "https://api.workos.com/user_management/client_other" ].each do |issuer|
+          assert_raises(WorkosAuth::InvalidToken) { WorkosAuth.verify(workos_token({ "iss" => issuer })) }
+        end
+      end
+    end
+  end
+
+  test "allows a deliberately pinned legacy issuer but never infers it from token claims" do
+    with_workos("WORKOS_ISSUER" => "https://api.workos.com") do
+      with_workos_http { assert_equal "user_test", WorkosAuth.verify(workos_token).fetch("sub") }
+      ENV["WORKOS_ISSUER"] = "https://api.workos.com/user_management/client_other"
+      refute WorkosAuth.configured?
+    end
+  end
+
   test "verifies signed tokens against application bound keys and configured issuer" do
     with_workos do
       with_workos_http do
@@ -32,6 +53,17 @@ class WorkosAuthTest < ActiveSupport::TestCase
     with_workos do
       assert_raises(WorkosAuth::InvalidToken) { WorkosAuth.verify(workos_token(key: "secret", algorithm: "HS256")) }
       assert_empty @workos_requests
+    end
+  end
+
+  test "provider impersonation cannot open private financial workspaces" do
+    with_workos do
+      with_workos_http do
+        assert_raises(WorkosAuth::InvalidToken) do
+          WorkosAuth.verify(workos_token({ "act" => { "sub" => "operator@fictional.test" } }))
+        end
+        assert_equal "user_test", WorkosAuth.verify(workos_token).fetch("sub")
+      end
     end
   end
 

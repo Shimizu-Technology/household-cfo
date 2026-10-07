@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_07_140000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_07_200003) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -80,6 +80,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_140000) do
     t.check_constraint "balance_known = true OR balance_cents = 0 AND balance_as_of_on IS NULL", name: "accounts_unknown_balance_zero_without_date"
     t.check_constraint "jsonb_typeof(source_metadata) = 'object'::text", name: "accounts_source_metadata_object"
     t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying, 'mia'::character varying, 'document_import'::character varying, 'setup'::character varying, 'plaid'::character varying]::text[])", name: "accounts_source_type_valid"
+  end
+
+  create_table "authentication_identities", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "issuer", null: false
+    t.string "provider", null: false
+    t.string "subject", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["provider", "issuer", "subject"], name: "index_auth_identities_on_external_identity", unique: true
+    t.index ["user_id", "provider", "issuer"], name: "index_auth_identities_on_user_provider", unique: true
+    t.index ["user_id"], name: "index_authentication_identities_on_user_id"
+    t.check_constraint "provider::text = ANY (ARRAY['clerk'::character varying::text, 'workos'::character varying::text])", name: "authentication_identities_provider_check"
   end
 
   create_table "budget_allocations", force: :cascade do |t|
@@ -1779,6 +1792,125 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_140000) do
     t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying, 'mia'::character varying, 'document_import'::character varying, 'setup'::character varying]::text[])", name: "debts_source_type_valid"
   end
 
+  create_table "enterprise_audit_events", force: :cascade do |t|
+    t.string "action", null: false
+    t.bigint "actor_user_id"
+    t.datetime "created_at", null: false
+    t.bigint "enterprise_organization_id", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id"], name: "index_enterprise_audit_events_on_actor_user_id"
+    t.index ["enterprise_organization_id"], name: "index_enterprise_audit_events_on_enterprise_organization_id"
+  end
+
+  create_table "enterprise_cohort_grants", force: :cascade do |t|
+    t.bigint "cohort_membership_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "enterprise_membership_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cohort_membership_id"], name: "enterprise_granted_enrollment_unique", unique: true
+    t.index ["cohort_membership_id"], name: "index_enterprise_cohort_grants_on_cohort_membership_id"
+    t.index ["enterprise_membership_id"], name: "index_enterprise_cohort_grants_on_enterprise_membership_id"
+  end
+
+  create_table "enterprise_directory_group_memberships", force: :cascade do |t|
+    t.boolean "active", default: false, null: false
+    t.datetime "created_at", null: false
+    t.bigint "enterprise_directory_user_id", null: false
+    t.datetime "provider_updated_at"
+    t.datetime "updated_at", null: false
+    t.string "workos_group_id", null: false
+    t.index ["enterprise_directory_user_id", "workos_group_id"], name: "enterprise_directory_group_edge_unique", unique: true
+    t.index ["enterprise_directory_user_id"], name: "idx_on_enterprise_directory_user_id_bc777cb581"
+  end
+
+  create_table "enterprise_directory_users", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "email"
+    t.bigint "enterprise_membership_id"
+    t.bigint "enterprise_organization_id", null: false
+    t.datetime "provider_updated_at"
+    t.string "state", default: "inactive", null: false
+    t.datetime "updated_at", null: false
+    t.string "workos_directory_user_id", null: false
+    t.index ["enterprise_membership_id"], name: "index_enterprise_directory_users_on_enterprise_membership_id"
+    t.index ["enterprise_organization_id"], name: "index_enterprise_directory_users_on_enterprise_organization_id"
+    t.index ["workos_directory_user_id"], name: "index_enterprise_directory_users_on_workos_directory_user_id", unique: true
+  end
+
+  create_table "enterprise_group_mappings", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.bigint "cohort_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "enterprise_organization_id", null: false
+    t.datetime "updated_at", null: false
+    t.string "workos_group_id", null: false
+    t.index ["cohort_id"], name: "index_enterprise_group_mappings_on_cohort_id"
+    t.index ["enterprise_organization_id", "workos_group_id"], name: "enterprise_group_mapping_unique", unique: true
+    t.index ["enterprise_organization_id"], name: "index_enterprise_group_mappings_on_enterprise_organization_id"
+  end
+
+  create_table "enterprise_memberships", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "enterprise_organization_id", null: false
+    t.boolean "it_admin", default: false, null: false
+    t.boolean "locally_revoked", default: false, null: false
+    t.datetime "provider_updated_at"
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id"
+    t.string "workos_membership_id"
+    t.string "workos_user_id", null: false
+    t.index ["enterprise_organization_id", "user_id"], name: "enterprise_membership_user_unique", unique: true
+    t.index ["enterprise_organization_id", "workos_user_id"], name: "enterprise_membership_subject_unique", unique: true
+    t.index ["enterprise_organization_id"], name: "index_enterprise_memberships_on_enterprise_organization_id"
+    t.index ["user_id"], name: "index_enterprise_memberships_on_user_id"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'active'::character varying::text, 'inactive'::character varying::text])", name: "enterprise_membership_status_valid"
+  end
+
+  create_table "enterprise_organizations", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.bigint "coach_workspace_id", null: false
+    t.string "connection_state"
+    t.datetime "created_at", null: false
+    t.string "directory_id"
+    t.boolean "directory_provisioning_enabled", default: false, null: false
+    t.string "directory_state"
+    t.datetime "last_reconciled_at"
+    t.string "last_sync_error"
+    t.string "name", null: false
+    t.boolean "require_sso", default: true, null: false
+    t.datetime "updated_at", null: false
+    t.string "workos_organization_id", null: false
+    t.index ["coach_workspace_id"], name: "index_enterprise_organizations_on_coach_workspace_id"
+    t.index ["directory_id"], name: "index_enterprise_organizations_on_directory_id", unique: true
+    t.index ["workos_organization_id"], name: "index_enterprise_organizations_on_workos_organization_id", unique: true
+  end
+
+  create_table "enterprise_sync_cursors", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "cursor"
+    t.string "last_error"
+    t.datetime "last_polled_at"
+    t.string "name", null: false
+    t.datetime "updated_at", null: false
+    t.index ["name"], name: "index_enterprise_sync_cursors_on_name", unique: true
+  end
+
+  create_table "enterprise_sync_events", force: :cascade do |t|
+    t.integer "attempts", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.string "last_error"
+    t.datetime "occurred_at", null: false
+    t.jsonb "payload", default: {}, null: false
+    t.datetime "processed_at"
+    t.datetime "updated_at", null: false
+    t.string "workos_event_id", null: false
+    t.index ["processed_at"], name: "index_enterprise_sync_events_on_processed_at"
+    t.index ["workos_event_id"], name: "index_enterprise_sync_events_on_workos_event_id", unique: true
+  end
+
   create_table "expense_items", force: :cascade do |t|
     t.boolean "active", default: true, null: false
     t.integer "amount_cents", default: 0, null: false
@@ -3111,8 +3243,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_140000) do
     t.datetime "updated_at", null: false
     t.index ["cohort_id"], name: "index_setup_support_requests_on_cohort_id"
     t.index ["financial_restart_review_id"], name: "index_setup_support_requests_on_financial_restart_review_id"
-    t.index ["household_id", "requested_by_user_id", "cohort_id"], name: "setup_support_active_program", unique: true, where: "((cohort_id IS NOT NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying])::text[])))"
-    t.index ["household_id", "requested_by_user_id"], name: "setup_support_active_personal", unique: true, where: "((cohort_id IS NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying])::text[])))"
+    t.index ["household_id", "requested_by_user_id", "cohort_id"], name: "setup_support_active_program", unique: true, where: "((cohort_id IS NOT NULL) AND ((status)::text = ANY (ARRAY[('requested'::character varying)::text, ('in_review'::character varying)::text, ('ready'::character varying)::text])))"
+    t.index ["household_id", "requested_by_user_id"], name: "setup_support_active_personal", unique: true, where: "((cohort_id IS NULL) AND ((status)::text = ANY (ARRAY[('requested'::character varying)::text, ('in_review'::character varying)::text, ('ready'::character varying)::text])))"
     t.index ["household_id"], name: "index_setup_support_requests_on_household_id"
     t.index ["prepared_by_user_id"], name: "index_setup_support_requests_on_prepared_by_user_id"
     t.index ["requested_by_user_id"], name: "index_setup_support_requests_on_requested_by_user_id"
@@ -3633,6 +3765,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_140000) do
 
   add_foreign_key "accounts", "households"
   add_foreign_key "accounts", "plaid_accounts", on_delete: :nullify
+  add_foreign_key "authentication_identities", "users"
   add_foreign_key "budget_allocations", "budget_categories"
   add_foreign_key "budget_allocations", "budget_periods"
   add_foreign_key "budget_categories", "households"
@@ -3899,6 +4032,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_140000) do
   add_foreign_key "cohorts", "cohort_releases", column: ["active_cohort_release_id", "id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_cohorts_active_release_scope", on_delete: :restrict
   add_foreign_key "cohorts", "users", column: "created_by_user_id"
   add_foreign_key "debts", "households"
+  add_foreign_key "enterprise_audit_events", "enterprise_organizations"
+  add_foreign_key "enterprise_audit_events", "users", column: "actor_user_id"
+  add_foreign_key "enterprise_cohort_grants", "cohort_memberships", on_delete: :cascade
+  add_foreign_key "enterprise_cohort_grants", "enterprise_memberships"
+  add_foreign_key "enterprise_directory_group_memberships", "enterprise_directory_users"
+  add_foreign_key "enterprise_directory_users", "enterprise_memberships"
+  add_foreign_key "enterprise_directory_users", "enterprise_organizations"
+  add_foreign_key "enterprise_group_mappings", "cohorts"
+  add_foreign_key "enterprise_group_mappings", "enterprise_organizations"
+  add_foreign_key "enterprise_memberships", "enterprise_organizations"
+  add_foreign_key "enterprise_memberships", "users"
+  add_foreign_key "enterprise_organizations", "coach_workspaces"
   add_foreign_key "expense_items", "households"
   add_foreign_key "financial_baseline_heads", "financial_baseline_versions", column: ["approved_version_id", "id", "household_id"], primary_key: ["id", "financial_baseline_head_id", "household_id"], name: "financial_baseline_approved_head_scope"
   add_foreign_key "financial_baseline_heads", "households"
@@ -4992,6 +5137,59 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_140000) do
   SQL
   execute <<~'SQL'
     CREATE TRIGGER plaid_transactions_financial_generation_guard BEFORE UPDATE ON public.plaid_transactions FOR EACH ROW EXECUTE FUNCTION bank_activity_generation_guard();
+  SQL
+  execute <<~SQL
+CREATE OR REPLACE FUNCTION public.enforce_enterprise_mapping_boundary()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM enterprise_organizations o JOIN cohorts c ON c.coach_workspace_id = o.coach_workspace_id
+    WHERE o.id = NEW.enterprise_organization_id AND c.id = NEW.cohort_id
+  ) THEN RAISE EXCEPTION 'Enterprise group mapping must remain in its program' USING ERRCODE = '23514'; END IF;
+  RETURN NEW;
+END;
+$function$
+;
+DROP TRIGGER IF EXISTS enterprise_mapping_boundary ON enterprise_group_mappings;
+CREATE TRIGGER enterprise_mapping_boundary BEFORE INSERT OR UPDATE ON public.enterprise_group_mappings FOR EACH ROW EXECUTE FUNCTION enforce_enterprise_mapping_boundary();
+  SQL
+  execute <<~SQL
+CREATE OR REPLACE FUNCTION public.enforce_enterprise_directory_boundary()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF NEW.enterprise_membership_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM enterprise_memberships m WHERE m.id = NEW.enterprise_membership_id AND m.enterprise_organization_id = NEW.enterprise_organization_id
+  ) THEN RAISE EXCEPTION 'Enterprise directory membership must remain in its organization' USING ERRCODE = '23514'; END IF;
+  RETURN NEW;
+END;
+$function$
+;
+DROP TRIGGER IF EXISTS enterprise_directory_boundary ON enterprise_directory_users;
+CREATE TRIGGER enterprise_directory_boundary BEFORE INSERT OR UPDATE ON public.enterprise_directory_users FOR EACH ROW EXECUTE FUNCTION enforce_enterprise_directory_boundary();
+  SQL
+  execute <<~SQL
+CREATE OR REPLACE FUNCTION public.enforce_enterprise_grant_boundary()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM enterprise_memberships m
+    JOIN enterprise_organizations o ON o.id = m.enterprise_organization_id
+    JOIN cohort_memberships cm ON cm.id = NEW.cohort_membership_id AND cm.user_id = m.user_id AND cm.role = 'participant'
+    JOIN cohorts c ON c.id = cm.cohort_id AND c.coach_workspace_id = o.coach_workspace_id
+    WHERE m.id = NEW.enterprise_membership_id
+  ) THEN RAISE EXCEPTION 'Enterprise grants may only enroll their participant in their program' USING ERRCODE = '23514'; END IF;
+  RETURN NEW;
+END;
+$function$
+;
+DROP TRIGGER IF EXISTS enterprise_grant_boundary ON enterprise_cohort_grants;
+CREATE TRIGGER enterprise_grant_boundary BEFORE INSERT OR UPDATE ON public.enterprise_cohort_grants FOR EACH ROW EXECUTE FUNCTION enforce_enterprise_grant_boundary();
   SQL
 execute <<~SQL
   CREATE OR REPLACE FUNCTION prevent_cohort_release_mutation()
