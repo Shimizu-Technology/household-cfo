@@ -268,3 +268,31 @@ describe('in-app email sign-in transport', () => {
     expect(client.getSnapshot().status).toBe('loading')
   })
 })
+
+describe('owned external login operation transport', () => {
+  const ownedUrl = () => { const url = new URL(authorization()); url.searchParams.set('state', 's'.repeat(43)); return url.href }
+  it('sends status and cancellation credentials only in origin-bound no-store JSON', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ status: 'pending' })).mockResolvedValueOnce(Response.json({ status: 'cancelled' }))
+    const client = new BrowserSessionClient(clientId)
+    expect(await client.loginStatus(ownedUrl())).toEqual({ status: 'pending' })
+    expect(await client.cancelLogin(ownedUrl())).toEqual({ status: 'cancelled' })
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/auth/login/status', '/api/auth/login/cancel'])
+    for (const [, request] of fetchMock.mock.calls) {
+      expect(request).toMatchObject({ credentials: 'same-origin', cache: 'no-store', method: 'POST' })
+      expect(JSON.parse(request.body)).toEqual({ state: 's'.repeat(43) })
+    }
+    expect(localStorage.length).toBe(0); expect(sessionStorage.length).toBe(0)
+  })
+  it('does not cancel a provider link belonging to a different application client', async () => {
+    const url = new URL(ownedUrl()); url.searchParams.set('client_id', 'client_OTHER')
+    await expect(new BrowserSessionClient(clientId).cancelLogin(url.href)).rejects.toMatchObject({ status: 503 })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+  it('rejects malformed operation state and unexpected completion response values', async () => {
+    fetchMock.mockResolvedValue(Response.json({ status: 'trusted-unverified' }))
+    await expect(new BrowserSessionClient(clientId).loginStatus(ownedUrl())).rejects.toMatchObject({ status: 503 })
+    const malformed = new URL(ownedUrl()); malformed.searchParams.set('state', 'bad')
+    await expect(new BrowserSessionClient(clientId).cancelLogin(malformed.href)).rejects.toMatchObject({ status: 503 })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+})

@@ -53,6 +53,7 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
   }, [client])
   const start = useCallback(async (screen: 'sign-in' | 'sign-up', options: AuthSignInOptions = {}) => {
     externalAttempt.current?.abort()
+    externalAttempt.current = null
     setExternalError(null)
     setDialog({ id: ++signInSequence.current, screen, options: { ...options, invitationToken: options.invitationToken ?? invitationToken ?? undefined,
       returnTo: options.returnTo ?? safeAuthReturnTo(window.location.pathname === '/login' ? new URLSearchParams(window.location.search).get('returnTo') : window.location.href) } })
@@ -89,7 +90,9 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
       if (controller.signal.aborted) { popup?.close(); return }
       if (!popup) { window.location.assign(redirect); return }
       const completion = watchAuthPopup(popup, async confirmed => {
+        if (controller.signal.aborted) return null
         const progress = await client.loginStatus(redirect!)
+        if (controller.signal.aborted) return null
         if (progress.status === 'pending' || (progress.status === 'account_changed' && !confirmed)) return null
         if (progress.status === 'cancelled') throw new AuthPopupStopped('cancelled')
         if (progress.status === 'account_changed') throw new AuthPopupStopped('account_changed')
@@ -110,7 +113,7 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
       try {
         if (redirect && !completed && (popup || controller.signal.aborted)) {
           const result = await client.cancelLogin(redirect).catch(() => null)
-          if (result?.status === 'complete' && externalAttempt.current === controller) await authenticated(dialog.options.returnTo ?? window.location.origin)
+          if (result?.status === 'complete' && externalAttempt.current === controller && signInSequence.current === dialog.id) await authenticated(dialog.options.returnTo ?? window.location.origin)
         }
       } finally { if (externalAttempt.current === controller) externalAttempt.current = null }
     }
@@ -126,8 +129,8 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
   }
   return <AuthVerificationBridge session={session}>{children}{dialog && <WorkosSignInDialog
     key={dialog.id} client={client} screen={dialog.screen} options={dialog.options} externalError={externalError}
-    onClose={() => { externalAttempt.current?.abort(); setDialog(null); setExternalError(null) }}
-    onAuthenticated={authenticated} onExternalSignIn={externalSignIn} onCancelExternal={() => { setExternalError(null); externalAttempt.current?.abort() }} />}</AuthVerificationBridge>
+    onClose={() => { externalAttempt.current?.abort(); externalAttempt.current = null; setDialog(null); setExternalError(null) }}
+    onAuthenticated={authenticated} onExternalSignIn={externalSignIn} onCancelExternal={() => { setExternalError(null); externalAttempt.current?.abort(); externalAttempt.current = null }} />}</AuthVerificationBridge>
 }
 
 // The session identity is sufficient for verification; a separate full-profile
