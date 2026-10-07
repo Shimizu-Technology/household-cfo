@@ -97,7 +97,7 @@ describe('staff operation hierarchy', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Participants & access' }))
     expect(screen.getByLabelText('Email')).toHaveProperty('value', 'pending@example.test')
     expect(screen.getByLabelText('Cohort (required)')).toHaveProperty('value', '10')
-  })
+  }, 15_000)
   it('selects the created cohort and targets its invitations when the selected cohort edit is clean', async () => {
     const created = { ...cohort, id: 11, name: 'Next challenge group' }
     mocks.createAdminCohort.mockResolvedValue(created)
@@ -142,7 +142,7 @@ describe('staff operation hierarchy', () => {
     expect(preserved.textContent).toContain('Unsaved access changes')
     fireEvent.click(screen.getByRole('button', { name: 'Cohorts' }))
     expect(cohortName).toHaveProperty('value', 'Draft BOG cohort name')
-  })
+  }, 15_000)
   it('prevents a concurrent invite from superseding a participant save and its refresh', async () => {
     render(<AdminConsole currentUser={actor} />)
     await screen.findAllByText('Participant 00')

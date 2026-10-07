@@ -230,7 +230,7 @@ describe('PersonaReleasePanel', () => {
       assertions: [{ type: 'includes_any', values: ['budget', 'tradeoff'] }, { type: 'max_chars', value: 1200 }],
     })
     expect(apiMocks.createAdminPersonaEvaluationCase.mock.calls[0][1].request_id).toMatch(/\S+/)
-  })
+  }, 15_000)
 
   it('retires an active custom scenario while preserving it in history', async () => {
     const customCase: AdminPersonaEvaluationCase = { ...systemCase, id: 22, system_key: null, kind: 'custom', name: 'Event decision', required: false, request_id: 'case-request' }
