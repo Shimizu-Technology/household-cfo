@@ -5,7 +5,7 @@ import { useAuthContext } from '../contexts/authContextValue'
 import { BrandContext, NEUTRAL_BRAND } from '../contexts/brandContextValue'
 import { IdentityBoundary } from '../components/IdentityBoundary'
 import { AuthAccessPanel } from '../components/AuthAccessPanel'
-import { UserButton } from '../components/AuthControls'
+import { SignInButton, UserButton } from '../components/AuthControls'
 import { captureBrowserAuthError, restoreBrowserAuthNavigation } from '../lib/browserAuthSession'
 import '../index.css'
 import '../App.css'
@@ -18,7 +18,7 @@ export function BrowserSessionQa() {
   if (auth.authError) return <AuthAccessPanel title={auth.authErrorStatus === 401 ? 'Sign in again to continue.' : 'Secure access is temporarily unavailable.'} copy={auth.authError} recovering
     onRetry={auth.authErrorStatus !== 401 ? auth.refreshCurrentUser : undefined} onSignIn={auth.authErrorStatus === 401 ? auth.signIn : undefined} onSignOut={auth.isSignedIn ? auth.signOut : undefined} />
   if (auth.isLoading || auth.isVerifyingApi) return <AuthAccessPanel title="Verifying server-managed access" copy="Checking the secure session and approved program access." />
-  if (!auth.currentUser) return <main className="app"><h1>Signed out</h1><button onClick={() => void auth.signIn?.()}>Sign in</button></main>
+  if (!auth.currentUser) return <main className="app"><h1>Signed out</h1><SignInButton><button>Sign in</button></SignInButton></main>
   return <main className="app" data-testid="server-verified-workspace"><h1>Verified server-session workspace</h1><p>{auth.currentUser.full_name}</p>
     <label>Unsaved private draft<input value={draft} onChange={event => setDraft(event.target.value)} /></label>
     <div style={{ display: 'flex', justifyContent: 'flex-end' }}><UserButton /></div>

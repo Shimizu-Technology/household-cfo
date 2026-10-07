@@ -4,6 +4,7 @@ import { captureAuthInvitation } from './lib/authInvitation'
 import { authConfiguration } from './lib/authConfig'
 import { captureBrowserAuthError, clearBrowserAuthCallbackParameters, restoreBrowserAuthNavigation } from './lib/browserAuthSession'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
+import { AuthPopupComplete } from './components/AuthPopupComplete'
 import { AuthLoginRoute } from './components/AuthLoginRoute'
 import { EnterpriseAccessPage } from './components/EnterpriseAccessPage'
 import App from './App'
@@ -29,6 +30,7 @@ function subscribeNavigation(callback: () => void) {
 function Root() {
   const route = useSyncExternalStore(subscribeNavigation, navigationState)
   const { brand, status } = useBrand()
+  if (config.provider === 'workos' && route.startsWith('/login/complete:')) return <><BrandDocument /><AuthPopupComplete error={callbackError} /></>
   if (status !== 'ready') {
     return <><BrandDocument /><BrandBootstrapState /></>
   }

@@ -227,3 +227,44 @@ it('consumes callback errors before analytics and keeps retry distinct from inva
   expect(window.location.search).toBe('')
   expect(captureBrowserAuthError()).toBeNull()
 })
+
+
+describe('in-app email sign-in transport', () => {
+  const challenge = { step: 'code', challenge_id: 'c'.repeat(43), email: 'fictional@pilot.test', expires_at: new Date(Date.now() + 600_000).toISOString(), resend_after: 60 }
+  it('normalizes entered email and keeps invitation and code solely in no-store POST bodies', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(challenge)).mockResolvedValueOnce(Response.json({ step: 'complete', return_to: `${window.location.origin}/#Review` }))
+    const client = new BrowserSessionClient(clientId)
+    expect(await client.startEmail({ email: ' Fictional@Pilot.Test ', invitationToken: 'fictional-invite', returnTo: '/#Review' })).toEqual(challenge)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ email: challenge.email, invitation_token: 'fictional-invite', return_to: `${window.location.origin}/#Review` })
+    expect(await client.verifyEmail(challenge.challenge_id, '123456')).toMatchObject({ step: 'complete' })
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/auth/email/verify')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ challenge_id: challenge.challenge_id, code: '123456' })
+    expect(localStorage.length).toBe(0); expect(sessionStorage.length).toBe(0)
+    expect(client.getSnapshot().session).toBeNull()
+  })
+  it('preserves an existing session on an invalid code and sanitizes provider errors', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(session())).mockResolvedValueOnce(Response.json({ code: 'email_code_invalid', error: 'private provider response' }, { status: 401 }))
+    const client = new BrowserSessionClient(clientId); await client.load()
+    await expect(client.verifyEmail(challenge.challenge_id, '123456')).rejects.toMatchObject({ code: 'email_code_invalid', status: 401 })
+    expect(client.getSnapshot().session?.user.id).toBe('user_FICTIONAL1')
+  })
+  it.each([{ ...challenge, email: 'other@pilot.test' }, { ...challenge, challenge_id: 'unsafe' }, { ...challenge, resend_after: -1 }, { ...challenge, expires_at: 'not-a-date' }, { step: 'redirect', authorization_url: 'https://attacker.test/' }])('rejects unsafe challenge metadata and destinations', async response => {
+    fetchMock.mockResolvedValue(Response.json(response))
+    await expect(new BrowserSessionClient(clientId).startEmail({ email: challenge.email })).rejects.toMatchObject({ status: 503 })
+  })
+  it('validates Google availability and serializes explicit OAuth choice and popup flag', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ google_enabled: true })).mockResolvedValueOnce(Response.json({ authorization_url: authorization() }))
+    const client = new BrowserSessionClient(clientId)
+    expect(await client.authOptions()).toEqual({ google_enabled: true })
+    await client.login('sign-in', { authenticationMethod: 'google', popup: true })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({ authentication_method: 'google', popup: true })
+  })
+  it('supports no-content cancellation without changing the session', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+    const client = new BrowserSessionClient(clientId)
+    await client.cancelEmail(challenge.challenge_id)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/auth/email/cancel')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: 'same-origin', cache: 'no-store' })
+    expect(client.getSnapshot().status).toBe('loading')
+  })
+})

@@ -13,6 +13,10 @@ async function privateIdentity(page: Page, current: () => boolean = () => false)
   return () => calls
 }
 test.describe('Auth recovery free server-managed sessions', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => { window.open = () => null })
+    await page.route('**/api/auth/options', route => route.fulfill({ json: { google_enabled: false } }))
+  })
   for (const destination of ['/#Review', '/organization-access']) {
     test(`hosted roundtrip restores ${destination} and its one-use bank reference without carrying private query details`, async ({ page }) => {
       const origin = new URL(test.info().project.use.baseURL!).origin
@@ -41,6 +45,7 @@ test.describe('Auth recovery free server-managed sessions', () => {
       const initial = destination === '/organization-access' ? '/?enterprise=1&oauth_state_id=fictional-bank-ref&income=4500' : '/?oauth_state_id=fictional-bank-ref&income=4500#Review'
       await page.evaluate(path => window.history.replaceState(null, '', path), initial)
       await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+      await page.getByRole('button', { name: 'Continue with work SSO', exact: true }).click()
       await expect(page.getByRole('heading', { name: 'Fictional hosted sign-in' })).toBeVisible()
       expect(page.url()).not.toContain('fictional-bank-ref')
       await page.getByRole('link', { name: 'Return to app', exact: true }).click()
@@ -122,6 +127,7 @@ test.describe('Auth recovery free server-managed sessions', () => {
     expect(new URL(page.url()).searchParams.has('auth_error')).toBe(false)
     expect(logins).toBe(0)
     await page.getByRole('button', { name: 'Sign in again' }).click()
+    await page.getByRole('button', { name: 'Continue with work SSO', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Fictional hosted sign-in' })).toBeVisible()
     expect(logins).toBe(1)
   })

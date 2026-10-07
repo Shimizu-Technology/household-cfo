@@ -148,3 +148,14 @@ it('restores focus on unmount and displays a canceled external sign-in inside th
   expect(document.activeElement).toBe(trigger)
   trigger.remove()
 })
+
+it('returns to the entered email when the server expires the attempt instead of repeating stale-code requests', async () => {
+  client.verifyEmail.mockRejectedValue(new ApiRequestError('private detail', { status: 410, code: 'email_challenge_expired' }))
+  render(<WorkosSignInDialog {...props} />); await startEmail()
+  fireEvent.change(screen.getByRole('textbox', { name: 'Sign-in code' }), { target: { value: '123456' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
+  await screen.findByRole('textbox', { name: 'Email address' })
+  expect(screen.queryByRole('textbox', { name: 'Sign-in code' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Continue with email' })).toHaveProperty('disabled', false)
+  expect(screen.getByRole('alert').textContent).toContain('Start again')
+})

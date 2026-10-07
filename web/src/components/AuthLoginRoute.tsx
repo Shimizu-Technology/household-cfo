@@ -13,6 +13,6 @@ export function AuthLoginRoute() {
   }, [authError, isLoading, signIn])
   if (auth.authError) return <AuthAccessPanel title="Sign-in could not finish." copy={auth.authError} recovering
     onRetry={!auth.isLoading && auth.signIn ? auth.signIn : undefined} />
-  return <AuthAccessPanel title={error ? 'Sign-in could not start.' : 'Opening secure sign-in'} copy={error ? 'Check your connection and try again.' : 'Continue with your invited account or organization’s single sign-on.'} recovering={error}
+  return <AuthAccessPanel title={error ? 'Sign-in could not start.' : 'Sign in to your workspace'} copy={error ? 'Check your connection and try again.' : 'Use the sign-in dialog to continue. You can reopen it below if you closed it.'} recovering
     onRetry={auth.signIn ? async () => { setError(false); try { await auth.signIn!() } catch { setError(true) } } : undefined} />
 }
