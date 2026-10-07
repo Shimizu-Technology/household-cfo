@@ -3,6 +3,8 @@ require "securerandom"
 
 module WorkosBrowserAuth
   class Sessions
+    class AccountChanged < StandardError; end
+    MISSING_EXPECTATION = Object.new.freeze
     OPAQUE = /\A[A-Za-z0-9_-]{43}\z/
     LOGIN_TTL = 10.minutes
     SESSION_TTL = 7.days
@@ -115,9 +117,10 @@ module WorkosBrowserAuth
       raise WorkosAuth::InvalidToken, "Sign in again to continue"
     end
 
-    def logout(record, origin:)
+    def logout(record, origin:, expected_subject: nil, expected_organization_id: MISSING_EXPECTATION)
       return origin unless record
       record.with_lock do
+        verify_logout_account!(record, expected_subject, expected_organization_id)
         # Stored signed-in metadata was checked before persistence; expiry of its
         # access token must not prevent revoking this one provider session.
         @provider.revoke(session_id: record.provider_session_id)
@@ -130,6 +133,18 @@ module WorkosBrowserAuth
     end
 
     private
+
+    def verify_logout_account!(record, expected_subject, expected_organization_id)
+      unless expected_subject.is_a?(String) && expected_subject == record.subject &&
+          (expected_organization_id.nil? || (expected_organization_id.is_a?(String) && expected_organization_id.match?(/\Aorg_[A-Za-z0-9]+\z/)))
+        raise AccountChanged, "The signed-in account changed. Refresh before signing out"
+      end
+      credentials = Encryption.decrypt(record.encrypted_credentials)
+      data = credentials.fetch("pending_response", credentials)
+      raise AccountChanged, "The signed-in account changed. Refresh before signing out" unless data.fetch("organization_id") == expected_organization_id
+    rescue KeyError, TypeError, NoMethodError
+      raise WorkosAuth::Unavailable, "Sign-in context is temporarily unavailable"
+    end
 
     def verify_record_identity!(record, data)
       raise WorkosAuth::InvalidToken, "Sign in again to continue" unless data.fetch("user").fetch("id") == record.subject && data.fetch("sid") == record.provider_session_id

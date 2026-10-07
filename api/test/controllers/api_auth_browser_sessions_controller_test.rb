@@ -345,7 +345,7 @@ class ApiAuthBrowserSessionsControllerTest < ActionDispatch::IntegrationTest
       other.cookie_digest = WorkosBrowserAuth::Sessions.digest(SecureRandom.urlsafe_base64(32))
       other.provider_session_id = "session_other"
       other.save!
-      post "/api/auth/logout", params: {}, headers: HEADERS, as: :json
+      post "/api/auth/logout", params: { expected_subject: "user_test", expected_organization_id: nil }, headers: HEADERS, as: :json
       assert_response :success
       assert_equal [ "session_test" ], @provider.revocations
       assert WorkosBrowserSession.exists?(other.id)
@@ -360,23 +360,114 @@ class ApiAuthBrowserSessionsControllerTest < ActionDispatch::IntegrationTest
     with_browser_auth do
       authenticate
       @provider.failure = WorkosAuth::Unavailable.new("sanitized")
-      post "/api/auth/logout", params: {}, headers: HEADERS, as: :json
+      post "/api/auth/logout", params: { expected_subject: "user_test", expected_organization_id: nil }, headers: HEADERS, as: :json
       assert_response :service_unavailable
       assert_equal 1, WorkosBrowserSession.count
       refute response.headers["Set-Cookie"].to_s.include?("cfo_workos_session")
       @provider.failure = nil
-      post "/api/auth/logout", params: {}, headers: HEADERS, as: :json
+      post "/api/auth/logout", params: { expected_subject: "user_test", expected_organization_id: nil }, headers: HEADERS, as: :json
       assert_response :success
     end
   end
 
   test "anonymous logout is idempotent and cannot be forged from another origin" do
     with_browser_auth do
-      post "/api/auth/logout", params: {}, headers: HEADERS.merge("Origin" => "https://evil.example"), as: :json
+      post "/api/auth/logout", params: { expected_subject: "user_test", expected_organization_id: nil }, headers: HEADERS.merge("Origin" => "https://evil.example"), as: :json
       assert_response :unauthorized
-      post "/api/auth/logout", params: {}, headers: HEADERS, as: :json
+      post "/api/auth/logout", params: { expected_subject: "user_test", expected_organization_id: nil }, headers: HEADERS, as: :json
       assert_response :success
       assert_equal ORIGIN, JSON.parse(response.body)["redirect_url"]
+      assert_empty @provider.revocations
+    end
+  end
+
+  test "stale tab logout cannot revoke the new account selected between session read and post" do
+    with_browser_auth do
+      totals = [ User.count, Household.count, Debt.count, IncomeSource.count ]
+      authenticate
+      get "/api/auth/session", headers: HEADERS
+      assert_response :success
+      old_subject = JSON.parse(response.body).fetch("user").fetch("id")
+      @provider.response.user.id = "user_second"
+      @provider.response.access_token = workos_token({ "sub" => "user_second" })
+      authenticate
+      fresh = WorkosBrowserSession.last
+      cookie = cookies["cfo_workos_session"]
+      post "/api/auth/logout", params: { expected_subject: old_subject, expected_organization_id: nil }, headers: HEADERS, as: :json
+      assert_account_changed(fresh)
+      assert_equal cookie, cookies["cfo_workos_session"]
+      assert_equal [ User.count, Household.count, Debt.count, IncomeSource.count ], totals
+    end
+  end
+
+  test "logout refuses the same user in another organization and accepts matching organization" do
+    with_browser_auth do
+      @provider.response.organization_id = "org_current"
+      @provider.response.access_token = workos_token({ "org_id" => "org_current" })
+      authenticate
+      fresh = WorkosBrowserSession.last
+      post "/api/auth/logout", params: { expected_subject: "user_test", expected_organization_id: "org_stale" }, headers: HEADERS, as: :json
+      assert_account_changed(fresh)
+      post "/api/auth/logout", params: { expected_subject: "user_test", expected_organization_id: "org_current" }, headers: HEADERS, as: :json
+      assert_response :success
+      assert_equal [ "session_test" ], @provider.revocations
+      refute WorkosBrowserSession.exists?(fresh.id)
+    end
+  end
+
+  test "logout requires explicit expected subject and nullable organization for valid cookie" do
+    with_browser_auth do
+      authenticate
+      fresh = WorkosBrowserSession.last
+      [ {}, { expected_subject: "user_test" }, { expected_organization_id: nil },
+        { expected_subject: [ "user_test" ], expected_organization_id: nil },
+        { expected_subject: "user_test", expected_organization_id: [ "org_current" ] } ].each do |body|
+        post "/api/auth/logout", params: body, headers: HEADERS, as: :json
+        assert_account_changed(fresh)
+      end
+    end
+  end
+
+  test "already logged out accepts empty body without changing financial records" do
+    with_browser_auth do
+      totals = [ User.count, Household.count, Debt.count, IncomeSource.count ]
+      post "/api/auth/logout", params: {}, headers: HEADERS, as: :json
+      assert_response :success
+      assert_equal ORIGIN, JSON.parse(response.body).fetch("redirect_url")
+      assert_empty @provider.revocations
+      assert_equal [ User.count, Household.count, Debt.count, IncomeSource.count ], totals
+    end
+  end
+
+  test "logout fence reads pending refresh organization and allows expired own access token" do
+    with_browser_auth do
+      authenticate
+      fresh = WorkosBrowserSession.last
+      credentials = WorkosBrowserAuth::Encryption.decrypt(fresh.encrypted_credentials)
+      credentials["access_token"] = workos_token({ "exp" => 1.minute.ago.to_i })
+      credentials["organization_id"] = "org_pending"
+      fresh.update!(expires_at: 1.minute.ago, encrypted_credentials: WorkosBrowserAuth::Encryption.encrypt({ "pending_response" => credentials }))
+      post "/api/auth/logout", params: { expected_subject: "user_test", expected_organization_id: nil }, headers: HEADERS, as: :json
+      assert_account_changed(fresh)
+      post "/api/auth/logout", params: { expected_subject: "user_test", expected_organization_id: "org_pending" }, headers: HEADERS, as: :json
+      assert_response :success
+      assert_equal [ "session_test" ], @provider.revocations
+      refute WorkosBrowserSession.exists?(fresh.id)
+    end
+  end
+
+  test "logout lock rechecks persisted organization after a stale session object was loaded" do
+    with_browser_auth do
+      authenticate
+      stale = WorkosBrowserSession.last
+      persisted = WorkosBrowserSession.find(stale.id)
+      credentials = WorkosBrowserAuth::Encryption.decrypt(persisted.encrypted_credentials)
+      credentials["organization_id"] = "org_new"
+      persisted.update!(encrypted_credentials: WorkosBrowserAuth::Encryption.encrypt(credentials))
+      assert_raises(WorkosBrowserAuth::Sessions::AccountChanged) do
+        WorkosBrowserAuth::Sessions.new.logout(stale, origin: ORIGIN, expected_subject: "user_test", expected_organization_id: nil)
+      end
+      assert WorkosBrowserSession.exists?(stale.id)
       assert_empty @provider.revocations
     end
   end
@@ -537,6 +628,14 @@ class ApiAuthBrowserSessionsControllerTest < ActionDispatch::IntegrationTest
   end
 
   private
+
+  def assert_account_changed(record)
+    assert_response :conflict
+    assert_equal "account_changed", JSON.parse(response.body).fetch("code")
+    assert WorkosBrowserSession.exists?(record.id)
+    assert_empty @provider.revocations
+    refute response.headers["Set-Cookie"].to_s.include?("cfo_workos_session")
+  end
 
   def assert_cookie_security(name)
     header = response.headers["Set-Cookie"].to_s

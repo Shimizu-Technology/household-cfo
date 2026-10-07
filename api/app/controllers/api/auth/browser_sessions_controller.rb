@@ -57,9 +57,12 @@ module Api
 
       def logout
         record = sessions.find_session(cookie: cookies[session_cookie_name], origin: @origin)
-        destination = sessions.logout(record, origin: @origin)
+        expected_organization_id = params.key?(:expected_organization_id) ? params[:expected_organization_id] : WorkosBrowserAuth::Sessions::MISSING_EXPECTATION
+        destination = sessions.logout(record, origin: @origin, expected_subject: params[:expected_subject], expected_organization_id: expected_organization_id)
         clear_session_cookie
         render json: { redirect_url: destination }
+      rescue WorkosBrowserAuth::Sessions::AccountChanged
+        render json: { error: "The signed-in account changed. Refresh before signing out", code: "account_changed" }, status: :conflict
       rescue WorkosAuth::InvalidToken
         clear_session_cookie
         render json: { redirect_url: @origin }
