@@ -1,4 +1,4 @@
-import type { CapturedNetworkRequest } from 'posthog-js'
+import type { CapturedNetworkRequest, CaptureResult } from 'posthog-js'
 import type { CurrentUser, DocumentImportKind } from '../api'
 
 type AnalyticsProps = Record<string, string | number | boolean | null | undefined>
@@ -31,15 +31,40 @@ function compactProps(props: AnalyticsProps = {}) {
   return Object.fromEntries(Object.entries(props).filter(([, value]) => value !== undefined))
 }
 
-function redactUrl(value: string) {
-  return value
-    .replace(/([?&](token|auth|email|clerk|jwt|key|secret|signature|X-Amz-Signature|X-Amz-Credential)=)[^&]+/gi, '$1[REDACTED]')
+export function redactAnalyticsUrl(value: string) {
+  const redacted = value
+    .replace(/([?&](token|invitation_token|access_token|refresh_token|code|state|authorization_session_id|auth|email|clerk|jwt|key|secret|signature|X-Amz-Signature|X-Amz-Credential)=)[^&]+/gi, '$1[REDACTED]')
+    .replace(/https:\/\/setup\.workos\.com\/[^\s]*/gi, 'https://setup.workos.com/[REDACTED]')
     .replace(/(\/document_imports\/\d+\/source_url)([^\s]*)/gi, '$1')
+  const portalHost = String(import.meta.env.VITE_WORKOS_ADMIN_PORTAL_HOSTNAME || '').trim()
+  if (!portalHost) return redacted
+  try {
+    const url = new URL(redacted)
+    return url.hostname === portalHost ? `${url.origin}/[REDACTED]` : redacted
+  } catch {
+    return redacted
+  }
 }
 
 function maskCapturedNetworkRequest(request: CapturedNetworkRequest) {
-  if (request.name) request.name = redactUrl(request.name)
+  if (request.name) request.name = redactAnalyticsUrl(request.name)
   return request
+}
+
+export function redactAnalyticsEvent(event: CaptureResult | null) {
+  if (!event) return null
+  const scrubUrls = (properties: Record<string, unknown> | undefined) => {
+    if (!properties) return
+    for (const key of ['$current_url', '$referrer', '$initial_current_url', '$initial_referrer']) {
+      if (typeof properties[key] === 'string') properties[key] = redactAnalyticsUrl(properties[key])
+    }
+  }
+  scrubUrls(event.properties)
+  scrubUrls(event.$set)
+  scrubUrls(event.$set_once)
+  scrubUrls(event.properties.$set)
+  scrubUrls(event.properties.$set_once)
+  return event
 }
 
 function sectionSlug(section: string) {
@@ -55,6 +80,7 @@ function analyticsConfig(): PostHogConfig {
     capture_pageview: false,
     capture_pageleave: true,
     autocapture: false,
+    before_send: redactAnalyticsEvent,
     disable_session_recording: !isSessionReplayEnabled,
     session_recording: isSessionReplayEnabled
       ? {
