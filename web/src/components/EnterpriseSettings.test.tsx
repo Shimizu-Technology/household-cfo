@@ -206,3 +206,12 @@ it('blocks unactivated company setup without calling the vendor portal while sta
   expect(api.openEnterprisePortal).not.toHaveBeenCalled()
   expect(screen.getByRole('button', { name: 'Refresh status' })).toHaveProperty('disabled', false)
 })
+
+it.each([true, false])('reports whether refresh queued new work or reused a recent request: %s', async queued => {
+  vi.mocked(api.reconcileEnterpriseOrganization).mockResolvedValue({ queued })
+  await open()
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh from WorkOS' }))
+  await screen.findByText(queued ? 'Sync requested. Refresh status in a moment to see the result.' : 'A sync was checked or requested recently. Refresh status in a moment.')
+  expect(api.reconcileEnterpriseOrganization).toHaveBeenCalledWith(1)
+  await waitFor(() => expect(api.fetchEnterpriseOrganization).toHaveBeenCalledTimes(2))
+})

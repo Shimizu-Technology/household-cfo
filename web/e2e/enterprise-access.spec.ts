@@ -164,3 +164,13 @@ test.describe('BOG UI organization access', () => {
   })
 
 })
+
+test('a recent synchronization is clearly reported without claiming another job was queued', async ({ page }) => {
+  await enterpriseRoutes(page)
+  await page.route(`${root}/1/reconcile`, route => route.fulfill({ status: 202, json: { queued: false } }))
+  await page.goto('/enterprise-access-qa.html?mode=it')
+  await expect(page.getByRole('heading', { name: 'Fictional Company' })).toBeVisible()
+  await page.getByRole('button', { name: 'Refresh from WorkOS' }).click()
+  await expect(page.getByText('A sync was checked or requested recently. Refresh status in a moment.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Refresh from WorkOS' })).toBeEnabled()
+})

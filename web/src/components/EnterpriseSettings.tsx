@@ -64,13 +64,13 @@ export function EnterpriseSettings({ currentUser, onClose }: { currentUser: Curr
     return () => { mounted.current = false; sequence.current += 1; abort.current?.abort() }
   }, [load])
 
-  async function run(operation: () => Promise<unknown>, message?: string) {
+  async function run<T>(operation: () => Promise<T>, message?: string | ((result: T) => string)) {
     if (busyRef.current || loading) return
     busyRef.current = true; setBusy(true); setError(null); setNotice(null)
     try {
-      await operation()
+      const result = await operation()
       if (!mounted.current) return
-      if (message) { setNotice(message); await load(selectedIdRef.current) }
+      if (message) { setNotice(typeof message === 'function' ? message(result) : message); await load(selectedIdRef.current) }
     } catch (caught) {
       if (mounted.current) setError(caught instanceof Error ? caught.message : 'This action could not be completed. Refresh the status before retrying.')
     } finally { busyRef.current = false; if (mounted.current) setBusy(false) }
@@ -125,7 +125,7 @@ export function EnterpriseSettings({ currentUser, onClose }: { currentUser: Curr
               <dl className="enterprise-status-grid"><div><dt>Company sign-in</dt><dd>{organization.connection_state === 'active' ? 'Connected' : organization.connection_state ?? 'Not connected'}</dd></div><div><dt>User provisioning</dt><dd>{organization.directory_state === 'linked' ? 'Connected' : organization.directory_state ?? 'Not connected'}</dd></div><div><dt>Access policy</dt><dd>{organization.active ? organization.require_sso ? 'Company SSO required' : 'Organization policy' : 'Organization disabled'}</dd></div><div><dt>Last checked</dt><dd>{organization.last_reconciled_at ? new Date(organization.last_reconciled_at).toLocaleString() : 'Not checked yet'}</dd></div></dl>
               {organization.last_sync_error && <p role="alert">Provisioning needs attention. Refresh the status; if it persists, contact your app administrator.</p>}
               {organization.setup_enabled === false && <p>Company sign-in and user provisioning are not activated. Contact your app administrator.</p>}
-              <div className="enterprise-actions"><Button disabled={busy || !organization.active || organization.setup_enabled === false} onClick={() => portal('sso')}>Configure company sign-in</Button><Button variant="secondary" disabled={busy || !organization.active || organization.setup_enabled === false} onClick={() => portal('dsync')}>Configure user provisioning</Button><Button variant="ghost" disabled={busy} onClick={() => void run(() => reconcileEnterpriseOrganization(organization.id), 'Sync requested. Refresh status in a moment to see the result.')}>Refresh from WorkOS</Button></div>
+              <div className="enterprise-actions"><Button disabled={busy || !organization.active || organization.setup_enabled === false} onClick={() => portal('sso')}>Configure company sign-in</Button><Button variant="secondary" disabled={busy || !organization.active || organization.setup_enabled === false} onClick={() => portal('dsync')}>Configure user provisioning</Button><Button variant="ghost" disabled={busy} onClick={() => void run(() => reconcileEnterpriseOrganization(organization.id), result => result.queued ? 'Sync requested. Refresh status in a moment to see the result.' : 'A sync was checked or requested recently. Refresh status in a moment.')}>Refresh from WorkOS</Button></div>
             </section>
             {currentUser.is_admin && <section className="enterprise-section"><h3>Automatic participant accounts</h3><p>{organization.directory_provisioning_enabled ? 'Create accounts for newly assigned users in approved directory groups.' : 'Automatic account creation is paused while the company connection is prepared.'} Existing access continues to follow approved assignments.</p><label><input type="checkbox" checked={admissionReviewed} disabled={busy} onChange={event => setAdmissionReviewed(event.target.checked)} />{organization.directory_provisioning_enabled ? 'I reviewed the impact of pausing automatic account creation.' : 'WorkOS directory provisioning is enabled, and the company sign-in, directory, and participant groups have been tested.'}</label><Button variant="secondary" disabled={busy || !admissionReviewed || !organization.directory_provisioning_enabled && (organization.connection_state !== 'active' || organization.directory_state !== 'linked' || !detail.group_mappings.some(mapping => mapping.active))} onClick={() => void run(() => updateEnterpriseOrganization(organization.id, { directory_provisioning_enabled: !organization.directory_provisioning_enabled }), 'Automatic account creation updated. Refresh from WorkOS to synchronize assigned users.')}>{organization.directory_provisioning_enabled ? 'Pause automatic accounts' : 'Enable automatic accounts'}</Button></section>}
             <section className="enterprise-section"><h3>Approved participant groups</h3><p>Only these directory groups enroll participants in the selected programs. Coaching and administrator permissions are assigned separately.</p>
