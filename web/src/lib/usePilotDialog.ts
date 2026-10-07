@@ -29,6 +29,11 @@ export function usePilotDialog(onClose: () => void) {
     }
     const focusFrame = window.requestAnimationFrame(() => {
       if (!dialog) return
+      const active = document.activeElement
+      if (active instanceof HTMLElement && dialog.contains(active)) {
+        revealDialogControl(active, dialog)
+        return
+      }
       dialog.scrollTop = 0
       const first = focusableElements()[0]
       const panel = dialog.getBoundingClientRect()
