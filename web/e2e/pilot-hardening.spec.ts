@@ -9365,7 +9365,11 @@ test('BOG UI participant split purchase links bank funding then explicitly appro
     context.economic_groups = linked ? [{ id: 70, head: { id: 70, approved_version_id: 701, lock_version: 1 }, approved: { id: 701, digest: 'link-approved', version_number: 1, kind: 'purchase_funding', reason: 'Compared physical funding legs', current: true, members: [{ role: 'purchase', allocation_cents: 2_159, record: wallet }, { role: 'funding', allocation_cents: 97_841, record: bank }] } }] : []
     return data
   })
-  await review.getByRole('button', { name: 'Inspect source row 4', exact: true }).click()
+  await page.evaluate(() => document.fonts.ready)
+  const inspect = review.getByRole('button', { name: /^(?:Inspect|Hide) source row 4$/ })
+  await inspect.scrollIntoViewIfNeeded()
+  await inspect.click()
+  await expect(inspect).toHaveAttribute('aria-expanded', 'true')
   await review.getByText('Review spending effect separately', { exact: true }).click()
   await expect(review.getByRole('button', { name: 'Approve spending creation', exact: true })).toBeDisabled()
   await review.getByText('Create a related-movement link', { exact: true }).click(); await review.getByLabel('Link type').selectOption('purchase_funding'); await review.getByText('Choose another approved physical row', { exact: true }).click()
