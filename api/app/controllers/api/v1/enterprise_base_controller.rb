@@ -15,7 +15,7 @@ module Api
       rescue_from Enterprise::Client::Unavailable do
         render json: { error: "Enterprise service is temporarily unavailable" }, status: :service_unavailable
       end
-      rescue_from ArgumentError do |error|
+      rescue_from Enterprise::InvalidRequest do |error|
         render json: { error: error.message }, status: :unprocessable_entity
       end
 

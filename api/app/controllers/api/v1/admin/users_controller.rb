@@ -12,7 +12,7 @@ module Api
         rescue_from ParticipantMutationNotAuthorized, with: :render_mutation_not_authorized
 
         def index
-          users = users_scope.to_a
+          users = users_scope.includes(:authentication_identities).to_a
           preload_recent_invitation_email_attempts(users) unless workspace_scoped_mode?
           progress_by_user_id = HouseholdFinance::PilotProgressBatchBuilder.new(users).call
           render json: {
@@ -784,7 +784,7 @@ module Api
           serialized_user_identity(user).merge(
             invited_by: workspace_scoped_mode? ? nil : serialize_inviter(user.invited_by_user),
             invite_email: serialize_invite_email(user),
-            can_resend_invitation: user.participant? && !user.invitation_accepted? && !user.revoked? &&
+            can_resend_invitation: user.participant? && !user.invitation_accepted?(fresh: false) && !user.revoked? &&
               !(workspace_scoped_mode? && user_shared_outside_active_workspace?(user)),
             cohorts: serialized_memberships(user),
             workspace: progress

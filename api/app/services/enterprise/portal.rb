@@ -6,12 +6,12 @@ module Enterprise
       MutationAuthority.call(actor: user, organization: organization, platform_admin: false, claims: claims, provider: provider) { |_actor| nil }
       SetupPolicy.authorize!
       begin
-        raise ArgumentError, "Choose SSO or Directory Sync setup" unless INTENTS.include?(intent)
+        raise Enterprise::InvalidRequest, "Choose SSO or Directory Sync setup" unless INTENTS.include?(intent)
         allowed = ENV.fetch("WORKOS_ADMIN_PORTAL_RETURN_URLS", "").split(",").map(&:strip).reject(&:empty?)
         uri = URI.parse(return_url.to_s)
         valid = allowed.include?(return_url) && uri.host.present? && uri.userinfo.nil? && uri.fragment.nil? && [ nil, "enterprise=1", "section=Home" ].include?(uri.query) &&
           (uri.scheme == "https" || (!Rails.env.production? && uri.scheme == "http" && %w[localhost 127.0.0.1].include?(uri.host)))
-        raise ArgumentError, "Admin Portal return URL is not allowed" unless valid
+        raise Enterprise::InvalidRequest, "Admin Portal return URL is not allowed" unless valid
         issued_at = Time.current
         url = client.portal(organization_id: organization.workos_organization_id, intent: intent, return_url: return_url)
         raise Client::Unavailable, "Invalid WorkOS portal link" unless url.is_a?(String) && url.present?
@@ -32,7 +32,7 @@ module Enterprise
         end
       end
     rescue URI::InvalidURIError
-      raise ArgumentError, "Invalid Admin Portal URL"
+      raise Enterprise::InvalidRequest, "Invalid Admin Portal URL"
     end
   end
 end

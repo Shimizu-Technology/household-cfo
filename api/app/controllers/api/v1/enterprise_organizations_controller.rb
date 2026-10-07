@@ -41,11 +41,21 @@ module Api
       end
 
       def reconcile
+        queued = false
         with_enterprise_mutation(platform_admin: false) do
-          EnterpriseReconciliationJob.perform_later(enterprise_organization.id)
-          enterprise_audit!("reconciliation.requested")
+          organization = enterprise_organization
+          recent = organization.last_reconciled_at && organization.last_reconciled_at > 1.minute.ago
+          requested = organization.enterprise_audit_events.where(action: "reconciliation.requested").where("created_at > ?", 1.minute.ago).exists?
+          unless recent || requested
+            # The organization lock serializes requests; a bounded reservation
+            # also throttles retries before the queued job finishes.
+            job = EnterpriseReconciliationJob.perform_later(organization.id)
+            raise Enterprise::Client::Unavailable, "Enterprise reconciliation could not be queued" unless job
+            enterprise_audit!("reconciliation.requested")
+            queued = true
+          end
         end
-        render json: { queued: true }, status: :accepted
+        render json: { queued: queued }, status: :accepted
       end
 
       def audit

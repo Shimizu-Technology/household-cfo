@@ -167,7 +167,29 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
     end
   end
 
+  test "custom WorkOS configuration failures identify the intended provider without sending" do
+    with_workos("WORKOS_INVITATION_EMAIL_DELIVERY" => "custom", "WORKOS_INVITATION_EMAILS_DISABLED" => "true") do
+      stub_method(HTTParty, :get, ->(*_args, **_options) { flunk "Configuration failure must precede provider calls" }) do
+        result = UserInviteEmailService.send_invite(user: @invitee, invited_by: @inviter)
+        refute result[:sent]
+        assert_equal "workos", result[:provider]
+        assert_nil result[:provider_message_id]
+        assert_includes result[:error], "RESEND_API_KEY"
+        ENV["RESEND_API_KEY"] = "test"
+        result = UserInviteEmailService.send_invite(user: @invitee, invited_by: @inviter)
+        assert_equal "workos", result[:provider]
+        assert_includes result[:error], "MAILER_FROM_EMAIL"
+        ENV["MAILER_FROM_EMAIL"] = "sender@example.test"
+        ENV["FRONTEND_URL"] = "https://username:credential@program.example.test"
+        result = UserInviteEmailService.send_invite(user: @invitee, invited_by: @inviter)
+        assert_equal "workos", result[:provider]
+        refute_includes result[:error], "credential"
+      end
+    end
+  end
+
   test "verified custom delivery preserves branded program link and sends only one SMTP email" do
+    previous_frontend_url = ENV["FRONTEND_URL"]
     with_workos("WORKOS_INVITATION_EMAIL_DELIVERY" => "custom", "WORKOS_INVITATION_EMAILS_DISABLED" => "true") do
       ENV["RESEND_API_KEY"] = "test"
       ENV["MAILER_FROM_EMAIL"] = "coaching@example.test"
@@ -196,6 +218,8 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
       assert_equal "https://program.example.test", query.fetch("returnTo")
       assert_equal 1, @requests.count { |method, _url, _options| method == :post }
     end
+  ensure
+    ENV["FRONTEND_URL"] = previous_frontend_url
   end
 
   test "custom collaborator invitation preserves its program origin and failed SMTP retains native retry ID" do

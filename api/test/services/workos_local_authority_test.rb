@@ -21,6 +21,34 @@ class WorkosLocalAuthorityTest < ActiveSupport::TestCase
     assert user.invitation_accepted?
   end
 
+  test "preloaded display identity snapshots avoid queries without relaxing authoritative checks" do
+    user = workos_user
+    user.authentication_identities.load
+    queries = []
+    subscriber = ->(*args) { queries << args.last[:sql] unless args.last[:name] == "SCHEMA" }
+    ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+      assert user.invitation_accepted?(fresh: false)
+      assert user.linked_authentication_identity?(fresh: false)
+    end
+    assert_empty queries
+    AuthenticationIdentity.where(user_id: user.id).delete_all
+    assert user.invitation_accepted?(fresh: false), "Display snapshot deliberately reflects its loaded list"
+    refute user.invitation_accepted?, "Authorization must query current identity even when preloaded"
+    refute user.linked_authentication_identity?
+    User.find(user.id).update_columns(invitation_status: "revoked")
+    refute user.invitation_accepted?
+  end
+
+  test "unbound and unsaved identities cannot satisfy the loaded display predicate" do
+    user = User.create!(email: "unbound@example.test", clerk_id: "workos_user_unbound", role: "participant", invitation_status: "accepted")
+    user.authentication_identities.load
+    user.authentication_identities.build(provider: "workos", issuer: "https://api.workos.com", subject: "user_unpersisted")
+    refute user.linked_authentication_identity?(fresh: false)
+    refute user.invitation_accepted?(fresh: false)
+    user.update!(clerk_id: "clerk_legacy")
+    assert user.invitation_accepted?(fresh: false)
+  end
+
   test "two WorkOS owners permit handover but the final bound owner stays protected" do
     platform_admin = User.create!(email: "platform@example.test", clerk_id: "clerk_platform", role: "admin")
     first = workos_user

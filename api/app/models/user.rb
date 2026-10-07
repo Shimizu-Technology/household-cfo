@@ -107,12 +107,21 @@ class User < ApplicationRecord
     invitation_status == "pending"
   end
 
-  def invitation_accepted?
-    persisted? && self.class.accepted_linked_identity.where(id: id).exists?
+  # Authorization stays authoritative even if a list previously preloaded this
+  # association. Only display serializers opt into the loaded snapshot.
+  def invitation_accepted?(fresh: true)
+    return persisted? && self.class.accepted_linked_identity.where(id: id).exists? if fresh || !authentication_identities.loaded?
+    invitation_status == "accepted" && linked_authentication_identity?(fresh: false)
   end
 
-  def linked_authentication_identity?
-    persisted? && self.class.linked_authentication_identity.where(id: id).exists?
+  def linked_authentication_identity?(fresh: true)
+    return persisted? && self.class.linked_authentication_identity.where(id: id).exists? if fresh || !authentication_identities.loaded?
+    return false unless persisted?
+    legacy_id = clerk_id.to_s
+    legacy = legacy_id.match?(/[^ ]/) && !legacy_id.start_with?("pending_", "workos_")
+    legacy || authentication_identities.any? do |identity|
+      identity.persisted? && identity.provider.in?(%w[clerk workos]) && identity.issuer.to_s.match?(/[^ ]/) && identity.subject.to_s.match?(/[^ ]/)
+    end
   end
 
   def revoked?

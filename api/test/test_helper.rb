@@ -14,6 +14,12 @@ module ActiveSupport
       # Local api/.env may configure Clerk/OpenRouter for manual testing. Keep
       # automated tests opt-in so demo tests validate no-Clerk/no-network preview mode.
       %w[
+        FRONTEND_URL
+        FRONTEND_URLS
+        WORKOS_INVITATION_EMAIL_DELIVERY
+        WORKOS_INVITATION_EMAILS_DISABLED
+        WORKOS_SYNC_ENABLED
+        WORKOS_ENTERPRISE_SETUP_ENABLED
         AUTH_PROVIDER
         AUTH_PUBLIC_PROVIDER
         WORKOS_CLIENT_ID
