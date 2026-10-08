@@ -27,7 +27,7 @@ function subscribeNavigation(callback: () => void) {
   return () => { window.removeEventListener('hashchange', callback); window.removeEventListener('popstate', callback) }
 }
 
-function ProgramStartupGate({ children }: { children: ReactNode }) {
+export function ProgramStartupGate({ children }: { children: ReactNode }) {
   const { status } = useBrand()
   return status === 'ready' ? children : <BrandBootstrapState />
 }
