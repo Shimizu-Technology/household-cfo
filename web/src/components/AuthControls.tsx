@@ -1,5 +1,6 @@
-import { cloneElement, useEffect, useRef, useState, type ReactElement, type MouseEvent } from 'react'
-import { SignInButton as ClerkSignInButton, SignUpButton as ClerkSignUpButton, UserButton as ClerkUserButton } from '@clerk/clerk-react'
+import { cloneElement, useRef, useState, type ReactElement, type MouseEvent } from 'react'
+import { SignInButton as ClerkSignInButton, SignUpButton as ClerkSignUpButton } from '@clerk/clerk-react'
+import { Button } from './Button'
 import { useAuthContext } from '../contexts/authContextValue'
 
 function HostedAuthButton({ children, signUp = false }: { children: ReactElement<{ onClick?: (event: MouseEvent<HTMLElement>) => void; disabled?: boolean }>; signUp?: boolean }) {
@@ -27,34 +28,29 @@ export function SignUpButton({ children, mode = 'modal' }: { children: ReactElem
   const auth = useAuthContext()
   return auth.authProvider === 'workos' ? <HostedAuthButton signUp>{children}</HostedAuthButton> : <ClerkSignUpButton mode={mode}>{children}</ClerkSignUpButton>
 }
-export function UserButton({ afterSignOutUrl = '/' }: { afterSignOutUrl?: string }) {
+export function SignOutButton({ onSignOut }: { onSignOut?: () => Promise<void> }) {
   const auth = useAuthContext()
-  const [open, setOpen] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const container = useRef<HTMLDivElement>(null)
-  const trigger = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const dismiss = (event: PointerEvent) => { if (!container.current?.contains(event.target as Node)) setOpen(false) }
-    document.addEventListener('pointerdown', dismiss)
-    return () => document.removeEventListener('pointerdown', dismiss)
-  }, [open])
-  if (auth.authProvider !== 'workos') return <ClerkUserButton afterSignOutUrl={afterSignOutUrl} />
-  const user = auth.currentUser
-  return <div className="auth-account-control" ref={container} onKeyDown={event => {
-    if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus({ preventScroll: true }) }
-  }}>
-    <button type="button" className="auth-account-trigger" aria-label="Account" aria-expanded={open} aria-controls="auth-account-panel" ref={trigger} onClick={() => { setOpen(value => !value); trigger.current?.focus({ preventScroll: true }) }}>
-      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" strokeWidth="1.7" /><path d="M4 21a8 8 0 0 1 16 0" fill="none" stroke="currentColor" strokeWidth="1.7" /></svg>
-    </button>
-    {open && <div id="auth-account-panel" className="auth-account-panel">
-      <strong>{user?.full_name || 'Your account'}</strong>{user?.email && <p>{user.email}</p>}
-      <button type="button" disabled={pending} onClick={async () => {
-        setPending(true); setError(null)
-        try { await auth.signOut?.() } catch { setError('Sign-out could not finish. Try again.') } finally { setPending(false) }
-      }}>{pending ? 'Signing out…' : 'Sign out'}</button>
-      {error && <p role="alert">{error}</p>}
-    </div>}
+  const inFlight = useRef(false)
+  const signOut = async () => {
+    if (inFlight.current) return
+    inFlight.current = true
+    setPending(true)
+    setError(null)
+    try {
+      const action = onSignOut ?? auth.signOut
+      if (!action) throw new Error('Secure sign-out is unavailable')
+      await action()
+    } catch {
+      setError('Sign-out could not finish. Check your connection and try again.')
+    } finally {
+      inFlight.current = false
+      setPending(false)
+    }
+  }
+  return <div className="account-sign-out">
+    <Button variant="secondary" size="compact" disabled={pending} onClick={() => void signOut()}>{pending ? 'Signing out…' : 'Sign out'}</Button>
+    {error && <p role="alert">{error}</p>}
   </div>
 }

@@ -1,6 +1,7 @@
 import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
-import { SignInButton, SignUpButton, UserButton } from './components/AuthControls'
+import { AccountMenu } from './components/AccountMenu'
+import { SignInButton, SignUpButton, SignOutButton } from './components/AuthControls'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
 import './App.css'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
@@ -3267,30 +3268,15 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram} />
             </details>
           )}
-          <details ref={shellAccountMenuRef} className="shell-account-menu" onToggle={event => {
-            if (event.currentTarget.open && participantProgramMenuRef.current) participantProgramMenuRef.current.open = false
-          }} onKeyDown={event => {
-            if (event.key === 'Escape' && !(event.target as HTMLElement).closest('dialog, [role="dialog"]')) {
-              event.currentTarget.open = false
-              event.currentTarget.querySelector<HTMLElement>('summary')?.focus()
-            }
+          <AccountMenu menuRef={shellAccountMenuRef} onOpen={() => {
+            if (participantProgramMenuRef.current) participantProgramMenuRef.current.open = false
           }}>
-            <summary aria-label="Account and help"><UsersIcon /><span>Account &amp; help</span></summary>
-            <div className="shell-account-panel">
-              {auth.currentUser && (
-                <div className="account-pill">
-                  <span>{auth.currentUser.full_name}</span>
-                  <small>{auth.currentUser.role}</small>
-                  {auth.isAuthEnabled && <UserButton afterSignOutUrl="/" />}
-                </div>
-              )}
               <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />
               <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotGuideOpen(true) }}><GuideIcon /> Guide</Button>
               {isRealWorkspace && <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotFeedbackOpen(true) }}><FeedbackIcon /> Report a problem</Button>}
               {isRealWorkspace && auth.currentUser && (auth.currentUser.is_admin || auth.currentUser.enterprise_access?.organizations.some(org => org.it_admin)) && <Button variant="ghost" size="compact" onClick={event => {event.currentTarget.closest('details')?.removeAttribute('open'); setEnterpriseSettingsOpen(true)}}>Organization access</Button>}
               {isRealWorkspace && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFinancialRestartOpen(true) }}>Reset my test workspace</Button>}
-            </div>
-          </details>
+          </AccountMenu>
         </div>
       </header>
 
@@ -4405,8 +4391,7 @@ function AccessDenied({ message, onSignOut, onRetry }: { message: string; onSign
         <div className="auth-actions">
           <button type="button" onClick={() => void onRetry().catch(() => undefined)}>Check access again</button>
           <button type="button" onClick={() => window.location.reload()}>Reload page</button>
-          <button type="button" onClick={() => void onSignOut?.().catch(() => undefined)}>Sign out</button>
-          <div className="user-button-wrap"><UserButton afterSignOutUrl="/" /></div>
+          <SignOutButton onSignOut={onSignOut} />
         </div>
       </section>
       <BrandFooter />
@@ -9466,12 +9451,3 @@ function StatementIcon() {
 }
 
 export default App
-
-function UsersIcon() {
-  return (
-    <svg viewBox="0 0 24 24" role="img" aria-label="Users">
-      <path d="M9.2 11.1a3.1 3.1 0 1 0 0-6.2 3.1 3.1 0 0 0 0 6.2ZM4.4 19.1c.55-3.1 2.2-4.65 4.8-4.65 2.58 0 4.22 1.55 4.78 4.65" className="icon-stroke" />
-      <path d="M16.2 11.4a2.55 2.55 0 1 0 0-5.1M15.7 14.45c2.05.18 3.35 1.58 3.9 4.2" className="icon-stroke" />
-    </svg>
-  )
-}

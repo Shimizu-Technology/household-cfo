@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client'
 import { AuthVerificationBridge, type AuthSession } from '../contexts/AuthContext'
 import { useAuthContext } from '../contexts/authContextValue'
 import { BrandContext, NEUTRAL_BRAND } from '../contexts/brandContextValue'
-import { UserButton } from '../components/AuthControls'
+import { AccountMenu } from '../components/AccountMenu'
+import { Button } from '../components/Button'
 import { AuthAccessPanel } from '../components/AuthAccessPanel'
 import { EarlierMiaConversations } from '../components/EarlierMiaConversations'
 import '../index.css'
@@ -62,10 +63,12 @@ function VerificationSurface({ onHistory }: { onHistory?: () => void }) {
       onRetry={auth.refreshCurrentUser} onSignOut={auth.signOut} />
   }
   if (!auth.currentUser) return <main className="app"><h1>Signed out</h1></main>
-  return <main className="app" data-testid="verified-workspace"><h1>Verified workspace</h1>
+  return <main className="app" data-testid="verified-workspace">
+    {provider === 'workos' && <header className="shell-header"><div className="shell-brand"><div className="shell-brand-copy"><h1>Household CFO</h1></div></div><div className="shell-actions"><AccountMenu><Button variant="ghost" size="compact">Guide</Button><Button variant="ghost" size="compact">Report a problem</Button></AccountMenu></div></header>}
+    <h1>Verified workspace</h1>
     <p>{auth.currentUser.full_name}</p><p>Verified session: {auth.authIdentityId}</p>
     <p>This fixture never requests a full Clerk profile.</p>
-    {provider === 'workos' && <div style={{ display: 'flex', justifyContent: 'flex-end' }}><UserButton /></div>}
+
     {onHistory && <button type="button" onClick={onHistory}>Earlier conversations</button>}</main>
 }
 

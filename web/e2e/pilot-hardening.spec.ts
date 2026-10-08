@@ -9638,9 +9638,9 @@ for (const role of ['participant', 'coach', 'admin']) {
     const homeRight = await account.evaluate(node => node.getBoundingClientRect().right)
     await account.click()
     await expect(launcher).toBeHidden()
-    const identity = page.locator('.shell-account-panel .account-pill')
+    const identity = page.locator('.shell-account-panel .shell-account-identity')
     await expect(identity).toBeVisible()
-    expect(await identity.evaluate(node => getComputedStyle(node).justifyContent)).toBe('center')
+    expect(await identity.evaluate(node => getComputedStyle(node).justifyItems)).toBe('center')
     for (const icon of await page.locator('.shell-account-panel > .button svg').all()) {
       const size = await icon.boundingBox()
       expect(size!.width).toBeLessThanOrEqual(24)
@@ -11456,5 +11456,27 @@ for (const status of [403, 422] as const) {
     expect(flow.reopenCalls()).toBe(0)
     expect(flow.applyCalls()).toBe(0)
     expect(flow.generation()).toBe(0)
+  })
+}
+
+for (const role of ['participant', 'coach', 'admin']) {
+  test(`BOG UI actual ${role} shell has one account menu with identity and working help`, async ({ page }) => {
+    await page.goto(`/?pilot_e2e_role=${role}`)
+    await openAccountHelp(page)
+    const panel = page.locator('.shell-account-panel')
+    await expect(panel.locator('.shell-account-role')).toHaveText(role)
+    await expect(panel.locator('.shell-account-email')).toHaveText(`${role}@pilot.test`)
+    await expect(panel.locator('details')).toHaveCount(0)
+    const bounds = await panel.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+    await panel.getByRole('button', { name: 'Guide', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'A clear first Mia session in three moves.' })).toBeVisible()
+    await expect(page.locator('.shell-account-menu')).not.toHaveAttribute('open', '')
+    await page.keyboard.press('Escape')
+    await openAccountHelp(page)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.shell-account-menu > summary')).toBeFocused()
+    await expect(panel).not.toBeVisible()
   })
 }
