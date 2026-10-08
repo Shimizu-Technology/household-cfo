@@ -23,7 +23,8 @@ if (qaEnabled && params.get('native_fake_api') === 'true') {
   let brandAttempts = 0
   window.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.href)
-    const delay = url.pathname === '/api/public/brand' ? 1600 : url.pathname === '/api/auth/session' ? 700 : url.pathname === '/api/v1/auth/me' ? 800 : 700
+    const slow = params.get('native_slow') === 'true'
+    const delay = url.pathname === '/api/public/brand' ? slow ? 6000 : 1600 : url.pathname === '/api/auth/session' ? slow ? 1000 : 700 : url.pathname === '/api/v1/auth/me' ? slow ? 4000 : 800 : slow ? 4000 : 700
     if (!['/api/public/brand', '/api/auth/session', '/api/v1/auth/me', '/api/v1/startup-qa/workspace'].includes(url.pathname)) return originalFetch(input, init)
     await new Promise<void>((resolve, reject) => {
       if (init?.signal?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return }
