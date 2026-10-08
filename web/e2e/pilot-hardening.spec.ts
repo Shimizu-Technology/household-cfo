@@ -9638,9 +9638,9 @@ for (const role of ['participant', 'coach', 'admin']) {
     const homeRight = await account.evaluate(node => node.getBoundingClientRect().right)
     await account.click()
     await expect(launcher).toBeHidden()
-    const identity = page.locator('.shell-account-panel .account-pill')
+    const identity = page.locator('.shell-account-panel .shell-account-identity')
     await expect(identity).toBeVisible()
-    expect(await identity.evaluate(node => getComputedStyle(node).justifyContent)).toBe('center')
+    expect(await identity.evaluate(node => getComputedStyle(node).justifyItems)).toBe('center')
     for (const icon of await page.locator('.shell-account-panel > .button svg').all()) {
       const size = await icon.boundingBox()
       expect(size!.width).toBeLessThanOrEqual(24)
