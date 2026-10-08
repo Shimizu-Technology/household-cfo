@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useEffect } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AuthProvider } from './AuthContext'
@@ -162,4 +163,22 @@ it('refreshes a completed cookie after explicit cancellation without dismissing 
   await screen.findByText('Verified WorkOS account')
   expect(screen.getByRole('dialog')).toBeTruthy()
   expect(screen.getByLabelText('Email address')).toHaveProperty('value', 'new-invited@pilot.test')
+})
+
+it('loads the cookie while branding is pending, gates actor verification, and re-verifies after readiness is lost',async()=>{
+ let retained:(()=>Promise<void>)|undefined;
+ function RetainProbe(){const auth=useAuthContext();useEffect(()=>{if(auth.currentUser)retained=auth.refreshCurrentUser},[auth.currentUser,auth.refreshCurrentUser]);return <Probe/>}
+ const view=render(<AuthProvider provider="workos" clientId={clientId} verificationEnabled={false}><RetainProbe/></AuthProvider>);
+ await waitFor(()=>expect(fetchMock).toHaveBeenCalled());const actorReads=()=>fetchMock.mock.calls.filter(([input])=>String(input).endsWith('/api/v1/auth/me')).length;
+ expect(actorReads()).toBe(0);expect(screen.queryByText('Verified WorkOS account')).toBeNull();
+ view.rerender(<AuthProvider provider="workos" clientId={clientId}><RetainProbe/></AuthProvider>);await screen.findByText('Verified WorkOS account');expect(actorReads()).toBe(1);const previous=retained!;
+ view.rerender(<AuthProvider provider="workos" clientId={clientId} verificationEnabled={false}><RetainProbe/></AuthProvider>);expect(screen.queryByText('Verified WorkOS account')).toBeNull();await act(async()=>previous());expect(actorReads()).toBe(1);
+ view.rerender(<AuthProvider provider="workos" clientId={clientId}><RetainProbe/></AuthProvider>);await screen.findByText('Verified WorkOS account');expect(actorReads()).toBe(2);
+})
+it('ignores a late actor response after program approval disappears',async()=>{
+ let finish:((response:Response)=>void)|undefined;let signal:AbortSignal|undefined;
+ fetchMock.mockImplementation(async(input,options)=>String(input).endsWith('/api/auth/session')?Response.json(browserSession):new Promise<Response>(resolve=>{finish=resolve;signal=options.signal}));
+ const view=render(<AuthProvider provider="workos" clientId={clientId}><Probe/></AuthProvider>);await waitFor(()=>expect(finish).toBeTypeOf('function'));
+ view.rerender(<AuthProvider provider="workos" clientId={clientId} verificationEnabled={false}><Probe/></AuthProvider>);expect(signal?.aborted).toBe(true);
+ await act(async()=>finish!(Response.json({user:{id:17,auth_provider:'workos',auth_subject:'workos-subject'}})));expect(screen.queryByText('Verified WorkOS account')).toBeNull();
 })

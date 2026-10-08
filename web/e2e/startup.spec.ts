@@ -49,7 +49,7 @@ test.describe('BOG UI startup program and authentication gates', () => {
     await heldActor.fulfill({ json: { user } })
     await expect.poll(() => calls.workspace).toBe(1)
     await boundedOpening(page)
-    await expect(page.getByRole('status')).toHaveText('Loading your household…')
+    await expect(page.getByRole('status')).toHaveText('Getting your plan ready…')
     await heldWorkspace.fulfill({ json: { ready: true } })
     await expect(page.getByTestId('startup-verified-workspace')).toBeVisible()
     expect(calls).toEqual({ session: 2, actor: 1, workspace: 1 })

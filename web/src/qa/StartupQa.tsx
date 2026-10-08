@@ -6,6 +6,7 @@ import { useBrand, NEUTRAL_BRAND } from '../contexts/brandContextValue'
 import { AuthProvider } from '../contexts/AuthContext'
 import { useAuthContext } from '../contexts/authContextValue'
 import { IdentityBoundary } from '../components/IdentityBoundary'
+import { BrandDocument } from '../components/BrandDocument'
 import { WorkspaceOpening } from '../components/WorkspaceOpening'
 import { AuthAccessPanel } from '../components/AuthAccessPanel'
 import { SignInButton } from '../components/AuthControls'
@@ -50,8 +51,8 @@ function FictionalWorkspace() {
       .catch(() => { if (!controller.signal.aborted) setFailed(true) })
     return () => controller.abort()
   }, [])
-  if (failed) return <WorkspaceOpening status="Loading your household…" error="The fictional workspace could not load." onRetry={() => window.location.reload()} />
-  if (!ready) return <WorkspaceOpening status="Loading your household…" onRetry={() => window.location.reload()} />
+  if (failed) return <WorkspaceOpening status="Getting your plan ready…" error="The fictional workspace could not load." onRetry={() => window.location.reload()} />
+  if (!ready) return <WorkspaceOpening status="Getting your plan ready…" onRetry={() => window.location.reload()} />
   return <main className="app" data-testid="startup-verified-workspace"><h1>Verified workspace</h1><p>Fictional startup QA only. No household or financial information is loaded here.</p></main>
 }
 
@@ -65,7 +66,7 @@ function StartupSurface() {
 
 export function StartupQa() {
   const { status } = useBrand()
-  return <AuthProvider provider="workos" clientId="client_FICTIONAL1" verificationEnabled={status === 'ready'}><ProgramStartupGate><IdentityBoundary><StartupSurface /></IdentityBoundary></ProgramStartupGate></AuthProvider>
+  return <AuthProvider provider="workos" clientId="client_FICTIONAL1" verificationEnabled={status === 'ready'}><BrandDocument /><ProgramStartupGate><IdentityBoundary><StartupSurface /></IdentityBoundary></ProgramStartupGate></AuthProvider>
 }
 
 if (qaEnabled) createRoot(document.getElementById('root')!).render(<BrandProvider><StartupQa /></BrandProvider>)
