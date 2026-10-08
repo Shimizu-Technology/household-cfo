@@ -78,6 +78,8 @@ test.describe('BOG UI auth verification recovery', () => {
   test('recovery controls fit the viewport and the reload action works', async ({ page }) => {
     await page.clock.install()
     await page.goto('/auth-recovery-qa.html?mode=sdk-pending')
+    await expect(page.getByRole('heading', { name: 'Opening your workspace…' })).toBeVisible()
+    await page.clock.runFor(100)
     await page.clock.fastForward(30_100)
     const button = page.getByRole('button', { name: 'Reload page' })
     await expect(button).toBeVisible()

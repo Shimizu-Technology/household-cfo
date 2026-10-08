@@ -87,7 +87,10 @@ test.describe('BOG UI startup program and authentication gates', () => {
     await expect(page.getByText('This is taking a little longer. You can keep waiting or try again.')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
     expect(calls.actor).toBe(0)
+    const reloaded = page.waitForEvent('load')
     await page.getByRole('button', { name: 'Try again' }).click()
+    await reloaded
+    await page.clock.runFor(100)
     await expect(page.getByTestId('startup-verified-workspace')).toBeVisible()
     // Explicit reload restarts the cookie read, then the actor token getter
     // performs its fresh authoritative cookie check before verification.
