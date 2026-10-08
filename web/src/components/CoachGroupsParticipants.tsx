@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent } from 'react'
 import { createAdminCohort, createAdminUser, fetchAdminCohorts, fetchAdminUsers, removeCoachGroupParticipant, resendAdminUserInvitation, updateAdminCohort } from '../api'
 import type { AdminCohort, AdminCohortInput, AdminCohortStatus, AdminUser, AdminUserMutationResponse, CurrentUser } from '../api'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
@@ -29,13 +29,14 @@ type Props = {
 export function CoachGroupsParticipants(props: Props) {
   const membership = props.currentUser.coach_workspaces?.find((workspace) => workspace.id === props.workspaceId)
   const allowed = props.workspaceId !== null && (props.currentUser.is_admin || membership?.membership_role === 'owner')
-  return <GroupsPanel key={`${props.workspaceId ?? 'platform'}:${allowed}:${props.selectedCohortId ?? 'local'}`} {...props} allowed={allowed} />
+  return <GroupsPanel key={`${props.workspaceId ?? 'platform'}:${allowed}`} {...props} allowed={allowed} />
 }
 
 function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsChanged, onContextNotice, selectedCohortId, onSelectedCohortIdChange, allowed }: Props & { allowed: boolean }) {
   const [groups, setGroups] = useState<AdminCohort[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [previousCohortId, setPreviousCohortId] = useState(selectedCohortId)
   const [draft, setDraft] = useState<GroupDraft | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
@@ -59,17 +60,32 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
     return { nextGroups, nextUsers, nextId: nextGroups.some((group) => group.id === preferredId) ? preferredId! : nextGroups[0]?.id ?? null }
   }, [])
 
+  const acceptLoadedGroups = useEffectEvent(({ nextGroups, nextUsers, nextId: fallbackId }: Awaited<ReturnType<typeof load>>) => {
+    const nextId = nextGroups.some((group) => group.id === selectedCohortId) ? selectedCohortId! : fallbackId
+    setGroups(nextGroups); setUsers(nextUsers); setSelectedId(nextId); onSelectedCohortIdChange?.(nextId)
+    setDraft(nextGroups.find((group) => group.id === nextId) ? draftFor(nextGroups.find((group) => group.id === nextId)!) : null)
+  })
+
   useEffect(() => {
     const request = ++generation.current
     if (!allowed) return
-    void load(selectedCohortId).then(({ nextGroups, nextUsers, nextId }) => {
+    void load().then((data) => {
       if (request !== generation.current) return
-      setGroups(nextGroups); setUsers(nextUsers); setSelectedId(nextId); onSelectedCohortIdChange?.(nextId)
-      setDraft(nextGroups.find((group) => group.id === nextId) ? draftFor(nextGroups.find((group) => group.id === nextId)!) : null)
+      acceptLoadedGroups(data)
     }).catch((caught) => { if (request === generation.current) setError(messageFor(caught)) })
       .finally(() => { if (request === generation.current) setLoading(false) })
     return () => { generation.current += 1 }
-  }, [allowed, load, workspaceId, selectedCohortId, onSelectedCohortIdChange])
+  }, [allowed, load, workspaceId])
+
+  // Cohort selection and its controlled echo use the already loaded roster.
+  // Adjust before rendering so a newly selected group never shows the old draft.
+  if (selectedCohortId !== previousCohortId) {
+    setPreviousCohortId(selectedCohortId)
+    const group = groups.find((item) => item.id === selectedCohortId)
+    if (group && group.id !== selectedId) {
+      setSelectedId(group.id); setDraft(draftFor(group)); setRosterPage(0); setSearch(''); setEmail(''); setRemovingId(null); setError(null); setNotice(null); setNewName(''); setCreateOpen(false)
+    }
+  }
 
   const participants = useMemo(() => users.filter((user) => user.is_participant && user.cohorts.some((membership) => membership.cohort.id === selectedId))
     .filter((user) => `${user.full_name} ${user.email}`.toLowerCase().includes(search.trim().toLowerCase())), [search, selectedId, users])

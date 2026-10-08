@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminPersonaDetail, CurrentUser, PersonaConfiguration } from '../api'
 import { CoachStudio } from './CoachStudio'
@@ -8,7 +8,7 @@ vi.mock('../api', async (original) => ({ ...await original<typeof import('../api
 const supportMocks = vi.hoisted(() => ({ fetchSetupSupportRequests: vi.fn(), updateSetupSupportRequest: vi.fn() }))
 vi.mock('../setupHelpApi', () => supportMocks)
 vi.mock('../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: 2, selectCoachWorkspace: vi.fn() }) }))
-vi.mock('./CoachGroupsParticipants', () => ({ CoachGroupsParticipants: () => <section>Participant access task</section> }))
+vi.mock('./CoachGroupsParticipants', () => ({ CoachGroupsParticipants: ({ onDirtyChange, onGroupsChanged }: { onDirtyChange: (dirty: boolean) => void; onGroupsChanged: () => void }) => <section>Participant access task<input aria-label="Unsent participant invitation" onChange={(event) => onDirtyChange(Boolean(event.target.value))} /><button onClick={onGroupsChanged}>Finish group change</button></section> }))
 vi.mock('./CoachChallengeDashboard', () => ({ CoachChallengeDashboard: () => <section>Daily check-ins task</section> }))
 vi.mock('./CoachContentLibrary', () => ({ CoachContentLibrary: () => null, PersonaContentPacksPanel: () => <section>Exact approved sources</section> }))
 vi.mock('./PersonaReleasePanel', () => ({ PersonaReleasePanel: ({ dirty }: { dirty: boolean }) => <section><button disabled={dirty}>Publish reviewed assistant</button></section> }))
@@ -80,6 +80,114 @@ describe('coach daily operation and assistant workflow', () => {
     expect(screen.getByRole('tab', { name: /Daily coaching/ }).getAttribute('aria-selected')).toBe('true')
     expect(screen.queryByLabelText('Assistant name')).toBeNull()
     expect(screen.queryByText(/Shape a coaching assistant people can trust/)).toBeNull()
+    await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
+    expect(mocks.fetchAdminPersonas).not.toHaveBeenCalled()
+    expect(mocks.fetchAdminPersona).not.toHaveBeenCalled()
+    expect(screen.queryByText('Participant access task')).toBeNull()
+  })
+  it('loads assistant details on first voice visit and reuses them after a clean tab transition', async () => {
+    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
+    await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    await screen.findByLabelText('Assistant name')
+    expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(1)
+    expect(mocks.fetchAdminPersona).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('tab', { name: /Daily coaching/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    await screen.findByLabelText('Assistant name')
+    expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(1)
+    expect(mocks.fetchAdminPersona).toHaveBeenCalledTimes(1)
+  })
+  it('settles cohort loading when a completed group change supersedes the initial cohort request', async () => {
+    let finishInitial!: (value: unknown[]) => void
+    mocks.fetchAdminPersonaAssignableCohorts.mockReturnValueOnce(new Promise((resolve) => { finishInitial = resolve }))
+    mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{ id: 42, name: 'New group', status: 'enrolling', assignable: true, blocked_reason: null, persona_assignment: null }])
+    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
+    await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
+    const details = screen.getByText('Group invitations & access', { selector: 'summary' }).closest('details')!
+    details.open = true
+    fireEvent(details, new Event('toggle'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Finish group change' }))
+    await waitFor(() => expect(screen.getByLabelText('Group')).toHaveProperty('disabled', false))
+    expect(screen.getByLabelText('Group')).toHaveProperty('value', '42')
+    await act(async () => finishInitial([{ id: 41, name: 'Old group' }]))
+    expect(screen.getByLabelText('Group')).toHaveProperty('value', '42')
+    expect(mocks.fetchAdminPersonas).not.toHaveBeenCalled()
+  })
+  it('loads the selected assistant when the Coaching Library is visited first', async () => {
+    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
+    fireEvent.click(screen.getByRole('tab', { name: /Coaching Library/ }))
+    await waitFor(() => expect(mocks.fetchAdminPersona).toHaveBeenCalledWith(81))
+    expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(1)
+  })
+  it('keeps Daily coaching available after an assistant request fails and retries on demand', async () => {
+    mocks.fetchAdminPersonas.mockRejectedValueOnce(new Error('Assistant library temporarily unavailable'))
+    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
+    await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('alert')).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Assistant library temporarily unavailable')
+    fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+    await screen.findByLabelText('Assistant name')
+    expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(2)
+    expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('tab', { name: /Daily coaching/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    await screen.findByLabelText('Assistant name')
+    expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(2)
+  })
+  it('refreshes a failed cached list on section revisit after a detail reload clears its error', async () => {
+    const second = { ...persona, id: 82, name: 'Second assistant' }
+    const newest = { ...persona, id: 83, name: 'Newest assistant' }
+    mocks.fetchAdminPersonas.mockResolvedValue([persona, second, newest])
+    mocks.fetchAdminPersonas.mockResolvedValueOnce([persona, second])
+    mocks.fetchAdminPersonas.mockRejectedValueOnce(new Error('Assistant list refresh failed'))
+    mocks.fetchAdminPersona.mockResolvedValueOnce(persona)
+    mocks.fetchAdminPersona.mockRejectedValueOnce(new Error('Second assistant detail failed'))
+    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
+    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    await screen.findByLabelText('Assistant name')
+    fireEvent.click(screen.getByRole('button', { name: /^Second assistant/ }))
+    const detailAlert = await screen.findByRole('alert')
+    expect(detailAlert.textContent).toContain('Second assistant detail failed')
+    fireEvent.click(within(detailAlert).getByRole('button', { name: 'Retry' }))
+    await screen.findByText('Assistant list refresh failed')
+    expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('button', { name: /^Newest assistant/ })).toBeNull()
+    fireEvent.change(screen.getByLabelText('Assistant name'), { target: { value: 'Unsaved name' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Second assistant/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reload server draft' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    await waitFor(() => expect(screen.getByLabelText('Assistant name')).toHaveProperty('value', 'Coach Lani'))
+    // Clearing a detail error does not trigger an automatic list retry loop.
+    expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(2)
+    fireEvent.click(screen.getByRole('tab', { name: /Daily coaching/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    await screen.findByRole('button', { name: /^Newest assistant/ })
+    expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(3)
+  })
+  it('mounts invitations on first open and preserves an unsent invitation when reclosed', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const dirty = vi.fn()
+    render(<CoachStudio currentUser={actor} onDirtyChange={dirty} />)
+    const details = screen.getByText('Group invitations & access', { selector: 'summary' }).closest('details')!
+    expect(screen.queryByText('Participant access task')).toBeNull()
+    details.open = true
+    fireEvent(details, new Event('toggle'))
+    const invitation = await screen.findByLabelText('Unsent participant invitation')
+    fireEvent.change(invitation, { target: { value: 'unsent@example.test' } })
+    expect(dirty).toHaveBeenLastCalledWith(true)
+    details.open = false
+    fireEvent(details, new Event('toggle'))
+    details.open = true
+    fireEvent(details, new Event('toggle'))
+    expect(screen.getByLabelText('Unsent participant invitation')).toHaveProperty('value', 'unsent@example.test')
+    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    expect(confirm).toHaveBeenCalledWith('Discard unsaved Coach Studio changes and switch views?')
+    expect(screen.getByRole('tab', { name: /Daily coaching/ }).getAttribute('aria-selected')).toBe('true')
+    expect(mocks.fetchAdminPersonas).not.toHaveBeenCalled()
+    confirm.mockRestore()
   })
   it('shows a cohort loading failure and retries from Daily coaching without opening assistant construction', async () => {
     mocks.fetchAdminPersonaAssignableCohorts.mockRejectedValueOnce(new Error('Cohort list temporarily unavailable'))
@@ -97,6 +205,7 @@ describe('coach daily operation and assistant workflow', () => {
     expect(screen.getByLabelText('Group')).toHaveProperty('value', '41')
     expect(screen.queryByRole('alert')).toBeNull()
     expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(2)
+    expect(mocks.fetchAdminPersonas).not.toHaveBeenCalled()
     expect(screen.getByRole('tab', { name: /Daily coaching/ }).getAttribute('aria-selected')).toBe('true')
     expect(screen.queryByLabelText('Assistant name')).toBeNull()
   })

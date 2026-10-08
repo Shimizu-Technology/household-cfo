@@ -6,6 +6,7 @@ import { BrandContext, NEUTRAL_BRAND } from '../contexts/brandContextValue'
 import { AccountMenu } from '../components/AccountMenu'
 import { Button } from '../components/Button'
 import { AuthAccessPanel } from '../components/AuthAccessPanel'
+import { WorkspaceOpening } from '../components/WorkspaceOpening'
 import { EarlierMiaConversations } from '../components/EarlierMiaConversations'
 import '../index.css'
 import '../App.css'
@@ -55,8 +56,7 @@ function VerificationSurface({ onHistory }: { onHistory?: () => void }) {
       onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} />
   }
   if (auth.isLoading || auth.isVerifyingApi) {
-    return <AuthAccessPanel title="Verifying your Household CFO access" copy="Checking your secure program invitation before opening the workspace."
-      onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} />
+    return <WorkspaceOpening status="Signing you in securely…" onRetry={() => window.location.reload()} />
   }
   if (auth.authError) {
     return <AuthAccessPanel title="Your account does not have program access." copy={auth.authError} recovering

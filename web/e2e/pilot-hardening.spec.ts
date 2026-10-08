@@ -1,7 +1,7 @@
 import { dailyContext, dailyDraft, dailySnapshot, dailyVersion } from '../src/test/dailyFixtures'
 import type { DailyPurchase, DailyPurchaseDraft, DailyReflection, DailyCheckpointDraft, DailyCheckpoint, DailyInput } from '../src/lib/dailyChallenge'
 import { baselineContext, baselineCurrent, baselinePreview, baselineScope, baselineVersion } from '../src/test/baselineFixtures'
-import { expect, test, type Page, type Locator } from '@playwright/test'
+import { expect, test, type Page, type Locator, type Route } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { savingsEntryDraft, savingsEntryVersion, savingsFixture, savingsPlanDraft, savingsPlanVersion } from '../src/test/savingsFixtures'
 import type { SavingsChallenge, SavingsEntry, SavingsEntryDraft, SavingsPlanDraft } from '../src/lib/savingsChallenge'
@@ -1344,13 +1344,17 @@ test('release-pinned participant branding replaces the public hostname brand wit
     status: 200,
     json: { brand: publicConfig, source: 'active_domain', available: true, workspace: { slug: 'public-door' }, version: { number: 1, digest: 'public' }, primary_domain: '127.0.0.1' },
   }))
+  let openingWorkspace: Route | undefined
   await page.route('http://api.test/api/v1/workspace', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 350))
+    if (!openingWorkspace) { openingWorkspace = route; return }
     await route.fulfill({ status: 200, json: workspace })
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await expect(page.getByRole('heading', { name: 'Loading your Public Program Door workspace.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Opening your workspace…' })).toBeVisible()
+  await expect(page.locator('.workspace-opening-brand')).toHaveText('Public Coach Network')
+  await expect.poll(() => Boolean(openingWorkspace)).toBe(true)
+  await openingWorkspace!.fulfill({ status: 200, json: workspace })
   await expect(page.getByRole('heading', { name: 'Island Money Community', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Open Auntie Mel, Your Island Money Guide' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Håfa adai, let’s make one clear money move.' })).toBeVisible()
@@ -4025,7 +4029,7 @@ test('query-only Plaid returns preserve callback state while the workspace loads
 
   await page.goto('/?pilot_e2e_role=participant&oauth_state_id=delayed')
   await expect(page).toHaveURL(/oauth_state_id=delayed#My%20Profile$/)
-  await expect(page.getByRole('heading', { name: 'Loading your Household CFO workspace.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Opening your workspace…' })).toBeVisible()
 
   releaseWorkspace()
   await expect(page).toHaveURL(/oauth_state_id=delayed#My%20Profile$/)
@@ -8277,6 +8281,7 @@ test('Coach Studio program reviewer cannot edit identity or access participants 
   expect(writes).toEqual([])
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   const returnToLibrary = page.getByRole('button', { name: '← All assistants' })
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
   if (await returnToLibrary.isVisible()) await returnToLibrary.click()
   await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
   await expect(page.getByText('Your collaborator role can view assistants but cannot create drafts. Ask a workspace owner or editor to create one.')).toBeVisible()

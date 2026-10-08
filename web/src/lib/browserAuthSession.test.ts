@@ -343,3 +343,10 @@ it.each([
   restoreBrowserAuthNavigation()
   expect(window.location.search).toBe('')
 })
+
+it('keeps authentication pending until its single completion read succeeds',async()=>{
+ fetchMock.mockResolvedValueOnce(Response.json({client_id:clientId,user:null}));const client=new BrowserSessionClient(clientId);await client.load();let finish!:(response:Response)=>void;fetchMock.mockImplementationOnce(()=>new Promise<Response>(resolve=>{finish=resolve}));const states:string[]=[];const stop=client.subscribe(()=>states.push(`${client.getSnapshot().status}:${client.getSnapshot().session?.user.id??'none'}`));const completion=client.loadAfterAuthentication();expect(states).toEqual(['loading:none']);finish(Response.json(session()));await completion;expect(states).toEqual(['loading:none','ready:user_FICTIONAL1']);expect(fetchMock).toHaveBeenCalledTimes(2);stop();client.dispose();
+})
+it('cannot restore a revoked session from a late successful authentication read',async()=>{
+ const client=new BrowserSessionClient(clientId);let finish!:(response:Response)=>void;fetchMock.mockImplementationOnce(()=>new Promise<Response>(resolve=>{finish=resolve}));const completion=client.loadAfterAuthentication();client.invalidate(new ApiRequestError('Session revoked.',{status:401}));finish(Response.json(session()));await expect(completion).rejects.toMatchObject({status:409});expect(client.getSnapshot()).toMatchObject({status:'error',session:null,error:{status:401}});client.dispose();
+})

@@ -1,0 +1,12 @@
+.workspace-opening { min-block-size: 100svh; display: grid; place-items: center; padding: clamp(1rem, 4vw, 3rem); box-sizing: border-box; }
+.workspace-opening-panel { box-sizing: border-box; inline-size: min(100%, 29rem); min-inline-size: 0; padding: clamp(1.25rem, 4vw, 2rem); border: 1px solid var(--border-subtle, #e2d9cb); border-radius: 1.25rem; background: var(--surface, #fffdf8); color: var(--text-primary, #1f2421); box-shadow: 0 12px 35px rgb(31 36 33 / 5%); }
+.workspace-opening-brand { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; font-size: .75rem; font-weight: 750; line-height: 1.5; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted, #706d66); }
+.workspace-opening-panel h1 { margin: .75rem 0 1rem; font-family: var(--font-body); font-size: clamp(1.2rem, 4.8vw, 1.5rem); font-weight: 750; line-height: 1.35; letter-spacing: -.02em; }
+.opening-progress { display: flex; align-items: center; gap: .75rem; min-block-size: 3rem; margin: 0; font-size: .95rem; line-height: 1.5; color: var(--text-muted, #706d66); }
+.opening-progress-indicator { flex: 0 0 auto; inline-size: 1.1rem; block-size: 1.1rem; border: 2px solid currentColor; border-inline-end-color: transparent; border-radius: 50%; animation: opening-turn .9s linear infinite; }
+.workspace-opening-error { line-height: 1.5; overflow-wrap: anywhere; }
+.workspace-opening-recovery { margin-block-start: 1rem; padding-block-start: 1rem; border-block-start: 1px solid var(--border-subtle, #e2d9cb); display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.workspace-opening-recovery p { flex-basis: 100%; margin: 0; font-size: .875rem; line-height: 1.5; color: var(--text-muted, #706d66); }
+.workspace-opening-recovery button { min-block-size: 44px; max-inline-size: 100%; }
+@keyframes opening-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .opening-progress-indicator { animation: none; } }

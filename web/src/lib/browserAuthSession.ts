@@ -170,6 +170,15 @@ export class BrowserSessionClient {
     this.request = request
     return request
   }
+  // Authentication is still in progress until its authoritative cookie is read.
+  // Publish pending directly, rather than briefly displaying signed-out content.
+  loadAfterAuthentication = () => {
+    this.generation += 1
+    this.controller?.abort()
+    this.request = null
+    this.publish({ status: 'loading', session: null, error: null })
+    return this.load()
+  }
   getAccessToken = async (): Promise<string | null> => {
     const expected = identity(this.snapshot.session)
     // Check the authoritative same-origin cookie on every logical operation;

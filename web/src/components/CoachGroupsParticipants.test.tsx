@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { StrictMode, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminCohort, AdminUser, CurrentUser } from '../api'
 import { CoachGroupsParticipants } from './CoachGroupsParticipants'
@@ -24,6 +25,48 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 describe('Coach group essentials', () => {
+  it('uses the latest controlled cohort when the initial roster request resolves', async () => {
+    const second = { ...group, id: 11, name: 'Second group' }
+    let completeObsolete!: (value: AdminCohort[]) => void
+    let complete!: (value: AdminCohort[]) => void
+    mocks.fetchAdminCohorts.mockReturnValueOnce(new Promise((resolve) => { completeObsolete = resolve }))
+    mocks.fetchAdminCohorts.mockReturnValueOnce(new Promise((resolve) => { complete = resolve }))
+    const lifecycle = { pending: false, begin: vi.fn(() => ({ id: 1, workspaceId: 2 })), isCurrent: vi.fn(() => true), finish: vi.fn() }
+    const selected = vi.fn()
+    const props = { currentUser: owner, workspaceId: 2, mutationLifecycle: lifecycle, onDirtyChange: vi.fn(), onSelectedCohortIdChange: selected }
+    const view = render(<StrictMode><CoachGroupsParticipants {...props} selectedCohortId={10} /></StrictMode>)
+    view.rerender(<StrictMode><CoachGroupsParticipants {...props} selectedCohortId={11} /></StrictMode>)
+    await act(async () => complete([group, second]))
+    await screen.findByText('Participants in Second group')
+    expect(selected).toHaveBeenLastCalledWith(11)
+    await act(async () => completeObsolete([group]))
+    expect(screen.getByText('Participants in Second group')).toBeTruthy()
+    expect(selected).toHaveBeenCalledTimes(1)
+    expect(selected).toHaveBeenLastCalledWith(11)
+    expect(mocks.fetchAdminCohorts).toHaveBeenCalledTimes(2)
+    expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(2)
+  })
+  it('loads the roster once when initial selection is echoed and reuses it for controlled cohort changes', async () => {
+    const second = { ...group, id: 11, name: 'Second group' }
+    mocks.fetchAdminCohorts.mockResolvedValue([group, second])
+    const secondParticipant = { ...participant, id: 41, email: 'second@example.test', cohorts: [{ ...participant.cohorts[0], cohort: { ...participant.cohorts[0].cohort, id: 11 } }] }
+    mocks.fetchAdminUsers.mockResolvedValue([participant, secondParticipant])
+    const lifecycle = { pending: false, begin: vi.fn(() => ({ id: 1, workspaceId: 2 })), isCurrent: vi.fn(() => true), finish: vi.fn() }
+    function ControlledGroups() {
+      const [selected, setSelected] = useState<number | null>(null)
+      return <><button onClick={() => setSelected(11)}>Choose second group</button><CoachGroupsParticipants currentUser={owner} workspaceId={2} mutationLifecycle={lifecycle} onDirtyChange={() => undefined} selectedCohortId={selected} onSelectedCohortIdChange={(id) => setSelected(id)} /></>
+    }
+    render(<ControlledGroups />)
+    await screen.findByText('Participants in Tuesday group')
+    expect(mocks.fetchAdminCohorts).toHaveBeenCalledTimes(1)
+    expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(1)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Choose second group' }))
+    await screen.findByText('Participants in Second group')
+    expect(screen.getByText('second@example.test')).toBeTruthy()
+    expect(screen.queryByText('participant@example.com')).toBeNull()
+    expect(mocks.fetchAdminCohorts).toHaveBeenCalledTimes(1)
+    expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(1)
+  })
   it('bounds thirty participants to ten rows and resets paging on search and group changes without discarding drafts', async () => {
     const user = userEvent.setup()
     const second = { ...group, id: 11, name: 'Wednesday group' }
