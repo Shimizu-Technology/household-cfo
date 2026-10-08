@@ -3189,7 +3189,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   if (auth.isAuthEnabled && (auth.isLoading || auth.isVerifyingApi)) {
-    return <WorkspaceOpening status="Signing you in securely…" onRetry={() => window.location.reload()} />
+    return <WorkspaceOpening status="Signing you in securely…" onRetry={() => window.location.reload()} recovery={!auth.isLoading && auth.isSignedIn ? <SignOutButton /> : undefined} />
   }
 
   if (auth.isAuthEnabled && !auth.isSignedIn) {

@@ -1,7 +1,7 @@
 import { dailyContext, dailyDraft, dailySnapshot, dailyVersion } from '../src/test/dailyFixtures'
 import type { DailyPurchase, DailyPurchaseDraft, DailyReflection, DailyCheckpointDraft, DailyCheckpoint, DailyInput } from '../src/lib/dailyChallenge'
 import { baselineContext, baselineCurrent, baselinePreview, baselineScope, baselineVersion } from '../src/test/baselineFixtures'
-import { expect, test, type Page, type Locator } from '@playwright/test'
+import { expect, test, type Page, type Locator, type Route } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { savingsEntryDraft, savingsEntryVersion, savingsFixture, savingsPlanDraft, savingsPlanVersion } from '../src/test/savingsFixtures'
 import type { SavingsChallenge, SavingsEntry, SavingsEntryDraft, SavingsPlanDraft } from '../src/lib/savingsChallenge'

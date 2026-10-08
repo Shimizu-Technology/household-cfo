@@ -48,7 +48,7 @@ function Root() {
     </AuthProvider>
   )
 
-  if (config.provider === 'preview') return app
+  if (config.provider === 'preview') return <><BrandDocument /><ProgramStartupGate>{app}</ProgramStartupGate></>
   if (config.provider === 'workos') return app
 
   return (
