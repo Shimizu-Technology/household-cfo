@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AuthProvider } from './AuthContext'
 import { useAuthContext } from './authContextValue'
 import App from '../App'
-import { UserButton } from '../components/AuthControls'
+import { AccountMenu } from '../components/AccountMenu'
 const clientId = 'client_FICTIONAL1'
 const browserSession = { client_id: clientId, user: { id: 'workos-subject', email: 'fictional@pilot.test', first_name: 'Fictional', last_name: 'Person' }, organization_id: 'org_FICTIONAL1', authentication_method: 'SSO', access_token: 'short-lived-access-token', expires_at: new Date(Date.now() + 120_000).toISOString() }
 const fetchMock = vi.fn()
@@ -67,19 +67,19 @@ it('offers App recovery after an atomic logout conflict and verifies the new coo
   })
   function Workspace() {
     const auth = useAuthContext()
-    return auth.authError ? <App /> : <><p>{auth.currentUser?.full_name}</p><UserButton /></>
+    return auth.authError ? <App /> : <><p>{auth.currentUser?.full_name}</p><AccountMenu /></>
   }
   try {
     render(<AuthProvider provider="workos" clientId={clientId}><Workspace /></AuthProvider>)
-    await screen.findByText('Original fictional account')
-    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+    await waitFor(() => expect(screen.getAllByText('Original fictional account').length).toBeGreaterThan(0))
+    fireEvent.click(screen.getByLabelText('Account and help'))
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
     await screen.findByRole('heading', { name: 'We couldn’t finish checking your access.' })
     expect(screen.queryByText('Original fictional account')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Sign in again' })).toBeNull()
     expect(expire).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Check access again' }))
-    await screen.findByText('Other fictional account')
+    await waitFor(() => expect(screen.getAllByText('Other fictional account').length).toBeGreaterThan(0))
     const calls = fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/api/v1/auth/me'))
     expect(calls).toHaveLength(2)
     expect(calls[1][1].headers.Authorization).toBe('Bearer new-account-token')

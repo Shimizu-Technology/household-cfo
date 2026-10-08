@@ -11458,3 +11458,25 @@ for (const status of [403, 422] as const) {
     expect(flow.generation()).toBe(0)
   })
 }
+
+for (const role of ['participant', 'coach', 'admin']) {
+  test(`BOG UI actual ${role} shell has one account menu with identity and working help`, async ({ page }) => {
+    await page.goto(`/?pilot_e2e_role=${role}`)
+    await openAccountHelp(page)
+    const panel = page.locator('.shell-account-panel')
+    await expect(panel.locator('.shell-account-role')).toHaveText(role)
+    await expect(panel.locator('.shell-account-email')).toHaveText(`${role}@pilot.test`)
+    await expect(panel.locator('details')).toHaveCount(0)
+    const bounds = await panel.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+    await panel.getByRole('button', { name: 'Guide', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'A clear first Mia session in three moves.' })).toBeVisible()
+    await expect(page.locator('.shell-account-menu')).not.toHaveAttribute('open', '')
+    await page.keyboard.press('Escape')
+    await openAccountHelp(page)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.shell-account-menu > summary')).toBeFocused()
+    await expect(panel).not.toBeVisible()
+  })
+}

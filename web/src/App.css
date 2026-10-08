@@ -10259,9 +10259,14 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 .shell-account-menu > summary::-webkit-details-marker { display: none; }
 .shell-account-menu > summary svg { width: 20px; height: 20px; fill: currentColor; }
 .shell-account-panel { position: absolute; top: calc(100% + 8px); right: 0; width: min(320px, calc(100vw - 32px)); z-index: 65; max-height: calc(100dvh - 112px - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); box-shadow: 0 12px 30px #0002; }
-.shell-account-panel .account-pill { flex-wrap: wrap; justify-content: center; width: 100%; box-sizing: border-box; min-height: 44px; text-align: center; }
-.app .shell-account-panel .account-pill > span { display: block; max-width: 100%; font-size: .86rem; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
-.app .shell-account-panel .account-pill > small { display: block; font-size: .64rem; }
+.shell-account-identity { min-width: 0; display: grid; justify-items: center; gap: 6px; padding: 8px 0; text-align: center; }
+.shell-account-identity strong { max-width: 100%; overflow-wrap: anywhere; font-size: .95rem; }
+.shell-account-role { font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.shell-account-email { display: block; max-width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .7rem; color: var(--muted); }
+.account-sign-out { display: grid; gap: 8px; }
+.shell-account-panel > .account-sign-out { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.account-sign-out .button { width: 100%; min-height: 44px; }
+.account-sign-out p { margin: 0; font-size: .8rem; color: var(--ink); }
 .shell-account-panel > .button svg { width: 20px; height: 20px; flex: 0 0 20px; fill: none; }
 .shell-account-panel .participant-private-access > button { max-width: none; width: 100%; font-size: .85rem; min-height: 44px; }
 .shell-account-panel .shell-mia-button { display: none; }
@@ -10472,8 +10477,3 @@ body:has([role="dialog"][aria-modal="true"], dialog[open]) .app > .mia-launcher 
 }
 
 .money-setup-help { justify-self: start; grid-column: 1 / -1; min-height: 44px; }
-
-.auth-account-control { position: relative; flex-shrink: 0; }
-.auth-account-trigger { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; }
-.auth-account-panel { position: absolute; right: 0; top: calc(100% + 8px); z-index: 50; display: grid; gap: 12px; width: min(280px, calc(100vw - 32px)); padding: 18px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgb(0 0 0 / 12%); overflow-wrap: anywhere; }
-.auth-account-panel p { margin: 0; }

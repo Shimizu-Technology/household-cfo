@@ -139,7 +139,7 @@ test.describe('Auth recovery Google completion and browser isolation', () => {
       }
       await popup.getByRole('link', { name: 'Complete fictional Google sign-in', exact: true }).click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
-      await expect(page.getByText('Original fictional Google account', { exact: true })).toBeVisible()
+      await expect(page.getByTestId('verified-actor').filter({ hasText: 'Original fictional Google account' })).toBeVisible()
       const returned = new URL(page.url())
       expect(returned.origin).toBe(origin)
       if (!isolated) { expect(returned.searchParams.get('oauth_state_id')).toBe('fictional-google-bank-ref'); expect(returned.searchParams.has('income')).toBe(false); expect(returned.hash).toBe('#Review') }

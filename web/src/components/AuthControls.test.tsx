@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AuthContext, type AuthContextValue } from '../contexts/authContextValue'
-import { SignInButton, UserButton } from './AuthControls'
+import { SignInButton, SignOutButton } from './AuthControls'
 import { AuthLoginRoute } from './AuthLoginRoute'
 const auth = (overrides: Partial<AuthContextValue> = {}): AuthContextValue => ({
   isClerkEnabled: false, isAuthEnabled: true, authProvider: 'workos', authIdentityId: null,
@@ -28,18 +28,31 @@ it('starts externally initiated login once and provides a failed-start retry', a
   fireEvent.click(screen.getByRole('button', { name: 'Check access again' }))
   await waitFor(() => expect(signIn).toHaveBeenCalledTimes(2))
 })
-it('keeps the account menu operable by keyboard and allows sign-out retry', async () => {
+it('provides a direct sign-out action and allows retry after a failure', async () => {
   const signOut = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(undefined)
-  render(<AuthContext.Provider value={auth({ signOut })}><UserButton /></AuthContext.Provider>)
-  const trigger = screen.getByRole('button', { name: 'Account' })
-  fireEvent.click(trigger)
+  render(<AuthContext.Provider value={auth({ signOut })}><SignOutButton /></AuthContext.Provider>)
   fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
   await screen.findByRole('alert')
   fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
   await waitFor(() => expect(signOut).toHaveBeenCalledTimes(2))
-  fireEvent.keyDown(trigger, { key: 'Escape' })
-  expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
-  expect(document.activeElement).toBe(trigger)
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+})
+it('disables repeated sign-out while the request is pending', async () => {
+  let finish!: () => void
+  const signOut = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
+  render(<AuthContext.Provider value={auth({ signOut })}><SignOutButton /></AuthContext.Provider>)
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+  const pending = screen.getByRole('button', { name: 'Signing out…' }) as HTMLButtonElement
+  expect(pending.disabled).toBe(true)
+  fireEvent.click(pending)
+  expect(signOut).toHaveBeenCalledOnce()
+  finish()
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy())
+})
+it('reports unavailable sign-out rather than pretending it succeeded', async () => {
+  render(<AuthContext.Provider value={auth()}><SignOutButton /></AuthContext.Provider>)
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+  await screen.findByRole('alert')
 })
 
 it('does not automatically restart a failed callback and starts a new login only after explicit retry', async () => {
