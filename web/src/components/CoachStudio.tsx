@@ -195,6 +195,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     try {
       const nextPersonas = await fetchAdminPersonas()
       if (requestId !== loadPersonasRequestRef.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
+      personasWorkspaceRef.current = requestedWorkspaceId
       setPersonas(nextPersonas)
       const candidateId = preferredId
         ?? selectedIdRef.current
@@ -210,6 +211,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       }
     } catch (caught) {
       if (requestId === loadPersonasRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) {
+        personasWorkspaceRef.current = undefined
         setError(errorMessage(caught, 'Coach Studio could not load.'))
       }
     } finally {
