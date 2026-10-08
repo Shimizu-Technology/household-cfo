@@ -30,6 +30,7 @@ test.describe('Auth recovery in-app sign-in dialog', () => {
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(page.getByRole('dialog')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /SSO|Continue with your organization/ })).toHaveCount(0)
     await page.getByLabel('Email address', { exact: true }).fill('Fictional@Pilot.Test')
     await page.getByRole('button', { name: 'Continue with email' }).click()
     await page.getByLabel('Sign-in code', { exact: true }).fill('123456')

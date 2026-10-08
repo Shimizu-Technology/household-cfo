@@ -47,7 +47,9 @@ module WorkosBrowserAuth
             "invitation_token" => invitation_token, "login_hint" => login_hint }, purpose: LOGIN_CONTEXT_PURPOSE))
       end
       @provider.authorization_url(provider: authentication_method == "google" ? "GoogleOAuth" : "authkit", redirect_uri: "#{origin}/api/auth/callback", state: state, login_hint: login_hint,
-        screen_hint: screen_hint, organization_id: organization_id, invitation_token: invitation_token,
+        # The direct Google route rejects AuthKit screen hints. Retain the hint
+        # in encrypted login context for any later hosted policy handoff.
+        screen_hint: authentication_method == "google" ? nil : screen_hint, organization_id: organization_id, invitation_token: invitation_token,
         code_challenge: pkce.fetch(:code_challenge), code_challenge_method: "S256")
     rescue StandardError => failure
       attempt&.destroy!

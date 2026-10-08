@@ -31,6 +31,7 @@ const CALLBACK_ERRORS: Record<string, string> = {
   retry: ERROR_COPY,
   invalid: 'This sign-in link could not be verified. Start sign-in again.',
   cancelled: 'Sign-in was canceled. You can try again when you’re ready.',
+  denied: 'This account cannot open this program. Sign in with the email your program invited.',
 }
 
 // Rails has already consumed the hosted callback before these app routes load.
@@ -179,8 +180,7 @@ export class BrowserSessionClient {
   }
   login = async (screenHint: 'sign-in' | 'sign-up', options: AuthSignInOptions & { authenticationMethod?: 'google'; popup?: boolean } = {}) => {
     if (options.organizationId && !/^org_[A-Za-z0-9]+$/.test(options.organizationId)) throw new ApiRequestError('The organization sign-in link could not be verified.', { status: 400 })
-    const state = authReturnState()
-    if (options.returnTo) state.returnTo = safeAuthReturnTo(options.returnTo)
+    const state = authReturnState(options.returnTo)
     if (state.navigationKey) {
       try { sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify({ state, createdAt: Date.now() })) } catch { /* Plain safe app navigation remains available. */ }
     }
@@ -240,7 +240,13 @@ export class BrowserSessionClient {
     throw new ApiRequestError(ERROR_COPY, { status: 503 })
   }
   startEmail = async ({ email, ...options }: AuthSignInOptions & { email: string }): Promise<EmailAuthStep> => {
-    const returnTo = safeAuthReturnTo(options.returnTo ?? window.location.href)
+    // Email may hand off to hosted organization policy. Keep the same one-use
+    // bank navigation as Google/organization sign-in, only in the originating tab.
+    const state = authReturnState(options.returnTo)
+    if (state.navigationKey) {
+      try { sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify({ state, createdAt: Date.now() })) } catch { /* Plain safe app navigation remains available. */ }
+    }
+    const returnTo = state.returnTo
     const normalized = email.trim().toLowerCase()
     const response = this.checkedEmailStep(await this.boundedAuth('email/start', { email: normalized, return_to: returnTo,
       ...(options.invitationToken ? { invitation_token: options.invitationToken } : {}),

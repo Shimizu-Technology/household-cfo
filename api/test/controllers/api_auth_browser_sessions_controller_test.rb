@@ -238,6 +238,8 @@ class ApiAuthBrowserSessionsControllerTest < ActionDispatch::IntegrationTest
       callback
       assert_response :see_other
       assert_equal "authkit", @provider.options.fetch(:provider)
+      assert_nil original.fetch(:screen_hint)
+      assert_equal "sign-in", @provider.options.fetch(:screen_hint)
       refute_equal original.fetch(:state), @provider.options.fetch(:state)
       refute_equal original.fetch(:code_challenge), @provider.options.fetch(:code_challenge)
       assert_equal "private-invitation", @provider.options.fetch(:invitation_token)
@@ -755,5 +757,16 @@ class ApiAuthBrowserSessionsControllerTest < ActionDispatch::IntegrationTest
     assert_includes header.downcase, "samesite=lax"
     assert_includes header.downcase, "path=/"
     refute_includes header.downcase, "domain="
+  end
+  test "denied provider admission clears the attempt and offers invited-account recovery without provider details" do
+    with_browser_auth do
+      login
+      @provider.failure = WorkosIdentityResolver::Forbidden.new("private admission detail")
+      callback
+      assert_equal "#{ORIGIN}/login?auth_error=denied", response.location
+      assert_equal 0, WorkosBrowserLoginAttempt.count
+      assert_equal 0, WorkosBrowserSession.count
+      refute_includes response.body, "private admission detail"
+    end
   end
 end

@@ -15,9 +15,9 @@ export function safeAuthReturnTo(value: unknown, origin = window.location.origin
 }
 const navigationPrefix = 'household-cfo:auth-navigation:'
 const oauthStatePattern = /^[A-Za-z0-9_-]{1,256}$/
-export function authReturnState(): { returnTo: string; navigationKey?: string } {
+export function authReturnState(destination?: unknown): { returnTo: string; navigationKey?: string } {
   const params = new URLSearchParams(window.location.search)
-  const returnTo = safeAuthReturnTo(window.location.pathname === '/login' ? params.get('returnTo') : window.location.href)
+  const returnTo = safeAuthReturnTo(destination ?? (window.location.pathname === '/login' ? params.get('returnTo') : window.location.href))
   const oauthState = params.get('oauth_state_id')
   if (!oauthState || !oauthStatePattern.test(oauthState) || window.location.pathname !== '/') return { returnTo }
   // Keep the bank callback identifier in this tab, outside plaintext OAuth state.

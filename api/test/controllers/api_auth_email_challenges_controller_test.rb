@@ -352,6 +352,11 @@ class ApiAuthEmailChallengesControllerTest < ActionDispatch::IntegrationTest
       post "/api/auth/login", params: { screen_hint: "sign-in", return_to: "/#Review", authentication_method: "google", popup: true }, headers: HEADERS, as: :json
       assert_response :success
       assert_equal "GoogleOAuth", @provider.options.fetch(:provider)
+      assert_nil @provider.options.fetch(:screen_hint)
+      assert_equal "S256", @provider.options.fetch(:code_challenge_method)
+      assert @provider.options.fetch(:code_challenge).present?
+      context = WorkosBrowserAuth::Encryption.decrypt(WorkosBrowserLoginAttempt.last.encrypted_login_context, purpose: WorkosBrowserAuth::Sessions::LOGIN_CONTEXT_PURPOSE)
+      assert_equal "sign-in", context.fetch("screen_hint")
       assert WorkosBrowserLoginAttempt.last.popup
       get "/api/auth/callback", params: { state: @provider.options.fetch(:state), code: "code" }
       assert_redirected_to "#{ORIGIN}/login/complete"

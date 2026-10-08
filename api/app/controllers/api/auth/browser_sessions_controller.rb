@@ -131,7 +131,13 @@ module Api
       def callback_failure(attempt, error)
         if attempt
           sessions.abandon_login(attempt: attempt)
-          reason = error.is_a?(WorkosAuth::Unavailable) ? "retry" : "invalid"
+          reason = if error.is_a?(WorkosIdentityResolver::Forbidden)
+            "denied"
+          elsif error.is_a?(WorkosAuth::Unavailable)
+            "retry"
+          else
+            "invalid"
+          end
           redirect_to callback_destination(attempt, error: reason), allow_other_host: true, status: :see_other
         else
           redirect_to "#{fallback_frontend_origin}/login?auth_error=invalid", allow_other_host: true, status: :see_other

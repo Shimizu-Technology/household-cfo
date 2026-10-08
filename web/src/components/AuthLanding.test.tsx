@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BrandConfig } from '../api'
-import { BrandContext, type BrandContextValue } from '../contexts/brandContextValue'
+import { BrandContext, NEUTRAL_BRAND, type BrandContextValue } from '../contexts/brandContextValue'
 
 vi.mock('@clerk/clerk-react', () => ({
   SignInButton: ({ children }: { children: ReactNode }) => children,
@@ -62,4 +62,9 @@ describe('AuthLanding', () => {
     expect(screen.getByText('Powered by VERA')).toBeTruthy()
     expect(view.container.querySelector<HTMLImageElement>('.shell-brand-logo')?.src).toBe('https://assets.example.test/island.svg')
   })
+})
+
+it('links the public privacy notice when the program has not supplied its own policy URL', () => {
+  render(<BrandContext.Provider value={{ ...context, brand: NEUTRAL_BRAND }}><AuthLanding /></BrandContext.Provider>)
+  expect(screen.getByRole('link', { name: 'Privacy' }).getAttribute('href')).toBe('/privacy.html')
 })

@@ -40,7 +40,7 @@ const errorCopy: Record<string, string> = {
   program_access_denied: 'Use the email your program invited, or ask your program team for access.',
   account_changed: 'Your account changed in another tab. Close this dialog and check your current account.',
   cancelled: 'Sign-in was canceled. You can try again when you’re ready.',
-  sso_required: 'Your organization requires work SSO. Continue with work SSO to sign in.',
+  sso_required: 'Your organization requires secure work sign-in. Continue with your invited email to use its sign-in flow.',
 }
 
 function safeError(error: unknown) {
@@ -196,17 +196,16 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
     <section ref={dialog} className="workos-sign-in-dialog" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} tabIndex={-1}>
       <header><div><p className="eyebrow">{brand.product_name}</p><h2 id={`${id}-title`}>{challenge ? 'Check your email' : screen === 'sign-up' ? 'Join your invited workspace' : 'Welcome back'}</h2></div><button type="button" className="secondary-button" onClick={close}>Close</button></header>
       <div className="pilot-dialog-body workos-sign-in-body">
-        <p id={`${id}-description`}>{external ? 'Sign in through your organization’s secure work account.' : challenge ? <>Enter the six-digit code sent to <strong>{challenge.email}</strong>.</> : 'Sign in with the email your program invited. Your saved information stays with your account.'}</p>
+        <p id={`${id}-description`}>{external ? 'Continue through your organization’s secure sign-in flow.' : challenge ? <>Enter the six-digit code sent to <strong>{challenge.email}</strong>.</> : 'Sign in with the email your program invited. Your saved information stays with your account.'}</p>
         {(error || externalError) && <p className="document-alert" role="alert">{externalError || error}</p>}
         <div className="workos-sign-in-status" role="status" aria-live="polite">{externalPending ? 'Complete sign-in with your provider. You can cancel and continue here.' : busy ? 'Checking your secure sign-in…' : notice}</div>
         {externalPending && onCancelExternal && <button type="button" className="secondary-button" onClick={cancelExternal}>Cancel sign-in</button>}
-        {external ? <button type="button" className="button button--primary" disabled={busy} onClick={() => void chooseExternal('sso')}>Continue with work SSO</button> : <>
+        {external ? <button type="button" className="button button--primary" disabled={busy} onClick={() => void chooseExternal('sso')}>Continue with your organization</button> : <>
           {!challenge && google && <><button type="button" className="secondary-button workos-google-button" disabled={busy} onClick={() => void chooseExternal('google')}><img src="/auth/google-g.png" width="20" height="20" alt="" />Continue with Google</button><div className="workos-sign-in-divider"><span>or use email</span></div></>}
           <form className="workos-sign-in-form" onSubmit={submit} aria-busy={busy}>
             {challenge ? <><label htmlFor={`${id}-code`}>Sign-in code</label><input ref={codeInput} id={`${id}-code`} className="workos-code-input" name="code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} disabled={busy} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} aria-describedby={`${id}-code-help`} /><p id={`${id}-code-help`} className="workos-sign-in-note">{expired ? 'Your code has expired. Start again with your email.' : 'Use the latest code. You can paste all six digits.'}</p><button type="submit" className="button button--primary" disabled={busy || code.length !== 6 || Boolean(expired)}>{busy ? 'Verifying…' : 'Verify and sign in'}</button></> : <><label htmlFor={`${id}-email`}>Email address</label><input ref={emailInput} id={`${id}-email`} name="email" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} required maxLength={254} value={email} disabled={busy} onChange={event => setEmail(event.target.value)} /><button type="submit" className="button button--primary" disabled={busy || !email.trim()}>{busy ? 'Sending code…' : 'Continue with email'}</button></>}
           </form>
           {challenge && <div className="workos-sign-in-secondary">{expired ? <button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Start again</button> : <button type="button" className="secondary-button" disabled={busy || resendSeconds > 0} onClick={() => void run(() => client.resendEmail(challenge.challenge_id))}>{resendSeconds ? `Resend code in ${resendSeconds}s` : 'Resend code'}</button>}<button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Use a different email</button></div>}
-          {!challenge && <button type="button" className="secondary-button" disabled={busy} onClick={() => void chooseExternal('sso')}>Continue with work SSO</button>}
           {!challenge && optionsFailed && <div className="workos-sign-in-provider-retry"><p className="workos-sign-in-note">Other sign-in options could not be loaded. You can still continue with email.</p><button type="button" className="secondary-button" disabled={busy} onClick={() => setRetryOptions(value => value + 1)}>Retry sign-in options</button></div>}
         </>}
         <p className="workos-sign-in-note workos-sign-in-footer">Only invited accounts can open a workspace. Need access? Contact your program team.</p>

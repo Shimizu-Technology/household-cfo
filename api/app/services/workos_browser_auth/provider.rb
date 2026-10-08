@@ -73,7 +73,7 @@ module WorkosBrowserAuth
       # Provider errors may embed tokens or private profile data. Never expose/log them.
       body = error.body.is_a?(Hash) ? error.body : {}
       code = error.code.presence || body["code"] || body["error"]
-      if code.to_s.in?(%w[invitation_invalid invitation_cannot_be_used_for_email invitation_expired user_creation_disabled signup_disabled])
+      if code.to_s.in?(%w[invitation_invalid invitation_cannot_be_used_for_email invitation_expired user_creation_disabled signup_disabled sign_up_not_allowed])
         raise WorkosIdentityResolver::Forbidden, "Check your program invitation"
       end
       raise PolicyRequired, "Continue with secure sign-in" if POLICY_ERRORS.include?(code.to_s)

@@ -475,11 +475,12 @@ function BrandLogo({ brand }: { brand: BrandConfig }) {
   ) : null
 }
 
-function BrandFooter() {
+function BrandFooter({ privacyFallback = false }: { privacyFallback?: boolean } = {}) {
   const { brand } = useBrand()
   const supportHref = brand.support.url ?? (brand.support.email ? `mailto:${brand.support.email}` : null)
   const supportLabel = brand.support.label ?? (brand.support.email ? 'Contact support' : 'Support')
-  const hasLinks = Boolean(supportHref || brand.footer.privacy_url || brand.footer.terms_url)
+  const privacyUrl = brand.footer.privacy_url ?? (privacyFallback ? '/privacy.html' : null)
+  const hasLinks = Boolean(supportHref || privacyUrl || brand.footer.terms_url)
   const poweredBy = brand.powered_by_placement === 'footer' ? brand.powered_by_name : null
   if (!brand.footer.text && !hasLinks && !poweredBy) return null
 
@@ -491,7 +492,7 @@ function BrandFooter() {
       </div>
       {hasLinks && <nav aria-label="Program support and policies">
         {supportHref && <a href={supportHref} target={brand.support.url ? '_blank' : undefined} rel={brand.support.url ? 'noreferrer' : undefined}>{supportLabel}</a>}
-        {brand.footer.privacy_url && <a href={brand.footer.privacy_url} target="_blank" rel="noreferrer">Privacy</a>}
+        {privacyUrl && <a href={privacyUrl} target="_blank" rel="noreferrer">Privacy</a>}
         {brand.footer.terms_url && <a href={brand.footer.terms_url} target="_blank" rel="noreferrer">Terms</a>}
       </nav>}
     </footer>
@@ -4387,7 +4388,7 @@ export function AuthLanding() {
           </SignUpButton>
         </div>
       </section>
-      <BrandFooter />
+      <BrandFooter privacyFallback />
     </main>
   )
 }

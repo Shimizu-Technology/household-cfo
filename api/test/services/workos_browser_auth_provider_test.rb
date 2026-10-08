@@ -17,6 +17,13 @@ class WorkosBrowserAuthProviderTest < ActiveSupport::TestCase
       assert_equal "challenge", query["code_challenge"]
       assert_equal "S256", query["code_challenge_method"]
       refute_includes url, "test-secret"
+      google_url = provider.authorization_url(redirect_uri: "https://householdcfomethod.com/api/auth/callback", provider: "GoogleOAuth", screen_hint: nil, state: "nonce",
+        code_challenge: "challenge", code_challenge_method: "S256")
+      google_query = URI.decode_www_form(URI(google_url).query).to_h
+      assert_equal "GoogleOAuth", google_query.fetch("provider")
+      assert_equal "challenge", google_query.fetch("code_challenge")
+      assert_equal "S256", google_query.fetch("code_challenge_method")
+      refute google_query.key?("screen_hint")
       logout = provider.logout_url(session_id: "session_own", origin: "https://householdcfomethod.com")
       assert_equal "https://api.workos.com/user_management/sessions/logout", logout.split("?").first
     end
@@ -128,6 +135,21 @@ class WorkosBrowserAuthProviderTest < ActiveSupport::TestCase
       end
     ensure
       previous.nil? ? ENV.delete("FRONTEND_URL") : ENV["FRONTEND_URL"] = previous
+    end
+  end
+  test "uninvited Google signup is admission denial rather than a temporary provider outage" do
+    with_workos do
+      management = Object.new
+      management.define_singleton_method(:authenticate_with_code) do |**|
+        raise WorkOS::InvalidRequestError.new(message: "private signup detail", http_status: 400, code: "sign_up_not_allowed")
+      end
+      client = WorkOS::Client.new(api_key: "test-secret", client_id: "client_cfo")
+      stub_method(client, :user_management, management) do
+        stub_method(WorkOS::Client, :new, client) do
+          error = assert_raises(WorkosIdentityResolver::Forbidden) { WorkosBrowserAuth::Provider.new.exchange(code: "private-code", verifier: "private-verifier") }
+          refute_includes error.message, "private"
+        end
+      end
     end
   end
 end
