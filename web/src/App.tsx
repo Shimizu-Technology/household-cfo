@@ -5,6 +5,7 @@ import { SignInButton, SignUpButton, SignOutButton } from './components/AuthCont
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
 import './App.css'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
+import { WorkspaceOpening } from './components/WorkspaceOpening'
 import { EarlierMiaConversations } from './components/EarlierMiaConversations'
 import { PausedDocumentImportPanel } from './components/PausedDocumentImportPanel'
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
@@ -154,7 +155,7 @@ import type {
 } from './api'
 import { verifiedParticipantProgram } from './lib/participantProgramSelection'
 import { ParticipantProgramSession } from './components/ParticipantProgramSession'
-import { fetchParticipantPrograms } from './participantProgramsApi'
+import { type ParticipantPrograms, fetchParticipantPrograms } from './participantProgramsApi'
 import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
 import { BrandRuntimeProvider } from './contexts/BrandContext'
@@ -513,7 +514,6 @@ function App() {
 
 function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onProgramUnavailable, selectionNotice, onFinancialRestart, restartNotice, onDismissRestartNotice}: {onFinancialRestart: (message: string) => void; restartNotice: string | null; onDismissRestartNotice: () => void; selectedCohortId?: number; onChooseProgram: (cohortId: number) => void; onProgramVerified: (cohortId: number) => void; onProgramUnavailable: () => void; selectionNotice: string | null}) {
   const auth = useAuthContext()
-  const publicBrand = useBrand()
   const participantActorId = auth.currentUser?.id
   const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isAuthEnabled || Boolean(auth.currentUser))
   const [{ data, homeBudget, budgets, homeBudgetStale, dataBudgetStale }, dispatchWorkspaceData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
@@ -543,6 +543,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const unavailableModuleNoticeRef = useRef<HTMLDivElement | null>(null)
   const shellAccountMenuRef = useRef<HTMLDetailsElement | null>(null)
   const participantProgramMenuRef = useRef<HTMLDetailsElement | null>(null)
+  const [participantProgramMenuOpen, setParticipantProgramMenuOpen] = useState(false)
+  const [startupPrograms, setStartupPrograms] = useState<{ actorId: number; cohortId: number; checkedAt: number; programs: ParticipantPrograms } | null>(null)
   const sectionScrollPositionsRef = useRef(new Map<string, number>())
   const pendingSectionNavigationRef = useRef<PendingSectionNavigation | null>(null)
   const lastHandledLocationRef = useRef('')
@@ -1022,6 +1024,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       ? fetchParticipantPrograms().then(programs => {
           if (cancelled) return false
           if (!verifiedParticipantProgram(programs, participantActorId, selectedCohortId)) { onProgramUnavailable(); return false }
+          setStartupPrograms({ actorId: participantActorId, cohortId: selectedCohortId, checkedAt: Date.now(), programs })
           return true
         })
       : Promise.resolve(true)
@@ -3186,8 +3189,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   if (auth.isAuthEnabled && (auth.isLoading || auth.isVerifyingApi)) {
-    return <AuthAccessPanel title={`Verifying your ${publicBrand.brand.product_name} access`} copy="Checking your secure program invitation before opening the workspace."
-      onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
+    return <WorkspaceOpening status="Signing you in securely…" onRetry={() => window.location.reload()} />
   }
 
   if (auth.isAuthEnabled && !auth.isSignedIn) {
@@ -3199,30 +3201,17 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   if (auth.isAuthEnabled && !auth.currentUser) {
-    return <AuthAccessPanel title="Preparing your workspace" copy={`${publicBrand.brand.product_name} is waiting for the invitation check to finish.`} footer={<BrandFooter />} />
+    return <WorkspaceOpening status="Signing you in securely…" onRetry={() => window.location.reload()} />
   }
 
   if (!data) {
-    return (
-      <main className="app loading-state">
-        <SeoManager section="Home" />
-        <section className="hero-panel">
-          <p className="eyebrow">{brandByline(publicBrand.brand)}</p>
-          <h1>Loading your {publicBrand.brand.product_name} workspace.</h1>
-          <p role={error ? 'alert' : undefined}>{error ?? 'Pulling your program data…'}</p>
-          {error && (
-            <button type="button" className="workspace-retry-button" onClick={() => {
-              setError(null)
-              setWorkspaceLoadAttempt((attempt) => attempt + 1)
-            }}>
-              Try again
-            </button>
-          )}
-          {error && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={selectedCohortId} onChoose={chooseParticipantProgram} />}
-          <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} />
-        </section>
-      </main>
-    )
+    return <WorkspaceOpening status="Getting your plan ready…" error={error} onRetry={() => {
+      setError(null)
+      setWorkspaceLoadAttempt(attempt => attempt + 1)
+    }}>
+      {error && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={selectedCohortId} onChoose={chooseParticipantProgram} />}
+      {error && <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} />}
+    </WorkspaceOpening>
   }
 
   // Netlify deploy previews can update before the API deploy. Derive the new
@@ -3255,6 +3244,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         <div className="shell-actions">
           {auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && (
             <details ref={participantProgramMenuRef} className="participant-program-switch" onToggle={event => {
+              setParticipantProgramMenuOpen(event.currentTarget.open)
               if (event.currentTarget.open && shellAccountMenuRef.current) shellAccountMenuRef.current.open = false
             }} onKeyDown={event => {
               if (event.key === 'Escape') {
@@ -3265,7 +3255,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <summary aria-label={`Program · ${data.workspace.cohort?.name ?? 'Choose your program'}`} title={data.workspace.cohort?.name ?? 'Choose your program'}>
                 Program<span className="program-name"> · {data.workspace.cohort?.name ?? 'Choose your program'}</span>
               </summary>
-              <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram} />
+              {participantProgramMenuOpen && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram}
+                initialPrograms={startupPrograms?.actorId === auth.currentUser.id && startupPrograms.cohortId === data.workspace.cohort?.id && Date.now() - startupPrograms.checkedAt < 30_000 ? startupPrograms.programs : undefined} />}
             </details>
           )}
           <AccountMenu menuRef={shellAccountMenuRef} onOpen={() => {

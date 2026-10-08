@@ -1,8 +1,11 @@
+import { WorkspaceOpening } from './WorkspaceOpening'
 import { useBrand } from '../contexts/brandContextValue'
 
 export function BrandBootstrapState() {
   const { brand, error, retry, status } = useBrand()
   const loading = status === 'loading'
+
+  if (loading) return <WorkspaceOpening status="Checking your program…" onRetry={retry} />
 
   return (
     <main className="brand-bootstrap-state">

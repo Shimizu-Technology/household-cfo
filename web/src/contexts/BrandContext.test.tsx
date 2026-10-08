@@ -55,7 +55,7 @@ describe('BrandProvider', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<BrandProvider><BrandBootstrapState /></BrandProvider>)
-    expect(screen.getByRole('heading', { name: 'Loading your coaching workspace…' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Opening your workspace…' })).toBeTruthy()
 
     await act(async () => { await vi.advanceTimersByTimeAsync(9_001) })
     expect(screen.getByRole('alert').textContent).toBe('This program took too long to load. Check your connection and try again.')

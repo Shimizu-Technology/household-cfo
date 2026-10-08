@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { OpeningProgress } from './WorkspaceOpening'
 import { ApiRequestError, approveSavingsEntry, approveSavingsPlan, attestSavingsZero, enrollSavingsChallenge, fetchSavingsChallenge, fetchSavingsPage, stageSavingsEntry, stageSavingsPlan, type SavingsCollection } from '../api'
 import { savingsDefaultDate, savingsDollars, savingsFundingLabel, savingsFundingOptions, savingsInputCents, savingsInputDollars, type SavingsChallenge, type SavingsEntry, type SavingsEntryVersion, type SavingsEntryDraft, type SavingsFundingSource, type SavingsMutation, type SavingsPage, type SavingsPlanDraft, type SavingsIntake } from '../lib/savingsChallenge'
 import { useBrand } from '../contexts/brandContextValue'
@@ -220,7 +221,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
     {(planMutation.pending || planMutation.error) && <PlanRequestRecovery state={planMutation} onRefresh={()=>void refresh()}/>}
     {notice && <p className="savings-notice" role="status">{notice}</p>}
     {readFailed && challenge && <p role="status">Last approved result shown. Access and freshness could not be confirmed; refresh before making changes.</p>}
-    {loading && <p role="status">Checking your approved challenge…</p>}
+    {loading && <OpeningProgress status="Checking your approved challenge…" />}
     {!challenge && !loading && <p>Your challenge is unavailable. No progress is being assumed.</p>}
     {challenge && !challenge.enrollment && <article className="panel savings-enrollment"><h3>Review before joining</h3><p>The suggested target is {savingsDollars(challenge.suggested_target_cents ?? null)}. You choose an affordable amount after joining, or postpone choosing a target.</p>
       {offer ? <><p><strong>{offer.cohort_label}</strong> · {offer.time_zone}</p><p>Your proposed 90-day window: <strong>{offer.personal_starts_on ?? 'Not configured'} – {offer.personal_ends_on ?? 'Not configured'}</strong>.</p><p>Participation records your reported reserve and approvals. It does not move money, connect a bank, or require a credit card or full budget.</p><p>Statement uploads are optional and require separate review. This acceptance does not grant a coach access to your private statements.</p><p className="savings-caption">Participation policy: {offer.policy_version}. Cohort capacity is checked again when you accept.</p><label className="savings-check"><input type="checkbox" checked={participation} disabled={actionLocked('enrollment')} onChange={(event) => setParticipation(event.target.checked)} />I have read this notice and accept participation.</label>

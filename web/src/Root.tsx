@@ -1,5 +1,5 @@
 import { ClerkProvider } from '@clerk/clerk-react'
-import { useSyncExternalStore } from 'react'
+import { useSyncExternalStore, type ReactNode } from 'react'
 import { captureAuthInvitation } from './lib/authInvitation'
 import { authConfiguration } from './lib/authConfig'
 import { captureBrowserAuthError, clearBrowserAuthCallbackParameters, restoreBrowserAuthNavigation } from './lib/browserAuthSession'
@@ -27,23 +27,24 @@ function subscribeNavigation(callback: () => void) {
   return () => { window.removeEventListener('hashchange', callback); window.removeEventListener('popstate', callback) }
 }
 
+function ProgramStartupGate({ children }: { children: ReactNode }) {
+  const { status } = useBrand()
+  return status === 'ready' ? children : <BrandBootstrapState />
+}
+
 function Root() {
   const route = useSyncExternalStore(subscribeNavigation, navigationState)
   const { brand, status } = useBrand()
   if (config.provider === 'workos' && route.startsWith('/login/complete:')) return <><BrandDocument /><AuthPopupComplete error={callbackError} /></>
-  if (status !== 'ready') {
-    return <><BrandDocument /><BrandBootstrapState /></>
-  }
-
-  if (config.error) return <><BrandDocument /><AuthAccessPanel title="Secure sign-in is unavailable." copy={config.error} /></>
-  if (invitation.error) return <><BrandDocument /><AuthAccessPanel title="This invitation needs a fresh link." copy={invitation.error} /></>
+  if (config.error) return <><BrandDocument /><ProgramStartupGate><AuthAccessPanel title="Secure sign-in is unavailable." copy={config.error} /></ProgramStartupGate></>
+  if (invitation.error) return <><BrandDocument /><ProgramStartupGate><AuthAccessPanel title="This invitation needs a fresh link." copy={invitation.error} /></ProgramStartupGate></>
 
   const app = (
-    <AuthProvider provider={config.provider} invitationToken={invitation.token} clientId={config.clientId} callbackError={callbackError}>
-      <PostHogProvider>
-        <BrandDocument />
+    <AuthProvider provider={config.provider} invitationToken={invitation.token} clientId={config.clientId} callbackError={callbackError} verificationEnabled={status === 'ready'}>
+      <BrandDocument />
+      <ProgramStartupGate><PostHogProvider>
         <IdentityBoundary>{config.provider === 'workos' && route.startsWith('/login:') ? <AuthLoginRoute /> : route.startsWith('/organization-access:') || route.endsWith(':true') ? <EnterpriseAccessPage /> : <App />}</IdentityBoundary>
-      </PostHogProvider>
+      </PostHogProvider></ProgramStartupGate>
     </AuthProvider>
   )
 

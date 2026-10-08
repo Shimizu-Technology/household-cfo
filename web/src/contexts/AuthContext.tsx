@@ -29,12 +29,12 @@ export type AuthSession = {
   signOut: () => Promise<unknown>
 }
 
-function ClerkAuthBridge({ children }: { children: ReactNode }) {
+function ClerkAuthBridge({ children, verificationEnabled }: { children: ReactNode; verificationEnabled: boolean }) {
   const session = useAuth()
-  return <AuthVerificationBridge session={session}>{children}</AuthVerificationBridge>
+  return <AuthVerificationBridge session={session} verificationEnabled={verificationEnabled}>{children}</AuthVerificationBridge>
 }
 
-function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }: { children: ReactNode; invitationToken?: string | null; clientId: string; callbackError?: string | null }) {
+function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError, verificationEnabled }: { children: ReactNode; verificationEnabled: boolean; invitationToken?: string | null; clientId: string; callbackError?: string | null }) {
   const client = useMemo(() => new BrowserSessionClient(clientId), [clientId])
   const state = useSyncExternalStore(client.subscribe, client.getSnapshot)
   const [callbackFailure, setCallbackFailure] = useState(callbackError ?? null)
@@ -60,11 +60,9 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
   }, [invitationToken])
   const signIn = useCallback((options?: AuthSignInOptions) => start('sign-in', options), [start])
   const signUp = useCallback((options?: AuthSignInOptions) => start('sign-up', options), [start])
-  const authenticated = async (returnTo: string) => {
+  const finishAuthentication = (returnTo: string) => {
     setCallbackFailure(null)
     setDialog(null)
-    client.invalidate()
-    await client.load()
     const destination = new URL(safeAuthReturnTo(returnTo))
     if (window.location.pathname !== destination.pathname) window.location.assign(destination.href)
     else if (window.location.hash !== destination.hash) {
@@ -73,6 +71,10 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
       window.dispatchEvent(new HashChangeEvent('hashchange'))
     }
     restoreBrowserAuthNavigation()
+  }
+  const authenticated = async (returnTo: string) => {
+    await client.loadAfterAuthentication()
+    finishAuthentication(returnTo)
   }
   const externalSignIn = async (method: 'google' | 'sso', authorizationUrl?: string) => {
     if (!dialog) return
@@ -96,15 +98,14 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
         if (progress.status === 'pending' || (progress.status === 'account_changed' && !confirmed)) return null
         if (progress.status === 'cancelled') throw new AuthPopupStopped('cancelled')
         if (progress.status === 'account_changed') throw new AuthPopupStopped('account_changed')
-        client.invalidate()
-        const current = await client.load()
+        const current = await client.loadAfterAuthentication()
         if (current && dialog.options.organizationId && current.organization_id !== dialog.options.organizationId) throw new AuthPopupStopped('account_changed')
         return current
       }, undefined, controller.signal)
       try { navigateAuthPopup(popup, redirect) } catch { controller.abort() }
       await completion
       completed = true
-      if (!controller.signal.aborted) await authenticated(dialog.options.returnTo ?? window.location.origin)
+      if (!controller.signal.aborted) finishAuthentication(dialog.options.returnTo ?? window.location.origin)
     } catch (error) {
       popup?.close()
       if (!controller.signal.aborted) setExternalError(error instanceof Error && ['Sign-in was canceled. You can try again or continue with email.', 'Sign-in took too long. Please try again.', 'Your account changed in another tab. Check the current account before trying again.'].includes(error.message) ? error.message : 'Sign-in could not finish. You can try again or continue with email.')
@@ -130,7 +131,7 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
     sessionError: callbackFailure ?? state.error?.message ?? null,
     sessionErrorStatus: callbackFailure ? 401 : state.error?.status ?? null,
   }
-  return <AuthVerificationBridge session={session}>{children}{dialog && <WorkosSignInDialog
+  return <AuthVerificationBridge session={session} verificationEnabled={verificationEnabled}>{children}{dialog && <WorkosSignInDialog
     key={dialog.id} client={client} screen={dialog.screen} options={dialog.options} externalError={externalError}
     onClose={() => { externalAttempt.current?.abort(); externalAttempt.current = null; setDialog(null); setExternalError(null) }}
     onAuthenticated={authenticated} onExternalSignIn={externalSignIn} onCancelExternal={() => { setExternalError(null); externalAttempt.current?.abort(); externalAttempt.current = null }} />}</AuthVerificationBridge>
@@ -138,7 +139,12 @@ function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError }
 
 // The session identity is sufficient for verification; a separate full-profile
 // request must not keep a signed-in user waiting forever.
-export function AuthVerificationBridge({ children, session }: { children: ReactNode; session: AuthSession }) {
+export function AuthVerificationBridge(props: { children: ReactNode; session: AuthSession; verificationEnabled?: boolean }) {
+  // A new branding approval must never reuse the earlier actor verification.
+  return <AuthVerificationBody key={props.verificationEnabled === false ? 'program-pending' : 'program-ready'} {...props} />
+}
+
+function AuthVerificationBody({ children, session, verificationEnabled = true }: { children: ReactNode; session: AuthSession; verificationEnabled?: boolean }) {
   const { getToken, isLoaded, isSignedIn, signOut } = session
   const provider = session.provider ?? 'clerk'
   const authIdentityId = session.userId ?? null
@@ -148,6 +154,7 @@ export function AuthVerificationBridge({ children, session }: { children: ReactN
   const latestGetToken = useRef(getToken)
   const latestProvider = useRef(provider)
   const verificationAbort = useRef<AbortController | null>(null)
+  const verificationAllowed = useRef(false)
   const [verificationAttempt, setVerificationAttempt] = useState(0)
   const [authRecoveryRequired, setAuthRecoveryRequired] = useState(false)
   const latestAuthIdentityId = useRef(sessionKey)
@@ -160,9 +167,11 @@ export function AuthVerificationBridge({ children, session }: { children: ReactN
   const [isVerifyingApi, setIsVerifyingApi] = useState(false)
 
   useLayoutEffect(() => {
-    latestAuthIdentityId.current = sessionError ? null : sessionKey
-    setApiActorIdentity(sessionError ? null : sessionKey)
-  }, [sessionKey, sessionError])
+    verificationAllowed.current = verificationEnabled && !sessionError
+    latestAuthIdentityId.current = sessionError || !verificationEnabled ? null : sessionKey
+    setApiActorIdentity(sessionError || !verificationEnabled ? null : sessionKey)
+    return () => { verificationAllowed.current = false; latestAuthIdentityId.current = null }
+  }, [sessionKey, sessionError, verificationEnabled])
 
   useLayoutEffect(() => { latestGetToken.current = getToken; latestProvider.current = provider }, [getToken, provider])
 
@@ -185,12 +194,13 @@ export function AuthVerificationBridge({ children, session }: { children: ReactN
   }, [])
 
   const refreshCurrentUser = useCallback(async () => {
+    if (!verificationAllowed.current || latestAuthIdentityId.current !== sessionKey) return
     verificationAbort.current?.abort()
     setVerificationAttempt(attempt => attempt + 1)
     setAuthRecoveryRequired(false)
     setAuthError(null)
     setAuthErrorStatus(null)
-    if (sessionError) return
+    if (sessionError || !verificationEnabled) return
     if (!isLoaded || (isSignedIn && !authIdentityId)) return
 
     const requestId = ++verificationRequest.current
@@ -237,7 +247,7 @@ export function AuthVerificationBridge({ children, session }: { children: ReactN
         setIsVerifyingApi(false)
       }
     }
-  }, [authIdentityId, isLoaded, isSignedIn, provider, sessionKey, sessionError, session.sessionScope])
+  }, [authIdentityId, isLoaded, isSignedIn, provider, sessionKey, sessionError, session.sessionScope, verificationEnabled])
 
   const selectCoachWorkspace = useCallback((workspaceId: number | null) => {
     setActiveCoachWorkspaceState(workspaceId)
@@ -259,7 +269,7 @@ export function AuthVerificationBridge({ children, session }: { children: ReactN
   }, [refreshCurrentUser])
 
   const hasVerifiedIdentity = Boolean(
-    isLoaded && isSignedIn
+    verificationEnabled && isLoaded && isSignedIn
     && authIdentityId
     && !sessionError
     && verifiedAuthIdentityId === sessionKey
@@ -269,7 +279,7 @@ export function AuthVerificationBridge({ children, session }: { children: ReactN
   const effectiveError = sessionError ?? authError
   const isApiIdentityPending = Boolean(isSignedIn) && !effectiveError && (!authIdentityId || !hasVerifiedIdentity || isVerifyingApi)
 
-  const verificationPending = !effectiveError && (!isLoaded || Boolean(isSignedIn && (!hasVerifiedIdentity || isVerifyingApi)))
+  const verificationPending = verificationEnabled && !effectiveError && (!isLoaded || Boolean(isSignedIn && (!hasVerifiedIdentity || isVerifyingApi)))
   useEffect(() => {
     if (!verificationPending) return
     const timer = window.setTimeout(() => {
@@ -494,11 +504,11 @@ function e2eCurrentUser(role: 'admin' | 'coach' | 'participant', includeCoachWor
   return user
 }
 
-export function AuthProvider({ children, isClerkEnabled = false, provider, invitationToken, clientId, callbackError }: { children: ReactNode; isClerkEnabled?: boolean; provider?: AuthProviderName | 'preview'; invitationToken?: string | null; clientId?: string; callbackError?: string | null }) {
-  if (provider === 'workos') return <WorkOSAuthBridge invitationToken={invitationToken} clientId={clientId ?? import.meta.env.VITE_WORKOS_CLIENT_ID} callbackError={callbackError}>{children}</WorkOSAuthBridge>
+export function AuthProvider({ children, isClerkEnabled = false, provider, invitationToken, clientId, callbackError, verificationEnabled = true }: { children: ReactNode; verificationEnabled?: boolean; isClerkEnabled?: boolean; provider?: AuthProviderName | 'preview'; invitationToken?: string | null; clientId?: string; callbackError?: string | null }) {
+  if (provider === 'workos') return <WorkOSAuthBridge invitationToken={invitationToken} clientId={clientId ?? import.meta.env.VITE_WORKOS_CLIENT_ID} callbackError={callbackError} verificationEnabled={verificationEnabled}>{children}</WorkOSAuthBridge>
   isClerkEnabled = provider === 'clerk' || isClerkEnabled
   if (!isClerkEnabled && e2eAuthRole() === 'delayed_participant') {
     return <DelayedParticipantE2EAuthBridge>{children}</DelayedParticipantE2EAuthBridge>
   }
-  return isClerkEnabled ? <ClerkAuthBridge>{children}</ClerkAuthBridge> : <NoAuthBridge>{children}</NoAuthBridge>
+  return isClerkEnabled ? <ClerkAuthBridge verificationEnabled={verificationEnabled}>{children}</ClerkAuthBridge> : <NoAuthBridge>{children}</NoAuthBridge>
 }

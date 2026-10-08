@@ -4025,7 +4025,7 @@ test('query-only Plaid returns preserve callback state while the workspace loads
 
   await page.goto('/?pilot_e2e_role=participant&oauth_state_id=delayed')
   await expect(page).toHaveURL(/oauth_state_id=delayed#My%20Profile$/)
-  await expect(page.getByRole('heading', { name: 'Loading your Household CFO workspace.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Opening your workspace…' })).toBeVisible()
 
   releaseWorkspace()
   await expect(page).toHaveURL(/oauth_state_id=delayed#My%20Profile$/)

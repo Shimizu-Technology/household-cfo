@@ -21,9 +21,11 @@ test.describe('BOG UI auth verification recovery', () => {
       await page.route(authRoute, route => { requestCount += 1; return route.fulfill({ json: { user: qaUser } }) })
       await page.clock.install()
       await page.goto(`/auth-recovery-qa.html?mode=${mode}`)
-      await expect(page.getByRole('heading', { name: 'Verifying your Household CFO access' })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Reload page' })).toBeVisible()
-      await page.clock.fastForward(30_100)
+      await expect(page.getByRole('heading', { name: 'Opening your workspace…' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
+      await page.clock.fastForward(8_100)
+      await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+      await page.clock.fastForward(22_100)
       await expect(page.getByRole('heading', { name: 'We couldn’t finish checking your access.' })).toBeVisible()
       await expect(page.getByRole('alert')).toContainText('took too long')
       await expect(page.getByTestId('verified-workspace')).toHaveCount(0)
@@ -87,7 +89,7 @@ test.describe('BOG UI auth verification recovery', () => {
     const reload = page.waitForEvent('load')
     await button.click()
     await reload
-    await expect(page.getByRole('heading', { name: 'Verifying your Household CFO access' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Opening your workspace…' })).toBeVisible()
   })
 })
 
