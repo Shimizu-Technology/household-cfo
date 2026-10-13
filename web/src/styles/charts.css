@@ -1,0 +1,70 @@
+/*
+ * Annual cash-flow chart: one bar per month from a shared midline. Up is
+ * money left after the plan; down is a shortfall. Loaded after App.css.
+ */
+.cash-flow-bars {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 3fr 1fr;
+  align-items: stretch;
+  justify-content: stretch;
+  gap: 0;
+  height: 128px;
+  padding: 6px 0;
+  border-bottom: 0;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--paper-warm) 70%, transparent);
+}
+
+.cash-flow-bar-above,
+.cash-flow-bar-below {
+  display: flex;
+  justify-content: center;
+  min-height: 0;
+}
+
+.cash-flow-bar-above {
+  align-items: flex-end;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.cash-flow-bar-below {
+  align-items: flex-start;
+}
+
+.cash-flow-bars i {
+  width: min(22px, 60%);
+  height: var(--surplus-height);
+  min-height: 3px;
+}
+
+.cash-flow-bar-above i {
+  border-radius: 6px 6px 1px 1px;
+  background: var(--emerald);
+}
+
+.cash-flow-bar-below i {
+  border-radius: 1px 1px 6px 6px;
+  background: var(--status-red);
+}
+
+.cash-flow-month.negative .cash-flow-bars {
+  box-shadow: none;
+  background: color-mix(in srgb, var(--status-red) 8%, var(--paper));
+}
+
+.surplus-swatch,
+.shortfall-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+}
+
+.surplus-swatch {
+  background: var(--emerald);
+}
+
+.shortfall-swatch {
+  background: var(--status-red);
+}
