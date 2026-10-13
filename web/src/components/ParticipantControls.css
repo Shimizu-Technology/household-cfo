@@ -18,7 +18,7 @@
   min-height: 44px;
   border-radius: var(--control-radius);
   padding: 10px 16px;
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
   line-height: 1.35;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -32,7 +32,7 @@
   background: var(--surface, #fffdf8);
   color: var(--text-primary, var(--ink, #31261c));
   padding: 10px 12px;
-  font-size: 1rem;
+  font-size: var(--text-md);
   line-height: 1.4;
 }
 

@@ -1,5 +1,6 @@
 import { useLayoutEffect } from 'react'
 import { useBrand } from '../contexts/brandContextValue'
+import { brandFontStylesheetHref } from '../lib/brandFonts'
 
 const displayFonts: Record<string, string> = {
   cormorant_garamond: '"Cormorant Garamond", Georgia, serif',
@@ -69,6 +70,19 @@ export function BrandDocument() {
     const priorBrandHref = favicon?.dataset.brandHref
     const priorFaviconError = favicon?.onerror ?? null
 
+    const fontHref = brandFontStylesheetHref(brand.typography.display, brand.typography.body)
+    let fontLink = document.head.querySelector<HTMLLinkElement>('link[data-brand-fonts]')
+    const priorFontHref = fontLink?.getAttribute('href') ?? null
+    if (fontHref) {
+      if (!fontLink) {
+        fontLink = document.createElement('link')
+        fontLink.rel = 'stylesheet'
+        fontLink.dataset.brandFonts = 'true'
+        document.head.appendChild(fontLink)
+      }
+      if (fontLink.getAttribute('href') !== fontHref) fontLink.href = fontHref
+    }
+
     Object.entries(variables).forEach(([name, value]) => root.style.setProperty(name, value))
     root.style.fontFamily = bodyFont
     document.title = brand.tagline ? `${brand.product_name} | ${brand.tagline}` : brand.product_name
@@ -92,6 +106,11 @@ export function BrandDocument() {
         else root.style.removeProperty(name)
       })
       root.style.fontFamily = priorFontFamily
+      const currentFontLink = document.head.querySelector<HTMLLinkElement>('link[data-brand-fonts]')
+      if (currentFontLink) {
+        if (priorFontHref === null) currentFontLink.remove()
+        else currentFontLink.setAttribute('href', priorFontHref)
+      }
       document.title = priorTitle
       if (theme) {
         if (priorTheme === null) theme.removeAttribute('content')
