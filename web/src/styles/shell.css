@@ -29,6 +29,12 @@
   line-height: var(--leading-tight);
 }
 
+/* Chat keeps a compact identity row but the same side padding, so account help never shifts. */
+.app.is-chat-page > .shell-header {
+  min-height: 52px;
+  padding: var(--space-1) var(--space-1);
+}
+
 /* Section bar. */
 .app > .tabs-shell {
   margin: 0 0 var(--space-6);
@@ -126,7 +132,8 @@
     padding-bottom: calc(96px + env(safe-area-inset-bottom));
   }
 
-  .app > .shell-header {
+  .app > .shell-header,
+  .app.is-chat-page > .shell-header {
     min-height: 52px;
     padding: var(--space-1) var(--space-1) var(--space-2);
   }
