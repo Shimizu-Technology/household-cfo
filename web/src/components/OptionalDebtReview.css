@@ -20,3 +20,7 @@
 
 /* Let the close action drop below a long title instead of squeezing it at large text sizes. */
 .optional-debt-dialog > header { flex-wrap: wrap; }
+
+/* Term summaries reflow to fewer columns as text grows, and long labels may wrap. */
+.debt-term-summary dl { grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr)); }
+.debt-term-summary dt { overflow-wrap: anywhere; }
