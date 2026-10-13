@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
@@ -219,5 +219,15 @@ assert.ok(
   !/setDraft\(\(current\)[^\n]*event\.currentTarget/.test(app),
   'React event values must not be read from a deferred annual-income state updater',
 )
+
+const stylesheetDirectories = ['../src', '../src/components', '../src/styles']
+for (const directory of stylesheetDirectories) {
+  for (const name of readdirSync(resolve(__dirname, directory)).filter((file) => file.endsWith('.css'))) {
+    const source = readFileSync(resolve(__dirname, directory, name), 'utf8')
+    for (const block of source.match(/@font-face\s*\{[^}]*\}/g) ?? []) {
+      assert.ok(!block.includes('var('), `${name}: @font-face descriptors must be literal values, not custom properties`)
+    }
+  }
+}
 
 console.log('design regression checks passed')

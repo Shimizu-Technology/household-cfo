@@ -1,4 +1,4 @@
-@font-face { font-family: "Google Sans"; src: url("/auth/google-sans-medium.woff2") format("woff2"); font-style: normal; font-weight: var(--weight-medium); font-display: swap; }
+@font-face { font-family: "Google Sans"; src: url("/auth/google-sans-medium.woff2") format("woff2"); font-style: normal; font-weight: 500; font-display: swap; }
 .workos-sign-in-overlay { position: fixed; z-index: 110; top: var(--dialog-viewport-top, 0px); left: 0; right: 0; height: var(--dialog-viewport-height, 100dvh); display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
 .workos-sign-in-backdrop { position: absolute; inset: 0; background: rgb(31 36 33 / 58%); backdrop-filter: blur(7px); }
 .workos-sign-in-dialog { position: relative; display: flex; flex-direction: column; width: min(500px, 100%); min-height: 0; max-height: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); box-shadow: var(--shadow-overlay); color: var(--ink); }
