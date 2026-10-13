@@ -17,3 +17,6 @@
 .debt-eyebrow, .debt-term-summary dt { font-size: var(--text-xs); }
 
 .debt-tabs [aria-pressed=true] { color: var(--action-primary, #7b4a58); }
+
+/* Let the close action drop below a long title instead of squeezing it at large text sizes. */
+.optional-debt-dialog > header { flex-wrap: wrap; }

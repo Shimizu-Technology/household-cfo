@@ -9315,6 +9315,7 @@ h3 {
 
 .plan-value {
   display: grid;
+  align-content: space-between;
   min-width: 0;
   gap: 5px;
   padding: 11px;
@@ -10366,7 +10367,7 @@ body:has([role="dialog"][aria-modal="true"], dialog[open]) .app > .mia-launcher 
   .app > .mia-launcher { right: max(16px, env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); width: 56px; padding: 16px; }
   .mia-launcher > span { display: none; }
   .app .pilot-support-bar { padding: 5px 6px 5px 10px; }
-  .app .pilot-support-bar > span { font-size: var(--text-xs); gap: 6px; }
+  .app .pilot-support-bar > span { font-size: var(--text-xs); gap: 6px; line-height: 1.25; }
   .app .pilot-support-bar > div { gap: 0; }
   .app .pilot-support-bar .button { padding-inline: 6px; gap: 5px; font-size: var(--text-xs); }
   .app .pilot-support-bar svg { width: 17px; height: 17px; flex-basis: 17px; }

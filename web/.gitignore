@@ -24,3 +24,6 @@ playwright-report/
 *.njsproj
 *.sln
 *.sw?
+
+# Local QA screenshots written by browser checks
+.codex-qa/

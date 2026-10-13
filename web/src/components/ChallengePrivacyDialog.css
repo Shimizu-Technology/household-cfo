@@ -46,3 +46,8 @@
 .challenge-privacy-dialog > header { flex: 0 0 auto; }
 .privacy-scroll { min-height: 0; max-height: none; }
 .privacy-eyebrow, .privacy-sections > details > summary span { font-size: var(--text-xs); }
+
+/* Very short screens (landscape phones, large text): keep each section title reachable; its description is repeated inside. */
+@media (max-height: 360px) {
+  .privacy-sections > details > summary span { display: none; }
+}
