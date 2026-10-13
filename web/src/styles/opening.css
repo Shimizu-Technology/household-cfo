@@ -1,0 +1,29 @@
+/*
+ * Program, sign-in, and recovery states share the opening panel's size and
+ * type so a slow start, a failure, and a retry all look like one place.
+ */
+.brand-bootstrap-panel,
+.auth-state-panel {
+  width: min(29rem, 100%);
+  gap: var(--space-3);
+  padding: clamp(1.25rem, 4vw, 2rem);
+  box-shadow: var(--shadow-md);
+}
+
+.brand-bootstrap-mark {
+  display: none;
+}
+
+.brand-bootstrap-panel > h1,
+.auth-state-panel > h1 {
+  font-family: var(--font-body);
+  font-size: clamp(1.2rem, 4.8vw, 1.5rem);
+  font-weight: var(--weight-bold);
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+
+.brand-bootstrap-panel > .eyebrow,
+.auth-state-panel > .eyebrow {
+  color: var(--muted);
+}
