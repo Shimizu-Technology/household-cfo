@@ -10,7 +10,11 @@ type ParticipantTabsProps = {
   onToday?: () => void
 }
 
-const primarySections = new Set(['Home', 'Review', 'Ask Mia', 'My Money'])
+// The bottom bar holds four destinations plus More. Budget is the core of the
+// method, so it stays one tap away; My Money fills in when a program hides Budget.
+const primaryPriority = ['Home', 'Ask Mia', 'Budget', 'Review', 'My Money']
+const savingsPrimaryPriority = ['Home', 'Ask Mia', 'Statements']
+const PRIMARY_LIMIT = 4
 
 const sectionDescriptions: Record<string, string> = {
   'My Profile': 'Household setup, memory, and bank connections.',
@@ -28,13 +32,31 @@ const sectionDescriptions: Record<string, string> = {
 const compactLabels: Record<string, string> = {
   'My Profile': 'Profile',
   'My Money': 'Money',
-  Budget: 'Plan',
 }
 
-function ToolsIcon() {
+const sectionIconPaths: Record<string, string> = {
+  Home: 'M4 11.2 12 4.5l8 6.7V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z',
+  'Ask Mia': 'M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 17h-8.5L6 20.5V17H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5zM8 10h8M8 13h5',
+  Budget: 'M12 3.5a8.5 8.5 0 1 0 8.5 8.5H12zM15 3.9A8.5 8.5 0 0 1 20.1 9H15z',
+  Review: 'M8 6h11M8 12h11M8 18h11M3.8 6l1 1 1.8-2M3.8 12l1 1 1.8-2M3.8 18l1 1 1.8-2',
+  'My Money': 'M4 7.5A1.5 1.5 0 0 1 5.5 6h12A1.5 1.5 0 0 1 19 7.5V9h1v7h-1v1.5a1.5 1.5 0 0 1-1.5 1.5h-12A1.5 1.5 0 0 1 4 17.5zM15 12.5h5',
+  Statements: 'M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20zM14 3.5V8h4M9.5 12h6M9.5 15.5h6',
+  More: 'M5 5h5v5H5zM14 5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z',
+}
+
+function SectionIcon({ section }: { section: string }) {
+  const path = sectionIconPaths[section] ?? sectionIconPaths.More
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4.5 4.5h6v6h-6zM13.5 4.5h6v6h-6zM4.5 13.5h6v6h-6zM13.5 13.5h6v6h-6z" />
+    <svg className="tabs-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d={path} />
+    </svg>
+  )
+}
+
+function TodayIcon() {
+  return (
+    <svg className="tabs-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 6v12M6 12h12" />
     </svg>
   )
 }
@@ -58,9 +80,9 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
   const shellRef = useRef<HTMLDivElement | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement | null>(null)
   const secondaryRef = useRef<HTMLDivElement | null>(null)
-  const primarySet = savingsChallenge ? new Set(['Home', 'Statements', 'Ask Mia']) : primarySections
-  const primary = sections.filter((section) => primarySet.has(section))
-  const secondary = sections.filter((section) => !primarySet.has(section))
+  const priority = savingsChallenge ? savingsPrimaryPriority : primaryPriority
+  const primary = priority.filter((section) => sections.includes(section)).slice(0, PRIMARY_LIMIT)
+  const secondary = sections.filter((section) => !primary.includes(section))
   const secondaryIsActive = secondary.includes(activeSection)
 
   const closeTools = useCallback(() => {
@@ -159,7 +181,7 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
   return (
     <div className={`tabs-shell${savingsChallenge ? ' is-savings-navigation' : ''}${moreOpen ? ' is-tools-open' : ''}`} ref={shellRef}>
       <nav className="tabs" aria-label={`${brand.short_name} participant sections`}>
-        {savingsChallenge && onToday && <button type="button" className="tabs-today-action" onClick={event => { event.currentTarget.focus({ preventScroll: true }); onToday() }}>Today</button>}
+        {savingsChallenge && onToday && <button type="button" className="tabs-today-action" onClick={event => { event.currentTarget.focus({ preventScroll: true }); onToday() }}><TodayIcon /><span className="tabs-label">Today</span></button>}
         {primary.map((section) => (
           <a
             key={section}
@@ -169,6 +191,7 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
             aria-current={activeSection === section ? 'page' : undefined}
             onClick={(event) => chooseSection(event, section)}
           >
+            <SectionIcon section={section} />
             <span className="tabs-label-full">{sectionLabel(section)}</span>
             <span className="tabs-label-short" aria-hidden="true">{sectionLabel(section, true)}</span>
           </a>
@@ -182,8 +205,8 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
             aria-controls="participant-more-sections"
             onClick={toggleTools}
           >
-            <ToolsIcon />
-            <span>Tools</span>
+            <SectionIcon section="More" />
+            <span className="tabs-label">More</span>
           </button>
         )}
       </nav>
@@ -192,7 +215,7 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
           <button
             type="button"
             className="tabs-tools-backdrop"
-            aria-label="Close tools"
+            aria-label="Close menu"
             tabIndex={-1}
             onClick={closeTools}
           />
@@ -210,13 +233,12 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
           >
             <header>
               <div>
-                <span>{brand.participant_role_term} tools</span>
-                <strong id="participant-tools-title">Go deeper when you need to.</strong>
+                <strong id="participant-tools-title">More</strong>
               </div>
               <button
                 type="button"
                 className="tabs-tools-close"
-                aria-label="Close tools"
+                aria-label="Close menu"
                 onClick={closeTools}
               >
                 <span aria-hidden="true">×</span>

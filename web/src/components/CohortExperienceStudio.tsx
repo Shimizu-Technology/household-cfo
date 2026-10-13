@@ -331,7 +331,7 @@ function ExperiencePreview({ preview }: { preview: CohortExperiencePreview }) {
       </div>
       <div className="experience-preview-device is-phone">
         <span>Phone</span>
-        <nav aria-label="Phone preview">{enabled.slice(0, 4).map((item) => <b key={item.id}>{item.label}</b>)}<b>Tools</b></nav>
+        <nav aria-label="Phone preview">{enabled.slice(0, 4).map((item) => <b key={item.id}>{item.label}</b>)}<b>More</b></nav>
       </div>
       {disabled.length > 0 && <p><strong>Not included:</strong> {disabled.map((item) => item.label).join(', ')}. A saved link returns participants to Home with an explanation.</p>}
     </section>

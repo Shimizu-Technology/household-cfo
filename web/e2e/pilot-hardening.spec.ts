@@ -37,7 +37,7 @@ function brandRuntime(config = legacyBrandConfig) {
 
 async function openSection(page: Page, name: string) {
   const section = page.getByRole('link', { name, exact: true })
-  const tools = page.getByRole('button', { name: 'Tools', exact: true })
+  const tools = page.getByRole('button', { name: 'More', exact: true })
   await expect(tools).toBeVisible()
   if (!(await section.isVisible())) {
     await tools.click()
@@ -3894,8 +3894,13 @@ test('participant navigation remains available after deep scrolling', async ({ p
   expect(Math.abs(budgetHeaderHeight - homeHeaderHeight)).toBeLessThanOrEqual(1)
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   await expect(page.locator('.tabs-shell')).toBeInViewport()
-  const top = await page.locator('.tabs-shell').evaluate((element) => Math.round(element.getBoundingClientRect().top))
-  expect(top).toBe(0)
+  const navEdges = await page.locator('.tabs-shell').evaluate((element) => {
+    const box = element.getBoundingClientRect()
+    return { top: Math.round(box.top), bottom: Math.round(box.bottom), viewport: window.innerHeight, phone: window.innerWidth <= 620 }
+  })
+  // Phones pin the bar to the bottom edge; wider layouts keep it at the top.
+  if (navEdges.phone) expect(navEdges.bottom).toBe(navEdges.viewport)
+  else expect(navEdges.top).toBe(0)
   await page.getByRole('link', { name: 'Home', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
@@ -3906,7 +3911,6 @@ test('participant links preserve browser history, heading focus, and section scr
   test.skip(testInfo.project.name.includes('mobile'), 'desktop history and focus assertion')
   await page.goto('/#Home')
 
-  await page.getByRole('button', { name: 'Tools', exact: true }).click()
   const budgetLink = page.getByRole('link', { name: 'Budget', exact: true })
   await expect(budgetLink).toHaveAttribute('href', '#Budget')
   await budgetLink.click()
@@ -4127,11 +4131,11 @@ test('desktop Tools stays anchored to its trigger and contains keyboard focus', 
   test.skip(testInfo.project.name.includes('mobile'), 'desktop-only popover assertion')
   await page.goto('/')
 
-  const tools = page.getByRole('button', { name: 'Tools', exact: true })
+  const tools = page.getByRole('button', { name: 'More', exact: true })
   const triggerBox = await tools.boundingBox()
   await tools.click()
 
-  const dialog = page.getByRole('dialog', { name: 'Go deeper when you need to.' })
+  const dialog = page.getByRole('dialog', { name: 'More' })
   await expect(dialog).toBeVisible()
   await dialog.evaluate(async (element) => {
     await Promise.all(element.getAnimations().map((animation) => animation.finished.catch(() => undefined)))
@@ -4142,13 +4146,13 @@ test('desktop Tools stays anchored to its trigger and contains keyboard focus', 
   expect(dialogBox?.y ?? 0).toBeGreaterThanOrEqual((triggerBox?.y ?? 0) + (triggerBox?.height ?? 0) + 6)
   expect((dialogBox?.y ?? 0) + (dialogBox?.height ?? 0)).toBeLessThanOrEqual(page.viewportSize()?.height ?? 720)
 
-  await expect(page.getByRole('link', { name: 'Budget', exact: true })).toBeFocused()
+  await expect(page.getByRole('link', { name: 'My Money', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
-  await expect(dialog.getByRole('button', { name: 'Close tools' })).toBeFocused()
+  await expect(dialog.getByRole('button', { name: 'Close menu' })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(page.getByRole('link', { name: 'Statements', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
-  await expect(dialog.getByRole('button', { name: 'Close tools' })).toBeFocused()
+  await expect(dialog.getByRole('button', { name: 'Close menu' })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
   await expect(tools).toBeFocused()
@@ -4165,7 +4169,7 @@ test('compact phone layouts keep a stable shell and overlay secondary tools with
   const header = page.locator('.shell-header')
   const homeHeaderBox = await header.boundingBox()
   const homeContentY = await page.locator('.home-welcome-panel').evaluate((element) => Math.round(element.getBoundingClientRect().top))
-  const tools = page.getByRole('button', { name: 'Tools', exact: true })
+  const tools = page.getByRole('button', { name: 'More', exact: true })
   await expect(tools).toBeVisible()
   await expect(page.getByRole('link', { name: 'Review', exact: true })).toBeVisible()
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
@@ -4187,8 +4191,8 @@ test('compact phone layouts keep a stable shell and overlay secondary tools with
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
   const askMiaHeaderBox = await header.boundingBox()
-  // Chat deliberately compacts its shell; Home keeps its established header.
-  expect(askMiaHeaderBox!.height).toBeLessThan(homeHeaderBox!.height)
+  // Chat never grows the shell; every page uses the compact phone identity row.
+  expect(askMiaHeaderBox!.height).toBeLessThanOrEqual(homeHeaderBox!.height)
   expect(askMiaHeaderBox!.y).toBeGreaterThanOrEqual(0)
   await expect(page.getByText('More prompts →')).toBeHidden()
   await page.locator('.screen-grid').evaluate(async (screen) => {
@@ -5601,7 +5605,7 @@ test('participant navigation remains available when a saved optional-tool link i
   await expect(page.locator('.cfo-screen')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
 
-  const tools = page.getByRole('button', { name: 'Tools', exact: true })
+  const tools = page.getByRole('button', { name: 'More', exact: true })
   await tools.click()
   await expect(page.getByRole('link', { name: 'CFO Filter', exact: true })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Optionality', exact: true })).toBeVisible()
@@ -5649,7 +5653,7 @@ test('participant navigation keeps a disabled deep link canonical after capabili
   await expect.poll(() => workspaceRequests).toBeGreaterThan(1)
   releaseRefresh?.()
   await expect(page.getByRole('status').filter({ hasText: 'CFO Filter is not included' })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Tools', exact: true }).click()
+  await page.getByRole('button', { name: 'More', exact: true }).click()
   await expect(page.getByRole('link', { name: 'CFO Filter', exact: true })).toBeVisible()
   await expect(page).toHaveURL(/#Home$/)
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
@@ -8568,10 +8572,10 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await page.getByRole('button', { name: 'Review files', exact: true }).click()
   await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
   await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
-  await page.getByRole('button', { name: 'Tools', exact: true }).click()
+  await page.getByRole('button', { name: 'More', exact: true }).click()
   await expect(page.getByRole('link', { name: 'Statements', exact: true })).toHaveAttribute('aria-current', 'page')
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('button', { name: 'Tools', exact: true })).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByRole('button', { name: 'More', exact: true })).toHaveAttribute('aria-expanded', 'false')
   await page.getByLabel('Filter by status').selectOption('needs_review')
   await expect(page.locator('.document-history-card').filter({ hasText: 'QA-partial.pdf' })).toBeVisible()
   await openSection(page, 'My Profile')
@@ -9115,10 +9119,10 @@ test('BOG UI compact normal chat shows history and composer on first screen with
   await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Expand Ask Mia chat' })).toBeFocused()
   await expect(composer).toHaveValue('Keep this draft while I check context.')
-  await page.getByRole('button', { name: 'Tools', exact: true }).click()
+  await page.getByRole('button', { name: 'More', exact: true }).click()
   await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('button', { name: 'Tools', exact: true })).toBeFocused()
+  await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused()
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
   await page.screenshot({ path: `.codex-qa/compact-chat-${testInfo.project.name}.png` })
   await openSection(page, 'Home')
@@ -9633,16 +9637,14 @@ for (const interruptedAt of ['storage', 'processing'] as const) {
 }
 
 for (const role of ['participant', 'coach', 'admin']) {
-  test(`BOG UI floating Mia launcher keeps account help stable for ${role}`, async ({ page }) => {
+  test(`BOG UI account help stays stable across navigation for ${role}`, async ({ page }) => {
     await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
     await page.goto(`/?pilot_e2e_role=${role}#Home`)
     const account = page.locator('.shell-account-menu > summary')
-    const launcher = page.getByRole('button', { name: 'Open Mia', exact: true })
-    await expect(launcher).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Open Mia', exact: true })).toHaveCount(0)
     await page.evaluate(() => document.fonts.ready)
     const homeRight = await account.evaluate(node => node.getBoundingClientRect().right)
     await account.click()
-    await expect(launcher).toBeHidden()
     const identity = page.locator('.shell-account-panel .shell-account-identity')
     await expect(identity).toBeVisible()
     expect(await identity.evaluate(node => getComputedStyle(node).justifyItems)).toBe('center')
@@ -9653,12 +9655,10 @@ for (const role of ['participant', 'coach', 'admin']) {
     }
     await account.press('Escape')
     await expect(account).toBeFocused()
-    await launcher.click()
+    await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
     await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
-    await expect(launcher).toHaveCount(0)
     expect(Math.abs(await account.evaluate(node => node.getBoundingClientRect().right) - homeRight)).toBeLessThanOrEqual(4)
     await openSection(page, 'Budget')
-    await expect(launcher).toBeVisible()
     expect(Math.abs(await account.evaluate(node => node.getBoundingClientRect().right) - homeRight)).toBeLessThanOrEqual(1)
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
   })
@@ -9678,22 +9678,22 @@ test('BOG UI pilot support stays vertically aligned on narrow phones and account
     expect(alignment.height).toBeLessThanOrEqual(64)
     expect(alignment.overflow).toBeLessThanOrEqual(1)
   }
-  const launcher = page.getByRole('button', { name: 'Open Mia', exact: true })
   await page.evaluate(() => document.fonts.ready)
   await page.locator('.brand-footer').scrollIntoViewIfNeeded()
   await page.keyboard.press('End')
-  await expect.poll(async () => (await page.locator('.brand-footer').evaluate(node => node.getBoundingClientRect().bottom)) - (await launcher.boundingBox())!.y).toBeLessThanOrEqual(0)
-  await page.getByRole('button', { name: 'Tools', exact: true }).click()
-  await expect(launcher).toBeHidden()
-  await page.getByRole('dialog').getByRole('button', { name: 'Close tools', exact: true }).click()
-  await expect(launcher).toBeVisible()
+  // The phone tab bar never covers the end of the page.
+  await expect.poll(async () => (await page.locator('.brand-footer').evaluate(node => node.getBoundingClientRect().bottom)) - (await page.locator('.tabs-shell').boundingBox())!.y).toBeLessThanOrEqual(0)
+  const more = page.getByRole('button', { name: 'More', exact: true })
+  await more.click()
+  await expect(more).toHaveAttribute('aria-expanded', 'true')
+  await page.getByRole('dialog').getByRole('button', { name: 'Close menu', exact: true }).click()
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
   await page.setViewportSize({ width: 640, height: 360 })
   await openAccountHelp(page)
   const menu = page.locator('.shell-account-panel')
   expect(await menu.evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(360)
   await menu.getByRole('button', { name: 'Guide', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Open Mia', exact: true })).toBeHidden()
 })
 
 async function assertDialogVisibleHeight(dialog: ReturnType<Page['getByRole']>) {

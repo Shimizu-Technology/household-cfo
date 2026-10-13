@@ -84,9 +84,9 @@ assert.ok(budgetPosition.includes('pendingAmountsByCategory'), 'monthly cockpit 
 assert.ok(budgetPosition.includes('transactionDraftBudgetImpacts'), 'transaction review should derive its category impact from the annual plan')
 assert.ok(
   participantTabs.includes('aria-expanded={moreOpen}') && participantTabs.includes('role="dialog"') && participantTabs.includes('aria-modal="true"'),
-  'secondary modules should open from an accessible Tools control',
+  'secondary modules should open from an accessible More control',
 )
-assert.ok(participantTabs.includes('tabs-tools-backdrop') && css.includes('position: fixed;'), 'mobile Tools should overlay content instead of expanding the navigation layout')
+assert.ok(participantTabs.includes('tabs-tools-backdrop') && css.includes('position: fixed;'), 'mobile More should overlay content instead of expanding the navigation layout')
 assert.ok(participantTabs.includes('<a') && participantTabs.includes('href={sectionHref(section)}'), 'participant destinations should keep native link semantics')
 assert.ok(app.includes("addEventListener('popstate'") && app.includes("scrollRestoration = 'manual'"), 'participant routing should support browser history and route-keyed scroll restoration')
 assert.ok(app.includes('canResumePlaidOAuthReturn') && app.includes('readPlaidOAuthSession') && app.includes('clearPlaidOAuthStateFromUrl'), 'Plaid returns should lock only while a stored callback is resumable')
