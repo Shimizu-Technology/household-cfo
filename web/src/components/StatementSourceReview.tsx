@@ -32,7 +32,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, render
     let live = true
     fetchDocumentSourceReview(importId, revisionId, page, filter, controller.signal).then((payload) => {
       validateSourceReview(payload, importId, revisionId, page, filter)
-      if (payload.participant_review && (!payload.participant_review.actor_scope || !Number.isSafeInteger(payload.participant_review.actor_scope.user_id) || !Number.isSafeInteger(payload.participant_review.actor_scope.household_id))) throw new Error('The private statement review scope is unavailable. Refresh before continuing.')
+      if (payload.participant_review && (!payload.participant_review.actor_scope || !Number.isSafeInteger(payload.participant_review.actor_scope.user_id) || !Number.isSafeInteger(payload.participant_review.actor_scope.household_id))) throw new Error('This statement review isn’t available right now. Refresh to continue.')
       if (live) setResult({ key: requestKey, data: payload })
     }).catch((failure: unknown) => {
       if (live) setResult({ key: requestKey, error: failure instanceof Error ? failure.message : 'Could not load statement rows.' })
@@ -62,7 +62,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, render
       <p className="source-review-boundary">{data?.participant_review?.approved_coverage?.current ? `Statement coverage approved with ${data.participant_review.approved_coverage.status} status.` : 'Check the account, then review its rows and coverage.'} Viewing rows or balanced arithmetic does not approve this source. Movements, transfers and card payments are not savings.</p>
       {mutation.pendingRequest && <div role="status">An earlier statement review must be resolved before further changes. <details className="source-review-technical"><summary>Earlier request details</summary>Action: {mutation.pendingRequest.action} · Upload {mutation.pendingRequest.importId} · Request identifier: {mutation.pendingRequest.key}</details></div>}
       {mutation.checkStatus && <button type="button" disabled={mutation.pendingRequest?.working} onClick={() => { void mutation.checkStatus?.() }}>Check earlier review result</button>}
-      {mutation.error && <div role="alert"><p>{mutation.error}</p>{mutation.retry && <><p>The result is uncertain. Retry the same request before making another change.</p><button type="button" onClick={() => { void mutation.retry?.() }}>Retry the same review request</button></>}</div>}
+      {mutation.error && <div role="alert"><p>{mutation.error}</p>{mutation.retry && <><p>We couldn’t confirm whether that saved. Try again before making another change.</p><button type="button" onClick={() => { void mutation.retry?.() }}>Retry the same review request</button></>}</div>}
       {!mutation.accessDenied && <button type="button" disabled={mutation.busy} onClick={() => setAttempt((value) => value + 1)}>Refresh statement review</button>}
       {data && <>
         {data.participant_review && <StatementAccountReview context={data.participant_review} accounts={data.accounts} mutate={mutation.mutate} disabled={mutation.busy} />}
