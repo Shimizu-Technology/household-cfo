@@ -25,6 +25,8 @@ type ChatHistoryProps = {
   reviewContent?: ReactNode
   onSetupHelp?: () => void
   onFinancialRestart?: () => void
+  starterPrompts?: { label: string; message: string }[]
+  onChoosePrompt?: (message: string) => void
 }
 
 export function ChatHistory({
@@ -47,6 +49,8 @@ export function ChatHistory({
   reviewContent,
   onSetupHelp,
   onFinancialRestart,
+  starterPrompts = [],
+  onChoosePrompt,
 }: ChatHistoryProps) {
   const { assistantName } = useBrand()
   const remainingMessageCount = Math.max(0, hiddenMessageCount + olderMessageCount)
@@ -58,8 +62,15 @@ export function ChatHistory({
         {totalMessageCount === 0 && !miaLoading && (
           <div className="empty-chat-state">
             <span className="message-avatar" aria-hidden="true">{assistantInitial}</span>
-            <h3>{assistantName} is ready when you are.</h3>
-            <p>Ask what you need to decide next. Your assistant will use the approved household context already loaded here.</p>
+            <h3>Hi, I’m {assistantName}.</h3>
+            <p>Tell me what changed, like a purchase, a bill, or a raise, or ask what to do next. I’ll prepare anything that changes your numbers for you to review first.</p>
+            {onChoosePrompt && starterPrompts.length > 0 && (
+              <div className="empty-chat-starters" role="group" aria-label="Ways to start">
+                {starterPrompts.map((prompt) => (
+                  <button key={prompt.label} type="button" onClick={() => onChoosePrompt(prompt.message)}>{prompt.label}</button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {remainingMessageCount > 0 && (

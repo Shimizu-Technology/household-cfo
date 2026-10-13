@@ -8,6 +8,7 @@ import './App.css'
 import './styles/shell.css'
 import './styles/cards.css'
 import './styles/home.css'
+import './styles/mia.css'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
 import { WorkspaceOpening } from './components/WorkspaceOpening'
 import { EarlierMiaConversations } from './components/EarlierMiaConversations'
@@ -3403,6 +3404,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <ChatHistory
                   onSetupHelp={isRealWorkspace ? () => setSetupHelpOpen(true) : undefined}
                   onFinancialRestart={auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
+                  starterPrompts={isFirstSessionSetup ? [] : isSavingsExperience ? SAVINGS_UPDATE_PROMPTS : MIA_UPDATE_PROMPTS}
+                  onChoosePrompt={prepareMiaUpdate}
                   messages={visibleMessages}
                   totalMessageCount={currentMessages.length}
                   hiddenMessageCount={hiddenMessageCount}

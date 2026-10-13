@@ -11149,7 +11149,7 @@ test('BOG UI unfinished setup restart requires an owner review and starts a fres
   await expect(review).toHaveCount(0)
   await expect(page.getByText('Your earlier setup conversation.', { exact: true })).toHaveCount(0)
   await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: 'Mia is ready when you are.', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Hi, I’m Mia.', exact: true })).toBeVisible()
   expect(flow.generation()).toBe(1)
   expect(flow.previewCalls()).toBe(1)
   expect(flow.applyCalls()).toBe(1)
