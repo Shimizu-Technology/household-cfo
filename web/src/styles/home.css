@@ -1,0 +1,153 @@
+/*
+ * Home: one glance at the month. Greeting, readiness, where the month stands,
+ * what needs review, and one next move. Loaded after App.css.
+ */
+
+/* Greeting row once the household is set up; onboarding keeps the fuller panel. */
+.home-welcome-panel.is-ready {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-6);
+  margin-bottom: var(--space-2);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.home-welcome-panel.is-ready .home-welcome-copy {
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
+.home-welcome-panel.is-ready .eyebrow {
+  margin-bottom: var(--space-1);
+}
+
+.home-welcome-panel.is-ready h2 {
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+
+.home-welcome-panel.is-ready .home-welcome-copy > p:last-child {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.home-welcome-panel.is-ready .home-welcome-actions {
+  flex: 0 0 auto;
+}
+
+.home-welcome-panel.is-ready .home-welcome-actions .button {
+  width: auto;
+}
+
+/* Section heading: the month sits beside the title instead of a paragraph under it. */
+.home-screen > .home-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  max-width: none;
+  padding: var(--space-2) var(--space-1) 0;
+}
+
+.home-screen > .home-heading h2 {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0;
+}
+
+.home-screen > .home-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* Readiness reads as one calm line, not a banner. */
+.home-screen > .status-ribbon {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+}
+
+.home-screen > .status-ribbon span {
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+}
+
+.home-screen > .status-ribbon strong {
+  margin-top: 2px;
+  font-size: var(--text-md);
+}
+
+/* The month leads; review work sits beside it. */
+.home-screen .home-action-center {
+  grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.home-screen .home-action-center > .month-plan-summary {
+  box-shadow: var(--shadow-sm);
+}
+
+.home-screen .home-review-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+
+.home-screen .home-review-card > strong {
+  margin: 0;
+  font-size: var(--text-3xl);
+}
+
+.home-screen .home-review-card.has-reviews {
+  border-color: color-mix(in srgb, var(--status-yellow) 45%, var(--line));
+  background: color-mix(in srgb, var(--paper) 92%, var(--status-yellow));
+}
+
+.home-screen .home-review-card p {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 760px) {
+  .home-screen .home-action-center {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .home-welcome-panel.is-ready {
+    padding: 0;
+  }
+
+  .home-welcome-panel.is-ready h2 {
+    font-size: var(--text-xl);
+  }
+
+  .home-welcome-panel.is-ready .home-welcome-actions,
+  .home-welcome-panel.is-ready .home-welcome-actions .button {
+    width: 100%;
+  }
+
+  .home-screen > .status-ribbon {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The readiness label explains itself on phones; the full key lives in plan details. */
+  .home-screen > .status-ribbon p {
+    display: none;
+  }
+}
