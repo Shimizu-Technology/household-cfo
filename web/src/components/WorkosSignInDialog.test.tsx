@@ -32,7 +32,8 @@ it('normalizes the email, keeps the invitation and destination, and verifies the
   const code = screen.getByRole('textbox', { name: 'Sign-in code' })
   expect(code.getAttribute('autocomplete')).toBe('one-time-code')
   expect(code.getAttribute('inputmode')).toBe('numeric')
-  expect(document.activeElement).toBe(code)
+  // Dialog entry focus settles on an animation frame; under a loaded suite it can land after the code step renders.
+  await waitFor(() => expect(document.activeElement).toBe(code))
   fireEvent.change(code, { target: { value: '123 456' } })
   fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
   await waitFor(() => expect(props.onAuthenticated).toHaveBeenCalledWith('/#MyMoney'))
