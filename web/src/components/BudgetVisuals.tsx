@@ -238,7 +238,11 @@ export function AnnualCashFlowChart({
   const pinnedPeriodExists = months.some((month) => month.period_id === pinnedPeriodId)
   // Bars show what is left (or short) after the plan; income and outflow are
   // close every month, so charting them side by side hid the signal.
-  const surplusMaximum = Math.max(...months.map((month) => Math.abs(month.baseline_surplus)), 1)
+  // One linear scale: the area above the midline is sized by the largest surplus
+  // and the area below by the largest shortfall, so equal amounts draw equal bars.
+  const largestSurplus = Math.max(0, ...months.map((month) => month.baseline_surplus))
+  const largestShortfall = Math.max(0, ...months.map((month) => -month.baseline_surplus))
+  const chartRows = largestSurplus === 0 && largestShortfall === 0 ? '1fr 0fr' : `${largestSurplus}fr ${largestShortfall}fr`
   const negativeMonths = months.filter((month) => month.baseline_surplus < 0)
 
   function previewPeriod(periodId: number) {
@@ -313,9 +317,10 @@ export function AnnualCashFlowChart({
         </div>
       )}
       <div className="annual-cash-flow-scroll" role="region" aria-label={`${plan.year} monthly income and planned outflow chart`} tabIndex={0}>
-        <div className="annual-cash-flow-chart">
+        <div className="annual-cash-flow-chart" style={{ '--cash-flow-rows': chartRows } as CSSProperties}>
           {months.map((month) => {
-            const surplusHeight = month.baseline_surplus === 0 ? 0 : Math.max((Math.abs(month.baseline_surplus) / surplusMaximum) * 100, 4)
+            const rowMaximum = month.baseline_surplus >= 0 ? largestSurplus : largestShortfall
+            const surplusHeight = rowMaximum === 0 ? 0 : (Math.abs(month.baseline_surplus) / rowMaximum) * 100
             const style = { '--surplus-height': `${surplusHeight}%` } as CSSProperties
             return (
               <article className={`cash-flow-month${month.baseline_surplus < 0 ? ' negative' : ''}${month.period_id === reportPeriodId ? ' is-report-month' : ''}${pinnedPeriodId === month.period_id ? ' is-pinned' : ''}`} style={style} key={month.period_id}>

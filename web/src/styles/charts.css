@@ -5,7 +5,7 @@
 .cash-flow-bars {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: 3fr 1fr;
+  grid-template-rows: var(--cash-flow-rows, 1fr 0fr);
   align-items: stretch;
   justify-content: stretch;
   gap: 0;
