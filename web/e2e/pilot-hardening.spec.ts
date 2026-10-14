@@ -8955,7 +8955,7 @@ test('BOG UI savings Home excludes existing money and confirms zero only after a
   await home.getByRole('button', { name: 'Approve savings record #31' }).click()
   const progress = home.getByRole('article', { name: 'Approved savings progress' })
   await expect(progress.locator('.savings-total')).toHaveText('Not yet reported')
-  await expect(progress).toContainText('1 excluded approved record')
+  await expect(progress).toContainText('1 record not counted')
   await openDetails(page, 'No new savings to report?')
   await expect(home.getByRole('button', { name: 'Confirm known zero' })).toBeDisabled()
   await home.getByLabel(/I know I have no eligible/).check()
@@ -8973,7 +8973,7 @@ test('BOG UI savings Home recovers uncertain submission with the same idempotenc
   await home.getByRole('button', { name: 'Retry exact savings request' }).click()
   await expect(home).toContainText('earlier request was confirmed')
   expect(calls).toHaveLength(2); expect(calls[1]).toEqual(calls[0])
-  await expect(home).toContainText('1 pending contribution review')
+  await expect(home).toContainText('1 waiting for your review')
 })
 
 test('BOG UI savings Home pages history preserves composer on refresh and clears revoked private data', async ({ page }) => {
@@ -9079,7 +9079,7 @@ test('BOG UI savings Home opens a new draft review directly after many older rec
   await home.getByLabel('Amount in US dollars').fill('1.25')
   await home.getByRole('button', { name: 'Review savings record' }).click()
   await expect(reviews.getByRole('button', { name: 'Approve savings record #56' })).toBeVisible()
-  await expect(home).toContainText('26 pending contribution reviews')
+  await expect(home).toContainText('26 waiting for your review')
   await reviews.getByRole('button', { name: 'Previous records' }).click()
   await expect(reviews.getByRole('button', { name: 'Approve savings record #1', exact: true })).toBeVisible()
 })
