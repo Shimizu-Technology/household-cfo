@@ -236,6 +236,17 @@
     padding-bottom: 0;
   }
 
+  /* Chat keeps every pixel it can for the conversation; targets stay above 44px. */
+  .app.is-chat-page .tabs-shell .tabs {
+    padding: 2px 0;
+  }
+
+  .app.is-chat-page .tabs-shell .tabs :where(button, a) {
+    min-height: 48px;
+    gap: 0;
+    padding-block: 2px;
+  }
+
   .app.is-chat-page > .tabs-shell {
     position: relative;
     order: 99;

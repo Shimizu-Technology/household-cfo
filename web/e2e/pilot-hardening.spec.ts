@@ -4289,7 +4289,8 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   expect(expandedLayout.shellOwnsViewportCenter).toBe(true)
   expect(expandedLayout.bodyOverflow).toBe('hidden')
 
-  await page.getByRole('link', { name: 'Home', exact: true }).focus()
+  // Navigation hides beneath the full-screen chat on phones; any outside control must hand focus back to it.
+  await page.locator('.shell-account-menu > summary').focus()
   expect(await page.locator('.mia-chat-shell').evaluate((shell) => shell.contains(document.activeElement))).toBe(true)
 
   const sendButton = page.getByRole('button', { name: 'Send message' })
@@ -4374,7 +4375,8 @@ test('expanded desktop Ask Mia blocks background interaction and restores its tr
   await expect(clearButton).toBeHidden()
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeFocused()
 
-  await page.getByRole('link', { name: 'Home', exact: true }).focus()
+  // Navigation hides beneath the full-screen chat on phones; any outside control must hand focus back to it.
+  await page.locator('.shell-account-menu > summary').focus()
   expect(await page.locator('.mia-chat-shell').evaluate((shell) => shell.contains(document.activeElement))).toBe(true)
 
   await page.locator('.mia-chat-backdrop').click({ position: { x: 2, y: 2 } })
