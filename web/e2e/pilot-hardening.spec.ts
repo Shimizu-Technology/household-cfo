@@ -1356,7 +1356,7 @@ test('release-pinned participant branding replaces the public hostname brand wit
   await expect.poll(() => Boolean(openingWorkspace)).toBe(true)
   await openingWorkspace!.fulfill({ status: 200, json: workspace })
   await expect(page.getByRole('heading', { name: 'Island Money Community', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Open Auntie Mel, Your Island Money Guide' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Ask Auntie Mel, Your Island Money Guide', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Håfa adai, let’s make one clear money move.' })).toBeVisible()
   await expect(page.locator('.brand-footer')).toContainText('Powered by VERA')
   await expect(page.locator('.brand-footer')).toContainText('AskTheMelCoachingTeamForHelpWithYourProgramSeatOrWorkspaceQuestionsAnytimeNow')
@@ -1761,7 +1761,9 @@ test('participant workflow remains usable when Plaid is not configured', async (
   await openSection(page, 'Review')
   await expect(page.getByText('Manual activity is ready.')).toBeVisible()
   await expect(page.getByText('Connect an account from My Profile.', { exact: false })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: 'My Money', exact: true })).toBeVisible()
+  // My Money stays reachable from More when Budget takes its place in the primary bar.
+  await openSection(page, 'My Money')
+  await expect(page.getByRole('navigation', { name: 'My Money topics' })).toBeVisible()
 })
 
 test('configured Plaid clearly supports a participant with no connections', async ({ page }) => {
@@ -9719,7 +9721,7 @@ test('BOG UI route headings stay semantic without decorative outlines and keyboa
     await expect(heading).toHaveCSS('outline-style', 'none')
     await expect(page.locator('.sr-only[aria-live="polite"]')).toContainText(`${section} screen loaded.`)
   }
-  const budgetLink = page.getByRole('link', { name: 'My Money', exact: true })
+  const budgetLink = page.getByRole('link', { name: 'Budget', exact: true })
   await budgetLink.focus()
   await page.keyboard.press('Tab')
   const focus = await page.evaluate(() => ({ tag: document.activeElement?.tagName, style: getComputedStyle(document.activeElement!).outlineStyle, width: getComputedStyle(document.activeElement!).outlineWidth }))

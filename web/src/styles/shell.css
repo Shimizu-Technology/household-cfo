@@ -242,6 +242,11 @@
     margin: var(--space-1) calc(-1 * max(8px, env(safe-area-inset-right))) 0 calc(-1 * max(8px, env(safe-area-inset-left)));
   }
 
+  /* Dialogs own the whole screen; the bar must never sit over their actions. */
+  body:has([role="dialog"][aria-modal="true"]:not(.tabs-secondary), dialog[open]) .app > .tabs-shell {
+    visibility: hidden;
+  }
+
   /* The More sheet rises above the bar. */
   .tabs-secondary {
     bottom: calc(76px + env(safe-area-inset-bottom));
