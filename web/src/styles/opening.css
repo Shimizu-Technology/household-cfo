@@ -27,3 +27,19 @@
 .auth-state-panel > .eyebrow {
   color: var(--muted);
 }
+
+/* Signed-out welcome: centered, with a headline sized for a first impression rather than a poster. */
+.app.auth-state {
+  justify-content: center;
+}
+
+.auth-panel > h1 {
+  margin-block: var(--space-2);
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+}
+
+.auth-panel > p:not(.eyebrow) {
+  max-width: 52ch;
+}
