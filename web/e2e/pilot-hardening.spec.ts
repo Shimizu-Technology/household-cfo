@@ -11149,7 +11149,7 @@ test('BOG UI unfinished setup restart requires an owner review and starts a fres
   await expect(review).toHaveCount(0)
   await expect(page.getByText('Your earlier setup conversation.', { exact: true })).toHaveCount(0)
   await expect(page.locator('.chat-card .message-row')).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: 'Mia is ready when you are.', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Hi, I’m Mia.', exact: true })).toBeVisible()
   expect(flow.generation()).toBe(1)
   expect(flow.previewCalls()).toBe(1)
   expect(flow.applyCalls()).toBe(1)
@@ -11492,3 +11492,28 @@ for (const role of ['participant', 'coach', 'admin']) {
     await expect(panel).not.toBeVisible()
   })
 }
+
+test('Ask Mia starters fill the composer without sending and stay out of first-session setup', async ({ page }) => {
+  const sends: string[] = []
+  await page.route('http://api.test/api/v1/mia/messages**', (route) => {
+    if (route.request().method() === 'POST') sends.push(route.request().url())
+    return route.fallback()
+  })
+  const ready = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: { ...ready, mia: { ...ready.mia, messages: [], oldest_message_id: null, older_message_count: 0, historical_message_count: 0 } } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await page.getByRole('group', { name: 'Ways to start' }).getByRole('button', { name: 'Update a debt', exact: true }).click()
+  await expect(composer).toHaveValue('Help me update one of my household debts.')
+  await expect(page.getByRole('heading', { name: 'Hi, I’m Mia.', exact: true })).toBeVisible()
+  expect(sends).toEqual([])
+
+  await page.unroute('http://api.test/api/v1/workspace')
+  const setup = realWorkspaceData(false)
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: { ...setup, mia: { ...setup.mia, messages: [], oldest_message_id: null, older_message_count: 0, historical_message_count: 0 } } }))
+  await page.reload()
+  await expect(composer).toBeVisible()
+  // First-session setup keeps its own guidance primary; no starters compete with it.
+  await expect(page.getByRole('group', { name: 'Ways to start' })).toHaveCount(0)
+  expect(sends).toEqual([])
+})

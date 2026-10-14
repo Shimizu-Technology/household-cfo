@@ -1,0 +1,107 @@
+/*
+ * Ask Mia: a warm, quiet chat surface. Loaded after App.css.
+ */
+
+/* Chat header controls read as plain labels, not shouting chips. */
+.chat-memory-button,
+.chat-clear-button,
+.chat-suggestions-button,
+.chat-expand-button,
+.chat-context-pill {
+  border-color: var(--line);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.chat-memory-button:hover,
+.chat-clear-button:hover,
+.chat-suggestions-button:hover,
+.chat-expand-button:hover {
+  border-color: color-mix(in srgb, var(--emerald) 30%, var(--line));
+  color: var(--emerald);
+}
+
+.app .mia-context-trigger {
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+/* Mia's mark. */
+.message-avatar {
+  border: 0;
+  /* Both stops keep white initials above 4.5:1 for the Household CFO palette. */
+  background: linear-gradient(140deg, color-mix(in srgb, var(--gold) 70%, var(--plum)), var(--emerald));
+  color: var(--brand-on-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* First message: a greeting and a few ways to start. */
+.empty-chat-state {
+  gap: var(--space-3);
+  max-width: 420px;
+}
+
+.empty-chat-state .message-avatar {
+  width: 52px;
+  height: 52px;
+  flex-basis: 52px;
+  font-size: var(--text-xl);
+}
+
+.empty-chat-state h3 {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+}
+
+.empty-chat-starters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.empty-chat-starters button {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--emerald) 22%, var(--line));
+  border-radius: var(--radius-pill);
+  background: var(--paper);
+  color: var(--emerald);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.empty-chat-starters button:hover {
+  background: var(--emerald-soft);
+}
+
+.empty-chat-starters button:focus-visible {
+  outline: 3px solid var(--brand-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 620px) {
+  .app.is-chat-page .empty-chat-state h3 {
+    font-size: var(--text-xl);
+  }
+
+  .app.is-chat-page .empty-chat-state p {
+    font-size: var(--text-sm);
+  }
+
+  .app.is-chat-page .chat-memory-button,
+  .app.is-chat-page .chat-suggestions-button {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--text-sm);
+  }
+}
