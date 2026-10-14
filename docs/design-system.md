@@ -4,19 +4,21 @@ How participant and staff screens size, space, color, and word things. Use this 
 
 ## Where styles live
 
-Stylesheets load in this order. When two rules have equal specificity and importance, the later file wins; selector specificity and `!important` still take precedence over order, so the newer stylesheets use selectors at least as specific as the legacy rules they replace.
+App-wide stylesheets load in the order below (verified from the production CSS bundle). Component stylesheets in `web/src/components/*.css` load wherever their component is first imported, so they can appear before or after these. When two rules have equal specificity and importance, the later one wins; selector specificity and `!important` still take precedence over order, so the newer stylesheets use selectors at least as specific as the legacy rules they replace.
 
-| File | Purpose |
-| --- | --- |
-| `web/src/styles/tokens.css` | The scale: text sizes, weights, spacing, radii, elevation, status colors. Loaded first from `main.tsx`. |
-| `web/src/index.css`, `web/src/App.css` | Legacy component styles, now expressed in tokens. Avoid adding new rules here. |
-| `web/src/styles/shell.css` | Identity row and participant navigation (bottom tab bar on phones). |
-| `web/src/styles/cards.css` | Shared card treatments: status dots, month plan summary, section labels. |
-| `web/src/styles/home.css` | Home: greeting, readiness line, month at a glance. |
-| `web/src/styles/mia.css` | Ask Mia surface and first-message starters. |
-| `web/src/styles/charts.css` | Annual cash-flow chart (surplus and shortfall bars). |
-| `web/src/styles/opening.css` | Program, sign-in, and recovery panels. |
-| `web/src/components/*.css` | Component-scoped styles. Use tokens. |
+| Order | File | Purpose |
+| --- | --- | --- |
+| 1 | `web/src/styles/tokens.css` | The scale: text sizes, weights, spacing, radii, elevation, status colors. |
+| 2 | `web/src/index.css` | Document defaults. |
+| 3 | `web/src/App.css` | Legacy component styles, now expressed in tokens. Avoid adding new rules here. |
+| 4 | `web/src/styles/shell.css` | Identity row and participant navigation (bottom tab bar on phones). |
+| 5 | `web/src/styles/cards.css` | Shared card treatments: status dots, month plan summary, section labels. |
+| 6 | `web/src/styles/home.css` | Home: greeting, readiness line, month at a glance. |
+| 7 | `web/src/styles/mia.css` | Ask Mia surface and first-message starters. |
+| 8 | `web/src/styles/charts.css` | Annual cash-flow chart (surplus and shortfall bars). |
+| 9 | `web/src/dialogViewport.css` | Dialog sizing against the visible viewport. |
+| 10 | `web/src/styles/opening.css` | Program, sign-in, and recovery panels. |
+| — | `web/src/components/*.css` | Component-scoped styles, loaded with their components. Use tokens. |
 
 ## Tokens
 
