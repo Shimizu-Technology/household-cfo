@@ -1739,7 +1739,8 @@ test('an initial workspace loading failure offers a real retry and restores the 
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await expect(page.getByRole('alert')).toContainText('temporarily unavailable')
+  // Server faults get fixed participant copy instead of the raw API message.
+  await expect(page.getByRole('alert')).toContainText('Your workspace is having trouble loading. Try again in a moment.')
   recoveryAllowed = true
   await page.getByRole('button', { name: 'Try again' }).click()
 
@@ -10151,7 +10152,7 @@ for (const currentRefreshWorks of [false, true]) {
     await page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true }).click()
     await page.locator('.account-form').getByLabel('Approved balance').fill('200')
     await page.getByRole('button', { name: 'Save account' }).click()
-    const warning = page.getByRole('alert').filter({ hasText: currentRefreshWorks ? 'current household workspace refreshed' : 'Previous totals are stale' })
+    const warning = page.getByRole('alert').filter({ hasText: currentRefreshWorks ? 'current household workspace refreshed' : 'the totals didn’t refresh' })
     await expect(warning).toBeVisible()
     expect(yearRequests).toBe(2)
     if (currentRefreshWorks) await expect(page.locator('.account-row')).toContainText('$200.00')
@@ -10229,7 +10230,7 @@ for (const refreshFails of [false, true]) {
     await page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true }).click()
     await page.locator('.account-form').getByLabel('Approved balance').fill('200')
     await page.getByRole('button', { name: 'Save account' }).click()
-    if (refreshFails) await expect(page.getByRole('alert').filter({ hasText: 'Previous totals are stale' })).toBeVisible()
+    if (refreshFails) await expect(page.getByRole('alert').filter({ hasText: 'the totals didn’t refresh' })).toBeVisible()
     else await expect(page.locator('.account-row')).toContainText('$200.00')
     const finishedBackground = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
     releaseBackground()
@@ -10238,7 +10239,7 @@ for (const refreshFails of [false, true]) {
       await topics.getByRole('button', { name: 'Income', exact: true }).click()
       await page.getByRole('button', { name: 'Use current year', exact: true }).click()
       await expect.poll(() => budgetRequests.filter(year => year === currentYear).length).toBe(1)
-      await expect(page.getByRole('alert').filter({ hasText: 'Previous totals are stale' })).toBeVisible()
+      await expect(page.getByRole('alert').filter({ hasText: 'the totals didn’t refresh' })).toBeVisible()
     } else {
       await topics.getByRole('button', { name: 'Debt', exact: true }).click()
       await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
