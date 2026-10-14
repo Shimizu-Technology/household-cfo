@@ -44,24 +44,20 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
 
   return (
     <section className="screen-grid home-screen">
-      <div className="screen-heading">
-        <p className="eyebrow">Home</p>
+      <div className="screen-heading home-heading">
         <h2 data-page-heading tabIndex={-1}>CFO snapshot</h2>
-        <p>Review what needs your call, see where the month sits inside the annual plan, and make one next move.</p>
+        <p>{actionCenter.current_month_label} {actionCenter.current_year}</p>
+      </div>
+
+      <div className={`status-ribbon ${dashboard.summary.readiness_tone}`}>
+        <div>
+          <span>Readiness</span>
+          <strong>{dashboard.summary.readiness_label}</strong>
+        </div>
+        <p>Red means stabilize basics first. Yellow means cash flow is close but runway still needs protection. Green means target runway and positive monthly surplus are both in place.</p>
       </div>
 
       <section className="home-action-center" aria-label={`${brand.product_name} action center`}>
-        <article className={`home-review-card ${actionCenter.total_review_count > 0 || pendingImportCount > 0 ? 'has-reviews' : 'is-clear'}`}>
-          <span>What needs review?</span>
-          <strong>{actionCenter.total_review_count}</strong>
-          <p>{actionCenter.total_review_count === 0 ? (pendingImportCount > 0 ? `Transaction and ${assistantName} change reviews are up to date. Files still need your review below.` : `You are caught up. New transactions and ${assistantName} changes will wait here for your approval.`) : 'Pending items do not change actuals or the plan until you approve them.'}</p>
-          {pendingImportCount > 0 && <p>{pendingImportCount} file{pendingImportCount === 1 ? '' : 's'} needing review. File review is separate from transaction and plan changes.</p>}
-          <div className="home-review-actions">
-            {pendingImportCount > 0 && <button type="button" className="subtle" onClick={onReviewImports}>Review {pendingImportCount} file{pendingImportCount === 1 ? '' : 's'}</button>}
-            {actionCenter.transaction_review_count > 0 && <button type="button" onClick={onReviewTransactions}>Review {actionCenter.transaction_review_count} transaction{actionCenter.transaction_review_count === 1 ? '' : 's'}</button>}
-            {actionCenter.mia_action_review_count > 0 && <button type="button" className="subtle" onClick={onReviewMiaActions}>Review {actionCenter.mia_action_review_count} {assistantName} change{actionCenter.mia_action_review_count === 1 ? '' : 's'}</button>}
-          </div>
-        </article>
 
         {currentPlan ? <MonthPlanSummary
           label={`${actionCenter.current_month_label} ${actionCenter.current_year}`}
@@ -77,15 +73,19 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           <h3>Current month plan unavailable</h3>
           <p>Your current plan could not be loaded. This does not mean spending is zero.</p>
         </article>}
-      </section>
 
-      <div className={`status-ribbon ${dashboard.summary.readiness_tone}`}>
-        <div>
-          <span>Readiness</span>
-          <strong>{dashboard.summary.readiness_label}</strong>
-        </div>
-        <p>Red means stabilize basics first. Yellow means cash flow is close but runway still needs protection. Green means target runway and positive monthly surplus are both in place.</p>
-      </div>
+        <article className={`home-review-card ${actionCenter.total_review_count > 0 || pendingImportCount > 0 ? 'has-reviews' : 'is-clear'}`}>
+          <span>What needs review?</span>
+          <strong>{actionCenter.total_review_count}</strong>
+          <p>{actionCenter.total_review_count === 0 ? (pendingImportCount > 0 ? `Transaction and ${assistantName} change reviews are up to date. Files still need your review below.` : `You are caught up. New transactions and ${assistantName} changes will wait here for your approval.`) : 'Pending items do not change actuals or the plan until you approve them.'}</p>
+          {pendingImportCount > 0 && <p>{pendingImportCount} file{pendingImportCount === 1 ? '' : 's'} needing review. File review is separate from transaction and plan changes.</p>}
+          <div className="home-review-actions">
+            {pendingImportCount > 0 && <button type="button" className="subtle" onClick={onReviewImports}>Review {pendingImportCount} file{pendingImportCount === 1 ? '' : 's'}</button>}
+            {actionCenter.transaction_review_count > 0 && <button type="button" onClick={onReviewTransactions}>Review {actionCenter.transaction_review_count} transaction{actionCenter.transaction_review_count === 1 ? '' : 's'}</button>}
+            {actionCenter.mia_action_review_count > 0 && <button type="button" className="subtle" onClick={onReviewMiaActions}>Review {actionCenter.mia_action_review_count} {assistantName} change{actionCenter.mia_action_review_count === 1 ? '' : 's'}</button>}
+          </div>
+        </article>
+      </section>
 
       <div className="two-column">
         <article className={`panel coach-panel ${dashboard.summary.readiness_tone}`}>

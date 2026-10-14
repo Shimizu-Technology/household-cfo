@@ -6,6 +6,8 @@ import { SignInButton, SignUpButton, SignOutButton } from './components/AuthCont
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
 import './App.css'
 import './styles/shell.css'
+import './styles/cards.css'
+import './styles/home.css'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
 import { WorkspaceOpening } from './components/WorkspaceOpening'
 import { EarlierMiaConversations } from './components/EarlierMiaConversations'
@@ -3295,7 +3297,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           <HomeWelcomePanel
             needsSetup={Boolean(isRealWorkspace && !data.workspace?.setup_complete)}
             setupStatus={data.workspace.setup_status}
-            readinessLabel={data.dashboard.summary.readiness_label}
             onPrimaryAction={isRealWorkspace && !data.workspace?.setup_complete ? startChatFirstSession : () => switchSection('Ask Mia')}
             onManualSetup={startManualFirstSession}
           />
@@ -4398,21 +4399,19 @@ function HomeWelcomePanel({
   setupStatus,
   onPrimaryAction,
   onManualSetup,
-  readinessLabel,
 }: {
   needsSetup: boolean
   setupStatus: WorkspaceSetupStatus
   onPrimaryAction: () => void
   onManualSetup: () => void
-  readinessLabel: string
 }) {
   const { brand, assistantName } = useBrand()
-  const defaultHeading = needsSetup ? `Give ${assistantName} a useful starting point.` : 'Your workspace is ready.'
+  const defaultHeading = needsSetup ? `Give ${assistantName} a useful starting point.` : 'Welcome back.'
   const defaultDescription = needsSetup
     ? 'Start with money in, money out, and one goal; you can refine the rest as real decisions come up.'
     : 'Review what needs your call, see this month inside the annual plan, and make one clear next move.'
   return (
-    <section className="home-welcome-panel" aria-labelledby="home-welcome-title">
+    <section className={`home-welcome-panel${needsSetup ? '' : ' is-ready'}`} aria-labelledby="home-welcome-title">
       <div className="home-welcome-copy">
         <p className="eyebrow">{brand.tagline || 'Your coaching workspace'}</p>
         <h2
@@ -4425,13 +4424,13 @@ function HomeWelcomePanel({
         <p>{brand.welcome_description || defaultDescription}</p>
       </div>
       <div className="home-welcome-actions">
-        <div className="home-readiness-chip">
+        {needsSetup && <div className="home-readiness-chip">
           <span aria-hidden="true"><MiaMark /></span>
           <div>
-            <small>{needsSetup ? 'First step' : 'Current readiness'}</small>
-            <strong>{needsSetup ? `${setupStatus.completed_count} of ${setupStatus.required_count} essentials confirmed` : readinessLabel}</strong>
+            <small>First step</small>
+            <strong>{setupStatus.completed_count} of {setupStatus.required_count} essentials confirmed</strong>
           </div>
-        </div>
+        </div>}
         <Button onClick={onPrimaryAction}>
           {needsSetup ? `Set up with ${assistantName}` : `Tell ${assistantName} what changed`}
         </Button>

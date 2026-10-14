@@ -1,0 +1,78 @@
+/*
+ * Shared card treatments. Status is carried by a small colored dot beside the
+ * card label instead of a thick colored left edge. Loaded after App.css.
+ */
+
+:is(.insight-card, .stack-card, .milestone-card, .choice-card, .decision-card, .coach-panel):is(.green, .yellow, .red, .blue, .gold, .approve, .wait, .pause) {
+  border-left: 1px solid var(--line);
+}
+
+:is(.insight-card, .stack-card, .decision-card) > span:first-child,
+.coach-panel > .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+:is(.insight-card, .stack-card, .decision-card) > span:first-child::before,
+.coach-panel > .eyebrow::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+:is(.insight-card, .stack-card, .coach-panel).green > :is(span:first-child, .eyebrow)::before,
+.decision-card.approve > span:first-child::before {
+  background: var(--status-green);
+}
+
+:is(.insight-card, .stack-card, .coach-panel).yellow > :is(span:first-child, .eyebrow)::before,
+.decision-card.wait > span:first-child::before {
+  background: var(--status-yellow);
+}
+
+:is(.insight-card, .stack-card, .coach-panel).red > :is(span:first-child, .eyebrow)::before,
+.decision-card.pause > span:first-child::before {
+  background: var(--status-red);
+}
+
+:is(.insight-card.blue, .stack-card.gold) > span:first-child::before {
+  background: var(--gold);
+}
+
+/* Month plan summary (Home, Review, Budget). */
+.month-plan-summary .plan-value {
+  border: 0;
+  background: color-mix(in srgb, var(--paper-warm) 80%, transparent);
+}
+
+.month-plan-summary .plan-value.pending {
+  background: color-mix(in srgb, var(--emerald-soft) 55%, var(--paper));
+}
+
+.month-plan-summary .plan-value strong {
+  letter-spacing: -0.01em;
+}
+
+.month-plan-summary .month-plan-decision-row > div {
+  background: color-mix(in srgb, var(--paper-warm) 80%, transparent);
+}
+
+.month-plan-summary .month-plan-decision-row > div:first-child strong {
+  color: var(--emerald);
+}
+
+.month-plan-summary .money-out-reconciliation {
+  border-color: var(--line);
+  background: transparent;
+}
+
+/* Section labels: quieter tracking and weight so headings, not labels, lead. */
+.eyebrow,
+.app .eyebrow {
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+}
