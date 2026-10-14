@@ -3140,13 +3140,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     setIsProfileEditing(false)
   }
 
+  // The section switch restores scroll on its own animation frame; reveal the
+  // destination record after that frame so the reset cannot undo it.
+  function afterSectionNavigation(callback: () => void) {
+    requestAnimationFrame(() => requestAnimationFrame(callback))
+  }
+
   function handleProfileSectionEdit(sectionLabel: string) {
     if (!isRealWorkspace) return
 
     if (sectionLabel.toLowerCase().includes('income')) {
       if (!switchSection('My Money', { focusHeading: false })) return
       setMoneyTopic('income')
-      requestAnimationFrame(() => {
+      afterSectionNavigation(() => {
         const disclosure = incomeSourcesRef.current?.closest('details')
         if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
         incomeSourcesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -3158,14 +3164,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (sectionLabel.toLowerCase().includes('debt')) {
       if (!switchSection('My Money', { focusHeading: false })) return
       setMoneyTopic('debt')
-      requestAnimationFrame(focusDebtManager)
+      afterSectionNavigation(focusDebtManager)
       return
     }
 
     if (sectionLabel.toLowerCase().includes('saving') || sectionLabel.toLowerCase().includes('asset')) {
       if (!switchSection('My Money', { focusHeading: false })) return
       setMoneyTopic('accounts')
-      requestAnimationFrame(focusAccountManager)
+      afterSectionNavigation(focusAccountManager)
       return
     }
 

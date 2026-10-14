@@ -11,7 +11,9 @@ describe('participant control brand contract', () => {
       expect(common).toContain(`.${container}`)
     }
     expect(common).toMatch(/min-height: 44px/)
-    expect(common).toMatch(/font-size: 1rem/)
+    // Inputs stay at 16px so iOS Safari does not zoom while typing.
+    expect(common).toMatch(/font-size: var\(--text-md\)/)
+    expect(readFileSync(new URL('../styles/tokens.css', import.meta.url), 'utf8')).toMatch(/--text-md: 1rem;/)
     expect(common).toMatch(/:focus-visible\s*\{[^}]*var\(--focus-color/s)
     for (const name of ['StatementSourceReview', 'ChallengeToday', 'BaselineReview', 'OptionalDebtReview', 'SavingsEvidenceDialog', 'ChallengePrivacyDialog']) {
       expect(stylesheet(name)).toContain("@import './ParticipantControls.css'")

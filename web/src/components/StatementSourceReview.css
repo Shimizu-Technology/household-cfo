@@ -2,29 +2,29 @@
 
 .statement-source-review { min-width: 0; margin: 1.25rem 0; border-block: 1px solid var(--line, #e2d9cb); padding-block: 1rem; }
 .source-review-heading, .source-review-toolbar, .source-review-pagination { display: flex; justify-content: space-between; gap: .75rem; align-items: center; flex-wrap: wrap; }
-.source-review-heading h5 { font-size: 1.1rem; margin: 0; }
-.statement-source-review h6 { font-size: 1rem; margin: 0 0 .5rem; }
+.source-review-heading h5 { font-size: var(--text-lg); margin: 0; }
+.statement-source-review h6 { font-size: var(--text-md); margin: 0 0 .5rem; }
 .statement-source-review p { line-height: 1.6; overflow-wrap: anywhere; }
-.source-review-boundary, .source-review-counts { font-size: .84rem; }
-.source-coverage-details { padding: .75rem; border: 1px solid var(--line, #e2d9cb); border-radius: .6rem; margin-block: 1rem; }
+.source-review-boundary, .source-review-counts { font-size: var(--text-sm); }
+.source-coverage-details { padding: .75rem; border: 1px solid var(--line, #e2d9cb); border-radius: var(--radius-sm); margin-block: 1rem; }
 .source-coverage-details summary { cursor: pointer; line-height: 1.5; }
-.source-coverage-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: .75rem; font-size: .8rem; }
-.source-coverage-facts dt { font-weight: 700; }
+.source-coverage-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: .75rem; font-size: var(--text-xs); }
+.source-coverage-facts dt { font-weight: var(--weight-bold); }
 .source-coverage-facts dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
 .source-account { border-top: 1px solid var(--line, #e2d9cb); padding-block: 1rem; }
-.source-review-limitation { color: var(--muted, #706d66); font-size: .8rem; }
-.source-review-toolbar label { display: grid; gap: .4rem; font-size: .8rem; }
+.source-review-limitation { color: var(--muted, #706d66); font-size: var(--text-xs); }
+.source-review-toolbar label { display: grid; gap: .4rem; font-size: var(--text-xs); }
 .source-review-toolbar select { min-height: 44px; max-width: 100%; }
-.source-review-toolbar > span, .source-review-page-status { font-size: .8rem; }
+.source-review-toolbar > span, .source-review-page-status { font-size: var(--text-xs); }
 .source-event-list { list-style: none; padding: 0; margin: .75rem 0; display: grid; gap: .6rem; }
-.source-event { min-width: 0; border: 1px solid var(--line, #e2d9cb); border-radius: .6rem; padding: .8rem; }
+.source-event { min-width: 0; border: 1px solid var(--line, #e2d9cb); border-radius: var(--radius-sm); padding: .8rem; }
 .source-event-unresolved { border-left-width: 4px; }
-.source-event-main { display: flex; justify-content: space-between; align-items: start; gap: .75rem; font-size: .9rem; }
+.source-event-main { display: flex; justify-content: space-between; align-items: start; gap: .75rem; font-size: var(--text-sm); }
 .source-event-main > div { min-width: 0; }
 .source-event-main strong { overflow-wrap: anywhere; }
-.source-event-main span { display: block; font-size: .75rem; line-height: 1.5; margin-top: .3rem; }
+.source-event-main span { display: block; font-size: var(--text-xs); line-height: 1.5; margin-top: .3rem; }
 .source-event-amount { text-align: right; flex: 0 0 auto; max-width: 45%; }
-.source-event p { margin-block: .45rem; font-size: .8rem; }
+.source-event p { margin-block: .45rem; font-size: var(--text-xs); }
 .statement-source-review button { min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .source-event-details { border-top: 1px solid var(--line, #e2d9cb); margin-top: .6rem; padding-top: .6rem; }
 .source-review-pagination > div { display: flex; gap: .5rem; flex-wrap: wrap; }
@@ -40,19 +40,19 @@
 .source-reviewed-account { padding-block: .8rem; border-top: 1px solid var(--line, #e2d9cb); }
 .source-review-form, .source-review-form fieldset, .source-coverage-details fieldset { min-width: 0; display: grid; gap: .8rem; }
 .source-review-form fieldset, .source-coverage-details fieldset { border: 0; padding: .8rem 0; margin: 0; }
-.source-review-form label, .source-coverage-details fieldset label { display: grid; gap: .35rem; font-size: .85rem; min-width: 0; }
+.source-review-form label, .source-coverage-details fieldset label { display: grid; gap: .35rem; font-size: var(--text-sm); min-width: 0; }
 .source-review-form input, .source-review-form select, .source-coverage-details fieldset input, .source-coverage-details fieldset select { min-height: 44px; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
 .source-review-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: .8rem; }
 .source-review-form .source-review-check, .source-pending-proposal .source-review-check, .source-coverage-details .source-review-check { display: flex; align-items: flex-start; gap: .6rem; line-height: 1.6; }
 .source-review-check input[type=checkbox], .source-review-check input[type=radio] { flex: 0 0 20px; width: 20px; min-height: 20px; height: 20px; margin-top: .3rem; }
-.source-pending-proposal { padding: 1rem; margin-block: .8rem; border: 1px solid var(--line, #e2d9cb); border-radius: .6rem; }
+.source-pending-proposal { padding: 1rem; margin-block: .8rem; border: 1px solid var(--line, #e2d9cb); border-radius: var(--radius-sm); }
 .source-pending-proposal button { margin: .5rem .5rem 0 0; }
 
 .source-review-check { overflow-wrap: anywhere; }
 .source-review-check > span { min-width: 0; }
 .source-economic-review, .source-batch-review { margin-block: 1rem; min-width: 0; }
-.source-link-member { border: 1px solid var(--line, #e2d9cb); padding: .8rem; border-radius: .6rem; display: grid; gap: .6rem; min-width: 0; overflow-wrap: anywhere; }
-.source-row-review-status { font-weight: 600; }
+.source-link-member { border: 1px solid var(--line, #e2d9cb); padding: .8rem; border-radius: var(--radius-sm); display: grid; gap: .6rem; min-width: 0; overflow-wrap: anywhere; }
+.source-row-review-status { font-weight: var(--weight-semibold); }
 
 /* Contain native single-line control internals, not the surrounding review flow. */
 .statement-source-review select,
@@ -70,7 +70,7 @@
  background: var(--surface, #fffdf8);
  color: var(--action-primary, #7b4a58);
  padding: 10px 16px;
- font-weight: 650;
+ font-weight: var(--weight-semibold);
 }
 .statement-source-review button[type=submit],
 .statement-source-review .source-review-primary {
@@ -84,21 +84,21 @@
 .statement-source-review :is(button,input,select,textarea):disabled { opacity: .6; cursor: not-allowed; }
 .source-review-boundary, .source-review-counts, .source-review-limitation,
 .source-review-toolbar label, .source-review-toolbar > span, .source-review-page-status,
-.source-event-main span, .source-event p, .source-coverage-facts { font-size: .875rem; }
+.source-event-main span, .source-event p, .source-coverage-facts { font-size: var(--text-sm); }
 .source-review-check { min-height: 44px; padding-block: 8px; }
 .source-review-check input[type=checkbox], .source-review-check input[type=radio] { align-self: flex-start; }
 .source-review-technical { border-top: 1px solid var(--border-subtle, var(--line, #dfd3c5)); margin-top: 12px; }
-.source-review-technical summary { cursor: pointer; font-size: .875rem; color: var(--text-muted, var(--muted, #6d6257)); }
-.source-review-error, .source-pending-proposal { border-radius: 14px; background: var(--surface-muted, #f6efe6); }
+.source-review-technical summary { cursor: pointer; font-size: var(--text-sm); color: var(--text-muted, var(--muted, #6d6257)); }
+.source-review-error, .source-pending-proposal { border-radius: var(--radius-md); background: var(--surface-muted, #f6efe6); }
 .source-reviewed-account > strong { display: block; }
-.source-review-form legend { font-weight: 650; line-height: 1.5; }
+.source-review-form legend { font-weight: var(--weight-semibold); line-height: 1.5; }
 .source-review-form input, .source-review-form select, .source-coverage-details fieldset input, .source-coverage-details fieldset select {
  border: 1px solid var(--border-subtle, var(--line, #dfd3c5));
  border-radius: var(--field-radius, 12px);
  background: var(--surface, #fffdf8);
  color: var(--text-primary, var(--ink, #31261c));
  padding: 10px 12px;
- font-size: 1rem;
+ font-size: var(--text-md);
 }
 .source-review-form .source-review-check input, .source-coverage-details .source-review-check input {
  width: 20px; min-height: 20px; height: 20px; padding: 0;

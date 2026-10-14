@@ -4,6 +4,7 @@ import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { BrandConfig } from '../api'
 import { BrandDocument } from './BrandDocument'
+import { brandFontStylesheetHref } from '../lib/brandFonts'
 import { BrandContext, type BrandContextValue } from '../contexts/brandContextValue'
 
 const brand: BrandConfig = {
@@ -35,6 +36,20 @@ function value(config = brand): BrandContextValue {
 afterEach(() => cleanup())
 
 describe('BrandDocument', () => {
+  it('requests only the active brand font families and removes them on unmount', () => {
+    const view = render(<BrandContext.Provider value={value()}><BrandDocument /></BrandContext.Provider>)
+    const links = document.head.querySelectorAll<HTMLLinkElement>('link[data-brand-fonts]')
+    expect(links).toHaveLength(1)
+    expect(links[0].getAttribute('href')).toBe('https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Nunito+Sans:wght@400;500;600;700&display=swap')
+    view.unmount()
+    expect(document.head.querySelector('link[data-brand-fonts]')).toBeNull()
+  })
+
+  it('does not request web fonts for system typography', () => {
+    expect(brandFontStylesheetHref('system_serif', 'system_sans')).toBeNull()
+    expect(brandFontStylesheetHref('unknown', 'montserrat')).toBe('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap')
+  })
+
   it('applies a runtime brand and restores the previous public document identity on unmount', () => {
     document.title = 'VERA'
     document.documentElement.style.setProperty('--emerald', '#536a63')

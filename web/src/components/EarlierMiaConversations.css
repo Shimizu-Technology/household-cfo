@@ -4,4 +4,4 @@
 .earlier-mia-messages { display: grid; gap: 16px; }
 .earlier-mia-messages article { padding: 16px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .earlier-mia-messages p { white-space: pre-wrap; margin: 8px 0 0; }
-.earlier-mia-attachments { color: var(--muted); font-size: .85rem; }
+.earlier-mia-attachments { color: var(--muted); font-size: var(--text-sm); }

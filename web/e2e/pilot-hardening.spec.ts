@@ -9922,6 +9922,9 @@ test('BOG UI source preview keeps a long filename and final help reachable with 
   await page.setViewportSize({ width: 320, height: 360 })
   const filename = `Fictional-${'long-statement-period-and-account-label-'.repeat(5)}.pdf`
   const { dialog } = await openAuthenticatedSource(page, 'pdf', { filename })
+  // Initial focus depends on whether Close fits at open; start from the dialog so
+  // the reveal-focused-control behavior does not scroll the enlarged header away.
+  await dialog.focus()
   await page.addStyleTag({ content: 'html { font-size: 200%; }' })
   await assertDialogVisibleHeight(dialog)
   await expect(dialog).toHaveJSProperty('scrollTop', 0)

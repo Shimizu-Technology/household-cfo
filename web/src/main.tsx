@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
+import './styles/tokens.css'
 import './index.css'
 import Root from './Root'
 import { AppErrorFallback } from './components/AppErrorFallback'
