@@ -4,7 +4,7 @@ How participant and staff screens size, space, color, and word things. Use this 
 
 ## Where styles live
 
-Stylesheets load in this order; later files win.
+Stylesheets load in this order. When two rules have equal specificity and importance, the later file wins; selector specificity and `!important` still take precedence over order, so the newer stylesheets use selectors at least as specific as the legacy rules they replace.
 
 | File | Purpose |
 | --- | --- |
@@ -22,7 +22,7 @@ Stylesheets load in this order; later files win.
 
 - **Text:** `--text-xs` (13px, labels and captions only) · `--text-sm` (14px) · `--text-md` (16px, body and inputs) · `--text-lg` · `--text-xl` · `--text-2xl` · `--text-3xl` (fluid page titles). Nothing smaller than `--text-xs`. Inputs stay at `--text-md` so iOS does not zoom.
 - **Weight:** `--weight-regular` · `--weight-medium` · `--weight-semibold` · `--weight-bold`. No 800–900.
-- **Space:** `--space-1` … `--space-10` on a 4px base.
+- **Space:** `--space-1` (4px), `--space-2` (8px), `--space-3` (12px), `--space-4` (16px), `--space-5` (20px), `--space-6` (24px), `--space-8` (32px), `--space-10` (40px). There is no `--space-7` or `--space-9`.
 - **Radius:** `--radius-sm` (10px) · `--radius-md` (14px) · `--radius-lg` (20px) · `--radius-pill`.
 - **Elevation:** `--shadow-sm` (resting cards) · `--shadow-md` (raised panels) · `--shadow-overlay` (dialogs and sheets).
 - **Status:** `--color-success`, `--color-warning`, `--color-danger` (aliases of the `--status-*` brand values).
@@ -31,7 +31,7 @@ Custom properties are not valid inside `@font-face`; use literal values there. T
 
 ## Brand
 
-Coach brands set colors and the display and body font families through `BrandDocument`. Only the active brand's two font families are loaded. Do not hard-code brand colors; use `--emerald` (primary), `--emerald-soft`, `--gold` (accent), `--ink`, `--muted`, `--line`, `--paper`, and `--cream`.
+Coach brands set colors and the display and body font families through `BrandDocument`. `BrandDocument` requests only the active brand's selected web-font families (at most one display and one body family); system font choices request nothing. The Google sign-in button loads its own Google Sans face separately. Do not hard-code brand colors; use `--emerald` (primary), `--emerald-soft`, `--gold` (accent), `--ink`, `--muted`, `--line`, `--paper`, and `--cream`.
 
 ## Patterns
 
