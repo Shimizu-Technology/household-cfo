@@ -11,7 +11,7 @@ import './styles/home.css'
 import './styles/mia.css'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
 import { WorkspaceOpening } from './components/WorkspaceOpening'
-import { workspaceLoadMessage } from './lib/workspaceLoadMessage'
+import { WorkspaceVerificationError, workspaceLoadMessage } from './lib/workspaceLoadMessage'
 import { EarlierMiaConversations } from './components/EarlierMiaConversations'
 import { PausedDocumentImportPanel } from './components/PausedDocumentImportPanel'
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
@@ -1025,7 +1025,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     selectionCheck.then(verified => verified && !cancelled ? fetchAppData(shouldUseRealWorkspace) : null)
       .then((payload) => {
         if (cancelled || generation !== financialMutationGenerationRef.current || !payload) return
-        if (selectedCohortId !== undefined && payload.workspace?.cohort?.id !== selectedCohortId) throw new Error('The returned program could not be verified. Choose your program or try again.')
+        if (selectedCohortId !== undefined && payload.workspace?.cohort?.id !== selectedCohortId) throw new WorkspaceVerificationError('The returned program could not be verified. Choose your program or try again.')
         if (payload.workspace?.mode === 'real' && payload.workspace.cohort?.id) onProgramVerified(payload.workspace.cohort.id)
         const realWorkspace = payload.workspace?.mode === 'real'
         const payloadStorageKey = `${miaWorkspaceStorageKey(MIA_CHAT_STORAGE_PREFIX, auth.currentUser?.id, auth.activeCoachWorkspaceId, payload.workspace?.household_id, payload.workspace?.cohort?.id ?? selectedCohortId)}:picture:${payload.workspace.financial_generation ?? 0}`

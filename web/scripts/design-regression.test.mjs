@@ -77,7 +77,7 @@ assert.ok(css.includes('.budget-period-summary .metric-row'), 'Budget report-mon
 assert.ok(css.includes('.cash-flow-month.is-report-month'), 'cash-flow charts should visibly mark the report month')
 assert.ok(budgetVisuals.includes('Expected irregular plan included in outflow'), 'selected cash-flow months should explain the irregular plan behind their totals')
 assert.ok(budgetVisuals.includes('expected_contributors.map'), 'selected cash-flow months should list their expected irregular contributors')
-assert.ok(budgetVisuals.includes('A cushion for extras: 40% of what’s left after your plan and debt minimums, shown only in Yellow or Green. It isn’t the same as plan remaining.'), 'safe to spend must disclose its provisional formula and remain distinct from ordinary plan remaining')
+assert.ok(budgetVisuals.includes('A cushion for extras: 40% of what’s left after your plan and debt minimums. It stays at $0 in Red, and it isn’t the same as plan remaining.'), 'safe to spend must disclose its provisional formula and remain distinct from ordinary plan remaining')
 assert.ok(budgetVisuals.includes('pending review—not included in actuals.'), 'pending activity must remain visibly outside confirmed actuals')
 assert.ok(budgetVisuals.includes('const titleId = useId()'), 'reusable cockpit panels should generate unique accessible heading IDs')
 assert.ok(!budgetVisuals.includes('id="category-pressure-title"'), 'category panels should not reuse a hardcoded heading ID')

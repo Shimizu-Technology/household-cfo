@@ -1987,7 +1987,7 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   const monthSummary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
   await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$3,475.00')
   await expect(monthSummary.getByText('Pending review', { exact: true }).locator('..')).toContainText('$115.00')
-  await expect(monthSummary).toContainText('A cushion for extras: 40% of what’s left after your plan and debt minimums, shown only in Yellow or Green. It isn’t the same as plan remaining.')
+  await expect(monthSummary).toContainText('A cushion for extras: 40% of what’s left after your plan and debt minimums. It stays at $0 in Red, and it isn’t the same as plan remaining.')
   await expect(monthSummary).toContainText('$1,710.00 remains after pending review')
   const homeOutflowBreakdown = monthSummary.getByRole('group', { name: 'Monthly money out breakdown' })
   await expect(homeOutflowBreakdown).toContainText('Category plan')
