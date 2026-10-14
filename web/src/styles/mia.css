@@ -35,7 +35,8 @@
 /* Mia's mark. */
 .message-avatar {
   border: 0;
-  background: linear-gradient(140deg, color-mix(in srgb, var(--gold) 70%, var(--paper)), var(--emerald));
+  /* Both stops keep white initials above 4.5:1 for the Household CFO palette. */
+  background: linear-gradient(140deg, color-mix(in srgb, var(--gold) 70%, var(--plum)), var(--emerald));
   color: var(--brand-on-primary);
   box-shadow: var(--shadow-sm);
 }
