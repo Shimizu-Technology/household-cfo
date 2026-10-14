@@ -236,7 +236,13 @@ export function AnnualCashFlowChart({
   const pinnedPeriodId = chartFocus.reportFocusKey === reportFocusKey ? chartFocus.pinnedPeriodId : null
   const activeMonth = months.find((month) => month.period_id === activePeriodId) ?? months[0]
   const pinnedPeriodExists = months.some((month) => month.period_id === pinnedPeriodId)
-  const scaleMaximum = Math.max(...months.flatMap((month) => [month.income, month.planned_outflow]), 1)
+  // Bars show what is left (or short) after the plan; income and outflow are
+  // close every month, so charting them side by side hid the signal.
+  // One linear scale: the area above the midline is sized by the largest surplus
+  // and the area below by the largest shortfall, so equal amounts draw equal bars.
+  const largestSurplus = Math.max(0, ...months.map((month) => month.baseline_surplus))
+  const largestShortfall = Math.max(0, ...months.map((month) => -month.baseline_surplus))
+  const chartRows = largestSurplus === 0 && largestShortfall === 0 ? '1fr 0fr' : `${largestSurplus}fr ${largestShortfall}fr`
   const negativeMonths = months.filter((month) => month.baseline_surplus < 0)
 
   function previewPeriod(periodId: number) {
@@ -263,13 +269,13 @@ export function AnnualCashFlowChart({
       <div className="financial-visual-heading">
         <div>
           <span>Annual cash flow</span>
-          <h4 id={titleId}>Income and planned outflow across {plan.year}</h4>
+          <h4 id={titleId}>What’s left each month in {plan.year}</h4>
         </div>
-        <p>{negativeMonths.length === 0 ? 'Every planned month keeps a baseline surplus.' : `${negativeMonths.length} planned month${negativeMonths.length === 1 ? '' : 's'} need attention.`}</p>
+        <p>{negativeMonths.length === 0 ? 'Every planned month keeps a baseline surplus.' : `${negativeMonths.length} planned month${negativeMonths.length === 1 ? ' needs' : 's need'} attention.`}</p>
       </div>
       <div className="annual-cash-flow-legend" aria-hidden="true">
-        <span><i className="income-swatch" /> Income</span>
-        <span><i className="outflow-swatch" /> Planned outflow</span>
+        <span><i className="surplus-swatch" /> Left after the plan</span>
+        <span><i className="shortfall-swatch" /> Short of the plan</span>
       </div>
       {activeMonth && (
         <div className="cash-flow-detail-panel" aria-live="polite">
@@ -311,14 +317,11 @@ export function AnnualCashFlowChart({
         </div>
       )}
       <div className="annual-cash-flow-scroll" role="region" aria-label={`${plan.year} monthly income and planned outflow chart`} tabIndex={0}>
-        <div className="annual-cash-flow-chart">
+        <div className="annual-cash-flow-chart" style={{ '--cash-flow-rows': chartRows } as CSSProperties}>
           {months.map((month) => {
-            const incomeHeight = Math.max((month.income / scaleMaximum) * 100, month.income > 0 ? 3 : 0)
-            const outflowHeight = Math.max((month.planned_outflow / scaleMaximum) * 100, month.planned_outflow > 0 ? 3 : 0)
-            const style = {
-              '--income-height': `${incomeHeight}%`,
-              '--outflow-height': `${outflowHeight}%`,
-            } as CSSProperties
+            const rowMaximum = month.baseline_surplus >= 0 ? largestSurplus : largestShortfall
+            const surplusHeight = rowMaximum === 0 ? 0 : (Math.abs(month.baseline_surplus) / rowMaximum) * 100
+            const style = { '--surplus-height': `${surplusHeight}%` } as CSSProperties
             return (
               <article className={`cash-flow-month${month.baseline_surplus < 0 ? ' negative' : ''}${month.period_id === reportPeriodId ? ' is-report-month' : ''}${pinnedPeriodId === month.period_id ? ' is-pinned' : ''}`} style={style} key={month.period_id}>
                 <button
@@ -337,8 +340,8 @@ export function AnnualCashFlowChart({
                   onClick={() => togglePinnedPeriod(month.period_id)}
                 >
                   <div className="cash-flow-bars" aria-hidden="true">
-                    <i className="income-bar" />
-                    <i className="outflow-bar" />
+                    <span className="cash-flow-bar-above">{month.baseline_surplus > 0 && <i />}</span>
+                    <span className="cash-flow-bar-below">{month.baseline_surplus < 0 && <i />}</span>
                   </div>
                   <strong>{month.label}</strong>
                   <span className={`cash-flow-month-summary${month.baseline_surplus < 0 ? ' negative' : ''}`}>
