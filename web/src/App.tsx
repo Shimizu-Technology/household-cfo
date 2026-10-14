@@ -1,9 +1,11 @@
 import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
 import { AccountMenu } from './components/AccountMenu'
+import { PARTICIPANT_SECTIONS, SECTION_CAPABILITY_IDS, participantSectionsForModules } from './lib/participantNavigation'
 import { SignInButton, SignUpButton, SignOutButton } from './components/AuthControls'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
 import './App.css'
+import './styles/shell.css'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
 import { WorkspaceOpening } from './components/WorkspaceOpening'
 import { EarlierMiaConversations } from './components/EarlierMiaConversations'
@@ -170,19 +172,8 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
-const sections = ['Home', 'Review', 'Ask Mia', 'My Money', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']
-const sectionCapabilityIds: Record<string, string> = {
-  Home: 'home',
-  Review: 'review',
-  'Ask Mia': 'ask_mia',
-  Budget: 'budget',
-  'My Profile': 'profile',
-  'My Money': 'profile',
-  Statements: 'profile',
-  Wealth: 'wealth',
-  'CFO Filter': 'cfo_filter',
-  Optionality: 'optionality',
-}
+const sections = PARTICIPANT_SECTIONS
+const sectionCapabilityIds = SECTION_CAPABILITY_IDS
 const COACH_STUDIO_SECTION = 'Coach Studio'
 const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
@@ -759,12 +750,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => { cancelled = true; budgetViewRequestRef.current += 1 }
   }, [budgetViewScope])
   const visibleSections = useMemo(() => {
-    const enabledParticipantSections = data
-      ? sections.filter((section) => data.workspace.capabilities.modules.some((module) => module.id === sectionCapabilityIds[section] && module.enabled))
+    const participantSections = data
+      ? participantSectionsForModules(data.workspace.capabilities.modules.filter((module) => module.enabled).map((module) => module.id))
       : []
     const staffSections = auth.currentUser?.is_staff ? [COACH_STUDIO_SECTION] : []
     const adminSections = auth.currentUser?.is_admin ? [ADMIN_SECTION] : []
-    const participantSections = enabledParticipantSections.includes('My Profile') ? [...enabledParticipantSections, 'Statements'] : enabledParticipantSections
     return [...participantSections, ...staffSections, ...adminSections]
   }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff, data])
   const activeSection = !visibleSections.includes(active) ? sections[0] : active
@@ -3232,10 +3222,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const runtimeBrand = data.workspace.brand
   const brand = runtimeBrand.config
 
-  const showMiaLauncher = activeSection !== 'Ask Mia' && visibleSections.includes('Ask Mia')
-
   const workspace = (
-    <main className={`app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}${showMiaLauncher ? ' has-mia-launcher' : ''}`}>
+    <main className={`app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}`}>
       <SeoManager section={activeSection} />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{routeAnnouncement}</p>
       <header className="shell-header">
@@ -4197,7 +4185,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {evidenceReview?.scope === challengeIntakeScope && challengeParticipantScope && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && <SavingsEvidenceDialog key={`${challengeIntakeScope}:${evidenceReview.entryVersionId}`} actorScope={challengeParticipantScope} entryVersionId={evidenceReview.entryVersionId} onClose={() => setEvidenceReview(null)} onChanged={() => setEvidenceRefreshToken(value => value + 1)} />}
       {dailyOpen && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <ChallengeToday key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} cohortId={data.workspace.cohort?.id} initialPurchase={dailyIntake?.scope===challengeIntakeScope?dailyIntake.intake:null} scope={{user_id:auth.currentUser.id,household_id:data.workspace.household_id}} onClose={() => {setDailyOpen(false);setDailyIntake(null)}} onStatements={() => { setDailyOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} onBaseline={() => { setDailyOpen(false); setBaselineOpen(true) }} />}
       {baselineOpen && isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <BaselineReview key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} scope={{ user_id: auth.currentUser.id, household_id: data.workspace.household_id }} onClose={() => setBaselineOpen(false)} onReviewStatements={() => { setBaselineOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} />}
-      {showMiaLauncher && <Button className="mia-launcher" aria-label={`Open ${assistantName}`} title={`Open ${assistantName}`} onClick={() => switchSection('Ask Mia')}><FeedbackIcon /><span>{assistantName}</span></Button>}
       {earlierConversationsOpen && <EarlierMiaConversations key={chatStorageKey} onClose={() => setEarlierConversationsOpen(false)} />}
       {setupHelpOpen && isRealWorkspace && auth.currentUser && data.workspace.household_id && <SetupHelpDialog key={chatStorageKey} scopeKey={restartScopeKey} userId={auth.currentUser.id} householdId={data.workspace.household_id}
         blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind || question.trim() || voiceRecording || voiceTranscribing ? 'Save or cancel your open edits, finish or clear your draft message, and let current requests finish before reviewing a restart.' : null}

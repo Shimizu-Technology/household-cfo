@@ -10351,11 +10351,6 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 .participant-program-switch[open] > summary::after { content: '⌃'; }
 .participant-program-switch > summary:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 3px; }
 .participant-program-switch > .participant-program-picker { position: absolute; top: calc(100% + 8px); right: 0; width: min(420px, calc(100vw - 32px)); box-sizing: border-box; z-index: 60; max-height: min(380px, calc(100dvh - 112px)); overflow-y: auto; overscroll-behavior: contain; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); box-shadow: var(--shadow-md); }
-.app.has-mia-launcher { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-.app > .mia-launcher { box-sizing: border-box; height: 56px; position: fixed; right: max(20px, env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 40; min-height: 56px; border-radius: var(--radius-pill); gap: 10px; padding: 14px 20px; box-shadow: var(--shadow-sm); }
-.mia-launcher svg { width: 24px; height: 24px; flex: 0 0 24px; fill: none; }
-.app:has(.shell-account-menu[open], .participant-program-switch[open]) > .mia-launcher,
-body:has([role="dialog"][aria-modal="true"], dialog[open]) .app > .mia-launcher { visibility: hidden; pointer-events: none; }
 .app .pilot-support-bar { flex-wrap: nowrap; align-items: center; gap: 8px; }
 .app .pilot-support-bar > span { min-width: 0; line-height: 1.35; }
 .app .pilot-support-bar > div { width: auto; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; gap: 4px; }
@@ -10364,8 +10359,6 @@ body:has([role="dialog"][aria-modal="true"], dialog[open]) .app > .mia-launcher 
   .participant-program-switch .program-name { display: none; }
   .shell-actions .participant-program-switch > summary { padding-left: 6px; font-size: var(--text-xs); }
   .participant-program-switch > .participant-program-picker { right: -50px; }
-  .app > .mia-launcher { right: max(16px, env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); width: 56px; padding: 16px; }
-  .mia-launcher > span { display: none; }
   .app .pilot-support-bar { padding: 5px 6px 5px 10px; }
   .app .pilot-support-bar > span { font-size: var(--text-xs); gap: 6px; line-height: 1.25; }
   .app .pilot-support-bar > div { gap: 0; }

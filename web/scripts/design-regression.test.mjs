@@ -13,6 +13,7 @@ const budgetVisuals = readFileSync(resolve(__dirname, '../src/components/BudgetV
 const budgetPosition = readFileSync(resolve(__dirname, '../src/lib/budgetPosition.ts'), 'utf8')
 const participantTabs = readFileSync(resolve(__dirname, '../src/components/ParticipantTabs.tsx'), 'utf8')
 const button = readFileSync(resolve(__dirname, '../src/components/Button.tsx'), 'utf8')
+const participantNavigation = readFileSync(resolve(__dirname, '../src/lib/participantNavigation.ts'), 'utf8')
 const chatHistory = readFileSync(resolve(__dirname, '../src/components/ChatHistory.tsx'), 'utf8')
 const safeMessageText = readFileSync(resolve(__dirname, '../src/components/SafeMessageText.tsx'), 'utf8')
 const coachStudio = readFileSync(resolve(__dirname, '../src/components/CoachStudio.tsx'), 'utf8')
@@ -30,7 +31,7 @@ const assistCss = readFileSync(resolve(__dirname, '../src/components/MiaAssistPa
 
 const expectedNav = "['Home', 'Review', 'Ask Mia', 'My Money', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']"
 assert.ok(
-  app.replace(/\s+/g, ' ').includes(expectedNav),
+  participantNavigation.replace(/\s+/g, ' ').includes(expectedNav) && app.includes('const sections = PARTICIPANT_SECTIONS'),
   'participant navigation must keep the complete set of participant modules',
 )
 
@@ -84,9 +85,9 @@ assert.ok(budgetPosition.includes('pendingAmountsByCategory'), 'monthly cockpit 
 assert.ok(budgetPosition.includes('transactionDraftBudgetImpacts'), 'transaction review should derive its category impact from the annual plan')
 assert.ok(
   participantTabs.includes('aria-expanded={moreOpen}') && participantTabs.includes('role="dialog"') && participantTabs.includes('aria-modal="true"'),
-  'secondary modules should open from an accessible Tools control',
+  'secondary modules should open from an accessible More control',
 )
-assert.ok(participantTabs.includes('tabs-tools-backdrop') && css.includes('position: fixed;'), 'mobile Tools should overlay content instead of expanding the navigation layout')
+assert.ok(participantTabs.includes('tabs-tools-backdrop') && css.includes('position: fixed;'), 'mobile More should overlay content instead of expanding the navigation layout')
 assert.ok(participantTabs.includes('<a') && participantTabs.includes('href={sectionHref(section)}'), 'participant destinations should keep native link semantics')
 assert.ok(app.includes("addEventListener('popstate'") && app.includes("scrollRestoration = 'manual'"), 'participant routing should support browser history and route-keyed scroll restoration')
 assert.ok(app.includes('canResumePlaidOAuthReturn') && app.includes('readPlaidOAuthSession') && app.includes('clearPlaidOAuthStateFromUrl'), 'Plaid returns should lock only while a stored callback is resumable')

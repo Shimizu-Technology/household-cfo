@@ -1,0 +1,265 @@
+/*
+ * Application shell: identity row and participant navigation.
+ *
+ * Desktop and tablet use a flat identity row with a quiet sticky section bar.
+ * Phones use a bottom tab bar so primary destinations stay under the thumb.
+ * Loaded after App.css; older shell rules there are superseded by this file.
+ */
+
+/* Identity row: flat, so the page content is the first card the eye meets. */
+.app > .shell-header {
+  min-height: 56px;
+  padding: var(--space-2) var(--space-1);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app .shell-brand-copy .eyebrow {
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+}
+
+.app .shell-brand-copy h1 {
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+
+/* Chat keeps a compact identity row but the same side padding, so account help never shifts. */
+.app.is-chat-page > .shell-header {
+  min-height: 52px;
+  padding: var(--space-1) var(--space-1);
+}
+
+/* Section bar. */
+.app > .tabs-shell {
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--cream) 94%, transparent);
+  box-shadow: none;
+}
+
+/* Chat is a working surface; keep the section bar tight above the conversation. */
+.app.is-chat-page > .tabs-shell {
+  margin-bottom: var(--space-2);
+}
+
+.app .tabs-shell .tabs {
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.app .tabs-shell .tabs :where(button, a) {
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  box-shadow: none;
+}
+
+.app .tabs-shell .tabs :where(button, a):hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--emerald-soft) 55%, transparent);
+}
+
+.app .tabs-shell .tabs :where(button, a).active {
+  color: var(--emerald);
+  background: var(--emerald-soft);
+  box-shadow: none;
+}
+
+.app .tabs-shell .tabs .tabs-today-action {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.tabs-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.app .tabs-shell .tabs-more-toggle svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.7;
+}
+
+/* More menu. */
+.tabs-secondary > header {
+  padding: 2px 4px 10px;
+}
+
+.tabs-secondary > header strong {
+  font-family: var(--font-body);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+}
+
+.tabs-tools-list > a {
+  min-height: 56px;
+}
+
+.tabs-tools-list > a strong {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.tabs-tools-list > a small {
+  font-weight: var(--weight-regular);
+}
+
+/* Phones: bottom tab bar. */
+@media (max-width: 620px) {
+  .app {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+
+  .app > .shell-header,
+  .app.is-chat-page > .shell-header {
+    min-height: 52px;
+    padding: var(--space-1) var(--space-1) var(--space-2);
+  }
+
+  .app .shell-brand-copy .eyebrow {
+    display: none;
+  }
+
+  .app .shell-brand-copy h1 {
+    font-size: var(--text-xl);
+  }
+
+  .app > .tabs-shell {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 45;
+    margin: 0;
+    padding: 0 max(var(--space-2), env(safe-area-inset-right)) env(safe-area-inset-bottom) max(var(--space-2), env(safe-area-inset-left));
+    border-top: 1px solid var(--line);
+    border-bottom: 0;
+    background: color-mix(in srgb, var(--paper) 96%, transparent);
+    backdrop-filter: blur(16px);
+  }
+
+  .app .tabs-shell .tabs,
+  .app.is-savings-navigation .tabs-shell .tabs,
+  .app .tabs-shell.is-savings-navigation .tabs {
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    gap: 0;
+    margin: 0;
+    padding: var(--space-1) 0;
+  }
+
+  .app .tabs-shell .tabs :where(button, a),
+  .app .tabs-shell.is-savings-navigation .tabs :where(button, a) {
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    min-height: 56px;
+    padding: var(--space-1) 2px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--ink-soft);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    line-height: 1.1;
+  }
+
+  .app .tabs-shell .tabs :where(button, a).active {
+    background: transparent;
+    color: var(--emerald);
+  }
+
+  .app .tabs-shell .tabs :where(button, a).active .tabs-icon {
+    fill: var(--emerald-soft);
+    stroke-width: 2;
+  }
+
+  .app .tabs-shell .tabs .tabs-today-action {
+    border: 0;
+    background: transparent;
+    color: var(--emerald);
+  }
+
+  .app .tabs-shell .tabs-icon,
+  .app .tabs-shell .tabs-more-toggle svg {
+    display: block;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+  }
+
+  .app .tabs-shell .tabs-label-full {
+    display: none;
+  }
+
+  .app .tabs-shell .tabs-label-short,
+  .app .tabs-shell .tabs-label {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Chat keeps the bar in flow beneath the composer instead of covering it. */
+  .app.is-chat-page {
+    padding-bottom: 0;
+  }
+
+  /* Chat keeps every pixel it can for the conversation; targets stay above 44px. */
+  .app.is-chat-page .tabs-shell .tabs {
+    padding: 2px 0;
+  }
+
+  .app.is-chat-page .tabs-shell .tabs :where(button, a) {
+    min-height: 48px;
+    gap: 0;
+    padding-block: 2px;
+  }
+
+  .app.is-chat-page > .tabs-shell {
+    position: relative;
+    order: 99;
+    margin: var(--space-1) calc(-1 * max(8px, env(safe-area-inset-right))) 0 calc(-1 * max(8px, env(safe-area-inset-left)));
+  }
+
+  /* Dialogs own the whole screen; the bar must never sit over their actions. */
+  body:has([role="dialog"][aria-modal="true"]:not(.tabs-secondary), dialog[open]) .app > .tabs-shell {
+    visibility: hidden;
+  }
+
+  /* The More sheet rises above the bar. */
+  .tabs-secondary {
+    bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+}
