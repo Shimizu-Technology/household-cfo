@@ -1739,7 +1739,8 @@ test('an initial workspace loading failure offers a real retry and restores the 
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await expect(page.getByRole('alert')).toContainText('temporarily unavailable')
+  // Server faults get fixed participant copy instead of the raw API message.
+  await expect(page.getByRole('alert')).toContainText('Your workspace is having trouble loading. Try again in a moment.')
   recoveryAllowed = true
   await page.getByRole('button', { name: 'Try again' }).click()
 
@@ -1986,7 +1987,7 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   const monthSummary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
   await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$3,475.00')
   await expect(monthSummary.getByText('Pending review', { exact: true }).locator('..')).toContainText('$115.00')
-  await expect(monthSummary).toContainText('Pilot guardrail: 40% of positive baseline surplus in Yellow or Green—not ordinary budget remaining.')
+  await expect(monthSummary).toContainText('A cushion for extras: 40% of what’s left after your plan and debt minimums. It stays at $0 in Red, and it isn’t the same as plan remaining.')
   await expect(monthSummary).toContainText('$1,710.00 remains after pending review')
   const homeOutflowBreakdown = monthSummary.getByRole('group', { name: 'Monthly money out breakdown' })
   await expect(homeOutflowBreakdown).toContainText('Category plan')
@@ -2035,7 +2036,7 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   await page.getByRole('button', { name: 'Review 2 transactions' }).click()
   await expect(page).toHaveURL(/#Review$/)
   await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeFocused()
+  await expect(page.getByRole('heading', { name: 'Review what changed before it counts.' })).toBeFocused()
 })
 
 test('cash-flow chart resumes pointer previews after pinning and unpinning a month', async ({ page }, testInfo) => {
@@ -3949,7 +3950,7 @@ test('Review is canonical and legacy Activity links remain compatible', async ({
   await page.goto('/#Review')
   await expect(page).toHaveURL(/#Review$/)
   await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Review what changed before it counts.' })).toBeVisible()
 
   await page.goto('/#Activity')
   await expect(page).toHaveURL(/#Review$/)
@@ -10151,7 +10152,7 @@ for (const currentRefreshWorks of [false, true]) {
     await page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true }).click()
     await page.locator('.account-form').getByLabel('Approved balance').fill('200')
     await page.getByRole('button', { name: 'Save account' }).click()
-    const warning = page.getByRole('alert').filter({ hasText: currentRefreshWorks ? 'current household workspace refreshed' : 'Previous totals are stale' })
+    const warning = page.getByRole('alert').filter({ hasText: currentRefreshWorks ? 'current household workspace refreshed' : 'the totals didn’t refresh' })
     await expect(warning).toBeVisible()
     expect(yearRequests).toBe(2)
     if (currentRefreshWorks) await expect(page.locator('.account-row')).toContainText('$200.00')
@@ -10229,7 +10230,7 @@ for (const refreshFails of [false, true]) {
     await page.locator('.account-row').getByRole('button', { name: 'Edit', exact: true }).click()
     await page.locator('.account-form').getByLabel('Approved balance').fill('200')
     await page.getByRole('button', { name: 'Save account' }).click()
-    if (refreshFails) await expect(page.getByRole('alert').filter({ hasText: 'Previous totals are stale' })).toBeVisible()
+    if (refreshFails) await expect(page.getByRole('alert').filter({ hasText: 'the totals didn’t refresh' })).toBeVisible()
     else await expect(page.locator('.account-row')).toContainText('$200.00')
     const finishedBackground = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
     releaseBackground()
@@ -10238,7 +10239,7 @@ for (const refreshFails of [false, true]) {
       await topics.getByRole('button', { name: 'Income', exact: true }).click()
       await page.getByRole('button', { name: 'Use current year', exact: true }).click()
       await expect.poll(() => budgetRequests.filter(year => year === currentYear).length).toBe(1)
-      await expect(page.getByRole('alert').filter({ hasText: 'Previous totals are stale' })).toBeVisible()
+      await expect(page.getByRole('alert').filter({ hasText: 'the totals didn’t refresh' })).toBeVisible()
     } else {
       await topics.getByRole('button', { name: 'Debt', exact: true }).click()
       await topics.getByRole('button', { name: 'Accounts', exact: true }).click()

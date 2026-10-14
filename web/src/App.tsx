@@ -11,6 +11,7 @@ import './styles/home.css'
 import './styles/mia.css'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
 import { WorkspaceOpening } from './components/WorkspaceOpening'
+import { WorkspaceVerificationError, workspaceLoadMessage } from './lib/workspaceLoadMessage'
 import { EarlierMiaConversations } from './components/EarlierMiaConversations'
 import { PausedDocumentImportPanel } from './components/PausedDocumentImportPanel'
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
@@ -1024,7 +1025,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     selectionCheck.then(verified => verified && !cancelled ? fetchAppData(shouldUseRealWorkspace) : null)
       .then((payload) => {
         if (cancelled || generation !== financialMutationGenerationRef.current || !payload) return
-        if (selectedCohortId !== undefined && payload.workspace?.cohort?.id !== selectedCohortId) throw new Error('The returned program could not be verified. Choose your program or try again.')
+        if (selectedCohortId !== undefined && payload.workspace?.cohort?.id !== selectedCohortId) throw new WorkspaceVerificationError('The returned program could not be verified. Choose your program or try again.')
         if (payload.workspace?.mode === 'real' && payload.workspace.cohort?.id) onProgramVerified(payload.workspace.cohort.id)
         const realWorkspace = payload.workspace?.mode === 'real'
         const payloadStorageKey = `${miaWorkspaceStorageKey(MIA_CHAT_STORAGE_PREFIX, auth.currentUser?.id, auth.activeCoachWorkspaceId, payload.workspace?.household_id, payload.workspace?.cohort?.id ?? selectedCohortId)}:picture:${payload.workspace.financial_generation ?? 0}`
@@ -1041,7 +1042,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       })
       .catch((caught) => {
         if (cancelled || generation !== financialMutationGenerationRef.current) return
-        setError(caught instanceof Error ? caught.message : 'Your workspace is offline for a moment. Check your connection and try again.')
+        setError(workspaceLoadMessage(caught))
       })
 
     return () => {
@@ -2306,7 +2307,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     try {
       const budget = await fetchBudget(normalizedYear)
       if (!isCurrent() || generation !== financialMutationGenerationRef.current) return
-      if (budget.annual_plan?.year !== normalizedYear) throw new Error('The server returned a different budget year. Your previous period remains selected.')
+      if (budget.annual_plan?.year !== normalizedYear) throw new Error('That plan year didn’t load. Your previous month is still selected.')
       setData((current) => current ? { ...current, budget } : current)
       setBudgetView(requestedView)
       setWorkspaceRefreshNotice(current => current?.kind === 'selected' || normalizedYear === data.dashboard.action_center.current_year ? null : current)
@@ -3104,7 +3105,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const [currentResult, selectedResult] = await Promise.allSettled([currentReload, selectedReload])
     if (!isCurrent()) return
     if (currentResult.status === 'rejected') {
-      const message = 'Your change was saved, but the current household workspace could not refresh. Previous totals are stale; reload before using them.'
+      const message = 'Your change was saved, but the totals didn’t refresh. Reload the page before relying on them.'
       setWorkspaceRefreshNotice({ kind: 'home', message })
       throw new Error(message)
     }
@@ -3276,7 +3277,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
       )}
 
-      {!workspaceRefreshNotice && (homeBudgetStale || dataBudgetStale) && <p className="document-alert" role="status">Your financial records changed. Previous household totals are marked stale until the current workspace reloads.</p>}
+      {!workspaceRefreshNotice && (homeBudgetStale || dataBudgetStale) && <p className="document-alert" role="status">Your records just changed. Totals will update in a moment.</p>}
       {workspaceRefreshNotice && <p className="setup-error" role="alert">{workspaceRefreshNotice.message}</p>}
       {incomeDraftNotice && <p className="setup-error" role="alert">{incomeDraftNotice}</p>}
       {budgetYearLoading && <p className="document-alert" role="status">Loading the {pendingBudgetView?.year} plan. Your previous period remains selected; Send and plan changes pause until it loads.</p>}
@@ -3581,7 +3582,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         <section className="screen-grid activity-screen">
           <ScreenHeading
             eyebrow="Review"
-            title="Review what changed before it becomes household truth."
+            title="Review what changed before it counts."
             copy="Review transactions and recent changes in one place. You always control what becomes an official budget actual."
           />
 
@@ -3755,7 +3756,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       focusRequest={goalFocusRequest}
                       onFocusRequestHandled={() => setGoalFocusRequest(null)}
                     onUnsavedChangesChange={handleGoalDirtyChange} /> : <article className="panel empty-state"><p>Sign in to manage your household goals.</p></article>)}
-            {moneyTopic === 'statements' && <article className="panel"><h3>Your private statements</h3><p>Upload a statement, review its accounts and source rows, and approve only the changes you want.</p><Button onClick={() => openDocumentReview()}>Open Statements</Button></article>}
+            {moneyTopic === 'statements' && <article className="panel"><h3>Your private statements</h3><p>Upload a statement, check its accounts and lines, and approve only the changes you want.</p><Button onClick={() => openDocumentReview()}>Open Statements</Button></article>}
           </div>
         </section>
       )}
@@ -3782,7 +3783,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 <strong>{data.profile.completeness}%</strong>
               </div>
               <div className="progress-track"><span style={{ width: `${data.profile.completeness}%` }} /></div>
-              <p>{isRealWorkspace ? `These are your saved household numbers. Update them anytime and ${assistantName} will use the new context.` : 'Manual entry works in the real workspace. Uploads are shown as the next natural path so users do not feel trapped in Excel.'}</p>
+              <p>{isRealWorkspace ? `These are your saved household numbers. Update them anytime and ${assistantName} will use the new context.` : 'Add details by hand anytime, or upload a spreadsheet, statement, or pay stub to fill them in faster.'}</p>
             </article>
           )}
 
@@ -3876,7 +3877,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           )}
           </ProfileDisclosure>
 
-          {!isFirstSessionSetup && <article className="panel profile-statements-link"><h3>Your private statements</h3><p>Upload, identify accounts, review source rows and approve changes in Statements.</p><Button variant="secondary" onClick={() => openDocumentReview()}>Open Statements</Button></article>}
+          {!isFirstSessionSetup && <article className="panel profile-statements-link"><h3>Your private statements</h3><p>Upload statements, check each account and line, and approve changes in Statements.</p><Button variant="secondary" onClick={() => openDocumentReview()}>Open Statements</Button></article>}
           {isFirstSessionUpload && <DocumentImportWorkspace
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             sectionRef={documentImportsRef}
@@ -5141,7 +5142,7 @@ function DocumentReviewPanel({
           />}
         />
       )}
-      {sourceMode === 'unsupported' && <p className="document-alert error" role="alert">This extraction revision cannot be reviewed by this version of the app. Refresh or contact support; source rows have not been marked reviewed.</p>}
+      {sourceMode === 'unsupported' && <p className="document-alert error" role="alert">This file was read by a newer version of the app. Refresh the page, or contact support if this keeps happening. Nothing has been marked reviewed.</p>}
       {fallbackDrafts.length > 0 && (
         <section className="document-transaction-drafts" aria-label="Extracted transaction drafts">
           <div className="document-item-group-heading">

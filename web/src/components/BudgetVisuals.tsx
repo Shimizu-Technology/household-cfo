@@ -84,7 +84,7 @@ export function MonthPlanSummary({
             <div>
               <span>Safe to spend</span>
               <strong>{debtMinimumsKnown ? currency.format(safeToSpend) : 'Not available'}</strong>
-              <small>Pilot guardrail: 40% of positive baseline surplus in Yellow or Green—not ordinary budget remaining.</small>
+              <small>A cushion for extras: 40% of what’s left after your plan and debt minimums. It stays at $0 in Red, and it isn’t the same as plan remaining.</small>
             </div>
           )}
           {baselineSurplus !== undefined && (
