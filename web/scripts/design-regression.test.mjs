@@ -13,6 +13,7 @@ const budgetVisuals = readFileSync(resolve(__dirname, '../src/components/BudgetV
 const budgetPosition = readFileSync(resolve(__dirname, '../src/lib/budgetPosition.ts'), 'utf8')
 const participantTabs = readFileSync(resolve(__dirname, '../src/components/ParticipantTabs.tsx'), 'utf8')
 const button = readFileSync(resolve(__dirname, '../src/components/Button.tsx'), 'utf8')
+const participantNavigation = readFileSync(resolve(__dirname, '../src/lib/participantNavigation.ts'), 'utf8')
 const chatHistory = readFileSync(resolve(__dirname, '../src/components/ChatHistory.tsx'), 'utf8')
 const safeMessageText = readFileSync(resolve(__dirname, '../src/components/SafeMessageText.tsx'), 'utf8')
 const coachStudio = readFileSync(resolve(__dirname, '../src/components/CoachStudio.tsx'), 'utf8')
@@ -30,7 +31,7 @@ const assistCss = readFileSync(resolve(__dirname, '../src/components/MiaAssistPa
 
 const expectedNav = "['Home', 'Review', 'Ask Mia', 'My Money', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']"
 assert.ok(
-  app.replace(/\s+/g, ' ').includes(expectedNav),
+  participantNavigation.replace(/\s+/g, ' ').includes(expectedNav) && app.includes('const sections = PARTICIPANT_SECTIONS'),
   'participant navigation must keep the complete set of participant modules',
 )
 

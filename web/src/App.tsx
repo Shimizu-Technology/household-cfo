@@ -1,6 +1,7 @@
 import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
 import { AccountMenu } from './components/AccountMenu'
+import { PARTICIPANT_SECTIONS, SECTION_CAPABILITY_IDS, participantSectionsForModules } from './lib/participantNavigation'
 import { SignInButton, SignUpButton, SignOutButton } from './components/AuthControls'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
 import './App.css'
@@ -171,19 +172,8 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
-const sections = ['Home', 'Review', 'Ask Mia', 'My Money', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']
-const sectionCapabilityIds: Record<string, string> = {
-  Home: 'home',
-  Review: 'review',
-  'Ask Mia': 'ask_mia',
-  Budget: 'budget',
-  'My Profile': 'profile',
-  'My Money': 'profile',
-  Statements: 'profile',
-  Wealth: 'wealth',
-  'CFO Filter': 'cfo_filter',
-  Optionality: 'optionality',
-}
+const sections = PARTICIPANT_SECTIONS
+const sectionCapabilityIds = SECTION_CAPABILITY_IDS
 const COACH_STUDIO_SECTION = 'Coach Studio'
 const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
@@ -760,12 +750,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => { cancelled = true; budgetViewRequestRef.current += 1 }
   }, [budgetViewScope])
   const visibleSections = useMemo(() => {
-    const enabledParticipantSections = data
-      ? sections.filter((section) => data.workspace.capabilities.modules.some((module) => module.id === sectionCapabilityIds[section] && module.enabled))
+    const participantSections = data
+      ? participantSectionsForModules(data.workspace.capabilities.modules.filter((module) => module.enabled).map((module) => module.id))
       : []
     const staffSections = auth.currentUser?.is_staff ? [COACH_STUDIO_SECTION] : []
     const adminSections = auth.currentUser?.is_admin ? [ADMIN_SECTION] : []
-    const participantSections = enabledParticipantSections.includes('My Profile') ? [...enabledParticipantSections, 'Statements'] : enabledParticipantSections
     return [...participantSections, ...staffSections, ...adminSections]
   }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff, data])
   const activeSection = !visibleSections.includes(active) ? sections[0] : active

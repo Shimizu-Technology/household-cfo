@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useBrand } from '../contexts/brandContextValue'
+import { partitionParticipantSections } from '../lib/participantNavigation'
 
 type ParticipantTabsProps = {
   sections: string[]
@@ -10,11 +11,6 @@ type ParticipantTabsProps = {
   onToday?: () => void
 }
 
-// The bottom bar holds four destinations plus More. Budget is the core of the
-// method, so it stays one tap away; My Money fills in when a program hides Budget.
-const primaryPriority = ['Home', 'Ask Mia', 'Budget', 'Review', 'My Money']
-const savingsPrimaryPriority = ['Home', 'Ask Mia', 'Statements']
-const PRIMARY_LIMIT = 4
 
 const sectionDescriptions: Record<string, string> = {
   'My Profile': 'Household setup, memory, and bank connections.',
@@ -80,9 +76,7 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
   const shellRef = useRef<HTMLDivElement | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement | null>(null)
   const secondaryRef = useRef<HTMLDivElement | null>(null)
-  const priority = savingsChallenge ? savingsPrimaryPriority : primaryPriority
-  const primary = priority.filter((section) => sections.includes(section)).slice(0, PRIMARY_LIMIT)
-  const secondary = sections.filter((section) => !primary.includes(section))
+  const { primary, secondary } = partitionParticipantSections(sections, savingsChallenge)
   const secondaryIsActive = secondary.includes(activeSection)
 
   const closeTools = useCallback(() => {
