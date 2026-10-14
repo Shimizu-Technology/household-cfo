@@ -107,6 +107,7 @@ docs/admin-cohort-management.md
 docs/private-document-imports-and-mia-context.md
 docs/production-readiness-checklist.md
 docs/mia-memory-and-supervised-actions.md
+docs/design-system.md
 ```
 
 ## Mia eval harness
