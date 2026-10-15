@@ -291,9 +291,9 @@ module HouseholdFinance
     # Only an instruction to the participant followed by its purpose ("review the
     # draft and confirm or discard it so your actuals reflect what happened") is
     # set aside; "Done, so your actuals reflect it" is still a write claim.
-    INSTRUCTION_PURPOSE_PATTERN = /\b(?:review|confirm|approve|discard|delete|check)\b[^.!?]{0,60}?\b(?:so(?: that)?|until)\s+(?:your\s+|the\s+)?(?:month-to-date\s+|mtd\s+|budget\s+)?actuals?\s+(?:will\s+|can\s+)?(?:show|include|reflect)\b/i
+    INSTRUCTION_PURPOSE_PATTERN = /(?:\A|[.!?]\s+)(?:next (?:cfo )?move:\s*|(?:your|the) next (?:cfo )?move is to\s+)?(?:please\s+)?(?:review|confirm|approve|discard|open)\b[^.!?]{0,80}?\b(?:so(?: that)?|until)\s+(?:your\s+|the\s+)?(?:month-to-date\s+|mtd\s+|budget\s+)?actuals?\s+(?:will\s+|can\s+)?(?:show|include|reflect)\b/i
     # "You have confirmed actuals logged for Groceries" describes what is on file.
-    CONFIRMED_ACTUALS_ON_FILE_PATTERN = /\b(?:have|has|with|see|shows?)\s+(?:\w+\s+){0,2}?confirmed actuals?\s+(?:logged|recorded|posted)\s+(?:for|in|under)\b/i
+    CONFIRMED_ACTUALS_ON_FILE_PATTERN = /\byou\s+(?:currently\s+|already\s+)?have\s+confirmed actuals?\s+(?:logged|recorded)\s+(?:for|in|under)\b/i
 
     def dynamic_persona_write_claim?(content)
       subject = /\b#{Regexp.escape(persona.name)}\s+(?:already\s+|just\s+)?/i
@@ -430,10 +430,6 @@ module HouseholdFinance
       incorrect_category_amount_relationship?(content) || incorrect_transaction_relationship?(content)
     end
 
-    # "if you approve", "would leave": a draft's projected figures are only true
-    # as a conditional, never as the current state.
-    CONDITIONAL_PROJECTION_PATTERN = /\b(?:if|once|after|when)\s+(?:you\s+)?(?:approve|confirm)|\bif approved\b|\bwould\b|\bwill (?:have|show|leave|be)\b/i
-
     def incorrect_category_amount_relationship?(content)
       names = category_fact_sources.flat_map(&:keys).uniq
       return false if names.empty?
@@ -451,8 +447,7 @@ module HouseholdFinance
         amounts = currency_cents_from_text(relevant_clause)
         next false if amounts.empty?
 
-        lead_in = relevant_clause[0...(relevant_clause.index(MONEY_AMOUNT_PATTERN) || 0)]
-        candidates = category_fact_sources(conditional: lead_in.match?(CONDITIONAL_PROJECTION_PATTERN)).filter_map { |source| source[mention.fetch(:key)] }
+        candidates = category_fact_sources.filter_map { |source| source[mention.fetch(:key)] }
         next false if candidates.empty?
 
         # Every figure in the clause must come from one source: one month, one view.
@@ -480,16 +475,12 @@ module HouseholdFinance
 
     # Approved category figures, one hash per source so figures from different
     # months or views never combine. A spending report answer is held to the
-    # report's month; other answers to the plan (with any proposed budget change).
-    # With conditional: true, the draft's "if approved" projection is a source too.
-    def category_fact_sources(conditional: false)
-      @category_fact_sources ||= {}
-      @category_fact_sources[conditional] ||= begin
+    # report's month; other answers may use the plan or the report.
+    def category_fact_sources
+      @category_fact_sources ||= begin
         plan = summary_facts(answer_packet[:annual_plan_summary])
         report = summary_facts(answer_packet[:spending_report_summary])
-        add_budget_action_amounts(plan)
         sources = answer_packet[:kind].to_s.in?(%w[spending_report transaction_lookup]) && report.any? ? [ report ] : [ plan, report ]
-        sources << projection_facts(plan) if conditional
         sources.reject(&:empty?)
       end
     end
@@ -515,45 +506,8 @@ module HouseholdFinance
       facts.delete(name.downcase) if fact[:amounts].empty?
     end
 
-    # A proposed budget change ("Set Dining Out to $250") makes its before and
-    # after amounts approved figures for that category.
-    def add_budget_action_amounts(facts)
-      Array(answer_packet.dig(:budget_action, :items)).each do |item|
-        text = [ item[:label], item[:description], item.dig(:after, :name), item.dig(:before, :name) ].join(" ")
-        facts.each_value do |fact|
-          next unless text.match?(/\b#{Regexp.escape(fact.fetch(:name))}\b/i)
 
-          fact[:amounts] |= nested_cents(item[:before]) + nested_cents(item[:after]) + currency_cents_from_text(item[:label]) + currency_cents_from_text(item[:description])
-        end
-      end
-    end
 
-    def projection_facts(plan)
-      Array(answer_packet.dig(:transaction_draft, :budget_impacts_if_approved)).each_with_object({}) do |impact, facts|
-        key = impact[:category_name].to_s.strip.downcase
-        next if key.blank?
-
-        add_category_fact(facts, impact[:category_name], {
-          planned: impact[:planned], actual: impact[:projected_if_approved], pending: impact[:other_pending],
-          remaining: impact[:remaining_if_approved], draft: impact[:draft_amount]
-        })
-        next unless facts[key]
-
-        facts[key][:amounts] |= Array(plan.dig(key, :amounts))
-        over = signed_cents(impact[:remaining_if_approved])
-        facts[key][:amounts] |= [ over.abs ] if over&.negative?
-      end
-    end
-
-    def nested_cents(value, key = nil)
-      case value
-      when Hash then value.flat_map { |nested_key, nested| nested_cents(nested, nested_key.to_s.match?(/\A\d+\z/) ? key : nested_key) }
-      when Array then value.flat_map { |nested| nested_cents(nested, key) }
-      when Numeric then key.to_s.end_with?("_cents") ? [ value.to_i ] : (key.to_s.match?(/amount|planned|actual|remaining/) ? [ HouseholdFinance::Money.cents(value) ] : [])
-      when String then currency_cents_from_text(value)
-      else []
-      end
-    end
 
     # Packet figures can be negative ("-$12" over plan); a reply's "$12 remaining"
     # must not match them.
