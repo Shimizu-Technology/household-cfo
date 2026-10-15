@@ -3,7 +3,12 @@ require "test_helper"
 class ApiV1RateLimitsTest < ActionDispatch::IntegrationTest
   CALM_MESSAGE = "You're going a little fast. Give it a minute and try again."
 
+  # 30 seconds into a minute, 10-minute, and hour window, so Retry-After is the
+  # remaining part of the window, not the whole window.
+  NOW = Time.utc(2026, 10, 15, 4, 0, 30)
+
   setup do
+    travel_to NOW
     @user = create_user("rate-limit-#{SecureRandom.hex(4)}@example.com")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
   end
@@ -17,20 +22,37 @@ class ApiV1RateLimitsTest < ActionDispatch::IntegrationTest
 
       post_mia_message("")
 
-      assert_rate_limited(retry_after: 60)
+      assert_rate_limited(retry_after: 30)
     end
   end
 
-  test "crisis messages are never throttled" do
+  test "crisis messages are never throttled or counted" do
     with_rate_limit_store do |store|
       exhaust(store, "api/v1/mia_messages", "mia-minute", 20)
+      exhaust(store, "api/v1/mia_messages", "mia-hour", 200)
       post_mia_message("")
-      assert_rate_limited(retry_after: 60)
+      assert_rate_limited(retry_after: 30)
+      counts = [ "mia-minute", "mia-hour" ].map { |name| store.read(rate_limit_key("api/v1/mia_messages", name), raw: true) }
+      assert_equal [ 21, 200 ], counts
 
       post_mia_message("I want to end it all.")
 
       assert_response :created
       assert_includes response.parsed_body.dig("assistant_message", "content"), "988"
+      assert_equal counts, [ "mia-minute", "mia-hour" ].map { |name| store.read(rate_limit_key("api/v1/mia_messages", name), raw: true) }
+    end
+  end
+
+  test "a new window opens when the old one ends" do
+    with_rate_limit_store do |store|
+      exhaust(store, "api/v1/mia_messages", "mia-minute", 20)
+      post_mia_message("")
+      assert_rate_limited(retry_after: 30)
+
+      travel 30.seconds
+      post_mia_message("")
+
+      assert_response :unprocessable_entity
     end
   end
 
@@ -42,7 +64,7 @@ class ApiV1RateLimitsTest < ActionDispatch::IntegrationTest
 
       post_mia_message("")
 
-      assert_rate_limited(retry_after: 3600)
+      assert_rate_limited(retry_after: 3570)
     end
   end
 
@@ -53,7 +75,7 @@ class ApiV1RateLimitsTest < ActionDispatch::IntegrationTest
     with_rate_limit_store do |store|
       exhaust(store, "api/v1/mia_messages", "mia-minute", 20)
       post_mia_message("")
-      assert_rate_limited(retry_after: 60)
+      assert_rate_limited(retry_after: 30)
 
       post "/api/v1/mia/messages", params: { message: "" }, headers: auth_headers(other, other_household), as: :json
 
@@ -69,7 +91,7 @@ class ApiV1RateLimitsTest < ActionDispatch::IntegrationTest
 
       post "/api/v1/mia/transcriptions", headers: auth_headers(@user)
 
-      assert_rate_limited(retry_after: 60)
+      assert_rate_limited(retry_after: 30)
     end
   end
 
@@ -81,7 +103,7 @@ class ApiV1RateLimitsTest < ActionDispatch::IntegrationTest
         "/api/v1/document_imports/complete" => [ "upload-complete", 20 ],
         "/api/v1/document_imports/0/reprocess" => [ "reprocess", 10 ]
       }.each do |path, (name, limit)|
-        assert_limit(store, path, "api/v1/document_imports", name, limit, retry_after: 600)
+        assert_limit(store, path, "api/v1/document_imports", name, limit, retry_after: 570)
       end
     end
   end
@@ -94,7 +116,7 @@ class ApiV1RateLimitsTest < ActionDispatch::IntegrationTest
         "/api/v1/plaid/items/exchange" => "exchange",
         "/api/v1/plaid/items/0/sync" => "sync"
       }.each do |path, name|
-        assert_limit(store, path, "api/v1/plaid/items", name, 10, retry_after: 600)
+        assert_limit(store, path, "api/v1/plaid/items", name, 10, retry_after: 570)
       end
     end
   end
@@ -126,7 +148,14 @@ class ApiV1RateLimitsTest < ActionDispatch::IntegrationTest
   # Pre-count all but the last allowed request so each boundary is exercised
   # without dozens of slow requests: one more is allowed, the next is refused.
   def exhaust(store, controller_path, name, count)
-    store.increment("rate-limit:#{controller_path}:#{name}:#{@user.id}", count, expires_in: 1.hour)
+    store.increment(rate_limit_key(controller_path, name), count, expires_in: 1.hour)
+  end
+
+  WINDOWS = { "mia-minute" => 60, "transcription" => 60, "mia-hour" => 3600 }.freeze
+
+  def rate_limit_key(controller_path, name)
+    window = WINDOWS.fetch(name, 600)
+    "rate-limit:#{controller_path}:#{name}:#{@user.id}:#{Time.current.to_i / window}"
   end
 
   def assert_limit(store, path, controller_path, name, limit, retry_after:)

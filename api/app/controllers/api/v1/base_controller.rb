@@ -12,10 +12,13 @@ module Api
       # Fair-use limit keyed by the signed-in participant (IP only before sign-in).
       # Declare it after authenticate_user! so current_user is available. The
       # production cache store is shared across processes, so counts are global.
+      # Windows are aligned to the clock (the window number is part of the key),
+      # so Retry-After can report exactly how long until the next window opens.
       def self.participant_rate_limit(to:, within:, name:, **options)
+        window = within.to_i
         rate_limit to: to, within: within, name: name,
-          by: -> { current_user&.id || request.remote_ip },
-          with: -> { render_rate_limited(retry_after: within) },
+          by: -> { "#{current_user&.id || request.remote_ip}:#{Time.current.to_i / window}" },
+          with: -> { render_rate_limited(retry_after: window - (Time.current.to_i % window)) },
           **options
       end
 

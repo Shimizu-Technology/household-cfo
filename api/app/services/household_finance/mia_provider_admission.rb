@@ -11,7 +11,7 @@ module HouseholdFinance
     MAX_WAIT_MS = 5_000
     POLL_INTERVAL_SECONDS = 0.05
     DENIED_EVENT = "mia.provider_admission_denied"
-    DENIED_MESSAGE = "Mia provider admission denied; deterministic reply used"
+    DENIED_MESSAGE = "Mia provider admission denied"
 
     def self.with_slot(**options, &block)
       new(**options).call(&block)
@@ -30,11 +30,13 @@ module HouseholdFinance
     def call
       started_at = monotonic_time
       deadline = started_at + (wait_ms / 1000.0)
+      attempted = false
 
       loop do
         connection_pool.with_connection do |connection|
           next if wait_ms.positive? && monotonic_time >= deadline
 
+          attempted = true
           slot = acquire(connection)
           if slot && (wait_ms.zero? || monotonic_time < deadline)
             instrument(admitted: true, waited_ms: elapsed_ms(started_at))
@@ -56,7 +58,9 @@ module HouseholdFinance
 
       waited_ms = elapsed_ms(started_at)
       instrument(admitted: false, waited_ms: waited_ms)
-      report_denied(reason: "capacity_full", waited_ms: waited_ms)
+      # No attempt means the database connection checkout used up the wait,
+      # which points at the connection pool rather than provider capacity.
+      report_denied(reason: attempted ? "capacity_full" : "checkout_timeout", waited_ms: waited_ms)
       nil
     rescue ActiveRecord::ActiveRecordError => e
       report_denied(reason: "admission_error", waited_ms: started_at ? elapsed_ms(started_at) : nil, error_class: e.class.name)
@@ -67,7 +71,8 @@ module HouseholdFinance
 
     attr_reader :call_site, :provider, :limit, :wait_ms, :connection_pool
 
-    # Structured log + Sentry warning so deterministic fallbacks are visible.
+    # Structured log + Sentry warning so fallbacks (canned replies or "busy"
+    # errors, depending on the caller) are visible and countable per call site.
     # Never include participant content: only the call site, reason, and timing.
     def report_denied(reason:, waited_ms:, error_class: nil)
       details = { call_site: call_site, reason: reason, provider: provider, limit: limit, waited_ms: waited_ms, error_class: error_class }.compact

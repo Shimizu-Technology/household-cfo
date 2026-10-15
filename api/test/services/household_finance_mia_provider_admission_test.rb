@@ -107,8 +107,11 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
       nil
     end
 
-    assert_nil admission.call { flunk("expired admission must not run the provider block") }
+    logged = capture_log do
+      assert_nil admission.call { flunk("expired admission must not run the provider block") }
+    end
     assert_equal 0, attempts
+    assert_includes logged, '"reason":"checkout_timeout"'
   end
 
   test "releases a slot acquired after the admission deadline without calling the provider" do
