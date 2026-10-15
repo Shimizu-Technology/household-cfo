@@ -59,7 +59,9 @@ module HouseholdFinance
     SAVINGS_GOAL_CHOICE_PATTERN = /\b(?:pick|choose|decide|should|realistic|reasonable|help me|start with|too (?:much|high|big|low|small))\b/i.freeze
     SAVINGS_GOAL_PROGRESS_PATTERN = /\b(?:progress|how close|how far|on track|so far)\b/i.freeze
     ESSENTIAL_SKIP_PATTERN = /\b(?:skip(?:ping)?|go(?:ing)? without|cut(?:ting)? out|stop(?:ping)?)\b.{0,40}\b(?:food|meals?|groceries|grocery|eating|breakfast|lunch|dinner)\b/i.freeze
-    DISCRETIONARY_FOOD_PATTERN = /\b(?:eating|eat|dining)\s+out\b|\b(?:fast food|junk food|takeout|take out|delivery|restaurants?|wast(?:e|ing))\b/i.freeze
+    # Trimming how food is bought (eating out, packing lunch, cooking at home) is a
+    # healthy swap, not skipping food.
+    DISCRETIONARY_FOOD_PATTERN = /\b(?:eating|eat|dining)\s+out\b|\b(?:fast food|junk food|takeout|take out|delivery|restaurants?|wast(?:e|ing))\b|\b(?:pack(?:ing)?|bring(?:ing)?|cook(?:ing)?|meal prep(?:ping)?|homemade|make\s+(?:it|lunch|dinner|meals?)\s+at home|at home instead)\b/i.freeze
     REPEAT_SPENDING_PATTERN = /(?:\b(?:i|we)\s+(?:just\s+|already\s+|keep\s+|kept\s+)?|(?:\A|[.!?;]\s*))(?:ordered|ordering|bought|buying|spent|spending|splurged|grabbed|went (?:shopping|out)|ate out|blew)\b/i.freeze
     REPEAT_MARKER_PATTERN = /\b(?:again|(?:second|third|fourth|fifth|sixth|seventh|\d+(?:st|nd|rd|th))\s+time|told myself|keep (?:doing|spending|buying|ordering))\b/i.freeze
     REPEAT_LABEL_PATTERN = /\b(takeout|take out|delivery|fast food|eating out|coffee|online shopping|shopping|snacks)\b/i.freeze

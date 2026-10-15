@@ -774,9 +774,15 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
   test "cutting discretionary food is not treated as skipping meals" do
     household = create_yellow_household
 
-    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Should I stop eating out so I can save?").call.to_s
+    [
+      "Should I stop eating out so I can save?",
+      "I want to stop buying lunch at work and pack it instead to save money.",
+      "Should I cut out restaurant dinners and cook at home to hit my savings goal?"
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
 
-    refute_includes answer, "Please do not skip food"
+      refute_includes answer, "Please do not skip food", prompt
+    end
   end
 
   test "repeated spending is named as a pattern without shame and with one next step" do
