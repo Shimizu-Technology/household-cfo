@@ -481,7 +481,7 @@ module HouseholdFinance
     def response_content
       return transport.call(payload) if transport
 
-      MiaProviderAdmission.with_slot { openrouter_response }
+      MiaProviderAdmission.with_slot(call_site: "mia_intent") { openrouter_response }
     end
 
     def deterministic_scenario_fallback

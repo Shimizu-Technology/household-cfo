@@ -19,12 +19,13 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
   end
 
   test "uses the deterministic local response when provider capacity is full" do
-    with_mia_provider_capacity_rejected do
+    with_mia_provider_capacity_rejected do |call_sites|
       responder = Demo::MiaResponder.new(api_key: "test-key")
       responder.define_singleton_method(:openrouter_response) { |*| raise "saturated admission called the provider" }
       response = responder.call("How should I organize my budget?")
 
       assert_includes response, "protecting the household baseline"
+      assert_equal [ "demo_responder" ], call_sites
     end
   end
 

@@ -8,6 +8,10 @@ module Api
   module V1
     class DocumentImportsController < BaseController
       before_action :authenticate_user!
+      participant_rate_limit to: 20, within: 10.minutes, name: "upload-create", only: :create
+      participant_rate_limit to: 20, within: 10.minutes, name: "upload-presign", only: :presign
+      participant_rate_limit to: 20, within: 10.minutes, name: "upload-complete", only: :complete
+      participant_rate_limit to: 10, within: 10.minutes, name: "reprocess", only: :reprocess
       before_action :require_writable_household!, only: %i[create presign complete destroy reprocess apply destroy_source]
       before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_content source_preview source_review destroy_source]
       before_action :prevent_source_caching, only: %i[source_url source_content source_preview source_review]

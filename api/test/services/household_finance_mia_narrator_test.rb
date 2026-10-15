@@ -60,7 +60,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   test "uses the verified fallback when provider capacity is full" do
     fallback = "Based on approved numbers, wait until bills clear."
 
-    with_mia_provider_capacity_rejected do
+    with_mia_provider_capacity_rejected do |call_sites|
       narrator = HouseholdFinance::MiaNarrator.new(
         user_message: "Can I buy this?",
         answer_packet: { kind: "coaching", fallback_response: fallback, write_state: "no_write" },
@@ -69,6 +69,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
       narrator.define_singleton_method(:openrouter_response) { raise "saturated admission called the provider" }
 
       assert_equal fallback, narrator.call
+      assert_equal [ "mia_narrator" ], call_sites
     end
   end
 

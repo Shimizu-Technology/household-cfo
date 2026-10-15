@@ -7,6 +7,18 @@ module Api
 
       class InvalidIdempotencyKey < StandardError; end
 
+      RATE_LIMITED_MESSAGE = "You're going a little fast. Give it a minute and try again."
+
+      # Fair-use limit keyed by the signed-in participant (IP only before sign-in).
+      # Declare it after authenticate_user! so current_user is available. The
+      # production cache store is shared across processes, so counts are global.
+      def self.participant_rate_limit(to:, within:, name:, **options)
+        rate_limit to: to, within: within, name: name,
+          by: -> { current_user&.id || request.remote_ip },
+          with: -> { render_rate_limited(retry_after: within) },
+          **options
+      end
+
       rescue_from ::Mia::EffectiveCohortResolver::InvalidSelection, with: :render_invalid_cohort_selection
       rescue_from InvalidIdempotencyKey, with: :render_invalid_idempotency_key
       rescue_from SavingsChallenge::AccessPolicy::Unavailable do |error|
@@ -212,6 +224,17 @@ module Api
         return if membership&.role.in?(%w[owner partner])
 
         render json: { errors: [ "This household is read-only for your account." ] }, status: :forbidden
+      end
+
+      def render_rate_limited(retry_after:)
+        seconds = retry_after.to_i
+        response.headers["Retry-After"] = seconds.to_s
+        render json: {
+          error: RATE_LIMITED_MESSAGE,
+          errors: [ RATE_LIMITED_MESSAGE ],
+          code: "rate_limited",
+          retry_after_sec: seconds
+        }, status: :too_many_requests
       end
 
       def render_current_workspace

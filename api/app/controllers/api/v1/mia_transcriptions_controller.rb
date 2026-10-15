@@ -4,6 +4,7 @@ module Api
   module V1
     class MiaTranscriptionsController < BaseController
       before_action :authenticate_user!
+      participant_rate_limit to: 10, within: 1.minute, name: "transcription", only: :create
       before_action :require_existing_household!
       before_action :require_writable_household!
 
