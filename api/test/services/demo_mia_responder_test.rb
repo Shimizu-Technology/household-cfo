@@ -97,11 +97,11 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_equal "deterministic_fallback", responder.response_source
   end
 
-  test "default chat model uses Claude Sonnet latest through OpenRouter" do
-    with_env("OPENROUTER_MODEL" => nil) do
+  test "default chat model is the shared pinned Claude Sonnet model" do
+    with_env("AI_MODEL" => nil, "OPENROUTER_MODEL" => nil) do
       responder = Demo::MiaResponder.new(api_key: nil)
 
-      assert_equal "~anthropic/claude-sonnet-latest", responder.instance_variable_get(:@model)
+      assert_equal "anthropic/claude-sonnet-5.5", responder.instance_variable_get(:@model)
     end
   end
 
@@ -133,8 +133,10 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       captured.fetch("provider")
     )
     assert_equal [], captured.fetch("tools")
+    refute captured.key?("temperature"), "Claude rejects temperature; require_parameters would refuse the request"
+    assert_equal({ "effort" => "low" }, captured.fetch("reasoning"))
     assert_equal "anthropic/claude-sonnet-4.5", responder.model_identifier
-    assert_equal "~anthropic/claude-sonnet-latest", responder.requested_model_identifier
+    assert_equal "anthropic/claude-sonnet-5.5", responder.requested_model_identifier
     assert_equal "gen-test-123", responder.provider_request_id
   end
 

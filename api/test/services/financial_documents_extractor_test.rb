@@ -373,6 +373,8 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal({ type: "json_object" }, payload.fetch(:response_format))
     assert_equal FinancialDocuments::Extractor::MAX_OUTPUT_TOKENS, payload.fetch(:max_tokens)
     assert_not payload.key?(:json_schema)
+    assert_not payload.key?(:temperature)
+    assert_equal({ require_parameters: true, data_collection: "deny" }, payload.fetch(:provider))
   ensure
     file&.close!
   end

@@ -109,6 +109,28 @@ After `VITE_SITE_URL` is set and the web app redeploys:
 5. Verify with DNS TXT at GoDaddy or the provided HTML meta tag.
 6. Submit `https://your-domain.com/sitemap.xml`.
 
+## AI models (OpenRouter)
+
+All model choices live in `api/app/services/ai_models.rb` and two env vars. The API logs the configured models once at boot (`[AiModels] text=… transcription=…`) and warns if a retired per-task setting is still present.
+
+| Setting | Used for | Fallback order |
+|---|---|---|
+| `AI_MODEL` | Every text call: Mia intent + replies, demo/persona-release chat, document extraction, content-source proposals, persona setup | `AI_MODEL` → legacy `OPENROUTER_MODEL` → `anthropic/claude-sonnet-5.5` |
+| `AI_TRANSCRIPTION_MODEL` | Voice transcription | `AI_TRANSCRIPTION_MODEL` → legacy `OPENROUTER_TRANSCRIPTION_MODEL` → `openai/whisper-large-v3` |
+
+1. Use a pinned OpenRouter model id (for example `anthropic/claude-sonnet-5.5` or `google/gemini-2.5-flash`), never a `~…-latest` alias, so a provider update cannot change Mia's behavior without a deploy.
+2. Until `AI_MODEL` is set, production keeps using `OPENROUTER_MODEL`. To switch, set `AI_MODEL`, redeploy, confirm the boot log line, then remove the retired `OPENROUTER_MIA_MODEL`, `OPENROUTER_MIA_INTENT_MODEL`, `OPENROUTER_EXTRACTION_MODEL`, `OPENROUTER_CONTENT_SOURCE_MODEL`, `OPENROUTER_PERSONA_SETUP_MODEL`, and `MIA_TRANSCRIPTION_MODEL` settings.
+3. `OPENROUTER_PDF_ENGINE` (default `mistral-ocr`) and `MIA_TRANSCRIPTION_LANGUAGE` are not model choices and stay as they are.
+4. Before changing `AI_MODEL` in production, run the live Mia evals locally against the candidate model and compare with the current one (costs a few cents per run, never part of CI):
+
+   ```bash
+   cd api
+   RAILS_ENV=test bin/rails db:prepare
+   RAILS_ENV=test MIA_LIVE_EVALS=1 OPENROUTER_API_KEY=sk-or-... AI_MODEL=<candidate> bin/rails mia:evals:live
+   ```
+
+   Results land in `api/tmp/evals/<timestamp>-<model>.md` (readable transcript) and `.json`.
+
 ## Upload blocker triage
 
 If production uploads fail with `Failed to fetch` or a generic browser network error:
@@ -116,7 +138,7 @@ If production uploads fail with `Failed to fetch` or a generic browser network e
 1. Confirm Netlify has `VITE_API_BASE_URL=https://your-render-api.onrender.com` and has been redeployed after the env change.
 2. Confirm Render has `FRONTEND_URL` / `FRONTEND_URLS` for `https://householdcfomethod.com` and any preview host being tested.
 3. Confirm Render has private S3 configuration: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET`, and `AWS_S3_PREFIX`. Generate and store independent 32-byte base64 keys as `CONTENT_SOURCE_URL_ENCRYPTION_KEY_V1` and `CONTENT_SOURCE_URL_HMAC_KEY_V1`, confirm Solid Queue loads `config/recurring.yml`, then set `CONTENT_SOURCE_URL_INTAKE_ENABLED=true`. Keep the flag false if any prerequisite is missing; file upload remains available while secure web intake is disabled.
-4. Confirm Render has backend-only OpenRouter configuration: `OPENROUTER_API_KEY`, a Sonnet model that supports strict structured outputs through `OPENROUTER_MIA_INTENT_MODEL`/`OPENROUTER_MIA_MODEL`, `MIA_PROVIDER_MAX_CONCURRENCY=4`, `RAILS_MAX_THREADS=8`, optional `OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-large-v3`, and optional `MIA_TRANSCRIPTION_LANGUAGE=en`.
+4. Confirm Render has backend-only OpenRouter configuration: `OPENROUTER_API_KEY`, `AI_MODEL` (or the legacy `OPENROUTER_MODEL`) per [AI models](#ai-models-openrouter), `MIA_PROVIDER_MAX_CONCURRENCY=4`, `RAILS_MAX_THREADS=8`, optional `AI_TRANSCRIPTION_MODEL=openai/whisper-large-v3`, and optional `MIA_TRANSCRIPTION_LANGUAGE=en`.
 5. Check Render logs for `[S3Service] Upload failed`, `[HouseholdFinance::MiaIntentResolver]`, CORS errors, WorkOS authorization errors, transcription configuration errors, or `Private S3 document storage is not configured`.
 6. Test an explicit upload from `https://householdcfomethod.com` using a demo-safe `.xlsx` or image file.
 

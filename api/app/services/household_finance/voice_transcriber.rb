@@ -14,7 +14,7 @@ module HouseholdFinance
     end
 
     OPENROUTER_TRANSCRIPTION_URL = "https://openrouter.ai/api/v1/audio/transcriptions"
-    DEFAULT_MODEL = "openai/whisper-large-v3"
+    DEFAULT_MODEL = AiModels::DEFAULT_TRANSCRIPTION_MODEL
     DEFAULT_LANGUAGE = "en"
     LEGACY_GROQ_MODELS = %w[whisper-large-v3 whisper-large-v3-turbo].freeze
     OPEN_TIMEOUT_SECONDS = 5
@@ -86,10 +86,7 @@ module HouseholdFinance
     end
 
     def configured_model
-      openrouter_model = ENV["OPENROUTER_TRANSCRIPTION_MODEL"].to_s.strip
-      return openrouter_model if openrouter_model.present?
-
-      ENV["MIA_TRANSCRIPTION_MODEL"].to_s.strip.presence || DEFAULT_MODEL
+      AiModels.transcription
     end
 
     def normalize_model(value)

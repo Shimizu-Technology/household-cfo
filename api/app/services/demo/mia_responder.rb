@@ -3,8 +3,6 @@ require "json"
 
 module Demo
   class MiaResponder
-    DEFAULT_MODEL = "~anthropic/claude-sonnet-latest".freeze
-
     LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey", "help" ].freeze
     TEST_MESSAGES = [ "test", "testing" ].freeze
     SCREENSHOT_PURCHASE_TERMS = %w[purse bag handbag].freeze
@@ -69,7 +67,7 @@ module Demo
       @model
     end
 
-    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL), persona: ::Mia::Persona.default,
+    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: AiModels.text, persona: ::Mia::Persona.default,
       approved_content: [], strict_privacy: false)
       @api_key = api_key
       @model = model
@@ -144,9 +142,11 @@ module Demo
           *conversation_history(history),
           { role: "user", content: message }
         ],
-        max_tokens: 220,
-        temperature: 0.5
+        max_tokens: 220
       }
+      reasoning = AiModels.chat_reasoning(@model)
+      payload[:reasoning] = reasoning if reasoning
+      payload.merge!(AiModels.sampling(@model, 0.5))
       if @strict_privacy
         payload[:provider] = { data_collection: "deny", allow_fallbacks: false, require_parameters: true }
         payload[:tools] = []

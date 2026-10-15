@@ -12,7 +12,6 @@ module FinancialDocuments
     OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
     PROMPT_VERSION = "financial_document_extraction_v6"
     SCHEMA_VERSION = "financial_document_json_object_v3"
-    DEFAULT_MODEL = "google/gemini-2.5-flash"
     MAX_ITEMS = 60
     MAX_WARNINGS = 12
     PDF_BATCH_PAGES = 4
@@ -35,9 +34,9 @@ module FinancialDocuments
       end
     end
 
-    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_EXTRACTION_MODEL", ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL)), pdf_engine: ENV.fetch("OPENROUTER_PDF_ENGINE", "mistral-ocr"))
+    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: AiModels.text, pdf_engine: ENV.fetch("OPENROUTER_PDF_ENGINE", "mistral-ocr"))
       @api_key = api_key.to_s.strip
-      @model = model.to_s.strip.presence || DEFAULT_MODEL
+      @model = model.to_s.strip.presence || AiModels.text
       @pdf_engine = pdf_engine.to_s.strip.presence
     end
 
@@ -367,9 +366,8 @@ module FinancialDocuments
           require_parameters: true,
           data_collection: "deny"
         },
-        temperature: 0.1,
         max_tokens: MAX_OUTPUT_TOKENS
-      }
+      }.merge(AiModels.sampling(model, 0.1))
 
       if document_import.pdf? && pdf_engine.present?
         payload[:plugins] = [

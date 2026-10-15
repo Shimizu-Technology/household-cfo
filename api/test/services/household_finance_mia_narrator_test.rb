@@ -57,6 +57,31 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     assert_empty fallback_narrator.supplied_content_context
   end
 
+  test "narration sends temperature only to models that accept it and keeps Claude reasoning light" do
+    { "anthropic/claude-sonnet-5.5" => { effort: "low" }, "google/gemini-2.5-flash" => nil }.each do |model, reasoning|
+      narrator = HouseholdFinance::MiaNarrator.new(
+        user_message: "Can I buy this?",
+        answer_packet: { kind: "coaching", fallback_response: "Based on approved numbers, wait until bills clear.", write_state: "no_write" },
+        api_key: "test-key",
+        model: model
+      )
+      payload = narrator.send(:payload)
+
+      assert_equal model, payload.fetch(:model)
+      if model.start_with?("anthropic/")
+        refute payload.key?(:temperature), model
+      else
+        assert_equal 0.45, payload.fetch(:temperature), model
+      end
+      assert_equal HouseholdFinance::MiaNarrator::MAX_OUTPUT_TOKENS, payload.fetch(:max_tokens)
+      if reasoning
+        assert_equal reasoning, payload.fetch(:reasoning), model
+      else
+        refute payload.key?(:reasoning), model
+      end
+    end
+  end
+
   test "uses the verified fallback when provider capacity is full" do
     fallback = "Based on approved numbers, wait until bills clear."
 
