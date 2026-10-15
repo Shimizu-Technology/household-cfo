@@ -339,6 +339,43 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     refute_includes message, "nothing changes until you apply it"
   end
 
+  test "applying a legacy setup total keeps each expense on its own schedule" do
+    user = create_user(email: "mia-legacy-setup-cadence@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    rent = household.expense_items.create!(label: "Rent", stack_key: "non_discretionary", amount_cents: 120_000, cadence: "monthly")
+    insurance = household.expense_items.create!(label: "Car insurance", stack_key: "non_discretionary", amount_cents: 120_000, cadence: "annual")
+    registration = household.expense_items.create!(label: "Car registration", stack_key: "non_discretionary", amount_cents: 15_000, cadence: "one_time")
+    draft = create_legacy_setup_value_draft(user, household, key: "fixed_expenses", before: 1_300.0, after: 1_430.0)
+
+    post "/api/v1/mia_action_drafts/#{draft.id}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    assert_equal "applied", draft.reload.status
+    assert_equal [ 132_000, "monthly", true ], rent.reload.values_at(:amount_cents, :cadence, :active)
+    assert_equal [ 132_000, "annual", true ], insurance.reload.values_at(:amount_cents, :cadence, :active)
+    assert_equal [ 15_000, "one_time", true ], registration.reload.values_at(:amount_cents, :cadence, :active)
+  end
+
+  test "applying a legacy setup total to only one-time expenses explains why and changes nothing" do
+    user = create_user(email: "mia-legacy-setup-one-time@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    registration = household.expense_items.create!(label: "Car registration", stack_key: "non_discretionary", amount_cents: 15_000, cadence: "one_time")
+    draft = create_legacy_setup_value_draft(user, household, key: "fixed_expenses", before: 0.0, after: 300.0)
+
+    post "/api/v1/mia_action_drafts/#{draft.id}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors"),
+      "Fixed essentials only has one-time expenses saved, so there is no regular monthly amount to change. Edit a specific expense instead, or add a monthly one. Nothing changed."
+    assert_equal "pending", draft.reload.status
+    assert_equal [ 15_000, "one_time", true ], registration.reload.values_at(:amount_cents, :cadence, :active)
+    assert_equal 1, household.expense_items.where(stack_key: "non_discretionary").count
+  end
+
   test "mia drafts budget allocation edits without mutating the official budget until apply" do
     user = create_user(email: "mia-action-apply@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -1689,6 +1726,18 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     user_message = session.chat_messages.create!(role: "user", content: "Update my starting picture")
     assistant_message = session.chat_messages.create!(role: "assistant", content: result.response)
     result.proposal.create_draft!(source_chat_message: user_message, assistant_chat_message: assistant_message)
+  end
+
+  def create_legacy_setup_value_draft(user, household, key:, before:, after:)
+    draft = household.mia_action_drafts.create!(
+      requested_by_user: user, draft_type: "household_setup", status: "pending",
+      year: Date.current.year, title: "Update an approved household value", summary: "Review one household change"
+    )
+    draft.mia_action_items.create!(
+      position: 0, action_type: "update_setup_value", label: "Update #{key.humanize.downcase}",
+      payload: { key: key, value: after }, before_snapshot: { value: before }, after_snapshot: { value: after }
+    )
+    draft
   end
 
   def with_intent_resolver(resolver)
