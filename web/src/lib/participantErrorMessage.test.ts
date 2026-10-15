@@ -5,9 +5,16 @@ import { participantErrorMessage } from './participantErrorMessage'
 const api = (message: string, status: number, code?: string) => new ApiRequestError(message, { status, code })
 
 describe('participantErrorMessage', () => {
+  it('shows plain savings guidance from the server and falls back for technical text', () => {
+    expect(participantErrorMessage(api('This participant is already enrolled.', 409, 'savings_review_conflict'), 'fallback')).toBe('This participant is already enrolled.')
+    expect(participantErrorMessage(api('Canonical purchase changed; review its current facts', 409, 'savings_review_conflict'), 'fallback')).toBe('This record changed since you opened it. Refresh to see the latest, then try again.')
+    expect(participantErrorMessage(api('Category "Car lease" is archived.', 422), 'fallback')).toBe('Category "Car lease" is archived.')
+    expect(participantErrorMessage(api('File too large', 413), 'fallback')).toMatch(/^That file is too large\. /)
+  })
+
   it('maps known codes to plain sentences', () => {
     expect(participantErrorMessage(api('Your financial picture changed. Reload before saving or sending again. Nothing changed.', 409, 'financial_generation_stale'), 'fallback'))
-      .toBe('Something changed since this page loaded. Refresh and try again. Nothing was saved.')
+      .toBe('Something changed since this page loaded. Refresh and try again.')
     expect(participantErrorMessage(api('Too many requests', 429, 'rate_limited'), 'fallback')).toMatch(/going a little fast/)
   })
 
