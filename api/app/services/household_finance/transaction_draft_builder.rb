@@ -1,17 +1,19 @@
 module HouseholdFinance
   class TransactionDraftBuilder
-    AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
-    BARE_SPEND_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
+    AMOUNT_PATTERN = /\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
+    BARE_SPEND_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\s+(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
     SPEND_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\b/i.freeze
     NON_EXPENSE_MOVEMENT_PATTERN = /\b(?:transfer(?:red|ring)?|withdr(?:aw|ew|awn|awal)|deposit(?:ed)?|refund(?:ed)?|reimburse(?:d|ment)?|(?:credit\s*card|card|loan|debt)\s+payment|balance\s+(?:adjustment|correction))\b|\bpaid\b.{0,50}\b(?:visa|mastercard|amex|credit\s*card|loan)\b/i.freeze
-    EXPLICIT_PURCHASE_PATTERN = /\b(?:(?:i|we)\s+)?(?:spent|charged|bought|purchased)\s+\$?\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)\s+(?:at|from)\s+([^.,;!?$]+?)(?=\s+(?:for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
+    EXPLICIT_PURCHASE_PATTERN = /\b(?:(?:i|we)\s+)?(?:spent|charged|bought|purchased)\s+\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+(?:at|from)\s+([^.,;!?$]+?)(?=\s+(?:for|on|today|yesterday)\b|\s+(?:and|then|&)\s+(?:(?:i|we)\s+)?(?:put|paid|transferred|moved|deposited|added|sent|saved|withdrew|invested)\b|[.,;!?]|\z)/i.freeze
     MERCHANT_PATTERNS = [
       /\b(?:at|from|to)\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i,
-      /\b(?:spent|paid|charged|bought)\s+\$?\s*\d[\d,.]*\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i
+      /\b(?:spent|paid|charged|bought)\s+\$?\s*\d[\d,.]*(?:k\b|\s*thousand\b)?\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i
     ].freeze
 
+    # Transfers, refunds, debt payments, savings deposits and investment buys move
+    # money without being an expense; only a separate store purchase can be drafted.
     def self.non_expense_movement?(value)
-      value.to_s.match?(NON_EXPENSE_MOVEMENT_PATTERN)
+      value.to_s.match?(NON_EXPENSE_MOVEMENT_PATTERN) || MoneyMovementText.non_expense?(value)
     end
 
     def self.explicit_purchase_details(value)
@@ -19,9 +21,9 @@ module HouseholdFinance
       return unless match
 
       merchant = match[2].to_s.squish.truncate(120, omission: "…")
-      return if merchant.blank?
+      return if merchant.blank? || MoneyMovementText.investment_merchant?(merchant)
 
-      { amount: match[1].delete(","), merchant: merchant }
+      { amount: Money.chat_amount_text(match[1]), merchant: merchant }
     end
 
     def initialize(household, message, user:, annual_budget_manager: nil, plan_prepared: false, raw_input: nil, idempotency_key: nil)
@@ -106,7 +108,7 @@ module HouseholdFinance
     end
 
     def amount_cents
-      @amount_cents ||= Money.cents(amount_match&.[](1).to_s.delete(","))
+      @amount_cents ||= Money.chat_cents(amount_match&.[](1))
     end
 
     def occurred_on

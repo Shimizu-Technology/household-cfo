@@ -6,8 +6,8 @@ module HouseholdFinance
     RECALL_PATTERN = /\b(?:remind me|what were we(?: just)? talking about|what did we(?: just)? talk about|what were we(?: just)? doing|what did we(?: just)? do|what was the plan|pick up where we left off|continue where we left off|from earlier|earlier plan)\b/i.freeze
     ACKNOWLEDGMENT_PATTERN = /\A(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it)(?:[\s,!.]+(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it|for that|for this|chelu|mia))*[\s,!.]*\z/i.freeze
     CONFIRMATION_PATTERN = /\A(?:yes|yeah|yep|yup|please|ok|okay|sure|for sure|go ahead)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|go ahead|yes|yeah|ok|okay|sure))*[\s,!.]*\z|\A(?:do that|do it|draft that|make that change|please do that|please do it)[\s,!.]*\z/i.freeze
-    MONEY_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
-    CONDITIONAL_MONTHLY_INCOME_AMOUNT_PATTERN = /\b(?:if|given(?:\s+that)?|assuming|suppose|supposing|let['’]?s\s+say)\b.{0,120}\b(?:(?:our|my|the)\s+)?(?:monthly\s+income|income\s+(?:per|each)\s+month|take(?:\s|-)?home(?:\s+pay)?|bring\s+home)\b(?:\s+(?:is|was|were|equals?|of|became|becomes))?\s*(?:about|around|approximately|roughly)?\s*\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/i.freeze
+    MONEY_PATTERN = /\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
+    CONDITIONAL_MONTHLY_INCOME_AMOUNT_PATTERN = /\b(?:if|given(?:\s+that)?|assuming|suppose|supposing|let['’]?s\s+say)\b.{0,120}\b(?:(?:our|my|the)\s+)?(?:monthly\s+income|income\s+(?:per|each)\s+month|take(?:\s|-)?home(?:\s+pay)?|bring\s+home)\b(?:\s+(?:is|was|were|equals?|of|became|becomes))?\s*(?:about|around|approximately|roughly)?\s*\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?!\d|,\d)#{Money::CHAT_THOUSANDS_SOURCE}?)/i.freeze
     SAVINGS_SURPLUS_QUESTION_PATTERN = /\b(?:save|saving|savings|surplus|left\s+over|leftover)\b/i.freeze
     SPENDING_REPORT_PATTERNS = [
       /\bhow much\s+(?:did|have)\s+(?:i|we)\s+(?:spend|spent|pay|paid)\b/i,

@@ -2,20 +2,23 @@ module SavingsChallenge
   # Conservative convenience input, never an approval or a financial record.
   # Ambiguous amounts/dates and conditional plans remain ordinary conversation.
   class ChatIntake
-    MONEY = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)(?![\d.,])/.freeze
+    MONEY = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?(?![\d.,])#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
     def initialize(enrollment, message:) = (@enrollment, @message = enrollment, message.to_s)
     def call
       return unless @enrollment && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
       return if @message.match?(/\?|\b(?:if|would|could|might|plan|planning|want to|will|should|haven.t|didn.t|did not|not yet|did not|refund|borrowed|cash advance|credit card payment)\b/i)
       amounts = @message.scan(MONEY).flatten
       return unless amounts.length == 1
-      whole, fraction = amounts.sole.delete(",").split(".", 2)
-      cents = whole.to_i * 100 + fraction.to_s.ljust(2, "0").to_i
+      cents = HouseholdFinance::Money.chat_cents(amounts.sole)
       return unless cents.between?(1, 2_147_483_647)
       date = requested_date
       return unless date && date.between?(@enrollment.starts_on, [ @enrollment.ends_on, @enrollment.local_today ].min)
       common = { amount_cents: cents, effective_on: date.iso8601, approval_state: "unreviewed_input", counted: false }
-      if @message.match?(/\b(?:spent|bought|paid)\b/i)
+      # Crypto or stock buys are neither a challenge purchase nor saved money.
+      return if HouseholdFinance::MoneyMovementText.investment_purchase?(@message)
+      if HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
+        common.merge(kind: "contribution", signed_cents: cents, new_money_confirmation_required: true)
+      elsif @message.match?(/\b(?:spent|bought|paid)\b/i)
         merchant = @message[/\b(?:at|from)\s+(.+?)(?=\s+(?:today|yesterday|on\s+\d{4}-\d{2}-\d{2})\b|[.!]\z|\z)/i, 1]&.squish
         return unless merchant.present? && merchant.length <= 120 && !merchant.include?("$")
         common.merge(kind: "purchase", merchant: merchant)

@@ -114,4 +114,61 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
     end
     assert_equal [ 2_000, 3_000 ], @household.transaction_drafts.where(merchant: "Pay-Less").order(:id).pluck(:total_amount_cents)
   end
+
+  test "savings deposits and investment buys never become expense reviews" do
+    [
+      "Paid $50 to Bank of Guam savings for the challenge",
+      "Put $40 in my savings",
+      "Transferred $100 to my challenge account",
+      "Moved $25 into savings",
+      "I paid $60 to my savings today",
+      "Bought $200 worth of bitcoin",
+      "I spent $100 on crypto",
+      "Put $300 into stocks",
+      "I bought $150 of bitcoin from Coinbase"
+    ].each_with_index do |message, index|
+      assert_no_difference("TransactionDraft.count", message) do
+        assert_nil HouseholdFinance::TransactionDraftBuilder.new(@household, message, user: @user, idempotency_key: "movement-#{index}").call, message
+        result = HouseholdFinance::MiaTransactionDraftCreator.new(
+          @household,
+          user: @user,
+          command: { merchant: "Bank", amount: "50", occurred_on: "2026-07-10", splits: [] },
+          raw_input: message,
+          idempotency_key: "movement-model-#{index}"
+        ).call
+        refute result.success?, message
+      end
+    end
+  end
+
+  test "real spends that mention savings or sit beside a deposit still become reviews" do
+    {
+      "I spent $50 at the Savings Mart" => [ 5_000, "the Savings Mart" ],
+      "Spent $40 at Kmart and put $20 in savings" => [ 4_000, "Kmart" ],
+      "I bought $15 of snacks at the Savings Mart" => [ 1_500, "the Savings Mart" ],
+      "I spent $50 at Payless and moved $25 into savings." => [ 5_000, "Payless" ]
+    }.each_with_index do |(message, (cents, merchant)), index|
+      draft = HouseholdFinance::TransactionDraftBuilder.new(@household, message, user: @user, idempotency_key: "real-spend-#{index}").call
+      assert draft, message
+      assert_equal cents, draft.total_amount_cents, message
+      assert_equal merchant, draft.merchant, message
+    end
+  end
+
+  test "shorthand thousands draft the full amount, and k must stand alone" do
+    {
+      "I spent $5k at Home Depot" => 500_000,
+      "I spent $2K at Costco" => 200_000,
+      "Spent $1.5k at Triple J Motors" => 150_000,
+      "I spent $3 thousand at Triple J Motors" => 300_000,
+      "I spent 2k at Costco" => 200_000,
+      "I spent $5 at Kmart" => 500,
+      "Bought $5 kids meal at Jollibee" => 500
+    }.each_with_index do |(message, cents), index|
+      draft = HouseholdFinance::TransactionDraftBuilder.new(@household, message, user: @user, idempotency_key: "shorthand-#{index}").call
+      assert draft, message
+      assert_equal cents, draft.total_amount_cents, message
+    end
+    assert_equal({ amount: "2000", merchant: "Costco" }, HouseholdFinance::TransactionDraftBuilder.explicit_purchase_details("I spent $2k at Costco"))
+  end
 end

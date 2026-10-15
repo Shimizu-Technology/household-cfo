@@ -15,7 +15,7 @@ module HouseholdFinance
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 10
     BANNED_OPENERS = /\A(?:(?:(?:that['’]s|that is|this is) a )?(?:good|smart|great) question[.!]?)\s*/i
-    MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
+    MONEY_AMOUNT_PATTERN = HouseholdFinance::Money::CHAT_DOLLAR_AMOUNT_PATTERN
     MONTH_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*(?:-|\s)\s*months?\b/i
     PERCENT_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*%/.freeze
     DANGEROUS_WRITE_CLAIMS = [
@@ -447,7 +447,7 @@ module HouseholdFinance
     def incorrect_category_metric?(clause, category)
       clause.to_enum(:scan, MONEY_AMOUNT_PATTERN).any? do
         amount_match = Regexp.last_match
-        amount = HouseholdFinance::Money.cents(amount_match[1].delete(","))
+        amount = HouseholdFinance::Money.chat_cents(amount_match[1])
         before = clause[[ amount_match.begin(0) - 18, 0 ].max...amount_match.begin(0)].to_s
         after = clause[amount_match.end(0), 18].to_s
         metric = after.match(/\A\s*(?:in\s+)?(planned|actuals?|remaining|pending)\b/i)&.captures&.first ||
@@ -509,7 +509,7 @@ module HouseholdFinance
           amount_matches = clause.fetch(:text).to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
             amount_match = Regexp.last_match
             {
-              cents: HouseholdFinance::Money.cents(amount_match[1].delete(",")),
+              cents: HouseholdFinance::Money.chat_cents(amount_match[1]),
               distance: [ (amount_match.begin(0) - clause.fetch(:merchant_start)).abs, (amount_match.end(0) - clause.fetch(:merchant_end)).abs ].min
             }
           end
@@ -545,7 +545,7 @@ module HouseholdFinance
           amount_matches = clause.to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
             amount_match = Regexp.last_match
             {
-              cents: HouseholdFinance::Money.cents(amount_match[1].delete(",")),
+              cents: HouseholdFinance::Money.chat_cents(amount_match[1]),
               distance: [ (amount_match.begin(0) - mention.begin(0)).abs, (amount_match.end(0) - mention.end(0)).abs ].min
             }
           end
@@ -575,7 +575,7 @@ module HouseholdFinance
     end
 
     def invented_transaction_merchant?(content, transactions)
-      matches = content.scan(/\$\s*[\d,]+(?:\.\d{1,2})?\s+(?:charge\s+|purchase\s+|transaction\s+)?(?:at|from)\s+([\p{L}\d][\p{L}\d'’&.\- ]{1,45}?)(?=[,;.]|\s+(?:on|for|in|and|that|which)\b|\z)/i)
+      matches = content.scan(/\$\s*[\d,]+(?:\.\d{1,2})?#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?\s+(?:charge\s+|purchase\s+|transaction\s+)?(?:at|from)\s+([\p{L}\d][\p{L}\d'’&.\- ]{1,45}?)(?=[,;.]|\s+(?:on|for|in|and|that|which)\b|\z)/i)
       matches.flatten.any? do |merchant|
         normalized = normalize_merchant_label(merchant.sub(/\s+(?:happened|occurred|posted|cleared|was|is)\z/i, ""))
         compatible = transactions.select do |transaction|
@@ -747,7 +747,7 @@ module HouseholdFinance
     end
 
     def currency_cents_from_text(text)
-      text.to_s.scan(MONEY_AMOUNT_PATTERN).flatten.map { |amount| HouseholdFinance::Money.cents(amount.delete(",")) }.uniq
+      text.to_s.scan(MONEY_AMOUNT_PATTERN).flatten.map { |amount| HouseholdFinance::Money.chat_cents(amount) }.uniq
     end
 
     def currency_cents_from_numeric(value, key: nil)

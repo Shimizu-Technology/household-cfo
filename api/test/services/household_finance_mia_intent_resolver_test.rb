@@ -2647,6 +2647,70 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_includes result.clarification, "already incurred expenses"
   end
 
+  test "deterministic setup reads shorthand thousands instead of saving single dollars" do
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "For our starting picture, we bring home $5.5k a month and fixed essentials are 2.4k.",
+      context: intent_context,
+      api_key: nil
+    ).call
+
+    assert result.actionable?
+    assert_equal({ primary_income: "5500", fixed_expenses: "2400" }, result.action.fetch(:setup_updates))
+  end
+
+  test "fails closed when the model labels a savings deposit or crypto buy as an expense" do
+    [
+      [ "Paid $50 to Bank of Guam savings for the challenge", "Bank of Guam" ],
+      [ "Put $40 in my savings", "Savings" ],
+      [ "I spent $100 on crypto", "Crypto" ],
+      [ "I bought $150 of bitcoin from Coinbase", "Coinbase" ]
+    ].each do |message, merchant|
+      amount = message[/\$(\d+)/, 1]
+      resolver = HouseholdFinance::MiaIntentResolver.new(
+        user_message: message,
+        context: intent_context,
+        api_key: "test-key",
+        transport: lambda do |_payload|
+          resolution_json(
+            intent: "transaction_report",
+            continuation: false,
+            resolved_message: "Create a pending review",
+            topic: { type: "transaction_report", title: "#{merchant} expense", subject: merchant },
+            action: default_action.merge(type: "create_transaction_draft", merchant: merchant, amount: amount, occurred_on: "2026-07-10")
+          )
+        end
+      )
+
+      result = resolver.call
+
+      refute result.actionable?, message
+      assert result.clarification?, message
+      assert_equal "none", result.action.fetch(:type), message
+    end
+  end
+
+  test "a model expense amount from shorthand thousands is grounded in the participant text" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I spent $2k at Triple J Motors today",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "transaction_report",
+          continuation: false,
+          resolved_message: "Create a pending review for $2,000 at Triple J Motors",
+          topic: { type: "transaction_report", title: "Triple J Motors expense", subject: "Triple J Motors" },
+          action: default_action.merge(type: "create_transaction_draft", merchant: "Triple J Motors", amount: "2000", occurred_on: "2026-07-10")
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "2000", result.action.fetch(:amount)
+  end
+
   test "isolates an explicit purchase when a reported expense also describes a money movement" do
     message = "I paid my Visa $200 and spent $30 at Pay-Less."
     resolver = HouseholdFinance::MiaIntentResolver.new(

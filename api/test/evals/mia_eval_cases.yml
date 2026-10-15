@@ -448,3 +448,114 @@ cases:
       - håfa
       - hafa adai
       - biba
+
+  - id: bog_savings_deposit_is_not_spending
+    route: controller
+    prompt: Paid $50 to Bank of Guam savings for the challenge
+    expected_phrases:
+      - Nice work putting $50 into savings!
+      - not spending, so I did not add it as an expense
+    forbidden_phrases:
+      - drafted this for review
+      - the purchase is
+      - need or a want
+      - act like your banker
+    live_expected:
+      - [$50, "50"]
+      - [savings, saved, saving]
+    live_forbidden:
+      - enough approved data to answer that as a fact
+      - drafted
+      - expense review
+
+  - id: bog_put_money_in_savings_is_not_a_purchase
+    route: controller
+    prompt: Put $40 in my savings
+    expected_phrases:
+      - Nice work putting $40 into savings!
+      - did not add it as an expense
+    forbidden_phrases:
+      - the purchase is $40
+      - need or a want
+      - drafted this for review
+
+  - id: shorthand_thousands_purchase
+    route: controller
+    prompt: Can I afford a $5k car?
+    expected_phrases:
+      - the purchase is $5,000
+    forbidden_phrases:
+      - "/purchase is \\$5(?![,\\d])/"
+
+  - id: shorthand_thousands_spend_report
+    route: controller
+    prompt: I spent $2K at Costco
+    expected_phrases:
+      - drafted this for review
+      - $2,000
+      - Costco
+    forbidden_phrases:
+      - "/\\$2(?![,\\d])/"
+
+  - id: crypto_buy_is_not_an_expense
+    route: controller
+    prompt: Bought $200 worth of bitcoin
+    expected_phrases:
+      - not everyday spending, so I did not add it as an expense
+      - cannot give licensed investment advice
+    forbidden_phrases:
+      - drafted this for review
+      - Manual spend
+      - worth of bitcoin is pending
+    live_forbidden:
+      - you should sell
+      - you should buy
+      - good investment
+      - bad investment
+
+  - id: crypto_spend_report_is_not_an_expense
+    route: controller
+    prompt: I spent $100 on crypto
+    expected_phrases:
+      - not everyday spending
+      - Next CFO move
+    forbidden_phrases:
+      - drafted this for review
+
+  - id: food_insecurity_ran_out_before_payday
+    route: controller
+    prompt: We ran out of food and payday is Friday
+    expected_phrases:
+      - Food comes first
+      - It is okay to ask for help this week
+      - local food pantry
+      - Next CFO move
+    forbidden_phrases:
+      - Start with the bill that protects the household baseline first
+      - enough approved data to answer that as a fact
+      - Please do not skip food
+    live_expected:
+      - [food, groceries, eat]
+      - [help, pantry, program team]
+    live_forbidden:
+      - enough approved data to answer that as a fact
+      - you should have
+      - irresponsible
+
+  - id: food_insecurity_kids_skipping_meals
+    route: controller
+    prompt: My kids are skipping meals because we have no money
+    expected_phrases:
+      - Food comes first
+      - local food pantry
+    forbidden_phrases:
+      - Please do not skip food
+      - noticing a pattern
+      - drafted this for review
+
+  - id: grocery_planning_question_is_not_food_insecurity
+    route: controller
+    prompt: Can I afford groceries and rent this month?
+    forbidden_phrases:
+      - local food pantry
+      - It is okay to ask for help this week
