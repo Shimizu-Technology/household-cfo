@@ -422,13 +422,17 @@ module HouseholdFinance
       incorrect_category_amount_relationship?(content) || incorrect_transaction_relationship?(content)
     end
 
-    def incorrect_category_amount_relationship?(content)
-      categories = approved_category_facts
-      return false if categories.empty?
+    # "if you approve", "would leave": a draft's projected figures are only true
+    # as a conditional, never as the current state.
+    CONDITIONAL_PROJECTION_PATTERN = /\b(?:if|once|after|when)\s+(?:you\s+)?(?:approve|confirm)|\bif approved\b|\bwould\b|\bwill (?:have|show|leave|be)\b/i
 
-      mentions = categories.flat_map do |category|
-        content.to_enum(:scan, /\b#{Regexp.escape(category.fetch(:name))}\b/i).map do
-          { category: category, starts_at: Regexp.last_match.begin(0), ends_at: Regexp.last_match.end(0) }
+    def incorrect_category_amount_relationship?(content)
+      names = category_fact_sources.flat_map(&:keys).uniq
+      return false if names.empty?
+
+      mentions = names.flat_map do |name|
+        content.to_enum(:scan, /\b#{Regexp.escape(name)}\b/i).map do
+          { key: name.downcase, starts_at: Regexp.last_match.begin(0), ends_at: Regexp.last_match.end(0) }
         end
       end.sort_by { |mention| mention.fetch(:starts_at) }
 
@@ -439,8 +443,14 @@ module HouseholdFinance
         amounts = currency_cents_from_text(relevant_clause)
         next false if amounts.empty?
 
-        approved = mention.fetch(:category).fetch(:amounts) + user_stated_cents
-        amounts.any? { |amount| approved.exclude?(amount) } || incorrect_category_metric?(relevant_clause, mention.fetch(:category))
+        sentence = sentence_around(content, mention.fetch(:starts_at))
+        candidates = category_fact_sources(conditional: sentence.match?(CONDITIONAL_PROJECTION_PATTERN)).filter_map { |source| source[mention.fetch(:key)] }
+        next false if candidates.empty?
+
+        # Every figure in the clause must come from one source: one month, one view.
+        candidates.none? do |fact|
+          amounts.all? { |amount| fact.fetch(:amounts).include?(amount) } && !incorrect_category_metric?(relevant_clause, fact)
+        end
       end
     end
 
@@ -455,50 +465,100 @@ module HouseholdFinance
         next false unless metric
 
         key = metric.downcase.start_with?("actual") ? :actual : metric.downcase.to_sym
-        expected = Array(category.fetch(:metrics)[key])
-        expected.any? && expected.exclude?(amount) && user_stated_cents.exclude?(amount)
+        expected = category.fetch(:metrics).fetch(key, [])
+        expected.any? && expected.exclude?(amount)
       end
     end
 
-    # Every approved figure for each category, merged across the plan summary, the
-    # spending report (which may be a different month), and the draft's own
-    # "if approved" projection, so a correct figure from any of them is accepted.
-    def approved_category_facts
-      @approved_category_facts ||= begin
-        rows = [ answer_packet[:annual_plan_summary], answer_packet[:spending_report_summary] ].compact
-          .flat_map { |summary| Array(summary[:top_categories]) }
-          .map { |category| [ category[:name], category.slice(:planned, :actual, :remaining, :pending) ] }
-        rows += draft_impact_rows
-        rows.each_with_object({}) do |(name, values), facts|
-          name = name.to_s.strip
-          next if name.blank?
-
-          fact = facts[name.downcase] ||= { name: name, amounts: [], metrics: Hash.new { |hash, key| hash[key] = [] } }
-          values.each do |key, value|
-            next if value.nil?
-
-            cents = value.is_a?(Numeric) ? HouseholdFinance::Money.cents(value) : currency_cents_from_text(value).first
-            next unless cents
-
-            fact[:amounts] |= [ cents ]
-            fact[:metrics][key] |= [ cents ]
-          end
-        end.values.select { |fact| fact[:amounts].any? }
+    # Approved category figures, one hash per source so figures from different
+    # months or views never combine. A spending report answer is held to the
+    # report's month; other answers to the plan (with any proposed budget change).
+    # With conditional: true, the draft's "if approved" projection is a source too.
+    def category_fact_sources(conditional: false)
+      @category_fact_sources ||= {}
+      @category_fact_sources[conditional] ||= begin
+        plan = summary_facts(answer_packet[:annual_plan_summary])
+        report = summary_facts(answer_packet[:spending_report_summary])
+        add_budget_action_amounts(plan)
+        sources = answer_packet[:kind].to_s.in?(%w[spending_report transaction_lookup]) && report.any? ? [ report ] : [ plan, report ]
+        sources << projection_facts(plan) if conditional
+        sources.reject(&:empty?)
       end
     end
 
-    def draft_impact_rows
-      Array(answer_packet.dig(:transaction_draft, :budget_impacts_if_approved)).map do |impact|
-        [ impact[:category_name], {
-          planned: impact[:planned], actual: impact[:actual], pending: impact[:other_pending], draft: impact[:draft_amount],
-          projected: impact[:projected_if_approved], remaining: impact[:remaining_if_approved]
-        } ]
+    def summary_facts(summary)
+      Array(summary&.dig(:top_categories)).each_with_object({}) do |category, facts|
+        add_category_fact(facts, category[:name], category.slice(:planned, :actual, :remaining, :pending))
       end
     end
 
-    # Amounts the participant stated themselves ("Set Dining Out to $250").
-    def user_stated_cents
-      @user_stated_cents ||= currency_cents_from_text(user_message)
+    def add_category_fact(facts, name, values)
+      name = name.to_s.strip
+      return if name.blank?
+
+      fact = facts[name.downcase] ||= { name: name, amounts: [], metrics: {} }
+      values.each do |key, value|
+        cents = signed_cents(value)
+        next unless cents
+
+        fact[:amounts] |= [ cents ]
+        (fact[:metrics][key] ||= []) << cents unless fact[:metrics].fetch(key, []).include?(cents)
+      end
+      facts.delete(name.downcase) if fact[:amounts].empty?
+    end
+
+    # A proposed budget change ("Set Dining Out to $250") makes its before and
+    # after amounts approved figures for that category.
+    def add_budget_action_amounts(facts)
+      Array(answer_packet.dig(:budget_action, :items)).each do |item|
+        text = [ item[:label], item[:description], item.dig(:after, :name), item.dig(:before, :name) ].join(" ")
+        facts.each_value do |fact|
+          next unless text.match?(/\b#{Regexp.escape(fact.fetch(:name))}\b/i)
+
+          fact[:amounts] |= nested_cents(item[:before]) + nested_cents(item[:after]) + currency_cents_from_text(item[:label]) + currency_cents_from_text(item[:description])
+        end
+      end
+    end
+
+    def projection_facts(plan)
+      Array(answer_packet.dig(:transaction_draft, :budget_impacts_if_approved)).each_with_object({}) do |impact, facts|
+        key = impact[:category_name].to_s.strip.downcase
+        next if key.blank?
+
+        add_category_fact(facts, impact[:category_name], {
+          planned: impact[:planned], actual: impact[:projected_if_approved], pending: impact[:other_pending],
+          remaining: impact[:remaining_if_approved], draft: impact[:draft_amount]
+        })
+        facts[key][:amounts] |= Array(plan.dig(key, :amounts)) if facts[key]
+      end
+    end
+
+    def nested_cents(value, key = nil)
+      case value
+      when Hash then value.flat_map { |nested_key, nested| nested_cents(nested, nested_key) }
+      when Array then value.flat_map { |nested| nested_cents(nested, key) }
+      when Numeric then key.to_s.end_with?("_cents") ? [ value.to_i ] : (key.to_s.match?(/amount|planned|actual|remaining/) ? [ HouseholdFinance::Money.cents(value) ] : [])
+      when String then currency_cents_from_text(value)
+      else []
+      end
+    end
+
+    # Packet figures can be negative ("-$12" over plan); a reply's "$12 remaining"
+    # must not match them.
+    def signed_cents(value)
+      return HouseholdFinance::Money.cents(value) if value.is_a?(Numeric)
+
+      text = value.to_s.strip
+      cents = currency_cents_from_text(text).first
+      return unless cents
+
+      text.match?(/\A(?:-|\(|−)/) ? -cents : cents
+    end
+
+    def sentence_around(content, position)
+      start = content.rindex(/[.!?](?:\s|\z)/, position)&.+(1) || 0
+      finish = content.index(/[.!?](?:\s|\z)/, position) || content.length
+      content[start..finish].to_s
     end
 
     def incorrect_transaction_relationship?(content)
