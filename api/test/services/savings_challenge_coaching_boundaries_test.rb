@@ -11,7 +11,7 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
   teardown { travel_back }
 
   test "tight cash flow and essential cuts receive a conditional stabilization response without invented verified amounts" do
-    [ "My income is $2,000 and essentials are $2,100. Can I save $500?", "Can I skip meals to save $500?", "I cannot afford savings and I am behind on rent" ].each do |message|
+    [ "My income is $2,000 and essentials are $2,100. Can I save $500?", "Can I skip meals to save $500?", "Can I skip buying food this week so I can save more for the challenge?", "I cannot afford savings and I am behind on rent" ].each do |message|
       response = answer(message)
       assert_includes response, "Protect food, housing, medication"
       assert_includes response, "postpone savings"

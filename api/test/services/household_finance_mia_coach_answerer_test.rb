@@ -677,6 +677,138 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     end
   end
 
+  test "a savings goal amount is coached as an optional goal against the approved margin, not as a purchase" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Help me pick a savings goal for the challenge. Should I do the $500 goal or pick my own number?").call
+
+    assert_includes answer, "$500 is a good goal if it fits, and picking your own number is completely okay too."
+    assert_includes answer, "leave about $655 a month"
+    assert_includes answer, "$500 is about $167 a month, which fits inside that margin"
+    assert_includes answer, "Protect food, housing, utilities, medicine, and required payments first"
+    refute_match(/purchase is|need or a want|pre-spend/i, answer)
+  end
+
+  test "a savings goal question with unconfirmed setup gives no invented margin" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "goal-incomplete-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Incomplete goal household")
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "What savings goal should I pick for the challenge?").call
+
+    assert_includes answer, "The best savings goal is a number you can keep"
+    assert_includes answer, "cannot compare it with your monthly margin yet"
+    refute_match(/a month after|monthly shortfall/, answer)
+  end
+
+  test "real purchases and savings progress do not take the savings goal route" do
+    household = create_yellow_household
+
+    purchase = HouseholdFinance::MiaCoachAnswerer.new(household, "Can I buy a $500 TV?").call
+    assert_includes purchase, "the purchase is $500"
+    refute_includes purchase, "good goal"
+
+    progress = HouseholdFinance::MiaCoachAnswerer.new(household, "How close am I to my $500 savings goal?").call.to_s
+    refute_includes progress, "good goal"
+    refute_includes progress, "the purchase is $500"
+  end
+
+  test "a reported spend without an I or we subject leaves the coach for the transaction draft path" do
+    household = create_yellow_household
+
+    [
+      "Spent $12 at Payless today, felt stressed.",
+      "I spent $12 at Payless today, felt stressed.",
+      "Just paid $9 at Shell.",
+      "Long day. Bought $6 coffee at Kopi Cafe."
+    ].each do |prompt|
+      assert_nil HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call, prompt
+    end
+  end
+
+  test "overwhelm without a reported spend still gets baseline triage" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "I feel overwhelmed and behind").call
+
+    assert_includes answer, "Start with the baseline, not the whole mountain."
+  end
+
+  test "bank avoidance gets one small step instead of a data dump, even before setup is confirmed" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "avoidance-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+    incomplete = Household.create!(created_by_user: user, name: "Avoidance household")
+
+    [ create_yellow_household, incomplete ].each do |household|
+      [
+        "I haven't looked at my bank account in two weeks because I'm scared of what I'll see.",
+        "I've been avoiding my bank balance and I feel behind."
+      ].each do |prompt|
+        answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+
+        assert_includes answer, "Not looking does not make you bad with money", prompt
+        assert_includes answer, "open your bank app for just a few minutes today and look at one number", prompt
+        refute_match(/\$\d|readiness|posted outflows|irresponsible|ashamed/i, answer, prompt)
+      end
+    end
+  end
+
+  test "skipping food to save is never endorsed and points savings at flexible spending" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "skip-food-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+    incomplete = Household.create!(created_by_user: user, name: "Skip food household")
+
+    [ create_yellow_household, incomplete ].each do |household|
+      [
+        "Can I skip buying food this week so I can save more for the challenge?",
+        "Should I go without groceries this month to pay my bills?",
+        "I could stop eating lunch to hit my savings goal."
+      ].each do |prompt|
+        answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+
+        assert_includes answer, "Please do not skip food to save money.", prompt
+        assert_includes answer, "Food stays in the protected baseline", prompt
+        assert_includes answer, "flexible spending", prompt
+        refute_match(/yes,? (?:you can )?skip|go ahead and skip|cannot give a readiness/i, answer, prompt)
+      end
+    end
+  end
+
+  test "cutting discretionary food is not treated as skipping meals" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Should I stop eating out so I can save?").call.to_s
+
+    refute_includes answer, "Please do not skip food"
+  end
+
+  test "repeated spending is named as a pattern without shame and with one next step" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "I ordered takeout again tonight. That's the fourth time this week even though I told myself I'd stop.").call
+
+    assert_includes answer, "noticing a pattern is the hard part"
+    assert_includes answer, "takeout keeps coming back"
+    assert_includes answer, "Next step: before tomorrow, pick one small swap"
+    refute_match(/ashamed|irresponsible|lazy|not enough approved data/i, answer)
+  end
+
+  test "repeat words in lookups and wins do not trigger the repeated spending answer" do
+    household = create_yellow_household
+
+    [
+      "What did I spend on takeout again?",
+      "I stayed on my grocery budget again this week.",
+      "Can you explain my readiness again?"
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
+      refute_includes answer, "noticing a pattern", prompt
+    end
+  end
+
+  test "crisis language matches the controller crisis boundary that runs before coach routing" do
+    prompt = "I don't want to live anymore. I keep skipping meals so I can save for the challenge."
+
+    assert ::Mia::CrisisBoundary.matches?(prompt)
+  end
+
   private
 
   def create_yellow_household

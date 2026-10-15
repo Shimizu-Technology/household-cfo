@@ -7,10 +7,21 @@ module HouseholdFinance
     BANK_ACTIVITY_TERMS = /\b(?:bank|plaid|synced|account activity|bank activity|bank feed)\b/i
     ALL_BANK_ACTIVITY_TERMS = /\b(?:across|all|entire)\b.*\b(?:bank|plaid|synced|account activity|bank activity|bank feed)\b/i
     TOP_MERCHANT_TERMS = /\b(?:top|largest|highest|biggest)\s+(?:merchant|merchants|payee|payees)\b/i
+    AVOIDANCE_TERMS = /\b(?:bank|account|accounts|balance|balances|statement|statements)\b/i
+    EXPLICIT_LOOKUP_TERMS = /\b(?:how much|how many|what did|show me|list|did (?:i|we) (?:spend|pay))\b/i
+    AVOIDANCE_PATTERN = /\b(?:haven['’]?t|have not|havent)\s+(?:looked|checked|opened|logged)\b.{0,60}#{AVOIDANCE_TERMS}|\b(?:avoid|avoiding|avoided)\b.{0,60}#{AVOIDANCE_TERMS}|\b(?:scared|afraid|dread|dreading|anxious|terrified)\b.{0,80}#{AVOIDANCE_TERMS}|#{AVOIDANCE_TERMS}.{0,80}\b(?:scared|afraid|dread|dreading|anxious|terrified)\b/i
 
     def self.bank_activity_question?(value)
       message = value.to_s.downcase.squish
+      return false if avoidance?(message)
+
       message.match?(BANK_ACTIVITY_TERMS) && (message.match?(LOOKUP_TERMS) || message.match?(BANK_SUMMARY_TERMS))
+    end
+
+    # "I haven't looked at my bank account because I'm scared" is a feeling, not a lookup.
+    def self.avoidance?(value)
+      text = value.to_s.squish
+      text.match?(AVOIDANCE_PATTERN) && !text.match?(EXPLICIT_LOOKUP_TERMS)
     end
 
     def initialize(household, message, today: Date.current)
@@ -37,6 +48,7 @@ module HouseholdFinance
     attr_reader :household, :message, :today
 
     def lookup_like?
+      return false if self.class.avoidance?(message)
       return false if message.match?(PLANNED_TERMS) && !message.match?(/\b(actuals?|transactions?|spent|spend)\b/i)
 
       message.match?(LOOKUP_TERMS) || self.class.bank_activity_question?(message)

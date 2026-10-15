@@ -353,7 +353,10 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "I spent $0 at Free Cafe today", nil, nil ],
       [ "Can I spend $12 at Cafe tomorrow?", nil, nil ],
       [ "My tab is $18.50", "Manual spend", 1_850 ],
-      [ "We spent $32.10 from Jollibee yesterday", "Jollibee", 3_210 ]
+      [ "We spent $32.10 from Jollibee yesterday", "Jollibee", 3_210 ],
+      [ "Spent $12 at Payless today, felt stressed.", "Payless", 1_200 ],
+      [ "Just paid $9.50 at Shell.", "Shell", 950 ],
+      [ "Long day. Bought $6 at Kopi Cafe.", "Kopi Cafe", 600 ]
     ]
 
     cases.each do |message, merchant, cents|

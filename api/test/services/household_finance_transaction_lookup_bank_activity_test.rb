@@ -77,6 +77,35 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
     assert_includes answer, "Top merchants by posted outflow: Amazon — $75 (2 transactions); Pay-Less — $40 (1 transaction); Coffee Slut — $5 (1 transaction)."
   end
 
+  test "bank avoidance is not treated as a bank activity lookup" do
+    plaid_transaction("avoid-amazon", 1_000)
+
+    [
+      "I haven't looked at my bank account in two weeks because I'm scared of what I'll see.",
+      "I havent checked my bank balance, what if it's bad?",
+      "I've been avoiding my bank statements.",
+      "I'm afraid to open my account. What will I find?"
+    ].each do |prompt|
+      assert HouseholdFinance::TransactionLookupAnswerer.avoidance?(prompt), prompt
+      refute HouseholdFinance::TransactionLookupAnswerer.bank_activity_question?(prompt), prompt
+      assert_nil HouseholdFinance::TransactionLookupAnswerer.new(@household, prompt, today: Date.new(2026, 8, 16)).call, prompt
+    end
+  end
+
+  test "real bank activity questions still return the lookup, even when stress is mentioned" do
+    plaid_transaction("week-amazon", 1_000)
+
+    [
+      "What did I spend at Amazon last week?",
+      "I'm anxious about my bank account. How much did I spend at Amazon this month?"
+    ].each do |prompt|
+      refute HouseholdFinance::TransactionLookupAnswerer.avoidance?(prompt), prompt
+      answer = HouseholdFinance::TransactionLookupAnswerer.new(@household, prompt, today: Date.new(2026, 8, 16)).call
+      assert_includes answer, "Amazon", prompt
+    end
+    assert HouseholdFinance::TransactionLookupAnswerer.bank_activity_question?("I'm anxious about my bank account. How much did I spend at Amazon this month?")
+  end
+
   private
 
   def plaid_transaction(id, amount_cents, pending: false, occurred_on: Date.new(2026, 8, 14), merchant: "Amazon")
