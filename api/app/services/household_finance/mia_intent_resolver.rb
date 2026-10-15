@@ -573,8 +573,8 @@ module HouseholdFinance
       parsed.dig("choices", 0, "message", "content")
     end
 
-    # No temperature: Claude models on OpenRouter reject it, and with
-    # require_parameters OpenRouter would refuse the whole request.
+    # Temperature comes from AiModels.sampling: Claude models on OpenRouter reject
+    # it, and with require_parameters OpenRouter would refuse the whole request.
     def payload
       reasoning = AiModels.chat_reasoning(model)
       {

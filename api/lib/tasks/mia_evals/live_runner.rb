@@ -70,6 +70,11 @@ module MiaEvals
       report = build_report(model, cases, result, started_at)
       paths = write_report(report)
       print_summary(report, paths)
+      failed_turns = result.case_results.flat_map { |case_result| Array(case_result.metadata.to_h[:turns]) }.count { |turn| turn[:status] != 201 }
+      if failed_turns.positive?
+        warn "#{failed_turns} turn(s) did not return 201; the report does not reflect real model replies."
+        return false
+      end
       true
     end
 
@@ -90,6 +95,22 @@ module MiaEvals
       end
       unless Rails.env.test?
         warn "Run with RAILS_ENV=test so the synthetic participant can sign in with a test token and every case rolls back."
+        return false
+      end
+      # Rails merges DATABASE_URL into the test config, so an exported production URL
+      # would point this run (and its locks and sequences) at production.
+      if ENV["DATABASE_URL"].present?
+        warn "Unset DATABASE_URL: live Mia evals only run against the local test database."
+        return false
+      end
+      expected_database = ActiveRecord::Base.configurations.configs_for(env_name: "test", name: "primary")&.database
+      unless expected_database.present? && ActiveRecord::Base.connection.current_database == expected_database
+        warn "Live Mia evals only run against the configured test database (#{expected_database.inspect})."
+        return false
+      end
+      # Test identities are accepted only when no sign-in provider is selected or configured.
+      if ENV["AUTH_PROVIDER"].present? || WorkosAuth.configured?
+        warn "Unset AUTH_PROVIDER and the WorkOS keys for this run; the synthetic participant signs in with a test identity."
         return false
       end
 

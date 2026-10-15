@@ -71,14 +71,31 @@ class ContentSourcesCandidateProposerTest < ActiveSupport::TestCase
       locator: { "type" => "text", "segment" => 1, "line_start" => 1, "line_end" => 1 }
     )
 
-    payload = ContentSources::CandidateProposer.new(api_key: "test").send(:payload_for, segment)
+    payload = ContentSources::CandidateProposer.new(api_key: "test", model: "google/gemini-2.5-flash").send(:payload_for, segment)
     user_message = payload.fetch(:messages).find { |message| message.fetch(:role) == "user" }.fetch(:content)
     json_line = user_message.lines.drop_while { |line| !line.include?("UNTRUSTED_REFERENCE_JSON:") }.drop(1).first.strip
 
     assert_equal segment.text, JSON.parse(json_line).fetch("text")
     assert_equal 1, payload.fetch(:messages).count { |message| message.fetch(:role) == "user" }
-    assert_not payload.key?(:temperature)
+    assert_equal 0, payload.fetch(:temperature)
+    assert_equal "json_schema", payload.dig(:response_format, :type)
     assert_match(/Immutable contract/, payload.fetch(:messages).last.fetch(:content))
+  end
+
+  test "Claude proposal payload asks for schema-shaped JSON without temperature" do
+    segment = ContentSources::Parser::Segment.new(
+      number: 1,
+      text: "Pay yourself first by moving savings on payday.",
+      locator: { "type" => "text", "segment" => 1, "line_start" => 1, "line_end" => 1 }
+    )
+    proposer = ContentSources::CandidateProposer.new(api_key: "test", model: "anthropic/claude-sonnet-5.5")
+    payload = proposer.send(:payload_for, segment)
+
+    assert_equal({ type: "json_object" }, payload.fetch(:response_format))
+    assert_not payload.key?(:temperature)
+    assert_equal({ require_parameters: true, data_collection: "deny" }, payload.fetch(:provider))
+    assert_includes payload.fetch(:messages).last.fetch(:content), proposer.send(:response_schema).to_json
+    assert payload.fetch(:messages).any? { |message| message.fetch(:content).include?("Immutable contract") }
   end
 
   test "platform proposal contracts exclude coach-only phrases" do
