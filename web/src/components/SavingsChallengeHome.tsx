@@ -18,9 +18,9 @@ import './SavingsChallengeHome.css'
 
 type RecordRow = SavingsEntry | SavingsEntryVersion | SavingsEntryDraft | SavingsPlanDraft
 type Retry = { key: string; perform: (key: string, signal: AbortSignal) => Promise<SavingsMutation<unknown>>; done?: () => void }
-type HomeProps = { onOptionalDebt?: () => void; cohortId?: number; evidenceRefreshToken?: number; onReviewEvidence?: (entryVersionId:number)=>void; participantScope?: BaselineScope; onAskMia: () => void; onReviewStatements: () => void; onReviewBaseline?: () => void; onToday?: () => void; onPrivacy?: () => void; initialSavingsIntake?: SavingsIntake | null }
+type HomeProps = { onOptionalDebt?: () => void; cohortId?: number; evidenceRefreshToken?: number; onReviewEvidence?: (entryVersionId:number)=>void; participantScope?: BaselineScope; onAskMia: () => void; onReviewStatements: () => void; onReviewBaseline?: () => void; onToday?: () => void; onPrivacy?: () => void; initialSavingsIntake?: SavingsIntake | null; onEnrollmentKnown?: (enrolled: boolean) => void }
 export function SavingsChallengeHome(props: HomeProps) { return <SavingsChallengeHomeBody key={`${props.participantScope?.user_id}:${props.participantScope?.household_id}:${props.cohortId}`} {...props}/> }
-function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshToken, onAskMia, onReviewStatements, onReviewBaseline, onToday, onPrivacy, initialSavingsIntake, participantScope, onReviewEvidence }: HomeProps) {
+function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshToken, onAskMia, onReviewStatements, onReviewBaseline, onToday, onPrivacy, initialSavingsIntake, participantScope, onReviewEvidence, onEnrollmentKnown }: HomeProps) {
   const { assistantName } = useBrand()
   const [planOpen, setPlanOpen] = useState(false)
   const [entryOpen, setEntryOpen] = useState(Boolean(initialSavingsIntake))
@@ -55,9 +55,10 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
   const working = useRef(false)
   const uncertainRequest = useRef(false)
   const lastOffer = useRef<string | null>(null)
+  const consentStarted = useRef(false)
   const initializedPlan = useRef(false)
   const controllers = useRef(new Set<AbortController>())
-  const clearPrivatePlan = useCallback(() => { privateDenied.current=true; sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setParticipation(false);setLateAcceptance(false);setKnownZero(false);setNewMoneyReviewed(false);setIntakeActive(false);setWithdrawal(false);setFunding('new_money_reserved');setComfortable({edited:false,reviewed:false}); setChallenge(null); setReadFailed(true); setError('Private plan access is no longer available.'); setAmount(''); setEffectiveOn(''); setPlanReason(''); setEntryReason(''); setEditingEntry(null); setTarget('500.00') }, [])
+  const clearPrivatePlan = useCallback(() => { privateDenied.current=true; sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setParticipation(false);setLateAcceptance(false);setKnownZero(false);setNewMoneyReviewed(false);setIntakeActive(false);setWithdrawal(false);setFunding('new_money_reserved');setComfortable({edited:false,reviewed:false}); setChallenge(null); setReadFailed(true); setError('Private plan access is no longer available.'); setAmount(''); setEffectiveOn(''); setPlanReason(''); setEntryReason(''); setEditingEntry(null); setTarget('500.00'); onEnrollmentKnown?.(false) }, [onEnrollmentKnown])
   const requestErrorRef = useRef<HTMLDivElement>(null)
   const entryHeadingRef = useRef<HTMLHeadingElement>(null)
   const targetHeadingRef = useRef<HTMLHeadingElement>(null)
@@ -65,6 +66,9 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
   const [focusAfterJoin,setFocusAfterJoin] = useState(false)
   const focusJoined = () => setFocusAfterJoin(true)
   useEffect(()=>{if(!focusAfterJoin||!challenge?.enrollment)return;const frame=requestAnimationFrame(()=>{progressHeadingRef.current?.scrollIntoView({block:'start'});progressHeadingRef.current?.focus();setFocusAfterJoin(false)});return()=>cancelAnimationFrame(frame)},[focusAfterJoin,challenge?.enrollment])
+  useEffect(() => { consentStarted.current = participation || lateAcceptance }, [participation, lateAcceptance])
+  const enrolled = challenge ? Boolean(challenge.enrollment) : null
+  useEffect(() => { if (enrolled !== null) onEnrollmentKnown?.(enrolled) }, [enrolled, onEnrollmentKnown])
   const scopeUser = participantScope?.user_id, scopeHousehold = participantScope?.household_id, scopeEnrollment = challenge?.enrollment?.id
   const planScope = useMemo(() => scopeUser && scopeHousehold && scopeEnrollment ? {user_id:scopeUser,household_id:scopeHousehold,enrollment_id:scopeEnrollment} : undefined, [scopeUser,scopeHousehold,scopeEnrollment])
   useEffect(() => { if(participantScope) fencePlanActor(participantScope) }, [participantScope])
@@ -88,7 +92,11 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
       const receivedCohort = (next as SavingsChallenge & {cohort_id?:number}).cohort_id ?? next.enrollment?.cohort_id
       if (homeScope && receivedCohort !== undefined && receivedCohort !== homeScope.cohort_id) throw new ApiRequestError('The private challenge program changed. Reopen Home.', {status:403})
       const offerIdentity = JSON.stringify(next.offer ?? null)
-      if (lastOffer.current !== offerIdentity) { setParticipation(false); setLateAcceptance(false); lastOffer.current = offerIdentity }
+      if (lastOffer.current !== offerIdentity) {
+        // Changed terms need fresh consent; say so instead of silently clearing checkmarks.
+        if (consentStarted.current && lastOffer.current !== null && lastOffer.current !== 'null' && !next.enrollment) setNotice('The joining details were updated. Review them and check the boxes again.')
+        setParticipation(false); setLateAcceptance(false); lastOffer.current = offerIdentity
+      }
       if (!initializedPlan.current && next.enrollment) {
         initializedPlan.current = true
         if (!next.accepted_plan) setPlanOpen(true)
@@ -224,7 +232,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
     {loading && <OpeningProgress status="Checking your approved challenge…" />}
     {!challenge && !loading && <p>Your challenge is unavailable. No progress is being assumed.</p>}
     {challenge && !challenge.enrollment && <article className="panel savings-enrollment"><h3>Review before joining</h3><p>The suggested target is {savingsDollars(challenge.suggested_target_cents ?? null)}. You choose an affordable amount after joining, or postpone choosing a target.</p>
-      {offer ? <><p><strong>{offer.cohort_label}</strong> · {offer.time_zone}</p><p>Your proposed 90-day window: <strong>{offer.personal_starts_on ?? 'Not configured'} – {offer.personal_ends_on ?? 'Not configured'}</strong>.</p><p>Participation records your reported reserve and approvals. It does not move money, connect a bank, or require a credit card or full budget.</p><p>Statement uploads are optional and require separate review. This acceptance does not grant a coach access to your private statements.</p><p className="savings-caption">Participation policy: {offer.policy_version}. Cohort capacity is checked again when you accept.</p><label className="savings-check"><input type="checkbox" checked={participation} disabled={actionLocked('enrollment')} onChange={(event) => setParticipation(event.target.checked)} />I have read this notice and accept participation.</label>
+      {offer ? <><p><strong>{offer.cohort_label}</strong> · {offer.time_zone}</p><p>Your proposed 90-day window: <strong>{offer.personal_starts_on ?? 'Not configured'} – {offer.personal_ends_on ?? 'Not configured'}</strong>.</p><p>Participation records your reported reserve and approvals. It does not move money, connect a bank, or require a credit card or full budget.</p><p>Statement uploads are optional and require separate review. This acceptance does not grant a coach access to your private statements.</p><p className="savings-caption">Spots in the group are confirmed when you accept.</p><label className="savings-check"><input type="checkbox" checked={participation} disabled={actionLocked('enrollment')} onChange={(event) => setParticipation(event.target.checked)} />I have read this notice and accept participation.</label>
         {offer.late_start_acceptance_required && <label className="savings-check"><input type="checkbox" checked={lateAcceptance} disabled={actionLocked('enrollment')} onChange={(event) => setLateAcceptance(event.target.checked)} />I accept the later personal start and the full window shown above.</label>}
         <button type="button" disabled={actionLocked('enrollment') || !offer.accepting_enrollments || !participation || Boolean(offer.late_start_acceptance_required && !lateAcceptance)} onClick={() => homeStage('enrollment',(key, signal) => enrollSavingsChallenge({ participation_accepted: true, policy_version: offer.policy_version, late_start_accepted: lateAcceptance, expected_acceptance_digest: offer.acceptance_digest }, key, signal))}>Accept and join</button>
         {!offer.accepting_enrollments && <p role="status">This cohort is not accepting enrollment right now.</p>}</> : <p>Enrollment terms are unavailable. Refresh to review them before joining.</p>}

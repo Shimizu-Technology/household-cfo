@@ -103,7 +103,7 @@ describe('participant savings Home', () => {
     render(view()); await screen.findByText('Review before joining')
     fireEvent.click(screen.getByLabelText(/read this notice/)); fireEvent.click(screen.getByLabelText(/later personal start/))
     fireEvent(window, new Event('focus'))
-    await screen.findByText(/dev-notice-v2/)
+    await screen.findByText('The joining details were updated. Review them and check the boxes again.')
     expect((screen.getByLabelText(/read this notice/) as HTMLInputElement).checked).toBe(false)
     expect((screen.getByRole('button', { name: 'Accept and join' }) as HTMLButtonElement).disabled).toBe(true)
   })

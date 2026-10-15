@@ -8983,6 +8983,26 @@ test('BOG UI savings Home joins late with explicit personal dates without full b
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
+test('BOG UI shows Today and the private export only after joining', async ({ page }) => {
+  const { home } = await openSavingsHome(page, { enrolled: false })
+  await expect(home.getByRole('button', { name: 'Accept and join' })).toBeVisible()
+  await expect(page.locator('.tabs-today-action')).toHaveCount(0)
+  await expect(page.getByText('Download your private challenge record')).toHaveCount(0)
+  await expect(home).not.toContainText('Participation policy')
+  await openSection(page, 'Ask Mia')
+  await expect(page.locator('.chat-today-button')).toHaveCount(0)
+
+  await openSection(page, 'Savings')
+  await home.getByLabel(/read this notice/).check()
+  await home.getByLabel(/later personal start/).check()
+  await home.getByRole('button', { name: 'Accept and join' }).click()
+  await expect(home).toContainText('Day 1 of 90')
+  await expect(page.locator('.tabs-today-action')).toBeVisible()
+  await expect(page.getByText('Download your private challenge record')).toBeVisible()
+  await openSection(page, 'Ask Mia')
+  await expect(page.locator('.chat-today-button')).toHaveCount(1)
+})
+
 test('BOG UI savings Home preserves approved totals through proposals corrections and withdrawals', async ({ page }) => {
   const { home, calls } = await openSavingsHome(page)
   const progress = home.getByRole('article', { name: 'Approved savings progress' })
@@ -9080,7 +9100,8 @@ test('BOG UI savings Home resets acceptance when refreshed participation terms c
   await expect(home.getByRole('button', { name: 'Accept and join' })).toBeEnabled()
   current().offer!.policy_version = 'dev-notice-v2'
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-  await expect(home).toContainText('dev-notice-v2')
+  await expect(home).toContainText('The joining details were updated. Review them and check the boxes again.')
+  await expect(home).not.toContainText('dev-notice-v2')
   await expect(home.getByLabel(/read this notice/)).not.toBeChecked()
   await expect(home.getByLabel(/later personal start/)).not.toBeChecked()
   await expect(home.getByRole('button', { name: 'Accept and join' })).toBeDisabled()
