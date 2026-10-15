@@ -758,7 +758,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     [ create_yellow_household, incomplete ].each do |household|
       [
         "Can I skip buying food this week so I can save more for the challenge?",
-        "Should I go without groceries this month to pay my bills?",
+        "Should we go without groceries this month to save for the challenge?",
         "I could stop eating lunch to hit my savings goal."
       ].each do |prompt|
         answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
@@ -801,11 +801,38 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       "Remind me again what I spent on shopping last month",
       "I'm behind on my car payment again because I spent too much",
       "Should I transfer $500 from checking to savings for my challenge goal?",
-      "Should I lower my savings goal because I'm behind on rent?"
+      "Should I lower my savings goal because I'm behind on rent?",
+      "Should I stop buying groceries at Payless and go to Costco to save?",
+      "Should I pick a savings goal or pay off my Payless card first?",
+      "I want to skip the grocery run this week, we have enough food at home, to save for the challenge",
+      "Should I save the $500 tax refund for my challenge goal?"
     ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
       new_route_phrases.each { |phrase| refute_includes answer, phrase, prompt }
     end
+  end
+
+  test "skipping meals for a bill gets bill help, and past-tense skips are caught" do
+    household = create_yellow_household
+
+    bill = HouseholdFinance::MiaCoachAnswerer.new(household, "Can we go without groceries this week to cover the power bill?").call
+    assert_includes bill, "Please do not skip meals to cover a bill."
+    assert_includes bill, "food comes first"
+
+    [ "I skipped meals last month to save for the challenge.", "I skip lunch at work to save for the challenge." ].each do |prompt|
+      assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s, "Please do not skip food", prompt
+    end
+  end
+
+  test "the savings goal answer only repeats the amount named as the goal" do
+    household = create_yellow_household
+
+    income = HouseholdFinance::MiaCoachAnswerer.new(household, "Help me pick a savings goal, I make $1,800 a month").call
+    refute_includes income, "$1,800 is a good goal"
+    assert_includes income, "The best savings goal is a number you can keep"
+
+    named = HouseholdFinance::MiaCoachAnswerer.new(household, "Should I choose a goal of $300 for the challenge?").call
+    assert_includes named, "$300 is a good goal if it fits"
   end
 
   test "a spend with no I or we counts only as a dollar statement" do

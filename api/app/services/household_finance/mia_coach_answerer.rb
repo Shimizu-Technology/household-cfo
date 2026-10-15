@@ -63,12 +63,13 @@ module HouseholdFinance
     SAVINGS_GOAL_PROGRESS_PATTERN = /\b(?:progress|how close|how far|on track|so far)\b/i.freeze
     # The participant's own choice ("I keep skipping…", "Can we go without…"), not a
     # family member going without, which is hardship rather than a savings plan.
-    ESSENTIAL_SKIP_PATTERN = /\b(?:i|we)\b\S*(?:\s+\S+){0,3}?\s+(?:skip(?:ping)?|go(?:ing)? without|cut(?:ting)? out|stop(?:ping)?)\s+(?:(?:buying|eating|having|getting|my|our|the|some|family|kids['’]?)\s+){0,2}(?:food|meals?|groceries|grocery|eating|breakfast|lunch|dinner)\b/i.freeze
+    ESSENTIAL_SKIP_PATTERN = /\b(?:i|we)\b\S*(?:\s+\S+){0,3}?\s+(?:skip(?:ping|ped)?|go(?:ing)? without|went without|cut(?:ting)? out|stop(?:ping|ped)?)\s+(?:(?:buying|eating|having|getting|my|our|the|some|family|kids['’]?)\s+){0,2}(?:food|meals?|groceries|grocery|eating|breakfast|lunch|dinner)\b/i.freeze
+    ESSENTIAL_SKIP_BILL_PATTERN = /\b(?:bills?|rent|power|water|utilit(?:y|ies)|car payment|loan|due)\b/i.freeze
     ESSENTIAL_SKIP_PURPOSE_PATTERN = /\b(?:to|so (?:i|we) can|in order to|for)\b.{0,40}\b(?:save|saving|savings|challenge|goal|pay|afford|cover|catch up)\b/i.freeze
     FOOD_INSECURITY_PATTERN = /\b(?:can['’]?t|cannot|could(?:n['’]?t| not)) afford\b|\bno (?:money|food)\b|\b(?:ran|run|running) out of (?:food|money)\b|\bnothing to eat\b|\bhungry\b|\bbecause (?:we|i) (?:have|had) no\b/i.freeze
     # Trimming how food is bought (eating out, packing lunch, cooking at home) is a
     # healthy swap, not skipping food.
-    DISCRETIONARY_FOOD_PATTERN = /\b(?:buying|getting|ordering)\s+(?:lunch|breakfast|dinner)\b|\bat work\b|\b(?:eating|eat|dining)\s+out\b|\b(?:fast food|junk food|takeout|take out|delivery|restaurants?|wast(?:e|ing))\b|\b(?:pack(?:ing)?|bring(?:ing)?|cook(?:ing)?|meal prep(?:ping)?|homemade|make\s+(?:it|lunch|dinner|meals?)\s+at home|at home instead)\b/i.freeze
+    DISCRETIONARY_FOOD_PATTERN = /\b(?:enough food|food at home|pantry|use (?:up )?what (?:we|i) have)\b|\b(?:buying|getting|ordering)\s+(?:lunch|breakfast|dinner)\b|\b(?:go(?:ing)? to|shop(?:ping)? at|switch(?:ing)? to|cheaper|in bulk|on sale|coupons?)\b|\b(?:eating|eat|dining)\s+out\b|\b(?:fast food|junk food|takeout|take out|delivery|restaurants?|wast(?:e|ing))\b|\b(?:pack(?:ing)?|bring(?:ing)?|cook(?:ing)?|meal prep(?:ping)?|homemade|make\s+(?:it|lunch|dinner|meals?)\s+at home|at home instead)\b/i.freeze
     REPEAT_SPENDING_PATTERN = /(?:\b(?:i|we)\s+(?:just\s+|already\s+)?|(?:\A|[.!?;]\s*))(?:ordered|bought|spent|splurged|grabbed|went (?:shopping|out)|ate out|blew)\b|\b(?:i|we)\s+(?:keep|kept)\s+(?:ordering|buying|spending|getting|eating out|going out)\b/i.freeze
     REPEAT_LOOKUP_PATTERN = /\b(?:what|how much|how many|remind me|show me|list|when did)\b/i.freeze
     REPEAT_MARKER_PATTERN = /\b(?:again|(?:second|third|fourth|fifth|sixth|seventh|\d+(?:st|nd|rd|th))\s+time|told myself|keep (?:doing|spending|buying|ordering))\b/i.freeze
@@ -727,6 +728,10 @@ module HouseholdFinance
       return nil unless normalized_message.match?(ESSENTIAL_SKIP_PURPOSE_PATTERN)
       return nil if normalized_message.match?(DISCRETIONARY_FOOD_PATTERN) || normalized_message.match?(FOOD_INSECURITY_PATTERN)
 
+      if normalized_message.match?(ESSENTIAL_SKIP_BILL_PATTERN) && !normalized_message.match?(/\b(?:save|saving|savings|challenge|goal)\b/)
+        return "Please do not skip meals to cover a bill. Food stays in the protected baseline with housing, utilities, medicine, and required payments. If everything cannot be covered this time, we decide together what gets paid, paused, or moved, and food comes first. Next CFO move: list what is due before your next paycheck, with amounts, so we can make that plan."
+      end
+
       flexible_line = top_month_row_line("discretionary", reference_month - 1) if plan_available?
       flexible_hint = flexible_line ? "; your largest flexible line this month is #{flexible_line}" : ""
       "Please do not skip food to save money. Food stays in the protected baseline with housing, utilities, medicine, and required payments, and a savings goal should never cost your family meals. Savings can come from flexible spending instead#{flexible_hint}, and a smaller goal is completely okay. Next CFO move: keep buying groceries as planned this week, and pick one flexible expense to trim instead."
@@ -751,16 +756,25 @@ module HouseholdFinance
     def savings_goal_answer
       return nil unless normalized_message.match?(SAVINGS_GOAL_PATTERN) && normalized_message.match?(SAVINGS_GOAL_CHOICE_PATTERN)
       return nil if purchase_question? || normalized_message.match?(SAVINGS_GOAL_PROGRESS_PATTERN)
-      return nil if normalized_message.match?(MONEY_MOVEMENT_PATTERN) || normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(/\b(?:behind|late|overdue|past due|rent)\b/)
+      return nil if normalized_message.match?(MONEY_MOVEMENT_PATTERN) || normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(/\b(?:behind|late|overdue|past due|rent|cards?|owe|owed|owing|refund|bonus|windfall)\b/)
       return nil if [ DEBT_TERM_PATTERN, EXTRA_MONEY_PATTERN, INVESTMENT_PATTERN, FAMILY_SUPPORT_PATTERN ].any? { |pattern| normalized_message.match?(pattern) }
 
-      amount_cents = amount_from_message_cents
+      amount_cents = savings_goal_amount_cents
       opening = if amount_cents&.positive?
         "#{money(amount_cents)} is a good goal if it fits, and picking your own number is completely okay too."
       else
         "The best savings goal is a number you can keep, even in a tight month."
       end
       "#{opening} #{savings_goal_margin_line(amount_cents)} Protect food, housing, utilities, medicine, and required payments first; savings should come from flexible spending, not from essentials. Next CFO move: choose the amount you could set aside even in a tight month and start there; you can raise it later."
+    end
+
+    # The amount the participant names as the goal ("the $500 goal", "a goal of $500"),
+    # not income or another number in the same message.
+    def savings_goal_amount_cents
+      amount = /(?:\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?))\s+(?:(?:savings|challenge|saving)\s+)?(?:goal|target)\b|\b(?:goal|target)\s+(?:of|is|at|to|for)\s+\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)/i.match(message)
+      return unless amount
+
+      Money.cents((amount[1] || amount[2]).delete(","))
     end
 
     def savings_goal_margin_line(amount_cents)

@@ -112,7 +112,12 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
       "I'm scared someone hacked my bank account",
       "I'm afraid my account will overdraft when rent comes out",
       "I'm afraid to put my savings account money into crypto, should I?",
-      "I'm scared to look, what's my checking account balance?"
+      "I'm scared to look, what's my checking account balance?",
+      "I didn't look at my account this week, can you tell me what I spent?",
+      "Dont want to look at my statement, whats my balance",
+      "I'm scared to see what I owe on my credit card",
+      "I dont check my account because my husband handles it",
+      "I avoid the bank because the fees scare me"
     ].each do |prompt|
       refute HouseholdFinance::TransactionLookupAnswerer.avoidance?(prompt), prompt
     end
