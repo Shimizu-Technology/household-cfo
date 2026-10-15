@@ -3,8 +3,8 @@ require "test_helper"
 class ApiDemoControllerTest < ActionDispatch::IntegrationTest
   include ActiveSupport::Testing::TimeHelpers
 
-  test "demo endpoints require auth when Clerk is configured" do
-    with_clerk_jwks_url do
+  test "demo endpoints require auth when a sign-in provider is selected" do
+    with_selected_provider do
       get "/api/demo/profile"
 
       assert_response :unauthorized
@@ -484,11 +484,11 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     Demo::HouseholdData.financial_facts
   end
 
-  def with_clerk_jwks_url
-    previous_url = ENV["CLERK_JWKS_URL"]
-    ENV["CLERK_JWKS_URL"] = "https://clerk.example.test/.well-known/jwks.json"
+  def with_selected_provider
+    previous_provider = ENV["AUTH_PROVIDER"]
+    ENV["AUTH_PROVIDER"] = "workos"
     yield
   ensure
-    previous_url.nil? ? ENV.delete("CLERK_JWKS_URL") : ENV["CLERK_JWKS_URL"] = previous_url
+    previous_provider.nil? ? ENV.delete("AUTH_PROVIDER") : ENV["AUTH_PROVIDER"] = previous_provider
   end
 end

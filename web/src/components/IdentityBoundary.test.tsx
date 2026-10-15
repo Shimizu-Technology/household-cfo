@@ -10,12 +10,13 @@ import { IdentityBoundary } from './IdentityBoundary'
 
 function authValue(userId: number, overrides: Partial<AuthContextValue> = {}): AuthContextValue {
   return {
-    isClerkEnabled: true,
-    authIdentityId: `clerk-${userId}`,
+    isAuthEnabled: true,
+    authProvider: 'workos',
+    authIdentityId: `user-${userId}`,
     isSignedIn: true,
     isLoading: false,
     isVerifyingApi: false,
-    currentUser: { id: userId, clerk_id: `clerk-${userId}` } as CurrentUser,
+    currentUser: { id: userId, clerk_id: `user-${userId}`, auth_provider: 'workos', auth_subject: `user-${userId}` } as CurrentUser,
     activeCoachWorkspaceId: null,
     authError: null,
     refreshCurrentUser: async () => undefined,
@@ -27,7 +28,7 @@ function authValue(userId: number, overrides: Partial<AuthContextValue> = {}): A
 function PrivateWorkspaceState() {
   const auth = useAuthContext()
   const [value, setValue] = useState(`User ${auth.currentUser?.id ?? 'unknown'} private workspace`)
-  if (!auth.currentUser || !matchesAuthIdentity(auth.currentUser, auth.authProvider === 'workos' ? 'workos' : 'clerk', auth.authIdentityId)) {
+  if (!auth.currentUser || !matchesAuthIdentity(auth.currentUser, 'workos', auth.authIdentityId)) {
     return <p>Private workspace pending</p>
   }
   return <button type="button" onClick={() => setValue('Unsaved private state')}>{value}</button>
@@ -96,16 +97,13 @@ describe('IdentityBoundary', () => {
   })
 })
 
-it('remounts private state when provider or external subject changes even for the same local user', () => {
-  const renderUser = (provider: 'clerk' | 'workos', subject: string) => <AuthContext.Provider value={authValue(1, {
-    isAuthEnabled: true, authProvider: provider, authIdentityId: subject,
-    currentUser: { id: 1, clerk_id: 'clerk-1', auth_provider: provider, auth_subject: subject } as CurrentUser,
+it('remounts private state when the external subject changes even for the same local user', () => {
+  const renderUser = (subject: string) => <AuthContext.Provider value={authValue(1, {
+    isAuthEnabled: true, authProvider: 'workos', authIdentityId: subject,
+    currentUser: { id: 1, clerk_id: 'legacy-1', auth_provider: 'workos', auth_subject: subject } as CurrentUser,
   })}><IdentityBoundary><PrivateWorkspaceState /></IdentityBoundary></AuthContext.Provider>
-  const ui = render(renderUser('clerk', 'same'))
+  const ui = render(renderUser('same'))
   fireEvent.click(screen.getByRole('button', { name: 'User 1 private workspace' }))
-  ui.rerender(renderUser('workos', 'same'))
-  expect(screen.queryByRole('button', { name: 'Unsaved private state' })).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'User 1 private workspace' }))
-  ui.rerender(renderUser('workos', 'other'))
+  ui.rerender(renderUser('other'))
   expect(screen.queryByRole('button', { name: 'Unsaved private state' })).toBeNull()
 })

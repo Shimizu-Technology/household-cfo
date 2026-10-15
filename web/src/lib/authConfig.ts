@@ -1,23 +1,20 @@
-export type AuthProviderName = 'clerk' | 'workos'
-export type AuthConfiguration = { provider: AuthProviderName | 'preview'; error: string | null; clientId?: string; apiHostname?: string; clerkKey?: string; devMode: boolean }
+export type AuthProviderName = 'workos'
+export type AuthConfiguration = { provider: AuthProviderName | 'preview'; error: string | null; clientId?: string; devMode: boolean }
 
+const unavailable = 'Secure sign-in is unavailable. Please contact your program support team.'
+
+// WorkOS is the only sign-in provider. Local development without a WorkOS client
+// falls back to the sample-data preview; every other incomplete setup fails closed.
 export function authConfiguration(env: Record<string, unknown>, hostname: string): AuthConfiguration {
-  const provider = env.VITE_AUTH_PROVIDER || 'clerk'
+  const selected = env.VITE_AUTH_PROVIDER
   const localDevelopment = env.DEV === true && ['localhost', '127.0.0.1', '[::1]'].includes(hostname)
-  const base = { provider: 'clerk' as const, error: null, devMode: false }
-  if (provider !== 'clerk' && provider !== 'workos') return { ...base, error: 'Secure sign-in is unavailable. Please contact your program support team.' }
-  if (provider === 'workos') {
-    const clientId = String(env.VITE_WORKOS_CLIENT_ID || '').trim()
-    if (!/^client_[A-Za-z0-9]+$/.test(clientId)) {
-      return { provider, error: 'Secure sign-in is unavailable. Please contact your program support team.', devMode: false }
-    }
+  if (selected && selected !== 'workos') return { provider: 'workos', error: unavailable, devMode: false }
+  const clientId = String(env.VITE_WORKOS_CLIENT_ID || '').trim()
+  if (/^client_[A-Za-z0-9]+$/.test(clientId)) {
     // Rails owns the refresh session behind same-origin /api/auth endpoints.
     // No paid authentication API domain or browser token storage is required.
-    return { provider, clientId, devMode: false, error: null }
+    return { provider: 'workos', clientId, devMode: false, error: null }
   }
-  const clerkKey = String(env.VITE_CLERK_PUBLISHABLE_KEY || '').trim()
-  if (!clerkKey || ['pk_test_xxx', 'pk_test_dummy', 'your_clerk_publishable_key', 'YOUR_PUBLISHABLE_KEY'].includes(clerkKey)) {
-    return localDevelopment ? { ...base, provider: 'preview' } : { ...base, error: 'Secure sign-in is unavailable. Please contact your program support team.' }
-  }
-  return { ...base, clerkKey }
+  if (!selected && localDevelopment) return { provider: 'preview', error: null, devMode: false }
+  return { provider: 'workos', error: unavailable, devMode: false }
 }

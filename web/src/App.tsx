@@ -4356,10 +4356,10 @@ export function AuthLanding() {
         <p>{brand.welcome_description || brand.tagline || 'Your secure coaching workspace is ready.'}</p>
         <p className="auth-invitation-copy">Sign in with the email your program invited. Your secure seat determines which coaching experience opens.</p>
         <div className="auth-actions">
-          <SignInButton mode="modal">
+          <SignInButton>
             <button type="button">Sign in</button>
           </SignInButton>
-          <SignUpButton mode="modal">
+          <SignUpButton>
             <button type="button" className="secondary">Create invited account</button>
           </SignUpButton>
         </div>

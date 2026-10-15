@@ -4078,7 +4078,7 @@ test('participant history canonicalizes unauthorized Admin routes to Home', asyn
   await expect(incompleteHomeHeading).toBeFocused()
 })
 
-test('Clerk-enabled route recovery waits for participant authorization before canonicalizing', async ({ page }, testInfo) => {
+test('signed-in route recovery waits for participant authorization before canonicalizing', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.includes('mobile'), 'desktop authorization loading assertion')
   await page.goto('/?pilot_e2e_role=delayed_participant#Admin')
 
@@ -4826,7 +4826,7 @@ test('admin cohort rows show only safe pilot progress signals', async ({ page })
   const inviteForm = page.locator('.admin-form').filter({ has: page.getByLabel('Email') }).first()
   await expect(inviteForm.getByLabel('First name')).toHaveCount(0)
   await expect(inviteForm.getByLabel('Last name')).toHaveCount(0)
-  await expect(inviteForm.getByText("Names come from the invited person's Clerk account after first sign-in.")).toBeVisible()
+  await expect(inviteForm.getByText("Names update from the person's account after their first sign-in.")).toBeVisible()
 
   const participantRow = page.locator('.admin-user-row').filter({ hasText: 'participant@pilot.test' })
   await participantRow.locator('summary').click()

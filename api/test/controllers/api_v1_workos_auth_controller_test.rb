@@ -93,7 +93,7 @@ class ApiV1WorkosAuthControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "wrong provider tokens are rejected and never downgrade to Clerk" do
+  test "test identity tokens are rejected once WorkOS is selected" do
     with_workos do
       get "/api/v1/auth/me", headers: { "Authorization" => "Bearer test_token:clerk:workos@example.com" }
       assert_response :unauthorized
@@ -126,7 +126,7 @@ class ApiV1WorkosAuthControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "production demo routes fail closed when Clerk configuration is absent" do
+  test "production demo routes fail closed when WorkOS configuration is absent" do
     stub_method(Rails.env, :production?, true) do
       get "/api/demo/profile"
       assert_response :unauthorized

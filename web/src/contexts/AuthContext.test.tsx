@@ -11,23 +11,9 @@ const mocks = vi.hoisted(() => ({
   setActiveCoachWorkspaceId: vi.fn(),
   setAuthTokenGetter: vi.fn(),
   setApiActorIdentity: vi.fn(),
-  clerkUserId: 'clerk-1' as string | null,
+  sessionUserId: 'user-1' as string | null,
   isLoaded: true,
   isSignedIn: true,
-}))
-
-vi.mock('@clerk/clerk-react', () => ({
-  SignInButton: ({ children }: { children: ReactNode }) => children,
-  SignUpButton: ({ children }: { children: ReactNode }) => children,
-  UserButton: () => null,
-  useAuth: () => ({
-    getToken: vi.fn(async () => 'test-token'),
-    userId: mocks.clerkUserId,
-    isLoaded: mocks.isLoaded,
-    isSignedIn: mocks.isSignedIn,
-    signOut: vi.fn(async () => undefined),
-  }),
-  useUser: () => ({ isLoaded: false, user: null }),
 }))
 
 vi.mock('../api', async (importOriginal) => {
@@ -45,6 +31,15 @@ import { AUTH_VERIFICATION_TIMEOUT_MS, AuthProvider, AuthVerificationBridge, typ
 import { ApiRequestError } from '../api'
 import App from '../App'
 
+// A provider session driven by the hoisted mocks, so tests can change identity between renders.
+function VerifiedSession({ children }: { children: ReactNode }) {
+  const session: AuthSession = {
+    provider: 'workos', userId: mocks.sessionUserId, isLoaded: mocks.isLoaded, isSignedIn: mocks.isSignedIn,
+    getToken: async () => 'test-token', signOut: async () => undefined,
+  }
+  return <AuthVerificationBridge session={session}>{children}</AuthVerificationBridge>
+}
+
 function AuthProbe() {
   const auth = useAuthContext()
   return (
@@ -61,10 +56,12 @@ function AuthProbe() {
   )
 }
 
-function apiUser(clerkId: string): CurrentUser {
+function apiUser(subject: string): CurrentUser {
   return {
     id: 1,
-    clerk_id: clerkId,
+    clerk_id: subject,
+    auth_provider: 'workos',
+    auth_subject: subject,
     email: 'participant@example.com',
     first_name: 'Test',
     last_name: 'Participant',
@@ -83,7 +80,7 @@ function apiUser(clerkId: string): CurrentUser {
 }
 
 beforeEach(() => {
-  mocks.clerkUserId = 'clerk-1'
+  mocks.sessionUserId = 'user-1'
   mocks.isLoaded = true
   mocks.isSignedIn = true
   mocks.fetchCurrentUser.mockReset()
@@ -98,7 +95,7 @@ describe('AuthProvider identity verification', () => {
   it('settles into access denied state after API verification fails', async () => {
     mocks.fetchCurrentUser.mockRejectedValue(new ApiRequestError('Program access is unavailable', { status: 403 }))
 
-    render(<AuthProvider isClerkEnabled><AuthProbe /><App /></AuthProvider>)
+    render(<VerifiedSession><AuthProbe /><App /></VerifiedSession>)
 
     await waitFor(() => expect(screen.getByTestId('verification').textContent).toBe('settled'))
     expect(screen.getByTestId('user').textContent).toBe('none')
@@ -107,10 +104,10 @@ describe('AuthProvider identity verification', () => {
     expect(mocks.setActiveCoachWorkspaceId).toHaveBeenLastCalledWith(null)
   })
 
-  it('verifies the session identity even when the full Clerk profile never loads', async () => {
-    mocks.fetchCurrentUser.mockResolvedValue(apiUser('clerk-1'))
-    render(<AuthProvider isClerkEnabled><AuthProbe /></AuthProvider>)
-    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('clerk-1'))
+  it('verifies the session identity without waiting for a full profile', async () => {
+    mocks.fetchCurrentUser.mockResolvedValue(apiUser('user-1'))
+    render(<VerifiedSession><AuthProbe /></VerifiedSession>)
+    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('user-1'))
     expect(screen.getByTestId('verification').textContent).toBe('settled')
     expect(mocks.fetchCurrentUser).toHaveBeenCalledOnce()
   })
@@ -118,17 +115,17 @@ describe('AuthProvider identity verification', () => {
   it.each(['sdk', 'identity', 'request'])('provides recovery for stalled %s verification without exposing a workspace', async stage => {
     vi.useFakeTimers()
     if (stage === 'sdk') mocks.isLoaded = false
-    if (stage === 'identity') mocks.clerkUserId = null
+    if (stage === 'identity') mocks.sessionUserId = null
     let complete!: (user: CurrentUser) => void
     mocks.fetchCurrentUser.mockImplementation(() => new Promise<CurrentUser>(resolve => { complete = resolve }))
-    render(<AuthProvider isClerkEnabled><AuthProbe /><App /></AuthProvider>)
+    render(<VerifiedSession><AuthProbe /><App /></VerifiedSession>)
     await act(async () => { await Promise.resolve() })
     await act(async () => { await vi.advanceTimersByTimeAsync(AUTH_VERIFICATION_TIMEOUT_MS + 1) })
     expect(screen.getByRole('heading', { name: 'We couldn’t finish checking your access.' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Reload page' })).toBeTruthy()
     expect(screen.getByTestId('user').textContent).toBe('none')
     if (stage === 'request') {
-      await act(async () => { complete(apiUser('clerk-1')); await Promise.resolve() })
+      await act(async () => { complete(apiUser('user-1')); await Promise.resolve() })
       expect(screen.getByTestId('user').textContent).toBe('none')
       const signal = mocks.fetchCurrentUser.mock.calls[0][0] as AbortSignal
       expect(signal.aborted).toBe(true)
@@ -136,34 +133,34 @@ describe('AuthProvider identity verification', () => {
   })
 
   it('retries a connection failure without claiming that the program seat is missing', async () => {
-    mocks.fetchCurrentUser.mockRejectedValueOnce(new Error('Network unavailable')).mockResolvedValueOnce(apiUser('clerk-1'))
-    render(<AuthProvider isClerkEnabled><AuthProbe /><App /></AuthProvider>)
+    mocks.fetchCurrentUser.mockRejectedValueOnce(new Error('Network unavailable')).mockResolvedValueOnce(apiUser('user-1'))
+    render(<VerifiedSession><AuthProbe /><App /></VerifiedSession>)
     await screen.findByRole('heading', { name: 'We couldn’t finish checking your access.' })
     expect(screen.queryByText(/has not linked your program seat/)).toBeNull()
     await act(async () => { screen.getByRole('button', { name: 'Check access again' }).click() })
-    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('clerk-1'))
+    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('user-1'))
   })
 
   it('installs one token getter across verification renders and cancels reads on identity changes', async () => {
     let resolveOld!: (user: CurrentUser) => void
     mocks.fetchCurrentUser.mockImplementationOnce(() => new Promise<CurrentUser>(resolve => { resolveOld = resolve }))
-    const view = render(<AuthProvider isClerkEnabled><AuthProbe /></AuthProvider>)
+    const view = render(<VerifiedSession><AuthProbe /></VerifiedSession>)
     await waitFor(() => expect(mocks.fetchCurrentUser).toHaveBeenCalledOnce())
     const oldSignal = mocks.fetchCurrentUser.mock.calls[0][0] as AbortSignal
-    mocks.clerkUserId = 'clerk-2'
-    mocks.fetchCurrentUser.mockResolvedValueOnce(apiUser('clerk-2'))
-    view.rerender(<AuthProvider isClerkEnabled><AuthProbe /></AuthProvider>)
-    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('clerk-2'))
-    await act(async () => { resolveOld(apiUser('clerk-1')); await Promise.resolve() })
-    expect(screen.getByTestId('user').textContent).toBe('clerk-2')
+    mocks.sessionUserId = 'user-2'
+    mocks.fetchCurrentUser.mockResolvedValueOnce(apiUser('user-2'))
+    view.rerender(<VerifiedSession><AuthProbe /></VerifiedSession>)
+    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('user-2'))
+    await act(async () => { resolveOld(apiUser('user-1')); await Promise.resolve() })
+    expect(screen.getByTestId('user').textContent).toBe('user-2')
     expect(oldSignal.aborted).toBe(true)
     expect(mocks.setAuthTokenGetter).toHaveBeenCalledOnce()
   })
 
-  it('rejects an API user that does not match the active Clerk identity', async () => {
-    mocks.fetchCurrentUser.mockResolvedValue(apiUser('clerk-2'))
+  it('rejects an API user that does not match the active session identity', async () => {
+    mocks.fetchCurrentUser.mockResolvedValue(apiUser('user-2'))
 
-    render(<AuthProvider isClerkEnabled><AuthProbe /></AuthProvider>)
+    render(<VerifiedSession><AuthProbe /></VerifiedSession>)
 
     await waitFor(() => expect(screen.getByTestId('verification').textContent).toBe('settled'))
     expect(screen.getByTestId('user').textContent).toBe('none')
@@ -184,7 +181,7 @@ describe('opt-in local real API QA authentication', () => {
     vi.stubEnv('VITE_E2E_AUTH', 'true')
     window.history.replaceState(null, '', '/?pilot_e2e_role=coach&pilot_e2e_live_api=true')
     mocks.fetchCurrentUser.mockResolvedValueOnce({ ...apiUser('e2e_coach'), full_name: 'Before program creation' })
-    render(<AuthProvider isClerkEnabled={false}><AuthProbe /></AuthProvider>)
+    render(<AuthProvider><AuthProbe /></AuthProvider>)
     await waitFor(() => expect(screen.getByTestId('name').textContent).toBe('Before program creation'))
     mocks.fetchCurrentUser.mockResolvedValueOnce({ ...apiUser('e2e_coach'), full_name: 'After program creation' })
     screen.getByRole('button', { name: 'Refresh account' }).click()
@@ -197,7 +194,7 @@ describe('opt-in local real API QA authentication', () => {
     vi.stubEnv('VITE_E2E_AUTH', 'true')
     window.history.replaceState(null, '', '/?pilot_e2e_role=coach&pilot_e2e_live_api=true')
     mocks.fetchCurrentUser.mockResolvedValue(apiUser('another-account'))
-    render(<AuthProvider isClerkEnabled={false}><AuthProbe /></AuthProvider>)
+    render(<AuthProvider><AuthProbe /></AuthProvider>)
     await waitFor(() => expect(screen.getByTestId('error').textContent).toBe('QA account identity did not match the API'))
     expect(screen.getByTestId('user').textContent).toBe('none')
   })
@@ -207,7 +204,7 @@ describe('opt-in local real API QA authentication', () => {
     vi.stubEnv('VITE_E2E_AUTH', 'true')
     window.history.replaceState(null, '', '/?pilot_e2e_role=coach&pilot_e2e_live_api=true')
     mocks.fetchCurrentUser.mockResolvedValueOnce({ ...apiUser('e2e_coach'), active_coach_workspace: { id: 1 } })
-    render(<AuthProvider isClerkEnabled={false}><AuthProbe /></AuthProvider>)
+    render(<AuthProvider><AuthProbe /></AuthProvider>)
     await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('e2e_coach'))
     screen.getByRole('button', { name: 'Choose workspace' }).click()
     await waitFor(() => expect(screen.getByTestId('workspace').textContent).toBe('2'))
@@ -227,7 +224,7 @@ describe('WorkOS verified identity boundary', () => {
     getToken: async () => 'workos-token', signOut: async () => undefined, ...overrides,
   })
   const workosUser = (overrides: Partial<CurrentUser> = {}): CurrentUser => ({
-    ...apiUser('legacy-clerk'), auth_provider: 'workos', auth_subject: 'workos-1', ...overrides,
+    ...apiUser('legacy-subject'), auth_provider: 'workos', auth_subject: 'workos-1', ...overrides,
   })
   it('accepts only the verified WorkOS subject and preserves the permanent local user ID', async () => {
     mocks.fetchCurrentUser.mockResolvedValue(workosUser())
@@ -235,24 +232,13 @@ describe('WorkOS verified identity boundary', () => {
     await waitFor(() => expect(screen.getByTestId('name').textContent).toBe('Test Participant'))
     expect(mocks.setApiActorIdentity).toHaveBeenLastCalledWith('workos:workos-1:1:')
   })
-  it.each([{ auth_subject: 'other-user' }, { auth_provider: 'clerk' as const }, { auth_subject: undefined, auth_provider: undefined }])('rejects cross-provider or mismatched WorkOS identity %j', overrides => {
+  it.each([{ auth_subject: 'other-user' }, { auth_provider: 'test' as const }, { auth_subject: undefined, auth_provider: undefined }])('rejects cross-provider or mismatched WorkOS identity %j', overrides => {
     mocks.fetchCurrentUser.mockResolvedValue(workosUser(overrides))
     render(<AuthVerificationBridge session={session()}><AuthProbe /></AuthVerificationBridge>)
     return waitFor(() => {
       expect(screen.getByTestId('error').textContent).toBe('Unable to verify program access for this account')
       expect(screen.getByTestId('name').textContent).toBe('none')
     })
-  })
-  it('discards late verification when the same raw subject changes providers', async () => {
-    let resolveOld!: (user: CurrentUser) => void
-    mocks.fetchCurrentUser.mockImplementationOnce(() => new Promise<CurrentUser>(resolve => { resolveOld = resolve }))
-    const ui = render(<AuthVerificationBridge session={session({ provider: 'clerk', userId: 'same-subject' })}><AuthProbe /></AuthVerificationBridge>)
-    await waitFor(() => expect(mocks.fetchCurrentUser).toHaveBeenCalledOnce())
-    mocks.fetchCurrentUser.mockResolvedValueOnce(workosUser({ auth_subject: 'same-subject', full_name: 'WorkOS account' }))
-    ui.rerender(<AuthVerificationBridge session={session({ userId: 'same-subject' })}><AuthProbe /></AuthVerificationBridge>)
-    await screen.findByText('WorkOS account')
-    await act(async () => resolveOld(apiUser('same-subject')))
-    expect(screen.getByTestId('name').textContent).toBe('WorkOS account')
   })
   it('withholds verified data immediately when organization scope changes', async () => {
     mocks.fetchCurrentUser.mockResolvedValueOnce(workosUser())

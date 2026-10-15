@@ -15,7 +15,7 @@ export function EnterpriseAccessQa() {
   const [open, setOpen] = useState(false)
   const user = useMemo(() => enterpriseUser(mode === 'admin', mode !== 'forbidden'), [])
   const auth = useMemo<AuthContextValue>(() => ({
-    isClerkEnabled: false, isAuthEnabled: true, authProvider: 'workos', authIdentityId: user.auth_subject ?? null,
+    isAuthEnabled: true, authProvider: 'workos', authIdentityId: user.auth_subject ?? null,
     isSignedIn: mode !== 'signed-out', isLoading: mode === 'pending', isVerifyingApi: mode === 'pending',
     currentUser: mode === 'error' || mode === 'pending' || mode === 'signed-out' ? null : user,
     activeCoachWorkspaceId: null, authError: mode === 'error' ? 'Company SSO is required for this account.' : null,

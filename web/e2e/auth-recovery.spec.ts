@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 const qaUser = {
-  id: 901, clerk_id: 'qa_auth_recovery_user', email: 'auth-recovery@pilot.test',
+  id: 901, clerk_id: 'qa_auth_recovery_user', auth_provider: 'workos', auth_subject: 'qa_auth_recovery_user', email: 'auth-recovery@pilot.test',
   first_name: 'Fictional', last_name: 'Participant', full_name: 'Fictional Participant',
   role: 'participant', is_admin: false, is_coach: false, is_participant: true, is_staff: false,
 }
@@ -12,7 +12,7 @@ test.describe('BOG UI auth verification recovery', () => {
     await page.route(authRoute, route => route.fulfill({ json: { user: qaUser } }))
     await page.goto('/auth-recovery-qa.html?mode=ready')
     await expect(page.getByTestId('verified-workspace')).toBeVisible()
-    await expect(page.getByText('This fixture never requests a full Clerk profile.')).toBeVisible()
+    await expect(page.getByText('This fixture never requests a full account profile.')).toBeVisible()
   })
 
   for (const mode of ['sdk-pending', 'identity-pending', 'token-pending']) {
@@ -69,7 +69,7 @@ test.describe('BOG UI auth verification recovery', () => {
   })
 
   test('a response for another account never opens the workspace', async ({ page }) => {
-    await page.route(authRoute, route => route.fulfill({ json: { user: { ...qaUser, clerk_id: 'someone_else' } } }))
+    await page.route(authRoute, route => route.fulfill({ json: { user: { ...qaUser, auth_subject: 'someone_else' } } }))
     await page.goto('/auth-recovery-qa.html?mode=ready')
     await expect(page.getByRole('heading', { name: 'We couldn’t finish checking your access.' })).toBeVisible()
     await expect(page.getByTestId('verified-workspace')).toHaveCount(0)
@@ -165,7 +165,7 @@ test.describe('WorkOS Auth recovery', () => {
     })
   }
   test('rejects another provider even when its subject matches the active session', async ({ page }) => {
-    await page.route(authRoute, route => route.fulfill({ json: { user: { ...workosUser, auth_provider: 'clerk' } } }))
+    await page.route(authRoute, route => route.fulfill({ json: { user: { ...workosUser, auth_provider: 'test' } } }))
     await page.goto('/auth-recovery-qa.html?provider=workos')
     await expect(page.getByRole('heading', { name: 'We couldn’t finish checking your access.' })).toBeVisible()
     await expect(page.getByTestId('verified-workspace')).toHaveCount(0)

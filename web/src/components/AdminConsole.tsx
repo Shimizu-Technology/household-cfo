@@ -660,7 +660,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
               />
               <span>Send invite email now</span>
             </label>
-            <p className="admin-field-note wide">Names come from the invited person's Clerk account after first sign-in. Admins can manage across cohorts without assignment; active coaches and participants must belong to at least one cohort.</p>
+            <p className="admin-field-note wide">Names update from the person's account after their first sign-in. Admins can manage across cohorts without assignment; active coaches and participants must belong to at least one cohort.</p>
             <button type="submit" disabled={adminMutationPending}>{inviteSaving ? 'Creating invite' : 'Create invite'}</button>
           </form>
         </details>

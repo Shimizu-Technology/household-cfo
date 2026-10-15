@@ -1,6 +1,6 @@
 # Household CFO Web
 
-React/Vite participant workspace for Household CFO Method powered by VERA. The UI supports safe demo preview mode locally and real participant workspaces when Clerk is configured.
+React/Vite participant workspace for Household CFO Method powered by VERA. The UI supports safe demo preview mode locally and real participant workspaces when WorkOS sign-in is configured.
 
 ## Local setup
 
@@ -30,12 +30,12 @@ Restart Vite after changing `VITE_API_BASE_URL`; Vite reads it when the process 
 ```bash
 VITE_API_BASE_URL=http://localhost:3000
 VITE_SITE_URL=http://localhost:5173
-# VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
+# VITE_WORKOS_CLIENT_ID=client_...
 # VITE_PUBLIC_POSTHOG_KEY=phc_...
 VITE_PUBLIC_POSTHOG_UI_HOST=https://us.posthog.com
 ```
 
-When `VITE_CLERK_PUBLISHABLE_KEY` is not set, the app runs in local preview mode without auth and fetches `/api/demo/*`. Hosted/cohort environments should configure Clerk, rely on `/api/v1/auth/me` to verify the invited local user, and fetch the user's real `/api/v1/workspace` data.
+When `VITE_WORKOS_CLIENT_ID` is not set, the app runs in local preview mode without auth and fetches `/api/demo/*`. Hosted/cohort environments configure WorkOS, rely on `/api/v1/auth/me` to verify the invited local user, and fetch the user's real `/api/v1/workspace` data.
 
 Set `VITE_SITE_URL` to the production Netlify URL/custom domain before building so generated `robots.txt`, `sitemap.xml`, and runtime canonical metadata point at the right host. In production, `VITE_API_BASE_URL` must point at the Render API; if it is missing, browser uploads and authenticated API calls will try localhost and fail with a fetch error.
 

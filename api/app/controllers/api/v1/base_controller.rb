@@ -1,7 +1,7 @@
 module Api
   module V1
     class BaseController < ApplicationController
-      include ClerkAuthenticatable
+      include Authenticatable
 
       around_action :financial_picture_request
 

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
-import { useAuth } from '@clerk/clerk-react'
 import { WorkosSignInDialog } from '../components/WorkosSignInDialog'
 import { AuthPopupStopped, navigateAuthPopup, openAuthPopup, watchAuthPopup } from '../lib/authPopup'
 import { safeAuthReturnTo } from '../lib/authNavigation'
@@ -27,11 +26,6 @@ export type AuthSession = {
   isSignedIn: boolean | undefined
   getToken: () => Promise<string | null>
   signOut: () => Promise<unknown>
-}
-
-function ClerkAuthBridge({ children, verificationEnabled }: { children: ReactNode; verificationEnabled: boolean }) {
-  const session = useAuth()
-  return <AuthVerificationBridge session={session} verificationEnabled={verificationEnabled}>{children}</AuthVerificationBridge>
 }
 
 function WorkOSAuthBridge({ children, invitationToken, clientId, callbackError, verificationEnabled }: { children: ReactNode; verificationEnabled: boolean; invitationToken?: string | null; clientId: string; callbackError?: string | null }) {
@@ -146,7 +140,7 @@ export function AuthVerificationBridge(props: { children: ReactNode; session: Au
 
 function AuthVerificationBody({ children, session, verificationEnabled = true }: { children: ReactNode; session: AuthSession; verificationEnabled?: boolean }) {
   const { getToken, isLoaded, isSignedIn, signOut } = session
-  const provider = session.provider ?? 'clerk'
+  const provider = session.provider ?? 'workos'
   const authIdentityId = session.userId ?? null
   const subjectKey = authIdentityKey(provider, authIdentityId)
   const sessionKey = subjectKey && session.sessionScope ? `${subjectKey}:${session.sessionScope}` : subjectKey
@@ -297,7 +291,6 @@ function AuthVerificationBody({ children, session, verificationEnabled = true }:
   }, [verificationPending, authIdentityId, verificationAttempt])
 
   const value = useMemo<AuthContextValue>(() => ({
-    isClerkEnabled: provider === 'clerk',
     isAuthEnabled: true,
     authProvider: provider,
     signIn: session.signIn,
@@ -403,7 +396,7 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
   }, [isTokenReady, liveApi, refreshCurrentUser])
 
   const value = useMemo<AuthContextValue>(() => ({
-    isClerkEnabled: false,
+    isAuthEnabled: false,
     authIdentityId: seedUser?.clerk_id ?? null,
     isSignedIn: Boolean(seedUser),
     isLoading: false,
@@ -431,7 +424,7 @@ function DelayedParticipantE2EAuthBridge({ children }: { children: ReactNode }) 
   }, [])
 
   const value = useMemo<AuthContextValue>(() => ({
-    isClerkEnabled: !currentUser,
+    isAuthEnabled: !currentUser,
     authIdentityId: currentUser?.clerk_id ?? null,
     isSignedIn: true,
     isLoading: false,
@@ -504,11 +497,10 @@ function e2eCurrentUser(role: 'admin' | 'coach' | 'participant', includeCoachWor
   return user
 }
 
-export function AuthProvider({ children, isClerkEnabled = false, provider, invitationToken, clientId, callbackError, verificationEnabled = true }: { children: ReactNode; verificationEnabled?: boolean; isClerkEnabled?: boolean; provider?: AuthProviderName | 'preview'; invitationToken?: string | null; clientId?: string; callbackError?: string | null }) {
+export function AuthProvider({ children, provider, invitationToken, clientId, callbackError, verificationEnabled = true }: { children: ReactNode; verificationEnabled?: boolean; provider?: AuthProviderName | 'preview'; invitationToken?: string | null; clientId?: string; callbackError?: string | null }) {
   if (provider === 'workos') return <WorkOSAuthBridge invitationToken={invitationToken} clientId={clientId ?? import.meta.env.VITE_WORKOS_CLIENT_ID} callbackError={callbackError} verificationEnabled={verificationEnabled}>{children}</WorkOSAuthBridge>
-  isClerkEnabled = provider === 'clerk' || isClerkEnabled
-  if (!isClerkEnabled && e2eAuthRole() === 'delayed_participant') {
+  if (e2eAuthRole() === 'delayed_participant') {
     return <DelayedParticipantE2EAuthBridge>{children}</DelayedParticipantE2EAuthBridge>
   }
-  return isClerkEnabled ? <ClerkAuthBridge verificationEnabled={verificationEnabled}>{children}</ClerkAuthBridge> : <NoAuthBridge>{children}</NoAuthBridge>
+  return <NoAuthBridge>{children}</NoAuthBridge>
 }

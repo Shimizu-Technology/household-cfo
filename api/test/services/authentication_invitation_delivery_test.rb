@@ -1,8 +1,8 @@
 require "test_helper"
-require_relative "../support/authentication_transition_test_support"
+require_relative "../support/workos_auth_test_support"
 
-class AuthenticationTransitionInvitationTest < ActiveSupport::TestCase
-  include AuthenticationTransitionTestSupport
+class AuthenticationInvitationDeliveryTest < ActiveSupport::TestCase
+  include WorkosAuthTestSupport
 
   setup do
     @owner = User.create!(email: "owner@fictional.test", clerk_id: "clerk_owner", role: "coach", invitation_status: "accepted")
@@ -10,28 +10,8 @@ class AuthenticationTransitionInvitationTest < ActiveSupport::TestCase
     @invitee = User.create!(email: "invitee@fictional.test", clerk_id: "pending_invitee", role: "coach", invitation_status: "pending")
   end
 
-  test "Clerk public frontend routes both mailers through existing Resend delivery" do
-    with_transition("AUTH_PUBLIC_PROVIDER" => "clerk") do
-      configure_resend
-      emails = []
-      stub_method(WorkosInvitationService, :send_invite, ->(**) { flunk "Public Clerk invitation reached WorkOS" }) do
-        stub_method(Resend::Emails, :send, ->(payload) { emails << payload; { "id" => "email_accepted" } }) do
-          participant = UserInviteEmailService.send_invite(user: @invitee, invited_by: @owner)
-          collaborator = send_collaborator
-          assert participant.fetch(:sent)
-          assert collaborator.fetch(:sent)
-          assert_equal "resend", participant.fetch(:provider)
-          assert_equal "resend", collaborator.fetch(:provider)
-          assert_equal "resend", @invitee.invitation_email_attempts.last.provider
-          assert_equal [ @invitee.email, @invitee.email ], emails.map { |email| email.fetch(:to) }
-          assert_equal "pending", @invitee.reload.invitation_status
-        end
-      end
-    end
-  end
-
-  test "WorkOS public frontend routes pending registrations once through native invitations" do
-    with_transition("AUTH_PUBLIC_PROVIDER" => "workos") do
+  test "pending registrations go once through native WorkOS invitations" do
+    with_delivery do
       invitations = []
       native = lambda do |**options|
         invitations << options
@@ -51,8 +31,8 @@ class AuthenticationTransitionInvitationTest < ActiveSupport::TestCase
     end
   end
 
-  test "accepted collaborators retain Resend access notifications under public WorkOS" do
-    with_transition("AUTH_PUBLIC_PROVIDER" => "workos") do
+  test "accepted collaborators keep Resend access notifications" do
+    with_delivery do
       configure_resend
       @invitee.update!(invitation_status: "accepted")
       payloads = []
@@ -70,46 +50,55 @@ class AuthenticationTransitionInvitationTest < ActiveSupport::TestCase
     end
   end
 
-  test "missing and unknown public providers visibly fail both mailers without sending" do
-    [ nil, "unknown", "transition" ].each do |provider|
-      with_transition("AUTH_PUBLIC_PROVIDER" => provider) do
+  test "a stale non-WorkOS provider setting visibly fails both mailers without sending" do
+    [ "clerk", "transition", "unknown" ].each do |provider|
+      with_delivery("AUTH_PROVIDER" => provider) do
         stub_method(Resend::Emails, :send, ->(*) { flunk "Unconfigured invitation reached Resend" }) do
           stub_method(WorkosInvitationService, :send_invite, ->(**) { flunk "Unconfigured invitation reached WorkOS" }) do
             [ UserInviteEmailService.send_invite(user: @invitee, invited_by: @owner), send_collaborator ].each do |result|
               refute result.fetch(:sent)
               assert_equal "failed", result.fetch(:status)
               assert_equal "unconfigured", result.fetch(:provider)
-              assert_includes result.fetch(:error), "Public authentication provider"
+              assert_includes result.fetch(:error), "Authentication provider is not configured"
             end
             attempt = @invitee.invitation_email_attempts.last
             assert_equal "failed", attempt.status
             assert_equal "unconfigured", attempt.provider
-            assert_includes attempt.error, "Public authentication provider"
           end
         end
       end
     end
   end
 
-  test "skipped collaborator delivery stays skipped without public configuration" do
-    with_transition("AUTH_PUBLIC_PROVIDER" => nil) do
+  test "skipped collaborator delivery stays skipped even with a stale provider setting" do
+    with_delivery("AUTH_PROVIDER" => "clerk") do
       result = send_collaborator(requested: false)
       assert_equal "skipped", result.fetch(:status)
       assert_equal "skipped", @invitee.invitation_email_attempts.last.status
     end
   end
 
-  test "strict provider modes remain authoritative after transition retirement" do
-    with_transition("AUTH_PROVIDER" => "workos", "AUTH_PUBLIC_PROVIDER" => "clerk") do
+  test "WorkOS is the only provider and an omitted setting selects it" do
+    with_delivery("AUTH_PROVIDER" => nil) do
       assert_equal "workos", AuthenticationProvider.public_provider
+      assert AuthenticationProvider.workos_enabled?
     end
-    with_transition("AUTH_PROVIDER" => "clerk", "AUTH_PUBLIC_PROVIDER" => "workos") do
-      assert_equal "clerk", AuthenticationProvider.public_provider
-      refute AuthenticationProvider.workos_enabled?
+    with_delivery("AUTH_PROVIDER" => "clerk") do
+      assert_raises(AuthenticationProvider::ConfigurationError) { AuthenticationProvider.public_provider }
+      assert_raises(AuthenticationProvider::ConfigurationError) { AuthenticationProvider.workos_enabled? }
     end
   end
 
   private
+
+  def with_delivery(values = {}, &block)
+    keys = %w[RESEND_API_KEY MAILER_FROM_EMAIL]
+    previous = keys.index_with { |key| ENV[key] }
+    keys.each { |key| ENV.delete(key) }
+    with_workos(values, &block)
+  ensure
+    previous&.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+  end
 
   def configure_resend
     ENV["RESEND_API_KEY"] = "test-key"

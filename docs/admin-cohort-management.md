@@ -12,7 +12,7 @@ Household CFO now includes a browser-based Admin tab for owner admins. This avoi
 shimizutechnology@gmail.com
 ```
 
-The seed is invite-only. The admin still signs in with Clerk using that same email. On first sign-in, the API links the Clerk user ID to the pending local admin record. Re-running seeds fills missing bootstrap fields, but it does not undo an intentional role/status change made through the admin UI.
+The seed is invite-only. The admin signs in through WorkOS (email code or Google) using that same email. On first sign-in, the API links the verified WorkOS identity to the pending local admin record. Re-running seeds fills missing bootstrap fields, but it does not undo an intentional role/status change made through the admin UI.
 
 Additional bootstrap admins can be added when seeding:
 
@@ -47,7 +47,7 @@ Role/cohort policy is backend-enforced:
 
 ## API shape
 
-Admin endpoints are Clerk-authenticated.
+Admin endpoints require a verified WorkOS session.
 
 ```text
 GET    /api/v1/admin/cohorts
@@ -64,7 +64,7 @@ POST   /api/v1/admin/users/:id/resend_invitation
 
 ## Invitation emails
 
-Invite emails use Resend directly from the Rails API. The Admin UI sends by default; if Resend is missing, invites are still created for Clerk linking but email delivery is marked `failed` with the missing configuration reason. Admins can explicitly uncheck email delivery when creating an invite; that intentional no-send path is marked `skipped`.
+Invite emails go out through WorkOS invitations, with branded Resend delivery when custom delivery is enabled. The Admin UI sends by default; if delivery is not configured, invites are still created but email delivery is marked `failed` with the missing configuration reason. Admins can explicitly uncheck email delivery when creating an invite; that intentional no-send path is marked `skipped`.
 
 ```bash
 RESEND_API_KEY=re_...
@@ -85,7 +85,7 @@ Email delivery metadata is summarized on the invited user (`invitation_email_sta
 
 ## Local blank-slate flow
 
-1. Configure Clerk in `api/.env` and `web/.env`/`web/.env.local`.
+1. Configure WorkOS staging keys in `api/.env` and `web/.env.local` (or leave them unset for sample-data preview mode).
 2. Reset local DB if needed:
 
    ```bash

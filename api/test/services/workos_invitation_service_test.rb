@@ -208,7 +208,8 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
       end
       assert_equal 1, payloads.length
       assert_equal @invitee.email, payloads.first[:to]
-      assert_includes payloads.first[:html], "WorkOS"
+      assert_includes payloads.first[:html], "Your invitation is connected to this email address."
+      refute_includes payloads.first[:html], "WorkOS"
       refute_includes payloads.first[:html], "Clerk"
       url = URI(payloads.first[:text][/https:\/\/[^ ]+/])
       assert_equal "program.example.test", url.host

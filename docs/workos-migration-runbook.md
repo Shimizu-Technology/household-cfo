@@ -1,5 +1,7 @@
 # WorkOS migration and enterprise onboarding
 
+> **Status (October 2026): cutover complete.** Production runs WorkOS only; every existing account is linked to a WorkOS identity, and the Clerk sign-in path, package, and settings have been removed. `users.clerk_id` remains only as an internal legacy placeholder until a follow-up migration renames it. The steps below are kept as the record of how the cutover was done.
+
 This migration changes authentication and enterprise admission. Household calculations, Mia approvals, uploads, private memories, coach permissions, and the 30-person BOG savings challenge remain application responsibilities. The challenge remains $500 saved over 90 days.
 
 ## Identity contract
