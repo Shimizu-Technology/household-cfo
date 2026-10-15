@@ -165,6 +165,8 @@ import { BrandFooter, BrandLogo } from './components/BrandChrome'
 import { AuthLanding } from './components/AuthLanding'
 import { BrandDocument } from './components/BrandDocument'
 import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload, trackPilotWorkflowFailure } from './lib/analytics'
+// Must stay the last import: keyboard-aware dialog sizing overrides component styles.
+import './dialogViewport.css'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',

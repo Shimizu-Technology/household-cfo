@@ -44,8 +44,10 @@ export function AppEntry() {
   if (signedOut) return <AuthLanding />
   if (App) return <App />
   // A failed chunk download usually means a newer version was deployed; reloading fetches it.
+  // Match the status the workspace shows next, so the panel doesn't change wording mid-load.
+  const status = auth.isAuthEnabled && (auth.isLoading || auth.isVerifyingApi) ? 'Signing you in securely…' : 'Opening your workspace…'
   return <WorkspaceOpening
-    status="Opening your workspace…"
+    status={status}
     error={loadFailed ? 'Part of the app didn’t finish downloading. Reload to get the latest version.' : null}
     onRetry={() => window.location.reload()}
   />

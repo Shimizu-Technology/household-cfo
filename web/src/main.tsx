@@ -8,7 +8,7 @@ import Root from './Root'
 import { AppErrorFallback } from './components/AppErrorFallback'
 import { captureAnalyticsEvent } from './lib/analytics'
 import { BrandProvider } from './contexts/BrandContext'
-import './dialogViewport.css'
+import './dialogViewportBase.css'
 import './styles/opening.css'
 
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN
