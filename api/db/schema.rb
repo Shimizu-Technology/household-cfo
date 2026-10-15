@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_07_200007) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_15_120000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -1975,6 +1975,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_07_200007) do
     t.datetime "lease_expires_at"
     t.string "lease_token"
     t.datetime "next_attempt_at", null: false
+    t.integer "processing_attempts", default: 0, null: false
     t.string "source_fingerprint", null: false
     t.string "status", default: "pending", null: false
     t.datetime "updated_at", null: false

@@ -40,8 +40,13 @@ class FinancialDocumentExtractionJob < ApplicationJob
         return
       end
 
-      extractor = FinancialDocuments::Extractor.new
       mark_stale_processing_attempts!(document_import) if stale_processing?(document_import)
+      if @dispatch.processing_attempts >= FinancialDocumentExtractionDispatch::MAX_PROCESSING_ATTEMPTS
+        fail_exhausted_extraction!(document_import)
+        return
+      end
+
+      extractor = FinancialDocuments::Extractor.new
       attempt = document_import.attempts.create!(
         provider: "openrouter",
         model: extractor.model,
@@ -50,9 +55,12 @@ class FinancialDocumentExtractionJob < ApplicationJob
         schema_version: FinancialDocuments::Extractor::SCHEMA_VERSION,
         started_at: Time.current
       )
-      document_import.update!(status: "processing", extraction_error: nil)
+      # Reclaiming a stale import changes no other column, so set updated_at
+      # explicitly; otherwise a duplicate worker would still see it as stale.
+      document_import.update!(status: "processing", extraction_error: nil, updated_at: Time.current)
       @dispatch.update!(status: "processing", lease_token: nil,
-        lease_expires_at: STALE_PROCESSING_AFTER.from_now, next_attempt_at: STALE_PROCESSING_AFTER.from_now)
+        lease_expires_at: STALE_PROCESSING_AFTER.from_now, next_attempt_at: STALE_PROCESSING_AFTER.from_now,
+        processing_attempts: @dispatch.processing_attempts + 1)
     end
 
     document_import.reload
@@ -199,6 +207,19 @@ class FinancialDocumentExtractionJob < ApplicationJob
       )
       finish_dispatch!("extraction_failed")
     end
+  end
+
+  # Earlier workers all died before recording an outcome, so this file is
+  # not retried again until the participant chooses Reprocess.
+  def fail_exhausted_extraction!(document_import)
+    Rails.logger.warn("[FinancialDocumentExtractionJob] import #{document_import.id} stopped after #{@dispatch.processing_attempts} unfinished attempts")
+    document_import.update!(
+      status: "failed",
+      extraction_error: FinancialDocumentExtractionDispatch::ATTEMPTS_EXHAUSTED_MESSAGE,
+      processed_at: Time.current,
+      metadata: extraction_failure_metadata(document_import.metadata)
+    )
+    finish_dispatch!("attempts_exhausted")
   end
 
   def extraction_startable?(document_import)
