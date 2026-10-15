@@ -21,15 +21,36 @@ module MiaEvals
     LOG_NOTE_PATTERN = /(Mia|MiaProviderAdmission).*(reject|fallback|invalid|capacity|denied)/i
 
     # Records each OpenRouter call (title, model, status, tokens, cost) made
-    # while a case runs. Only installed inside this rake process.
+    # while a case runs, including calls that never got a response (connection
+    # or read timeouts), which Mia otherwise hides behind a fallback reply.
+    # Only installed inside this rake process.
     module ProviderCallRecorder
       def request(req, body = nil, &block)
         return super unless started? && address.to_s.end_with?(PROVIDER_HOST)
 
         started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        response = super
-        LiveRunner.record_provider_call(req, response, ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1000).round)
+        begin
+          response = super
+        rescue StandardError => e
+          LiveRunner.record_provider_failure(req["X-Title"], e, LiveRunner.elapsed_ms(started_at))
+          raise
+        end
+        LiveRunner.record_provider_call(req, response, LiveRunner.elapsed_ms(started_at))
         response
+      end
+
+      private
+
+      def connect
+        return super unless address.to_s.end_with?(PROVIDER_HOST)
+
+        started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        begin
+          super
+        rescue StandardError => e
+          LiveRunner.record_provider_failure(nil, e, LiveRunner.elapsed_ms(started_at))
+          raise
+        end
       end
     end
 
@@ -38,12 +59,28 @@ module MiaEvals
         @provider_calls ||= []
       end
 
+      def elapsed_ms(started_at)
+        ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1000).round
+      end
+
+      def record_provider_failure(title, error, elapsed_ms)
+        provider_calls << {
+          title: call_title(title), requested_model: nil, served_model: nil, status: 0, elapsed_ms: elapsed_ms,
+          finish_reason: nil, prompt_tokens: 0, completion_tokens: 0, reasoning_tokens: 0, cost: 0.0,
+          error: "#{error.class}: #{error.message}".truncate(200)
+        }
+      end
+
+      def call_title(title)
+        title.to_s.delete_prefix("Household CFO Method").strip.presence || "chat"
+      end
+
       def record_provider_call(request, response, elapsed_ms)
         requested = JSON.parse(request.body.to_s) rescue {}
         parsed = JSON.parse(response.body.to_s) rescue {}
         usage = parsed["usage"].to_h
         provider_calls << {
-          title: request["X-Title"].to_s.delete_prefix("Household CFO Method").strip.presence || "chat",
+          title: call_title(request["X-Title"]),
           requested_model: requested["model"],
           served_model: parsed["model"],
           status: response.code.to_i,

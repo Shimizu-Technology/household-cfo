@@ -71,6 +71,26 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
     assert_match(/2 model call\(s\) failed/, @runner.send(:run_problems, clean, { provider_errors: 2 }).join)
   end
 
+  test "model calls that time out before a response are recorded as provider errors" do
+    timing_out = Class.new(Net::HTTP) do
+      private
+
+      def connect
+        raise Net::OpenTimeout, "execution expired"
+      end
+    end
+    timing_out.prepend(MiaEvals::LiveRunner::ProviderCallRecorder)
+    MiaEvals::LiveRunner.provider_calls.clear
+
+    assert_raises(Net::OpenTimeout) { timing_out.new("openrouter.ai", 443).start { } }
+
+    call = MiaEvals::LiveRunner.provider_calls.sole
+    assert_equal 0, call[:status]
+    assert_match(/Net::OpenTimeout/, call[:error])
+  ensure
+    MiaEvals::LiveRunner.provider_calls.clear
+  end
+
   private
 
   def assert_preflight(expected, message = nil)
