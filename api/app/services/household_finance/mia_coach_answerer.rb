@@ -2,6 +2,9 @@ module HouseholdFinance
   class MiaCoachAnswerer
     AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
     TRANSACTION_REPORT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i.freeze
+    # "Spent $12 at Payless" with no "I": only a dollar amount right after the verb,
+    # and only in a statement, so "Spent too much, can I afford a TV?" stays a question.
+    SUBJECTLESS_SPEND_PATTERN = /(?:\A|[.!?;]\s*)(?:just\s+)?(?:spent|paid|charged|bought)\s+(?:about\s+|around\s+|like\s+)?\$\s*\d/i.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
       /\bis it (?:okay|ok|safe|smart|in the cards)\b.*\b(?:to )?(?:buy|spend|purchase|afford|get|book|order)\b/i,
@@ -55,7 +58,32 @@ module HouseholdFinance
         (?:bypass|skip|disable)\s+(?:all\s+|the\s+)?(?:human\s+)?(?:review|approval|confirmation)s?\b
       )
     }ix.freeze
+    SAVINGS_GOAL_PATTERN = /\b(?:save|saving|savings|challenge)\b.{0,40}\b(?:goal|target)s?\b|\b(?:goal|target)s?\b.{0,40}\b(?:save|saving|savings|challenge)\b/i.freeze
+    SAVINGS_GOAL_CHOICE_PATTERN = /\b(?:pick|choose|decide|should|realistic|reasonable|help me|start with|too (?:much|high|big|low|small))\b/i.freeze
+    SAVINGS_GOAL_PROGRESS_PATTERN = /\b(?:progress|how close|how far|on track|so far)\b/i.freeze
+    # The participant's own choice ("I keep skipping…", "Can we go without…"), not a
+    # family member going without, which is hardship rather than a savings plan.
+    ESSENTIAL_SKIP_PATTERN = /\b(?:i|we)\b\S*(?:\s+\S+){0,3}?\s+(?:skip(?:ping|ped)?|go(?:ing)? without|went without|cut(?:ting)? out|stop(?:ping|ped)?)\s+(?:(?:buying|eating|having|getting|my|our|the|some|family|kids['’]?)\s+){0,2}(?:food|meals?|groceries|grocery|eating|breakfast|lunch|dinner)\b/i.freeze
+    ESSENTIAL_SKIP_BILL_PATTERN = /\b(?:bills?|rent|power|water|utilit(?:y|ies)|car payment|loan|due)\b/i.freeze
+    ESSENTIAL_SKIP_PURPOSE_PATTERN = /\b(?:to|so (?:i|we) can|in order to|for)\b.{0,40}\b(?:save|saving|savings|challenge|goal|pay|afford|cover|catch up)\b/i.freeze
+    FOOD_INSECURITY_PATTERN = /\b(?:can['’]?t|cannot|could(?:n['’]?t| not)) afford\b|\bno (?:money|food)\b|\b(?:ran|run|running) out of (?:food|money)\b|\bnothing to eat\b|\bhungry\b|\bbecause (?:we|i) (?:have|had) no\b/i.freeze
+    # Trimming how food is bought (eating out, packing lunch, cooking at home) is a
+    # healthy swap, not skipping food.
+    DISCRETIONARY_FOOD_PATTERN = /\b(?:enough food|food at home|pantry|use (?:up )?what (?:we|i) have)\b|\b(?:buying|getting|ordering)\s+(?:lunch|breakfast|dinner)\b|\b(?:go(?:ing)?|switch(?:ing)?|shop(?:ping)?) (?:to|at) (?:costco|kmart|payless|cost-u-less|ace|the (?:store|market|commissary|flea market))\b|\b(?:cheaper (?:store|brand|place)|store brand|in bulk|on sale|coupons?)\b|\b(?:eating|eat|dining)\s+out\b|\b(?:fast food|junk food|takeout|take out|delivery|restaurants?|wast(?:e|ing))\b|\b(?:pack(?:ing)?|bring(?:ing)?|cook(?:ing)?|meal prep(?:ping)?|homemade|make\s+(?:it|lunch|dinner|meals?)\s+at home|at home instead)\b/i.freeze
+    REPEAT_SPENDING_PATTERN = /(?:\b(?:i|we)\s+(?:just\s+|already\s+)?|(?:\A|[.!?;]\s*))(?:ordered|bought|spent|splurged|grabbed|went (?:shopping|out)|ate out|blew)\b|\b(?:i|we)\s+(?:keep|kept)\s+(?:ordering|buying|spending|getting|eating out|going out)\b/i.freeze
+    REPEAT_LOOKUP_PATTERN = /\b(?:what|how much|how many|remind me|show me|list|when did)\b/i.freeze
+    REPEAT_MARKER_PATTERN = /\b(?:again|(?:second|third|fourth|fifth|sixth|seventh|\d+(?:st|nd|rd|th))\s+time|told myself|keep (?:doing|spending|buying|ordering))\b/i.freeze
+    REPEAT_LABEL_PATTERN = /\b(takeout|take out|delivery|fast food|eating out|coffee|online shopping|shopping|snacks)\b/i.freeze
     TRANSACTION_DRAFT_FOLLOWUP_PATTERN = /\bfollow-up to previous transaction_draft topic\b|\btopic:\s*reported spending\b/i.freeze
+
+    def self.subjectless_spend_report?(value)
+      text = value.to_s.squish
+      text.match?(SUBJECTLESS_SPEND_PATTERN) && !text.include?("?")
+    end
+
+    def self.spend_report_text?(value)
+      value.to_s.squish.match?(TRANSACTION_REPORT_PATTERN) || subjectless_spend_report?(value)
+    end
 
     def self.prompt_injection?(value)
       value.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").downcase.gsub(/[^a-z0-9\s$.-]/, " ").squish.match?(PROMPT_INJECTION_PATTERN)
@@ -84,7 +112,7 @@ module HouseholdFinance
       return read_only_amount_edit_answer if ::Mia::FinancialReadOnlyRequest.matches?(message) && message.match?(READ_ONLY_AMOUNT_EDIT_PATTERN)
       return nil if transaction_report?
 
-      guardrail_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || planned_purchase_detail_answer || purchase_decision_answer
+      essential_skip_answer || avoidance_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
@@ -695,6 +723,79 @@ module HouseholdFinance
       "Start with the baseline, not the whole mountain. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so the first pass is roof, food, utilities, debt minimums, and any bill due before the next paycheck. Do not solve shoes, extra debt, family requests, or dreams until those are named. Next CFO move: list the next three due dates and amounts; then we decide what gets paid, paused, or moved."
     end
 
+    def essential_skip_answer
+      return nil unless normalized_message.match?(ESSENTIAL_SKIP_PATTERN)
+      return nil unless normalized_message.match?(ESSENTIAL_SKIP_PURPOSE_PATTERN)
+      return nil if normalized_message.match?(DISCRETIONARY_FOOD_PATTERN) || normalized_message.match?(FOOD_INSECURITY_PATTERN)
+
+      if normalized_message.match?(ESSENTIAL_SKIP_BILL_PATTERN) && !normalized_message.match?(/\b(?:save|saving|savings|challenge|goal)\b/)
+        return "Please do not skip meals to cover a bill. Food stays in the protected baseline with housing, utilities, medicine, and required payments. If everything cannot be covered this time, we decide together what gets paid, paused, or moved, and food comes first. Next CFO move: list what is due before your next paycheck, with amounts, so we can make that plan."
+      end
+
+      flexible_line = top_month_row_line("discretionary", reference_month - 1) if plan_available?
+      flexible_hint = flexible_line ? "; your largest flexible line this month is #{flexible_line}" : ""
+      "Please do not skip food to save money. Food stays in the protected baseline with housing, utilities, medicine, and required payments, and a savings goal should never cost your family meals. Savings can come from flexible spending instead#{flexible_hint}, and a smaller goal is completely okay. Next CFO move: keep buying groceries as planned this week, and pick one flexible expense to trim instead."
+    end
+
+    def avoidance_answer
+      return nil unless TransactionLookupAnswerer.avoidance?(message)
+
+      "That feeling is really common, and it makes sense to want to look away when money feels tight. Not looking does not make you bad with money; it usually means you are carrying a lot. You do not have to fix everything today. Next step: open your bank app for just a few minutes today and look at one number, your current balance. You do not have to do anything with it yet; if you want, tell me what you see and we will take the next small step together."
+    end
+
+    def repeated_pattern_answer
+      return nil unless normalized_message.match?(REPEAT_MARKER_PATTERN) && message.match?(REPEAT_SPENDING_PATTERN)
+      return nil if normalized_message.match?(INVESTMENT_PATTERN) || normalized_message.match?(REPEAT_LOOKUP_PATTERN)
+      return nil if normalized_message.match?(DEBT_TERM_PATTERN) || normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(/\b(?:behind|late|overdue|past due)\b/)
+      return nil if normalized_message.match?(ESSENTIAL_PURCHASE_TERMS) && !normalized_message.match?(REPEAT_LABEL_PATTERN)
+
+      label = normalized_message.match(REPEAT_LABEL_PATTERN)&.[](1)&.sub("take out", "takeout") || "this spending"
+      "Thank you for telling me; noticing a pattern is the hard part, and it does not make you a failure. It sounds like #{label} keeps coming back even when you plan otherwise, which usually means the plan needs to fit your hardest moments better, not that you need more willpower. Repeats often follow a trigger like a long day, stress, or being short on time. Next step: before tomorrow, pick one small swap for the moment it usually happens, like something easy ready at home or a set limit for the rest of this week, and tell me how it goes."
+    end
+
+    def savings_goal_answer
+      return nil unless normalized_message.match?(SAVINGS_GOAL_PATTERN) && normalized_message.match?(SAVINGS_GOAL_CHOICE_PATTERN)
+      return nil if purchase_question? || normalized_message.match?(SAVINGS_GOAL_PROGRESS_PATTERN)
+      return nil if normalized_message.match?(MONEY_MOVEMENT_PATTERN) || normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(/\b(?:behind|late|overdue|past due|rent|cards?|owe|owed|owing|refund|bonus|windfall)\b/)
+      return nil if [ DEBT_TERM_PATTERN, EXTRA_MONEY_PATTERN, INVESTMENT_PATTERN, FAMILY_SUPPORT_PATTERN ].any? { |pattern| normalized_message.match?(pattern) }
+
+      amount_cents = savings_goal_amount_cents
+      opening = if amount_cents&.positive?
+        "#{money(amount_cents)} is a good goal if it fits, and picking your own number is completely okay too."
+      else
+        "The best savings goal is a number you can keep, even in a tight month."
+      end
+      "#{opening} #{savings_goal_margin_line(amount_cents)} Protect food, housing, utilities, medicine, and required payments first; savings should come from flexible spending, not from essentials. Next CFO move: choose the amount you could set aside even in a tight month and start there; you can raise it later."
+    end
+
+    # The amount the participant names as the goal ("the $500 goal", "a goal of $500"),
+    # not income or another number in the same message.
+    def savings_goal_amount_cents
+      amount = /(?:\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?))\s+(?:(?:savings|challenge|saving)\s+)?(?:goal|target)\b|\b(?:goal|target)\s+(?:of|is|at|to|for)\s+\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)/i.match(message)
+      return unless amount
+
+      Money.cents((amount[1] || amount[2]).delete(","))
+    end
+
+    def savings_goal_margin_line(amount_cents)
+      unless setup_status.complete? && DebtPortfolio.new(household).minimum_payment_known? && snapshot.fetch(:monthly_income_cents).positive?
+        return "I cannot compare it with your monthly margin yet because your income, bills, and debt minimums are not all confirmed."
+      end
+
+      surplus_cents = snapshot.fetch(:baseline_surplus_cents)
+      unless surplus_cents.positive?
+        shortfall = surplus_cents.zero? ? "no monthly margin right now" : "a #{money(surplus_cents.abs)} monthly shortfall right now"
+        return "Your approved numbers show #{shortfall}, so a small starter goal, or waiting until essentials are steady, is the kinder choice."
+      end
+
+      line = "Your approved numbers leave about #{money(surplus_cents)} a month after your planned budget and debt minimums."
+      return line unless amount_cents&.positive? && normalized_message.match?(/\bchallenge\b/)
+
+      monthly_cents = ((amount_cents / 3.0) / 100).round * 100
+      fit = monthly_cents <= surplus_cents ? "fits inside" : "is more than"
+      "#{line} Spread over the 90-day challenge, #{money(amount_cents)} is about #{money(monthly_cents)} a month, which #{fit} that margin on paper."
+    end
+
     def conditional_monthly_income_answer
       return nil unless conditional_monthly_income_question?
 
@@ -723,6 +824,7 @@ module HouseholdFinance
       return nil unless amount_from_message_cents&.positive?
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
       return nil if !purchase_question? && normalized_message.match?(/\b(?:income|take home|salary|paycheck|balance|minimum|account|apr|goal progress)\b/)
+      return nil if !purchase_question? && normalized_message.match?(SAVINGS_GOAL_PATTERN)
       return nil if transaction_report?
       return nil if normalized_message.match?(TRANSACTION_DRAFT_FOLLOWUP_PATTERN)
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
@@ -761,7 +863,7 @@ module HouseholdFinance
     end
 
     def transaction_report?
-      message.match?(TRANSACTION_REPORT_PATTERN) && message.match?(AMOUNT_PATTERN)
+      self.class.spend_report_text?(message) && message.match?(AMOUNT_PATTERN)
     end
 
     def purchase_question?

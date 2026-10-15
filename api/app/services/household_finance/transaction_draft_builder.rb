@@ -90,7 +90,7 @@ module HouseholdFinance
     def transaction_like?
       return false if self.class.non_expense_movement?(raw_input) && explicit_purchase.blank?
 
-      explicit_spend = amount_match.present? && draft_text.match?(SPEND_PATTERN)
+      explicit_spend = amount_match.present? && (draft_text.match?(SPEND_PATTERN) || MiaCoachAnswerer.subjectless_spend_report?(draft_text))
       tab_total = draft_text.match?(AMOUNT_PATTERN) && draft_text.match?(/\bmy\s+tab\s+(?:is|was)\b/i)
       contextual_spend = transaction_follow_up_context? && amount_match.present? && draft_text.match?(/\b(?:another|also|same place|same merchant|there|tip|plus|add|extra|fee)\b/i)
 

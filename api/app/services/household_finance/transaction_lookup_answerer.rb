@@ -7,10 +7,24 @@ module HouseholdFinance
     BANK_ACTIVITY_TERMS = /\b(?:bank|plaid|synced|account activity|bank activity|bank feed)\b/i
     ALL_BANK_ACTIVITY_TERMS = /\b(?:across|all|entire)\b.*\b(?:bank|plaid|synced|account activity|bank activity|bank feed)\b/i
     TOP_MERCHANT_TERMS = /\b(?:top|largest|highest|biggest)\s+(?:merchant|merchants|payee|payees)\b/i
+    AVOIDANCE_TERMS = /\b(?:bank|account|accounts|balance|balances|statement|statements)\b/i
+    EXPLICIT_LOOKUP_TERMS = /\b(?:how much|how many|what did|what(?:['’]?s| is| are| was) (?:my|our|the)|what (?:i|we) (?:spent|paid)|tell me (?:what|how)|show me|list|did (?:i|we) (?:spend|pay))\b/i
+    # Not looking at the account at all. Fear about a specific problem (a low balance,
+    # fraud, an overdraft) is a different conversation and keeps its own route.
+    AVOIDANCE_PATTERN = /\b(?:haven['’]?t|have not|havent|didn['’]?t|did not|don['’]?t|do not)\s+(?:(?:even|really|want to|dare to)\s+)?(?:looked|look|checked|check|opened|open|logged|log)\b.{0,60}#{AVOIDANCE_TERMS}|\b(?:avoid|avoiding|avoided)\s+(?:looking at|checking|opening)?.{0,30}#{AVOIDANCE_TERMS}|\b(?:scared|afraid|dread|dreading|anxious|terrified|nervous)\s+(?:to|of)\s+(?:look|looking|check|checking|open|opening|log|logging|see|seeing|what (?:i|we)['’]?(?:ll| will)? (?:see|find))\b(?=.{0,80}#{AVOIDANCE_TERMS})|#{AVOIDANCE_TERMS}.{0,80}\b(?:scared|afraid|dread|dreading|anxious|terrified|nervous)\s+(?:to|of)\s+(?:look|looking|check|checking|open|opening|see|seeing|what (?:i|we)['’]?(?:ll| will)? (?:see|find))\b/i
+    AVOIDANCE_EXCLUSIONS = /\b(?:hack(?:ed)?|fraud|stolen|scam(?:med)?|unauthorized|someone (?:used|took|stole)|overdraft|overdraw|crypto|invest|handles?|fees?)\b/i
 
     def self.bank_activity_question?(value)
       message = value.to_s.downcase.squish
+      return false if avoidance?(message)
+
       message.match?(BANK_ACTIVITY_TERMS) && (message.match?(LOOKUP_TERMS) || message.match?(BANK_SUMMARY_TERMS))
+    end
+
+    # "I haven't looked at my bank account because I'm scared" is a feeling, not a lookup.
+    def self.avoidance?(value)
+      text = value.to_s.squish
+      text.match?(AVOIDANCE_PATTERN) && !text.match?(EXPLICIT_LOOKUP_TERMS) && !text.match?(AVOIDANCE_EXCLUSIONS)
     end
 
     def initialize(household, message, today: Date.current)
@@ -37,6 +51,7 @@ module HouseholdFinance
     attr_reader :household, :message, :today
 
     def lookup_like?
+      return false if self.class.avoidance?(message)
       return false if message.match?(PLANNED_TERMS) && !message.match?(/\b(actuals?|transactions?|spent|spend)\b/i)
 
       message.match?(LOOKUP_TERMS) || self.class.bank_activity_question?(message)

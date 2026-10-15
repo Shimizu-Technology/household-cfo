@@ -22,7 +22,7 @@ module HouseholdFinance
     attr_reader :message, :today
 
     def report_like?
-      return false if message.match?(TRANSACTION_REPORT_TERMS) && !message.match?(/\b(?:how|what|show|find|list|total|did)\b/i)
+      return false if (message.match?(TRANSACTION_REPORT_TERMS) || MiaCoachAnswerer.subjectless_spend_report?(message)) && !message.match?(/\b(?:how|what|show|find|list|total|did)\b/i)
       return true if message.match?(BUDGET_STATUS_TERMS) || message.match?(CATEGORY_STATUS_TERMS)
       return false if message.match?(PLANNED_BUDGET_TERMS) && !message.match?(/\b(actuals?|transactions?|spent|report)\b/i)
 
