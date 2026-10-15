@@ -8,7 +8,7 @@ import { initializeAnalytics, identifyAnalyticsUser, resetAnalytics } from '../l
 vi.mock('../lib/analytics', () => ({ initializeAnalytics: vi.fn(), identifyAnalyticsUser: vi.fn(), resetAnalytics: vi.fn() }))
 
 const settled: AuthContextValue = {
-  isClerkEnabled: false, isAuthEnabled: true, authProvider: 'workos', authIdentityId: null,
+  isAuthEnabled: true, authProvider: 'workos', authIdentityId: null,
   isSignedIn: false, isLoading: false, isVerifyingApi: false, currentUser: null,
   activeCoachWorkspaceId: null, authError: null,
   refreshCurrentUser: async () => undefined, selectCoachWorkspace: () => undefined,

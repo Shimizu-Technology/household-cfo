@@ -63,7 +63,7 @@ Requirements for document testing:
 - Use signed-in real mode, not demo preview mode.
 - CSV/spreadsheet demo uploads work without OpenRouter.
 - Receipt/photo/PDF OCR requires api/.env OPENROUTER_API_KEY and private S3 env vars.
-- If Clerk rejects the phone URL, add ${WEB_URL} as an allowed dev origin/redirect in Clerk.
+- Real sign-in from a phone needs ${WEB_URL}/api/auth/callback registered as a WorkOS staging redirect URI (and an approved sign-out URL); otherwise use local preview mode.
 
 Requirements for Plaid Sandbox testing:
 - Add PLAID_ENV, PLAID_CLIENT_ID, PLAID_SECRET, and PLAID_DATA_ENCRYPTION_KEY to api/.env.

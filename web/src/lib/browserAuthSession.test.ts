@@ -139,7 +139,7 @@ describe('hosted server-session navigation roundtrip', () => {
     clearBrowserAuthCallbackParameters('workos')
     expect(window.location.pathname + window.location.search + window.location.hash).toBe(expected)
   })
-  it.each(['clerk', 'preview'])('leaves the %s provider URL untouched', provider => {
+  it.each(['preview'])('leaves the %s provider URL untouched', provider => {
     window.history.replaceState(null, '', '/?code=other-provider&state=other-state')
     clearBrowserAuthCallbackParameters(provider)
     expect(window.location.search).toBe('?code=other-provider&state=other-state')

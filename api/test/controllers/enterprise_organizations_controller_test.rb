@@ -88,12 +88,13 @@ class EnterpriseOrganizationsControllerTest < ActionController::TestCase
         end
       end
     else
-      previous = ENV["AUTH_PROVIDER"]
+      # Platform-administrator cases use the test-only identity, which requires
+      # that no sign-in provider is selected.
+      previous = ENV.delete("AUTH_PROVIDER")
       begin
-        ENV["AUTH_PROVIDER"] = "clerk"
         super(action, **options)
       ensure
-        ENV["AUTH_PROVIDER"] = previous
+        previous.nil? ? ENV.delete("AUTH_PROVIDER") : ENV["AUTH_PROVIDER"] = previous
       end
     end
   end

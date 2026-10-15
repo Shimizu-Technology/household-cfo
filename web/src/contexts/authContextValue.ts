@@ -5,9 +5,7 @@ import type { AuthProviderName } from '../lib/authConfig'
 export type AuthSignInOptions = { organizationId?: string; invitationToken?: string; returnTo?: string }
 
 export type AuthContextValue = {
-  /** Transitional compatibility for existing local QA fixtures. */
-  isClerkEnabled: boolean
-  isAuthEnabled?: boolean
+  isAuthEnabled: boolean
   authProvider?: AuthProviderName | 'preview'
   signIn?: (options?: AuthSignInOptions) => Promise<void>
   signUp?: (options?: AuthSignInOptions) => Promise<void>
@@ -26,7 +24,7 @@ export type AuthContextValue = {
 }
 
 export const AuthContext = createContext<AuthContextValue>({
-  isClerkEnabled: false,
+  isAuthEnabled: false,
   authIdentityId: null,
   isSignedIn: false,
   isLoading: false,
@@ -40,5 +38,5 @@ export const AuthContext = createContext<AuthContextValue>({
 
 export function useAuthContext() {
   const value = useContext(AuthContext)
-  return { ...value, isAuthEnabled: value.isAuthEnabled ?? value.isClerkEnabled, authProvider: value.authProvider ?? (value.isClerkEnabled ? 'clerk' : 'preview') }
+  return { ...value, authProvider: value.authProvider ?? (value.isAuthEnabled ? 'workos' : 'preview') }
 }

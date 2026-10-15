@@ -6,8 +6,8 @@ This repo is production-shaped while the visible data remains demo-safe:
 
 ```text
 household-cfo/
-  api/   Rails API + PostgreSQL + Clerk JWT verification
-  web/   React + Vite + TypeScript + optional ClerkProvider
+  api/   Rails API + PostgreSQL + WorkOS session verification
+  web/   React + Vite + TypeScript + WorkOS sign-in
   docs/  build plans, product notes, screenshots
 ```
 
@@ -24,7 +24,7 @@ The app is now moving from polished preview toward real cohort MVP. It includes:
 - Private S3-backed financial document imports with upload, source preview/download/delete, full-statement extraction, searchable/paginated transaction review queues, selected/all bulk confirm or ignore, review/edit/apply, and Ask Mia attachment flow
 - Read-only Plaid Transactions connections with encrypted server-side access tokens, explicit consent, household-scoped sync, pending/inflow boundaries, and participant-selected transaction drafts that never change actuals before confirmation
 - Backend-only Mia voice transcription through OpenRouter STT: browser recording uploads to Rails, transcript is visible/editable, and typed/voice messages use the same review-before-apply flow
-- Clerk auth plumbing with invite-only local `users` records
+- WorkOS sign-in (email code or Google) with invite-only local `users` records
 - Browser-based admin console for cohorts, role/cohort policy, admin/coach/participant invite records, Resend invite emails, and cohort assignment
 - PostgreSQL database configuration for local, test, and production-like environments
 - CI checks for Rails security/lint/tests and web lint/test/build/audit
@@ -68,16 +68,16 @@ cd web && VITE_API_BASE_URL=http://localhost:3100 npm run dev -- --port 5174
 
 Rails must allow the chosen web origin through `FRONTEND_URL`/the local CORS configuration. Restart both processes after changing ports or environment files.
 
-## Clerk auth
+## Sign-in (WorkOS)
 
-Local preview works without Clerk. For hosted/cohort environments:
+WorkOS is the only sign-in provider. Local preview works without it (sample data, no sign-in). For hosted/cohort environments:
 
-1. Set `VITE_CLERK_PUBLISHABLE_KEY` in the web app.
-2. Set `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API.
-3. Set `CLERK_SECRET_KEY` so the API can fetch Clerk profile/email details when the default token omits them.
+1. Set `VITE_WORKOS_CLIENT_ID` (and optionally `VITE_AUTH_PROVIDER=workos`) in the web app.
+2. Set `AUTH_PROVIDER=workos`, `WORKOS_CLIENT_ID`, and `WORKOS_API_KEY` in the API on every hosted environment. Any other `AUTH_PROVIDER` value fails closed; leave all three unset only for local preview.
+3. Netlify forwards `/api/auth/*` to Rails so sessions stay same-origin; see `docs/workos-migration-runbook.md`.
 4. Set `RESEND_API_KEY` and `RESEND_FROM_EMAIL`/`MAILER_FROM_EMAIL` in the API to deliver invite emails. The Admin UI requests email delivery by default; if Resend is missing, the invite is saved but marked as failed so the configuration issue is visible.
 5. Run `bin/rails db:seed` to create the default owner admin invite for `shimizutechnology@gmail.com`, then use the Admin tab to invite additional admins, coaches, and participants into cohorts.
-6. Uninvited Clerk sessions are rejected by `/api/v1/auth/me`.
+6. Uninvited sign-ins are rejected by `/api/v1/auth/me`.
 
 ## Safety / data rule
 

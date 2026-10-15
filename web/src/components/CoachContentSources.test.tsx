@@ -91,7 +91,7 @@ function source(
 function renderSources(user: CurrentUser = currentUser) {
   return render(
     <AuthContext.Provider value={{
-      isClerkEnabled: false,
+      isAuthEnabled: false,
       authIdentityId: currentUser.clerk_id,
       isSignedIn: true,
       isLoading: false,

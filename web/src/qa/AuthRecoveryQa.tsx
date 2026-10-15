@@ -17,7 +17,7 @@ const modes: SessionMode[] = ['ready', 'sdk-pending', 'identity-pending', 'token
 const params = new URLSearchParams(window.location.search)
 const initialMode = params.get('mode') as SessionMode | null
 const qaIdentity = 'qa_auth_recovery_user'
-const provider = params.get('provider') === 'workos' ? 'workos' : 'clerk'
+const provider = 'workos' as const
 const fictionalUser = {
   id: 901, clerk_id: qaIdentity, auth_provider: provider, auth_subject: qaIdentity, email: 'auth-recovery@pilot.test', first_name: 'Fictional',
   last_name: 'Participant', full_name: 'Fictional Participant', role: 'participant',
@@ -67,7 +67,7 @@ function VerificationSurface({ onHistory }: { onHistory?: () => void }) {
     {provider === 'workos' && <header className="shell-header"><div className="shell-brand"><div className="shell-brand-copy"><h1>Household CFO</h1></div></div><div className="shell-actions"><AccountMenu><Button variant="ghost" size="compact">Guide</Button><Button variant="ghost" size="compact">Report a problem</Button></AccountMenu></div></header>}
     <h1>Verified workspace</h1>
     <p>{auth.currentUser.full_name}</p><p>Verified session: {auth.authIdentityId}</p>
-    <p>This fixture never requests a full Clerk profile.</p>
+    <p>This fixture never requests a full account profile.</p>
 
     {onHistory && <button type="button" onClick={onHistory}>Earlier conversations</button>}</main>
 }

@@ -1,37 +1,30 @@
 require "test_helper"
 
 class UserInviteEmailServiceTest < ActiveSupport::TestCase
-  test "send invite fails clearly when Resend is not configured" do
+  test "send invite fails clearly when sign-in is not configured" do
     user = create_user(email: "invitee@example.com")
-    result = UserInviteEmailService.send_invite(user: user, invited_by: nil)
+    result = with_resend_send_stub(->(*) { flunk "Unconfigured invitation reached Resend" }) do
+      UserInviteEmailService.send_invite(user: user, invited_by: nil)
+    end
+
+    assert_equal false, result.fetch(:sent)
+    assert_equal "failed", result.fetch(:status)
+    assert_equal "workos", result.fetch(:provider)
+    assert_includes result.fetch(:error), "WorkOS authentication is not configured"
+  end
+
+  test "custom delivery fails clearly before contacting WorkOS when Resend is not configured" do
+    user = create_user(email: "invitee@example.com")
+    result = with_env("WORKOS_CLIENT_ID" => "client_cfo", "WORKOS_API_KEY" => "test-secret", "WORKOS_INVITATION_EMAIL_DELIVERY" => "custom") do
+      UserInviteEmailService.send_invite(user: user, invited_by: nil)
+    end
 
     assert_equal false, result.fetch(:sent)
     assert_equal "failed", result.fetch(:status)
     assert_includes result.fetch(:error), "RESEND_API_KEY"
   end
 
-  test "send invite sends through Resend when configured" do
-    user = create_user(email: "invitee@example.com", role: "coach")
-    invited_by = create_user(email: "admin@example.com", role: "admin")
-    payloads = []
-
-    with_env("RESEND_API_KEY" => "re_test", "MAILER_FROM_EMAIL" => "Household CFO <noreply@example.com>", "FRONTEND_URL" => "https://household.example") do
-      with_resend_send_stub(->(payload) { payloads << payload; { "id" => "email_123" } }) do
-        result = UserInviteEmailService.send_invite(user: user, invited_by: invited_by)
-
-        assert_equal true, result.fetch(:sent)
-        assert_equal "sent", result.fetch(:status)
-        assert_equal "email_123", result.fetch(:provider_message_id)
-      end
-    end
-
-    payload = payloads.fetch(0)
-    assert_equal "Household CFO <noreply@example.com>", payload.fetch(:from)
-    assert_equal "invitee@example.com", payload.fetch(:to)
-    assert_includes payload.fetch(:html), "Open Household CFO Method"
-    assert_includes payload.fetch(:html), "invitee@example.com"
-    assert_includes payload.fetch(:text), "admin invited you"
-  end
+  # Branded custom delivery content is covered end to end in WorkosInvitationServiceTest.
 
   private
 

@@ -131,7 +131,7 @@ describe('organization-specific admission controls', () => {
     const signIn = vi.fn().mockResolvedValue(undefined)
     vi.mocked(api.fetchEnterpriseOrganizations).mockResolvedValue({ enterprise_organizations: [{ id: 1, name: 'Fictional Company', workos_organization_id: 'org_FICTIONAL1' }] })
     vi.mocked(api.fetchEnterpriseOrganization).mockRejectedValue(new ApiRequestError('Sign in to this organization first.', { status: 403, code: 'enterprise_organization_signin_required' }))
-    render(<AuthContext.Provider value={{ isClerkEnabled: false, authProvider: 'workos', authIdentityId: 'fictional', isSignedIn: true, isLoading: false, isVerifyingApi: false, currentUser: enterpriseUser(), activeCoachWorkspaceId: null, authError: null, refreshCurrentUser: async () => undefined, selectCoachWorkspace: () => undefined, signIn }}><EnterpriseSettings currentUser={enterpriseUser()} onClose={vi.fn()} /></AuthContext.Provider>)
+    render(<AuthContext.Provider value={{ isAuthEnabled: true, authProvider: 'workos', authIdentityId: 'fictional', isSignedIn: true, isLoading: false, isVerifyingApi: false, currentUser: enterpriseUser(), activeCoachWorkspaceId: null, authError: null, refreshCurrentUser: async () => undefined, selectCoachWorkspace: () => undefined, signIn }}><EnterpriseSettings currentUser={enterpriseUser()} onClose={vi.fn()} /></AuthContext.Provider>)
     fireEvent.click(await screen.findByRole('button', { name: 'Sign in to Fictional Company' }))
     await waitFor(() => expect(signIn).toHaveBeenCalledWith({ organizationId: 'org_FICTIONAL1', returnTo: '/organization-access' }))
     expect(screen.queryByRole('button', { name: 'Configure company sign-in' })).toBeNull()

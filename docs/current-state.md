@@ -35,7 +35,7 @@ This section supersedes the older cohort-size and setup/upload-first assumptions
 
 ## Built in the current code
 
-- Clerk/Postgres participant workspaces and cohort/admin controls.
+- WorkOS/Postgres participant workspaces and cohort/admin controls.
 - Annual budget years, periods, categories, allocations, confirmed actuals, and pending drafts.
 - Fixed/discretionary/expected sinking-fund/unexpected sinking-fund classification.
 - Text transaction capture with confirm, edit, ignore, reopen, and audit-safe actuals.

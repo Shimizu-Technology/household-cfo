@@ -1,6 +1,6 @@
 # Production readiness checklist
 
-Use this after each production deploy and whenever the custom domain/Clerk/PostHog settings change.
+Use this after each production deploy and whenever the custom domain/WorkOS/PostHog settings change.
 
 References used:
 
@@ -26,7 +26,7 @@ References used:
    ```bash
    VITE_SITE_URL=https://your-domain.com
    VITE_API_BASE_URL=https://your-render-api.onrender.com
-   VITE_CLERK_PUBLISHABLE_KEY=pk_live_...
+   VITE_WORKOS_CLIENT_ID=client_...
    ```
 
 7. Update Render API CORS:
@@ -40,23 +40,17 @@ References used:
 
 8. Redeploy web and API after env changes.
 
-## Clerk production setup
+## WorkOS production setup
 
-1. Create a separate **production** Clerk application.
-2. Enable the intended sign-in methods, at minimum email address. Add Google only if Mrs. Mel wants it for the first cohort.
-3. Configure allowed origins/redirects for:
-   - `https://your-domain.com`
-   - `https://www.your-domain.com` if used
-   - Netlify deploy preview URL only if previews need auth testing
-4. Copy production keys:
-   - Netlify: `VITE_CLERK_PUBLISHABLE_KEY=pk_live_...`
-   - Render: `CLERK_SECRET_KEY=sk_live_...`
-5. Set one backend verifier value:
-   - Preferred simple option: `CLERK_ISSUER=https://<your-production-clerk-issuer>`
-   - Or: `CLERK_JWKS_URL=https://<issuer>/.well-known/jwks.json`
-6. Do **not** configure or require a frontend Clerk JWT template for this app.
-7. Seed or create the owner/admin user, then use the Admin tab for cohorts and participant invites.
-8. Smoke test: invited user can sign in; uninvited Clerk user is rejected by `/api/v1/auth/me`.
+1. Use the Household CFO WorkOS project's **production** environment (staging is separate).
+2. Keep public sign-up disabled; sign-in is invite-only. Email code and Google are the enabled methods.
+3. Register the exact `https://<domain>/api/auth/callback` redirect, approved sign-out URLs, and `/login` as the initiate-login URI for each production host.
+4. Set keys:
+   - Netlify: `VITE_WORKOS_CLIENT_ID=client_...` (optionally `VITE_AUTH_PROVIDER=workos`)
+   - Render: `AUTH_PROVIDER=workos` (required on hosted environments; any other value fails closed), `WORKOS_CLIENT_ID=client_...`, `WORKOS_API_KEY=sk_live_...`
+5. Remove any leftover `CLERK_*`, `VITE_CLERK_PUBLISHABLE_KEY`, and `AUTH_PUBLIC_PROVIDER` values; they are no longer read.
+6. Seed or create the owner/admin user, then use the Admin tab for cohorts and participant invites.
+7. Smoke test: invited user can sign in with an email code and with Google; an uninvited user is rejected by `/api/v1/auth/me`.
 
 ## PostHog analytics/session replay
 
@@ -85,7 +79,7 @@ The allowed pilot events and coach-visibility boundary are defined in `docs/pilo
 Use `docs/security/plaid-production-runbook.md` as the evidence record and `docs/security/plaid-sandbox-test-matrix.md` for pre-launch testing.
 
 1. Publish one Plaid Link customization with Data Transparency Messaging use case **Track and manage your finances**; set its exact name as `PLAID_LINK_CUSTOMIZATION_NAME`.
-2. Confirm every Plaid Dashboard team member shows 2FA **ON**. Clerk MFA is separate and does not satisfy Plaid Dashboard account security.
+2. Confirm every Plaid Dashboard team member shows 2FA **ON**. Sign-in MFA for the app is separate and does not satisfy Plaid Dashboard account security.
 3. Set `PLAID_ENV=production`, the Production secret, the independent 32-byte `PLAID_DATA_ENCRYPTION_KEY`, a public HTTPS `PLAID_WEBHOOK_URL` ending in `/api/plaid/webhook`, and the exact HTTPS `PLAID_REDIRECT_URI`. Production startup fails when this set is incomplete.
 4. Keep Transactions as the only requested Plaid product. Do not enable Auth, Identity, Transfer, Signal, or Payments for this launch.
 5. Confirm the scheduled queue owner is running once and the Admin bank-feed ledger shows current health.
@@ -123,7 +117,7 @@ If production uploads fail with `Failed to fetch` or a generic browser network e
 2. Confirm Render has `FRONTEND_URL` / `FRONTEND_URLS` for `https://householdcfomethod.com` and any preview host being tested.
 3. Confirm Render has private S3 configuration: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET`, and `AWS_S3_PREFIX`. Generate and store independent 32-byte base64 keys as `CONTENT_SOURCE_URL_ENCRYPTION_KEY_V1` and `CONTENT_SOURCE_URL_HMAC_KEY_V1`, confirm Solid Queue loads `config/recurring.yml`, then set `CONTENT_SOURCE_URL_INTAKE_ENABLED=true`. Keep the flag false if any prerequisite is missing; file upload remains available while secure web intake is disabled.
 4. Confirm Render has backend-only OpenRouter configuration: `OPENROUTER_API_KEY`, a Sonnet model that supports strict structured outputs through `OPENROUTER_MIA_INTENT_MODEL`/`OPENROUTER_MIA_MODEL`, `MIA_PROVIDER_MAX_CONCURRENCY=4`, `RAILS_MAX_THREADS=8`, optional `OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-large-v3`, and optional `MIA_TRANSCRIPTION_LANGUAGE=en`.
-5. Check Render logs for `[S3Service] Upload failed`, `[HouseholdFinance::MiaIntentResolver]`, CORS errors, Clerk authorization errors, transcription configuration errors, or `Private S3 document storage is not configured`.
+5. Check Render logs for `[S3Service] Upload failed`, `[HouseholdFinance::MiaIntentResolver]`, CORS errors, WorkOS authorization errors, transcription configuration errors, or `Private S3 document storage is not configured`.
 6. Test an explicit upload from `https://householdcfomethod.com` using a demo-safe `.xlsx` or image file.
 
 ## Full production smoke test
@@ -142,13 +136,13 @@ Phone/browser:
 Evidence location:
 ```
 
-- Clerk sign-in/sign-out.
+- WorkOS sign-in/sign-out (email code and Google).
 - Invited participant lands in the real workspace.
 - Uninvited account is denied.
 - Incomplete participant sees **Give Mia a useful starting point**, opens the focused five-field kickoff from **Give Mia my starting numbers**, and can open the mobile tester guide.
 - Zero-value money fields are blank while editing, accept the first digit without a leading zero, and normalize a blank field to $0 on save.
 - Saving the kickoff opens Ask Mia with **Based on my income, spending, and goal, what should I focus on first this month?** ready to send.
-- Admin invite creation asks for email, role, and cohort—not a duplicate participant name—and Clerk supplies the display name after sign-in.
+- Admin invite creation asks for email, role, and cohort—not a duplicate participant name—and the display name comes from the person's account after sign-in.
 - Five-essential setup saves successfully without requiring business, wealth, or debt details, then opens Ask Mia with an editable starter question.
 - Optional upload path remains available for budget, statement, receipt, pay-stub, and document checks without competing with the primary Mia path.
 - **Report a problem** accepts screen/workflow, attempted, expected, actual, and an optional cropped screenshot; the report response and analytics contain no narrative or private storage key.

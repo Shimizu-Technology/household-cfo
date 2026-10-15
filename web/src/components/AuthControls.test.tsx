@@ -5,7 +5,7 @@ import { AuthContext, type AuthContextValue } from '../contexts/authContextValue
 import { SignInButton, SignOutButton } from './AuthControls'
 import { AuthLoginRoute } from './AuthLoginRoute'
 const auth = (overrides: Partial<AuthContextValue> = {}): AuthContextValue => ({
-  isClerkEnabled: false, isAuthEnabled: true, authProvider: 'workos', authIdentityId: null,
+  isAuthEnabled: true, authProvider: 'workos', authIdentityId: null,
   isSignedIn: false, isLoading: false, isVerifyingApi: false, currentUser: null, activeCoachWorkspaceId: null,
   authError: null, refreshCurrentUser: async () => undefined, selectCoachWorkspace: () => undefined, ...overrides,
 })

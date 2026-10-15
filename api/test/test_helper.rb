@@ -11,8 +11,8 @@ module ActiveSupport
     fixtures :all
 
     setup do
-      # Local api/.env may configure Clerk/OpenRouter for manual testing. Keep
-      # automated tests opt-in so demo tests validate no-Clerk/no-network preview mode.
+      # Local api/.env may configure WorkOS/OpenRouter for manual testing. Keep
+      # automated tests opt-in so demo tests validate no-provider/no-network preview mode.
       %w[
         FRONTEND_URL
         FRONTEND_URLS
@@ -26,13 +26,6 @@ module ActiveSupport
         WORKOS_API_KEY
         WORKOS_ISSUER
         WORKOS_API_HOSTNAME
-        CLERK_JWKS_URL
-        CLERK_ISSUER
-        CLERK_AUDIENCE
-        CLERK_AUDIENCES
-        CLERK_SECRET_KEY
-        CLERK_BOOTSTRAP_ADMIN_EMAILS
-        ALLOW_FIRST_USER_BOOTSTRAP
         OPENROUTER_API_KEY
         OPENROUTER_EXTRACTION_MODEL
         OPENROUTER_PDF_ENGINE

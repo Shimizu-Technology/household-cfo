@@ -7,7 +7,7 @@ import { enterpriseUser } from '../qa/enterpriseFixtures'
 const enterpriseSettings = vi.hoisted(() => vi.fn())
 vi.mock('./EnterpriseSettings', () => ({ EnterpriseSettings: (props: unknown) => { enterpriseSettings(props); return <p>Company configuration</p> } }))
 function auth(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
-  return { isClerkEnabled: false, isAuthEnabled: true, authProvider: 'workos', authIdentityId: 'fictional_enterprise_contact', isSignedIn: true, isLoading: false, isVerifyingApi: false, currentUser: enterpriseUser(), activeCoachWorkspaceId: null, authError: null, refreshCurrentUser: async () => undefined, selectCoachWorkspace: () => undefined, ...overrides }
+  return { isAuthEnabled: true, authProvider: 'workos', authIdentityId: 'fictional_enterprise_contact', isSignedIn: true, isLoading: false, isVerifyingApi: false, currentUser: enterpriseUser(), activeCoachWorkspaceId: null, authError: null, refreshCurrentUser: async () => undefined, selectCoachWorkspace: () => undefined, ...overrides }
 }
 afterEach(() => { cleanup(); enterpriseSettings.mockClear() })
 it('opens IT configuration for a verified designated contact without a finance role', () => {

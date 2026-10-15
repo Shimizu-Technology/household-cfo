@@ -1,9 +1,9 @@
 module Api
   module Demo
     class MiaMessagesController < ApplicationController
-      include ClerkAuthenticatable
+      include Authenticatable
 
-      before_action :authenticate_user_if_clerk_configured!
+      before_action :authenticate_user_unless_local_preview!
 
       def index
         render json: ::Demo::HouseholdData.mia_messages

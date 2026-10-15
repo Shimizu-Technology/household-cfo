@@ -1,4 +1,3 @@
-import { ClerkProvider } from '@clerk/clerk-react'
 import { useSyncExternalStore, type ReactNode } from 'react'
 import { captureAuthInvitation } from './lib/authInvitation'
 import { authConfiguration } from './lib/authConfig'
@@ -34,7 +33,7 @@ export function ProgramStartupGate({ children }: { children: ReactNode }) {
 
 function Root() {
   const route = useSyncExternalStore(subscribeNavigation, navigationState)
-  const { brand, status } = useBrand()
+  const { status } = useBrand()
   if (config.provider === 'workos' && route.startsWith('/login/complete:')) return <><BrandDocument /><AuthPopupComplete error={callbackError} /></>
   if (config.error) return <><BrandDocument /><ProgramStartupGate><AuthAccessPanel title="Secure sign-in is unavailable." copy={config.error} /></ProgramStartupGate></>
   if (invitation.error) return <><BrandDocument /><ProgramStartupGate><AuthAccessPanel title="This invitation needs a fresh link." copy={invitation.error} /></ProgramStartupGate></>
@@ -49,27 +48,7 @@ function Root() {
   )
 
   if (config.provider === 'preview') return <><BrandDocument /><ProgramStartupGate>{app}</ProgramStartupGate></>
-  if (config.provider === 'workos') return app
-
-  return (
-    <ClerkProvider
-      publishableKey={config.clerkKey!}
-      afterSignOutUrl="/"
-      signInFallbackRedirectUrl="/"
-      signUpFallbackRedirectUrl="/"
-      appearance={{
-        variables: {
-          colorPrimary: brand.colors.primary,
-          colorBackground: brand.colors.surface,
-          colorText: brand.colors.text,
-          colorTextSecondary: brand.colors.text_muted,
-          fontFamily: 'var(--font-body)',
-        },
-      }}
-    >
-      {app}
-    </ClerkProvider>
-  )
+  return app
 }
 
 export default Root

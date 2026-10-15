@@ -1,16 +1,9 @@
 // @vitest-environment jsdom
 
-import type { ReactNode } from 'react'
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { BrandConfig } from '../api'
 import { BrandContext, NEUTRAL_BRAND, type BrandContextValue } from '../contexts/brandContextValue'
-
-vi.mock('@clerk/clerk-react', () => ({
-  SignInButton: ({ children }: { children: ReactNode }) => children,
-  SignUpButton: ({ children }: { children: ReactNode }) => children,
-  UserButton: () => null,
-}))
 
 import { AuthLanding } from '../App'
 

@@ -1,5 +1,4 @@
 import { cloneElement, useRef, useState, type ReactElement, type MouseEvent } from 'react'
-import { SignInButton as ClerkSignInButton, SignUpButton as ClerkSignUpButton } from '@clerk/clerk-react'
 import { Button } from './Button'
 import { useAuthContext } from '../contexts/authContextValue'
 
@@ -20,13 +19,11 @@ function HostedAuthButton({ children, signUp = false }: { children: ReactElement
   }
   return <>{cloneElement(children, { disabled: pending, onClick: (event: MouseEvent<HTMLElement>) => { event.currentTarget.focus({ preventScroll: true }); void start() } })}{error && <p role="alert">{error}</p>}</>
 }
-export function SignInButton({ children, mode = 'modal' }: { children: ReactElement<{ onClick?: (event: MouseEvent<HTMLElement>) => void; disabled?: boolean }>; mode?: 'modal' | 'redirect' }) {
-  const auth = useAuthContext()
-  return auth.authProvider === 'workos' ? <HostedAuthButton>{children}</HostedAuthButton> : <ClerkSignInButton mode={mode}>{children}</ClerkSignInButton>
+export function SignInButton({ children }: { children: ReactElement<{ onClick?: (event: MouseEvent<HTMLElement>) => void; disabled?: boolean }> }) {
+  return <HostedAuthButton>{children}</HostedAuthButton>
 }
-export function SignUpButton({ children, mode = 'modal' }: { children: ReactElement<{ onClick?: (event: MouseEvent<HTMLElement>) => void; disabled?: boolean }>; mode?: 'modal' | 'redirect' }) {
-  const auth = useAuthContext()
-  return auth.authProvider === 'workos' ? <HostedAuthButton signUp>{children}</HostedAuthButton> : <ClerkSignUpButton mode={mode}>{children}</ClerkSignUpButton>
+export function SignUpButton({ children }: { children: ReactElement<{ onClick?: (event: MouseEvent<HTMLElement>) => void; disabled?: boolean }> }) {
+  return <HostedAuthButton signUp>{children}</HostedAuthButton>
 }
 export function SignOutButton({ onSignOut }: { onSignOut?: () => Promise<void> }) {
   const auth = useAuthContext()
