@@ -559,3 +559,33 @@ cases:
     forbidden_phrases:
       - local food pantry
       - It is okay to ask for help this week
+
+  - id: spend_beside_savings_deposit_is_still_drafted
+    route: controller
+    prompt: I spent $30 on groceries and put $50 in savings
+    expected_phrases:
+      - drafted this for review
+      - $30
+    forbidden_phrases:
+      - I did not add it as an expense
+      - $50 is pending
+
+  - id: savings_plan_is_not_a_completed_deposit
+    route: controller
+    prompt: Put $100 in the savings category every month
+    forbidden_phrases:
+      - Nice work putting
+
+  - id: deposit_instead_of_bill_gets_bill_first
+    route: controller
+    prompt: I put $40 in my savings instead of paying the power bill
+    expected_phrases:
+      - Start with the bill that protects the household baseline first
+    forbidden_phrases:
+      - Nice work
+
+  - id: kids_skipping_lunch_without_money_signal_is_not_food_insecurity
+    route: controller
+    prompt: My kids skipped lunch today
+    forbidden_phrases:
+      - local food pantry

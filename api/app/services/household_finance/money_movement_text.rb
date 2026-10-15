@@ -5,12 +5,16 @@ module HouseholdFinance
   module MoneyMovementText
     AMOUNT_SOURCE = "\\$?\\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)(?:\\s+(?:dollars?|bucks))?".freeze
     SAVINGS_WORD_SOURCE = "(?:sav(?:ings?|ins|ngs|igs)|challenge|emergency\\s+fund|rainy[- ]day\\s+fund)".freeze
-    # "my savings", "Bank of Guam savings", "my challenge account"; never "from savings"
-    # or "to checking from savings", and never a store or loan named "Savings".
+    # Money sent to a relative's or friend's savings is family support, not this household's savings.
+    OTHER_OWNER_SOURCE = "(?:mom|mother|mama|dad|father|papa|parents?|brother|sister|sibling|cousin|auntie|aunty|uncle|friend|" \
+      "grandma|grandpa|nana|tata|neighbou?r|in-laws?|boyfriend|girlfriend|his|her|their)".freeze
+    # "my savings", "Bank of Guam savings", "my challenge account"; never "from savings",
+    # "to checking from savings", someone else's savings, a budget category, or a store
+    # or loan named "Savings".
     SAVINGS_DESTINATION_SOURCE = "(?:in|into|inside|to|toward|towards|onto)\\s+" \
-      "(?:(?:my|our|the|da|a|his|her|their|kids?['’]?|family)\\s+)?(?:bank\\s+of\\s+guam\\s+|bog\\s+)?" \
-      "(?:(?!(?:from|out|of|and|then|pay|for|with|on|at|in|to|into)\\b)[a-z0-9'’-]+\\s+){0,2}?" \
-      "#{SAVINGS_WORD_SOURCE}\\b(?!\\s+(?:mart|market|store|shop|outlet|cent(?:er|re)|bond|loan|card|fee|entry)\\b)".freeze
+      "(?:(?:my|our|the|da|a|kids?['’]?|family)\\s+)?(?:bank\\s+of\\s+guam\\s+|bog\\s+)?" \
+      "(?:(?!(?:from|out|of|and|then|pay|for|with|on|at|in|to|into|#{OTHER_OWNER_SOURCE}(?:['’]?s)?)\\b)[a-z0-9'’-]+\\s+){0,2}?" \
+      "#{SAVINGS_WORD_SOURCE}\\b(?!\\s+(?:mart|market|store|shop|outlet|cent(?:er|re)|bond|loan|card|fee|entry|category|categories|budget|line|allocation|bucket\\s+in\\s+(?:my|the)\\s+budget)\\b)".freeze
     SAVINGS_DEPOSIT_VERB_SOURCE = "(?:put|paid|payed|transferred|transfered|moved|deposited|added|sent|stashed|dropped|saved|tucked)".freeze
     SAVINGS_DEPOSIT_PATTERN = Regexp.new(
       "\\b#{SAVINGS_DEPOSIT_VERB_SOURCE}\\s+(?:(?:in|another|an\\s+extra|extra)\\s+)?#{AMOUNT_SOURCE}" \
@@ -18,13 +22,17 @@ module HouseholdFinance
       "(?:\\s+from\\s+(?:my\\s+|our\\s+|the\\s+)?(?:checking|paycheck|pay\\s*check|pay|check|wallet|cash)(?:\\s+account)?)?" \
       "\\s+#{SAVINGS_DESTINATION_SOURCE}" \
       "|\\b#{SAVINGS_DEPOSIT_VERB_SOURCE}\\s+(?:it\\s+|that\\s+)?#{SAVINGS_DESTINATION_SOURCE}\\s+(?:account\\s+)?#{AMOUNT_SOURCE}" \
-      "|\\b(?:set|put)\\s+(?:aside\\s+)?#{AMOUNT_SOURCE}(?:\\s+aside)?\\s+for\\s+(?:my\\s+|our\\s+|the\\s+)?(?:savings|challenge)\\b(?!\\s+(?:fee|entry|shirt|t-shirt))",
+      "|\\b(?:set|put)\\s+(?:aside\\s+#{AMOUNT_SOURCE}|#{AMOUNT_SOURCE}\\s+aside)\\s+for\\s+(?:my\\s+|our\\s+|the\\s+)?(?:savings|challenge)\\b(?!\\s+(?:fee|entry|shirt|t-shirt))",
       Regexp::IGNORECASE
     ).freeze
     SAVINGS_DEPOSIT_EXCLUSION_PATTERN = /\b(?:fees?|penalty|overdraft|withdr(?:aw|ew|awn|awal)|(?:took|pulled)\s+(?:(?:it|that|some|\$?\d[\d,.]*k?)\s+)?(?:back\s+)?out|cash(?:ed)?\s+out|out\s+of\s+(?:my\s+|our\s+|the\s+)?savings)\b/i.freeze
 
+    # Singular "stock" counts only as a company share ("Apple stock", "$50 of stock"),
+    # never soup stock, a stock pot, "in stock", a stock show, or store inventory.
+    STOCK_SOURCE = "(?:(?!(?:chicken|beef|pork|fish|soup|bone|veggie|vegetable|turkey|dashi|in|out|of)\\b)[a-z][\\w.&'’-]*\\s+)?" \
+      "stock\\b(?!\\s+(?:pots?|cubes?|show|up|room|pile|photos?|boy|cars?|yard|for|of|broth))".freeze
     INVESTMENT_ASSET_SOURCE = "(?:bitcoin|btc|crypto(?:currency|currencies|s)?|ethereum|eth|dogecoin|doge|meme\\s*coins?|nfts?|stocks|" \
-      "stock\\s+market|shares\\s+of|etfs?|index\\s+funds?|mutual\\s+funds?|" \
+      "stock\\s+market|#{STOCK_SOURCE}|shares\\s+of|etfs?|index\\s+funds?|mutual\\s+funds?|" \
       "robinhood|coinbase|webull|crypto\\.com)\\b".freeze
     INVESTMENT_PURCHASE_VERB_SOURCE = "(?:bought|buy|purchased|spent|put|invested|paid|moved|transferred|sent|threw|dropped|got)".freeze
     INVESTMENT_PURCHASE_PATTERN = Regexp.new(
@@ -36,7 +44,10 @@ module HouseholdFinance
     INVESTMENT_MERCHANT_PATTERN = Regexp.new("\\A\\s*(?:the\\s+)?#{INVESTMENT_ASSET_SOURCE}", Regexp::IGNORECASE).freeze
 
     # Words before the verb that make it a plan, a question, or something that did not happen.
-    NOT_DONE_PREFIX_PATTERN = /\A\s*(?:how|what|why|which|did|do|does|is|are|was|were|have|has)\b|\b(?:will|gonna|going\s+to|plan(?:ning)?\s+to|want(?:ed)?\s+to|wanna|should|could|would|might|may|can|if|when|whenever|once|remind|need(?:ed)?\s+to|have\s+to|has\s+to|try(?:ing)?\s+to|hope\s+to|tomorrow|next|didn['’]?t|did\s+not|don['’]?t|do\s+not|haven['’]?t|have\s+not|never|not|couldn['’]?t|can['’]?t|cannot|forgot\s+to|supposed\s+to)\b/i.freeze
+    NOT_DONE_PREFIX_PATTERN = /\A\s*(?:how|what|why|which|did|do|does|is|are|was|were|have|has|please|let['’]?s|let\s+me)\b|\b(?:wants?\s+(?:me|us)\s+to|asked\s+(?:me|us)\s+to|told\s+(?:me|us)\s+to|usually|always|normally|often|sometimes|every|each|tend\s+to|will|gonna|going\s+to|plan(?:ning)?\s+to|want(?:ed)?\s+to|wanna|should|could|would|might|may|can|if|when|whenever|once|remind|need(?:ed)?\s+to|have\s+to|has\s+to|try(?:ing)?\s+to|hope\s+to|tomorrow|next|didn['’]?t|did\s+not|don['’]?t|do\s+not|haven['’]?t|have\s+not|never|not|couldn['’]?t|can['’]?t|cannot|forgot\s+to|supposed\s+to)\b/i.freeze
+
+    # Habits and budget plans ("each month", "the savings category") are not a deposit that happened.
+    RECURRING_OR_BUDGET_PATTERN = /\b(?:every|each|per)\s+(?:day|week|month|payday|pay\s*day|paycheck|check|time)|\b(?:monthly|weekly|biweekly|a\s+(?:month|week|paycheck))\b|\b(?:category|budget|allocation)\b/i.freeze
 
     FOOD_SOURCE = "(?:food|groceries|grocery|grocerys|meals?|breakfast|lunch|dinner)".freeze
     # Eating out, takeout, food trucks and grocery budgets are spending choices, not hunger.
@@ -54,7 +65,6 @@ module HouseholdFinance
       /\bno\s+(?:more\s+)?(?:food|groceries)\s+(?:in\s+the\s+(?:house|fridge)|at\s+home|left|until|till|til)\b/i,
       /\b(?:ran|run|running)\s+out\s+of\s+(?:food|groceries)\b(?!\s+(?:budget|category|allocation|money))|\b(?:are|am|we['’]?re|i['’]?m)\s+(?:completely\s+|totally\s+)?out\s+of\s+food\b(?!\s+(?:budget|category|allocation|money))/i,
       /\bwe\s+no\s+more\s+(?:food|money\s+for\s+(?:food|groceries))\b/i,
-      /\b(?:kids?|children|child|baby|babies|son|daughter|keiki|grandkids?)\b[^.!?]{0,25}\b(?:skip(?:ping|ped|s)?|go(?:ing)?\s+without|went\s+without|miss(?:ing|ed)?)\s+(?:(?:their|our|my|a|some|the)\s+)?(?:meals?|food|breakfast|lunch|dinner|eating)\b(?!\s+out\b)/i,
       /\b(?:snap|ebt|food\s+stamps|wic)\b[^.!?]{0,20}\b(?:ran\s+out|run\s+out|is\s+out|is\s+gone|ran\s+low|is\s+low)\b/i
     ].freeze
     HARDSHIP_FOOD_PATTERNS = [
@@ -63,12 +73,18 @@ module HouseholdFinance
       Regexp.new("\\bno\\s+(?:more\\s+)?(?:money|cash)\\s+(?:left\\s+)?(?:for|to\\s+buy)\\s+(?:any\\s+)?#{FOOD_SOURCE}\\b", Regexp::IGNORECASE),
       Regexp.new("\\bnot\\s+enough\\s+(?:money\\s+)?(?:for|to\\s+buy)\\s+(?:any\\s+)?#{FOOD_SOURCE}\\b|\\bnot\\s+enough\\s+food\\b", Regexp::IGNORECASE),
       Regexp.new("\\bhungry\\b[^.!?]{0,60}\\b#{HARDSHIP_REASON_SOURCE}|#{HARDSHIP_REASON_SOURCE}[^.!?]{0,60}\\bhungry\\b", Regexp::IGNORECASE),
+      Regexp.new("\\b(?:kids?|children|child|baby|babies|son|daughter|keiki|grandkids?)\\b[^.!?]{0,25}\\b(?:skip(?:ping|ped|s)?|go(?:ing)?\\s+without|went\\s+without|miss(?:ing|ed)?)\\s+" \
+        "(?:(?:their|our|my|a|some|the)\\s+)?(?:meals?|food|breakfast|lunch|dinner|eating)\\b(?!\\s+out\\b)" \
+        "(?=.*(?:#{HARDSHIP_REASON_SOURCE}|so\\s+(?:we|i)\\s+can\\s+(?:pay|cover|afford)|to\\s+(?:pay|cover)\\s+(?:the\\s+|our\\s+|my\\s+)?(?:rent|bills?|power|water|car|loan)))", Regexp::IGNORECASE),
       Regexp.new("\\b(?:i|we|us)\\b[^.!?]{0,25}\\b(?:skip(?:ping|ped|s)?|go(?:ing)?\\s+without|went\\s+without)\\s+(?:(?:our|my|a|some|the)\\s+)?(?:#{FOOD_SOURCE}|eating)\\b[^.!?]{0,40}\\b(?:because|cause|cuz|since|as)\\b[^.!?]{0,20}#{HARDSHIP_REASON_SOURCE}", Regexp::IGNORECASE)
     ].freeze
     # "My friend can't afford groceries, can I lend her $50?" is family support, not
     # this household going without, unless the participant names their own hardship too.
     THIRD_PARTY_PATTERN = /\b(?:friend|cousin|neighbou?r|auntie|aunty|uncle|brother|sister|sibling|mom|mother|dad|father|parents?|in-laws?|co-?worker|grandma|grandpa|nana|tata|she|he|they)\b/i.freeze
     OWN_HARDSHIP_PATTERN = Regexp.new("\\b(?:i|we|us|our|my\\s+(?:kids?|children|son|daughter|baby|family))\\b[^.!?]{0,30}(?:#{HARDSHIP_REASON_SOURCE}|hungry|skip)", Regexp::IGNORECASE).freeze
+
+    SEPARATE_SPEND_VERB_PATTERN = /\b(?:spent|paid|payed|charged|bought|purchased)\b/i.freeze
+    SEPARATE_SPEND_AMOUNT_PATTERN = /\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)|\b(?:spent|paid|charged|bought)\s+(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)\b/i.freeze
 
     module_function
 
@@ -108,6 +124,41 @@ module HouseholdFinance
       savings_deposit?(text) || investment_purchase?(text)
     end
 
+    # The message with savings-deposit and investment clauses removed, so a spend
+    # reported beside them ("spent $30 on groceries and put $50 in savings") survives.
+    def without_non_expense(text)
+      value = text.to_s.squish
+      return value unless non_expense?(value)
+
+      value
+        .gsub(SAVINGS_DEPOSIT_PATTERN, " ")
+        .gsub(INVESTMENT_PURCHASE_PATTERN, " ")
+        .gsub(/\s*(?:,\s*)?\b(?:and|then|plus)\s*(?:(?:i|we)\s*)?(?=[.,;!?]|\z)/i, "")
+        .squish
+        .sub(/\A(?:[,;]\s*)?(?:and|then|plus|also)\b[\s,]*/i, "")
+    end
+
+    # A real spend with its own amount sits beside the deposit or investment buy.
+    def separate_spend?(text)
+      return false unless non_expense?(text)
+
+      remainder = without_non_expense(text).gsub(/\b(?:got|get|gets|getting)\s+paid\b/i, " ")
+      remainder.match?(SEPARATE_SPEND_VERB_PATTERN) && remainder.match?(SEPARATE_SPEND_AMOUNT_PATTERN)
+    end
+
+    def separate_spend_cents(text)
+      separate_spend_amounts(text).first
+    end
+
+    def separate_spend_amounts(text)
+      return [] unless separate_spend?(text)
+
+      without_non_expense(text).scan(SEPARATE_SPEND_AMOUNT_PATTERN).filter_map do |captures|
+        cents = Money.chat_cents(captures.compact.first)
+        cents if cents.positive?
+      end
+    end
+
     def food_insecurity?(text)
       value = text.to_s.squish
       return false if value.match?(NOT_HARDSHIP_PATTERN)
@@ -123,7 +174,7 @@ module HouseholdFinance
       value.split(/(?<=[.!?;])\s+|\n+/).any? do |sentence|
         match = sentence.match(pattern)
         next false unless match
-        next false if sentence.include?("?")
+        next false if sentence.include?("?") || sentence.match?(RECURRING_OR_BUDGET_PATTERN)
 
         !sentence[0...match.begin(0)].to_s.match?(NOT_DONE_PREFIX_PATTERN)
       end

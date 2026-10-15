@@ -1453,7 +1453,38 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
       assert_includes body.dig("assistant_message", "content"), expected, message
       assert_nil body.fetch("transaction_draft"), message
       assert_nil body.fetch("spending_report"), message
+
+      # The pre-empted model action must not stay open for a later "yes".
+      session = household.chat_sessions.order(:updated_at).last
+      topics = [ session.active_topic, *Array(session.open_topics) ].compact
+      refute topics.any? { |topic| topic.to_h.dig("action", "type") == "create_transaction_draft" }, message
+      refute topics.any? { |topic| topic.to_h["intent"] == "transaction_report" }, message
     end
+  end
+
+  test "a model expense beside a savings deposit still drafts the separate purchase" do
+    user = create_user(email: "mia-model-mixed-deposit@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    message = "I spent $30 on groceries and put $50 in savings"
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "transaction_report", confidence: 0.99, continuation: false, resolved_message: message,
+      needs_clarification: false, clarification: "", topic: { type: "transaction_report", title: "Groceries", subject: "Groceries" },
+      action: { type: "create_transaction_draft", draft_id: 0, merchant: "Groceries", amount: "30", occurred_on: Date.current.iso8601,
+        category_id: 0, category_name: "", stack_key: "", splits: [] },
+      source: "model"
+    )
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { intent }
+
+    assert_difference("TransactionDraft.count", 1) do
+      with_intent_resolver(resolver) do
+        post "/api/v1/mia/messages", params: { message: message, request_id: "model-mixed-deposit" }, headers: auth_headers(user), as: :json
+      end
+    end
+
+    assert_response :created
+    assert_equal 3_000, household.transaction_drafts.sole.total_amount_cents
+    refute_includes JSON.parse(response.body).dig("assistant_message", "content"), "I did not add it as an expense"
   end
 
   test "model resolved transaction correction updates the pending review without changing actuals" do

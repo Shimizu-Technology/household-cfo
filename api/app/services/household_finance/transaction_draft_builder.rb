@@ -16,6 +16,16 @@ module HouseholdFinance
       value.to_s.match?(NON_EXPENSE_MOVEMENT_PATTERN) || MoneyMovementText.non_expense?(value)
     end
 
+    # A model-proposed amount is allowed beside a deposit or investment buy only when it
+    # is the separate purchase's own amount ("spent $30 on groceries and put $50 in savings").
+    def self.mixed_spend_amount?(value, amount)
+      remainder = MoneyMovementText.without_non_expense(value)
+      return false if non_expense_movement?(remainder)
+
+      cents = Money.chat_cents(amount.to_s.delete("$ "))
+      cents.positive? && MoneyMovementText.separate_spend_amounts(value).include?(cents)
+    end
+
     def self.explicit_purchase_details(value)
       match = value.to_s.match(EXPLICIT_PURCHASE_PATTERN)
       return unless match
@@ -30,8 +40,10 @@ module HouseholdFinance
       @household = household
       @message = message.to_s.squish
       @raw_input = raw_input.to_s.squish.presence || @message
-      @draft_text = current_follow_up_text.presence || @raw_input
-      @explicit_purchase = self.class.explicit_purchase_details(@raw_input) if self.class.non_expense_movement?(@raw_input)
+      # Savings-deposit and investment clauses never feed the expense amount or merchant.
+      @spend_input = MoneyMovementText.without_non_expense(@raw_input)
+      @draft_text = MoneyMovementText.without_non_expense(current_follow_up_text.presence || @raw_input)
+      @explicit_purchase = self.class.explicit_purchase_details(@spend_input) if self.class.non_expense_movement?(@spend_input)
       @user = user
       @idempotency_key = idempotency_key.presence || SecureRandom.uuid
     end
@@ -60,7 +72,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :message, :raw_input, :draft_text, :explicit_purchase
+    attr_reader :household, :message, :raw_input, :spend_input, :draft_text, :explicit_purchase
 
     def log_invalid_draft(record)
       Rails.logger.warn(
@@ -86,11 +98,11 @@ module HouseholdFinance
     end
 
     def category_match_text
-      [ draft_text, message, merchant ].join(" ")
+      [ draft_text, MoneyMovementText.without_non_expense(message), merchant ].join(" ")
     end
 
     def transaction_like?
-      return false if self.class.non_expense_movement?(raw_input) && explicit_purchase.blank?
+      return false if self.class.non_expense_movement?(spend_input) && explicit_purchase.blank?
 
       explicit_spend = amount_match.present? && (draft_text.match?(SPEND_PATTERN) || MiaCoachAnswerer.subjectless_spend_report?(draft_text))
       tab_total = draft_text.match?(AMOUNT_PATTERN) && draft_text.match?(/\bmy\s+tab\s+(?:is|was)\b/i)
@@ -124,7 +136,7 @@ module HouseholdFinance
         return explicit_purchase.fetch(:merchant) if explicit_purchase
 
         MERCHANT_PATTERNS.each do |pattern|
-          match = draft_text.match(pattern) || raw_input.match(pattern)
+          match = draft_text.match(pattern) || spend_input.match(pattern)
           next unless match
 
           candidate = clean_merchant(match[1])

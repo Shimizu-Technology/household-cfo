@@ -2689,6 +2689,30 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     end
   end
 
+  test "a model expense beside a savings deposit keeps only the separate purchase amount" do
+    message = "I spent $30 on groceries and put $50 in savings"
+    resolve = ->(amount) do
+      HouseholdFinance::MiaIntentResolver.new(
+        user_message: message, context: intent_context, api_key: "test-key",
+        transport: lambda do |_payload|
+          resolution_json(
+            intent: "transaction_report", continuation: false, resolved_message: "Create a pending review",
+            topic: { type: "transaction_report", title: "Groceries expense", subject: "Groceries" },
+            action: default_action.merge(type: "create_transaction_draft", merchant: "Groceries", amount: amount, occurred_on: "2026-07-10")
+          )
+        end
+      ).call
+    end
+
+    kept = resolve.call("30")
+    assert kept.actionable?
+    assert_equal "30", kept.action.fetch(:amount)
+
+    rejected = resolve.call("50")
+    refute rejected.actionable?
+    assert rejected.clarification?
+  end
+
   test "a model expense amount from shorthand thousands is grounded in the participant text" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "I spent $2k at Triple J Motors today",

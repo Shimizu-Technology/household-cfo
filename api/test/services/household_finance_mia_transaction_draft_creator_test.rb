@@ -141,6 +141,33 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
     end
   end
 
+  test "a spend beside a deposit drafts only the spend, and stock buys draft nothing" do
+    {
+      "I spent $30 on groceries and put $50 in savings" => 3_000,
+      "I spent $30 on groceries today and put $50 in savings" => 3_000,
+      "Put $50 in savings and spent $30 at Payless" => 3_000,
+      "I paid $20 for gas then moved $100 into savings" => 2_000
+    }.each_with_index do |(message, cents), index|
+      draft = HouseholdFinance::TransactionDraftBuilder.new(@household, message, user: @user, idempotency_key: "mixed-deposit-#{index}").call
+      assert draft, message
+      assert_equal cents, draft.total_amount_cents, message
+      refute_match(/savings/i, draft.merchant, message)
+    end
+
+    assert_no_difference("TransactionDraft.count") do
+      [ "I bought $50 of Apple stock", "Bought groceries for $30 and put $50 in savings" ].each_with_index do |message, index|
+        assert_nil HouseholdFinance::TransactionDraftBuilder.new(@household, message, user: @user, idempotency_key: "stock-#{index}").call, message
+      end
+    end
+
+    model = ->(message, amount, key) do
+      HouseholdFinance::MiaTransactionDraftCreator.new(@household, user: @user, idempotency_key: key, raw_input: message,
+        command: { merchant: "Payless", amount: amount, occurred_on: "2026-07-10", splits: [] }).call
+    end
+    assert model.call("I spent $30 on groceries and put $50 in savings", "30", "model-mixed-30").success?
+    refute model.call("I spent $30 on groceries and put $50 in savings", "50", "model-mixed-50").success?
+  end
+
   test "real spends that mention savings or sit beside a deposit still become reviews" do
     {
       "I spent $50 at the Savings Mart" => [ 5_000, "the Savings Mart" ],

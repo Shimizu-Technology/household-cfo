@@ -833,6 +833,8 @@ module HouseholdFinance
         purchase = TransactionDraftBuilder.explicit_purchase_details(user_message)
         if purchase
           action = action.merge(merchant: purchase.fetch(:merchant), amount: purchase.fetch(:amount), splits: [])
+        elsif TransactionDraftBuilder.mixed_spend_amount?(user_message, action[:amount])
+          action
         else
           action = action.merge(type: "none")
           parsed = parsed.merge(needs_clarification: true, clarification: "I only add already incurred expenses to transaction review. Tell me the merchant or purchase if part of that movement was an expense.")

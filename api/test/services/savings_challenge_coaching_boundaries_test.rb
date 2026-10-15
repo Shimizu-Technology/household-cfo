@@ -105,9 +105,17 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
       end
       assert_includes answer("I bought lunch yesterday"), "amount, where and date"
 
-      household_answer = HouseholdFinance::MiaCoachAnswerer.new(@savings_household, "Paid $50 to Bank of Guam savings for the challenge").call
+      household_answer = HouseholdFinance::MiaCoachAnswerer.new(@savings_household, "Paid $50 to Bank of Guam savings for the challenge", user: @savings_user).call
       assert_includes household_answer, "Nice work putting $50 into savings!"
       assert_includes household_answer, "open Home and review it as a contribution"
+
+      # Enrollment belongs to the participant, not to everyone in the household.
+      partner = User.create!(clerk_id: "clerk_partner_#{SecureRandom.hex(6)}", email: "partner-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+      [ partner, nil ].each do |other|
+        other_answer = HouseholdFinance::MiaCoachAnswerer.new(@savings_household, "Put $40 in my savings", user: other).call
+        assert_includes other_answer, "Nice work putting $40 into savings!"
+        refute_includes other_answer, "open Home"
+      end
     end
   end
 
@@ -124,6 +132,10 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
       assert_equal 150_000, intake.call("I set aside $1.5k today").fetch(:signed_cents)
       assert_nil intake.call("I bought $200 of bitcoin at Coinbase today")
       assert_nil intake.call("I'm going to put $40 in my savings today")
+      [ "Set $200 for savings each month today", "Put $100 in the savings category today", "Kids want me to put $40 in savings today",
+        "I usually put $50 in savings today", "I sent $200 to my mom's savings today", "I bought $50 of Apple stock today" ].each do |message|
+        assert_nil intake.call(message), message
+      end
       assert_equal "purchase", intake.call("I spent $12 at Payless today").fetch(:kind)
     end
   end
