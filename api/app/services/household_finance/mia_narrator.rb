@@ -21,7 +21,7 @@ module HouseholdFinance
     DANGEROUS_WRITE_CLAIMS = [
       /\b(?:i|i['’]ve|i have|we|we['’]ve|we have|mia)\s+(?:already\s+|just\s+)?(?:added|recorded|logged|posted|tracked|deducted|applied|updated)\b/i,
       /\b(?:actuals?|month-to-date actuals?|mtd actuals?|budget actuals?)\s+(?:now\s+)?(?:show|include|reflect)\b/i,
-      /\b(?:actuals?|month-to-date actuals?|mtd actuals?|budget actuals?)\s+(?:have|has|were|was|are|is)?\s*(?:now\s+)?(?:been\s+)?(?:updated|changed|deducted|applied|recorded|posted|logged|tracked)\b/i,
+      /\b(?:actuals?|month-to-date actuals?|mtd actuals?|budget actuals?)\s+(?:(?:have|has|were|was|are|is)\s+(?:now\s+)?(?:been\s+)?|now\s+)(?:updated|changed|deducted|applied|recorded|posted|logged|tracked)\b/i,
       /\b(?:this|that|the)\s+(?:transaction|purchase|charge|payment|receipt|spend|spending)\s+(?:has\s+(?:now\s+)?been|was|is\s+now|is)\s+(?:added|recorded|logged|posted|tracked|deducted|applied)\b/i,
       /\b(?:your|the)\s+(?:budget|balance|amount|plan|category|actuals?|spending|monthly total|month-to-date total)\s+(?:has\s+(?:now\s+)?been|was|is\s+now)\s+(?:changed|adjusted|updated|reflected|recalculated)\b/i,
       /\b(?:i|i['’]ve|i have|we|we['’]ve|we have|mia)\s+(?:already\s+|just\s+)?(?:made|finished|completed)\s+(?:the\s+)?(?:adjustment|change|update|correction)\b/i
@@ -284,8 +284,12 @@ module HouseholdFinance
       return true if answer_packet[:write_state] == "no_write" && NEW_DRAFT_CLAIMS.any? { |pattern| content.match?(pattern) }
       return true if dynamic_persona_write_claim?(content)
 
-      DANGEROUS_WRITE_CLAIMS.any? { |pattern| content.match?(pattern) }
+      DANGEROUS_WRITE_CLAIMS.any? { |pattern| content.gsub(PURPOSE_CLAUSE_PATTERN, "").match?(pattern) }
     end
+
+    # "…so your actuals reflect what happened", "until your actuals show it":
+    # a goal or condition, not a claim that anything changed.
+    PURPOSE_CLAUSE_PATTERN = /\b(?:so(?: that)?|until|once|after|before|when|to make sure)\s+(?:your\s+|the\s+)?(?:month-to-date\s+|mtd\s+|budget\s+)?actuals?\s+(?:will\s+|can\s+|would\s+)?(?:show|include|reflect)\b/i
 
     def dynamic_persona_write_claim?(content)
       subject = /\b#{Regexp.escape(persona.name)}\s+(?:already\s+|just\s+)?/i
@@ -415,7 +419,19 @@ module HouseholdFinance
       narrated_amounts = currency_cents_from_text(content)
       return false if narrated_amounts.empty?
 
-      (narrated_amounts - allowed_currency_cents).any?
+      unexplained = narrated_amounts - allowed_currency_cents
+      unexplained.any? { |amount| !shown_arithmetic?(amount, narrated_amounts, content) }
+    end
+
+    # A derived figure is fine when the reply shows its work: it is the sum or
+    # difference of two approved amounts the reply itself states ("$45 spent…
+    # leaves $205 of the new $250"), or a 90-day goal split into three months.
+    def shown_arithmetic?(amount, narrated_amounts, content)
+      stated = narrated_amounts & allowed_currency_cents
+      return true if stated.combination(2).any? { |first, second| first + second == amount || (first - second).abs == amount }
+      return false unless content.match?(/\b(?:90-day|90 days|three months|3 months)\b/i)
+
+      stated.any? { |total| (total / 3.0 / 100).round * 100 == amount }
     end
 
     def incorrect_financial_fact_relationship?(content)
