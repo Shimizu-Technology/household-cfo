@@ -70,12 +70,22 @@ module MiaEvals
       report = build_report(model, cases, result, started_at)
       paths = write_report(report)
       print_summary(report, paths)
-      failed_turns = result.case_results.flat_map { |case_result| Array(case_result.metadata.to_h[:turns]) }.count { |turn| turn[:status] != 201 }
-      if failed_turns.positive?
-        warn "#{failed_turns} turn(s) did not return 201; the report does not reflect real model replies."
-        return false
-      end
-      true
+      problems = run_problems(result, report)
+      problems.each { |problem| warn problem }
+      problems.empty?
+    end
+
+    # Reasons the report can't be trusted as a comparison of real model replies.
+    # Any of them makes the task exit non-zero.
+    def run_problems(result, report)
+      turns = result.case_results.flat_map { |case_result| Array(case_result.metadata.to_h[:turns]) }
+      crashed = result.case_results.count { |case_result| case_result.error.present? || Array(case_result.metadata.to_h[:turns]).empty? }
+      failed_turns = turns.count { |turn| turn[:status] != 201 }
+      problems = []
+      problems << "#{crashed} case(s) raised before finishing; see the report for the error." if crashed.positive?
+      problems << "#{failed_turns} turn(s) did not return 201." if failed_turns.positive?
+      problems << "#{report[:provider_errors]} model call(s) failed, so some replies are canned fallbacks." if report[:provider_errors].to_i.positive?
+      problems
     end
 
     private
@@ -103,9 +113,9 @@ module MiaEvals
         warn "Unset DATABASE_URL: live Mia evals only run against the local test database."
         return false
       end
-      expected_database = ActiveRecord::Base.configurations.configs_for(env_name: "test", name: "primary")&.database
-      unless expected_database.present? && ActiveRecord::Base.connection.current_database == expected_database
-        warn "Live Mia evals only run against the configured test database (#{expected_database.inspect})."
+      current_database = ActiveRecord::Base.connection.current_database
+      unless ActiveRecord::Base.connection_db_config.env_name == "test" && test_database_name?(current_database)
+        warn "Live Mia evals only run against a test database (connected to #{current_database.inspect})."
         return false
       end
       # Test identities are accepted only when no sign-in provider is selected or configured.
@@ -115,6 +125,11 @@ module MiaEvals
       end
 
       true
+    end
+
+    def test_database_name?(name)
+      # Parallel test workers add a "-N" suffix.
+      name.to_s.match?(/_test(?:[_-]|\z)/)
     end
 
     def selected_cases
