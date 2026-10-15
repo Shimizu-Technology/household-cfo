@@ -1228,7 +1228,9 @@ module Api
 
       def process_attached_imports(document_imports)
         document_imports.each do |document_import|
-          FinancialDocumentExtractionJob.perform_later(document_import.id) if document_import.status == "uploaded"
+          # Bind the job to the dispatch generation that admits it, so a late job can
+          # never fail or complete a newer Reprocess/source generation.
+          FinancialDocumentExtractionDispatch.request!(document_import).enqueue_retry if document_import.status == "uploaded"
         end
         document_imports.map(&:reload)
       end

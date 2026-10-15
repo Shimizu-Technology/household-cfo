@@ -1416,6 +1416,28 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal({ "upload_request_id" => "keep-me" }, document_import.metadata)
   end
 
+  test "reprocess gives a file that ran out of attempts a fresh start" do
+    document_import = create_import!(status: "failed", extraction_error: FinancialDocumentExtractionDispatch::ATTEMPTS_EXHAUSTED_MESSAGE)
+    dispatch = FinancialDocumentExtractionDispatch.request!(document_import)
+    dispatch.update!(status: "completed", error_code: "attempts_exhausted",
+      processing_attempts: FinancialDocumentExtractionDispatch::MAX_PROCESSING_ATTEMPTS, enqueue_attempts: 4)
+
+    with_s3_stubs(configured?: true) do
+      assert_enqueued_with(job: FinancialDocumentExtractionJob, args: [ document_import.id, dispatch.id, dispatch.generation + 1 ]) do
+        post "/api/v1/document_imports/#{document_import.id}/reprocess", headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :success
+    assert_equal "uploaded", document_import.reload.status
+    assert_nil document_import.extraction_error
+    dispatch.reload
+    assert_equal "enqueued", dispatch.status
+    assert_equal 0, dispatch.processing_attempts
+    assert_equal 1, dispatch.enqueue_attempts
+    assert_nil dispatch.error_code
+  end
+
   test "reprocess retains source-linked pending history and removes only unlinked pending drafts" do
     document_import = create_import!(status: "needs_review")
     attempt = document_import.attempts.create!(provider: "synthetic", model: "synthetic", status: "processing", prompt_version: "synthetic", schema_version: "synthetic", started_at: Time.current)

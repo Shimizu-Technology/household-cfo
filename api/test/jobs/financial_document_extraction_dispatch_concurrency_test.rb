@@ -45,4 +45,58 @@ class FinancialDocumentExtractionDispatchConcurrencyTest < ActiveSupport::TestCa
     household&.destroy!
     user&.destroy!
   end
+
+  test "two workers reclaiming the same stale lease count one processing attempt" do
+    OwnedTestDatabase.assert!(connection: ApplicationRecord.connection)
+    suffix = SecureRandom.hex(6)
+    user = User.create!(clerk_id: "dispatch-stale-#{suffix}", email: "dispatch-stale-#{suffix}@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Dispatch stale lease QA")
+    document = household.financial_document_imports.create!(uploaded_by_user: user,
+      document_kind: "statement", status: "processing", filename: "fictional.pdf", content_type: "application/pdf", byte_size: 1, s3_key: "qa/dispatch/#{suffix}.pdf")
+    document.update_columns(updated_at: (FinancialDocumentExtractionJob::STALE_PROCESSING_AFTER + 1.minute).ago)
+    dispatch = FinancialDocumentExtractionDispatch.request!(document)
+    dispatch.update!(status: "processing", lease_expires_at: 1.second.ago, processing_attempts: 2)
+    ready = Queue.new
+    start = Queue.new
+    release = Queue.new
+    extractor = Object.new
+    extractor.define_singleton_method(:model) { "synthetic" }
+    extractor.define_singleton_method(:call) do |_import|
+      release.pop
+      FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "Synthetic failure", metadata: {})
+    end
+    singleton = class << FinancialDocuments::Extractor; self; end
+    original = singleton.instance_method(:new)
+    singleton.define_method(:new) { |*| extractor }
+    workers = 2.times.map do
+      Thread.new do
+        Thread.current.report_on_exception = false
+        ApplicationRecord.connection_pool.with_connection do |connection|
+          ready << connection.select_value("SELECT pg_backend_pid()")
+          start.pop
+          FinancialDocumentExtractionJob.perform_now(document.id, dispatch.id, dispatch.generation)
+        end
+      end
+    end
+    backend_ids = 2.times.map { Timeout.timeout(5) { ready.pop } }
+    assert_equal 2, backend_ids.uniq.length, "separate PostgreSQL sessions exercise row locks"
+    2.times { start << true }
+    # The second worker must see the first worker's fresh claim, not the old
+    # stale timestamp, so it neither restarts the file nor spends an attempt.
+    Timeout.timeout(10) { sleep 0.01 until ApplicationRecord.uncached { document.attempts.where(status: "processing").exists? } }
+    2.times { release << true }
+    workers.each { |worker| assert worker.join(10), "workers must not deadlock"; worker.value }
+    assert_equal 3, dispatch.reload.processing_attempts
+    assert_equal 1, document.attempts.count
+    assert_equal "failed", document.reload.status
+    assert_equal "Synthetic failure", document.extraction_error
+  ensure
+    workers&.each { |worker| worker.kill if worker.alive?; worker.join }
+    singleton&.send(:remove_method, :new)
+    singleton&.define_method(:new, original) if original
+    document&.attempts&.delete_all
+    dispatch&.destroy!
+    household&.destroy!
+    user&.destroy!
+  end
 end

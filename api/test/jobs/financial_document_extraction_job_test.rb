@@ -530,6 +530,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     dispatch = @document_import.extraction_dispatch
     assert_equal "processing", dispatch.status
     assert_equal @document_import.updated_at + FinancialDocumentExtractionJob::STALE_PROCESSING_AFTER, dispatch.lease_expires_at
+    assert_equal 0, dispatch.processing_attempts, "a recheck that starts no work is not an attempt"
   end
 
   test "job restarts stale processing imports so queue retries can recover" do
@@ -571,6 +572,43 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal "failed", stale_attempt.reload.status
     assert_equal true, stale_attempt.metadata.fetch("stalled")
     assert_equal "succeeded", @document_import.attempts.order(:id).last.status
+    assert_equal 1, @document_import.extraction_dispatch.processing_attempts
+  end
+
+  test "stale processing stops with a calm failure once every attempt is used" do
+    @document_import.update!(status: "processing")
+    stale_attempt = @document_import.attempts.create!(
+      provider: "openrouter",
+      model: "test/model",
+      status: "processing",
+      prompt_version: FinancialDocuments::Extractor::PROMPT_VERSION,
+      schema_version: FinancialDocuments::Extractor::SCHEMA_VERSION,
+      started_at: (FinancialDocumentExtractionJob::STALE_PROCESSING_AFTER + 1.minute).ago
+    )
+    @document_import.update_columns(updated_at: (FinancialDocumentExtractionJob::STALE_PROCESSING_AFTER + 1.minute).ago)
+    dispatch = FinancialDocumentExtractionDispatch.request!(@document_import)
+    dispatch.update!(processing_attempts: FinancialDocumentExtractionDispatch::MAX_PROCESSING_ATTEMPTS)
+    extractor = Object.new.tap do |object|
+      object.define_singleton_method(:model) { "test/model" }
+      object.define_singleton_method(:call) { |_document_import| flunk "an exhausted file must not be read again" }
+    end
+
+    with_extractor_stub(extractor) do
+      assert_no_difference("FinancialDocumentImportAttempt.count") do
+        FinancialDocumentExtractionJob.perform_now(@document_import.id, dispatch.id, dispatch.generation)
+      end
+    end
+
+    @document_import.reload
+    assert_equal "failed", @document_import.status
+    assert_equal FinancialDocumentExtractionDispatch::ATTEMPTS_EXHAUSTED_MESSAGE, @document_import.extraction_error
+    assert @document_import.metadata.key?("last_extraction_failed_at")
+    assert_equal "failed", stale_attempt.reload.status
+    assert_equal true, stale_attempt.metadata.fetch("stalled")
+    assert_equal "completed", dispatch.reload.status
+    assert_equal "attempts_exhausted", dispatch.error_code
+    assert_nil dispatch.lease_expires_at
+    assert_equal FinancialDocumentExtractionDispatch::MAX_PROCESSING_ATTEMPTS, dispatch.processing_attempts
   end
 
   test "job skips imports that were already processed synchronously" do

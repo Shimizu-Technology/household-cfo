@@ -3,13 +3,20 @@
 class FinancialDocumentExtractionDispatch < ApplicationRecord
   STATUSES = %w[pending enqueued processing completed cancelled].freeze
   LEASE_DURATION = 15.minutes
+  # A worker that dies mid-file (out of memory, deploy, hostile input) leaves
+  # its lease to expire and recovery reclaims it. These caps end that loop;
+  # Reprocess (request! with restart) starts a fresh count.
+  MAX_PROCESSING_ATTEMPTS = 3
+  MAX_ENQUEUE_ATTEMPTS = 12
+  ATTEMPTS_EXHAUSTED_MESSAGE = "Mia couldn't finish reading this file after a few tries. Try Reprocess, or upload a smaller file, a CSV export, or a screenshot.".freeze
+  ADMISSION_EXHAUSTED_MESSAGE = "Mia couldn't start reading this file. Try Reprocess in a few minutes, or upload it again.".freeze
 
   belongs_to :financial_document_import, optional: true
 
   validates :status, inclusion: { in: STATUSES }
   validates :source_fingerprint, :next_attempt_at, presence: true
   validates :generation, numericality: { only_integer: true, greater_than: 0 }
-  validates :enqueue_attempts, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
+  validates :enqueue_attempts, :processing_attempts, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
 
   scope :due, -> {
     where(status: "pending", next_attempt_at: ..Time.current)
@@ -31,7 +38,7 @@ class FinancialDocumentExtractionDispatch < ApplicationRecord
         dispatch.generation += 1 unless dispatch.new_record?
         dispatch.assign_attributes(status: "pending", source_fingerprint: source_fingerprint,
           next_attempt_at: Time.current, lease_expires_at: nil, lease_token: nil,
-          enqueue_attempts: 0, error_code: nil)
+          enqueue_attempts: 0, processing_attempts: 0, error_code: nil)
         dispatch.save!
       end
       dispatch
@@ -54,6 +61,7 @@ class FinancialDocumentExtractionDispatch < ApplicationRecord
         return cancel!("source_changed") if source_fingerprint != self.class.fingerprint(document_import)
         return if status == "pending" && next_attempt_at > Time.current
         return if status.in?(%w[enqueued processing]) && lease_expires_at && lease_expires_at > Time.current
+        return cancel!("admission_exhausted") if enqueue_attempts >= MAX_ENQUEUE_ATTEMPTS
 
         token = SecureRandom.uuid
         update!(status: "enqueued", lease_token: token, lease_expires_at: LEASE_DURATION.from_now,
@@ -75,7 +83,11 @@ class FinancialDocumentExtractionDispatch < ApplicationRecord
       update!(status: "cancelled", lease_token: nil, lease_expires_at: nil, error_code: code)
       document_import = financial_document_import
       if document_import && document_import.status.in?(%w[uploaded processing])
-        message = code == "source_changed" ? "The document source changed before extraction completed. Reprocess the current source." : "Document source is no longer available for extraction."
+        message = case code
+        when "source_changed" then "The document source changed before extraction completed. Reprocess the current source."
+        when "admission_exhausted" then ADMISSION_EXHAUSTED_MESSAGE
+        else "Document source is no longer available for extraction."
+        end
         document_import.update!(status: "failed", extraction_error: message, processed_at: Time.current)
       end
     end

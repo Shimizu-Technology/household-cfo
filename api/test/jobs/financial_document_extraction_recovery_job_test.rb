@@ -104,6 +104,72 @@ class FinancialDocumentExtractionRecoveryJobTest < ActiveJob::TestCase
     assert_equal "completed", dispatch.reload.status
   end
 
+  test "a file that keeps killing its worker stops after three attempts until the participant reprocesses" do
+    dispatch = FinancialDocumentExtractionDispatch.request!(@import)
+    FinancialDocumentExtractionDispatch::MAX_PROCESSING_ATTEMPTS.times do |index|
+      assert_raises(WorkerKilled) do
+        with_extractor(-> { raise WorkerKilled }) { FinancialDocumentExtractionJob.perform_now(@import.id, dispatch.id, 1) }
+      end
+      assert_equal index + 1, dispatch.reload.processing_attempts
+      assert_equal "processing", @import.reload.status
+      travel_to dispatch.lease_expires_at + 1.second
+      assert_enqueued_with(job: FinancialDocumentExtractionJob, args: [ @import.id, dispatch.id, 1 ]) do
+        FinancialDocumentExtractionRecoveryJob.perform_now
+      end
+    end
+
+    with_singleton_stub(FinancialDocuments::Extractor, :new, ->(*) { flunk "a fourth attempt must not start" }) do
+      FinancialDocumentExtractionJob.perform_now(@import.id, dispatch.id, 1)
+    end
+    assert_equal "failed", @import.reload.status
+    assert_equal FinancialDocumentExtractionDispatch::ATTEMPTS_EXHAUSTED_MESSAGE, @import.extraction_error
+    assert_equal "completed", dispatch.reload.status
+    assert_equal "attempts_exhausted", dispatch.error_code
+    assert_equal 3, @import.attempts.count
+    assert_equal [ "failed" ], @import.attempts.distinct.pluck(:status)
+    assert @import.attempts.all? { |attempt| attempt.metadata["stalled"] }
+    travel 1.day
+    assert_no_enqueued_jobs { FinancialDocumentExtractionRecoveryJob.perform_now }
+
+    # Reprocess: the participant deliberately retries and gets a fresh count.
+    @import.update!(status: "uploaded")
+    FinancialDocumentExtractionDispatch.request!(@import, restart: true)
+    assert_equal 0, dispatch.reload.processing_attempts
+    with_extractor { FinancialDocumentExtractionJob.perform_now(@import.id, dispatch.id, 2) }
+    assert_equal "applied", @import.reload.status
+    assert_equal 1, dispatch.reload.processing_attempts
+  ensure
+    travel_back
+  end
+
+  test "queue admission gives up calmly after repeated failures and Reprocess admits again" do
+    dispatch = FinancialDocumentExtractionDispatch.request!(@import)
+    with_singleton_stub(FinancialDocumentExtractionJob, :perform_later, false) do
+      FinancialDocumentExtractionDispatch::MAX_ENQUEUE_ATTEMPTS.times do
+        assert_not dispatch.enqueue_retry
+        assert_equal "pending", dispatch.reload.status
+        travel_to dispatch.next_attempt_at + 1.second
+      end
+      assert_nil dispatch.enqueue_retry
+    end
+    assert_equal "cancelled", dispatch.reload.status
+    assert_equal "admission_exhausted", dispatch.error_code
+    assert_equal FinancialDocumentExtractionDispatch::MAX_ENQUEUE_ATTEMPTS, dispatch.enqueue_attempts
+    assert_equal "failed", @import.reload.status
+    assert_equal FinancialDocumentExtractionDispatch::ADMISSION_EXHAUSTED_MESSAGE, @import.extraction_error
+    assert_empty @import.attempts
+    assert_no_enqueued_jobs { FinancialDocumentExtractionRecoveryJob.perform_now }
+
+    @import.update!(status: "uploaded")
+    FinancialDocumentExtractionDispatch.request!(@import, restart: true)
+    assert_equal 0, dispatch.reload.enqueue_attempts
+    assert_enqueued_with(job: FinancialDocumentExtractionJob, args: [ @import.id, dispatch.id, 2 ]) do
+      dispatch.enqueue_retry
+    end
+  ensure
+    travel_back
+  end
+
   test "superseded generation cannot publish late results or reset the new dispatch" do
     dispatch = FinancialDocumentExtractionDispatch.request!(@import)
     before_return = lambda do
