@@ -2779,6 +2779,23 @@ test('only one money change can run at a time from Ask Mia', async ({ page }) =>
   expect(cancelRequests).toBe(0)
 })
 
+test('Mia review cards show missing before and after amounts as unknown, not $0', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const drafts = workspace.budget.annual_plan.pending_mia_action_drafts.map((draft: typeof miaBudgetDraft) => draft.id === miaBudgetDraft.id
+    ? { ...draft, impact: { ...draft.impact, before_monthly_income: null, before_monthly_outflow: null, after_monthly_outflow: null } }
+    : draft)
+  const unknownWorkspace = { ...workspace, budget: { ...workspace.budget, annual_plan: { ...workspace.budget.annual_plan, pending_mia_action_drafts: drafts } } }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: unknownWorkspace }))
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const impact = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' }).locator('.mia-action-impact')
+  const income = impact.locator('.mia-action-impact-grid > div').filter({ hasText: 'Monthly income' })
+  await expect(income).toContainText('Not known yet')
+  await expect(income).toContainText('$14,200.00')
+  await expect(income).not.toContainText('$0.00')
+  await expect(impact.locator('.mia-action-impact-grid > div').filter({ hasText: 'Monthly outflow' })).toHaveCount(0)
+})
+
 test('profile summary edits focus the matching manual field', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.profile.sections = [

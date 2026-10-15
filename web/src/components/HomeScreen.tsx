@@ -132,7 +132,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
                 <article>
                   <span>{upcomingSpike.label} spending spike</span>
                   <strong>{currency.format(upcomingSpike.planned_outflow)} planned</strong>
-                  <p>{currency.format(upcomingSpike.amount_above_typical ?? 0)} above a typical planned month.</p>
+                  {upcomingSpike.amount_above_typical != null && <p>{currency.format(upcomingSpike.amount_above_typical)} above a typical planned month.</p>}
                 </article>
               )}
               {nextIrregular && (
