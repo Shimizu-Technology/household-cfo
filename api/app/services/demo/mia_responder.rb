@@ -142,7 +142,7 @@ module Demo
           *conversation_history(history),
           { role: "user", content: message }
         ],
-        max_tokens: 220
+        max_tokens: AiModels.output_budget(@model, 220)
       }
       reasoning = AiModels.chat_reasoning(@model)
       payload[:reasoning] = reasoning if reasoning

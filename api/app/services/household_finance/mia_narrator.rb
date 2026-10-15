@@ -105,7 +105,7 @@ module HouseholdFinance
           *conversation_history,
           { role: "user", content: narration_request }
         ],
-        max_tokens: MAX_OUTPUT_TOKENS
+        max_tokens: AiModels.output_budget(model, MAX_OUTPUT_TOKENS)
       }.tap { |body| body[:reasoning] = reasoning if reasoning }.merge(AiModels.sampling(model, 0.45))
     end
 

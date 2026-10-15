@@ -73,7 +73,8 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
       else
         assert_equal 0.45, payload.fetch(:temperature), model
       end
-      assert_equal HouseholdFinance::MiaNarrator::MAX_OUTPUT_TOKENS, payload.fetch(:max_tokens)
+      expected_budget = HouseholdFinance::MiaNarrator::MAX_OUTPUT_TOKENS + (reasoning ? AiModels::REASONING_ALLOWANCE_TOKENS : 0)
+      assert_equal expected_budget, payload.fetch(:max_tokens), model
       if reasoning
         assert_equal reasoning, payload.fetch(:reasoning), model
       else
@@ -148,7 +149,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     payload = JSON.parse(requests.first.body)
     system_prompts = payload.fetch("messages").select { |message| message.fetch("role") == "system" }.map { |message| message.fetch("content") }.join(" ")
     user_prompt = payload.fetch("messages").last.fetch("content")
-    assert_equal HouseholdFinance::MiaNarrator::MAX_OUTPUT_TOKENS, payload.fetch("max_tokens")
+    assert_equal AiModels.output_budget(payload.fetch("model"), HouseholdFinance::MiaNarrator::MAX_OUTPUT_TOKENS), payload.fetch("max_tokens")
     assert_equal HouseholdFinance::MiaNarrator::READ_TIMEOUT_SECONDS, start_options.first.fetch(:read_timeout)
     assert_includes system_prompts, "app has already verified the financial facts"
     assert_includes system_prompts, "The participant is the Household CFO"
