@@ -73,7 +73,7 @@ Rails must allow the chosen web origin through `FRONTEND_URL`/the local CORS con
 WorkOS is the only sign-in provider. Local preview works without it (sample data, no sign-in). For hosted/cohort environments:
 
 1. Set `VITE_WORKOS_CLIENT_ID` (and optionally `VITE_AUTH_PROVIDER=workos`) in the web app.
-2. Set `WORKOS_CLIENT_ID` and `WORKOS_API_KEY` in the API. `AUTH_PROVIDER` may be omitted or set to `workos`; any other value fails closed.
+2. Set `AUTH_PROVIDER=workos`, `WORKOS_CLIENT_ID`, and `WORKOS_API_KEY` in the API on every hosted environment. Any other `AUTH_PROVIDER` value fails closed; leave all three unset only for local preview.
 3. Netlify forwards `/api/auth/*` to Rails so sessions stay same-origin; see `docs/workos-migration-runbook.md`.
 4. Set `RESEND_API_KEY` and `RESEND_FROM_EMAIL`/`MAILER_FROM_EMAIL` in the API to deliver invite emails. The Admin UI requests email delivery by default; if Resend is missing, the invite is saved but marked as failed so the configuration issue is visible.
 5. Run `bin/rails db:seed` to create the default owner admin invite for `shimizutechnology@gmail.com`, then use the Admin tab to invite additional admins, coaches, and participants into cohorts.

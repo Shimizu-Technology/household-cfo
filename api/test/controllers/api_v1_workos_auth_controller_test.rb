@@ -100,6 +100,18 @@ class ApiV1WorkosAuthControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "configured WorkOS keys alone close test identities and demo routes" do
+    user = create_user(status: "accepted")
+    with_workos("AUTH_PROVIDER" => nil) do
+      get "/api/v1/auth/me", headers: { "Authorization" => "Bearer test_token_#{user.id}" }
+      assert_response :unauthorized
+      get "/api/demo/profile"
+      assert_response :unauthorized
+      post "/api/demo/mia/messages", params: { message: "hello" }, as: :json
+      assert_response :unauthorized
+    end
+  end
+
   test "invalid and unavailable credentials have different statuses" do
     with_workos do
       with_workos_http do

@@ -1,7 +1,7 @@
 # This file should be idempotent. Do not seed real client financial data.
 #
 # Local/deployment bootstrap admins are invite records only. The user still signs
-# in through Clerk with the same email, then the API links their Clerk ID.
+# in through WorkOS with the same email, then the API links their WorkOS identity.
 #
 # Always seeded for Household CFO ownership:
 #   shimizutechnology@gmail.com

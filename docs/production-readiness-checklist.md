@@ -47,7 +47,7 @@ References used:
 3. Register the exact `https://<domain>/api/auth/callback` redirect, approved sign-out URLs, and `/login` as the initiate-login URI for each production host.
 4. Set keys:
    - Netlify: `VITE_WORKOS_CLIENT_ID=client_...` (optionally `VITE_AUTH_PROVIDER=workos`)
-   - Render: `WORKOS_CLIENT_ID=client_...`, `WORKOS_API_KEY=sk_live_...` (optionally `AUTH_PROVIDER=workos`; any other value fails closed)
+   - Render: `AUTH_PROVIDER=workos` (required on hosted environments; any other value fails closed), `WORKOS_CLIENT_ID=client_...`, `WORKOS_API_KEY=sk_live_...`
 5. Remove any leftover `CLERK_*`, `VITE_CLERK_PUBLISHABLE_KEY`, and `AUTH_PUBLIC_PROVIDER` values; they are no longer read.
 6. Seed or create the owner/admin user, then use the Admin tab for cohorts and participant invites.
 7. Smoke test: invited user can sign in with an email code and with Google; an uninvited user is rejected by `/api/v1/auth/me`.

@@ -26,7 +26,7 @@ gem "kamal", require: false
 # Add HTTP asset caching/compression and X-Sendfile acceleration to Puma [https://github.com/basecamp/thruster/]
 gem "thruster", require: false
 
-# Verify Clerk JWTs and fetch public signing keys/profile fallbacks
+# Verify WorkOS session JWTs against their public signing keys
 gem "httparty", "~> 0.24.2"
 gem "jwt", "~> 3.2"
 # Hosted AuthKit authorization, PKCE, and server-managed session exchanges

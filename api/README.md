@@ -1,12 +1,12 @@
 # Household CFO API
 
-Rails API for Household CFO Method powered by VERA. It serves the demo-safe Mia/Household CFO preview data today and now includes the Clerk-backed user/auth foundation for cohort access.
+Rails API for Household CFO Method powered by VERA. It serves the demo-safe Mia/Household CFO preview data today and includes WorkOS-backed, invite-only sign-in for cohort access.
 
 ## Stack
 
 - Ruby/Rails API
 - PostgreSQL
-- Clerk JWT verification through JWKS
+- WorkOS session verification (server-managed sessions behind same-origin `/api/auth/*`)
 - Resend invite email delivery for admin-created invitations
 - OpenRouter optional fallback for Mia responses plus server-side financial document extraction and voice transcription
 - Private AWS S3 document storage (custom service, no ActiveStorage)
@@ -42,9 +42,9 @@ Runtime retrieval is deterministic and bounded to six items and 6,000 UTF-8 byte
 
 A locale label alone supplies no dialect, slang, or cultural persona. Regional language and context can affect presentation only when a coach writes, reviews, approves, packs, attaches, previews, and publishes the specific material.
 
-## Clerk setup
+## Sign-in setup (WorkOS)
 
-Set either `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API environment. For invite-only linking by email, also set `CLERK_SECRET_KEY` so the API can fetch Clerk profile/email details when the default token omits them.
+WorkOS is the only sign-in provider. On **every hosted environment** (production, staging, previews) set `AUTH_PROVIDER=workos`, `WORKOS_CLIENT_ID`, and `WORKOS_API_KEY`. An explicit `AUTH_PROVIDER` keeps the sample-data `/api/demo/*` routes closed even if the WorkOS keys are missing; any value other than `workos` fails closed. Leave all three unset only for local preview mode on a developer machine. See `docs/workos-migration-runbook.md` for redirect URIs and session details.
 
 Useful local bootstrap options:
 
@@ -52,11 +52,9 @@ Useful local bootstrap options:
 bin/rails db:seed # creates the shimizutechnology@gmail.com admin invite when missing
 SEED_ADMIN_EMAIL=you@example.com bin/rails db:seed
 SEED_ADMIN_EMAILS=you@example.com,partner@example.com bin/rails db:seed
-# or temporarily:
-CLERK_BOOTSTRAP_ADMIN_EMAILS=you@example.com
 ```
 
-After the owner admin signs in, use the Admin tab in the web app to create cohorts and invite additional admins, coaches, and participants. Do not commit Clerk keys, Resend keys, participant financial data, or private documents.
+After the owner admin signs in, use the Admin tab in the web app to create cohorts and invite additional admins, coaches, and participants. Do not commit WorkOS keys, Resend keys, participant financial data, or private documents.
 
 ## Private document imports
 
@@ -96,7 +94,7 @@ RESEND_FROM_EMAIL="Household CFO <noreply@example.com>"
 FRONTEND_URL=http://localhost:5173
 ```
 
-The Admin UI requests invite email delivery by default. If Resend is not configured, invitation records are still created for Clerk email-linking, but the email status is stored as `failed` with a clear configuration error. Admins can explicitly uncheck email delivery for a create action; that intentional no-send path is stored as `skipped`. Each send/resend writes an immutable `invitation_email_attempts` audit row while summary status fields stay on `users` for the Admin UI.
+The Admin UI requests invite email delivery by default. If invitation delivery is not configured, invitation records are still created for email linking at first WorkOS sign-in, but the email status is stored as `failed` with a clear configuration error. Admins can explicitly uncheck email delivery for a create action; that intentional no-send path is stored as `skipped`. Each send/resend writes an immutable `invitation_email_attempts` audit row while summary status fields stay on `users` for the Admin UI.
 
 ## Tests and checks
 
@@ -110,7 +108,7 @@ bundle exec bundler-audit check --update
 
 ## Current API shape
 
-- `GET /api/v1/auth/me` — verifies the Clerk bearer token and returns the local user.
+- `GET /api/v1/auth/me` — verifies the WorkOS bearer token and returns the invited local user.
 - `GET /api/v1/workspace` — returns the authenticated user's real Household CFO workspace from Postgres.
 - `PATCH /api/v1/workspace/setup` — saves the first real-mode manual-entry numbers for a participant household.
 - `GET /api/v1/profile`, `/dashboard`, `/budget`, `/wealth`, `/cfo-filter`, `/optionality` — real calculated workspace views.
@@ -123,5 +121,5 @@ bundle exec bundler-audit check --update
 - `GET/POST/PATCH/DELETE /api/v1/admin/content_items` and `POST /api/v1/admin/content_items/:id/approve` — coach-owned or administrator-owned manual content drafts and explicit immutable approvals.
 - `GET/POST/PATCH/DELETE /api/v1/admin/content_packs` and `POST /api/v1/admin/content_packs/:id/publish` — ordered collections pinned to exact approved item versions and published as immutable pack versions.
 - `PATCH /api/v1/admin/personas/:persona_id/content_packs` — replaces a persona draft's exact pack-version links, advances its draft revision, and invalidates any prior preview.
-- `GET /api/demo/*` — demo-safe Household CFO screens; public only when Clerk is not configured for local preview.
+- `GET /api/demo/*` — demo-safe Household CFO screens; public only outside production when no sign-in provider is selected or configured (local preview).
 - `POST /api/demo/mia/messages` — demo Mia response endpoint; uses OpenRouter when configured and deterministic fallback otherwise.
