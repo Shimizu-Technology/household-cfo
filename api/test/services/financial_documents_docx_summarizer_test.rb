@@ -37,4 +37,53 @@ class FinancialDocumentsDocxSummarizerTest < ActiveSupport::TestCase
   ensure
     file&.unlink
   end
+
+  test "refuses a zip-bomb document before inflating it" do
+    with_docx("word/document.xml" => "0" * 4.megabytes) do |path|
+      error = assert_raises(FinancialDocuments::SourceSafety::Unreadable) do
+        FinancialDocuments::DocxSummarizer.new(file_path: path, filename: "bomb.docx").call
+      end
+      assert_equal "ooxml_unsafe", error.reason
+    end
+  end
+
+  test "refuses too many entries, traversal names and oversized or DTD-bearing XML" do
+    many = (FinancialDocuments::SourceSafety::OOXML_MAX_ENTRIES + 1).times.to_h { |index| [ "word/media/part#{index}.xml", "<x/>" ] }
+    oversized = "<w:document>#{SecureRandom.alphanumeric(FinancialDocuments::SourceSafety::OOXML_MAX_XML_BYTES)}</w:document>"
+    {
+      "ooxml_too_many_entries" => many,
+      "ooxml_unsafe" => { "../word/document.xml" => "<x/>" },
+      "ooxml_entry_too_large" => { "word/document.xml" => oversized }
+    }.each do |reason, entries|
+      with_docx(entries) do |path|
+        error = assert_raises(FinancialDocuments::SourceSafety::Unreadable) do
+          FinancialDocuments::DocxSummarizer.new(file_path: path, filename: "hostile.docx").call
+        end
+        assert_equal reason, error.reason
+      end
+    end
+
+    with_docx("word/document.xml" => '<!DOCTYPE x [<!ENTITY a "aaaa">]><w:document>&a;</w:document>') do |path|
+      error = assert_raises(FinancialDocuments::SourceSafety::Unreadable) do
+        FinancialDocuments::DocxSummarizer.new(file_path: path, filename: "entity.docx").call
+      end
+      assert_equal "ooxml_unsafe", error.reason
+    end
+  end
+
+  private
+
+  def with_docx(entries)
+    file = Tempfile.new([ "hostile", ".docx" ])
+    file.close
+    Zip::OutputStream.open(file.path) do |zip|
+      { "[Content_Types].xml" => "<Types/>" }.merge(entries).each do |name, value|
+        zip.put_next_entry(name)
+        zip.write(value)
+      end
+    end
+    yield file.path
+  ensure
+    file&.close!
+  end
 end

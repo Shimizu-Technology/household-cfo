@@ -26,6 +26,8 @@ module FinancialDocuments
     }.freeze
     BASE64_READ_CHUNK_BYTES = 49_152
     MAX_DATA_URL_SOURCE_BYTES = UploadLimits::INLINE_SOURCE_MAX_BYTES
+    PDF_ENCRYPTED_MESSAGE = "This PDF is password-protected. Download an unlocked copy from the bank or export the transactions as CSV, then upload it again."
+    PDF_UNPARSEABLE_MESSAGE = "We couldn't open this PDF. Download a fresh copy from your bank, or export the transactions as CSV or take a screenshot, then upload it again."
 
     Result = Data.define(:success, :data, :error, :metadata) do
       def success?
@@ -49,6 +51,8 @@ module FinancialDocuments
 
       with_source_tempfile(document_import) do |tempfile|
         progress!
+        check_source_safety!(document_import, tempfile.path)
+        progress!
         structured_result = structured_spreadsheet_result(document_import, tempfile.path)
         return Result.new(success: true, data: structured_result.data, error: nil, metadata: { extraction_mode: "structured_spreadsheet" }) if structured_result&.success?
         return failure(structured_result.error) if terminal_structured_spreadsheet_error?(structured_result)
@@ -66,6 +70,9 @@ module FinancialDocuments
 
         extract_openrouter_document(document_import, tempfile.path)
       end
+    rescue SourceSafety::Unreadable => e
+      Rails.logger.warn("[FinancialDocuments::Extractor] unreadable source for import #{document_import&.id}: #{e.reason}")
+      failure(unreadable_source_message(e))
     rescue StandardError => e
       Rails.logger.warn("[FinancialDocuments::Extractor] extraction failed for import #{document_import&.id}: #{e.class}")
       failure("Document extraction could not finish. Try reprocessing the document.")
@@ -86,7 +93,8 @@ module FinancialDocuments
       tempfile = Tempfile.new([ "financial_document_import_#{document_import.id}", extension ])
       tempfile.binmode
 
-      downloaded = S3Service.download_to_io(document_import.s3_key, tempfile)
+      max_bytes = UploadLimits.max_bytes(filename: document_import.filename, content_type: document_import.content_type)
+      downloaded = SourceSafety.download(document_import.s3_key, tempfile, max_bytes: max_bytes)
       return failure("Could not download document source") unless downloaded
 
       tempfile.flush
@@ -94,6 +102,26 @@ module FinancialDocuments
       yield tempfile
     ensure
       tempfile&.close!
+    end
+
+    # Every parser below runs in this process (the web process, in
+    # production). Bound the file first; PDFs are fully parsed once in the
+    # sandboxed probe so the in-process CombinePDF load is known to finish.
+    def check_source_safety!(document_import, file_path)
+      @pdf_page_count = nil
+      if File.extname(document_import.filename.to_s).downcase.in?(%w[.docx .xlsx])
+        SourceSafety.check_ooxml!(file_path)
+      elsif document_import.pdf?
+        @pdf_page_count = SourceSafety.pdf_page_count!(file_path)
+      end
+    end
+
+    def unreadable_source_message(error)
+      case error.reason
+      when "pdf_encrypted" then PDF_ENCRYPTED_MESSAGE
+      when "pdf_invalid" then PDF_UNPARSEABLE_MESSAGE
+      else SourceSafety::MESSAGE
+      end
     end
 
     def structured_spreadsheet_result(document_import, file_path)
@@ -108,6 +136,9 @@ module FinancialDocuments
 
     def native_statement_result(document_import, file_path)
       return unless document_import.pdf? && document_import.document_kind == "statement"
+      # The native parser is an optional fast path; a PDF whose text cannot
+      # be read within the sandbox limits goes to the regular route instead.
+      return unless SourceSafety.pdf_text_readable?(file_path, max_pages: NativeStatementParser::MAX_PAGES, max_runs: NativeStatementParser::MAX_RUNS)
 
       NativeStatementParser.new(file_path: file_path).call
     end
@@ -152,10 +183,10 @@ module FinancialDocuments
       merge_pdf_batch_results(batch_data, batch_metadata, page_count: page_count)
     rescue CombinePDF::EncryptionError => e
       Rails.logger.warn("[FinancialDocuments::Extractor] encrypted PDF import #{document_import.id}: #{e.class}")
-      failure("This PDF is password-protected. Download an unlocked copy from the bank or export the transactions as CSV, then upload it again.")
+      failure(PDF_ENCRYPTED_MESSAGE)
     rescue CombinePDF::ParsingError => e
       Rails.logger.warn("[FinancialDocuments::Extractor] could not safely parse PDF import #{document_import.id}: #{e.class}")
-      failure("This PDF could not be safely split into complete extraction batches. Download a fresh PDF from the bank or export the transactions as CSV, then upload it again.")
+      failure(PDF_UNPARSEABLE_MESSAGE)
     end
 
     def pdf_batch_pages(document_import)
@@ -241,7 +272,7 @@ module FinancialDocuments
       batch = batch_label.to_s.match(/pages (\d+)-(\d+) of (\d+)/)
       return { expected_page_count: batch[3].to_i, processed_pages: (batch[1].to_i..batch[2].to_i).to_a } if batch
 
-      count = CombinePDF.load(file_path).pages.count
+      count = @pdf_page_count || CombinePDF.load(file_path).pages.count
       { expected_page_count: count, processed_pages: (1..count).to_a }
     end
 
