@@ -44,6 +44,9 @@ module MiaEvals
       def connect
         return super unless address.to_s.end_with?(PROVIDER_HOST)
 
+        # A slow local network shouldn't decide a model comparison; production keeps
+        # its own timeouts. MIA_EVAL_OPEN_TIMEOUT=5 reproduces production exactly.
+        self.open_timeout = [ open_timeout.to_f, LiveRunner.local_open_timeout ].max
         started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         begin
           super
@@ -57,6 +60,10 @@ module MiaEvals
     class << self
       def provider_calls
         @provider_calls ||= []
+      end
+
+      def local_open_timeout
+        ENV.fetch("MIA_EVAL_OPEN_TIMEOUT", "15").to_f
       end
 
       def elapsed_ms(started_at)
