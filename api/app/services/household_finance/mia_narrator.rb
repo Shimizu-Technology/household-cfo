@@ -439,7 +439,7 @@ module HouseholdFinance
         amounts = currency_cents_from_text(relevant_clause)
         next false if amounts.empty?
 
-        approved = mention.fetch(:category).fetch(:amounts)
+        approved = mention.fetch(:category).fetch(:amounts) + user_stated_cents
         amounts.any? { |amount| approved.exclude?(amount) } || incorrect_category_metric?(relevant_clause, mention.fetch(:category))
       end
     end
@@ -455,23 +455,50 @@ module HouseholdFinance
         next false unless metric
 
         key = metric.downcase.start_with?("actual") ? :actual : metric.downcase.to_sym
-        expected = category.fetch(:metrics)[key]
-        expected.present? && expected != amount
+        expected = Array(category.fetch(:metrics)[key])
+        expected.any? && expected.exclude?(amount) && user_stated_cents.exclude?(amount)
       end
     end
 
+    # Every approved figure for each category, merged across the plan summary, the
+    # spending report (which may be a different month), and the draft's own
+    # "if approved" projection, so a correct figure from any of them is accepted.
     def approved_category_facts
-      summaries = [ answer_packet[:annual_plan_summary], answer_packet[:spending_report_summary] ].compact
-      summaries.flat_map { |summary| Array(summary[:top_categories]) }.filter_map do |category|
-        name = category[:name].to_s.strip
-        next if name.blank?
+      @approved_category_facts ||= begin
+        rows = [ answer_packet[:annual_plan_summary], answer_packet[:spending_report_summary] ].compact
+          .flat_map { |summary| Array(summary[:top_categories]) }
+          .map { |category| [ category[:name], category.slice(:planned, :actual, :remaining, :pending) ] }
+        rows += draft_impact_rows
+        rows.each_with_object({}) do |(name, values), facts|
+          name = name.to_s.strip
+          next if name.blank?
 
-        metrics = %i[planned actual remaining pending].filter_map do |key|
-          value = category[key]
-          [ key, HouseholdFinance::Money.cents(value) ] unless value.nil?
-        end
-        { name: name, amounts: metrics.map(&:last).uniq, metrics: metrics.to_h } if metrics.any?
+          fact = facts[name.downcase] ||= { name: name, amounts: [], metrics: Hash.new { |hash, key| hash[key] = [] } }
+          values.each do |key, value|
+            next if value.nil?
+
+            cents = value.is_a?(Numeric) ? HouseholdFinance::Money.cents(value) : currency_cents_from_text(value).first
+            next unless cents
+
+            fact[:amounts] |= [ cents ]
+            fact[:metrics][key] |= [ cents ]
+          end
+        end.values.select { |fact| fact[:amounts].any? }
       end
+    end
+
+    def draft_impact_rows
+      Array(answer_packet.dig(:transaction_draft, :budget_impacts_if_approved)).map do |impact|
+        [ impact[:category_name], {
+          planned: impact[:planned], actual: impact[:actual], pending: impact[:other_pending], draft: impact[:draft_amount],
+          projected: impact[:projected_if_approved], remaining: impact[:remaining_if_approved]
+        } ]
+      end
+    end
+
+    # Amounts the participant stated themselves ("Set Dining Out to $250").
+    def user_stated_cents
+      @user_stated_cents ||= currency_cents_from_text(user_message)
     end
 
     def incorrect_transaction_relationship?(content)

@@ -1270,7 +1270,52 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "accepts a category figure from the spending report month even when the plan summary is a different month" do
+    narrated = "For June 2026, confirmed spending is $425. Your top spending categories were Groceries at $229, Dining Out at $176, and Software at $20. Next CFO move: review your June transactions."
+    packet = {
+      kind: "spending_report", fallback_response: "June spending was $425.", write_state: "no_write",
+      annual_plan_summary: { top_categories: [ { name: "Groceries", planned: 650, actual: 98, remaining: 552 }, { name: "Dining Out", planned: 310, actual: 45, remaining: 265 } ] },
+      spending_report_summary: { top_categories: [ { name: "Groceries", planned: 650, actual: 229, remaining: 421 }, { name: "Dining Out", planned: 310, actual: 176, remaining: 134 }, { name: "Software", planned: 100, actual: 20, remaining: 80 } ] }
+    }
+
+    assert_equal narrated, narrate(narrated, packet, "How did I do in June?")
+    assert_equal "June spending was $425.", narrate(narrated.sub("$229", "$300"), packet, "How did I do in June?")
+  end
+
+  test "accepts the draft's own if-approved projection and still rejects other figures" do
+    narrated = "I drafted McDonald's for $25 in Dining Out for your review. If you approve it, the Dining Out category will have $218 remaining in its $310 plan. Month-to-date actuals will not change until you confirm this draft."
+    packet = {
+      kind: "transaction_draft", fallback_response: "I drafted McDonald's for $25 for your review.", write_state: "draft_created",
+      annual_plan_summary: { top_categories: [ { name: "Dining Out", planned: 310, actual: 45, remaining: 265, pending: 22 } ] },
+      transaction_draft: {
+        merchant: "McDonald's", amount: "$25.00", category: "Dining Out", status: "pending",
+        budget_impacts_if_approved: [ { category_name: "Dining Out", draft_amount: "$25.00", planned: "$310.00", actual: "$45.00", other_pending: "$22.00", projected_if_approved: "$92.00", remaining_if_approved: "$218.00" } ]
+      }
+    }
+
+    assert_equal narrated, narrate(narrated, packet, "I spent $25 at McDonald's.")
+    assert_equal "I drafted McDonald's for $25 for your review.", narrate(narrated.sub("$218", "$199"), packet, "I spent $25 at McDonald's.")
+  end
+
+  test "accepts an amount the participant stated for a category" do
+    narrated = "I drafted setting Dining Out to $250 for July 2026. Actual spending does not change until you review and apply this draft. Next CFO move: review the draft card."
+    packet = {
+      kind: "budget_action", fallback_response: "I drafted the Dining Out change for review.", write_state: "proposal_created",
+      annual_plan_summary: { top_categories: [ { name: "Dining Out", planned: 310, actual: 45, remaining: 265 } ] },
+      budget_action: { status: "proposed", title: "Set Dining Out to $250", items: [ { action_type: "set_monthly_amount", label: "Dining Out July 2026", before: { amount: "$310.00" }, after: { amount: "$250.00" } } ] }
+    }
+
+    assert_equal narrated, narrate(narrated, packet, "Set Dining Out to $250 for July 2026.")
+    assert_equal "I drafted the Dining Out change for review.", narrate(narrated.sub("$250", "$275"), packet, "Set Dining Out to $250 for July 2026.")
+  end
+
   private
+
+  def narrate(content, packet, user_message)
+    with_net_http_start_stub(ok_response(choices: [ { message: { content: content } } ])) do
+      HouseholdFinance::MiaNarrator.new(user_message: user_message, answer_packet: packet, api_key: "test-key").call
+    end
+  end
 
   def ok_response(payload)
     Net::HTTPOK.new("1.1", "200", "OK").tap do |response|
