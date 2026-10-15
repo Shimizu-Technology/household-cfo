@@ -22,7 +22,7 @@ describe('participant challenge HTTP helpers', () => {
   })
   it('rejects missing identity, invalid records and invalid pages before reading or approving', async () => {
     const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock)
-    await expect(stageSavingsPlan({ target_cents: null, expected_plan_version_id: null }, '')).rejects.toThrow('identity')
+    await expect(stageSavingsPlan({ target_cents: null, expected_plan_version_id: null }, '')).rejects.toThrow('Something went wrong. Try again.')
     expect(() => approveSavingsPlan(-1, { accepted: true, expected_draft_lock_version: 0, expected_plan_version_id: null }, 'valid-key')).toThrow('valid savings record')
     await expect(fetchSavingsPage('entries', -1)).rejects.toThrow('Invalid savings history page')
     expect(fetchMock).not.toHaveBeenCalled()

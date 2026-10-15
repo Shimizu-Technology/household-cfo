@@ -5,4 +5,4 @@ export function retainRequestIdentity(storageKey: string, serialized: string): b
     return sessionStorage.getItem(storageKey) === serialized
   } catch { return false }
 }
-export const requestStorageError = 'This browser cannot retain the request identity. No change was submitted. Allow session storage before trying again.'
+export const requestStorageError = 'This browser couldn’t keep a reference number for this change. No change was submitted. Allow session storage before trying again.'

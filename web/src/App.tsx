@@ -166,6 +166,7 @@ import { BrandFooter, BrandLogo } from './components/BrandChrome'
 import { AuthLanding } from './components/AuthLanding'
 import { BrandDocument } from './components/BrandDocument'
 import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload, trackPilotWorkflowFailure } from './lib/analytics'
+import { participantErrorMessage } from './lib/participantErrorMessage'
 // Must stay the last import: keyboard-aware dialog sizing overrides component styles.
 import './dialogViewport.css'
 
@@ -903,7 +904,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentImports((current) => mergeImportSummariesWithDetails(imports, current))
     } catch (caught) {
       if (!quiet) {
-        setDocumentsError(caught instanceof Error ? caught.message : 'Document imports could not be loaded.')
+        setDocumentsError(participantErrorMessage(caught, 'Document imports could not be loaded.'))
       }
     } finally {
       if (!quiet) setDocumentsLoading(false)
@@ -933,7 +934,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         setOlderServerMessageCount(mia.older_message_count)
       }
     } catch (caught) {
-      if (!quiet) setMiaError(caught instanceof Error ? caught.message : `${assistantName} chat could not be refreshed.`)
+      if (!quiet) setMiaError(participantErrorMessage(caught, `${assistantName} chat could not be refreshed.`))
     }
   }, [assistantName, chatStorageKey, isRealWorkspace, miaLoading])
 
@@ -958,7 +959,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       if (requestId === spendingReportRequestRef.current) setSpendingReport(report)
     } catch (caught) {
       if (requestId === spendingReportRequestRef.current) {
-        setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+        setSpendingReportError(participantErrorMessage(caught, 'Spending report could not be loaded.'))
       }
     } finally {
       if (!quiet && requestId === spendingReportRequestRef.current) setSpendingReportLoading(false)
@@ -1094,7 +1095,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         setDocumentImports((current) => replaceImport(current, documentImport))
       })
       .catch((caught) => {
-        if (!cancelled) setDocumentsError(caught instanceof Error ? caught.message : 'Document review details could not be loaded.')
+        if (!cancelled) setDocumentsError(participantErrorMessage(caught, 'Document review details could not be loaded.'))
       })
 
     return () => {
@@ -1173,7 +1174,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         if (!cancelled && requestId === spendingReportRequestRef.current) setSpendingReport(report)
       } catch (caught) {
         if (!cancelled && requestId === spendingReportRequestRef.current) {
-          setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+          setSpendingReportError(participantErrorMessage(caught, 'Spending report could not be loaded.'))
         }
       } finally {
         if (!cancelled && requestId === spendingReportRequestRef.current) setSpendingReportLoading(false)
@@ -1340,7 +1341,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       window.setTimeout(() => composerRef.current?.focus(), 0)
     } catch (error) {
       trackPilotWorkflowFailure('voice', 'transcription')
-      setMiaError(error instanceof Error ? error.message : `Voice transcription failed. Try again or type your note for ${assistantName}.`)
+      setMiaError(participantErrorMessage(error, `Voice transcription failed. Try again or type your note for ${assistantName}.`))
     } finally {
       setVoiceTranscribing(false)
     }
@@ -1416,7 +1417,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       trackPilotWorkflowFailure('voice', 'microphone_access')
       stopVoiceStream()
       setVoiceRecording(false)
-      setMiaError(error instanceof Error ? error.message : `Microphone access was blocked. Allow microphone access or type your note for ${assistantName}.`)
+      setMiaError(participantErrorMessage(error, `Microphone access was blocked. Allow microphone access or type your note for ${assistantName}.`))
     }
   }, [assistantName, handleVoiceRecordingComplete, isRealWorkspace, miaLoading, stopVoiceStream, voiceRecording, voiceTranscribing])
 
@@ -1990,7 +1991,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         miaRetryRequestRef.current = pendingRetryRequest
         if (isRealWorkspace) saveMiaRetryRequest(chatStorageKey, pendingRetryRequest)
       }
-      setMiaError(caught instanceof Error ? caught.message : `${assistantName} could not send that message. Please try again.`)
+      setMiaError(participantErrorMessage(caught, `${assistantName} could not send that message. Please try again.`))
       const retryAttachments = caught instanceof MiaAttachmentError ? caught.attachments : preparedAttachmentsForRetry
       setPendingMiaAttachments((current) => [...retryAttachments, ...current])
     } finally {
@@ -2057,7 +2058,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       })
     } catch (caught) {
       historyExpandedRef.current = historyWasExpanded
-      setMiaError(caught instanceof Error ? caught.message : `Earlier ${assistantName} messages could not be loaded.`)
+      setMiaError(participantErrorMessage(caught, `Earlier ${assistantName} messages could not be loaded.`))
     } finally {
       setOlderMessagesLoading(false)
     }
@@ -2083,7 +2084,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
       })
     } catch (caught) {
-      setMiaError(caught instanceof Error ? caught.message : `${assistantName} chat could not be cleared. Please try again.`)
+      setMiaError(participantErrorMessage(caught, `${assistantName} chat could not be cleared. Please try again.`))
     } finally {
       setMiaClearing(false)
     }
@@ -2123,7 +2124,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setNewBudgetCategory(blankBudgetCategoryDraft())
       captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be created.')
+      setBudgetError(participantErrorMessage(caught, 'Budget category could not be created.'))
     } finally {
       endBudgetAction()
     }
@@ -2208,7 +2209,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       await refreshWorkspaceAfterIncomeChange(budget, 'budget')
       captureAnalyticsEvent(entryId ? 'income_schedule_updated' : 'income_schedule_created', { entry_type: values.entry_type })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'The income timeline could not be saved.')
+      setBudgetError(participantErrorMessage(caught, 'The income timeline could not be saved.'))
       throw caught
     } finally {
       endBudgetAction()
@@ -2228,7 +2229,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       await refreshWorkspaceAfterIncomeChange(budget, 'budget')
       captureAnalyticsEvent('income_schedule_deleted', { entry_type: entry.entry_type })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'The income timeline entry could not be removed.')
+      setBudgetError(participantErrorMessage(caught, 'The income timeline entry could not be removed.'))
     } finally {
       endBudgetAction()
     }
@@ -2253,7 +2254,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       await refreshWorkspaceAfterIncomeChange(budget, 'profile')
       captureAnalyticsEvent(sourceId ? 'income_source_updated' : 'income_source_created', { source_type: values.source_type })
     } catch (caught) {
-      setSetupError(caught instanceof Error ? caught.message : 'The income source could not be saved.')
+      setSetupError(participantErrorMessage(caught, 'The income source could not be saved.'))
       throw caught
     } finally {
       endBudgetAction()
@@ -2273,7 +2274,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       await refreshWorkspaceAfterIncomeChange(budget, 'profile')
       captureAnalyticsEvent('income_source_archived', { source_type: source.source_type })
     } catch (caught) {
-      setSetupError(caught instanceof Error ? caught.message : 'The income source could not be ended.')
+      setSetupError(participantErrorMessage(caught, 'The income source could not be ended.'))
       throw caught
     } finally {
       endBudgetAction()
@@ -2293,7 +2294,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       await refreshWorkspaceAfterIncomeChange(budget, 'profile')
       captureAnalyticsEvent('income_source_restored', { source_type: source.source_type })
     } catch (caught) {
-      setSetupError(caught instanceof Error ? caught.message : 'The income source could not be restored.')
+      setSetupError(participantErrorMessage(caught, 'The income source could not be restored.'))
     } finally {
       endBudgetAction()
     }
@@ -2327,7 +2328,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setBudgetView(requestedView)
       setWorkspaceRefreshNotice(current => current?.kind === 'selected' || normalizedYear === data.dashboard.action_center.current_year ? null : current)
     } catch (caught) {
-      if (isCurrent() && generation === financialMutationGenerationRef.current) setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded. Your previous period remains selected.')
+      if (isCurrent() && generation === financialMutationGenerationRef.current) setBudgetError(participantErrorMessage(caught, 'Budget year could not be loaded. Your previous period remains selected.'))
     } finally {
       if (isCurrent()) setPendingBudgetView(null)
     }
@@ -2368,7 +2369,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         ]).size,
       })
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Budget edits could not be saved.'
+      const message = participantErrorMessage(caught, 'Budget edits could not be saved.')
       if (appliedChanges > 0) {
         setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current } : { type: 'financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current })
         refreshSpendingReportForBudget(latestBudget)
@@ -2402,7 +2403,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       await refreshCurrentHomeAfterSharedChange(budget)
       captureAnalyticsEvent('budget_category_archived', { stack_key: row.stack_key })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be archived.')
+      setBudgetError(participantErrorMessage(caught, 'Budget category could not be archived.'))
     } finally {
       endBudgetAction()
     }
@@ -2423,7 +2424,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       await refreshCurrentHomeAfterSharedChange(budget)
       captureAnalyticsEvent('budget_category_restored', { category_id: categoryId })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be restored.')
+      setBudgetError(participantErrorMessage(caught, 'Budget category could not be restored.'))
     } finally {
       endBudgetAction()
     }
@@ -2457,7 +2458,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'mia_budget_action', resolution: 'applied' })
     } catch (caught) {
       trackPilotWorkflowFailure('mia_budget_review', 'apply')
-      const message = caught instanceof Error ? caught.message : `${assistantName} action draft could not be applied.`
+      const message = participantErrorMessage(caught, `${assistantName} action draft could not be applied.`)
       setBudgetError(message)
       setMiaError(message)
     } finally {
@@ -2487,7 +2488,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'mia_budget_action', resolution: 'canceled' })
     } catch (caught) {
       trackPilotWorkflowFailure('mia_budget_review', 'cancel')
-      const message = caught instanceof Error ? caught.message : `${assistantName} action draft could not be canceled.`
+      const message = participantErrorMessage(caught, `${assistantName} action draft could not be canceled.`)
       setBudgetError(message)
       setMiaError(message)
     } finally {
@@ -2512,7 +2513,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       replaceMiaHistory(response.workspace.mia)
       captureAnalyticsEvent('transaction_draft_created', { source_type: 'manual_ui' })
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Transaction review could not be created.'
+      const message = participantErrorMessage(caught, 'Transaction review could not be created.')
       setBudgetError(message)
       throw new Error(message, { cause: caught })
     } finally {
@@ -2538,7 +2539,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be updated.'
+      const message = participantErrorMessage(caught, 'Transaction draft could not be updated.')
       setBudgetError(message)
       setDocumentsError(message)
       throw new Error(message, { cause: caught })
@@ -2570,7 +2571,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'confirmed' })
     } catch (caught) {
       trackPilotWorkflowFailure('transaction_review', 'confirm')
-      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be confirmed.'
+      const message = participantErrorMessage(caught, 'Transaction draft could not be confirmed.')
       setBudgetError(message)
       setDocumentsError(message)
     } finally {
@@ -2601,7 +2602,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'ignored' })
     } catch (caught) {
       trackPilotWorkflowFailure('transaction_review', 'ignore')
-      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.'
+      const message = participantErrorMessage(caught, 'Transaction draft could not be ignored.')
       setBudgetError(message)
       setDocumentsError(message)
     } finally {
@@ -2648,7 +2649,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft_bulk', resolution, draft_count: ids.length })
     } catch (caught) {
       trackPilotWorkflowFailure('transaction_review', `bulk_${resolution}`)
-      const message = caught instanceof Error ? caught.message : `Transaction reviews could not be ${resolution === 'confirm' ? 'confirmed' : 'ignored'}.`
+      const message = participantErrorMessage(caught, `Transaction reviews could not be ${resolution === 'confirm' ? 'confirmed' : 'ignored'}.`)
       setBudgetError(message)
       setDocumentsError(message)
       setMiaError(message)
@@ -2678,7 +2679,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         source_type: draft.source_type ?? 'statement',
       })
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be matched.'
+      const message = participantErrorMessage(caught, 'Transaction draft could not be matched.')
       setBudgetError(message)
       setDocumentsError(message)
     } finally {
@@ -2711,7 +2712,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         source_type: draft.source_type ?? 'manual_chat',
       })
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be reopened.'
+      const message = participantErrorMessage(caught, 'Transaction draft could not be reopened.')
       setBudgetError(message)
       setDocumentsError(message)
     } finally {
@@ -2752,7 +2753,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     } catch (caught) {
       trackDocumentUpload(kind, 'failed', uploadFile)
-      const uploadError = caught instanceof Error ? caught.message : 'Document could not be uploaded.'
+      const uploadError = participantErrorMessage(caught, 'Document could not be uploaded.')
       setDocumentsError(uploadError)
       if (origin === 'mia') setMiaError(uploadError)
     } finally {
@@ -2826,7 +2827,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         })
       } catch (caught) {
         trackDocumentUpload(attachment.document_kind, 'failed', attachment.file)
-        const message = caught instanceof Error ? caught.message : 'Document upload failed'
+        const message = participantErrorMessage(caught, 'Document upload failed')
         throw new MiaAttachmentUploadError(message, preparedAttachments, { cause: caught })
       } finally {
         setUploadingKind(null)
@@ -2905,7 +2906,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         }
       }
     } catch (caught) {
-      setDocumentsError(caught instanceof Error ? caught.message : 'Extracted value could not be updated.')
+      setDocumentsError(participantErrorMessage(caught, 'Extracted value could not be updated.'))
     } finally {
       setItemSavingIds((current) => {
         const next = new Set(current)
@@ -2956,7 +2957,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         document_kind: documentImport.document_kind,
         selected_count: itemIds.length,
       })
-      setDocumentsError(caught instanceof Error ? caught.message : 'Selected values could not be applied.')
+      setDocumentsError(participantErrorMessage(caught, 'Selected values could not be applied.'))
     } finally {
       setDocumentAction(null)
       endBudgetAction()
@@ -2972,7 +2973,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentImports((current) => replaceImport(current, reprocessedImport))
       setDocumentsNotice(`Reprocessing started. The review panel will update when ${assistantName} finishes reading the document.`)
     } catch (caught) {
-      setDocumentsError(caught instanceof Error ? caught.message : 'Document could not be reprocessed.')
+      setDocumentsError(participantErrorMessage(caught, 'Document could not be reprocessed.'))
     } finally {
       setDocumentAction(null)
     }
@@ -2989,7 +2990,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentImports((current) => replaceImport(current, updatedImport))
       setDocumentsNotice('Original file removed. Import history, extracted results, and saved household values remain.')
     } catch (caught) {
-      setDocumentsError(caught instanceof Error ? caught.message : 'Document source could not be deleted.')
+      setDocumentsError(participantErrorMessage(caught, 'Document source could not be deleted.'))
     } finally {
       setDocumentAction(null)
     }
@@ -3007,7 +3008,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setSelectedImportId((current) => (current === documentImport.id ? null : current))
       setDocumentsNotice('Upload, original file, and import record deleted.')
     } catch (caught) {
-      setDocumentsError(caught instanceof Error ? caught.message : 'Document import could not be deleted.')
+      setDocumentsError(participantErrorMessage(caught, 'Document import could not be deleted.'))
     } finally {
       setDocumentAction(null)
     }
@@ -3031,7 +3032,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentImports((current) => replaceImport(current, documentImport))
       setPreviewImport(documentImport)
     } catch (caught) {
-      setDocumentsError(caught instanceof Error ? caught.message : 'Document source could not be opened.')
+      setDocumentsError(participantErrorMessage(caught, 'Document source could not be opened.'))
     }
   }
 
@@ -3074,7 +3075,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     } catch (caught) {
       trackPilotWorkflowFailure('setup', 'save')
       captureAnalyticsEvent('workspace_setup_save_failed')
-      setSetupError(caught instanceof Error ? caught.message : 'Your numbers could not be saved. Please try again.')
+      setSetupError(participantErrorMessage(caught, 'Your numbers could not be saved. Please try again.'))
     } finally {
       setSetupSaving(false)
     }
@@ -3786,9 +3787,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {activeSection === 'My Profile' && (
         <section className={`screen-grid profile-screen${isFocusedFirstSessionSetup ? ' first-session-setup-screen' : ''}`}>
           <ScreenHeading
-            eyebrow={isFirstSessionUpload ? 'Optional pilot check' : isFocusedFirstSessionSetup ? `Your ${assistantName} kickoff` : 'My Profile'}
+            eyebrow={isFirstSessionUpload ? 'Optional: try a file' : isFocusedFirstSessionSetup ? `Your ${assistantName} kickoff` : 'My Profile'}
             title={isFirstSessionUpload ? 'Test one private file without changing your numbers.' : isFocusedFirstSessionSetup ? `Give ${assistantName} the basics for a useful first answer.` : data.profile.household.name}
-            copy={isFirstSessionUpload ? 'Upload demo-safe evidence, review every extracted draft, and apply only what is right. You can return to the five-field kickoff at any time.' : isFocusedFirstSessionSetup ? `Best estimates are enough. Add money in, essential spending, flexible spending, and one goal; ${assistantName} will help you make sense of the rest.` : data.profile.household.primary_goal}
+            copy={isFirstSessionUpload ? 'Upload a sample or real file, check what Mia found, and apply only what’s right. You can go back to the five starting numbers at any time.' : isFocusedFirstSessionSetup ? `Best estimates are enough. Add money in, essential spending, flexible spending, and one goal; ${assistantName} will help you make sense of the rest.` : data.profile.household.primary_goal}
           />
 
           {isFirstSessionUpload && (
@@ -4014,7 +4015,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <Metric label="Income" value={currency.format(selectedBudgetOutlookMonth?.income ?? budgetForView.monthly_income)} />
               <Metric label="Planned outflow" value={debtMinimumsKnown ? currency.format(selectedBudgetOutlookMonth?.planned_outflow ?? budgetForView.total_monthly_outflow) : 'Not available'} />
               <Metric
-                label={debtMinimumsKnown && (selectedBudgetOutlookMonth?.baseline_surplus ?? budgetForView.baseline_surplus) < 0 ? 'Baseline shortfall' : 'Baseline surplus'}
+                label={debtMinimumsKnown && (selectedBudgetOutlookMonth?.baseline_surplus ?? budgetForView.baseline_surplus) < 0 ? 'Short each month' : 'Left over each month'}
                 value={debtMinimumsKnown ? currency.format(Math.abs(selectedBudgetOutlookMonth?.baseline_surplus ?? budgetForView.baseline_surplus)) : 'Not available'}
               />
             </div>
@@ -4087,7 +4088,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               className="wealth-explainer-metric"
               label="10-year surplus capacity"
               value={debtMinimumsKnown ? currency.format(tenYearSurplusCapacity) : 'Not available'}
-              detail="Today’s positive monthly baseline surplus × 120. This is planning capacity—not confirmed savings, an investment contribution, or a forecast."
+              detail="What’s left over each month today, × 120. This is planning capacity—not confirmed savings, an investment contribution, or a forecast."
             />
             <Metric
               className="wealth-explainer-metric"
@@ -4471,9 +4472,9 @@ function FirstSessionCard({ onChat, onShareAll, onManual, onUpload, onGuide }: {
           <Button variant="secondary" onClick={onManual}>Open the short form</Button>
         </article>
         <article className="first-session-path-secondary">
-          <span>Optional pilot check</span>
+          <span>Optional: try a file</span>
           <h3>Use a file only if it helps</h3>
-          <p>Try a demo-safe budget, statement, pay stub, or receipt. Report any failure; no extracted draft changes your numbers until you approve it.</p>
+          <p>Try a sample or real budget, statement, pay stub, or receipt. If something doesn’t work, tell us. Nothing changes your numbers until you approve it.</p>
           <Button variant="secondary" onClick={onUpload}>Test a private upload</Button>
         </article>
       </div>
@@ -4529,7 +4530,7 @@ function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => v
   const supportHref = brand.support.url ?? (brand.support.email ? `mailto:${brand.support.email}` : null)
   return (
     <aside className="pilot-support-bar" aria-label="Pilot help and feedback">
-      <span><ShieldIcon /> <span>Private pilot workspace</span></span>
+      <span><ShieldIcon /> <span>Private workspace</span></span>
       <div>
         {supportHref && <a className="button button--ghost button--compact" href={supportHref} target={brand.support.url ? '_blank' : undefined} rel={brand.support.url ? 'noreferrer' : undefined}>{brand.support.label ?? 'Support'}</a>}
         <Button variant="ghost" size="compact" onClick={onOpenGuide}><GuideIcon /> Guide</Button>
@@ -4557,11 +4558,11 @@ function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () =
 
   return (
     <div className="pilot-dialog-overlay" role="presentation">
-      <button type="button" className="pilot-dialog-backdrop" aria-label="Close tester guide" onClick={onClose} />
+      <button type="button" className="pilot-dialog-backdrop" aria-label="Close guide" onClick={onClose} />
       <section ref={dialogRef} className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-guide-title" tabIndex={-1}>
         <header>
           <div>
-            <p className="eyebrow">Pilot tester guide</p>
+            <p className="eyebrow">Quick guide</p>
             <h2 id="pilot-guide-title">{savingsChallenge ? 'Your 90-day challenge in three simple moves.' : <>A clear first {assistantName} session in three moves.</>}</h2>
           </div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
@@ -5147,7 +5148,7 @@ function DocumentReviewPanel({
             <h5>{sourceMode === 'typed' ? 'Additional expense reviews' : 'Transaction drafts'}</h5>
             <span>{sourceMode === 'typed' ? fallbackCoverage.total : coverage.total} {sourceMode === 'typed' ? 'loaded additional' : 'proposed'} row{(sourceMode === 'typed' ? fallbackCoverage.total : coverage.total) === 1 ? '' : 's'}</span>
           </div>
-          {sourceMode === 'typed' && <p>Expense drafts without a linked source row remain available here. Decisions change expense actuals, not source accounting approval.</p>}
+          {sourceMode === 'typed' && <p>Expenses that aren’t tied to a statement line stay here. Confirming one updates your spending; it doesn’t approve the statement.</p>}
           <p className="document-review-coverage" role="status">{sourceMode === 'typed' ? `${fallbackCoverage.pending} loaded expense reviews remaining · ${fallbackCoverage.resolved} resolved. Statement source review remains separate.` : `${coverage.pending} transaction review${coverage.pending === 1 ? '' : 's'} remaining · ${coverage.resolved} resolved. ${coverage.pending > 0 ? 'This source still needs review; pending rows do not change actuals.' : 'All transaction rows have a review decision.'}`}</p>
           <TransactionDraftReviewStack
             drafts={fallbackDrafts}
@@ -6331,7 +6332,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
       operationKeys.current.complete(signature)
       setEditingId(null)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'This debt could not be saved. Try again.')
+      setError(participantErrorMessage(caught, 'This debt could not be saved. Try again.'))
     } finally {
       setSaving(false)
     }
@@ -6349,7 +6350,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
       operationKeys.current.complete(signature)
       cancelEdit()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'This debt could not be archived. Try again.')
+      setError(participantErrorMessage(caught, 'This debt could not be archived. Try again.'))
     } finally { setSaving(false) }
   }
 
@@ -6363,7 +6364,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
       await onChanged()
       operationKeys.current.complete(signature)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'This debt could not be restored. Try again.')
+      setError(participantErrorMessage(caught, 'This debt could not be restored. Try again.'))
     } finally { setSaving(false) }
   }
 
@@ -6385,7 +6386,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
       await onChanged()
       operationKeys.current.complete(signature)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Debt tracking could not be updated. Try again.')
+      setError(participantErrorMessage(caught, 'Debt tracking could not be updated. Try again.'))
     } finally { setSaving(false) }
   }
 
@@ -6401,7 +6402,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
       await onChanged()
       operationKeys.current.complete(signature)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'No-debt confirmation could not be saved. Try again.')
+      setError(participantErrorMessage(caught, 'No-debt confirmation could not be saved. Try again.'))
     } finally { setSaving(false) }
   }
 
@@ -6738,7 +6739,7 @@ function MiaActionDraftReviewCard({
         )}
         {draft.impact && <MiaActionImpact impact={draft.impact} />}
         {draft.draft_type === 'action_plan' && isChoosingChanges && (
-          <small className="mia-action-selection-note">Selected changes apply in one transaction. Required earlier steps are selected automatically; removing one also removes changes that depend on it.</small>
+          <small className="mia-action-selection-note">Selected changes are saved together, all or nothing. Required earlier steps are selected automatically; removing one also removes changes that depend on it.</small>
         )}
         <small className="mia-action-safety-copy">You stay in control. {brand.product_name} checks the draft against your latest saved data when you apply it, keeps an audit record, and leaves actual spending untouched.</small>
       </div>
@@ -6782,7 +6783,7 @@ function MiaActionImpact({ impact }: { impact: NonNullable<MiaActionDraft['impac
   const rows = [
     ['Monthly income', impact.before_monthly_income, impact.after_monthly_income],
     ['Monthly outflow', impact.before_monthly_outflow, impact.after_monthly_outflow],
-    ['Baseline surplus', impact.before_baseline_surplus, impact.after_baseline_surplus],
+    ['Left over each month', impact.before_baseline_surplus, impact.after_baseline_surplus],
   ] as const
 
   return (
@@ -6877,7 +6878,7 @@ function ManualTransactionCapture({
       reset()
       setOpen(false)
     } catch (caught) {
-      setFormError(caught instanceof Error ? caught.message : 'Transaction review could not be created.')
+      setFormError(participantErrorMessage(caught, 'Transaction review could not be created.'))
     }
   }
 
@@ -7287,7 +7288,7 @@ function TransactionDraftReviewCard({
       })
       setEditing(false)
     } catch (caught) {
-      setEditError(caught instanceof Error ? caught.message : 'Transaction draft could not be updated.')
+      setEditError(participantErrorMessage(caught, 'Transaction draft could not be updated.'))
     }
   }
 

@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { fetchTrackedSourceAccounts, fetchSourceDuplicateCandidates } from '../api'
 import { sourceAccountLabel, sourceBasisLabel, sourceDispositionLabel, sourceMoney, sourceLocator, sourceOverlapLabel, sourceTypeLabel, type SourceAccount, type SourceEvent } from '../lib/sourceReview'
 import { statementCents, statementDollars, type AccountStatementFacts, type ParticipantSourceReview, type ReviewedRow, type ReviewedSourceAccount, type SourceReviewAction, type TrackedSourceAccount } from '../lib/participantSourceReview'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 
 type Mutation = (action: SourceReviewAction, input: object) => Promise<unknown>
 
@@ -48,7 +49,7 @@ function AccountForm({ account, review, mutate, disabled }: { account: SourceAcc
       if (!live) return
       setChoices((previous) => [...previous.filter((row) => !page.records.some((item) => item.id === row.id)), ...page.records]); setLoading(false)
       setNextCursor(page.next_cursor); setLoadError(null)
-    }).catch((failure: unknown) => { if (live) { setLoading(false); setLoadError(failure instanceof Error ? failure.message : 'Could not load account choices.') } })
+    }).catch((failure: unknown) => { if (live) { setLoading(false); setLoadError(participantErrorMessage(failure, 'Could not load account choices.')) } })
     return () => { live = false; controller.abort() }
   }, [cursor, attempt])
   async function submit(event: FormEvent) {
@@ -61,7 +62,7 @@ function AccountForm({ account, review, mutate, disabled }: { account: SourceAcc
       if (facts.printed_row_count !== null && (!/^\d+$/.test(fields.printed_row_count) || !Number.isSafeInteger(facts.printed_row_count))) throw new Error('Use a whole row count or leave it unknown.')
       await mutate('account_link', { source_account_id: account.id, base_version_id: review.head.approved_version_id, base_lock_version: review.head.lock_version,
         tracked_account_id: tracked ? Number(tracked) : null, label, account_basis: basis, statement_facts: facts, reason })
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Check account details.') }
+    } catch (failure) { setError(participantErrorMessage(failure, 'Check account details.')) }
   }
   return <form className="source-review-form" onSubmit={(event) => { void submit(event) }}>
     <fieldset disabled={disabled}><legend>Account details from your statement</legend>
@@ -117,7 +118,7 @@ function RowForm({ importId, context, event, mutate, disabled, identityId }: { i
           posted_on: date || null, authorized_on: authorized || null, external_reference: reference || null, merchant: merchant || null, budget_category_id: category ? Number(category) : null,
           overlap_disposition: disposition === 'match' ? 'match' : ['exclude', 'informational'].includes(disposition) ? 'excluded' : overlap,
           matched_version_id: disposition === 'match' ? Number(matched) : null } })
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Check the reviewed row.') }
+    } catch (failure) { setError(participantErrorMessage(failure, 'Check the reviewed row.')) }
   }
   return <section aria-label="Participant row review">
     <p>{row.approved ? `Approved version ${row.approved.version_number} remains in use until you approve a correction.` : 'No approved version yet.'}</p>
@@ -180,7 +181,7 @@ function DuplicateChoices({ importId, eventId, amount, date, selected, disabled,
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     const controller = new AbortController(); let live = true
-    Promise.resolve().then(() => fetchSourceDuplicateCandidates(importId, eventId, cursor, controller.signal, { signed_amount_cents: statementCents(amount) ?? undefined, posted_on: date || undefined })).then((page) => { if (live) { setRows(page.records); setError(null); setNext(page.next_cursor); setLoading(false) } }).catch((failure: unknown) => { if (live) { setError(failure instanceof Error ? failure.message : 'Could not load reviewed duplicates.'); setLoading(false) } })
+    Promise.resolve().then(() => fetchSourceDuplicateCandidates(importId, eventId, cursor, controller.signal, { signed_amount_cents: statementCents(amount) ?? undefined, posted_on: date || undefined })).then((page) => { if (live) { setRows(page.records); setError(null); setNext(page.next_cursor); setLoading(false) } }).catch((failure: unknown) => { if (live) { setError(participantErrorMessage(failure, 'Could not load reviewed duplicates.')); setLoading(false) } })
     return () => { live = false; controller.abort() }
   }, [importId, eventId, cursor, attempt, amount, date])
   return <fieldset disabled={disabled}><legend>Choose an approved duplicate to compare</legend><p>Date and amount alone do not prove a duplicate. Check the source and your account before choosing.</p>

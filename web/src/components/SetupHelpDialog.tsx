@@ -5,6 +5,7 @@ import { moneyTopics, type MoneyTopic } from '../lib/moneyNavigation'
 import { ApiRequestError } from '../api'
 import { usePilotDialog } from '../lib/usePilotDialog'
 import './SetupHelpDialog.css'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 
 type Props = {
   scopeKey: string; userId: number; householdId: number; onClose: () => void
@@ -60,7 +61,7 @@ export function SetupHelpDialog(props: Props) {
       if (activeSetupRequest(next.latest_request)) { clearReference(); setRecoveringCreate(false) }
       if (!requestKey.current) setUncertain(false)
     } catch (caught) {
-      if (mounted.current && id === sequence.current) setError(caught instanceof Error ? caught.message : 'Setup help could not be loaded.')
+      if (mounted.current && id === sequence.current) setError(participantErrorMessage(caught, 'Setup help could not be loaded.'))
     } finally { if (mounted.current && id === sequence.current) setLoading(false) }
   }
   useEffect(() => {
@@ -100,7 +101,7 @@ export function SetupHelpDialog(props: Props) {
       if (!mounted.current) return
       setUncertain(Boolean(requestKey.current)); setRecoveringCreate(Boolean(requestKey.current))
       if (caught instanceof ApiRequestError && [404, 409].includes(caught.status ?? 0)) { setReferenceRejected(true); setReferenceStatusChecked(false) }
-      setError(caught instanceof Error ? caught.message : 'The request was not confirmed. Check its status before trying again.')
+      setError(participantErrorMessage(caught, 'The request was not confirmed. Check its status before trying again.'))
     } finally { if (mounted.current) setBusy(false) }
   }
   async function changeRequest(action: 'cancel' | 'reopen') {
@@ -114,7 +115,7 @@ export function SetupHelpDialog(props: Props) {
       setNotice(action === 'cancel' ? 'Your request is canceled. Your saved information stays as it is.' : 'A fresh support review has been requested. Nothing changed in your financial picture.')
     } catch (caught) {
       if (!mounted.current) return
-      setError(caught instanceof Error ? caught.message : 'The request update was not confirmed. Refresh its status before trying again.')
+      setError(participantErrorMessage(caught, 'The request update was not confirmed. Refresh its status before trying again.'))
       setUncertain(true)
     } finally { if (mounted.current) setBusy(false) }
   }

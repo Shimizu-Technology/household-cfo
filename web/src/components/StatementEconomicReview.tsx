@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { fetchSourceDuplicateCandidates } from '../api'
 import { sourceLocator, sourceMoney, type SourceEvent } from '../lib/sourceReview'
 import { statementCents, statementDollars, type ParticipantSourceReview, type ReviewedEconomicGroup, type ReviewedRow, type SourceReviewAction } from '../lib/participantSourceReview'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 type Mutation = (action: SourceReviewAction, input: object) => Promise<unknown>
 type Member = { row: ReviewedRow; role: 'movement' | 'purchase' | 'funding' | 'original_purchase' | 'refund'; amount: string }
 function RowFacts({ row }: { row: ReviewedRow }) {
@@ -31,7 +32,7 @@ function LinkForm({ importId, eventId, row, group, mutate, disabled }: { importI
   const [checked, setChecked] = useState(false)
   useEffect(() => {
     const controller = new AbortController(); let live = true
-    fetchSourceDuplicateCandidates(importId, eventId, cursor, controller.signal, { filter: 'link' }).then((page) => { if (live) { setCandidates(page.records); setNext(page.next_cursor); setLoading(false); setError(null) } }).catch((failure: unknown) => { if (live) { setError(failure instanceof Error ? failure.message : 'Related rows unavailable.'); setLoading(false) } })
+    fetchSourceDuplicateCandidates(importId, eventId, cursor, controller.signal, { filter: 'link' }).then((page) => { if (live) { setCandidates(page.records); setNext(page.next_cursor); setLoading(false); setError(null) } }).catch((failure: unknown) => { if (live) { setError(participantErrorMessage(failure, 'Related rows unavailable.')); setLoading(false) } })
     return () => { live = false; controller.abort() }
   }, [importId, eventId, cursor, attempt])
   const roles = kind === 'transfer' ? ['movement'] : kind === 'purchase_funding' ? ['purchase','funding'] : ['original_purchase','refund']
@@ -42,7 +43,7 @@ function LinkForm({ importId, eventId, row, group, mutate, disabled }: { importI
       const allocations = members.map((member) => ({ source_review_version_id: member.row.id, role: member.role, allocation_cents: statementCents(member.amount, false) }))
       if (allocations.some((member) => member.allocation_cents! <= 0)) throw new Error('Each allocation must be a positive amount.')
       await mutate('economic_link', { group_id: group?.id ?? null, base_version_id: group?.head.approved_version_id ?? null, base_lock_version: group?.head.lock_version ?? 0, kind, members: allocations, reason })
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Check the selected link.') }
+    } catch (failure) { setError(participantErrorMessage(failure, 'Check the selected link.')) }
   }
   return <form className="source-review-form" onSubmit={(event) => { void submit(event) }}><fieldset disabled={disabled}><legend>{group ? 'Correct this link' : 'Prepare an explicit link'}</legend>
     <label>Link type<select value={kind} onChange={(event) => { const value = event.target.value as typeof kind; setKind(value); setMembers([{ row, role: value === 'purchase_funding' ? 'purchase' : value === 'refund' ? 'original_purchase' : 'movement', amount: statementDollars(row.facts.signed_amount_cents == null ? null : Math.abs(row.facts.signed_amount_cents)) }]); setChecked(false) }}><option value="transfer">Transfer / card payment between accounts</option><option value="purchase_funding">One purchase with bank / wallet funding</option><option value="refund">Refund allocated to an original purchase</option></select></label>

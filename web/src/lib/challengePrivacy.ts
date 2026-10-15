@@ -30,7 +30,7 @@ export const samePrivacyScope = (a: PrivacyScope, b: PrivacyScope) => a.user_id 
 export function assertPrivacyScope(value: { actor_scope?: PrivacyScope }, expected: PrivacyScope) {
   if (!value.actor_scope || !samePrivacyScope(value.actor_scope, expected)) throw new Error('This private response belongs to a different account. Close and reopen your controls.')
 }
-export const recordLabels: Record<RecordType, string> = { document_source: 'Original statements', source_review_version: 'Reviewed source rows', savings_entry_version: 'Savings entries', savings_plan_version: 'Accepted plans', chat_message: 'Chat messages' }
+export const recordLabels: Record<RecordType, string> = { document_source: 'Original statements', source_review_version: 'Reviewed statement lines', savings_entry_version: 'Savings entries', savings_plan_version: 'Accepted plans', chat_message: 'Chat messages' }
 export function candidateLabel(candidate: PrivacyCandidate): string {
   const p = candidate.preview
   return [p.filename, p.merchant, p.role, p.effective_on, p.posted_on, p.approved_at, p.created_at, p.content_excerpt,

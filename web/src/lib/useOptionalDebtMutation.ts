@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiRequestError } from '../api'
 import { assertDebtScope, checkedDebtRecord, debtScopeMatches, type DebtAction, type DebtInput, type DebtMutation, type DebtScope, type OptionalDebtApi } from './optionalDebt'
 import { clearDebtIdentity, readDebtIdentity, saveDebtIdentity, type DebtRequestIdentity } from './optionalDebtRecovery'
+import { participantErrorMessage } from './participantErrorMessage'
 type Pending = DebtRequestIdentity & { input?: DebtInput; working: boolean; unknown?: boolean; fresh?: boolean; recovery?: boolean; error?: string }
 export function useOptionalDebtMutation(scope: DebtScope | undefined, api: OptionalDebtApi, onDone: (result: DebtMutation) => void, onDenied: () => void, onConflict: () => void) {
   const [pending, setPending] = useState<Pending | null>(null), [error, setError] = useState<string | null>(null)
@@ -24,14 +25,14 @@ export function useOptionalDebtMutation(scope: DebtScope | undefined, api: Optio
   }, [pending])
   async function run(request: Pending, checking = false) {
     if (!scope || active.current !== scopeKey || current.current?.working) return
-    if (!checking && !saveDebtIdentity(request)) { setError('This browser cannot retain the request identity. No card change was submitted. Allow session storage before trying again.'); return }
+    if (!checking && !saveDebtIdentity(request)) { setError('This browser couldn’t keep a reference number for this change. No card change was submitted. Allow session storage before trying again.'); return }
     const generation = epoch.current, controller = new AbortController(); controllers.current.add(controller)
     save({ ...request, working: true, unknown: false }); setError(null)
     try {
       const result = checking ? await api.status(scope, request.action, request.key, controller.signal) : await api.mutate(scope, request.action, request.input!, request.key, controller.signal)
       if (active.current !== scopeKey || generation !== epoch.current) return
       if ('state' in result && result.state === 'in_flight') {
-        if (!debtScopeMatches(result, scope, true)) throw new ApiRequestError('Private request identity changed. Reopen card review.', { status: 403 })
+        if (!debtScopeMatches(result, scope, true)) throw new ApiRequestError('This card review changed. Reopen it to continue.', { status: 403 })
         save({ ...request, working: false, unknown: false, error: 'Your earlier request is still processing. Check again.' }); return
       }
       assertDebtScope(result, scope)
@@ -44,7 +45,7 @@ export function useOptionalDebtMutation(scope: DebtScope | undefined, api: Optio
       clearDebtIdentity(request); save(null); onDone(result)
     } catch (failure) {
       if (active.current !== scopeKey || generation !== epoch.current) return
-      const detail = failure instanceof Error ? failure.message : 'The server did not confirm the card review.'
+      const detail = participantErrorMessage(failure, 'The server did not confirm the card review.')
       if (failure instanceof ApiRequestError && failure.status === 409) onConflict()
       if (failure instanceof ApiRequestError && [401, 403, 404].includes(failure.status)) { save({ ...request, input: undefined, working: false, error: detail }); onDenied() }
       else if (!checking && !request.recovery && failure instanceof ApiRequestError && failure.status >= 400 && failure.status < 500) { clearDebtIdentity(request); save(null); setError(detail) }

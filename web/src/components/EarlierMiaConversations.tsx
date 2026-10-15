@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchEarlierMiaMessages, type EarlierMiaMessages } from '../api'
 import { usePilotDialog } from '../lib/usePilotDialog'
 import './EarlierMiaConversations.css'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 
 export function EarlierMiaConversations({ onClose }: { onClose: () => void }) {
   const ref = usePilotDialog(onClose)
@@ -18,7 +19,7 @@ export function EarlierMiaConversations({ onClose }: { onClose: () => void }) {
       setPage(current => before && current ? { ...result, messages: [...result.messages, ...current.messages] } : result)
       setError(null)
     }).catch(caught => {
-      if (active) setError(caught instanceof Error ? caught.message : 'Earlier conversations could not be loaded.')
+      if (active) setError(participantErrorMessage(caught, 'Earlier conversations could not be loaded.'))
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false; controller.abort() }
   }, [before, attempt])

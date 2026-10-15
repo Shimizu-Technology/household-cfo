@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { privacyApi } from '../lib/privacyApi'
 import type { PrivacyScope } from '../lib/challengePrivacy'
 import { ChallengePrivacyDialog } from './ChallengePrivacyDialog'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 
 // Resolve self-only control metadata independently of financial workspace
 // loading, so paused programs and withdrawn enrollments keep their exits.
@@ -52,7 +53,7 @@ function PrivacyAccess({ userId, householdId }: { userId: number; householdId?: 
     } catch (failure) {
       if (live.current && !owned.signal.aborted) {
         setScope(null)
-        setError(failure instanceof Error ? failure.message : 'Private controls are unavailable. Try again.')
+        setError(participantErrorMessage(failure, 'Private controls are unavailable. Try again.'))
       }
     } finally {
       if (live.current && !owned.signal.aborted) setBusy(false)

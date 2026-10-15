@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DocumentSourcePreview as SourcePreviewData, DocumentSourceUrl, FinancialDocumentImport } from '../api'
 import { usePilotDialog } from '../lib/usePilotDialog'
 import './DocumentSourcePreview.css'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 
 const ACCESS_RECHECK_INTERVAL_MS = 30_000
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -55,7 +56,7 @@ export function DocumentSourcePreview({ documentImport, title, description, onCl
     setImageUrl(null)
     setOperation(null)
     setLoading(false)
-    setError(failure instanceof Error ? failure.message : 'Private source access could not be confirmed. Try again.')
+    setError(participantErrorMessage(failure, 'Private source access could not be confirmed. Try again.'))
   }, [releaseResources])
 
   const close = useCallback(() => {

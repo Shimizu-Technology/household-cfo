@@ -2574,9 +2574,9 @@ async function apiOperation<T>(
   return withDeadline(
         request,
         timeoutMs,
-        settings.timeoutMessage ?? (readOnly ? 'This request took too long.' : 'The server did not confirm whether this change finished.'),
+        settings.timeoutMessage ?? (readOnly ? 'This is taking longer than usual.' : 'We couldn’t confirm your change was saved.'),
         options.signal,
-        readOnly ? 'Please try again.' : 'Refresh to check the current state before trying again.',
+        readOnly ? 'Please try again.' : 'Refresh to check before trying again.',
       )
 }
 
@@ -4924,7 +4924,7 @@ export async function fetchSavingsPage<T extends SavingsEntry | SavingsEntryDraf
   return page
 }
 async function savingsMutation<T>(path: string, values: object, requestId: string, signal?: AbortSignal): Promise<SavingsMutation<T>> {
-  if (!requestId.trim()) throw new Error('A savings request identity is required.')
+  if (!requestId.trim()) throw new Error('Something went wrong. Try again.')
   const result = await fetchJson<SavingsMutation<T>>(`/api/v1/savings_challenge/${path}`, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId }, body: JSON.stringify(values) })
   checkedSavingsChallenge(result.challenge)
   return result
@@ -5011,14 +5011,14 @@ export { fetchJson as fetchPrivateJson, postJson as postPrivateJson }
 
 // Plan recovery checks the journal under the current authorized workspace.
 export async function fetchSavingsPlanRequestStatus(action: 'plan_stage' | 'plan_approve', requestId: string): Promise<import('./lib/savingsChallenge').SavingsPlanRequestStatus> {
-  if (!requestId.trim() || !['plan_stage', 'plan_approve'].includes(action)) throw new Error('A valid plan request identity is required.')
+  if (!requestId.trim() || !['plan_stage', 'plan_approve'].includes(action)) throw new Error('Something went wrong. Try again.')
   const result = await fetchJson<import('./lib/savingsChallenge').SavingsPlanRequestStatus>(`/api/v1/savings_challenge/request_status?review_action=${action}`, { cache: 'no-store', headers: { 'Idempotency-Key': requestId } })
   if (result.state === 'committed') checkedSavingsChallenge(result.challenge)
   return result
 }
 
 export async function fetchHomeSavingsRequestStatus(action: import('./lib/homeSavingsRecovery').HomeSavingsAction, requestId: string, signal?: AbortSignal): Promise<import('./lib/homeSavingsRecovery').HomeSavingsStatus> {
-  if (!requestId.trim() || !['enrollment', 'entry_stage', 'entry_approve', 'zero_attest'].includes(action)) throw new Error('A valid savings request identity is required.')
+  if (!requestId.trim() || !['enrollment', 'entry_stage', 'entry_approve', 'zero_attest'].includes(action)) throw new Error('Something went wrong. Try again.')
   const result = await fetchJson<import('./lib/homeSavingsRecovery').HomeSavingsStatus>(`/api/v1/savings_challenge/request_status?review_action=${action}`, { signal, cache: 'no-store', headers: { 'Idempotency-Key': requestId } })
   if (!Number.isSafeInteger(result.cohort_id) || result.cohort_id < 1 || !Number.isSafeInteger(result.actor_scope?.user_id) || !Number.isSafeInteger(result.actor_scope?.household_id) || result.actor_scope.user_id < 1 || result.actor_scope.household_id < 1 || !['committed', 'unknown', 'in_flight'].includes(result.state) || (result.state === 'unknown' && result.can_retry !== true)) throw new Error('The savings request result cannot be verified. Check again before making changes.')
   if (result.state === 'committed') checkedSavingsChallenge(result.challenge)

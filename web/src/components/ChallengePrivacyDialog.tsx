@@ -6,11 +6,12 @@ import { privacyApi } from '../lib/privacyApi'
 import { clearPrivacyRecovery, readPrivacyRecovery, savePrivacyRecovery } from '../lib/privacyRecovery'
 import { createOperationIdempotencyKey } from '../lib/operationIdempotency'
 import './ChallengePrivacyDialog.css'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 
 type Props = { actorScope: PrivacyScope | null; participant: boolean; initialEnrollmentId?: number; documentImportId?: number; onClose: () => void; api?: PrivacyApi }
 type Review = { action: PrivateAction; input: object; title: string; lines: string[]; reflectionId?: number }
 type Pending = { identity: RequestIdentity; input?: object; state: 'working' | 'uncertain' | 'unknown'; error: string }
-const message = (error: unknown) => error instanceof Error ? error.message : 'This private request could not be completed.'
+const message = (error: unknown) => participantErrorMessage(error, 'This private request could not be completed.')
 const statusCode = (error: unknown) => error && typeof error === 'object' && 'status' in error ? Number(error.status) : null
 const privateTime = (value: string) => new Intl.DateTimeFormat('en-US', { timeZone: 'Pacific/Guam', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) + ' Guam'
 const recordScope = (rows: SelectedRecord[]) => rows.length ? rows.map((row) => `${recordLabels[row.record_type]} · exact record ${row.record_id}`).join('; ') : 'No records selected'

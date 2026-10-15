@@ -4,6 +4,7 @@ import { useBrand } from '../contexts/brandContextValue'
 import { usePilotDialog } from '../lib/usePilotDialog'
 import { captureAnalyticsEvent, trackPilotWorkflowFailure } from '../lib/analytics'
 import './PilotFeedbackDialog.css'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 
 const pilotFeedbackOptions: Array<{ value: PilotFeedbackWorkflow; label: string }> = [
   { value: 'sign_in', label: 'Sign in or invitation' },
@@ -72,7 +73,7 @@ export function PilotFeedbackDialog({
       setReports(previous => next ? [...previous, ...rows.filter(row => !previous.some(existing => existing.id === row.id))] : rows)
       setCursor(page.next_cursor)
     } catch (caught) {
-      if (current === generation.current && !request.signal.aborted) setHistoryError(caught instanceof Error ? caught.message : 'Reports could not be loaded.')
+      if (current === generation.current && !request.signal.aborted) setHistoryError(participantErrorMessage(caught, 'Reports could not be loaded.'))
     } finally {
       if (historyPage.current === pageRequest) historyPage.current = null
       if (current === generation.current && !request.signal.aborted) setHistoryLoading(false)
@@ -94,7 +95,7 @@ export function PilotFeedbackDialog({
       setReceipt(previous => previous?.id === updated.id ? updated : previous)
       setReports(previous => previous.map(row => row.id === updated.id ? updated : row))
     } catch (caught) {
-      if (current === generation.current) setError(caught instanceof Error ? caught.message : 'Withdrawal was not confirmed. Retry to check and withdraw access.')
+      if (current === generation.current) setError(participantErrorMessage(caught, 'Withdrawal was not confirmed. Retry to check and withdraw access.'))
     } finally {
       if (current === generation.current) {
         withdrawal.current = null
@@ -135,7 +136,7 @@ export function PilotFeedbackDialog({
     } catch (caught) {
       if (current !== generation.current) return
       trackPilotWorkflowFailure('feedback', 'submit', { workflow })
-      setError(caught instanceof Error ? caught.message : 'Feedback could not be submitted. Please try again.')
+      setError(participantErrorMessage(caught, 'Feedback could not be submitted. Please try again.'))
     } finally {
       if (current === generation.current) setSaving(false)
     }

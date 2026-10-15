@@ -5,6 +5,7 @@ import {
 } from '../api'
 import { OperationIdempotencyKeys } from '../lib/operationIdempotency'
 import { proposedChoice, proposedMoney, proposedText, type MiaManualPayload } from '../lib/miaManualPrefill'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const goalTypes: GoalType[] = ['savings', 'debt_payoff', 'purchase', 'education', 'business', 'business_income', 'travel', 'home', 'retirement', 'other']
@@ -146,7 +147,7 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
         : await updateGoal(editing as number, values, keys.current.keyFor(signature))
       keys.current.complete(signature); setEditing(null)
       await refreshAfterCommit(`[data-goal-id="${saved.id}"] [data-goal-action="edit"]`)
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'This goal could not be saved.') }
+    } catch (caught) { setError(participantErrorMessage(caught, 'This goal could not be saved.')) }
     finally { setSaving(false) }
   }
   async function mutate(signature: string, action: (key: string) => Promise<GoalRecord>, selector: string) {
@@ -155,7 +156,7 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
     try {
       await action(keys.current.keyFor(signature)); keys.current.complete(signature); setEditing(null); setArchiveId(null)
       await refreshAfterCommit(selector)
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'That goal change could not be saved.') }
+    } catch (caught) { setError(participantErrorMessage(caught, 'That goal change could not be saved.')) }
     finally { setSaving(false) }
   }
   const displayAmount = (value: number | null) => value === null ? 'Not entered' : money.format(value)
