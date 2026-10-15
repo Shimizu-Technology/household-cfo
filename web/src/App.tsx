@@ -730,18 +730,35 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   // Today and the private export only make sense after joining. Savings Home reports
   // its own reads and joins; this one read covers participants who start elsewhere.
   const savingsEnrollmentScope = isSavingsExperience && isRealWorkspace && challengeParticipantScope && data?.workspace.cohort?.id ? challengeIntakeScope : null
-  const [savingsEnrollment, setSavingsEnrollment] = useState<{ scope: string; enrolled: boolean } | null>(null)
+  const [savingsEnrollment, setSavingsEnrollment] = useState<{ scope: string; enrolled: boolean; source: 'read' | 'home' } | null>(null)
+  const [savingsEnrollmentRetry, setSavingsEnrollmentRetry] = useState(0)
+  const savingsCohortId = data?.workspace.cohort?.id
   useEffect(() => {
     if (!savingsEnrollmentScope) return
     const controller = new AbortController()
+    let retryOnFocus: (() => void) | null = null
     fetchSavingsChallenge(controller.signal)
-      .then((challenge) => setSavingsEnrollment({ scope: savingsEnrollmentScope, enrolled: Boolean(challenge.enrollment) }))
-      .catch(() => undefined)
-    return () => controller.abort()
-  }, [savingsEnrollmentScope])
+      .then((challenge) => {
+        const receivedCohort = (challenge as typeof challenge & { cohort_id?: number }).cohort_id ?? challenge.enrollment?.cohort_id
+        if (receivedCohort !== undefined && receivedCohort !== savingsCohortId) return
+        // Savings Home's own reads and joins are fresher than this one; never overwrite them.
+        setSavingsEnrollment((current) => current?.scope === savingsEnrollmentScope && current.source === 'home'
+          ? current
+          : { scope: savingsEnrollmentScope, enrolled: Boolean(challenge.enrollment), source: 'read' })
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return
+        retryOnFocus = () => setSavingsEnrollmentRetry((value) => value + 1)
+        window.addEventListener('focus', retryOnFocus, { once: true })
+      })
+    return () => {
+      controller.abort()
+      if (retryOnFocus) window.removeEventListener('focus', retryOnFocus)
+    }
+  }, [savingsCohortId, savingsEnrollmentRetry, savingsEnrollmentScope])
   const savingsJoined = Boolean(savingsEnrollmentScope && savingsEnrollment?.scope === savingsEnrollmentScope && savingsEnrollment.enrolled)
   const handleSavingsEnrollmentKnown = useCallback((enrolled: boolean) => {
-    if (savingsEnrollmentScope) setSavingsEnrollment({ scope: savingsEnrollmentScope, enrolled })
+    if (savingsEnrollmentScope) setSavingsEnrollment({ scope: savingsEnrollmentScope, enrolled, source: 'home' })
   }, [savingsEnrollmentScope])
   const assistantName = data?.profile.coach.name.trim() || 'your assistant'
   const isFirstSessionSetup = Boolean(isRealWorkspace && data?.workspace.experience_mode !== 'savings_challenge' && !data?.workspace?.setup_complete)
@@ -3452,7 +3469,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
                   onReviewImportId={openDocumentReview}
                   reviewContent={<>
-                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && miaSavingsNote?.scope===challengeIntakeScope && <MiaSavingsReview intake={miaSavingsNote.intake} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
+                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && miaSavingsNote?.scope===challengeIntakeScope && <MiaSavingsReview intake={miaSavingsNote.intake} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack
                         drafts={pendingMiaActionDrafts}

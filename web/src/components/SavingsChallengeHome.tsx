@@ -55,9 +55,10 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
   const working = useRef(false)
   const uncertainRequest = useRef(false)
   const lastOffer = useRef<string | null>(null)
+  const consentStarted = useRef(false)
   const initializedPlan = useRef(false)
   const controllers = useRef(new Set<AbortController>())
-  const clearPrivatePlan = useCallback(() => { privateDenied.current=true; sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setParticipation(false);setLateAcceptance(false);setKnownZero(false);setNewMoneyReviewed(false);setIntakeActive(false);setWithdrawal(false);setFunding('new_money_reserved');setComfortable({edited:false,reviewed:false}); setChallenge(null); setReadFailed(true); setError('Private plan access is no longer available.'); setAmount(''); setEffectiveOn(''); setPlanReason(''); setEntryReason(''); setEditingEntry(null); setTarget('500.00') }, [])
+  const clearPrivatePlan = useCallback(() => { privateDenied.current=true; sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setParticipation(false);setLateAcceptance(false);setKnownZero(false);setNewMoneyReviewed(false);setIntakeActive(false);setWithdrawal(false);setFunding('new_money_reserved');setComfortable({edited:false,reviewed:false}); setChallenge(null); setReadFailed(true); setError('Private plan access is no longer available.'); setAmount(''); setEffectiveOn(''); setPlanReason(''); setEntryReason(''); setEditingEntry(null); setTarget('500.00'); onEnrollmentKnown?.(false) }, [onEnrollmentKnown])
   const requestErrorRef = useRef<HTMLDivElement>(null)
   const entryHeadingRef = useRef<HTMLHeadingElement>(null)
   const targetHeadingRef = useRef<HTMLHeadingElement>(null)
@@ -65,6 +66,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
   const [focusAfterJoin,setFocusAfterJoin] = useState(false)
   const focusJoined = () => setFocusAfterJoin(true)
   useEffect(()=>{if(!focusAfterJoin||!challenge?.enrollment)return;const frame=requestAnimationFrame(()=>{progressHeadingRef.current?.scrollIntoView({block:'start'});progressHeadingRef.current?.focus();setFocusAfterJoin(false)});return()=>cancelAnimationFrame(frame)},[focusAfterJoin,challenge?.enrollment])
+  useEffect(() => { consentStarted.current = participation || lateAcceptance }, [participation, lateAcceptance])
   const enrolled = challenge ? Boolean(challenge.enrollment) : null
   useEffect(() => { if (enrolled !== null) onEnrollmentKnown?.(enrolled) }, [enrolled, onEnrollmentKnown])
   const scopeUser = participantScope?.user_id, scopeHousehold = participantScope?.household_id, scopeEnrollment = challenge?.enrollment?.id
@@ -92,7 +94,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
       const offerIdentity = JSON.stringify(next.offer ?? null)
       if (lastOffer.current !== offerIdentity) {
         // Changed terms need fresh consent; say so instead of silently clearing checkmarks.
-        if (lastOffer.current !== null && !next.enrollment) setNotice('The joining details were updated. Review them and check the boxes again.')
+        if (consentStarted.current && lastOffer.current !== null && lastOffer.current !== 'null' && !next.enrollment) setNotice('The joining details were updated. Review them and check the boxes again.')
         setParticipation(false); setLateAcceptance(false); lastOffer.current = offerIdentity
       }
       if (!initializedPlan.current && next.enrollment) {
