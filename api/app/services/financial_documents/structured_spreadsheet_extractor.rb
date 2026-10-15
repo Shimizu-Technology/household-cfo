@@ -105,6 +105,8 @@ module FinancialDocuments
         transaction_drafts: transaction_drafts,
         source_accounting: source_accounting
       )
+    rescue SourceSafety::Unreadable
+      raise
     rescue StandardError => e
       failure(e.message)
     end

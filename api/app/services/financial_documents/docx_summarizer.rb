@@ -25,8 +25,14 @@ module FinancialDocuments
 
     attr_reader :file_path, :filename
 
+    # An unsafe or unreadable package raises SourceSafety::Unreadable so the
+    # caller can fail the import calmly; malformed document XML yields "".
     def document_text
-      xml = Zip::File.open(file_path) { |zip| zip.find_entry("word/document.xml")&.get_input_stream&.read }
+      SourceSafety.check_ooxml!(file_path)
+      xml = Zip::File.open(file_path) do |zip|
+        SourceSafety.check_ooxml_entries!(zip.entries)
+        SourceSafety.read_ooxml_xml(zip, "word/document.xml")
+      end
       return "" if xml.blank?
 
       doc = Nokogiri::XML(xml) { |config| config.strict.nonet }

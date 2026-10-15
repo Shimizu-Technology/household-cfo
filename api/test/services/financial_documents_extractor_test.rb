@@ -1,5 +1,6 @@
 require "test_helper"
 require "tempfile"
+require "zip"
 
 class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
   test "qualified native statement succeeds without provider credentials or model calls" do
@@ -8,7 +9,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     native = FinancialDocuments::NativeStatementParser::Result.new(success: true, data: { source_accounting: { contract_version: "source_accounting_v1" } }, error: nil, metadata: { extraction_mode: "native_statement" })
     extractor.define_singleton_method(:native_statement_result) { |_import, _path| native }
     extractor.define_singleton_method(:batched_pdf_result) { |*_args| raise "native must not invoke model extraction" }
-    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write("private source placeholder"); true }) do
+    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write(blank_pdf_bytes(1)); true }) do
       result = extractor.call(document_import)
       assert result.success?
       assert_equal native.data, result.data
@@ -24,7 +25,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
       fallback_called = true
       FinancialDocuments::Extractor::Result.new(success: true, data: { transaction_drafts: [] }, error: nil, metadata: { extraction_mode: "qualified_model_test" })
     end
-    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write("not a native PDF"); true }) do
+    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write(blank_pdf_bytes(1)); true }) do
       result = extractor.call(document_import)
       assert result.success?
       assert fallback_called
@@ -343,7 +344,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
       result = extractor.call(document_import)
 
       refute result.success?
-      assert_match(/could not be safely split/i, result.error)
+      assert_equal FinancialDocuments::Extractor::PDF_UNPARSEABLE_MESSAGE, result.error
       assert_match(/export the transactions as CSV/i, result.error)
     end
   ensure
@@ -541,7 +542,70 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     end
   end
 
+  test "stops downloading a source that grows past its upload limit and fails calmly" do
+    document_import = FinancialDocumentImport.new(document_kind: "statement", filename: "huge.pdf", content_type: "application/pdf", s3_key: "test/huge")
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    extractor.define_singleton_method(:check_source_safety!) { |*| raise "an oversized source must not be parsed" }
+    chunk = "0" * 1.megabyte
+    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { 20.times { io.write(chunk) }; true }) do
+      result = extractor.call(document_import)
+
+      refute result.success?
+      assert_equal FinancialDocuments::SourceSafety::MESSAGE, result.error
+    end
+  end
+
+  test "an unsafe workbook fails before Roo or the model sees it" do
+    document_import = FinancialDocumentImport.new(document_kind: "spreadsheet", filename: "budget.xlsx",
+      content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", s3_key: "test/budget")
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    extractor.define_singleton_method(:structured_spreadsheet_result) { |*| raise "structured parsing must not run" }
+    extractor.define_singleton_method(:extract_openrouter_document) { |*| raise "model extraction must not run" }
+    bomb = Zip::OutputStream.write_buffer(StringIO.new) do |zip|
+      zip.put_next_entry("[Content_Types].xml")
+      zip.write("<Types/>")
+      zip.put_next_entry("xl/worksheets/sheet1.xml")
+      zip.write("0" * 4.megabytes)
+    end.string
+    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write(bomb); true }) do
+      result = extractor.call(document_import)
+
+      refute result.success?
+      assert_equal FinancialDocuments::SourceSafety::MESSAGE, result.error
+    end
+  end
+
+  test "skips the native statement parser when the sandboxed text probe cannot read the PDF" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    document_import = FinancialDocumentImport.new(document_kind: "statement", filename: "statement.pdf", content_type: "application/pdf")
+    singleton = FinancialDocuments::SourceSafety.singleton_class
+    original = singleton.instance_method(:pdf_text_readable?)
+    singleton.define_method(:pdf_text_readable?) { |*_args, **_kwargs| false }
+    original_new = FinancialDocuments::NativeStatementParser.method(:new)
+    FinancialDocuments::NativeStatementParser.define_singleton_method(:new) { |*| raise "native parser must not run in-process" }
+
+    assert_nil extractor.send(:native_statement_result, document_import, "/tmp/unused.pdf")
+  ensure
+    singleton.define_method(:pdf_text_readable?, original) if original
+    FinancialDocuments::NativeStatementParser.singleton_class.send(:remove_method, :new) if original_new
+  end
+
+  test "keeps the specific password-protected message for encrypted PDFs found by the probe" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+
+    assert_equal FinancialDocuments::Extractor::PDF_ENCRYPTED_MESSAGE,
+      extractor.send(:unreadable_source_message, FinancialDocuments::SourceSafety::Unreadable.new("pdf_encrypted"))
+    assert_equal FinancialDocuments::SourceSafety::MESSAGE,
+      extractor.send(:unreadable_source_message, FinancialDocuments::SourceSafety::Unreadable.new("pdf_resource_limit"))
+  end
+
   private
+
+  def blank_pdf_bytes(pages)
+    pdf = CombinePDF.new
+    pages.times { pdf << CombinePDF.create_page }
+    pdf.to_pdf
+  end
 
   def with_s3_stubs(stubs)
     originals = {}

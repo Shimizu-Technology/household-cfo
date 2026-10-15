@@ -18,7 +18,9 @@ module ContentSources
       script_path: Rails.root.join("lib/content_sources/pdf_sandbox_worker.rb"),
       proc_root: "/proc",
       page_size: nil,
-      kernel_address_space_limit: RUBY_PLATFORM.include?("linux")
+      kernel_address_space_limit: RUBY_PLATFORM.include?("linux"),
+      cpu_seconds: CPU_SECONDS,
+      load_paths: nil
     )
       @timeout_seconds = timeout_seconds
       @max_output_bytes = max_output_bytes
@@ -27,12 +29,23 @@ module ContentSources
       @proc_root = proc_root.to_s
       @page_size = page_size || system_page_size
       @kernel_address_space_limit = kernel_address_space_limit
+      @cpu_seconds = cpu_seconds
+      @load_paths = load_paths&.map(&:to_s)
     end
 
     def call(path)
+      payload = run(path)
+      raise Error, "pdf_invalid" unless payload["pages"].is_a?(Array) && payload["page_count"] == payload["pages"].length
+
+      payload
+    end
+
+    # Runs the worker script against path (plus any extra string arguments)
+    # and returns its parsed JSON payload once the worker reports ok.
+    def run(path, *args)
       reader, writer = IO.pipe
       pid = Process.spawn(
-        child_environment, RbConfig.ruby, script_path, path.to_s,
+        child_environment, RbConfig.ruby, *load_path_flags, script_path, path.to_s, *args.map(&:to_s),
         **spawn_options(writer)
       )
       writer.close
@@ -42,8 +55,8 @@ module ContentSources
       raise Error, "pdf_resource_limit" unless status.success?
 
       payload = JSON.parse(output)
+      raise Error, "pdf_invalid" unless payload.is_a?(Hash)
       raise Error, payload.fetch("code", "pdf_invalid") unless payload["ok"] == true
-      raise Error, "pdf_invalid" unless payload["pages"].is_a?(Array) && payload["page_count"] == payload["pages"].length
 
       payload
     rescue JSON::ParserError, KeyError, TypeError
@@ -58,14 +71,14 @@ module ContentSources
 
     private
 
-    attr_reader :timeout_seconds, :max_output_bytes, :max_rss_bytes, :script_path, :proc_root, :page_size, :kernel_address_space_limit
+    attr_reader :timeout_seconds, :max_output_bytes, :max_rss_bytes, :script_path, :proc_root, :page_size, :kernel_address_space_limit, :cpu_seconds, :load_paths
 
     def spawn_options(writer)
       options = {
         out: writer,
         err: File::NULL,
         pgroup: true,
-        rlimit_cpu: [ CPU_SECONDS, CPU_SECONDS ],
+        rlimit_cpu: [ cpu_seconds, cpu_seconds ],
         unsetenv_others: true
       }
       options[:rlimit_as] = [ max_rss_bytes, max_rss_bytes ] if kernel_address_space_limit
@@ -141,8 +154,17 @@ module ContentSources
       4096
     end
 
+    # With explicit load_paths the worker loads exactly the parent's gem
+    # versions via -I and never re-runs Bundler, so it does not depend on the
+    # host's Bundler configuration being visible to the child.
     def child_environment
+      return ENV.slice("PATH", "GEM_HOME", "GEM_PATH") if load_paths
+
       ENV.slice("PATH", "GEM_HOME", "GEM_PATH", "BUNDLE_GEMFILE", "BUNDLE_BIN_PATH", "RUBYOPT", "RUBYLIB")
+    end
+
+    def load_path_flags
+      Array(load_paths).flat_map { |path| [ "-I", path ] }
     end
 
     def terminate(pid)

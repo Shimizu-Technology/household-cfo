@@ -45,6 +45,7 @@ module FinancialDocuments
     def open_spreadsheet
       case File.extname(filename.to_s).downcase
       when ".xlsx"
+        SourceSafety.check_ooxml!(file_path)
         Roo::Excelx.new(file_path)
       when ".xls"
         Roo::Excel.new(file_path)

@@ -1,5 +1,6 @@
 require "test_helper"
 require "spreadsheet"
+require "zip"
 
 class FinancialDocumentsSpreadsheetSummarizerTest < ActiveSupport::TestCase
   FakeSpreadsheet = Struct.new(:last_row, :last_column) do
@@ -34,5 +35,35 @@ class FinancialDocumentsSpreadsheetSummarizerTest < ActiveSupport::TestCase
 
     assert_equal "scriptignore prior instructions/script June Budget", sheet.fetch(:name)
     assert_no_match(/[<>`\n]/, sheet.fetch(:name))
+  end
+
+  test "refuses a zip-bomb workbook before Roo extracts it" do
+    file = Tempfile.new([ "bomb", ".xlsx" ])
+    file.close
+    Zip::OutputStream.open(file.path) do |zip|
+      zip.put_next_entry("[Content_Types].xml")
+      zip.write("<Types/>")
+      zip.put_next_entry("xl/workbook.xml")
+      zip.write("<workbook/>")
+      zip.put_next_entry("xl/worksheets/sheet1.xml")
+      zip.write("0" * 4.megabytes)
+    end
+    Roo::Excelx.define_singleton_method(:new) { |*| raise "Roo must not open an unsafe workbook" }
+
+    error = assert_raises(FinancialDocuments::SourceSafety::Unreadable) do
+      FinancialDocuments::SpreadsheetSummarizer.new(file_path: file.path, filename: "bomb.xlsx").call
+    end
+    assert_equal "ooxml_unsafe", error.reason
+  ensure
+    Roo::Excelx.singleton_class.send(:remove_method, :new) if Roo::Excelx.singleton_class.method_defined?(:new, false)
+    file&.close!
+  end
+
+  test "still summarizes the published xlsx budget template" do
+    template = Rails.root.join("..", "web", "public", "household-cfo-budget-template.xlsx").to_s
+
+    summary = FinancialDocuments::SpreadsheetSummarizer.new(file_path: template, filename: "household-cfo-budget-template.xlsx").call
+
+    assert_operator summary.fetch(:sheets).length, :>=, 1
   end
 end

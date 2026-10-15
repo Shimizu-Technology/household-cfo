@@ -17,16 +17,23 @@ module FinancialDocuments
     def call
       return failure("Preview is not available for this file type") unless previewable?
 
+      # Previews run inside the web request, so the same download cap and
+      # package checks as background extraction apply before any parsing.
       Tempfile.create([ "financial-document-source-preview", file_extension ]) do |file|
         file.binmode
-        return failure("Could not load private document source") unless S3Service.download_to_io(document_import.s3_key, file)
+        max_bytes = UploadLimits.max_bytes(filename: document_import.filename, content_type: document_import.content_type)
+        return failure("Could not load private document source") unless SourceSafety.download(document_import.s3_key, file, max_bytes: max_bytes)
 
         file.rewind
+        SourceSafety.check_ooxml!(file.path) if File.extname(document_import.filename.to_s).downcase.in?(%w[.docx .xlsx])
         return spreadsheet_preview(file.path) if document_import.spreadsheet?
         return word_preview(file.path) if document_import.word_document?
       end
 
       failure("Preview is not available for this file type")
+    rescue SourceSafety::Unreadable => e
+      Rails.logger.warn("[FinancialDocuments::SourcePreviewer] import #{document_import.id} preview refused: #{e.reason}")
+      failure(SourceSafety::MESSAGE)
     rescue StandardError => e
       Rails.logger.warn("[FinancialDocuments::SourcePreviewer] import #{document_import.id} preview failed: #{e.class}: #{e.message}")
       failure("Could not build a safe preview for this document")

@@ -592,6 +592,36 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "application/vnd.openxmlformats-officedocument.wordprocessingml.document", FinancialDocumentImport.last.content_type
   end
 
+  test "create refuses a zip-bomb docx with a plain-language message" do
+    with_s3_stubs(configured?: true, upload: ->(*, **) { raise "an unsafe upload must not be stored" }) do
+      assert_no_difference("FinancialDocumentImport.count") do
+        post "/api/v1/document_imports",
+          params: { file: uploaded_docx(document_xml: "0" * 4.megabytes), document_kind: "other" },
+          headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal [ FinancialDocuments::SourceSafety::MESSAGE ], JSON.parse(response.body).fetch("errors")
+  end
+
+  test "source_preview refuses an unsafe workbook without parsing it in the request" do
+    document_import = create_import!(
+      document_kind: "spreadsheet",
+      filename: "budget.xlsx",
+      content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      s3_key: "household-cfo/test/source.xlsx"
+    )
+    bomb = File.binread(uploaded_docx(document_xml: "0" * 4.megabytes).path)
+
+    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write(bomb); true }) do
+      get "/api/v1/document_imports/#{document_import.id}/source_preview", headers: auth_headers(@user)
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal [ FinancialDocuments::SourceSafety::MESSAGE ], JSON.parse(response.body).fetch("errors")
+  end
+
   test "index returns shallow summaries and show returns review details" do
     document_import = create_import!(status: "needs_review")
     category = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
@@ -2021,7 +2051,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     Rack::Test::UploadedFile.new(file.path, "image/heic", original_filename: "receipt-photo.heic")
   end
 
-  def uploaded_docx
+  def uploaded_docx(document_xml: nil)
     file = Tempfile.new([ "budget-plan", ".docx" ])
     file.close
     Zip::File.open(file.path, create: true) do |zip|
@@ -2036,7 +2066,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
         XML
       end
       zip.get_output_stream("word/document.xml") do |stream|
-        stream.write <<~XML
+        stream.write(document_xml || <<~XML)
           <?xml version="1.0" encoding="UTF-8"?>
           <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Monthly income 6200</w:t></w:r></w:p></w:body></w:document>
         XML

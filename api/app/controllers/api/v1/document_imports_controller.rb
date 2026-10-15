@@ -572,8 +572,9 @@ module Api
         unless content_type.in?(allowed_content_types)
           return "File contents do not match the #{extension.delete_prefix('.').upcase} upload type"
         end
-        if extension.in?(%w[.docx .xlsx]) && !valid_ooxml_package?(file.tempfile.path, extension)
-          return "File contents do not match the #{extension.delete_prefix('.').upcase} upload type"
+        if extension.in?(%w[.docx .xlsx])
+          return FinancialDocuments::SourceSafety::MESSAGE unless ooxml_package_safe?(file.tempfile.path)
+          return "File contents do not match the #{extension.delete_prefix('.').upcase} upload type" unless valid_ooxml_package?(file.tempfile.path, extension)
         end
 
         nil
@@ -644,12 +645,23 @@ module Api
         content_type
       end
 
+      # Bounds the archive from its central directory before RubyZip reads it.
+      def ooxml_package_safe?(path)
+        FinancialDocuments::SourceSafety.check_ooxml!(path)
+        true
+      rescue FinancialDocuments::SourceSafety::Unreadable
+        false
+      end
+
       def valid_ooxml_package?(path, extension)
+        return false unless ooxml_package_safe?(path)
+
         required_entry = extension == ".docx" ? "word/document.xml" : "xl/workbook.xml"
         Zip::File.open(path) do |zip|
+          FinancialDocuments::SourceSafety.check_ooxml_entries!(zip.entries)
           zip.find_entry("[Content_Types].xml").present? && zip.find_entry(required_entry).present?
         end
-      rescue Zip::Error, SystemCallError
+      rescue Zip::Error, SystemCallError, FinancialDocuments::SourceSafety::Unreadable
         false
       end
 
