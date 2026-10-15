@@ -4,7 +4,7 @@ module HouseholdFinance
     BUDGET_STATUS_TERMS = /\b(staying within|within (?:my|our|the)?\s*budget|under budget|over budget|over plan|under plan|on track|off track|am i okay|are we okay)\b/i
     CATEGORY_STATUS_TERMS = /\b(?:what|which)\s+categories\b.*\b(?:over|under)\b.*\b(?:plan|budget)\b/i
     PLANNED_BUDGET_TERMS = /\b(set aside|budget(?:ed)?|planned|available|allowance|left|remaining)\b/i
-    TRANSACTION_REPORT_TERMS = /(?:\b(?:i|we)\s+|(?:\A|[.!?;]\s*)(?:just\s+)?)(?:spent|paid|charged|bought|withdrew)\b/i
+    TRANSACTION_REPORT_TERMS = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i
 
     def initialize(message, today: Date.current)
       @message = message.to_s.downcase.squish
@@ -22,7 +22,7 @@ module HouseholdFinance
     attr_reader :message, :today
 
     def report_like?
-      return false if message.match?(TRANSACTION_REPORT_TERMS) && !message.match?(/\b(?:how|what|show|find|list|total|did)\b/i)
+      return false if (message.match?(TRANSACTION_REPORT_TERMS) || MiaCoachAnswerer.subjectless_spend_report?(message)) && !message.match?(/\b(?:how|what|show|find|list|total|did)\b/i)
       return true if message.match?(BUDGET_STATUS_TERMS) || message.match?(CATEGORY_STATUS_TERMS)
       return false if message.match?(PLANNED_BUDGET_TERMS) && !message.match?(/\b(actuals?|transactions?|spent|report)\b/i)
 

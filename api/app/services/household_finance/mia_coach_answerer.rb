@@ -1,7 +1,10 @@
 module HouseholdFinance
   class MiaCoachAnswerer
     AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
-    TRANSACTION_REPORT_PATTERN = /(?:\b(?:i|we)\s+|(?:\A|[.!?;]\s*)(?:just\s+)?)(?:spent|paid|charged|bought|withdrew)\b/i.freeze
+    TRANSACTION_REPORT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i.freeze
+    # "Spent $12 at Payless" with no "I": only a dollar amount right after the verb,
+    # and only in a statement, so "Spent too much, can I afford a TV?" stays a question.
+    SUBJECTLESS_SPEND_PATTERN = /(?:\A|[.!?;]\s*)(?:just\s+)?(?:spent|paid|charged|bought)\s+(?:about\s+|around\s+|like\s+)?\$\s*\d/i.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
       /\bis it (?:okay|ok|safe|smart|in the cards)\b.*\b(?:to )?(?:buy|spend|purchase|afford|get|book|order)\b/i,
@@ -58,14 +61,28 @@ module HouseholdFinance
     SAVINGS_GOAL_PATTERN = /\b(?:save|saving|savings|challenge)\b.{0,40}\b(?:goal|target)s?\b|\b(?:goal|target)s?\b.{0,40}\b(?:save|saving|savings|challenge)\b/i.freeze
     SAVINGS_GOAL_CHOICE_PATTERN = /\b(?:pick|choose|decide|should|realistic|reasonable|help me|start with|too (?:much|high|big|low|small))\b/i.freeze
     SAVINGS_GOAL_PROGRESS_PATTERN = /\b(?:progress|how close|how far|on track|so far)\b/i.freeze
-    ESSENTIAL_SKIP_PATTERN = /\b(?:skip(?:ping)?|go(?:ing)? without|cut(?:ting)? out|stop(?:ping)?)\b.{0,40}\b(?:food|meals?|groceries|grocery|eating|breakfast|lunch|dinner)\b/i.freeze
+    # The participant's own choice ("I keep skipping…", "Can we go without…"), not a
+    # family member going without, which is hardship rather than a savings plan.
+    ESSENTIAL_SKIP_PATTERN = /\b(?:i|we)\b\S*(?:\s+\S+){0,3}?\s+(?:skip(?:ping)?|go(?:ing)? without|cut(?:ting)? out|stop(?:ping)?)\s+(?:(?:buying|eating|having|getting|my|our|the|some|family|kids['’]?)\s+){0,2}(?:food|meals?|groceries|grocery|eating|breakfast|lunch|dinner)\b/i.freeze
+    ESSENTIAL_SKIP_PURPOSE_PATTERN = /\b(?:to|so (?:i|we) can|in order to|for)\b.{0,40}\b(?:save|saving|savings|challenge|goal|pay|afford|cover|catch up)\b/i.freeze
+    FOOD_INSECURITY_PATTERN = /\b(?:can['’]?t|cannot|could(?:n['’]?t| not)) afford\b|\bno (?:money|food)\b|\b(?:ran|run|running) out of (?:food|money)\b|\bnothing to eat\b|\bhungry\b|\bbecause (?:we|i) (?:have|had) no\b/i.freeze
     # Trimming how food is bought (eating out, packing lunch, cooking at home) is a
     # healthy swap, not skipping food.
-    DISCRETIONARY_FOOD_PATTERN = /\b(?:eating|eat|dining)\s+out\b|\b(?:fast food|junk food|takeout|take out|delivery|restaurants?|wast(?:e|ing))\b|\b(?:pack(?:ing)?|bring(?:ing)?|cook(?:ing)?|meal prep(?:ping)?|homemade|make\s+(?:it|lunch|dinner|meals?)\s+at home|at home instead)\b/i.freeze
-    REPEAT_SPENDING_PATTERN = /(?:\b(?:i|we)\s+(?:just\s+|already\s+|keep\s+|kept\s+)?|(?:\A|[.!?;]\s*))(?:ordered|ordering|bought|buying|spent|spending|splurged|grabbed|went (?:shopping|out)|ate out|blew)\b/i.freeze
+    DISCRETIONARY_FOOD_PATTERN = /\b(?:buying|getting|ordering)\s+(?:lunch|breakfast|dinner)\b|\bat work\b|\b(?:eating|eat|dining)\s+out\b|\b(?:fast food|junk food|takeout|take out|delivery|restaurants?|wast(?:e|ing))\b|\b(?:pack(?:ing)?|bring(?:ing)?|cook(?:ing)?|meal prep(?:ping)?|homemade|make\s+(?:it|lunch|dinner|meals?)\s+at home|at home instead)\b/i.freeze
+    REPEAT_SPENDING_PATTERN = /(?:\b(?:i|we)\s+(?:just\s+|already\s+)?|(?:\A|[.!?;]\s*))(?:ordered|bought|spent|splurged|grabbed|went (?:shopping|out)|ate out|blew)\b|\b(?:i|we)\s+(?:keep|kept)\s+(?:ordering|buying|spending|getting|eating out|going out)\b/i.freeze
+    REPEAT_LOOKUP_PATTERN = /\b(?:what|how much|how many|remind me|show me|list|when did)\b/i.freeze
     REPEAT_MARKER_PATTERN = /\b(?:again|(?:second|third|fourth|fifth|sixth|seventh|\d+(?:st|nd|rd|th))\s+time|told myself|keep (?:doing|spending|buying|ordering))\b/i.freeze
     REPEAT_LABEL_PATTERN = /\b(takeout|take out|delivery|fast food|eating out|coffee|online shopping|shopping|snacks)\b/i.freeze
     TRANSACTION_DRAFT_FOLLOWUP_PATTERN = /\bfollow-up to previous transaction_draft topic\b|\btopic:\s*reported spending\b/i.freeze
+
+    def self.subjectless_spend_report?(value)
+      text = value.to_s.squish
+      text.match?(SUBJECTLESS_SPEND_PATTERN) && !text.include?("?")
+    end
+
+    def self.spend_report_text?(value)
+      value.to_s.squish.match?(TRANSACTION_REPORT_PATTERN) || subjectless_spend_report?(value)
+    end
 
     def self.prompt_injection?(value)
       value.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").downcase.gsub(/[^a-z0-9\s$.-]/, " ").squish.match?(PROMPT_INJECTION_PATTERN)
@@ -707,7 +724,8 @@ module HouseholdFinance
 
     def essential_skip_answer
       return nil unless normalized_message.match?(ESSENTIAL_SKIP_PATTERN)
-      return nil if normalized_message.match?(DISCRETIONARY_FOOD_PATTERN)
+      return nil unless normalized_message.match?(ESSENTIAL_SKIP_PURPOSE_PATTERN)
+      return nil if normalized_message.match?(DISCRETIONARY_FOOD_PATTERN) || normalized_message.match?(FOOD_INSECURITY_PATTERN)
 
       flexible_line = top_month_row_line("discretionary", reference_month - 1) if plan_available?
       flexible_hint = flexible_line ? "; your largest flexible line this month is #{flexible_line}" : ""
@@ -722,7 +740,8 @@ module HouseholdFinance
 
     def repeated_pattern_answer
       return nil unless normalized_message.match?(REPEAT_MARKER_PATTERN) && message.match?(REPEAT_SPENDING_PATTERN)
-      return nil if normalized_message.match?(INVESTMENT_PATTERN)
+      return nil if normalized_message.match?(INVESTMENT_PATTERN) || normalized_message.match?(REPEAT_LOOKUP_PATTERN)
+      return nil if normalized_message.match?(DEBT_TERM_PATTERN) || normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(/\b(?:behind|late|overdue|past due)\b/)
       return nil if normalized_message.match?(ESSENTIAL_PURCHASE_TERMS) && !normalized_message.match?(REPEAT_LABEL_PATTERN)
 
       label = normalized_message.match(REPEAT_LABEL_PATTERN)&.[](1)&.sub("take out", "takeout") || "this spending"
@@ -732,6 +751,7 @@ module HouseholdFinance
     def savings_goal_answer
       return nil unless normalized_message.match?(SAVINGS_GOAL_PATTERN) && normalized_message.match?(SAVINGS_GOAL_CHOICE_PATTERN)
       return nil if purchase_question? || normalized_message.match?(SAVINGS_GOAL_PROGRESS_PATTERN)
+      return nil if normalized_message.match?(MONEY_MOVEMENT_PATTERN) || normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(/\b(?:behind|late|overdue|past due|rent)\b/)
       return nil if [ DEBT_TERM_PATTERN, EXTRA_MONEY_PATTERN, INVESTMENT_PATTERN, FAMILY_SUPPORT_PATTERN ].any? { |pattern| normalized_message.match?(pattern) }
 
       amount_cents = amount_from_message_cents
@@ -829,7 +849,7 @@ module HouseholdFinance
     end
 
     def transaction_report?
-      message.match?(TRANSACTION_REPORT_PATTERN) && message.match?(AMOUNT_PATTERN)
+      self.class.spend_report_text?(message) && message.match?(AMOUNT_PATTERN)
     end
 
     def purchase_question?

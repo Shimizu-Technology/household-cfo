@@ -785,6 +785,52 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     end
   end
 
+  test "new support routes stay out of nearby conversations" do
+    household = create_yellow_household
+    new_route_phrases = [ "Please do not skip food", "That feeling is really common", "noticing a pattern is the hard part", "is a good goal if it fits" ]
+
+    [
+      "My kids are skipping meals because we can't afford groceries",
+      "My kids are skipping meals so we can pay rent",
+      "Should I stop paying my car loan so I can buy food?",
+      "Should I stop buying lunch at work to save for the challenge?",
+      "Stop getting McDonald's for lunch, is that a good way to save?",
+      "I'm anxious because my balance is only $40 and rent is due Friday",
+      "I'm scared someone hacked my bank account",
+      "What was I spending on coffee again?",
+      "Remind me again what I spent on shopping last month",
+      "I'm behind on my car payment again because I spent too much",
+      "Should I transfer $500 from checking to savings for my challenge goal?",
+      "Should I lower my savings goal because I'm behind on rent?"
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
+      new_route_phrases.each { |phrase| refute_includes answer, phrase, prompt }
+    end
+  end
+
+  test "a spend with no I or we counts only as a dollar statement" do
+    [ "Spent $12 at Payless today, felt stressed.", "Just paid $45 at Shell.", "Felt bad. Bought $20 of snacks." ].each do |message|
+      assert HouseholdFinance::MiaCoachAnswerer.subjectless_spend_report?(message), message
+    end
+    [
+      "Spent too much this month, can I still afford a $200 TV?",
+      "Paid off my car loan! What should I do with the extra $300 a month?",
+      "Bought a $40 game for my son. Can I afford a $300 phone too?",
+      "Spent a lot on groceries this month. Am I over budget?"
+    ].each do |message|
+      refute HouseholdFinance::MiaCoachAnswerer.subjectless_spend_report?(message), message
+    end
+  end
+
+  test "questions that start with a spend keep their existing answers" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Spent too much this month, can I still afford a $200 TV?").call
+    assert answer.present?
+    assert HouseholdFinance::SpendingReportQuery.new("Paid rent today. Am I on track this month?").range.present?
+    assert_nil HouseholdFinance::SpendingReportQuery.new("Spent $12 at Payless today, felt stressed.").range
+  end
+
   test "repeated spending is named as a pattern without shame and with one next step" do
     household = create_yellow_household
 

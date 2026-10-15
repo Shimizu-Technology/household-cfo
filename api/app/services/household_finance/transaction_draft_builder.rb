@@ -2,7 +2,7 @@ module HouseholdFinance
   class TransactionDraftBuilder
     AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
     BARE_SPEND_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
-    SPEND_PATTERN = /(?:\b(?:i|we)\s+|(?:\A|[.!?;]\s*)(?:just\s+)?)(?:spent|paid|charged|bought)\b/i.freeze
+    SPEND_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\b/i.freeze
     NON_EXPENSE_MOVEMENT_PATTERN = /\b(?:transfer(?:red|ring)?|withdr(?:aw|ew|awn|awal)|deposit(?:ed)?|refund(?:ed)?|reimburse(?:d|ment)?|(?:credit\s*card|card|loan|debt)\s+payment|balance\s+(?:adjustment|correction))\b|\bpaid\b.{0,50}\b(?:visa|mastercard|amex|credit\s*card|loan)\b/i.freeze
     EXPLICIT_PURCHASE_PATTERN = /\b(?:(?:i|we)\s+)?(?:spent|charged|bought|purchased)\s+\$?\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)\s+(?:at|from)\s+([^.,;!?$]+?)(?=\s+(?:for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
     MERCHANT_PATTERNS = [
@@ -90,7 +90,7 @@ module HouseholdFinance
     def transaction_like?
       return false if self.class.non_expense_movement?(raw_input) && explicit_purchase.blank?
 
-      explicit_spend = amount_match.present? && draft_text.match?(SPEND_PATTERN)
+      explicit_spend = amount_match.present? && (draft_text.match?(SPEND_PATTERN) || MiaCoachAnswerer.subjectless_spend_report?(draft_text))
       tab_total = draft_text.match?(AMOUNT_PATTERN) && draft_text.match?(/\bmy\s+tab\s+(?:is|was)\b/i)
       contextual_spend = transaction_follow_up_context? && amount_match.present? && draft_text.match?(/\b(?:another|also|same place|same merchant|there|tip|plus|add|extra|fee)\b/i)
 

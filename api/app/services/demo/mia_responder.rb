@@ -517,7 +517,7 @@ module Demo
     end
 
     def transaction_report_message?(message)
-      message.to_s.squish.match?(HouseholdFinance::MiaCoachAnswerer::TRANSACTION_REPORT_PATTERN) && transaction_report_amount_match(message).present?
+      HouseholdFinance::MiaCoachAnswerer.spend_report_text?(message) && transaction_report_amount_match(message).present?
     end
 
     def transaction_report_amount_cents(message)
