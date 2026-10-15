@@ -6,7 +6,7 @@ import { AuthAccessPanel } from './components/AuthAccessPanel'
 import { AuthPopupComplete } from './components/AuthPopupComplete'
 import { AuthLoginRoute } from './components/AuthLoginRoute'
 import { EnterpriseAccessPage } from './components/EnterpriseAccessPage'
-import App from './App'
+import { AppEntry } from './AppEntry'
 import { AuthProvider } from './contexts/AuthContext'
 import { PostHogProvider } from './providers/PostHogProvider'
 import { BrandBootstrapState } from './components/BrandBootstrapState'
@@ -42,7 +42,7 @@ function Root() {
     <AuthProvider provider={config.provider} invitationToken={invitation.token} clientId={config.clientId} callbackError={callbackError} verificationEnabled={status === 'ready'}>
       <BrandDocument />
       <ProgramStartupGate><PostHogProvider>
-        <IdentityBoundary>{config.provider === 'workos' && route.startsWith('/login:') ? <AuthLoginRoute /> : route.startsWith('/organization-access:') || route.endsWith(':true') ? <EnterpriseAccessPage /> : <App />}</IdentityBoundary>
+        <IdentityBoundary>{config.provider === 'workos' && route.startsWith('/login:') ? <AuthLoginRoute /> : route.startsWith('/organization-access:') || route.endsWith(':true') ? <EnterpriseAccessPage /> : <AppEntry />}</IdentityBoundary>
       </PostHogProvider></ProgramStartupGate>
     </AuthProvider>
   )

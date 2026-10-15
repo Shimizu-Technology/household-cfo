@@ -2,14 +2,8 @@ import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
 import { AccountMenu } from './components/AccountMenu'
 import { PARTICIPANT_SECTIONS, SECTION_CAPABILITY_IDS, participantSectionsForModules } from './lib/participantNavigation'
-import { SignInButton, SignUpButton, SignOutButton } from './components/AuthControls'
+import { SignOutButton } from './components/AuthControls'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref, type ReactNode } from 'react'
-import './App.css'
-import './styles/shell.css'
-import './styles/cards.css'
-import './styles/home.css'
-import './styles/mia.css'
-import './styles/charts.css'
 import { AuthAccessPanel } from './components/AuthAccessPanel'
 import { WorkspaceOpening } from './components/WorkspaceOpening'
 import { WorkspaceVerificationError, workspaceLoadMessage } from './lib/workspaceLoadMessage'
@@ -127,7 +121,6 @@ import {
 } from './api'
 import type {
   AnnualBudgetPlan,
-  BrandConfig,
   BudgetCategoryMonth,
   BudgetCategoryRow,
   BudgetData,
@@ -167,6 +160,9 @@ import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
 import { BrandRuntimeProvider } from './contexts/BrandContext'
 import { useBrand } from './contexts/brandContextValue'
+import { brandByline } from './lib/brandByline'
+import { BrandFooter, BrandLogo } from './components/BrandChrome'
+import { AuthLanding } from './components/AuthLanding'
 import { BrandDocument } from './components/BrandDocument'
 import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload, trackPilotWorkflowFailure } from './lib/analytics'
 
@@ -447,54 +443,8 @@ function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSet
   return values
 }
 
-function brandByline(brand: BrandConfig) {
-  if (brand.powered_by_placement === 'header' && brand.powered_by_name) {
-    return `${brand.organization_name} powered by ${brand.powered_by_name}`
-  }
-  return brand.organization_name
-}
-
 function assistantInitial(name: string) {
   return Array.from(name.trim())[0]?.toUpperCase() ?? 'A'
-}
-
-function BrandLogo({ brand }: { brand: BrandConfig }) {
-  const [failedUrl, setFailedUrl] = useState<string | null>(null)
-  const showLogo = Boolean(brand.logo_url && failedUrl !== brand.logo_url)
-
-  return showLogo ? (
-    <img
-      className="shell-brand-logo"
-      src={brand.logo_url ?? undefined}
-      alt=""
-      referrerPolicy="no-referrer"
-      onError={() => setFailedUrl(brand.logo_url)}
-    />
-  ) : null
-}
-
-function BrandFooter({ privacyFallback = false }: { privacyFallback?: boolean } = {}) {
-  const { brand } = useBrand()
-  const supportHref = brand.support.url ?? (brand.support.email ? `mailto:${brand.support.email}` : null)
-  const supportLabel = brand.support.label ?? (brand.support.email ? 'Contact support' : 'Support')
-  const privacyUrl = brand.footer.privacy_url ?? (privacyFallback ? '/privacy.html' : null)
-  const hasLinks = Boolean(supportHref || privacyUrl || brand.footer.terms_url)
-  const poweredBy = brand.powered_by_placement === 'footer' ? brand.powered_by_name : null
-  if (!brand.footer.text && !hasLinks && !poweredBy) return null
-
-  return (
-    <footer className="brand-footer">
-      <div>
-        {brand.footer.text && <p>{brand.footer.text}</p>}
-        {poweredBy && <small>Powered by {poweredBy}</small>}
-      </div>
-      {hasLinks && <nav aria-label="Program support and policies">
-        {supportHref && <a href={supportHref} target={brand.support.url ? '_blank' : undefined} rel={brand.support.url ? 'noreferrer' : undefined}>{supportLabel}</a>}
-        {privacyUrl && <a href={privacyUrl} target="_blank" rel="noreferrer">Privacy</a>}
-        {brand.footer.terms_url && <a href={brand.footer.terms_url} target="_blank" rel="noreferrer">Terms</a>}
-      </nav>}
-    </footer>
-  )
 }
 
 function App() {
@@ -4342,30 +4292,6 @@ function ClearChatConfirmDialog({
         </div>
       </section>
     </div>
-  )
-}
-
-export function AuthLanding() {
-  const { brand } = useBrand()
-  return (
-    <main className="app loading-state auth-state">
-      <section className="hero-panel auth-panel">
-        <BrandLogo brand={brand} />
-        <p className="eyebrow">{brandByline(brand)}</p>
-        <h1>{brand.welcome_heading || `Welcome to ${brand.product_name}.`}</h1>
-        <p>{brand.welcome_description || brand.tagline || 'Your secure coaching workspace is ready.'}</p>
-        <p className="auth-invitation-copy">Sign in with the email your program invited. Your secure seat determines which coaching experience opens.</p>
-        <div className="auth-actions">
-          <SignInButton>
-            <button type="button">Sign in</button>
-          </SignInButton>
-          <SignUpButton>
-            <button type="button" className="secondary">Create invited account</button>
-          </SignUpButton>
-        </div>
-      </section>
-      <BrandFooter privacyFallback />
-    </main>
   )
 }
 

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -23,11 +23,12 @@ vi.mock('../App', () => ({ default: () => {
 } }))
 afterEach(() => { cleanup(); sessionStorage.clear(); window.history.replaceState(null, '', '/') })
 
-it('removes consumed callback credentials before auth, analytics, and financial UI read the URL', async () => {
+it('removes consumed callback credentials before auth, analytics, and financial UI read the URL', { timeout: 20_000 }, async () => {
   window.history.replaceState(null, '', '/?invitation_token=fictional-invite&oauth_state_id=fictional-bank-ref&code=used-code&state=used-state#Review')
   const { default: Root } = await import('../Root')
   expect(window.location.search).toBe('?oauth_state_id=fictional-bank-ref')
   render(<Root />)
+  await screen.findByText('Existing workspace')
   expect(startup.invitation).toBe('fictional-invite')
   expect(startup.urls.length).toBeGreaterThanOrEqual(3)
   expect(startup.urls.every(url => url === `${window.location.origin}/?oauth_state_id=fictional-bank-ref#Review`)).toBe(true)

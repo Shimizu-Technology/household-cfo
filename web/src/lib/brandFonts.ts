@@ -11,8 +11,14 @@ const googleFontFamilies: Record<string, string> = {
   source_sans_3: 'Source+Sans+3:wght@400;500;600;700',
 }
 
+// Served from /fonts and preloaded by index.html; requesting them again would only add a font swap.
+const selfHostedFamilies = new Set(['cormorant_garamond', 'montserrat'])
+
 export function brandFontStylesheetHref(display: string, body: string): string | null {
-  const families = [googleFontFamilies[display], googleFontFamilies[body]].filter((family): family is string => Boolean(family))
+  const families = [display, body]
+    .filter((key) => !selfHostedFamilies.has(key))
+    .map((key) => googleFontFamilies[key])
+    .filter((family): family is string => Boolean(family))
   if (families.length === 0) return null
   return `https://fonts.googleapis.com/css2?${families.map((family) => `family=${family}`).join('&')}&display=swap`
 }

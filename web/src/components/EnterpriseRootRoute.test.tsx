@@ -20,16 +20,16 @@ it.each(['/organization-access', '/?enterprise=1'])('routes %s to configuration 
   expect(screen.getByText('Organization configuration route')).toBeTruthy()
   expect(financialBootstrap).not.toHaveBeenCalled()
 })
-it('leaves ordinary root navigation connected to the existing finance application', () => {
+it('leaves ordinary root navigation connected to the existing finance application', async () => {
   render(<Root />)
-  expect(screen.getByText('Finance route')).toBeTruthy()
+  expect(await screen.findByText('Finance route')).toBeTruthy()
   expect(financialBootstrap).toHaveBeenCalledOnce()
 })
 
 it('switches callback navigation to organization access before a subsequent auth render can load finance', async () => {
   window.history.replaceState(null, '', '/auth/callback?code=fictional-callback-code')
   render(<Root />)
-  expect(screen.getByText('Finance route')).toBeTruthy()
+  expect(await screen.findByText('Finance route')).toBeTruthy()
   const initialFinanceRenders = financialBootstrap.mock.calls.length
   await act(async () => restoreAuthReturn({ state: { returnTo: '/organization-access' } }))
   expect(window.location.pathname).toBe('/organization-access')
