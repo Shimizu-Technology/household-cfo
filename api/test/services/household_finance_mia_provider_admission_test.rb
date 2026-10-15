@@ -107,8 +107,11 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
       nil
     end
 
-    assert_nil admission.call { flunk("expired admission must not run the provider block") }
+    logged = capture_log do
+      assert_nil admission.call { flunk("expired admission must not run the provider block") }
+    end
     assert_equal 0, attempts
+    assert_includes logged, '"reason":"checkout_timeout"'
   end
 
   test "releases a slot acquired after the admission deadline without calling the provider" do
@@ -144,5 +147,76 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     assert_nil result
     assert_operator elapsed_ms, :>=, 100
     assert_operator elapsed_ms, :<, 500
+  end
+
+  test "a denied admission logs a structured line and a Sentry warning tagged with the call site" do
+    admission = HouseholdFinance::MiaProviderAdmission.new(call_site: "mia_narrator", provider: "denied-#{SecureRandom.hex(6)}", limit: 2, wait_ms: 0)
+    admission.define_singleton_method(:acquire) { |_connection| nil }
+    captured = []
+    logged = capture_log do
+      with_sentry_capture(captured) do
+        assert_nil admission.call { flunk("denied admission must not run the provider block") }
+      end
+    end
+
+    line = logged.lines.find { |entry| entry.include?(HouseholdFinance::MiaProviderAdmission::DENIED_EVENT) }
+    assert line, "expected a structured denied-admission log line"
+    payload = JSON.parse(line[line.index("{")..])
+    assert_equal "mia_narrator", payload.fetch("call_site")
+    assert_equal "capacity_full", payload.fetch("reason")
+    assert_equal 2, payload.fetch("limit")
+    assert_equal 1, captured.length
+    message, options = captured.first
+    assert_equal HouseholdFinance::MiaProviderAdmission::DENIED_MESSAGE, message
+    assert_equal :warning, options.fetch(:level)
+    assert_equal({ mia_call_site: "mia_narrator", mia_admission_reason: "capacity_full" }, options.fetch(:tags))
+    assert_equal [ HouseholdFinance::MiaProviderAdmission::DENIED_EVENT, "mia_narrator", "capacity_full" ], options.fetch(:fingerprint)
+  end
+
+  test "an admission database error is reported as a visible fallback without its message" do
+    admission = HouseholdFinance::MiaProviderAdmission.new(call_site: "mia_intent", provider: "errored-#{SecureRandom.hex(6)}", limit: 1, wait_ms: 0)
+    admission.define_singleton_method(:acquire) { |_connection| raise ActiveRecord::ConnectionTimeoutError, "secret detail" }
+    captured = []
+    logged = capture_log do
+      with_sentry_capture(captured) do
+        assert_nil admission.call { flunk("errored admission must not run the provider block") }
+      end
+    end
+
+    refute_includes logged, "secret detail"
+    _message, options = captured.sole
+    assert_equal({ mia_call_site: "mia_intent", mia_admission_reason: "admission_error" }, options.fetch(:tags))
+    assert_equal "ActiveRecord::ConnectionTimeoutError", options.fetch(:extra).fetch(:error_class)
+  end
+
+  test "an admitted call reports nothing" do
+    captured = []
+    with_sentry_capture(captured) do
+      assert_equal :ok, HouseholdFinance::MiaProviderAdmission.new(call_site: "mia_intent", provider: "admitted-#{SecureRandom.hex(6)}", limit: 1, wait_ms: 0).call { :ok }
+    end
+
+    assert_empty captured
+  end
+
+  private
+
+  def capture_log
+    output = StringIO.new
+    original = Rails.logger
+    Rails.logger = ActiveSupport::Logger.new(output)
+    yield
+    output.string
+  ensure
+    Rails.logger = original
+  end
+
+  def with_sentry_capture(captured)
+    singleton = Sentry.singleton_class
+    original = singleton.instance_method(:capture_message)
+    singleton.define_method(:capture_message) { |message, **options| captured << [ message, options ] }
+    yield
+  ensure
+    singleton.send(:remove_method, :capture_message) if singleton.method_defined?(:capture_message, false)
+    singleton.define_method(:capture_message, original)
   end
 end

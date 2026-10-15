@@ -14,6 +14,9 @@ module Api
       end
 
       before_action :authenticate_user!
+      # Crisis messages are never throttled: emergency guidance must always answer.
+      participant_rate_limit to: 20, within: 1.minute, name: "mia-minute", only: :create, unless: :crisis_message?
+      participant_rate_limit to: 200, within: 1.hour, name: "mia-hour", only: :create, unless: :crisis_message?
       before_action :require_writable_household!, only: %i[create destroy]
 
       def index
@@ -29,7 +32,7 @@ module Api
         content = params[:message].to_s.strip
         # Emergency guidance must not depend on uploads being available. Do not
         # resolve or expose attachments for this boundary response.
-        if content.present? && content.length <= ChatMessage::MAX_CONTENT_LENGTH && ::Mia::CrisisBoundary.matches?(content)
+        if crisis_message?
           begin
             session = current_chat_session
           rescue SavingsChallenge::AccessPolicy::Unavailable
@@ -366,6 +369,13 @@ module Api
       end
 
       private
+
+      def crisis_message?
+        return @crisis_message if defined?(@crisis_message)
+
+        content = params[:message].to_s.strip
+        @crisis_message = content.present? && content.length <= ChatMessage::MAX_CONTENT_LENGTH && ::Mia::CrisisBoundary.matches?(content)
+      end
 
       def household_plan_continuation?(session, content)
         return false unless session.active_topic.to_h["record_scope"] == "household_plan"

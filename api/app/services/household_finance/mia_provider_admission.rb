@@ -10,12 +10,17 @@ module HouseholdFinance
     DEFAULT_WAIT_MS = 1_000
     MAX_WAIT_MS = 5_000
     POLL_INTERVAL_SECONDS = 0.05
+    DENIED_EVENT = "mia.provider_admission_denied"
+    DENIED_MESSAGE = "Mia provider admission denied"
 
     def self.with_slot(**options, &block)
       new(**options).call(&block)
     end
 
-    def initialize(provider: PROVIDER, limit: configured_limit, wait_ms: configured_wait_ms, connection_pool: ActiveRecord::Base.connection_pool)
+    # call_site names the caller ("mia_intent", "mia_narrator", ...) so denied
+    # admissions, and the canned replies they cause, can be counted per path.
+    def initialize(call_site: "unspecified", provider: PROVIDER, limit: configured_limit, wait_ms: configured_wait_ms, connection_pool: ActiveRecord::Base.connection_pool)
+      @call_site = call_site.to_s
       @provider = provider
       @limit = limit.to_i.clamp(1, MAX_LIMIT)
       @wait_ms = wait_ms.to_i.clamp(0, MAX_WAIT_MS)
@@ -25,11 +30,13 @@ module HouseholdFinance
     def call
       started_at = monotonic_time
       deadline = started_at + (wait_ms / 1000.0)
+      attempted = false
 
       loop do
         connection_pool.with_connection do |connection|
           next if wait_ms.positive? && monotonic_time >= deadline
 
+          attempted = true
           slot = acquire(connection)
           if slot && (wait_ms.zero? || monotonic_time < deadline)
             instrument(admitted: true, waited_ms: elapsed_ms(started_at))
@@ -51,16 +58,37 @@ module HouseholdFinance
 
       waited_ms = elapsed_ms(started_at)
       instrument(admitted: false, waited_ms: waited_ms)
-      Rails.logger.info("[HouseholdFinance::MiaProviderAdmission] provider capacity full after #{waited_ms}ms; using deterministic fallback")
+      # No attempt means the database connection checkout used up the wait,
+      # which points at the connection pool rather than provider capacity.
+      report_denied(reason: attempted ? "capacity_full" : "checkout_timeout", waited_ms: waited_ms)
       nil
     rescue ActiveRecord::ActiveRecordError => e
-      Rails.logger.warn("[HouseholdFinance::MiaProviderAdmission] admission fallback: #{e.class}: #{e.message}")
+      report_denied(reason: "admission_error", waited_ms: started_at ? elapsed_ms(started_at) : nil, error_class: e.class.name)
       nil
     end
 
     private
 
-    attr_reader :provider, :limit, :wait_ms, :connection_pool
+    attr_reader :call_site, :provider, :limit, :wait_ms, :connection_pool
+
+    # Structured log + Sentry warning so fallbacks (canned replies or "busy"
+    # errors, depending on the caller) are visible and countable per call site.
+    # Never include participant content: only the call site, reason, and timing.
+    def report_denied(reason:, waited_ms:, error_class: nil)
+      details = { call_site: call_site, reason: reason, provider: provider, limit: limit, waited_ms: waited_ms, error_class: error_class }.compact
+      Rails.logger.warn({ event: DENIED_EVENT }.merge(details).to_json)
+      return unless defined?(Sentry)
+
+      Sentry.capture_message(
+        DENIED_MESSAGE,
+        level: :warning,
+        tags: { mia_call_site: call_site, mia_admission_reason: reason },
+        extra: details,
+        fingerprint: [ DENIED_EVENT, call_site, reason ]
+      )
+    rescue StandardError => e
+      Rails.logger.warn("[HouseholdFinance::MiaProviderAdmission] denied-admission report failed: #{e.class}")
+    end
 
     def acquire(connection)
       (1..limit).find do |slot|
@@ -92,6 +120,7 @@ module HouseholdFinance
       ActiveSupport::Notifications.instrument(
         "mia.provider_admission",
         provider: provider,
+        call_site: call_site,
         admitted: admitted,
         limit: limit,
         waited_ms: waited_ms

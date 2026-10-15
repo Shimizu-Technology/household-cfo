@@ -62,8 +62,12 @@ module ActiveSupport
     def with_mia_provider_capacity_rejected
       singleton = HouseholdFinance::MiaProviderAdmission.singleton_class
       original = singleton.instance_method(:with_slot)
-      singleton.define_method(:with_slot) { |**_options, &_block| nil }
-      yield
+      call_sites = []
+      singleton.define_method(:with_slot) do |**options, &_block|
+        call_sites << options[:call_site]
+        nil
+      end
+      yield call_sites
     ensure
       singleton.send(:remove_method, :with_slot) if singleton.method_defined?(:with_slot)
       singleton.define_method(:with_slot, original)

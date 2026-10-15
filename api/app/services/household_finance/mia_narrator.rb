@@ -55,7 +55,7 @@ module HouseholdFinance
       return fallback_response if fallback_response.blank?
       return fallback_response if ::Mia::Capabilities.persona_configuration_request?(user_message)
 
-      narrated = MiaProviderAdmission.with_slot { openrouter_response }
+      narrated = MiaProviderAdmission.with_slot(call_site: "mia_narrator") { openrouter_response }
       sanitized = sanitize_narration(narrated)
       rejection_reason = narration_rejection_reason(sanitized)
       return reject_narration(rejection_reason) if rejection_reason

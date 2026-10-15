@@ -934,7 +934,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
   end
 
   test "returns no model resolution when provider capacity is full" do
-    with_mia_provider_capacity_rejected do
+    with_mia_provider_capacity_rejected do |call_sites|
       resolver = HouseholdFinance::MiaIntentResolver.new(
         user_message: "What were we discussing?",
         context: intent_context,
@@ -943,6 +943,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       resolver.define_singleton_method(:openrouter_response) { raise "saturated admission called the provider" }
 
       assert_nil resolver.call
+      assert_equal [ "mia_intent" ], call_sites
     end
   end
 

@@ -97,7 +97,7 @@ module Demo
         return grounded_response
       end
       if @api_key.to_s.strip.present?
-        response = HouseholdFinance::MiaProviderAdmission.with_slot do
+        response = HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder") do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
         end
         if response.present? && !ungrounded_generic_financial_claim?(response, context: prompt_context, user_message: clean_message)

@@ -71,7 +71,7 @@ module Mia
       def call(context:, user_message:)
         raise Error.new("Persona setup is temporarily unavailable.", code: "persona_setup_unavailable") if api_key.blank?
 
-        response = HouseholdFinance::MiaProviderAdmission.with_slot do
+        response = HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "persona_setup") do
           transport.call(payload_for(context:, user_message:))
         end
         raise Error.new("Persona setup is busy. Try again shortly.", code: "persona_setup_busy") unless response

@@ -642,9 +642,10 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { wrong_type })
     assert_equal "persona_setup_invalid", assert_raises(Mia::PersonaSetup::ProposalResolver::Error) { resolver.call(context: {}, user_message: "Hello") }.code
 
-    with_mia_provider_capacity_rejected do
+    with_mia_provider_capacity_rejected do |call_sites|
       resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { flunk "transport must not run" })
       assert_equal "persona_setup_busy", assert_raises(Mia::PersonaSetup::ProposalResolver::Error) { resolver.call(context: {}, user_message: "Hello") }.code
+      assert_equal [ "persona_setup" ], call_sites
     end
   end
 

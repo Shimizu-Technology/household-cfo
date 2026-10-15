@@ -3,6 +3,10 @@ module Api
     module Plaid
       class ItemsController < BaseController
         before_action :authenticate_user!
+        participant_rate_limit to: 10, within: 10.minutes, name: "link-token", only: :link_token
+        participant_rate_limit to: 10, within: 10.minutes, name: "update-link-token", only: :update_link_token
+        participant_rate_limit to: 10, within: 10.minutes, name: "exchange", only: :exchange
+        participant_rate_limit to: 10, within: 10.minutes, name: "sync", only: :sync
         before_action :require_writable_household!, except: :index
 
         def index
