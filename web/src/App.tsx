@@ -577,6 +577,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     budgetActionRef.current = null
     setBudgetAction(null)
   }
+  // Forms that await a save keep the participant's input when the save throws.
+  const budgetActionBusyError = () => {
+    const message = 'Another change is still saving. Try again in a moment.'
+    setBudgetError(message)
+    return new Error(message)
+  }
   const [budgetError, setBudgetError] = useState<string | null>(null)
   const [hasUnsavedBudgetChanges, setHasUnsavedBudgetChanges] = useState(false)
   const [hasUnsavedIncomeSourceChanges, setHasUnsavedIncomeSourceChanges] = useState(false)
@@ -756,7 +762,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   budgetViewScopeRef.current = budgetViewScope
   const budgetYearLoading = pendingBudgetView?.scope === budgetViewScope
   const budgetContextAction = budgetYearLoading ? 'load-budget-year' : budgetAction
-  // Mia's reply can replace the drafts shown in chat, so chat cards wait for it.
+  // Mia's reply returns fresh drafts and budget numbers, so draft cards on every tab
+  // wait for it instead of racing it.
   const chatDraftAction = budgetContextAction ?? (miaLoading ? 'mia-replying' : null)
   useEffect(() => {
     budgetViewRequestRef.current += 1
@@ -2204,7 +2211,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       return
     }
 
-    if (!beginBudgetAction(entryId ? `update-income:${entryId}` : 'create-income')) return
+    if (!beginBudgetAction(entryId ? `update-income:${entryId}` : 'create-income')) throw budgetActionBusyError()
     setBudgetError(null)
     const signature = `${entryId ? `update-income-schedule:${entryId}` : 'create-income-schedule'}:${selectedBudgetYear}:${JSON.stringify(values)}`
     try {
@@ -2250,7 +2257,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     const action = sourceId ? `update-income-source:${sourceId}` : 'create-income-source'
     const signature = `${action}:${selectedBudgetYear}:${JSON.stringify(values)}`
-    if (!beginBudgetAction(action)) return
+    if (!beginBudgetAction(action)) throw budgetActionBusyError()
     setSetupError(null)
     try {
       const budget = sourceId
@@ -2272,7 +2279,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (!isRealWorkspace || !data) return
 
     const signature = `archive-income-source:${selectedBudgetYear}:${source.id}:${endsOn}`
-    if (!beginBudgetAction(`archive-income-source:${source.id}`)) return
+    if (!beginBudgetAction(`archive-income-source:${source.id}`)) throw budgetActionBusyError()
     setSetupError(null)
     try {
       const budget = await archiveIncomeSource(source.id, endsOn, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
@@ -2344,7 +2351,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace || !data || (changes.allocations.length === 0 && changes.categories.length === 0)) return
 
-    if (!beginBudgetAction('save-budget-edits')) return
+    if (!beginBudgetAction('save-budget-edits')) throw budgetActionBusyError()
     setBudgetError(null)
     let latestBudget = data.budget
     let appliedChanges = 0
@@ -2507,7 +2514,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (!isRealWorkspace) return
 
     const signature = `transaction:create:${JSON.stringify(values)}`
-    if (!beginBudgetAction('create-transaction-draft')) return
+    if (!beginBudgetAction('create-transaction-draft')) throw budgetActionBusyError()
     setBudgetError(null)
     try {
       const response = await createTransactionDraft(values, transactionOperationKeysRef.current.keyFor(signature))
@@ -2531,7 +2538,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
-    if (!beginBudgetAction(`update-draft:${draft.id}`)) return
+    if (!beginBudgetAction(`update-draft:${draft.id}`)) throw budgetActionBusyError()
     setBudgetError(null)
     setDocumentsError(null)
     try {
@@ -2929,6 +2936,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       return
     }
 
+    // Applying extracted values changes money, so it shares the one-change-at-a-time guard.
+    if (!beginBudgetAction(`apply-document:${documentImport.id}`)) {
+      setDocumentsError('Another change is still saving. Try again in a moment.')
+      return
+    }
     setDocumentAction(`apply:${documentImport.id}`)
     setDocumentsError(null)
     setDocumentsNotice(null)
@@ -2961,6 +2973,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentsError(caught instanceof Error ? caught.message : 'Selected values could not be applied.')
     } finally {
       setDocumentAction(null)
+      endBudgetAction()
     }
   }
 
@@ -3615,6 +3628,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 <ManualTransactionCapture
                   categories={activeBudgetPlan?.rows ?? []}
                   busy={budgetAction === 'create-transaction-draft'}
+                  locked={Boolean(budgetAction)}
                   onCreate={handleCreateTransactionDraft}
                 />
                 </fieldset>
@@ -3623,7 +3637,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     drafts={pendingTransactionDrafts}
                     isRealWorkspace
                     compact
-                    action={budgetContextAction}
+                    action={chatDraftAction}
                     categories={activeBudgetPlan?.rows ?? []}
                     plan={activeBudgetPlan}
                     queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
@@ -3914,7 +3928,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             uploadingKind={uploadingKind}
             itemSavingIds={itemSavingIds}
             action={documentAction}
-            draftAction={budgetContextAction}
+            draftAction={chatDraftAction}
             expandedAppliedImportId={expandedAppliedImportId}
             onExpandedAppliedImportIdChange={setExpandedAppliedImportId}
             demoUploads={data.profile.uploads}
@@ -3972,7 +3986,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             uploadingKind={uploadingKind}
             itemSavingIds={itemSavingIds}
             action={documentAction}
-            draftAction={budgetContextAction}
+            draftAction={chatDraftAction}
             expandedAppliedImportId={expandedAppliedImportId}
             onExpandedAppliedImportIdChange={setExpandedAppliedImportId}
             demoUploads={data.profile.uploads}
@@ -6864,10 +6878,12 @@ function miaActionItemFinePrint(item: MiaActionItem) {
 function ManualTransactionCapture({
   categories,
   busy,
+  locked = busy,
   onCreate,
 }: {
   categories: BudgetCategoryRow[]
   busy: boolean
+  locked?: boolean
   onCreate: (values: TransactionDraftCreateInput) => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
@@ -6923,8 +6939,8 @@ function ManualTransactionCapture({
           <label><span>Category <small>optional</small></span><select value={categoryId} onChange={(event) => setCategoryId(event.currentTarget.value)}><option value="">Leave uncategorized</option>{activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
           {formError && <p className="manual-transaction-error" role="alert">{formError}</p>}
           <div className="manual-transaction-actions">
-            <button type="button" className="secondary-button" disabled={busy} onClick={() => { reset(); setOpen(false) }}>Cancel</button>
-            <button type="submit" disabled={busy}>{busy ? 'Adding review' : 'Add to review'}</button>
+            <button type="button" className="secondary-button" disabled={locked} onClick={() => { reset(); setOpen(false) }}>Cancel</button>
+            <button type="submit" disabled={locked}>{busy ? 'Adding review' : 'Add to review'}</button>
           </div>
         </form>
       )}
@@ -8099,7 +8115,7 @@ function IncomeSourceManager({
     }
   }
 
-  const incomeOperationPending = Boolean(action?.includes('income'))
+  const incomeOperationPending = Boolean(action)
   const saving = action === 'create-income-source' || (editingId !== null && action === `update-income-source:${editingId}`)
 
   return (
@@ -8424,7 +8440,7 @@ function AnnualIncomePlanner({
     }
   }
 
-  const incomeOperationPending = Boolean(action?.includes('income'))
+  const incomeOperationPending = Boolean(action)
   const saving = action === 'create-income' || (editingId !== null && action === `update-income:${editingId}`)
   const eligibleSources = plan.income_sources.filter((source) => incomeSourceEffectiveInMonth(source, draft.effective_on))
   const selectedSource = eligibleSources.find((source) => String(source.id) === draft.income_source_id)
@@ -8756,6 +8772,7 @@ function AnnualBudgetPlanner({
   )
   const isEditingBudget = budgetEditState.signature === planSignature && budgetEditState.isEditing
   const isSavingBudgetEdits = action === 'save-budget-edits'
+  const budgetEditsLocked = Boolean(action)
   const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
   const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
@@ -9098,8 +9115,8 @@ function AnnualBudgetPlanner({
                   <span aria-live="polite">{totalBudgetChanges > 0 ? `${totalBudgetChanges} unsaved change${totalBudgetChanges === 1 ? '' : 's'}. Save or cancel before switching tools.` : 'On your phone, edit one month at a time or choose the full year.'}</span>
                 </div>
                 <div className="annual-plan-edit-actions">
-                  <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelAndCloseManualManager}>Cancel</button>
-                  <button type="button" disabled={isSavingBudgetEdits} onClick={() => void saveBudgetEdits()}>
+                  <button type="button" className="secondary-button" disabled={budgetEditsLocked} onClick={cancelAndCloseManualManager}>Cancel</button>
+                  <button type="button" disabled={budgetEditsLocked} onClick={() => void saveBudgetEdits()}>
                     {isSavingBudgetEdits ? 'Saving' : totalBudgetChanges > 0 ? `Save ${totalBudgetChanges} change${totalBudgetChanges === 1 ? '' : 's'}` : 'Done'}
                   </button>
                 </div>

@@ -7077,6 +7077,36 @@ test('real review controls keep transaction and Mia changes behind explicit part
   expect((await cancelRequest).headers()['idempotency-key']).toBeTruthy()
 })
 
+test('a typed transaction is kept while another review change is still saving', async ({ page }) => {
+  let releaseConfirm!: () => void
+  const confirmHeld = new Promise<void>(resolve => { releaseConfirm = resolve })
+  await page.route('http://api.test/api/v1/transaction_drafts/91/confirm', async (route) => {
+    await confirmHeld
+    await route.fallback()
+  })
+  let createRequests = 0
+  page.on('request', (request) => { if (request.url().endsWith('/api/v1/transaction_drafts') && request.method() === 'POST') createRequests += 1 })
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'Review')
+
+  const capture = page.locator('.manual-transaction-capture')
+  await capture.getByRole('button', { name: 'Add transaction' }).click()
+  await capture.getByLabel('Merchant').fill('Pay-Less')
+  await capture.getByLabel('Amount').fill('12.50')
+
+  const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
+  await transactionCard.getByRole('button', { name: 'Confirm' }).click()
+  await expect(transactionCard.getByRole('button', { name: 'Confirming' })).toBeDisabled()
+  await expect(capture.getByRole('button', { name: 'Add to review' })).toBeDisabled()
+  await expect(capture.getByLabel('Merchant')).toHaveValue('Pay-Less')
+  await expect(capture.getByLabel('Amount')).toHaveValue('12.50')
+
+  releaseConfirm()
+  await expect(capture.getByRole('button', { name: 'Add to review' })).toBeEnabled()
+  await expect(capture.getByLabel('Merchant')).toHaveValue('Pay-Less')
+  expect(createRequests).toBe(0)
+})
+
 test('mobile Ask Mia action plans keep apply-all simple and partial selection dependency-safe', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.budget.annual_plan.pending_mia_action_drafts = [miaCompoundActionPlan]
