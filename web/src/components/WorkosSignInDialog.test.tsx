@@ -88,6 +88,18 @@ it('counts down resend cooldown and replaces the challenge and code after resend
   // A resend is confirmed visibly, not only to screen readers.
   expect(screen.getByText('We sent you a new code. Use the latest one.').closest('.sr-only')).toBeNull()
 })
+it('a failed resend does not make the next first code say "new code"', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+  client.resendEmail.mockRejectedValue(new ApiRequestError('SECRET provider detail', { status: 503 }))
+  render(<WorkosSignInDialog {...props} />); await startEmail()
+  await act(async () => { vi.advanceTimersByTime(60_001) })
+  fireEvent.click(screen.getByRole('button', { name: 'Resend code' }))
+  await screen.findByRole('alert')
+  fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
+  await startEmail()
+  expect(screen.getByText('We sent a six-digit code to your email.')).toBeTruthy()
+  expect(screen.queryByText('We sent you a new code. Use the latest one.')).toBeNull()
+})
 it('offers the secure organization flow alone for an explicit organization and does not send an email challenge', async () => {
   render(<WorkosSignInDialog {...props} options={{ organizationId: 'org_test' }} />)
   fireEvent.click(screen.getByRole('button', { name: 'Continue with your organization' }))

@@ -177,6 +177,8 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
         }
       }
     } finally {
+      // Whatever the outcome, the next code request starts with the first-send notice.
+      resendRequested.current = false
       if (mounted.current && generation.current === operation) { pending.current = false; setBusy(false) }
     }
   }
@@ -208,6 +210,7 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
     if (pending.current) return
     generation.current += 1
     cancelChallenge(activeChallenge.current); activeChallenge.current = null
+    resendRequested.current = false
     setChallenge(null); setCode(''); setError(null); setNotice(null)
     window.requestAnimationFrame(() => { if (mounted.current) emailInput.current?.focus({ preventScroll: true }) })
   }
