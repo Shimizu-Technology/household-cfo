@@ -25,10 +25,11 @@ module Authenticatable
     authenticate_user!
   end
 
-  # No provider was selected or configured. An explicit AUTH_PROVIDER, including an
-  # unknown one, always fails closed instead of opening previews or test identities.
+  # Only a developer machine or the test suite, with no provider selected or
+  # configured. Hosted environments (production, staging, previews) always require
+  # sign-in, and an explicit AUTH_PROVIDER, even an unknown one, fails closed.
   def local_identity_mode?
-    !Rails.env.production? && ENV["AUTH_PROVIDER"].blank? && !WorkosAuth.configured?
+    !Rails.env.production? && (Rails.env.development? || Rails.env.test?) && ENV["AUTH_PROVIDER"].blank? && !WorkosAuth.configured?
   end
 
   def authenticate_workos!(token)

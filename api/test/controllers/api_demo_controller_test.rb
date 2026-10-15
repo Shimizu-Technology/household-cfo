@@ -3,6 +3,17 @@ require "test_helper"
 class ApiDemoControllerTest < ActionDispatch::IntegrationTest
   include ActiveSupport::Testing::TimeHelpers
 
+  test "hosted non-development environments never open demo endpoints" do
+    staging = ActiveSupport::EnvironmentInquirer.new("staging")
+    original = Rails.method(:env)
+    Rails.singleton_class.send(:define_method, :env) { staging }
+    get "/api/demo/profile"
+    assert_response :unauthorized
+  ensure
+    Rails.singleton_class.send(:remove_method, :env)
+    Rails.singleton_class.send(:define_method, :env, original)
+  end
+
   test "demo endpoints require auth when a sign-in provider is selected" do
     with_selected_provider do
       get "/api/demo/profile"

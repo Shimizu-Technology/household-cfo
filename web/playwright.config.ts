@@ -72,6 +72,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI && !process.env.PLAYWRIGHT_PORT,
     env: {
       VITE_API_BASE_URL: 'http://api.test',
+      VITE_AUTH_PROVIDER: '',
       VITE_WORKOS_CLIENT_ID: '',
       VITE_PUBLIC_POSTHOG_KEY: '',
       VITE_E2E_AUTH: 'true',
