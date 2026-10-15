@@ -2735,6 +2735,50 @@ test('applying an unrelated Mia draft preserves unsaved profile edits', async ({
   await expect(page.getByLabel('Household name')).toHaveValue('Unsaved family name')
 })
 
+test('only one money change can run at a time from Ask Mia', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const appliedWorkspace = {
+    ...workspace,
+    budget: {
+      ...workspace.budget,
+      annual_plan: { ...workspace.budget.annual_plan, pending_mia_action_drafts: [] },
+    },
+  }
+  let releaseApply!: () => void
+  const applyHeld = new Promise<void>(resolve => { releaseApply = resolve })
+  let applyRequests = 0
+  let cancelRequests = 0
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', async (route) => {
+    applyRequests += 1
+    await applyHeld
+    await route.fulfill({ status: 200, json: { workspace: appliedWorkspace } })
+  })
+  await page.route('http://api.test/api/v1/mia_action_drafts/*/cancel', (route) => {
+    cancelRequests += 1
+    return route.fulfill({ status: 500, json: { error: 'should not be called' } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('One more question')
+  const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
+  await budgetCard.getByRole('button', { name: 'Apply reviewed change' }).click()
+  await expect(budgetCard.getByRole('button', { name: 'Applying' })).toBeDisabled()
+
+  // Every other review control and Send wait until the change finishes.
+  await expect(budgetCard.getByRole('button', { name: 'Cancel draft' })).toBeDisabled()
+  const otherDraftButtons = page.locator('.mia-action-draft-actions button, .transaction-draft-card .transaction-draft-actions button')
+  for (const button of await otherDraftButtons.all()) await expect(button).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeDisabled()
+  await budgetCard.getByRole('button', { name: 'Cancel draft' }).click({ force: true })
+
+  releaseApply()
+  await expect(budgetCard).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
+  expect(applyRequests).toBe(1)
+  expect(cancelRequests).toBe(0)
+})
+
 test('profile summary edits focus the matching manual field', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.profile.sections = [
