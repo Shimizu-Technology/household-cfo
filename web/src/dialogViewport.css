@@ -1,10 +1,7 @@
+@import './dialogViewportBase.css';
+/* Loaded last inside the workspace bundle so these keyboard-aware sizes win over
+   each dialog's own stylesheet. Shared variables live in dialogViewportBase.css. */
 /* A shared visible viewport for participant, coach, and admin dialogs. */
-:root {
-  --dialog-gap: 16px;
-  --dialog-space-top: max(var(--dialog-gap), env(safe-area-inset-top));
-  --dialog-space-bottom: max(var(--dialog-gap), env(safe-area-inset-bottom));
-  --dialog-available-height: calc(var(--dialog-viewport-height, 100dvh) - var(--dialog-space-top) - var(--dialog-space-bottom));
-}
 
 /* These headings are noninteractive screen-reader destinations after routing.
    Interactive controls retain their normal keyboard focus indicators. */

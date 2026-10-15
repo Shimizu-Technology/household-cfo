@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { BrandConfig } from '../api'
 import { BrandContext, NEUTRAL_BRAND, type BrandContextValue } from '../contexts/brandContextValue'
 
-import { AuthLanding } from '../App'
+import { AuthLanding } from './AuthLanding'
 
 const brand: BrandConfig = {
   schema_version: 1,

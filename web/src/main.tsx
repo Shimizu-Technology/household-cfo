@@ -3,11 +3,12 @@ import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 import './styles/tokens.css'
 import './index.css'
+import './appStyles'
 import Root from './Root'
 import { AppErrorFallback } from './components/AppErrorFallback'
 import { captureAnalyticsEvent } from './lib/analytics'
 import { BrandProvider } from './contexts/BrandContext'
-import './dialogViewport.css'
+import './dialogViewportBase.css'
 import './styles/opening.css'
 
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN

@@ -47,7 +47,9 @@ describe('BrandDocument', () => {
 
   it('does not request web fonts for system typography', () => {
     expect(brandFontStylesheetHref('system_serif', 'system_sans')).toBeNull()
-    expect(brandFontStylesheetHref('unknown', 'montserrat')).toBe('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap')
+    expect(brandFontStylesheetHref('unknown', 'montserrat')).toBeNull()
+    expect(brandFontStylesheetHref('cormorant_garamond', 'montserrat')).toBeNull()
+    expect(brandFontStylesheetHref('cormorant_garamond', 'inter')).toBe('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap')
   })
 
   it('applies a runtime brand and restores the previous public document identity on unmount', () => {

@@ -1,0 +1,7 @@
+/* Dialog sizing variables shared by the entry (sign-in) and the workspace. */
+:root {
+  --dialog-gap: 16px;
+  --dialog-space-top: max(var(--dialog-gap), env(safe-area-inset-top));
+  --dialog-space-bottom: max(var(--dialog-gap), env(safe-area-inset-bottom));
+  --dialog-available-height: calc(var(--dialog-viewport-height, 100dvh) - var(--dialog-space-top) - var(--dialog-space-bottom));
+}
