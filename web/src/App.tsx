@@ -102,6 +102,7 @@ import {
   fetchFinancialRestartStatus,
   subscribeFinancialPictureChanges,
   fetchMiaMessages,
+  fetchSavingsChallenge,
   fetchSpendingReport,
   ignoreTransactionDraft,
   matchTransactionDraft,
@@ -726,6 +727,22 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const shouldUseRealWorkspace = auth.isAuthEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
   const isSavingsExperience = data?.workspace.experience_mode === 'savings_challenge'
+  // Today and the private export only make sense after joining. Savings Home reports
+  // its own reads and joins; this one read covers participants who start elsewhere.
+  const savingsEnrollmentScope = isSavingsExperience && isRealWorkspace && challengeParticipantScope && data?.workspace.cohort?.id ? challengeIntakeScope : null
+  const [savingsEnrollment, setSavingsEnrollment] = useState<{ scope: string; enrolled: boolean } | null>(null)
+  useEffect(() => {
+    if (!savingsEnrollmentScope) return
+    const controller = new AbortController()
+    fetchSavingsChallenge(controller.signal)
+      .then((challenge) => setSavingsEnrollment({ scope: savingsEnrollmentScope, enrolled: Boolean(challenge.enrollment) }))
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [savingsEnrollmentScope])
+  const savingsJoined = Boolean(savingsEnrollmentScope && savingsEnrollment?.scope === savingsEnrollmentScope && savingsEnrollment.enrolled)
+  const handleSavingsEnrollmentKnown = useCallback((enrolled: boolean) => {
+    if (savingsEnrollmentScope) setSavingsEnrollment({ scope: savingsEnrollmentScope, enrolled })
+  }, [savingsEnrollmentScope])
   const assistantName = data?.profile.coach.name.trim() || 'your assistant'
   const isFirstSessionSetup = Boolean(isRealWorkspace && data?.workspace.experience_mode !== 'savings_challenge' && !data?.workspace?.setup_complete)
   const canResumePlaidOAuthReturn = Boolean(
@@ -3272,7 +3289,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
       {selectionNotice && <p className="document-alert" role="status">{selectionNotice}</p>}
       {restartNotice && <div className="document-alert financial-restart-notice" role="status"><p>{restartNotice}</p><button type="button" className="secondary-button" onClick={onDismissRestartNotice}>Dismiss</button></div>}
-      <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} onToday={isSavingsExperience && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => { setDailyIntake(null); setDailyOpen(true) } : undefined} />
+      <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} onToday={isSavingsExperience && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => { setDailyIntake(null); setDailyOpen(true) } : undefined} />
 
       {isRealWorkspace && !isSavingsExperience && activeSection !== ADMIN_SECTION && activeSection !== COACH_STUDIO_SECTION && activeSection !== 'Ask Mia' && (
         <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
@@ -3284,10 +3301,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {budgetYearLoading && <p className="document-alert" role="status">Loading the {pendingBudgetView?.year} plan. Your previous period remains selected; Send and plan changes pause until it loads.</p>}
 
       {activeSection === 'Home' && data.workspace.experience_mode === 'savings_challenge' && (
-        <SavingsChallengeHome key={`${auth.authIdentityId}:${auth.currentUser?.id}:${auth.activeCoachWorkspaceId}:${data.workspace.household_id}:${data.workspace.cohort?.id}:${savingsIntake?.scope===challengeIntakeScope?savingsIntake.nonce:''}`} participantScope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onOptionalDebt={challengeParticipantScope && data.workspace.cohort?.id ? () => setOptionalDebtOpen(true) : undefined} evidenceRefreshToken={evidenceRefreshToken} onReviewEvidence={challengeParticipantScope && data.workspace.cohort?.id ? (entryVersionId) => setEvidenceReview({scope:challengeIntakeScope,entryVersionId}) : undefined} onAskMia={() => switchSection('Ask Mia')} onReviewStatements={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)} initialSavingsIntake={savingsIntake?.scope===challengeIntakeScope?savingsIntake.intake:null} onToday={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => {setDailyIntake(null);setDailyOpen(true)} : undefined} onReviewBaseline={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined} />
+        <SavingsChallengeHome key={`${auth.authIdentityId}:${auth.currentUser?.id}:${auth.activeCoachWorkspaceId}:${data.workspace.household_id}:${data.workspace.cohort?.id}:${savingsIntake?.scope===challengeIntakeScope?savingsIntake.nonce:''}`} participantScope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onOptionalDebt={challengeParticipantScope && data.workspace.cohort?.id ? () => setOptionalDebtOpen(true) : undefined} evidenceRefreshToken={evidenceRefreshToken} onReviewEvidence={challengeParticipantScope && data.workspace.cohort?.id ? (entryVersionId) => setEvidenceReview({scope:challengeIntakeScope,entryVersionId}) : undefined} onAskMia={() => switchSection('Ask Mia')} onReviewStatements={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)} initialSavingsIntake={savingsIntake?.scope===challengeIntakeScope?savingsIntake.intake:null} onToday={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => {setDailyIntake(null);setDailyOpen(true)} : undefined} onReviewBaseline={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined} onEnrollmentKnown={handleSavingsEnrollmentKnown} />
       )}
 
-      {activeSection === 'Home' && data.workspace.experience_mode === 'savings_challenge' && challengeParticipantScope && data.workspace.cohort?.id && <ChallengeExport scope={challengeParticipantScope} cohortId={data.workspace.cohort.id} />}
+      {activeSection === 'Home' && data.workspace.experience_mode === 'savings_challenge' && savingsJoined && challengeParticipantScope && data.workspace.cohort?.id && <ChallengeExport scope={challengeParticipantScope} cohortId={data.workspace.cohort.id} />}
 
       {activeSection === 'Home' && data.workspace.experience_mode !== 'savings_challenge' && (
         <>
@@ -3358,7 +3375,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   <p className="chat-period-context"><span className="chat-period-prefix">{isSavingsExperience ? 'Optional plan context' : 'Plan context'}: </span>{selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
                 </div>
                 <div className="chat-actions">
-                  {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <button type="button" className="secondary-button chat-today-button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
+                  {data.workspace.experience_mode === 'savings_challenge' && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <button type="button" className="secondary-button chat-today-button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
                   {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <button type="button" className="chat-memory-button" onClick={() => {
                     setIsChatExpanded(false)
                     switchSection('My Profile')
