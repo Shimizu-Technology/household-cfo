@@ -34,7 +34,7 @@ const FIXED_STATUSES = new Set([401, 404, 413, 429])
 
 const SERVER_MESSAGE = 'Something went wrong on our side. Your information is safe. Try again in a few minutes.'
 const CONNECTION_MESSAGE = 'We couldn’t reach the server. Check your connection and try again.'
-const UPLOAD_MESSAGE = 'Your file didn’t finish uploading. Try again in a few minutes.'
+const UPLOAD_MESSAGE = 'Your file didn’t finish uploading. Try again, and if it keeps happening, contact your program team.'
 
 // Wording that belongs to engineers, not participants. A message containing any of
 // these falls back to the caller's plain sentence.

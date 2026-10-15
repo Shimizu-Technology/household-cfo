@@ -8054,7 +8054,7 @@ test('failed receipt upload leaves the participant on a retryable private-upload
   await receiptCard.locator('input[type="file"]').setInputFiles({
     name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from('not-a-real-financial-document'),
   })
-  await expect(page.getByRole('alert')).toContainText('Your file didn’t finish uploading. Try again in a few minutes.')
+  await expect(page.getByRole('alert')).toContainText('Your file didn’t finish uploading. Try again, and if it keeps happening, contact your program team.')
   await expect(receiptCard.getByText('Choose file', { exact: true })).toBeVisible()
   await expect(receiptCard.locator('input[type="file"]')).toBeEnabled()
 })
