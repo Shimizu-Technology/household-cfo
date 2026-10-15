@@ -1314,31 +1314,6 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     assert_equal "Let us check Dining Out first.", narrate("Dining Out has $98 remaining, so yes. Next CFO move: enjoy dinner.", lookup, "Can I spend $98 on dinner?")
   end
 
-  test "an instruction's purpose and confirmed actuals on file are not write claims" do
-    packet = { kind: "spending_report", fallback_response: "Confirmed spending is $143.", write_state: "no_write", annual_plan_summary: JULY_PLAN }
-    [
-      "Confirmed spending is $143 so far. Your next move is to review the $22 pending draft and confirm or discard it so your month-to-date actuals reflect what really happened.",
-      "Confirmed spending is $143. You currently have confirmed actuals logged for Groceries and Dining Out, plus one $22 pending draft. Next CFO move: check your balance."
-    ].each { |reply| assert_equal reply, narrate(reply, packet, "How much did I spend this month?"), reply }
-
-    [
-      "Your actuals now reflect the $22 Starbucks charge.",
-      "Your actuals have been updated with the $22 draft.",
-      "Your actuals updated with your $22.",
-      "Done, so your actuals reflect the $22 now.",
-      "It's confirmed, so your actuals show the $22 Starbucks charge.",
-      "Actuals logged for Dining Out.",
-      "Nothing to review, so your actuals reflect the $22 Starbucks charge.",
-      "No need to confirm anything, so your actuals show the $22 charge.",
-      "I went ahead to check and approve it so your actuals reflect the $22.",
-      "The $22 Starbucks has confirmed actuals logged for Dining Out now.",
-      "I have confirmed actuals logged for Dining Out with the $22 charge."
-    ].each do |claim|
-      reply = "Confirmed spending is $143. #{claim} Next CFO move: relax."
-      assert_equal "Confirmed spending is $143.", narrate(reply, packet, "How much did I spend this month?"), claim
-    end
-  end
-
   private
 
   def draft_packet(planned: "$310.00", remaining_if_approved:, projected_if_approved:)

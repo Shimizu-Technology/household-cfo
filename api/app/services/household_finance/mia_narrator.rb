@@ -284,16 +284,9 @@ module HouseholdFinance
       return true if answer_packet[:write_state] == "no_write" && NEW_DRAFT_CLAIMS.any? { |pattern| content.match?(pattern) }
       return true if dynamic_persona_write_claim?(content)
 
-      checked = content.gsub(INSTRUCTION_PURPOSE_PATTERN, "").gsub(CONFIRMED_ACTUALS_ON_FILE_PATTERN, "")
-      DANGEROUS_WRITE_CLAIMS.any? { |pattern| checked.match?(pattern) }
+      DANGEROUS_WRITE_CLAIMS.any? { |pattern| content.match?(pattern) }
     end
 
-    # Only an instruction to the participant followed by its purpose ("review the
-    # draft and confirm or discard it so your actuals reflect what happened") is
-    # set aside; "Done, so your actuals reflect it" is still a write claim.
-    INSTRUCTION_PURPOSE_PATTERN = /(?:\A|[.!?]\s+)(?:next (?:cfo )?move:\s*|(?:your|the) next (?:cfo )?move is to\s+)?(?:please\s+)?(?:review|confirm|approve|discard|open)\b[^.!?]{0,80}?\b(?:so(?: that)?|until)\s+(?:your\s+|the\s+)?(?:month-to-date\s+|mtd\s+|budget\s+)?actuals?\s+(?:will\s+|can\s+)?(?:show|include|reflect)\b/i
-    # "You have confirmed actuals logged for Groceries" describes what is on file.
-    CONFIRMED_ACTUALS_ON_FILE_PATTERN = /\byou\s+(?:currently\s+|already\s+)?have\s+confirmed actuals?\s+(?:logged|recorded)\s+(?:for|in|under)\b/i
 
     def dynamic_persona_write_claim?(content)
       subject = /\b#{Regexp.escape(persona.name)}\s+(?:already\s+|just\s+)?/i
