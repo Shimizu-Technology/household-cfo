@@ -367,7 +367,7 @@ module FinancialDocuments
           data_collection: "deny"
         },
         max_tokens: MAX_OUTPUT_TOKENS
-      }
+      }.merge(AiModels.sampling(model, 0.1))
 
       if document_import.pdf? && pdf_engine.present?
         payload[:plugins] = [

@@ -587,7 +587,7 @@ module HouseholdFinance
         response_format: response_format,
         provider: { require_parameters: true },
         max_tokens: MAX_OUTPUT_TOKENS
-      }.tap { |body| body[:reasoning] = reasoning if reasoning }
+      }.tap { |body| body[:reasoning] = reasoning if reasoning }.merge(AiModels.sampling(model, 0))
     end
 
     # Anthropic refuses this schema as a strict grammar ("The compiled grammar

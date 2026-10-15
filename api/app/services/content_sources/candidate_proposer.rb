@@ -78,7 +78,7 @@ module ContentSources
         },
         provider: { require_parameters: true, data_collection: "deny" },
         max_tokens: MAX_OUTPUT_TOKENS
-      }
+      }.merge(AiModels.sampling(model, 0))
     end
 
     def response_schema

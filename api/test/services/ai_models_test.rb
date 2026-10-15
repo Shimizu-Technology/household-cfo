@@ -67,4 +67,11 @@ class AiModelsTest < ActiveSupport::TestCase
   ensure
     previous.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
   end
+
+  test "sampling keeps tuned temperatures except for Claude" do
+    assert_equal({ temperature: 0.45 }, AiModels.sampling("google/gemini-2.5-flash", 0.45))
+    assert_equal({ temperature: 0 }, AiModels.sampling("exact/model", 0))
+    assert_equal({}, AiModels.sampling("anthropic/claude-sonnet-5.5", 0.45))
+    assert_equal({}, AiModels.sampling("~anthropic/claude-sonnet-latest", 0))
+  end
 end

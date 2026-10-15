@@ -38,6 +38,13 @@ module AiModels
     { effort: "low" } if anthropic?(model)
   end
 
+  # Claude models on OpenRouter reject sampling settings (and require_parameters
+  # would make OpenRouter refuse the call). Other models keep the temperature each
+  # call was tuned with, so today's Gemini behavior is unchanged.
+  def sampling(model, temperature)
+    anthropic?(model) ? {} : { temperature: temperature }
+  end
+
   def anthropic?(model)
     model.to_s.delete_prefix("~").start_with?("anthropic/")
   end

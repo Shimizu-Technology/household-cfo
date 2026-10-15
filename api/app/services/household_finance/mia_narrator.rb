@@ -106,7 +106,7 @@ module HouseholdFinance
           { role: "user", content: narration_request }
         ],
         max_tokens: MAX_OUTPUT_TOKENS
-      }.tap { |body| body[:reasoning] = reasoning if reasoning }
+      }.tap { |body| body[:reasoning] = reasoning if reasoning }.merge(AiModels.sampling(model, 0.45))
     end
 
     def narrator_contract

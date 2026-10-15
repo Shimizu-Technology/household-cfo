@@ -43,11 +43,11 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "650", result.action.fetch(:amount)
   end
 
-  test "intent payload keeps strict structured output for Gemini and never sends temperature" do
+  test "intent payload keeps strict structured output and its tuned temperature for Gemini" do
     payload = HouseholdFinance::MiaIntentResolver.new(user_message: "What were we discussing?", context: intent_context, api_key: "synthetic", model: "google/gemini-2.5-flash").send(:payload)
 
     assert_equal "google/gemini-2.5-flash", payload.fetch(:model)
-    refute payload.key?(:temperature)
+    assert_equal 0, payload.fetch(:temperature)
     refute payload.key?(:reasoning)
     assert_equal({ require_parameters: true }, payload.fetch(:provider))
     assert_equal "json_schema", payload.dig(:response_format, :type)

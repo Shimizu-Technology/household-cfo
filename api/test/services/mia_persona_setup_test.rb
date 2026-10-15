@@ -609,7 +609,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: Object.new)
     payload = resolver.payload_for(context: { "authoring_state" => {} }, user_message: "Draft a philosophy")
 
-    refute payload.key?(:temperature)
+    assert_equal 0, payload.fetch(:temperature)
     assert_equal [], payload.fetch(:tools)
     assert_equal({ require_parameters: true, allow_fallbacks: false, data_collection: "deny" }, payload.fetch(:provider))
     assert_equal true, payload.dig(:response_format, :json_schema, :strict)

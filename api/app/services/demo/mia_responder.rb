@@ -146,6 +146,7 @@ module Demo
       }
       reasoning = AiModels.chat_reasoning(@model)
       payload[:reasoning] = reasoning if reasoning
+      payload.merge!(AiModels.sampling(@model, 0.5))
       if @strict_privacy
         payload[:provider] = { data_collection: "deny", allow_fallbacks: false, require_parameters: true }
         payload[:tools] = []

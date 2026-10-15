@@ -155,7 +155,7 @@ module Mia
           provider: { require_parameters: true, allow_fallbacks: false, data_collection: "deny" },
           tools: [],
           max_tokens: MAX_OUTPUT_TOKENS
-        }
+        }.merge(AiModels.sampling(model, 0))
       end
 
       private
