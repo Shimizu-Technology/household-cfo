@@ -4,6 +4,7 @@ import { ApiRequestError, fetchBaselineRequestStatus, approveFinancialBaseline }
 import { sameBaselineScope, type BaselineApproval, type BaselineScope } from './financialBaseline'
 type BaselineAction = 'approve' | 'revise'
 import { bindBaselineActor, clearBaselineRecovery, isBaselineActor, readBaselineRecovery, saveBaselineRecovery, subscribeBaselineRecovery } from './baselineRecovery'
+import { participantErrorMessage } from './participantErrorMessage'
 type Mutation = (action: BaselineAction, input: BaselineApproval) => Promise<boolean>
 type Props = { scope?: BaselineScope; refresh: () => void }
 export function useBaselineMutation({ scope, refresh }: Props) {
@@ -37,7 +38,7 @@ export function useBaselineMutation({ scope, refresh }: Props) {
       return true
     } catch (failure) {
       if (!isBaselineActor(scope)) return false
-      const message = failure instanceof Error ? failure.message : 'Could not save the baseline review.'
+      const message = participantErrorMessage(failure, 'Could not save the baseline review.')
       const deterministic = failure instanceof ApiRequestError && [400,401,403,404,409,422].includes(failure.status)
       if (deterministic) clearBaselineRecovery(key)
       else saveBaselineRecovery({ scope, action, input, key, working: false, error: message })
@@ -53,11 +54,11 @@ export function useBaselineMutation({ scope, refresh }: Props) {
       if (!isBaselineActor(scope)) return
       if (!sameBaselineScope(status.actor_scope,scope)) { if (live.current) setAccessDenied(true); throw new Error('Private workspace changed. Reopen baseline review to check the original request.') }
       if (status.state === 'committed') { clearBaselineRecovery(recovery.key); if (live.current) { setError(null); refresh() } }
-      else saveBaselineRecovery({ ...recovery, working: false, error: status.state === 'in_flight' ? 'The earlier request is still processing. Check its result again.' : recovery.input ? 'No committed result found. Retry the exact saved request.' : 'The result remains unknown. This page no longer holds the original request. Further changes are blocked; keep this request identifier for support.' })
+      else saveBaselineRecovery({ ...recovery, working: false, error: status.state === 'in_flight' ? 'The earlier request is still processing. Check its result again.' : recovery.input ? 'No committed result found. Retry the exact saved request.' : 'The result remains unknown. This page no longer holds the original request. Further changes are blocked; keep this reference number for support.' })
     } catch (failure) {
       if (!isBaselineActor(scope)) return
       if (failure instanceof ApiRequestError && [401,403,404].includes(failure.status)) { clearBaselineRecovery(recovery.key); if (live.current) setAccessDenied(true) }
-      else saveBaselineRecovery({ ...recovery, working: false, error: failure instanceof Error ? failure.message : 'Could not check the earlier request.' })
+      else saveBaselineRecovery({ ...recovery, working: false, error: participantErrorMessage(failure, 'Could not check the earlier request.') })
     }
   }
   return { accessDenied, busy: Boolean(recovery), error: recovery?.error ?? error, pendingRequest: recovery,

@@ -13,6 +13,7 @@ import {
 } from '../api'
 import { resolveMemoryRequestKey, type MemoryRequestKeyState } from '../lib/memoryRequestKey'
 import { useBrand } from '../contexts/brandContextValue'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 
 const categoryLabels: Record<HouseholdMemoryCategory, string> = {
   goal: 'Personal goal',
@@ -57,7 +58,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
       setData(next)
       setError(null)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : `${assistantName}’s saved memories could not be loaded.`)
+      setError(participantErrorMessage(caught, `${assistantName}’s saved memories could not be loaded.`))
     }
   }, [assistantName, enabled])
 
@@ -69,7 +70,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
       setData(next)
       setError(null)
     }).catch((caught: unknown) => {
-      if (current) setError(caught instanceof Error ? caught.message : `${assistantName}’s saved memories could not be loaded.`)
+      if (current) setError(participantErrorMessage(caught, `${assistantName}’s saved memories could not be loaded.`))
     })
     return () => { current = false }
   }, [assistantName, enabled])
@@ -108,7 +109,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
       setForm(initialForm)
       await load()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'That memory could not be saved.')
+      setError(participantErrorMessage(caught, 'That memory could not be saved.'))
     } finally {
       setBusy(null)
     }
@@ -123,7 +124,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
       setNotice(message)
       await load()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'That memory action could not be completed.')
+      setError(participantErrorMessage(caught, 'That memory action could not be completed.'))
     } finally {
       setBusy(null)
     }

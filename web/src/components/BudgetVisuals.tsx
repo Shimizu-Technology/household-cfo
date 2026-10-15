@@ -271,7 +271,7 @@ export function AnnualCashFlowChart({
           <span>Annual cash flow</span>
           <h4 id={titleId}>What’s left each month in {plan.year}</h4>
         </div>
-        <p>{negativeMonths.length === 0 ? 'Every planned month keeps a baseline surplus.' : `${negativeMonths.length} planned month${negativeMonths.length === 1 ? ' needs' : 's need'} attention.`}</p>
+        <p>{negativeMonths.length === 0 ? 'Every planned month has money left over.' : `${negativeMonths.length} planned month${negativeMonths.length === 1 ? ' needs' : 's need'} attention.`}</p>
       </div>
       <div className="annual-cash-flow-legend" aria-hidden="true">
         <span><i className="surplus-swatch" /> Left after the plan</span>
@@ -292,7 +292,7 @@ export function AnnualCashFlowChart({
             <div><dt>Income</dt><dd>{currency.format(activeMonth.income)}</dd></div>
             <div><dt>Planned outflow</dt><dd>{currency.format(activeMonth.planned_outflow)}</dd></div>
             <div className={activeMonth.baseline_surplus < 0 ? 'negative' : ''}>
-              <dt>{activeMonth.baseline_surplus < 0 ? 'Baseline shortfall' : 'Baseline surplus'}</dt>
+              <dt>{activeMonth.baseline_surplus < 0 ? 'Short each month' : 'Left over each month'}</dt>
               <dd>{currency.format(Math.abs(activeMonth.baseline_surplus))}</dd>
             </div>
           </dl>
@@ -329,7 +329,7 @@ export function AnnualCashFlowChart({
                   className="cash-flow-month-trigger"
                   aria-pressed={pinnedPeriodId === month.period_id}
                   aria-current={month.period_id === reportPeriodId ? 'date' : undefined}
-                  aria-label={`${month.label} ${plan.year}: ${currency.format(month.income)} income, ${currency.format(month.planned_outflow)} planned outflow, and ${currency.format(Math.abs(month.baseline_surplus))} ${month.baseline_surplus < 0 ? 'baseline shortfall' : 'baseline surplus'}`}
+                  aria-label={`${month.label} ${plan.year}: ${currency.format(month.income)} income, ${currency.format(month.planned_outflow)} planned outflow, and ${currency.format(Math.abs(month.baseline_surplus))} ${month.baseline_surplus < 0 ? 'short' : 'left over'}`}
                   onMouseEnter={(event) => {
                     // Focusing a month can scroll another bar beneath a stationary
                     // pointer. Keep the keyboard user's detail on the focused month.

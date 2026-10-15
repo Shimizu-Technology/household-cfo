@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiRequestError, fetchHomeSavingsRequestStatus } from '../api'
 import { clearHomeSavingsIdentity, homeChallengeMatches, homeScopeKey, homeStatusMatches, readHomeSavingsIdentity, saveHomeSavingsIdentity, type HomeSavingsAttempt, type HomeSavingsIdentity, type HomeSavingsScope, type HomeSavingsStatus, type HomeSavingsAction } from './homeSavingsRecovery'
 import type { SavingsMutation } from './savingsChallenge'
+import { participantErrorMessage } from './participantErrorMessage'
 type Pending = HomeSavingsIdentity & { attempt?: HomeSavingsAttempt; working: boolean; unknown?: boolean; fresh?: boolean; recovery?: boolean; error?: string }
 export function useHomeSavingsMutation(scope: HomeSavingsScope | undefined, onDone: (result: SavingsMutation<unknown>, action: HomeSavingsAction) => void, onDenied: () => void, blocked: () => boolean, onConflict?: (message: string) => void) {
   const [pending, setPending] = useState<Pending | null>(null)
@@ -21,7 +22,7 @@ export function useHomeSavingsMutation(scope: HomeSavingsScope | undefined, onDo
   useEffect(() => { if (!pending) return; const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }; window.addEventListener('beforeunload', guard); return () => window.removeEventListener('beforeunload', guard) }, [pending])
   async function run(request: Pending, check = false) {
     if (!scope || active.current !== key || current.current?.working || (!check && callbacks.current.blocked())) return
-    if (!check && !saveHomeSavingsIdentity(request)) { setError('The request identity could not be retained in this browser. No change was submitted. Enable session storage before trying again.'); return }
+    if (!check && !saveHomeSavingsIdentity(request)) { setError('This browser couldn’t keep a reference number for this change. No change was submitted. Enable session storage before trying again.'); return }
     const epoch = generation.current, controller = new AbortController(); controllers.current.add(controller)
     save({ ...request, working: true, unknown: false }); setError(null)
     try {
@@ -35,7 +36,7 @@ export function useHomeSavingsMutation(scope: HomeSavingsScope | undefined, onDo
       clearHomeSavingsIdentity(request); save(null); callbacks.current.onDone(result as SavingsMutation<unknown>, request.action); request.attempt?.done?.()
     } catch (failure) {
       if (active.current !== key || epoch !== generation.current) return
-      const message = failure instanceof Error ? failure.message : 'This savings request is unavailable.'
+      const message = participantErrorMessage(failure, 'This savings request is unavailable.')
       if (failure instanceof ApiRequestError && [401, 403, 404].includes(failure.status)) { save({ ...request, attempt: undefined, working: false, fresh: false, error: message }); callbacks.current.onDenied() }
       else if (failure instanceof ApiRequestError && failure.status >= 400 && failure.status < 500 && !check && !request.recovery) { clearHomeSavingsIdentity(request); save(null); if (failure.status === 409 && callbacks.current.onConflict) { setError(null); callbacks.current.onConflict(message) } else setError(message) }
       else save({ ...request, attempt: request.recovery && failure instanceof ApiRequestError && failure.status === 409 ? undefined : request.attempt, working: false, fresh: false, unknown: false, error: message })

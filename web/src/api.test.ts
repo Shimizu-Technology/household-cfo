@@ -978,7 +978,7 @@ describe('safe read deadlines', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const workspaceRequest = fetchAppData(true)
-    const result = expect(workspaceRequest).rejects.toThrow('This request took too long. Please try again.')
+    const result = expect(workspaceRequest).rejects.toThrow('This is taking longer than usual. Please try again.')
     await vi.advanceTimersByTimeAsync(30_000)
     await result
 
@@ -1000,7 +1000,7 @@ describe('safe read deadlines', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const workspaceRequest = fetchAppData(true)
-    const result = expect(workspaceRequest).rejects.toThrow('This request took too long. Please try again.')
+    const result = expect(workspaceRequest).rejects.toThrow('This is taking longer than usual. Please try again.')
     await vi.advanceTimersByTimeAsync(30_000)
     await result
 
@@ -1018,7 +1018,7 @@ describe('safe read deadlines', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const workspaceRequest = fetchAppData(true)
-    const result = expect(workspaceRequest).rejects.toThrow('This request took too long. Please try again.')
+    const result = expect(workspaceRequest).rejects.toThrow('This is taking longer than usual. Please try again.')
     await vi.advanceTimersByTimeAsync(30_000)
     await result
 
@@ -1036,7 +1036,7 @@ describe('mutation deadlines', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const operation = createBudgetCategory({ name: 'Meals', stack_key: 'discretionary', monthly_amount: 50 }, 2026, 'stalled-category')
-    const result = expect(operation).rejects.toThrow('Refresh to check the current state before trying again.')
+    const result = expect(operation).rejects.toThrow('Refresh to check before trying again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await result
     expect(signal?.aborted).toBe(true)
@@ -1050,7 +1050,7 @@ describe('mutation deadlines', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const authRequest = createBudgetCategory({ name: 'Meals', stack_key: 'discretionary' }, 2026, 'stalled-auth')
-    const authResult = expect(authRequest).rejects.toThrow('Refresh to check the current state')
+    const authResult = expect(authRequest).rejects.toThrow('Refresh to check before trying again')
     await vi.advanceTimersByTimeAsync(90_000)
     await authResult
     expect(fetchMock).not.toHaveBeenCalled()
@@ -1058,7 +1058,7 @@ describe('mutation deadlines', () => {
     setAuthTokenGetter(null)
     fetchMock.mockResolvedValue(new Response(new ReadableStream({ start() { /* Stalled body. */ } }), { status: 201 }))
     const bodyRequest = createBudgetCategory({ name: 'Meals', stack_key: 'discretionary' }, 2026, 'stalled-body')
-    const bodyResult = expect(bodyRequest).rejects.toThrow('Refresh to check the current state')
+    const bodyResult = expect(bodyRequest).rejects.toThrow('Refresh to check before trying again')
     await vi.advanceTimersByTimeAsync(90_000)
     await bodyResult
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -1126,7 +1126,7 @@ describe('Mia request idempotency polling', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const firstAttempt = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-timeout-1')
-    const firstResult = expect(firstAttempt).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check the current state before trying again.')
+    const firstResult = expect(firstAttempt).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check before trying again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await firstResult
 
@@ -1147,7 +1147,7 @@ describe('Mia request idempotency polling', () => {
     setAuthTokenGetter(() => new Promise<string | null>(() => undefined))
 
     const request = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-auth-timeout-1')
-    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check the current state before trying again.')
+    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check before trying again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await result
 
@@ -1164,7 +1164,7 @@ describe('Mia request idempotency polling', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const request = sendMiaMessage('Can I afford this?', [], false)
-    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check the current state before trying again.')
+    const result = expect(request).rejects.toThrow('Your assistant took too long to finish this request. Refresh to check before trying again.')
     await vi.advanceTimersByTimeAsync(90_000)
     await result
 
@@ -1242,7 +1242,7 @@ describe('feedback submission deadlines', () => {
   const values = {
     workflow: 'ask_mia' as const, attempted: 'Open the chat', expected: 'See a reply', actual: 'The reply did not appear',
   }
-  const timeoutMessage = 'The server did not confirm whether your report was received. It may already be submitted. Keep your details and check with support before submitting again.'
+  const timeoutMessage = 'We couldn’t confirm your report was received. It may already be submitted. Keep your details and check with support before submitting again.'
 
   it('bounds stalled authentication without submitting or automatically retrying the report', async () => {
     vi.useFakeTimers()

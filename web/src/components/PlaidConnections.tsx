@@ -32,6 +32,7 @@ import { plaidSyncOutcome } from '../lib/plaidSyncWatch'
 import { useBrand } from '../contexts/brandContextValue'
 import { BankActivityResumeDialog } from './BankActivityResumeDialog'
 import './PlaidConnections.css'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 
 function hasFreshBankObservation(item: PlaidItem, account: PlaidAccount) {
   if (item.context_paused_by_restart) return false
@@ -191,7 +192,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
       })
       .catch((reason) => {
         if (cancelled) return
-        setError(reason instanceof Error ? reason.message : 'Plaid Link could not be loaded.')
+        setError(participantErrorMessage(reason, 'Plaid Link could not be loaded.'))
         setBusy(null)
         setLaunchLink(false)
       })
@@ -292,7 +293,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
         attempts += 1
         if (attempts >= PLAID_SYNC_MAX_ATTEMPTS) {
           setSyncWatch(null)
-          setError(reason instanceof Error ? reason.message : 'Could not verify that the bank sync finished.')
+          setError(participantErrorMessage(reason, 'Could not verify that the bank sync finished.'))
           return
         }
         schedule()
@@ -333,7 +334,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
         setActivityTotal(nextTransactionsPage.pagination.total)
         setActivitySummary(nextTransactionsPage.summary)
       } catch (reason) {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load bank connections.')
+        if (!cancelled) setError(participantErrorMessage(reason, 'Could not load bank connections.'))
       } finally {
         if (!cancelled) setBusy(null)
       }
@@ -374,7 +375,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
     } catch (reason) {
       if (!mounted.current) return
       try { linkOperation() } catch { return }
-      setError(reason instanceof Error ? reason.message : 'Could not finish the bank connection.')
+      setError(participantErrorMessage(reason, 'Could not finish the bank connection.'))
     } finally {
       if (mounted.current && operationIsCurrent(linkOperation)) {
         finishOAuthSession()
@@ -416,7 +417,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
       setBusy('link')
     } catch (reason) {
       try { assertCurrent() } catch { return }
-      setError(reason instanceof Error ? reason.message : 'Could not start Plaid Link.')
+      setError(participantErrorMessage(reason, 'Could not start Plaid Link.'))
       setBusy(null)
     }
   }
@@ -438,7 +439,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
       setBusy('link')
     } catch (reason) {
       try { assertCurrent() } catch { return }
-      setError(reason instanceof Error ? reason.message : 'Could not start the bank sign-in update.')
+      setError(participantErrorMessage(reason, 'Could not start the bank sign-in update.'))
       setBusy(null)
     }
   }
@@ -463,7 +464,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
         await refresh()
       }
     } catch (reason) {
-      if (operationIsCurrent(assertCurrent)) setError(reason instanceof Error ? reason.message : `Could not ${action} this bank.`)
+      if (operationIsCurrent(assertCurrent)) setError(participantErrorMessage(reason, `Could not ${action} this bank.`))
     } finally {
       if (operationIsCurrent(assertCurrent)) setBusy(null)
     }
@@ -481,7 +482,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
         ? 'Trusted-merchant automation is on. Only familiar posted amounts with a proven category rule can confirm automatically.'
         : 'Trusted-merchant automation is off. Posted expenses will wait for your review.')
     } catch (reason) {
-      if (operationIsCurrent(assertCurrent)) setError(reason instanceof Error ? reason.message : 'Could not update the transaction review preference.')
+      if (operationIsCurrent(assertCurrent)) setError(participantErrorMessage(reason, 'Could not update the transaction review preference.'))
     } finally {
       if (operationIsCurrent(assertCurrent)) setBusy(null)
     }
@@ -507,7 +508,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
       setSelected([])
       await refresh()
     } catch (reason) {
-      if (operationIsCurrent(assertCurrent)) setError(reason instanceof Error ? reason.message : 'Could not update the selected transactions.')
+      if (operationIsCurrent(assertCurrent)) setError(participantErrorMessage(reason, 'Could not update the selected transactions.'))
     } finally {
       if (operationIsCurrent(assertCurrent)) setBusy(null)
     }
@@ -528,7 +529,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
       setActivityTotal(next.pagination.total)
       setActivitySummary(next.summary)
     } catch (reason) {
-      if (operationIsCurrent(assertCurrent)) setError(reason instanceof Error ? reason.message : 'Could not load older bank activity.')
+      if (operationIsCurrent(assertCurrent)) setError(participantErrorMessage(reason, 'Could not load older bank activity.'))
     } finally {
       if (operationIsCurrent(assertCurrent)) setBusy(null)
     }
@@ -550,7 +551,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
       await refresh()
     } catch (reason) {
       try { assertCurrent() } catch { return }
-      setError(reason instanceof Error ? reason.message : 'Could not enable new bank activity. Check the connection status before retrying.')
+      setError(participantErrorMessage(reason, 'Could not enable new bank activity. Check the connection status before retrying.'))
     } finally {
       resumeInFlight.current = false
       if (operationIsCurrent(assertCurrent)) setBusy(null)
@@ -579,7 +580,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
         {resumeDialog}
         <div className="plaid-heading">
           <div>
-            <span className="eyebrow">{overview && !overview.configured ? 'Manual-first pilot' : 'Bank connections'}</span>
+            <span className="eyebrow">Bank connections</span>
             <h2 id="bank-connections-heading">{overview && !overview.configured ? 'Your workspace works without a bank connection.' : 'Connect the source. Keep control of the truth.'}</h2>
             <p>{overview && !overview.configured ? `Keep planning, coaching with ${assistantName}, uploading documents, and reviewing manual entries as usual.` : `${assistantName} can read authorized bank activity immediately. Only confirmed transactions become categorized budget actuals.`}</p>
           </div>
@@ -592,7 +593,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
         {!overview ? (
           <div className="plaid-empty"><strong>{busy === 'loading' ? 'Checking bank connection availability…' : 'Bank connection status is temporarily unavailable.'}</strong><p>Your profile, budget, {assistantName} coaching, document uploads, and manual reviews remain available.</p></div>
         ) : !overview.configured ? (
-          <div className="plaid-empty"><strong>Bank connection is not part of this pilot yet.</strong><p>Nothing is missing from your setup. Your profile, budget, {assistantName} coaching, document uploads, and manual reviews all work without it.</p></div>
+          <div className="plaid-empty"><strong>Bank connection isn’t available yet.</strong><p>Nothing is missing from your setup. Your profile, budget, {assistantName} coaching, document uploads, and manual reviews all work without it.</p></div>
         ) : (
           <>
             <div className="plaid-consent">

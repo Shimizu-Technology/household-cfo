@@ -26,7 +26,7 @@ export function ActivityPreview({ plan, monthIndex, onOpenBudget, onAskMia }: Ac
         <div>
           <p className="eyebrow">Preview operating view</p>
           <h3 id="activity-preview-title">See the month without inventing a transaction history.</h3>
-          <p>This demo shows the monthly plan and any demo-safe category actuals. It has no confirmed merchant ledger, so missing activity is never presented as $0 spending.</p>
+          <p>This demo shows the monthly plan and any sample category actuals. It has no confirmed merchant ledger, so missing activity is never presented as $0 spending.</p>
         </div>
         <span>Demo-safe data</span>
       </div>

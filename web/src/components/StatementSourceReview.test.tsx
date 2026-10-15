@@ -17,14 +17,14 @@ describe('bounded source accounting review', () => {
     data.revision.reconciliation.sheet_coverage = { processed: null, expected: null }
     fetchReview.mockResolvedValueOnce(data)
     mount()
-    await screen.findByText(/137 source rows/)
+    await screen.findByText(/137 statement lines/)
     fireEvent.click(screen.getByText('Account balances, period & extraction coverage'))
     expect(screen.getByText(/0 processed \/ unknown expected/)).toBeTruthy()
   })
 
   it('shows server-wide coverage independently of the bounded row page and filter', async () => {
     mount()
-    await screen.findByText(/137 source rows/)
+    await screen.findByText(/137 statement lines/)
     expect(screen.getAllByRole('listitem')).toHaveLength(50)
     expect(screen.queryByText('Fictional entry 51')).toBeNull()
     fireEvent.click(screen.getByText('Account balances, period & extraction coverage'))
@@ -35,7 +35,7 @@ describe('bounded source accounting review', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Filter statement rows' }), { target: { value: 'unresolved' } })
     await screen.findByText('Fictional entry 131')
     expect(screen.getAllByRole('listitem')).toHaveLength(7)
-    expect(screen.getByText(/137 source rows/)).toBeTruthy()
+    expect(screen.getByText(/137 statement lines/)).toBeTruthy()
     expect(fetchReview).toHaveBeenLastCalledWith(1203, 88, 1, 'unresolved', expect.any(AbortSignal))
   })
   it('keeps unknown totals during loading and prevents late page responses from replacing a newer filter', async () => {
@@ -70,9 +70,9 @@ describe('bounded source accounting review', () => {
     fetchReview.mockResolvedValue(data)
     mount()
     await screen.findByText('Fictional entry 1')
-    fireEvent.click(screen.getByRole('button', { name: 'Inspect source row 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect statement line 1' }))
     expect(screen.queryByText('Expense editor 777')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Inspect source row 4 & expense review' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect statement line 4 & expense review' }))
     expect(screen.getByText('Expense editor 777')).toBeTruthy()
     expect(screen.queryByText('Synthetic source description 1')).toBeNull()
     expect(screen.getAllByText(/Original source review: unreviewed/)).toHaveLength(1)
@@ -81,7 +81,7 @@ describe('bounded source accounting review', () => {
 
 it('renders real PDF nullable sheet coverage without treating it as an error', async () => {
   const data = sourceReviewFixture(); data.revision.reconciliation.sheet_coverage = { expected: null, processed: null }; fetchReview.mockResolvedValue(data)
-  mount(); await screen.findByText(/137 source rows/); fireEvent.click(screen.getByText('Account balances, period & extraction coverage'))
+  mount(); await screen.findByText(/137 statement lines/); fireEvent.click(screen.getByText('Account balances, period & extraction coverage'))
   expect(screen.getByText(/0 processed \/ unknown expected/)).toBeTruthy()
 })
 

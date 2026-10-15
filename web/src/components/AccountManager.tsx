@@ -9,6 +9,7 @@ import { guamTodayIso } from '../lib/householdDate'
 import { proposedChoice, proposedMoney, proposedText, type MiaManualPayload } from '../lib/miaManualPrefill'
 import { accountSummaryText } from './accountSummary'
 import { useBrand } from '../contexts/brandContextValue'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const accountTypes: AccountType[] = ['checking', 'savings', 'emergency_fund', 'retirement', 'investment', 'property', 'other']
@@ -193,7 +194,7 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
       keys.current.complete(signature); setEditing(null)
       await refreshAfterCommit(`[data-account-id="${saved.id}"] [data-account-action="edit"]`)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'This account could not be saved.')
+      setError(participantErrorMessage(caught, 'This account could not be saved.'))
     } finally { setSaving(false) }
   }
 
@@ -205,7 +206,7 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
       keys.current.complete(signature); setEditing(null); setArchiveId(null)
       await refreshAfterCommit(focusSelector)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'That account change could not be saved.')
+      setError(participantErrorMessage(caught, 'That account change could not be saved.'))
     } finally { setSaving(false) }
   }
 

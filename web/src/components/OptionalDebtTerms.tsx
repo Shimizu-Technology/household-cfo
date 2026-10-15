@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { checkedDebtTerms, debtDate, debtDecimal, debtNullableDecimal, type DebtCandidate, type DebtCard, type DebtInput, type DebtMapping, type HouseholdDebtCandidate, type HouseholdDebtMapping, type DebtTerms } from '../lib/optionalDebt'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 type RateForm = { label: string; balance: string; apr: string; expires: string; after: string }
 const blankRate = (): RateForm => ({ label: '', balance: '', apr: '', expires: '', after: '' })
 type Props = { localToday: string; card?: DebtCard; candidates: DebtCandidate[]; householdCandidates: HouseholdDebtCandidate[]; useHousehold?: boolean; busy: boolean; onReview: (input: DebtInput) => void; mapping?: DebtMapping | null }
@@ -48,7 +49,7 @@ export function OptionalDebtTerms({ localToday, card, candidates, householdCandi
       if (card?.current_version_id && !reason.trim()) throw new Error('Explain this correction before reviewing it.')
       const terms = checkedDebtTerms({ label, as_of_on: date, balance_cents: debtNullableDecimal(balance), minimum_payment_cents: debtNullableDecimal(minimum), apr_bps: debtNullableDecimal(apr, true), due_on: due ? debtDate(due) : null, promotional_apr_bps: debtNullableDecimal(promo, true), promotional_expires_on: expires ? debtDate(expires) : null, post_promo_apr_bps: debtNullableDecimal(after, true), rate_segments: rates.map(row => ({ label: row.label, balance_cents: debtNullableDecimal(row.balance), apr_bps: debtNullableDecimal(row.apr, true), promotional_expires_on: row.expires ? debtDate(row.expires) : null, post_promo_apr_bps: debtNullableDecimal(row.after, true) })), status })
       onReview({ terms, ...(card ? { card_id: card.id } : {}), expected_version_id: card?.current_version_id ?? null, expected_head_lock_version: card?.lock_version ?? 0, source_mapping: route === 'source' ? selected : null, household_debt_mapping: householdSelected, reason })
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Review the terms before continuing.') }
+    } catch (failure) { setError(participantErrorMessage(failure, 'Review the terms before continuing.')) }
   }
   const amountField = (name: string, value: string, set: (value: string) => void) => <label>{name}<input inputMode="decimal" value={value} onChange={event => set(event.target.value)} autoComplete="off"/></label>
   return <form onSubmit={review} aria-label="Optional card terms"><fieldset disabled={busy}><legend>{card?.current_version ? 'Correct approved card terms' : 'Review an optional card'}</legend><p>Blank money or APR means unknown. Enter 0 only when you reviewed a true zero. This does not change your savings.</p>

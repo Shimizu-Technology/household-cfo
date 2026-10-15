@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { fetchPrivateJson } from '../api'
 import { printableChallengeRecord, type PrivateChallengeRecord } from '../lib/privateChallengeRecord'
 import type { BaselineScope } from '../lib/financialBaseline'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 export function ChallengeExport({ scope, cohortId }: { scope: BaselineScope; cohortId: number }) {
   return <Export key={`${scope.user_id}:${scope.household_id}:${cohortId}`} scope={scope} cohortId={cohortId} />
 }
@@ -53,7 +54,7 @@ function Export({ scope, cohortId }: { scope: BaselineScope; cohortId: number })
       setNotice('Your private challenge record was downloaded. Keep the file somewhere you trust.')
     } catch (failure) {
       if (live.current && !owned.signal.aborted) {
-        setError(failure instanceof Error ? failure.message : 'Private export unavailable. Try again.')
+        setError(participantErrorMessage(failure, 'Private export unavailable. Try again.'))
         setAccepted(false)
       }
     } finally {

@@ -33,7 +33,7 @@ describe('participant privacy help and reminders', () => {
   it('timeout requires status first and retries unchanged payload with original identity', async () => {
     const api = syntheticPrivacyApi(); api.mutate = vi.fn().mockRejectedValueOnce(new Error('network lost')).mockResolvedValue({}); api.status = vi.fn().mockResolvedValue({ state: 'unknown' as const, actor_scope: privacyScope }); open(api)
     await screen.findByLabelText('Purpose'); fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' })); approve()
-    await screen.findByText(/server did not confirm/); expect((screen.getByRole('button', { name: 'Approve reviewed change' }) as HTMLButtonElement).disabled).toBe(true)
+    await screen.findByText(/couldn’t confirm this change was saved/); expect((screen.getByRole('button', { name: 'Approve reviewed change' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.queryByRole('button', { name: 'Retry exact reviewed request' })).toBeNull(); fireEvent.click(screen.getByRole('button', { name: 'Check earlier request' })); fireEvent.click(await screen.findByRole('button', { name: 'Retry exact reviewed request' }));
     await waitFor(() => expect(api.mutate).toHaveBeenCalledTimes(2)); expect(vi.mocked(api.mutate).mock.calls[1].slice(0, 2)).toEqual(vi.mocked(api.mutate).mock.calls[0].slice(0, 2)); expect(sessionStorage.getItem('challenge-private-request-identity-v1')).toBeNull()
   })

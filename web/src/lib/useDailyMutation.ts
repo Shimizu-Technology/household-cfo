@@ -4,6 +4,7 @@ import { ApiRequestError, eraseDailyReflection, fetchDailyEraseStatus, fetchDail
 import { dailyResponseMatches } from './dailyChallenge'
 import type { DailyAction, DailyInput, DailyScope } from './dailyChallenge'
 import { bindDailyActor, clearDailyRecovery, isDailyActor, readDailyRecovery, saveDailyRecovery, subscribeDailyRecovery } from './dailyRecovery'
+import { participantErrorMessage } from './participantErrorMessage'
 export type DailyMutate = (action: DailyAction, input: DailyInput, reflectionId?: number) => Promise<unknown | null>
 export function useDailyMutation(scope: DailyScope | undefined, refresh: () => void) {
   const [, update] = useState(0)
@@ -43,7 +44,7 @@ export function useDailyMutation(scope: DailyScope | undefined, refresh: () => v
       return ('record' in result ? result.record : result) as T
     } catch (failure) {
       if (!isDailyActor(scope)) return null
-      const message = failure instanceof Error ? failure.message : 'Could not save this daily review.'
+      const message = participantErrorMessage(failure, 'Could not save this daily review.')
       if (failure instanceof ApiRequestError && [400,401,403,404,409,422].includes(failure.status)) clearDailyRecovery(key)
       else saveDailyRecovery({ ...request, working: false, error: message })
       if (live.current) {
@@ -69,11 +70,11 @@ export function useDailyMutation(scope: DailyScope | undefined, refresh: () => v
       }
       if (status.state === 'committed' && pending.action === 'reflection_erase' && (!('erased' in status) || !status.erased || status.reflection_id !== pending.reflectionId)) throw new Error('The erasure result could not be confirmed.')
       if (status.state === 'committed') { clearDailyRecovery(pending.key); if (live.current) { setError(null); refresh() } }
-      else saveDailyRecovery({ ...pending, working: false, error: status.state === 'in_flight' ? 'This request is still processing. Check again.' : pending.input ? 'No committed result found. Retry the same saved request.' : 'The result is unknown and this page no longer holds its original inputs. Further changes remain blocked; keep the request identifier for support.' })
+      else saveDailyRecovery({ ...pending, working: false, error: status.state === 'in_flight' ? 'This request is still processing. Check again.' : pending.input ? 'No committed result found. Retry the same saved request.' : 'The result is unknown and this page no longer holds its original inputs. Further changes remain blocked; keep the reference number for support.' })
     } catch (failure) {
       if (!isDailyActor(scope)) return
       if (failure instanceof ApiRequestError && [401,403,404].includes(failure.status)) { clearDailyRecovery(pending.key); if (live.current) setDenied(true) }
-      else saveDailyRecovery({ ...pending, working: false, error: failure instanceof Error ? failure.message : 'The request result is unavailable.' })
+      else saveDailyRecovery({ ...pending, working: false, error: participantErrorMessage(failure, 'The request result is unavailable.') })
     }
   }
   return { denied, busy: Boolean(pending), error: pending?.error ?? error, pending, mutate: perform as DailyMutate,
