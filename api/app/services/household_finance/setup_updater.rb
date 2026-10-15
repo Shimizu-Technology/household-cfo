@@ -208,36 +208,87 @@ module HouseholdFinance
       text
     end
 
+    # Mia's setup review sets one monthly total for a whole expense stack. Keep
+    # each recurring item on its own schedule (weekly stays weekly, annual stays
+    # annual) and leave one-time items alone, so approving a total never
+    # rewrites how the participant described their bills.
     def upsert_monthly_amount_records(records, monthly_total_cents, default_label:)
       active_records = records.select(&:active?)
-      aggregate = records.find { |record| record.label == default_label }
-      return if amount_records_monthly_total(active_records) == monthly_total_cents
-      return distribute_monthly_amount_total!(active_records, monthly_total_cents) if active_records.many?
-
-      record = amount_record_for_single_update(aggregate, active_records, records) || yield
-      if monthly_total_cents.zero?
-        record.update!(amount_cents: 0, cadence: "monthly", active: false) if record.persisted? && record.active?
-        return
+      recurring_records = active_records.select { |record| recurring_expense?(record) }
+      return if amount_records_monthly_total(recurring_records) == monthly_total_cents
+      return distribute_monthly_amount_total!(recurring_records, monthly_total_cents) if recurring_records.many?
+      return set_recurring_amount!(recurring_records.first, monthly_total_cents) if recurring_records.one?
+      if active_records.any?
+        raise ArgumentError, "#{default_label} only has one-time expenses saved, so there is no regular monthly amount to change. Edit a specific expense instead, or add a monthly one. Nothing changed."
       end
 
-      record.assign_attributes(amount_cents: monthly_total_cents, cadence: "monthly", active: true)
+      record = reusable_inactive_record(records, default_label) || yield
+      record.cadence = "monthly" unless record.persisted? && recurring_expense?(record)
       record.label = default_label if record.new_record? || record.label.blank?
-      record.save!
+      set_recurring_amount!(record, monthly_total_cents)
     end
 
-    def amount_record_for_single_update(aggregate, active_records, records)
-      return aggregate if aggregate&.active?
-      return active_records.first if active_records.one?
-
-      aggregate || records.first
+    def reusable_inactive_record(records, default_label)
+      inactive_records = records.reject(&:active?)
+      inactive_records.find { |record| record.label == default_label } ||
+        inactive_records.find { |record| recurring_expense?(record) }
     end
 
+    def set_recurring_amount!(record, monthly_cents)
+      amount_cents = cadence_amount_cents(monthly_cents, record.cadence, current_cents: record.amount_cents)
+      return if record.new_record? && amount_cents.zero?
+
+      record.update!(amount_cents: amount_cents, active: amount_cents.positive?)
+    end
+
+    # Weekly, biweekly, and semi-monthly amounts can only land on whole cents per
+    # payment, so they get the closest monthly equivalent first. Monthly and
+    # annual items can match any monthly share exactly, so they absorb whatever
+    # is left and the stack total lands on the requested amount whenever one of
+    # them is present.
     def distribute_monthly_amount_total!(records, monthly_total_cents)
-      allocations = allocate_cents(monthly_total_cents, records.map { |record| current_expense_period_cents(record) })
-      records.each_with_index do |record, index|
-        amount_cents = allocations.fetch(index)
-        record.update!(amount_cents: amount_cents, cadence: "monthly", active: amount_cents.positive?)
+      shares = allocate_cents(monthly_total_cents, records.map { |record| monthly_equivalent_cents(record) })
+      exact_indexes, rounded_indexes = records.each_index.partition { |index| exact_monthly_cadence?(records.fetch(index).cadence) }
+      amounts = {}
+      rounded_indexes.each do |index|
+        amounts[index] = cadence_amount_cents(shares.fetch(index), records.fetch(index).cadence, current_cents: records.fetch(index).amount_cents)
       end
+      remaining_cents = monthly_total_cents - rounded_indexes.sum { |index| Money.monthly_cents(amounts.fetch(index), records.fetch(index).cadence) }
+      exact_shares = if remaining_cents.negative?
+        exact_indexes.map { |index| shares.fetch(index) }
+      else
+        allocate_cents(remaining_cents, exact_indexes.map { |index| shares.fetch(index) })
+      end
+      exact_indexes.each_with_index do |index, position|
+        amounts[index] = cadence_amount_cents(exact_shares.fetch(position), records.fetch(index).cadence, current_cents: records.fetch(index).amount_cents)
+      end
+
+      records.each_with_index do |record, index|
+        amount_cents = amounts.fetch(index)
+        record.update!(amount_cents: amount_cents, active: amount_cents.positive?)
+      end
+    end
+
+    # Converts a monthly-equivalent share back into the record's own cadence
+    # using Money's annualization factors. Keeps the saved amount when it already
+    # produces the requested monthly equivalent, so unchanged items stay put.
+    def cadence_amount_cents(monthly_cents, cadence, current_cents: nil)
+      return 0 unless monthly_cents.positive?
+
+      payments_per_year = Money.annualized_cents(1, cadence)
+      estimate = ((monthly_cents * 12 * 2) + payments_per_year) / (2 * payments_per_year)
+      candidates = [ estimate - 1, estimate, estimate + 1, current_cents ].compact.uniq.select(&:positive?)
+      candidates.min_by do |amount_cents|
+        [ (Money.monthly_cents(amount_cents, cadence) - monthly_cents).abs, amount_cents == current_cents ? 0 : 1, (amount_cents - estimate).abs ]
+      end
+    end
+
+    def recurring_expense?(record)
+      record.cadence.to_s != "one_time"
+    end
+
+    def exact_monthly_cadence?(cadence)
+      cadence.to_s.in?(%w[monthly annual])
     end
 
     def set_current_income_amount!(record, monthly_cents)
@@ -257,11 +308,11 @@ module HouseholdFinance
     end
 
     def amount_records_monthly_total(records)
-      records.sum { |record| current_expense_period_cents(record) }
+      records.sum { |record| monthly_equivalent_cents(record) }
     end
 
-    def current_expense_period_cents(record)
-      Money.period_cents(record.amount_cents, record.cadence, month: Date.current.month)
+    def monthly_equivalent_cents(record)
+      Money.monthly_cents(record.amount_cents, record.cadence)
     end
 
     def distribute_debt_totals!(records, balance_cents, payment_cents)
