@@ -19,7 +19,8 @@ module MiaEvals
     ENDPOINT = URI("https://openrouter.ai/api/v1/chat/completions")
 
     def initialize(report_paths, judges: JUDGES, seed: Integer(ENV.fetch("JUDGE_SEED", "20261016")))
-      @reports = report_paths.map { |path| JSON.parse(File.read(path)) }
+      @reports = report_paths.map { |path| JSON.parse(File.read(path)).merge("path" => path) }
+      label_reports
       @judges = judges
       @random = Random.new(seed)
       @cases = HouseholdFinance::MiaEvalHarness.load_cases.to_h { |eval_case| [ eval_case.fetch("id"), eval_case ] }
@@ -30,8 +31,9 @@ module MiaEvals
 
       facts = household_facts
       persona = persona_rules
-      case_ids = @reports.first.fetch("cases").map { |eval_case| eval_case.fetch("id") }
-      grades = case_ids.map do |case_id|
+      # Only cases every report ran and the eval file still defines.
+      case_ids = @reports.map { |report| report.fetch("cases").map { |eval_case| eval_case.fetch("id") } }.reduce(:&) & @cases.keys
+      grades = case_ids.filter_map do |case_id|
         print "."
         grade_case(case_id, facts, persona)
       end
@@ -59,19 +61,30 @@ module MiaEvals
     def grade_case(case_id, facts, persona)
       entries = @reports.map do |report|
         eval_case = report.fetch("cases").find { |candidate| candidate.fetch("id") == case_id }
-        { model: report.fetch("model"), eval_case: eval_case }
+        { model: report.fetch("label"), eval_case: eval_case }
       end
       labeled = entries.shuffle(random: @random).each_with_index.map { |entry, index| entry.merge(label: ("A".ord + index).chr) }
       definition = @cases.fetch(case_id)
       prompt = judge_prompt(definition, labeled, facts, persona)
 
       verdicts = @judges.filter_map { |judge| ask(judge, prompt) }
+      return warn("\n#{case_id}: no judge answered; left out of the averages") if verdicts.empty?
       scores = labeled.to_h do |entry|
         per_judge = verdicts.filter_map { |verdict| verdict.dig("grades", entry.fetch(:label)) }
         averaged = CRITERIA.to_h { |criterion| [ criterion, mean(per_judge.map { |grade| grade[criterion].to_f }) ] }
         [ entry.fetch(:model), averaged.merge("notes" => per_judge.map { |grade| grade["note"] }.compact) ]
       end
       { id: case_id, prompt: Array(definition["messages"]).presence&.join(" / ") || definition["prompt"], judges: verdicts.length, scores: scores, labels: labeled.to_h { |entry| [ entry.fetch(:label), entry.fetch(:model) ] } }
+    end
+
+    # A report is named by its model, plus its file when one model appears twice
+    # (for example, before and after a change).
+    def label_reports
+      counts = @reports.map { |report| report.fetch("model") }.tally
+      @reports.each do |report|
+        model = report.fetch("model")
+        report["label"] = counts[model] > 1 ? "#{model} (#{File.basename(report.fetch('path'), '.json')})" : model
+      end
     end
 
     def judge_prompt(eval_case, labeled, facts, persona)
@@ -165,7 +178,7 @@ module MiaEvals
     end
 
     def summarize(grades)
-      models = @reports.map { |report| report.fetch("model") }
+      models = @reports.map { |report| report.fetch("label") }
       by_model = models.to_h do |model|
         per_case = grades.map { |grade| grade.dig(:scores, model) }.compact
         criteria = CRITERIA.to_h { |criterion| [ criterion, mean(per_case.map { |scores| scores[criterion] }).round(2) ] }
@@ -173,7 +186,7 @@ module MiaEvals
           best = grade[:scores].values.map { |scores| scores["overall"] }.max
           grade.dig(:scores, model, "overall") == best
         end
-        source = @reports.find { |report| report.fetch("model") == model }
+        source = @reports.find { |report| report.fetch("label") == model }
         [ model, criteria.merge("best_or_tied" => wins, "cost_per_message_usd" => source["cost_per_message_usd"], "latency_ms" => source["latency_ms"], "provider_errors" => source["provider_errors"], "guardrail_fallback_turns" => source["guardrail_fallback_turns"], "turns" => source["turns"]) ]
       end
       { judged_at: Time.current.iso8601, judges: @judges, cases: grades.length, models: by_model, grades: grades }

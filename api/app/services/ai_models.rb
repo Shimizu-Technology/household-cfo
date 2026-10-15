@@ -48,6 +48,9 @@ module AiModels
     always_reasons?(model) ? reply_tokens + REASONING_ALLOWANCE_TOKENS : reply_tokens
   end
 
+  # Gemini 2.5 Pro also thinks by default; it is not a chat-path candidate here,
+  # so it is left out rather than guessed at. Aliases such as
+  # "google/gemini-flash-latest" are not matched; use pinned ids.
   def always_reasons?(model)
     anthropic?(model) || model.to_s.delete_prefix("~").match?(%r{\Agoogle/gemini-(?:[3-9]|\d{2,})})
   end
