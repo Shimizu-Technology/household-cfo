@@ -108,7 +108,7 @@ function PrivacySession({ actorScope, participant, initialEnrollmentId, document
       } else if ([400, 401, 403, 404, 409, 422].includes(code ?? 0)) {
         clearPrivacyRecovery(identity); setPending(null); setReview(null); setAccepted(false); setError(message(failure)); setRevision((value) => value + 1)
         if (code === 401) { setDenied(true); setPrograms([]); setEnrollmentId(null) }
-      } else setPending({ identity, input, state: 'uncertain', error: 'The server did not confirm this change. Check its result before retrying.' })
+      } else setPending({ identity, input, state: 'uncertain', error: 'We couldn’t confirm this change was saved. Check its result before trying again.' })
     }
   }
   async function check() {

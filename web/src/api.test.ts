@@ -1242,7 +1242,7 @@ describe('feedback submission deadlines', () => {
   const values = {
     workflow: 'ask_mia' as const, attempted: 'Open the chat', expected: 'See a reply', actual: 'The reply did not appear',
   }
-  const timeoutMessage = 'The server did not confirm whether your report was received. It may already be submitted. Keep your details and check with support before submitting again.'
+  const timeoutMessage = 'We couldn’t confirm your report was received. It may already be submitted. Keep your details and check with support before submitting again.'
 
   it('bounds stalled authentication without submitting or automatically retrying the report', async () => {
     vi.useFakeTimers()

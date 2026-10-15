@@ -9366,7 +9366,9 @@ test('BOG UI failed budget year preserves previous rows and context across brows
   await requestedYear
   await openSection(page, 'Ask Mia')
   release()
-  await expect(page.getByRole('alert').filter({ hasText: 'Fictional year request failed.' })).toBeVisible()
+  // A server fault is shown in plain words, never the raw server text.
+  await expect(page.getByRole('alert').filter({ hasText: 'Something went wrong on our side.' })).toBeVisible()
+  await expect(page.getByText('Fictional year request failed.')).toHaveCount(0)
   await expect(page.locator('.chat-period-context').first()).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear}`)
   await page.goBack()
   await expect(page.getByText(`Annual budget · ${currentYear}`, { exact: true })).toBeVisible()

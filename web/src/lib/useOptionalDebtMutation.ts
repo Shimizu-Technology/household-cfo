@@ -45,7 +45,7 @@ export function useOptionalDebtMutation(scope: DebtScope | undefined, api: Optio
       clearDebtIdentity(request); save(null); onDone(result)
     } catch (failure) {
       if (active.current !== scopeKey || generation !== epoch.current) return
-      const detail = participantErrorMessage(failure, 'The server did not confirm the card review.')
+      const detail = participantErrorMessage(failure, 'We couldn’t confirm the card review was saved.')
       if (failure instanceof ApiRequestError && failure.status === 409) onConflict()
       if (failure instanceof ApiRequestError && [401, 403, 404].includes(failure.status)) { save({ ...request, input: undefined, working: false, error: detail }); onDenied() }
       else if (!checking && !request.recovery && failure instanceof ApiRequestError && failure.status >= 400 && failure.status < 500) { clearDebtIdentity(request); save(null); setError(detail) }

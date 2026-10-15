@@ -2722,7 +2722,7 @@ export async function submitPilotFeedback(values: PilotFeedbackInput): Promise<P
 
     const payload = (await response.json()) as { feedback_report: PilotFeedbackReceipt }
     return payload.feedback_report
-  }, FILE_UPLOAD_TIMEOUT_MS, 'The server did not confirm whether your report was received.', undefined,
+  }, FILE_UPLOAD_TIMEOUT_MS, 'We couldn’t confirm your report was received.', undefined,
   'It may already be submitted. Keep your details and check with support before submitting again.')
 }
 

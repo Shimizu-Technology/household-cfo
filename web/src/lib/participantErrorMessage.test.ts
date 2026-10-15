@@ -21,6 +21,7 @@ describe('participantErrorMessage', () => {
   it('keeps plain server guidance and replaces technical wording', () => {
     expect(participantErrorMessage(api('Amount must be greater than 0', 422), 'fallback')).toBe('Amount must be greater than 0')
     expect(participantErrorMessage(api('This Household CFO invitation has been revoked.', 403), 'fallback')).toBe('This Household CFO invitation has been revoked.')
+    expect(participantErrorMessage(api('Choose an Expense Stack layer before saving.', 422), 'fallback')).toBe('Choose an Expense Stack layer before saving.')
     expect(participantErrorMessage(api('Use exact integer cents or versions', 422), 'Could not save this amount.')).toBe('Could not save this amount.')
     expect(participantErrorMessage(api('A valid savings request identity is required.', 422), 'Could not save.')).toBe('Could not save.')
     expect(participantErrorMessage(api('', 403), 'fallback')).toBe('Your account doesn’t have access to this. Contact your program team if that seems wrong.')

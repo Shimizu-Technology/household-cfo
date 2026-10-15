@@ -31,7 +31,7 @@ const CONNECTION_MESSAGE = 'We couldn’t reach the server. Check your connectio
 
 // Wording that belongs to engineers, not participants. A message containing any of
 // these falls back to the caller's plain sentence.
-const TECHNICAL = /\b(api|request (identity|identifier|key|reference)|idempoten|integer cents|canonical|digest|lease|provenance|linkage|payload|json|schema|null|undefined|token|uuid|endpoint|status \d{3}|failed: \d{3}|exception|stack|nil)\b/i
+const TECHNICAL = /\b(api|request (identity|identifier|key|reference)|idempoten|integer cents|canonical|digest|lease|provenance|linkage|payload|json|schema|null|undefined|token|uuid|endpoint|status \d{3}|failed: \d{3}|exception)\b/i
 
 /**
  * Turns any error a participant can hit into calm, plain copy. API errors are
