@@ -34,6 +34,7 @@ const FIXED_STATUSES = new Set([401, 404, 413, 429])
 
 const SERVER_MESSAGE = 'Something went wrong on our side. Your information is safe. Try again in a few minutes.'
 const CONNECTION_MESSAGE = 'We couldn’t reach the server. Check your connection and try again.'
+const UPLOAD_MESSAGE = 'Your file didn’t finish uploading. Try again in a few minutes.'
 
 // Wording that belongs to engineers, not participants. A message containing any of
 // these falls back to the caller's plain sentence.
@@ -55,7 +56,10 @@ export function participantErrorMessage(caught: unknown, fallback: string): stri
   }
   if (!(caught instanceof Error)) return fallback
   if (caught.name === 'AbortError') return fallback
-  if (/could not reach the server|failed to fetch|network ?error|load failed/i.test(caught.message)) return CONNECTION_MESSAGE
+  // The direct-to-storage upload reports its own failure; say what happened in plain words.
+  if (/\bprivate (?:file|source) upload failed\b/i.test(caught.message)) return UPLOAD_MESSAGE
+  // "Load failed" is Safari's fetch network error; the word boundary keeps "upload failed" out.
+  if (/could not reach the server|failed to fetch|network ?error|\bload failed\b/i.test(caught.message)) return CONNECTION_MESSAGE
   return readable(caught.message) ? caught.message : fallback
 }
 
