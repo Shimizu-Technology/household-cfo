@@ -62,7 +62,7 @@ import {
   transactionDraftBudgetImpacts,
   type TransactionDraftBudgetImpact,
 } from './lib/budgetPosition'
-import { addMoney, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
+import { addMoney, formatMoneyOrUnknown, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
 import { changedDebtMoneyInputs, changedInterestRateInput } from './lib/documentItemUpdate'
 import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/financialUploadValidation'
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
@@ -6864,10 +6864,10 @@ function MiaActionImpact({ impact }: { impact: NonNullable<MiaActionDraft['impac
         <span aria-hidden="true">Before → After</span>
       </div>
       <div className="mia-action-impact-grid">
-        {rows.map(([label, before, after]) => (
+        {rows.filter(([, before, after]) => before != null || after != null).map(([label, before, after]) => (
           <div key={label}>
             <span>{label}</span>
-            <strong>{currency.format(before ?? 0)} <b aria-hidden="true">→</b> {currency.format(after ?? 0)}</strong>
+            <strong>{formatMoneyOrUnknown(before)} <b aria-hidden="true">→</b> {formatMoneyOrUnknown(after)}</strong>
           </div>
         ))}
       </div>
@@ -8676,7 +8676,7 @@ function AnnualOutlookPanel({ plan, selectedMonthIndex }: { plan: AnnualBudgetPl
             <article className="outlook-callout spike" key={month.period_id}>
               <span>{month.label} spending spike</span>
               <strong>{currency.format(month.planned_outflow)} planned</strong>
-              <p>{currency.format(month.amount_above_typical ?? 0)} above a typical month.</p>
+              {month.amount_above_typical != null && <p>{currency.format(month.amount_above_typical)} above a typical month.</p>}
             </article>
           ))}
           {nextIrregular && (

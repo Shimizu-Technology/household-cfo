@@ -1,3 +1,10 @@
+const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+
+// An amount we don't have is shown as unknown, never as $0.
+export function formatMoneyOrUnknown(value: number | null | undefined, unknown = 'Not known yet') {
+  return value === null || value === undefined || !Number.isFinite(value) ? unknown : usd.format(value)
+}
+
 export function moneyCents(value: number) {
   return Math.round(value * 100)
 }
