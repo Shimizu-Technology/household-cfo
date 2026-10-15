@@ -1333,21 +1333,34 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
 
     [
       "Confirmed spending is $143. Your actuals now reflect the $22 Starbucks charge. Next CFO move: relax.",
-      "Confirmed spending is $143. Your actuals have been updated with the $22 draft. Next CFO move: relax."
+      "Confirmed spending is $143. Your actuals have been updated with the $22 draft. Next CFO move: relax.",
+      "Confirmed spending is $143. Your actuals updated with your $22. Next CFO move: relax.",
+      "Confirmed spending is $143. Done, so your actuals reflect the $22 now. Next CFO move: relax.",
+      "Confirmed spending is $143. It's confirmed, so your actuals show the $22 Starbucks charge. Next CFO move: relax.",
+      "Confirmed spending is $143. Actuals logged for Dining Out. Next CFO move: relax."
     ].each { |reply| assert_equal "Confirmed spending is $143.", narrate(reply, packet, "How much did I spend this month?") }
   end
 
-  test "a derived figure is accepted only when the reply shows how it was worked out" do
+  test "a derived figure the app did not compute is still rejected" do
     packet = {
       kind: "budget_action", fallback_response: "I drafted the Dining Out change for review.", write_state: "proposal_created",
       annual_plan_summary: JULY_PLAN,
-      budget_action: { status: "proposed", title: "Set Dining Out to $250", items: [ { action_type: "set_monthly_amount", label: "Dining Out July 2026", before: { amount: "$310.00" }, after: { amount: "$250.00" } } ] }
+      budget_action: { status: "proposed", title: "Set Dining Out to $250", items: [ { action_type: "set_monthly_amount", label: "Dining Out July 2026", before: { monthly_amounts_cents: { 7 => 31_000 } }, after: { monthly_amounts_cents: { 7 => 25_000 } } } ] }
     }
-    shown = "I drafted setting Dining Out to $250 for July 2026, and nothing has changed yet. Dining Out currently shows $45 spent. That would leave $205 of the new $250 plan. Next CFO move: review the draft card."
 
-    assert_equal shown, narrate(shown, packet, "Set Dining Out to $250 for July 2026.")
-    assert_equal "I drafted the Dining Out change for review.", narrate(shown.sub("$205", "$210"), packet, "Set Dining Out to $250 for July 2026.")
-    assert_equal "I drafted the Dining Out change for review.", narrate("I drafted setting Dining Out to $250. That leaves $205 for July. Next CFO move: review the draft card.", packet, "Set Dining Out to $250 for July 2026.")
+    assert_equal "I drafted the Dining Out change for review.", narrate("I drafted setting Dining Out to $250. Dining Out shows $45 spent. That would leave $205 of the new $250 plan. Next CFO move: review the draft card.", packet, "Set Dining Out to $250 for July 2026.")
+    exact = "I drafted setting Dining Out to $250 for July 2026, down from $310. Next CFO move: review the draft card."
+    assert_equal exact, narrate(exact, packet, "Set Dining Out to $250 for July 2026."), "month-keyed before/after amounts count for the named category"
+  end
+
+  test "a projection counts only when the figure itself is conditional" do
+    packet = draft_packet(remaining_if_approved: "$218.00", projected_if_approved: "$92.00")
+    fallback = "I drafted McDonald's for $25 for your review."
+
+    assert_equal fallback, narrate("I drafted McDonald's for $25. Dining Out has $218 remaining this month, so a $25 meal would fit. Next CFO move: review the draft.", packet, "I spent $25 at McDonald's.")
+    over = draft_packet(planned: "$80.00", remaining_if_approved: "-$12.00", projected_if_approved: "$92.00")
+    reply = "I drafted McDonald's for $25 for review. If approved, Dining Out will be $12 over its $80 plan. Next CFO move: review the draft."
+    assert_equal reply, narrate(reply, over, "I spent $25 at McDonald's.")
   end
 
   private

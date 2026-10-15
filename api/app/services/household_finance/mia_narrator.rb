@@ -21,7 +21,7 @@ module HouseholdFinance
     DANGEROUS_WRITE_CLAIMS = [
       /\b(?:i|i['’]ve|i have|we|we['’]ve|we have|mia)\s+(?:already\s+|just\s+)?(?:added|recorded|logged|posted|tracked|deducted|applied|updated)\b/i,
       /\b(?:actuals?|month-to-date actuals?|mtd actuals?|budget actuals?)\s+(?:now\s+)?(?:show|include|reflect)\b/i,
-      /\b(?:actuals?|month-to-date actuals?|mtd actuals?|budget actuals?)\s+(?:(?:have|has|were|was|are|is)\s+(?:now\s+)?(?:been\s+)?|now\s+)(?:updated|changed|deducted|applied|recorded|posted|logged|tracked)\b/i,
+      /\b(?:actuals?|month-to-date actuals?|mtd actuals?|budget actuals?)\s+(?:have|has|were|was|are|is)?\s*(?:now\s+)?(?:been\s+)?(?:updated|changed|deducted|applied|recorded|posted|logged|tracked)\b/i,
       /\b(?:this|that|the)\s+(?:transaction|purchase|charge|payment|receipt|spend|spending)\s+(?:has\s+(?:now\s+)?been|was|is\s+now|is)\s+(?:added|recorded|logged|posted|tracked|deducted|applied)\b/i,
       /\b(?:your|the)\s+(?:budget|balance|amount|plan|category|actuals?|spending|monthly total|month-to-date total)\s+(?:has\s+(?:now\s+)?been|was|is\s+now)\s+(?:changed|adjusted|updated|reflected|recalculated)\b/i,
       /\b(?:i|i['’]ve|i have|we|we['’]ve|we have|mia)\s+(?:already\s+|just\s+)?(?:made|finished|completed)\s+(?:the\s+)?(?:adjustment|change|update|correction)\b/i
@@ -284,12 +284,16 @@ module HouseholdFinance
       return true if answer_packet[:write_state] == "no_write" && NEW_DRAFT_CLAIMS.any? { |pattern| content.match?(pattern) }
       return true if dynamic_persona_write_claim?(content)
 
-      DANGEROUS_WRITE_CLAIMS.any? { |pattern| content.gsub(PURPOSE_CLAUSE_PATTERN, "").match?(pattern) }
+      checked = content.gsub(INSTRUCTION_PURPOSE_PATTERN, "").gsub(CONFIRMED_ACTUALS_ON_FILE_PATTERN, "")
+      DANGEROUS_WRITE_CLAIMS.any? { |pattern| checked.match?(pattern) }
     end
 
-    # "…so your actuals reflect what happened", "until your actuals show it":
-    # a goal or condition, not a claim that anything changed.
-    PURPOSE_CLAUSE_PATTERN = /\b(?:so(?: that)?|until|once|after|before|when|to make sure)\s+(?:your\s+|the\s+)?(?:month-to-date\s+|mtd\s+|budget\s+)?actuals?\s+(?:will\s+|can\s+|would\s+)?(?:show|include|reflect)\b/i
+    # Only an instruction to the participant followed by its purpose ("review the
+    # draft and confirm or discard it so your actuals reflect what happened") is
+    # set aside; "Done, so your actuals reflect it" is still a write claim.
+    INSTRUCTION_PURPOSE_PATTERN = /\b(?:review|confirm|approve|discard|delete|check)\b[^.!?]{0,60}?\b(?:so(?: that)?|until)\s+(?:your\s+|the\s+)?(?:month-to-date\s+|mtd\s+|budget\s+)?actuals?\s+(?:will\s+|can\s+)?(?:show|include|reflect)\b/i
+    # "You have confirmed actuals logged for Groceries" describes what is on file.
+    CONFIRMED_ACTUALS_ON_FILE_PATTERN = /\b(?:have|has|with|see|shows?)\s+(?:\w+\s+){0,2}?confirmed actuals?\s+(?:logged|recorded|posted)\s+(?:for|in|under)\b/i
 
     def dynamic_persona_write_claim?(content)
       subject = /\b#{Regexp.escape(persona.name)}\s+(?:already\s+|just\s+)?/i
@@ -419,19 +423,7 @@ module HouseholdFinance
       narrated_amounts = currency_cents_from_text(content)
       return false if narrated_amounts.empty?
 
-      unexplained = narrated_amounts - allowed_currency_cents
-      unexplained.any? { |amount| !shown_arithmetic?(amount, narrated_amounts, content) }
-    end
-
-    # A derived figure is fine when the reply shows its work: it is the sum or
-    # difference of two approved amounts the reply itself states ("$45 spent…
-    # leaves $205 of the new $250"), or a 90-day goal split into three months.
-    def shown_arithmetic?(amount, narrated_amounts, content)
-      stated = narrated_amounts & allowed_currency_cents
-      return true if stated.combination(2).any? { |first, second| first + second == amount || (first - second).abs == amount }
-      return false unless content.match?(/\b(?:90-day|90 days|three months|3 months)\b/i)
-
-      stated.any? { |total| (total / 3.0 / 100).round * 100 == amount }
+      (narrated_amounts - allowed_currency_cents).any?
     end
 
     def incorrect_financial_fact_relationship?(content)
@@ -459,8 +451,8 @@ module HouseholdFinance
         amounts = currency_cents_from_text(relevant_clause)
         next false if amounts.empty?
 
-        sentence = sentence_around(content, mention.fetch(:starts_at))
-        candidates = category_fact_sources(conditional: sentence.match?(CONDITIONAL_PROJECTION_PATTERN)).filter_map { |source| source[mention.fetch(:key)] }
+        lead_in = relevant_clause[0...(relevant_clause.index(MONEY_AMOUNT_PATTERN) || 0)]
+        candidates = category_fact_sources(conditional: lead_in.match?(CONDITIONAL_PROJECTION_PATTERN)).filter_map { |source| source[mention.fetch(:key)] }
         next false if candidates.empty?
 
         # Every figure in the clause must come from one source: one month, one view.
@@ -545,13 +537,17 @@ module HouseholdFinance
           planned: impact[:planned], actual: impact[:projected_if_approved], pending: impact[:other_pending],
           remaining: impact[:remaining_if_approved], draft: impact[:draft_amount]
         })
-        facts[key][:amounts] |= Array(plan.dig(key, :amounts)) if facts[key]
+        next unless facts[key]
+
+        facts[key][:amounts] |= Array(plan.dig(key, :amounts))
+        over = signed_cents(impact[:remaining_if_approved])
+        facts[key][:amounts] |= [ over.abs ] if over&.negative?
       end
     end
 
     def nested_cents(value, key = nil)
       case value
-      when Hash then value.flat_map { |nested_key, nested| nested_cents(nested, nested_key) }
+      when Hash then value.flat_map { |nested_key, nested| nested_cents(nested, nested_key.to_s.match?(/\A\d+\z/) ? key : nested_key) }
       when Array then value.flat_map { |nested| nested_cents(nested, key) }
       when Numeric then key.to_s.end_with?("_cents") ? [ value.to_i ] : (key.to_s.match?(/amount|planned|actual|remaining/) ? [ HouseholdFinance::Money.cents(value) ] : [])
       when String then currency_cents_from_text(value)
@@ -571,11 +567,6 @@ module HouseholdFinance
       text.match?(/\A(?:-|\(|−)/) ? -cents : cents
     end
 
-    def sentence_around(content, position)
-      start = content.rindex(/[.!?](?:\s|\z)/, position)&.+(1) || 0
-      finish = content.index(/[.!?](?:\s|\z)/, position) || content.length
-      content[start..finish].to_s
-    end
 
     def incorrect_transaction_relationship?(content)
       return false unless answer_packet[:kind].to_s.in?(%w[transaction_lookup transaction_draft])
