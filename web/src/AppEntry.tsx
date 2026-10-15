@@ -1,10 +1,15 @@
-import { lazy, Suspense, useEffect } from 'react'
+import { useEffect, useState, type ComponentType } from 'react'
 import { AuthLanding } from './components/AuthLanding'
 import { WorkspaceOpening } from './components/WorkspaceOpening'
 import { useAuthContext } from './contexts/authContextValue'
 
-const loadApp = () => import('./App')
-const App = lazy(loadApp)
+// Loaded with plain state rather than React.lazy/Suspense: Suspense reveals content
+// on a timer, which stalls when a page (or test) pauses the clock.
+let loadedApp: ComponentType | null = null
+const loadApp = () => import('./App').then((module) => {
+  loadedApp = module.default
+  return module.default
+})
 
 // Signed-out visitors (every new participant opening an invite link) see the
 // landing immediately; the workspace bundle downloads in the background so it
@@ -12,22 +17,36 @@ const App = lazy(loadApp)
 export function AppEntry() {
   const auth = useAuthContext()
   const signedOut = auth.isAuthEnabled && !auth.isLoading && !auth.isSignedIn && !(auth.authRecoveryRequired && auth.authError)
+  const [App, setApp] = useState<ComponentType | null>(() => loadedApp)
+  const [loadFailed, setLoadFailed] = useState(false)
 
   useEffect(() => {
-    if (!signedOut) return
-    const warm = () => { void loadApp().catch(() => undefined) }
-    if (typeof window.requestIdleCallback === 'function') {
-      const handle = window.requestIdleCallback(warm, { timeout: 3000 })
-      return () => window.cancelIdleCallback(handle)
+    if (App) return
+    let live = true
+    const load = () => {
+      loadApp()
+        .then((component) => { if (live) setApp(() => component) })
+        .catch(() => { if (live && !signedOut) setLoadFailed(true) })
     }
-    const timer = setTimeout(warm, 1500)
-    return () => clearTimeout(timer)
-  }, [signedOut])
+    if (!signedOut) {
+      load()
+      return () => { live = false }
+    }
+    // Warm the workspace while the landing is idle.
+    if (typeof window.requestIdleCallback === 'function') {
+      const handle = window.requestIdleCallback(load, { timeout: 3000 })
+      return () => { live = false; window.cancelIdleCallback(handle) }
+    }
+    const timer = setTimeout(load, 1500)
+    return () => { live = false; clearTimeout(timer) }
+  }, [App, signedOut])
 
   if (signedOut) return <AuthLanding />
-  return (
-    <Suspense fallback={<WorkspaceOpening status="Opening your workspace…" />}>
-      <App />
-    </Suspense>
-  )
+  if (App) return <App />
+  // A failed chunk download usually means a newer version was deployed; reloading fetches it.
+  return <WorkspaceOpening
+    status="Opening your workspace…"
+    error={loadFailed ? 'Part of the app didn’t finish downloading. Reload to get the latest version.' : null}
+    onRetry={() => window.location.reload()}
+  />
 }
