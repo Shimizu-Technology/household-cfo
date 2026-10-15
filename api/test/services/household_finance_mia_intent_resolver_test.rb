@@ -43,6 +43,33 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "650", result.action.fetch(:amount)
   end
 
+  test "intent payload keeps strict structured output for Gemini and never sends temperature" do
+    payload = HouseholdFinance::MiaIntentResolver.new(user_message: "What were we discussing?", context: intent_context, api_key: "synthetic", model: "google/gemini-2.5-flash").send(:payload)
+
+    assert_equal "google/gemini-2.5-flash", payload.fetch(:model)
+    refute payload.key?(:temperature)
+    refute payload.key?(:reasoning)
+    assert_equal({ require_parameters: true }, payload.fetch(:provider))
+    assert_equal "json_schema", payload.dig(:response_format, :type)
+    assert_equal true, payload.dig(:response_format, :json_schema, :strict)
+    assert_equal "mia_intent_resolution", payload.dig(:response_format, :json_schema, :name)
+    assert_equal 2, payload.fetch(:messages).length
+  end
+
+  test "intent payload for Claude asks for schema-shaped JSON without temperature" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(user_message: "What were we discussing?", context: intent_context, api_key: "synthetic", model: "anthropic/claude-sonnet-5.5")
+    payload = resolver.send(:payload)
+
+    refute payload.key?(:temperature)
+    assert_equal({ effort: "low" }, payload.fetch(:reasoning))
+    assert_equal({ require_parameters: true }, payload.fetch(:provider))
+    assert_equal({ type: "json_object" }, payload.fetch(:response_format))
+    schema_message = payload.fetch(:messages).fetch(1)
+    assert_equal "system", schema_message.fetch(:role)
+    assert_includes schema_message.fetch(:content), resolver.send(:compound_response_schema).to_json
+    assert_equal "user", payload.fetch(:messages).last.fetch(:role)
+  end
+
   test "review regression read only purchase fallback remains useful without a provider" do
     [ nil, ->(_) { nil }, ->(_) { raise Net::ReadTimeout }, ->(_) { JSON.generate(intent: nil) } ].each do |transport|
       result = HouseholdFinance::MiaIntentResolver.new(
@@ -953,6 +980,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       user_message: "Yeah, please do that",
       context: intent_context,
       api_key: "test-key",
+      model: "google/gemini-2.5-flash",
       transport: lambda do |payload|
         payloads << payload
         resolution_json(
@@ -2688,8 +2716,9 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       user_message: "Keep the $20 Rent line and the $10 Fixed essentials line.",
       context: context,
       api_key: "test-key",
-      transport: lambda do |payload|
-        split_schema = payload.dig(:response_format, :json_schema, :schema, :properties, :action, :properties, :splits, :items)
+      transport: lambda do |_payload|
+        schema = HouseholdFinance::MiaIntentResolver.new(user_message: "x", context: context).send(:compound_response_schema)
+        split_schema = schema.dig(:properties, :action, :properties, :splits, :items)
         assert_includes split_schema.fetch(:required), "id"
         assert_equal({ type: "integer", minimum: 0 }, split_schema.dig(:properties, :id))
         resolution_json(

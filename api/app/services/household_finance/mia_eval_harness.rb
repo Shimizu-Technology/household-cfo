@@ -41,9 +41,13 @@ module HouseholdFinance
       Array(payload.fetch("cases"))
     end
 
-    def initialize(cases: self.class.load_cases, runner:)
+    # mode :live checks live_expected (when a case defines it) instead of
+    # expected_phrases, and adds live_forbidden to forbidden_phrases. Live
+    # wording varies, so live expectations are looser than deterministic ones.
+    def initialize(cases: self.class.load_cases, runner:, mode: :deterministic)
       @cases = cases
       @runner = runner
+      @mode = mode.to_sym
     end
 
     def call
@@ -52,14 +56,14 @@ module HouseholdFinance
 
     private
 
-    attr_reader :cases, :runner
+    attr_reader :cases, :runner, :mode
 
     def run_case(eval_case)
       output = runner.call(eval_case)
       response = response_from(output)
       metadata = metadata_from(output)
-      expected_phrases = Array(eval_case["expected_phrases"])
-      forbidden_phrases = Array(eval_case["forbidden_phrases"])
+      expected_phrases = expected_phrases_for(eval_case)
+      forbidden_phrases = forbidden_phrases_for(eval_case)
       missing_phrases = missing_phrases(response, expected_phrases)
       forbidden_matches = matching_phrases(response, forbidden_phrases)
 
@@ -79,7 +83,7 @@ module HouseholdFinance
         prompt: prompt_for(eval_case),
         response: "",
         passed: false,
-        missing_phrases: Array(eval_case["expected_phrases"]),
+        missing_phrases: expected_phrases_for(eval_case),
         forbidden_matches: [],
         metadata: {},
         error: "#{e.class}: #{e.message}"
@@ -107,6 +111,17 @@ module HouseholdFinance
       eval_case["prompt"].to_s
     end
 
+    def expected_phrases_for(eval_case)
+      return Array(eval_case["live_expected"]) if mode == :live && eval_case.key?("live_expected")
+
+      Array(eval_case["expected_phrases"])
+    end
+
+    def forbidden_phrases_for(eval_case)
+      phrases = Array(eval_case["forbidden_phrases"])
+      mode == :live ? phrases + Array(eval_case["live_forbidden"]) : phrases
+    end
+
     def missing_phrases(response, expected_phrases)
       expected_phrases.reject { |phrase| includes_phrase?(response, phrase) }
     end
@@ -115,8 +130,20 @@ module HouseholdFinance
       forbidden_phrases.select { |phrase| includes_phrase?(response, phrase) }
     end
 
+    # A phrase may be a list (any one of them counts) or "/regex/" for word
+    # boundaries such as /\bpar\b/. Matching is case-insensitive.
     def includes_phrase?(response, phrase)
-      response.to_s.downcase.include?(phrase.to_s.downcase)
+      return phrase.any? { |option| includes_phrase?(response, option) } if phrase.is_a?(Array)
+
+      text = straight_quotes(phrase)
+      body = straight_quotes(response)
+      return body.match?(Regexp.new(text[1...-1], Regexp::IGNORECASE)) if text.length > 2 && text.start_with?("/") && text.end_with?("/")
+
+      body.downcase.include?(text.downcase)
+    end
+
+    def straight_quotes(value)
+      value.to_s.tr("‘’", "''")
     end
   end
 end

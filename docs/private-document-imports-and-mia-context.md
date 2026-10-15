@@ -257,9 +257,10 @@ Recommended optional env:
 ```text
 AWS_S3_PREFIX=household-cfo/development
 DOCUMENT_IMPORT_MAX_BYTES=10485760
-OPENROUTER_EXTRACTION_MODEL=google/gemini-2.5-flash
 OPENROUTER_PDF_ENGINE=mistral-ocr
 ```
+
+Extraction uses the shared `AI_MODEL` (see `AiModels`); there is no separate extraction model setting.
 
 Suggested object key format:
 

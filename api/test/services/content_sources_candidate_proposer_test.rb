@@ -77,6 +77,7 @@ class ContentSourcesCandidateProposerTest < ActiveSupport::TestCase
 
     assert_equal segment.text, JSON.parse(json_line).fetch("text")
     assert_equal 1, payload.fetch(:messages).count { |message| message.fetch(:role) == "user" }
+    assert_not payload.key?(:temperature)
     assert_match(/Immutable contract/, payload.fetch(:messages).last.fetch(:content))
   end
 

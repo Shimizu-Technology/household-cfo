@@ -595,11 +595,21 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     assert_nil proposal.resolution_idempotency_key
   end
 
+  test "Claude persona setup payload asks for schema-shaped JSON because Anthropic cannot compile the strict grammar" do
+    resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "anthropic/claude-sonnet-5.5", transport: Object.new)
+    payload = resolver.payload_for(context: { "authoring_state" => {} }, user_message: "Draft a philosophy")
+
+    assert_equal({ type: "json_object" }, payload.fetch(:response_format))
+    refute payload.key?(:temperature)
+    assert_equal({ require_parameters: true, allow_fallbacks: false, data_collection: "deny" }, payload.fetch(:provider))
+    assert_includes payload.fetch(:messages).last.fetch(:content), resolver.send(:response_schema).to_json
+  end
+
   test "provider payload is strict private and disables fallback collection and tools" do
     resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: Object.new)
     payload = resolver.payload_for(context: { "authoring_state" => {} }, user_message: "Draft a philosophy")
 
-    assert_equal 0, payload.fetch(:temperature)
+    refute payload.key?(:temperature)
     assert_equal [], payload.fetch(:tools)
     assert_equal({ require_parameters: true, allow_fallbacks: false, data_collection: "deny" }, payload.fetch(:provider))
     assert_equal true, payload.dig(:response_format, :json_schema, :strict)

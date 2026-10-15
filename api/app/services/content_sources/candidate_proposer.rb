@@ -8,7 +8,6 @@ module ContentSources
   class CandidateProposer
     PROMPT_VERSION = "coach_content_source_candidates_v1"
     SCHEMA_VERSION = "coach_content_source_candidates_json_schema_v1"
-    DEFAULT_MODEL = "google/gemini-2.5-flash"
     MAX_PER_SEGMENT = 8
     MAX_OUTPUT_TOKENS = 6_000
     OPEN_TIMEOUT_SECONDS = 10
@@ -18,11 +17,11 @@ module ContentSources
 
     def initialize(
       api_key: ENV["OPENROUTER_API_KEY"],
-      model: ENV.fetch("OPENROUTER_CONTENT_SOURCE_MODEL", ENV.fetch("OPENROUTER_EXTRACTION_MODEL", DEFAULT_MODEL)),
+      model: AiModels.text,
       allowed_kinds: CoachContentItem::KINDS
     )
       @api_key = api_key.to_s.strip
-      @model = model.to_s.strip.presence || DEFAULT_MODEL
+      @model = model.to_s.strip.presence || AiModels.text
       @allowed_kinds = Array(allowed_kinds).map(&:to_s).uniq & CoachContentItem::KINDS
       raise ArgumentError, "allowed_kinds must include a supported content kind" if @allowed_kinds.empty?
     end
@@ -78,7 +77,6 @@ module ContentSources
           }
         },
         provider: { require_parameters: true, data_collection: "deny" },
-        temperature: 0,
         max_tokens: MAX_OUTPUT_TOKENS
       }
     end

@@ -5,7 +5,6 @@ require "uri"
 module HouseholdFinance
   class MiaIntentResolver
     OPENROUTER_URL = MiaProviderEndpoint::DEFAULT_URL
-    DEFAULT_MODEL = "~anthropic/claude-sonnet-latest"
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 12
     MAX_OUTPUT_TOKENS = 8_000
@@ -173,12 +172,12 @@ module HouseholdFinance
       resolver.deterministic_scenario_result
     end
 
-    def initialize(user_message:, context:, api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MIA_INTENT_MODEL", ENV.fetch("OPENROUTER_MIA_MODEL", ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL))), transport: nil)
+    def initialize(user_message:, context:, api_key: ENV["OPENROUTER_API_KEY"], model: AiModels.text, transport: nil)
       @raw_user_message = user_message.to_s
       @user_message = @raw_user_message.squish
       @context = context.deep_symbolize_keys
       @api_key = api_key.to_s.strip
-      @model = model.to_s.strip.presence || DEFAULT_MODEL
+      @model = model.to_s.strip.presence || AiModels.text
       @transport = transport
     end
 
@@ -574,25 +573,52 @@ module HouseholdFinance
       parsed.dig("choices", 0, "message", "content")
     end
 
+    # No temperature: Claude models on OpenRouter reject it, and with
+    # require_parameters OpenRouter would refuse the whole request.
     def payload
+      reasoning = AiModels.chat_reasoning(model)
       {
         model: model,
         messages: [
           { role: "system", content: resolver_contract },
+          *schema_instruction_messages,
           { role: "user", content: resolver_request }
         ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "mia_intent_resolution",
-            strict: true,
-            schema: model.to_s.start_with?("google/") ? provider_response_schema(compound_response_schema) : compound_response_schema
-          }
-        },
+        response_format: response_format,
         provider: { require_parameters: true },
-        max_tokens: MAX_OUTPUT_TOKENS,
-        temperature: 0
+        max_tokens: MAX_OUTPUT_TOKENS
+      }.tap { |body| body[:reasoning] = reasoning if reasoning }
+    end
+
+    # Anthropic refuses this schema as a strict grammar ("The compiled grammar
+    # is too large"), even with constraints stripped. For Claude, ask for a
+    # JSON object and state the schema in the prompt instead. The Rails
+    # validators below stay the authority either way, and anything malformed
+    # falls back exactly as a provider error would.
+    def response_format
+      return { type: "json_object" } unless strict_schema_supported?
+
+      {
+        type: "json_schema",
+        json_schema: {
+          name: "mia_intent_resolution",
+          strict: true,
+          schema: model.to_s.start_with?("google/") ? provider_response_schema(compound_response_schema) : compound_response_schema
+        }
       }
+    end
+
+    def schema_instruction_messages
+      return [] if strict_schema_supported?
+
+      [ {
+        role: "system",
+        content: "Return exactly one JSON object, with no prose or code fences, that conforms to this JSON Schema. Include every listed property and no others: #{compound_response_schema.to_json}"
+      } ]
+    end
+
+    def strict_schema_supported?
+      !AiModels.anthropic?(model)
     end
 
     # Providers compile this schema into a generation grammar. The compound

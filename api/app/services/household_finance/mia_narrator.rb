@@ -7,7 +7,6 @@ require "uri"
 module HouseholdFinance
   class MiaNarrator
     OPENROUTER_URL = MiaProviderEndpoint::DEFAULT_URL
-    DEFAULT_MODEL = "~anthropic/claude-sonnet-latest"
     MAX_PACKET_BYTES = 12_000
     MAX_HISTORY_MESSAGES = 32
     MAX_HISTORY_CHARACTERS = 24_000
@@ -38,12 +37,12 @@ module HouseholdFinance
 
     attr_reader :supplied_content_context
 
-    def initialize(user_message:, answer_packet:, history: [], api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MIA_MODEL", ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL)), persona: ::Mia::Persona.default, approved_content: [])
+    def initialize(user_message:, answer_packet:, history: [], api_key: ENV["OPENROUTER_API_KEY"], model: AiModels.text, persona: ::Mia::Persona.default, approved_content: [])
       @user_message = user_message.to_s.squish
       @answer_packet = normalized_packet(answer_packet)
       @history = Array(history)
       @api_key = api_key.to_s.strip
-      @model = model.to_s.strip.presence || DEFAULT_MODEL
+      @model = model.to_s.strip.presence || AiModels.text
       @persona = persona
       @approved_content = Array(approved_content)
       @supplied_content_context = []
@@ -95,6 +94,7 @@ module HouseholdFinance
     end
 
     def payload
+      reasoning = AiModels.chat_reasoning(model)
       {
         model: model,
         messages: [
@@ -105,9 +105,8 @@ module HouseholdFinance
           *conversation_history,
           { role: "user", content: narration_request }
         ],
-        max_tokens: MAX_OUTPUT_TOKENS,
-        temperature: 0.45
-      }
+        max_tokens: MAX_OUTPUT_TOKENS
+      }.tap { |body| body[:reasoning] = reasoning if reasoning }
     end
 
     def narrator_contract
