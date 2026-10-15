@@ -21,7 +21,29 @@
 .workos-sign-in-divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: var(--text-sm); }
 .workos-sign-in-divider::before, .workos-sign-in-divider::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
 .workos-sign-in-body .workos-google-button { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px; border: 1px solid #747775; background: #fff; color: #1f1f1f; font-family: "Google Sans", Arial, sans-serif; font-size: var(--text-sm); font-weight: var(--weight-medium); }
-.workos-google-button img { flex-shrink: 0; width: 20px; height: 20px; }
+.workos-google-mark { flex-shrink: 0; width: 20px; height: 20px; }
 .workos-sign-in-provider-retry { display: grid; gap: 12px; }
 @media (max-width: 390px) { .workos-sign-in-dialog > header { padding: 16px; gap: 12px; } .workos-sign-in-dialog .workos-sign-in-body { padding: 20px 16px; } .workos-sign-in-secondary { grid-template-columns: 1fr; } }
 @media (max-height: 400px) { .workos-sign-in-dialog > header { padding: 12px 16px; } .workos-sign-in-dialog h2 { font-size: var(--text-xl); } .workos-sign-in-dialog .eyebrow { display: none; } }
+
+/* Opening feels calm: the backdrop fades and the window rises slightly. */
+@keyframes workos-sign-in-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes workos-sign-in-rise { from { opacity: 0; transform: translateY(12px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes workos-sign-in-sheet { from { transform: translateY(100%); } to { transform: none; } }
+.workos-sign-in-backdrop { animation: workos-sign-in-fade 160ms ease-out both; }
+.workos-sign-in-dialog { animation: workos-sign-in-rise 200ms cubic-bezier(.2, .8, .2, 1) both; }
+
+.workos-sign-in-dialog > header .workos-sign-in-close { display: grid; place-items: center; width: 44px; height: 44px; min-height: 44px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--ink-soft); cursor: pointer; }
+.workos-sign-in-dialog > header .workos-sign-in-close:hover { background: var(--paper-warm); color: var(--ink); }
+.workos-sign-in-close:focus-visible { outline: 2px solid var(--brand-focus, var(--ink)); outline-offset: 2px; }
+
+/* Phones: a bottom sheet within the visible viewport, so the keyboard never hides the form. */
+@media (max-width: 520px) {
+  .workos-sign-in-overlay { place-items: end stretch; padding: 0; }
+  .workos-sign-in-dialog { width: 100%; max-height: 94%; border-bottom: 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: env(safe-area-inset-bottom); animation: workos-sign-in-sheet 240ms cubic-bezier(.2, .8, .2, 1) both; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workos-sign-in-backdrop, .workos-sign-in-dialog { animation: none; }
+}
+

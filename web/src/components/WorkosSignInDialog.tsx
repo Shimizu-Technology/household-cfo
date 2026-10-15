@@ -43,6 +43,20 @@ const errorCopy: Record<string, string> = {
   sso_required: 'Your organization requires secure work sign-in. Continue with your invited email to use its sign-in flow.',
 }
 
+const CODE_SENT = 'We sent a six-digit code to your email.'
+// Shown visibly: after a resend nothing else on screen changes except the countdown.
+const NEW_CODE_SENT = 'We sent you a new code. Use the latest one.'
+
+// Google's standard four-color "G", inline so it never pops in after the dialog opens.
+function GoogleMark() {
+  return <svg className="workos-google-mark" width="20" height="20" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+  </svg>
+}
+
 function safeError(error: unknown) {
   if (error instanceof ApiRequestError && error.code === 'auth_rate_limited') {
     const seconds = error.payload.retry_after_sec
@@ -77,6 +91,7 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
   const finished = useRef(false)
   const codeInput = useRef<HTMLInputElement>(null)
   const emailInput = useRef<HTMLInputElement>(null)
+  const resendRequested = useRef(false)
   const external = Boolean(options.organizationId)
 
   function cancelChallenge(challengeId: string | null) {
@@ -118,6 +133,13 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
   useEffect(() => {
     if (challenge) codeInput.current?.focus({ preventScroll: true })
   }, [challenge])
+  // Desktop visitors can type right away; phones wait for a tap so the keyboard
+  // doesn't jump up over the sign-in options.
+  useEffect(() => {
+    if (!external && window.matchMedia?.('(pointer: fine)').matches) emailInput.current?.focus({ preventScroll: true })
+    // Only on open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function acceptStep(step: DialogEmailAuthStep, operation: number) {
     if (!mounted.current || generation.current !== operation) {
@@ -134,7 +156,8 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
       activeChallenge.current = step.challenge_id
       setChallenge(step); setCode(''); setClock(Date.now())
       setResendAt(Date.now() + Math.max(0, step.resend_after) * 1000)
-      setNotice('Check your email for a six-digit sign-in code.')
+      setNotice(resendRequested.current ? NEW_CODE_SENT : CODE_SENT)
+      resendRequested.current = false
     }
   }
   async function run(action: () => Promise<DialogEmailAuthStep | void>) {
@@ -154,6 +177,8 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
         }
       }
     } finally {
+      // Whatever the outcome, the next code request starts with the first-send notice.
+      resendRequested.current = false
       if (mounted.current && generation.current === operation) { pending.current = false; setBusy(false) }
     }
   }
@@ -185,6 +210,7 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
     if (pending.current) return
     generation.current += 1
     cancelChallenge(activeChallenge.current); activeChallenge.current = null
+    resendRequested.current = false
     setChallenge(null); setCode(''); setError(null); setNotice(null)
     window.requestAnimationFrame(() => { if (mounted.current) emailInput.current?.focus({ preventScroll: true }) })
   }
@@ -194,18 +220,18 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
   return createPortal(<div className="workos-sign-in-overlay">
     <div className="workos-sign-in-backdrop" aria-hidden="true" />
     <section ref={dialog} className="workos-sign-in-dialog" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} tabIndex={-1}>
-      <header><div><p className="eyebrow">{brand.product_name}</p><h2 id={`${id}-title`}>{challenge ? 'Check your email' : screen === 'sign-up' ? 'Join your invited workspace' : 'Welcome back'}</h2></div><button type="button" className="secondary-button" onClick={close}>Close</button></header>
+      <header><div><p className="eyebrow">{brand.product_name}</p><h2 id={`${id}-title`}>{challenge ? 'Check your email' : screen === 'sign-up' ? 'Join your invited workspace' : 'Welcome back'}</h2></div><button type="button" className="workos-sign-in-close" aria-label="Close" onClick={close}><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg></button></header>
       <div className="pilot-dialog-body workos-sign-in-body">
         <p id={`${id}-description`}>{external ? 'Continue through your organization’s secure sign-in flow.' : challenge ? <>Enter the six-digit code sent to <strong>{challenge.email}</strong>.</> : 'Sign in with the email your program invited. Your saved information stays with your account.'}</p>
         {(error || externalError) && <p className="document-alert" role="alert">{externalError || error}</p>}
-        <div className="workos-sign-in-status" role="status" aria-live="polite">{externalPending ? 'Complete sign-in with your provider. You can cancel and continue here.' : busy ? 'Checking your secure sign-in…' : notice}</div>
+        <div className={`workos-sign-in-status${!busy && !externalPending && notice === CODE_SENT ? ' sr-only' : ''}`} role="status" aria-live="polite">{externalPending ? 'Complete sign-in with your provider. You can cancel and continue here.' : busy ? 'Checking your secure sign-in…' : notice}</div>
         {externalPending && onCancelExternal && <button type="button" className="secondary-button" onClick={cancelExternal}>Cancel sign-in</button>}
         {external ? <button type="button" className="button button--primary" disabled={busy} onClick={() => void chooseExternal('sso')}>Continue with your organization</button> : <>
-          {!challenge && google && <><button type="button" className="secondary-button workos-google-button" disabled={busy} onClick={() => void chooseExternal('google')}><img src="/auth/google-g.png" width="20" height="20" alt="" />Continue with Google</button><div className="workos-sign-in-divider"><span>or use email</span></div></>}
+          {!challenge && google && <><button type="button" className="secondary-button workos-google-button" disabled={busy} onClick={() => void chooseExternal('google')}><GoogleMark />Continue with Google</button><div className="workos-sign-in-divider"><span>or use email</span></div></>}
           <form className="workos-sign-in-form" onSubmit={submit} aria-busy={busy}>
             {challenge ? <><label htmlFor={`${id}-code`}>Sign-in code</label><input ref={codeInput} id={`${id}-code`} className="workos-code-input" name="code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} disabled={busy} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} aria-describedby={`${id}-code-help`} /><p id={`${id}-code-help`} className="workos-sign-in-note">{expired ? 'Your code has expired. Start again with your email.' : 'Use the latest code. You can paste all six digits.'}</p><button type="submit" className="button button--primary" disabled={busy || code.length !== 6 || Boolean(expired)}>{busy ? 'Verifying…' : 'Verify and sign in'}</button></> : <><label htmlFor={`${id}-email`}>Email address</label><input ref={emailInput} id={`${id}-email`} name="email" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} required maxLength={254} value={email} disabled={busy} onChange={event => setEmail(event.target.value)} /><button type="submit" className="button button--primary" disabled={busy || !email.trim()}>{busy && !externalPending ? 'Sending code…' : 'Continue with email'}</button></>}
           </form>
-          {challenge && <div className="workos-sign-in-secondary">{expired ? <button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Start again</button> : <button type="button" className="secondary-button" disabled={busy || resendSeconds > 0} onClick={() => void run(() => client.resendEmail(challenge.challenge_id))}>{resendSeconds ? `Resend code in ${resendSeconds}s` : 'Resend code'}</button>}<button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Use a different email</button></div>}
+          {challenge && <div className="workos-sign-in-secondary">{expired ? <button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Start again</button> : <button type="button" className="secondary-button" disabled={busy || resendSeconds > 0} onClick={() => { resendRequested.current = true; void run(() => client.resendEmail(challenge.challenge_id)) }}>{resendSeconds ? `Resend code in ${resendSeconds}s` : 'Resend code'}</button>}<button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Use a different email</button></div>}
           {!challenge && optionsFailed && <div className="workos-sign-in-provider-retry"><p className="workos-sign-in-note">Other sign-in options could not be loaded. You can still continue with email.</p><button type="button" className="secondary-button" disabled={busy} onClick={() => setRetryOptions(value => value + 1)}>Retry sign-in options</button></div>}
         </>}
         <p className="workos-sign-in-note workos-sign-in-footer">Only invited accounts can open a workspace. Need access? Contact your program team.</p>
