@@ -564,6 +564,25 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [miaError, setMiaError] = useState<string | null>(null)
   const [miaAttachmentNotice, setMiaAttachmentNotice] = useState<string | null>(null)
   const [budgetAction, setBudgetAction] = useState<string | null>(null)
+  // One money change at a time. The ref closes the gap between a click and the
+  // re-render that disables every other review control.
+  const budgetActionRef = useRef<string | null>(null)
+  const beginBudgetAction = (name: string) => {
+    if (budgetActionRef.current) return false
+    budgetActionRef.current = name
+    setBudgetAction(name)
+    return true
+  }
+  const endBudgetAction = () => {
+    budgetActionRef.current = null
+    setBudgetAction(null)
+  }
+  // Forms that await a save keep the participant's input when the save throws.
+  const budgetActionBusyError = () => {
+    const message = 'Another change is still saving. Try again in a moment.'
+    setBudgetError(message)
+    return new Error(message)
+  }
   const [budgetError, setBudgetError] = useState<string | null>(null)
   const [hasUnsavedBudgetChanges, setHasUnsavedBudgetChanges] = useState(false)
   const [hasUnsavedIncomeSourceChanges, setHasUnsavedIncomeSourceChanges] = useState(false)
@@ -743,6 +762,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   budgetViewScopeRef.current = budgetViewScope
   const budgetYearLoading = pendingBudgetView?.scope === budgetViewScope
   const budgetContextAction = budgetYearLoading ? 'load-budget-year' : budgetAction
+  // Mia's reply returns fresh drafts and budget numbers, so draft cards on every tab
+  // wait for it instead of racing it.
+  const chatDraftAction = budgetContextAction ?? (miaLoading ? 'mia-replying' : null)
   useEffect(() => {
     budgetViewRequestRef.current += 1
     let cancelled = false
@@ -1823,7 +1845,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   async function handleAskMia(prompt = question) {
     const cleanPrompt = prompt.trim()
     const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
-    if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading || budgetYearLoading) return
+    if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading || budgetYearLoading || budgetActionRef.current) return
     if (cleanPrompt.length > MIA_MESSAGE_MAX_LENGTH) {
       setMiaError(`${assistantName} messages must stay under ${MIA_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`)
       return
@@ -1947,7 +1969,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       }
       void refreshDocumentImports({ quiet: true })
       const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
-      setMessages((current) => [...current.slice(0, -1), userMessageWithPreviews, response.assistant_message])
+      // A refresh may have replaced history while this message was in flight, so remove
+      // the placeholder by its client id and skip any server message already present.
+      setMessages((current) => {
+        const rest = current.filter((message) => message.client_id !== optimisticMessageId)
+        const present = new Set(rest.map((message) => message.id).filter(Boolean))
+        return [...rest, ...[userMessageWithPreviews, response.assistant_message].filter((message) => !message.id || !present.has(message.id))]
+      })
       if (response.setup_help?.available && activeSectionRef.current === 'Ask Mia') { setAssistPanel(null); setSetupHelpOpen(true) }
       if (auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && response.financial_restart?.available && activeSectionRef.current === 'Ask Mia') { setAssistPanel(null); setFinancialRestartOpen(true) }
       if (response.transaction_draft) {
@@ -2091,7 +2119,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       return
     }
 
-    setBudgetAction('create-category')
+    if (!beginBudgetAction('create-category')) return
     setBudgetError(null)
     const input = {
       name: newBudgetCategory.name,
@@ -2111,7 +2139,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be created.')
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2183,7 +2211,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       return
     }
 
-    setBudgetAction(entryId ? `update-income:${entryId}` : 'create-income')
+    if (!beginBudgetAction(entryId ? `update-income:${entryId}` : 'create-income')) throw budgetActionBusyError()
     setBudgetError(null)
     const signature = `${entryId ? `update-income-schedule:${entryId}` : 'create-income-schedule'}:${selectedBudgetYear}:${JSON.stringify(values)}`
     try {
@@ -2197,7 +2225,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setBudgetError(caught instanceof Error ? caught.message : 'The income timeline could not be saved.')
       throw caught
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2205,7 +2233,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
-    setBudgetAction(`delete-income:${entry.id}`)
+    if (!beginBudgetAction(`delete-income:${entry.id}`)) return
     setBudgetError(null)
     const signature = `delete-income-schedule:${selectedBudgetYear}:${entry.id}`
     try {
@@ -2216,7 +2244,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'The income timeline entry could not be removed.')
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2229,7 +2257,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     const action = sourceId ? `update-income-source:${sourceId}` : 'create-income-source'
     const signature = `${action}:${selectedBudgetYear}:${JSON.stringify(values)}`
-    setBudgetAction(action)
+    if (!beginBudgetAction(action)) throw budgetActionBusyError()
     setSetupError(null)
     try {
       const budget = sourceId
@@ -2242,7 +2270,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setSetupError(caught instanceof Error ? caught.message : 'The income source could not be saved.')
       throw caught
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2251,7 +2279,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (!isRealWorkspace || !data) return
 
     const signature = `archive-income-source:${selectedBudgetYear}:${source.id}:${endsOn}`
-    setBudgetAction(`archive-income-source:${source.id}`)
+    if (!beginBudgetAction(`archive-income-source:${source.id}`)) throw budgetActionBusyError()
     setSetupError(null)
     try {
       const budget = await archiveIncomeSource(source.id, endsOn, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
@@ -2262,7 +2290,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setSetupError(caught instanceof Error ? caught.message : 'The income source could not be ended.')
       throw caught
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2271,7 +2299,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (!isRealWorkspace || !data) return
 
     const signature = `restore-income-source:${selectedBudgetYear}:${source.id}`
-    setBudgetAction(`restore-income-source:${source.id}`)
+    if (!beginBudgetAction(`restore-income-source:${source.id}`)) return
     setSetupError(null)
     try {
       const budget = await restoreIncomeSource(source.id, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
@@ -2281,7 +2309,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     } catch (caught) {
       setSetupError(caught instanceof Error ? caught.message : 'The income source could not be restored.')
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2323,7 +2351,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace || !data || (changes.allocations.length === 0 && changes.categories.length === 0)) return
 
-    setBudgetAction('save-budget-edits')
+    if (!beginBudgetAction('save-budget-edits')) throw budgetActionBusyError()
     setBudgetError(null)
     let latestBudget = data.budget
     let appliedChanges = 0
@@ -2366,7 +2394,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setBudgetError(message)
       throw caught
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2377,7 +2405,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const confirmed = window.confirm(`Archive ${row.name}? It will leave active planning, but confirmed transaction history will not be deleted.`)
     if (!confirmed) return
 
-    setBudgetAction(`archive-category:${row.id}`)
+    if (!beginBudgetAction(`archive-category:${row.id}`)) return
     setBudgetError(null)
     const signature = `archive-category:${selectedBudgetYear}:${row.id}`
     try {
@@ -2390,7 +2418,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be archived.')
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2398,7 +2426,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
-    setBudgetAction(`restore-category:${categoryId}`)
+    if (!beginBudgetAction(`restore-category:${categoryId}`)) return
     setBudgetError(null)
     const signature = `restore-category:${selectedBudgetYear}:${categoryId}`
     try {
@@ -2411,7 +2439,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be restored.')
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2420,7 +2448,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
-    setBudgetAction(`apply-mia-action:${draft.id}`)
+    if (!beginBudgetAction(`apply-mia-action:${draft.id}`)) return
     setBudgetError(null)
     setMiaError(null)
     const selection = itemIds?.slice().sort((left, right) => left - right)
@@ -2447,7 +2475,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setBudgetError(message)
       setMiaError(message)
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2455,7 +2483,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
-    setBudgetAction(`cancel-mia-action:${draft.id}`)
+    if (!beginBudgetAction(`cancel-mia-action:${draft.id}`)) return
     setBudgetError(null)
     setMiaError(null)
     const signature = `cancel-mia-action:${draft.id}`
@@ -2477,7 +2505,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setBudgetError(message)
       setMiaError(message)
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2486,7 +2514,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (!isRealWorkspace) return
 
     const signature = `transaction:create:${JSON.stringify(values)}`
-    setBudgetAction('create-transaction-draft')
+    if (!beginBudgetAction('create-transaction-draft')) throw budgetActionBusyError()
     setBudgetError(null)
     try {
       const response = await createTransactionDraft(values, transactionOperationKeysRef.current.keyFor(signature))
@@ -2502,7 +2530,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setBudgetError(message)
       throw new Error(message, { cause: caught })
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2510,7 +2538,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
-    setBudgetAction(`update-draft:${draft.id}`)
+    if (!beginBudgetAction(`update-draft:${draft.id}`)) throw budgetActionBusyError()
     setBudgetError(null)
     setDocumentsError(null)
     try {
@@ -2529,7 +2557,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentsError(message)
       throw new Error(message, { cause: caught })
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2537,7 +2565,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
-    setBudgetAction(`confirm-draft:${draft.id}`)
+    if (!beginBudgetAction(`confirm-draft:${draft.id}`)) return
     setBudgetError(null)
     setDocumentsError(null)
     try {
@@ -2560,7 +2588,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setBudgetError(message)
       setDocumentsError(message)
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2568,7 +2596,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
-    setBudgetAction(`ignore-draft:${draft.id}`)
+    if (!beginBudgetAction(`ignore-draft:${draft.id}`)) return
     setBudgetError(null)
     setDocumentsError(null)
     try {
@@ -2591,7 +2619,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setBudgetError(message)
       setDocumentsError(message)
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2613,7 +2641,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       return
     }
 
-    setBudgetAction(`bulk-${resolution}-drafts`)
+    if (!beginBudgetAction(`bulk-${resolution}-drafts`)) return
     setBudgetError(null)
     setDocumentsError(null)
     setMiaError(null)
@@ -2639,7 +2667,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentsError(message)
       setMiaError(message)
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2647,7 +2675,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
-    setBudgetAction(`match-draft:${draft.id}`)
+    if (!beginBudgetAction(`match-draft:${draft.id}`)) return
     setBudgetError(null)
     setDocumentsError(null)
     try {
@@ -2668,7 +2696,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setBudgetError(message)
       setDocumentsError(message)
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2679,7 +2707,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const confirmed = window.confirm('Reopen this draft for correction? If it created an actual transaction, that actual will be removed from month-to-date totals and the draft will return to pending review.')
     if (!confirmed) return
 
-    setBudgetAction(`reopen-draft:${draft.id}`)
+    if (!beginBudgetAction(`reopen-draft:${draft.id}`)) return
     setBudgetError(null)
     setDocumentsError(null)
     try {
@@ -2701,7 +2729,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setBudgetError(message)
       setDocumentsError(message)
     } finally {
-      setBudgetAction(null)
+      endBudgetAction()
     }
   }
 
@@ -2908,6 +2936,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       return
     }
 
+    // Applying extracted values changes money, so it shares the one-change-at-a-time guard.
+    if (!beginBudgetAction(`apply-document:${documentImport.id}`)) {
+      setDocumentsError('Another change is still saving. Try again in a moment.')
+      return
+    }
     setDocumentAction(`apply:${documentImport.id}`)
     setDocumentsError(null)
     setDocumentsNotice(null)
@@ -2940,6 +2973,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentsError(caught instanceof Error ? caught.message : 'Selected values could not be applied.')
     } finally {
       setDocumentAction(null)
+      endBudgetAction()
     }
   }
 
@@ -3440,7 +3474,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       <MiaActionDraftReviewStack
                         drafts={pendingMiaActionDrafts}
                         isRealWorkspace={Boolean(isRealWorkspace)}
-                        action={budgetContextAction}
+                        action={chatDraftAction}
                         compact
                         onApply={handleApplyMiaActionDraft}
                         onCancel={handleCancelMiaActionDraft}
@@ -3453,7 +3487,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                         drafts={pendingTransactionDrafts}
                         draftActionsDisabled={budgetYearLoading}
                         isRealWorkspace={Boolean(isRealWorkspace)}
-                        action={budgetContextAction}
+                        action={chatDraftAction}
                         compact
                         categories={activeBudgetPlan?.rows ?? []}
                         plan={activeBudgetPlan}
@@ -3551,7 +3585,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 <button
                   className="send-button"
                   type="submit"
-                  disabled={budgetYearLoading || miaLoading || voiceRecording || voiceTranscribing || question.trim().length > MIA_MESSAGE_MAX_LENGTH || (!question.trim() && pendingMiaAttachments.length === 0)}
+                  disabled={budgetYearLoading || miaLoading || Boolean(budgetAction) || voiceRecording || voiceTranscribing || question.trim().length > MIA_MESSAGE_MAX_LENGTH || (!question.trim() && pendingMiaAttachments.length === 0)}
                   aria-label={miaLoading ? `${assistantName} is thinking` : `Send message to ${assistantName}`}
                 >
                   <span>{miaLoading ? 'Thinking' : 'Send'}</span>
@@ -3594,6 +3628,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 <ManualTransactionCapture
                   categories={activeBudgetPlan?.rows ?? []}
                   busy={budgetAction === 'create-transaction-draft'}
+                  locked={Boolean(budgetAction)}
                   onCreate={handleCreateTransactionDraft}
                 />
                 </fieldset>
@@ -3602,7 +3637,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     drafts={pendingTransactionDrafts}
                     isRealWorkspace
                     compact
-                    action={budgetContextAction}
+                    action={chatDraftAction}
                     categories={activeBudgetPlan?.rows ?? []}
                     plan={activeBudgetPlan}
                     queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
@@ -3893,7 +3928,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             uploadingKind={uploadingKind}
             itemSavingIds={itemSavingIds}
             action={documentAction}
-            draftAction={budgetContextAction}
+            draftAction={chatDraftAction}
             expandedAppliedImportId={expandedAppliedImportId}
             onExpandedAppliedImportIdChange={setExpandedAppliedImportId}
             demoUploads={data.profile.uploads}
@@ -3951,7 +3986,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             uploadingKind={uploadingKind}
             itemSavingIds={itemSavingIds}
             action={documentAction}
-            draftAction={budgetContextAction}
+            draftAction={chatDraftAction}
             expandedAppliedImportId={expandedAppliedImportId}
             onExpandedAppliedImportIdChange={setExpandedAppliedImportId}
             demoUploads={data.profile.uploads}
@@ -6594,7 +6629,8 @@ function MiaActionDraftReviewCard({
 }) {
   const { brand } = useBrand()
   const isPending = draft.status === 'pending' || draft.status === 'partially_applied'
-  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || action === 'load-budget-year'
+  // Any in-flight money change or Mia reply locks every draft control, not just this card's.
+  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || Boolean(action)
   const remainingItems = draft.items.filter((item) => !item.applied_at && !item.canceled_at)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set(
     draft.suggested_selected_item_ids?.length ? draft.suggested_selected_item_ids : remainingItems.map((item) => item.id),
@@ -6842,10 +6878,12 @@ function miaActionItemFinePrint(item: MiaActionItem) {
 function ManualTransactionCapture({
   categories,
   busy,
+  locked = busy,
   onCreate,
 }: {
   categories: BudgetCategoryRow[]
   busy: boolean
+  locked?: boolean
   onCreate: (values: TransactionDraftCreateInput) => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
@@ -6901,8 +6939,8 @@ function ManualTransactionCapture({
           <label><span>Category <small>optional</small></span><select value={categoryId} onChange={(event) => setCategoryId(event.currentTarget.value)}><option value="">Leave uncategorized</option>{activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
           {formError && <p className="manual-transaction-error" role="alert">{formError}</p>}
           <div className="manual-transaction-actions">
-            <button type="button" className="secondary-button" disabled={busy} onClick={() => { reset(); setOpen(false) }}>Cancel</button>
-            <button type="submit" disabled={busy}>{busy ? 'Adding review' : 'Add to review'}</button>
+            <button type="button" className="secondary-button" disabled={locked} onClick={() => { reset(); setOpen(false) }}>Cancel</button>
+            <button type="submit" disabled={locked}>{busy ? 'Adding review' : 'Add to review'}</button>
           </div>
         </form>
       )}
@@ -7191,7 +7229,7 @@ function TransactionDraftReviewCard({
   const splitMismatch = moneyCents(splitTotal) !== moneyCents(targetAmount)
   const saving = action === `update-draft:${draft.id}`
   const reopening = action === `reopen-draft:${draft.id}`
-  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || action === 'load-budget-year'
+  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || Boolean(action)
   const splitsNeedingCategory = (draft.splits ?? []).filter(transactionDraftSplitNeedsCategory)
   const needsCategoryReview = splitsNeedingCategory.length > 0
   const categoryWarningId = `transaction-draft-${draft.id}-category-warning`
@@ -7199,7 +7237,7 @@ function TransactionDraftReviewCard({
     ? `${assistantName} kept the receipt or document detail but did not guess. Choose where each item belongs before it changes your actuals.`
     : `${assistantName} could not confidently match this purchase. Choose where it belongs before it changes your actuals.`
   const firstMissingSplitIndex = splits.findIndex((split) => !split.budget_category_id || placeholderCategoryName(split.category_name))
-  const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending
+  const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending || Boolean(action)
   const impactDraft = editing ? {
     ...draft,
     occurred_on: occurredOn,
@@ -7402,7 +7440,7 @@ function TransactionDraftReviewCard({
             {splitMismatch && <span className="transaction-draft-disabled-reason">Splits total {currency.format(splitTotal)} but draft total is {currency.format(targetAmount)}.</span>}
             {editError && <span className="transaction-draft-disabled-reason" role="alert">{editError}</span>}
             <button type="button" className="secondary-button" onClick={closeEditing}>Cancel</button>
-            <button type="button" disabled={saving || splitMismatch} onClick={() => void saveDraftEdits()}>{saving ? 'Saving' : 'Save draft'}</button>
+            <button type="button" disabled={Boolean(action) || splitMismatch} onClick={() => void saveDraftEdits()}>{saving ? 'Saving' : 'Save draft'}</button>
           </div>
         </div>
       )}
@@ -8077,7 +8115,7 @@ function IncomeSourceManager({
     }
   }
 
-  const incomeOperationPending = Boolean(action?.includes('income'))
+  const incomeOperationPending = Boolean(action)
   const saving = action === 'create-income-source' || (editingId !== null && action === `update-income-source:${editingId}`)
 
   return (
@@ -8402,7 +8440,7 @@ function AnnualIncomePlanner({
     }
   }
 
-  const incomeOperationPending = Boolean(action?.includes('income'))
+  const incomeOperationPending = Boolean(action)
   const saving = action === 'create-income' || (editingId !== null && action === `update-income:${editingId}`)
   const eligibleSources = plan.income_sources.filter((source) => incomeSourceEffectiveInMonth(source, draft.effective_on))
   const selectedSource = eligibleSources.find((source) => String(source.id) === draft.income_source_id)
@@ -8734,6 +8772,7 @@ function AnnualBudgetPlanner({
   )
   const isEditingBudget = budgetEditState.signature === planSignature && budgetEditState.isEditing
   const isSavingBudgetEdits = action === 'save-budget-edits'
+  const budgetEditsLocked = Boolean(action)
   const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
   const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
@@ -9076,8 +9115,8 @@ function AnnualBudgetPlanner({
                   <span aria-live="polite">{totalBudgetChanges > 0 ? `${totalBudgetChanges} unsaved change${totalBudgetChanges === 1 ? '' : 's'}. Save or cancel before switching tools.` : 'On your phone, edit one month at a time or choose the full year.'}</span>
                 </div>
                 <div className="annual-plan-edit-actions">
-                  <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelAndCloseManualManager}>Cancel</button>
-                  <button type="button" disabled={isSavingBudgetEdits} onClick={() => void saveBudgetEdits()}>
+                  <button type="button" className="secondary-button" disabled={budgetEditsLocked} onClick={cancelAndCloseManualManager}>Cancel</button>
+                  <button type="button" disabled={budgetEditsLocked} onClick={() => void saveBudgetEdits()}>
                     {isSavingBudgetEdits ? 'Saving' : totalBudgetChanges > 0 ? `Save ${totalBudgetChanges} change${totalBudgetChanges === 1 ? '' : 's'}` : 'Done'}
                   </button>
                 </div>
