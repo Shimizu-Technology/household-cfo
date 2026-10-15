@@ -44,6 +44,8 @@ const errorCopy: Record<string, string> = {
 }
 
 const CODE_SENT = 'We sent a six-digit code to your email.'
+// Shown visibly: after a resend nothing else on screen changes except the countdown.
+const NEW_CODE_SENT = 'We sent you a new code. Use the latest one.'
 
 // Google's standard four-color "G", inline so it never pops in after the dialog opens.
 function GoogleMark() {
@@ -89,6 +91,7 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
   const finished = useRef(false)
   const codeInput = useRef<HTMLInputElement>(null)
   const emailInput = useRef<HTMLInputElement>(null)
+  const resendRequested = useRef(false)
   const external = Boolean(options.organizationId)
 
   function cancelChallenge(challengeId: string | null) {
@@ -153,7 +156,8 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
       activeChallenge.current = step.challenge_id
       setChallenge(step); setCode(''); setClock(Date.now())
       setResendAt(Date.now() + Math.max(0, step.resend_after) * 1000)
-      setNotice(CODE_SENT)
+      setNotice(resendRequested.current ? NEW_CODE_SENT : CODE_SENT)
+      resendRequested.current = false
     }
   }
   async function run(action: () => Promise<DialogEmailAuthStep | void>) {
@@ -224,7 +228,7 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
           <form className="workos-sign-in-form" onSubmit={submit} aria-busy={busy}>
             {challenge ? <><label htmlFor={`${id}-code`}>Sign-in code</label><input ref={codeInput} id={`${id}-code`} className="workos-code-input" name="code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} disabled={busy} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} aria-describedby={`${id}-code-help`} /><p id={`${id}-code-help`} className="workos-sign-in-note">{expired ? 'Your code has expired. Start again with your email.' : 'Use the latest code. You can paste all six digits.'}</p><button type="submit" className="button button--primary" disabled={busy || code.length !== 6 || Boolean(expired)}>{busy ? 'Verifying…' : 'Verify and sign in'}</button></> : <><label htmlFor={`${id}-email`}>Email address</label><input ref={emailInput} id={`${id}-email`} name="email" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} required maxLength={254} value={email} disabled={busy} onChange={event => setEmail(event.target.value)} /><button type="submit" className="button button--primary" disabled={busy || !email.trim()}>{busy && !externalPending ? 'Sending code…' : 'Continue with email'}</button></>}
           </form>
-          {challenge && <div className="workos-sign-in-secondary">{expired ? <button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Start again</button> : <button type="button" className="secondary-button" disabled={busy || resendSeconds > 0} onClick={() => void run(() => client.resendEmail(challenge.challenge_id))}>{resendSeconds ? `Resend code in ${resendSeconds}s` : 'Resend code'}</button>}<button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Use a different email</button></div>}
+          {challenge && <div className="workos-sign-in-secondary">{expired ? <button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Start again</button> : <button type="button" className="secondary-button" disabled={busy || resendSeconds > 0} onClick={() => { resendRequested.current = true; void run(() => client.resendEmail(challenge.challenge_id)) }}>{resendSeconds ? `Resend code in ${resendSeconds}s` : 'Resend code'}</button>}<button type="button" className="secondary-button" disabled={busy} onClick={differentEmail}>Use a different email</button></div>}
           {!challenge && optionsFailed && <div className="workos-sign-in-provider-retry"><p className="workos-sign-in-note">Other sign-in options could not be loaded. You can still continue with email.</p><button type="button" className="secondary-button" disabled={busy} onClick={() => setRetryOptions(value => value + 1)}>Retry sign-in options</button></div>}
         </>}
         <p className="workos-sign-in-note workos-sign-in-footer">Only invited accounts can open a workspace. Need access? Contact your program team.</p>

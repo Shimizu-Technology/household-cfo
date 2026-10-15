@@ -85,6 +85,8 @@ it('counts down resend cooldown and replaces the challenge and code after resend
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Sign-in code' })).toHaveProperty('value', ''))
   expect(client.resendEmail).toHaveBeenCalledWith('challenge_test')
   expect(screen.getByRole('button', { name: 'Resend code in 60s' })).toHaveProperty('disabled', true)
+  // A resend is confirmed visibly, not only to screen readers.
+  expect(screen.getByText('We sent you a new code. Use the latest one.').closest('.sr-only')).toBeNull()
 })
 it('offers the secure organization flow alone for an explicit organization and does not send an email challenge', async () => {
   render(<WorkosSignInDialog {...props} options={{ organizationId: 'org_test' }} />)

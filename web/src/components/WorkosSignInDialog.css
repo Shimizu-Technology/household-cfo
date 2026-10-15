@@ -34,7 +34,7 @@
 .workos-sign-in-dialog { animation: workos-sign-in-rise 200ms cubic-bezier(.2, .8, .2, 1) both; }
 
 .workos-sign-in-dialog > header .workos-sign-in-close { display: grid; place-items: center; width: 44px; height: 44px; min-height: 44px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--ink-soft); cursor: pointer; }
-.workos-sign-in-close:hover { background: var(--paper-warm); color: var(--ink); }
+.workos-sign-in-dialog > header .workos-sign-in-close:hover { background: var(--paper-warm); color: var(--ink); }
 .workos-sign-in-close:focus-visible { outline: 2px solid var(--brand-focus, var(--ink)); outline-offset: 2px; }
 
 /* Phones: a bottom sheet within the visible viewport, so the keyboard never hides the form. */
