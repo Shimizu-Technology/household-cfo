@@ -23,7 +23,7 @@ module HouseholdFinance
       "(?:\\s+from\\s+(?:my\\s+|our\\s+|the\\s+)?(?:checking|paycheck|pay\\s*check|pay|check|wallet|cash)(?:\\s+account)?)?" \
       "\\s+#{SAVINGS_DESTINATION_SOURCE}" \
       "|\\b#{SAVINGS_DEPOSIT_VERB_SOURCE}\\s+(?:it\\s+|that\\s+)?#{SAVINGS_DESTINATION_SOURCE}\\s+(?:account\\s+)?#{AMOUNT_SOURCE}" \
-      "|(?:,\\s*|\\b(?:and|plus)\\s+)\\$\\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)(?:\\s+(?:cash|more|extra))*\\s+#{SAVINGS_DESTINATION_SOURCE}" \
+      "|(?:,\\s*|\\b(?:and|plus|then|also|as\\s+well\\s+as)\\s+)(?:(?:then|also)\\s+)*\\$\\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)(?:\\s+(?:cash|more|extra))*\\s+#{SAVINGS_DESTINATION_SOURCE}" \
       "|\\b(?:set|put)\\s+(?:aside\\s+#{AMOUNT_SOURCE}|#{AMOUNT_SOURCE}\\s+aside)\\s+for\\s+(?:my\\s+|our\\s+|the\\s+)?(?:savings|challenge)\\b(?!\\s+(?:fee|entry|shirt|t-shirt))",
       Regexp::IGNORECASE
     ).freeze
@@ -87,8 +87,10 @@ module HouseholdFinance
 
     CLAUSE_MARKER_OPEN = "\u27E6".freeze
     CLAUSE_MARKER_CLOSE = "\u27E7".freeze
-    CLAUSE_MARKER_PATTERN = /\s*\u27E6[^\u27E7]*\u27E7\s*(?:,\s*)?(?:(?:and|then|plus|also)\b\s*)?/i.freeze
-    SHARED_VERB_PATTERN = /\u27E6([^\u27E7]*)\u27E7\s*(?:,\s*)?(?:(?:and|then|plus|also)\s+)?(?=\$\s*\d)/i.freeze
+    JOINER_SOURCE = "(?:,\\s*)?(?:(?:and|then|plus|also|as\\s+well\\s+as)\\b[\\s,]*){0,3}".freeze
+    CLAUSE_MARKER_PATTERN = /\s*\u27E6[^\u27E7]*\u27E7\s*#{JOINER_SOURCE}/i.freeze
+    SHARED_VERB_PATTERN = /\u27E6([^\u27E7]*)\u27E7\s*#{JOINER_SOURCE}(?=\$\s*\d)/i.freeze
+    LEFTOVER_PURCHASE_PATTERN = /\$\s*#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?\s+(?:for|at|on|to(?!\s+(?:my|our|his|her|their|mom|dad|me|us)\b))\s+[a-z]|\b(?:for|on|at)\s+\$\s*#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?(?![\d,])(?!\s+(?:goal|target|balance|total|left))/i.freeze
     SEPARATE_SPEND_VERB_PATTERN = /\b(?:spent|paid|payed|charged|bought|purchased)\b/i.freeze
     SEPARATE_SPEND_AMOUNT_PATTERN = /\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)|\b(?:spent|paid|charged|bought)\s+(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)\b/i.freeze
 
@@ -147,9 +149,9 @@ module HouseholdFinance
       marked
         .gsub(SHARED_VERB_PATTERN) { "#{Regexp.last_match(1)} " }
         .gsub(CLAUSE_MARKER_PATTERN, " ")
-        .gsub(/\s*(?:,\s*)?\b(?:and|then|plus)\s*(?:(?:i|we)\s*)?(?=[.,;!?]|\z)/i, "")
+        .gsub(/\s*(?:,\s*)?\b(?:(?:and|then|plus|also)\s*)+(?:(?:i|we)\s*)?(?=[.,;!?]|\z)/i, "")
         .squish
-        .sub(/\A(?:[,;]\s*)?(?:and|then|plus|also)\b[\s,]*/i, "")
+        .sub(/\A(?:[,;]\s*)?(?:(?:and|then|plus|also)\b[\s,]*)+/i, "")
     end
 
     def clause_marker(clause)
@@ -164,7 +166,10 @@ module HouseholdFinance
       return false unless non_expense?(text)
 
       remainder = without_non_expense(text).gsub(/\b(?:got|get|gets|getting)\s+paid\b/i, " ")
-      return false unless remainder.match?(SEPARATE_SPEND_VERB_PATTERN) && remainder.match?(SEPARATE_SPEND_AMOUNT_PATTERN)
+      # Safety net: any leftover "$30 for gas" or "at Payless for $30" is a spend candidate,
+      # so a purchase beside a deposit is drafted or named, never dropped in silence.
+      verb_spend = remainder.match?(SEPARATE_SPEND_VERB_PATTERN) && remainder.match?(SEPARATE_SPEND_AMOUNT_PATTERN)
+      return false unless verb_spend || remainder.match?(LEFTOVER_PURCHASE_PATTERN)
 
       !remainder.match?(TransactionDraftBuilder::NON_EXPENSE_MOVEMENT_PATTERN) || TransactionDraftBuilder.explicit_purchase_details(remainder).present?
     end

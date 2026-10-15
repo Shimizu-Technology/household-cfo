@@ -1463,9 +1463,14 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "a model expense beside a savings deposit still drafts the separate purchase" do
-    user = create_user(email: "mia-model-mixed-deposit@example.com")
+    [ "I spent $30 on groceries and put $50 in savings", "I paid $50 to savings and then $30 for gas", "I paid $30 for gas and also $50 to my savings" ].each_with_index do |message, index|
+      assert_model_drafts_separate_purchase(message, index)
+    end
+  end
+
+  def assert_model_drafts_separate_purchase(message, index)
+    user = create_user(email: "mia-model-mixed-deposit-#{index}@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
-    message = "I spent $30 on groceries and put $50 in savings"
     intent = HouseholdFinance::MiaIntentResolver::Result.new(
       intent: "transaction_report", confidence: 0.99, continuation: false, resolved_message: message,
       needs_clarification: false, clarification: "", topic: { type: "transaction_report", title: "Groceries", subject: "Groceries" },
@@ -1478,13 +1483,13 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
 
     assert_difference("TransactionDraft.count", 1) do
       with_intent_resolver(resolver) do
-        post "/api/v1/mia/messages", params: { message: message, request_id: "model-mixed-deposit" }, headers: auth_headers(user), as: :json
+        post "/api/v1/mia/messages", params: { message: message, request_id: "model-mixed-deposit-#{index}" }, headers: auth_headers(user), as: :json
       end
     end
 
     assert_response :created
-    assert_equal 3_000, household.transaction_drafts.sole.total_amount_cents
-    refute_includes JSON.parse(response.body).dig("assistant_message", "content"), "I did not add it as an expense"
+    assert_equal 3_000, household.transaction_drafts.sole.total_amount_cents, message
+    refute_includes JSON.parse(response.body).dig("assistant_message", "content"), "I did not add it as an expense", message
   end
 
   test "model resolved transaction correction updates the pending review without changing actuals" do

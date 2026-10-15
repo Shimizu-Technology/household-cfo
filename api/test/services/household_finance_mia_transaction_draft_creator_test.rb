@@ -151,7 +151,12 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
       "I paid $50 to my savings and $30 for gas" => 3_000,
       "I paid $30 for gas and $50 to my savings" => 3_000,
       "I paid $100 to savings, $30 to Payless" => 3_000,
-      "I paid $30 to Payless, $100 to savings" => 3_000
+      "I paid $30 to Payless, $100 to savings" => 3_000,
+      "I paid $50 to savings and then $30 for gas" => 3_000,
+      "I paid $50 to savings and also $30 for gas" => 3_000,
+      "I paid $50 to savings, then $30 for gas" => 3_000,
+      "I paid $30 for gas and then $50 to my savings" => 3_000,
+      "I put $50 in savings and then spent $30 on groceries" => 3_000
     }.each_with_index do |(message, cents), index|
       draft = HouseholdFinance::TransactionDraftBuilder.new(@household, message, user: @user, idempotency_key: "mixed-deposit-#{index}").call
       assert draft, message

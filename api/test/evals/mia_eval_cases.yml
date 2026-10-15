@@ -616,3 +616,20 @@ cases:
     forbidden_phrases:
       - purchase
       - drafted this for review
+
+  - id: multi_word_joiner_spend_beside_deposit_is_drafted
+    route: controller
+    prompt: I paid $50 to savings and then $30 for gas
+    expected_phrases:
+      - drafted this for review
+      - $30
+    forbidden_phrases:
+      - I did not add it as an expense
+
+  - id: leftover_amount_beside_deposit_is_named
+    route: controller
+    prompt: I put $50 in savings and $30 for gas
+    expected_phrases:
+      - I also see a $30 purchase in your message, and I have not added it yet
+    forbidden_phrases:
+      - I did not add it as an expense

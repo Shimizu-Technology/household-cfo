@@ -1094,7 +1094,14 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       "I paid $30 for gas and $50 to my savings",
       "I paid $100 to savings, $30 to Payless",
       "I paid $30 to Payless, $100 to savings",
-      "I put $50 in savings and spent $30 on groceries"
+      "I put $50 in savings and spent $30 on groceries",
+      "I paid $50 to savings and then $30 for gas",
+      "I paid $50 to savings and also $30 for gas",
+      "I paid $50 to savings, then $30 for gas",
+      "I paid $50 to savings as well as $30 for gas",
+      "I paid $30 for gas and then $50 to my savings",
+      "I paid $30 for gas and also $50 to my savings",
+      "I put $50 in savings and then spent $30 on groceries"
     ].each do |prompt|
       assert_nil HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call, prompt
     end
@@ -1107,6 +1114,26 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       assert_includes answer, opening, prompt
       assert_includes answer, "I also see a $30 purchase in your message, and I have not added it yet", prompt
       refute_includes answer, "I did not add it as an expense", prompt
+    end
+  end
+
+  test "a leftover purchase amount beside a deposit is named, never silently dropped" do
+    household = create_yellow_household
+
+    [ "I put $50 in savings and $30 for gas", "I put $30 for gas and $50 in savings" ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+      assert_includes answer, "Nice work putting $50 into savings; that part is savings, not spending.", prompt
+      assert_includes answer, "I also see a $30 purchase in your message, and I have not added it yet", prompt
+      assert_nil HouseholdFinance::MiaCoachAnswerer.new(household, prompt).support_answer, prompt
+    end
+
+    [
+      "Put $50 in savings and $30 in checking",
+      "Put $50 in savings toward my $500 goal",
+      "Put $50 in savings, now I have $300",
+      "Put $50 in savings and sent $30 to my mom"
+    ].each do |prompt|
+      refute_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s, "purchase in your message", prompt
     end
   end
 
