@@ -2711,6 +2711,12 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     rejected = resolve.call("50")
     refute rejected.actionable?
     assert rejected.clarification?
+
+    [ "I paid $50 to my savings and $30 for gas", "I paid $30 for gas and $50 to my savings" ].each do |shared|
+      message = shared
+      assert resolve.call("30").actionable?, shared
+      refute resolve.call("50").actionable?, shared
+    end
   end
 
   test "a model expense amount from shorthand thousands is grounded in the participant text" do

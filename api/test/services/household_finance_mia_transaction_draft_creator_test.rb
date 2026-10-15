@@ -146,7 +146,12 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
       "I spent $30 on groceries and put $50 in savings" => 3_000,
       "I spent $30 on groceries today and put $50 in savings" => 3_000,
       "Put $50 in savings and spent $30 at Payless" => 3_000,
-      "I paid $20 for gas then moved $100 into savings" => 2_000
+      "I paid $20 for gas then moved $100 into savings" => 2_000,
+      "I put $50 in savings and spent $30 on groceries" => 3_000,
+      "I paid $50 to my savings and $30 for gas" => 3_000,
+      "I paid $30 for gas and $50 to my savings" => 3_000,
+      "I paid $100 to savings, $30 to Payless" => 3_000,
+      "I paid $30 to Payless, $100 to savings" => 3_000
     }.each_with_index do |(message, cents), index|
       draft = HouseholdFinance::TransactionDraftBuilder.new(@household, message, user: @user, idempotency_key: "mixed-deposit-#{index}").call
       assert draft, message
@@ -155,7 +160,8 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
     end
 
     assert_no_difference("TransactionDraft.count") do
-      [ "I bought $50 of Apple stock", "Bought groceries for $30 and put $50 in savings" ].each_with_index do |message, index|
+      [ "I bought $50 of Apple stock", "Bought groceries for $30 and put $50 in savings",
+        "I put $40 in savings and paid my $50 visa bill", "I paid my $50 visa bill and put $40 in savings" ].each_with_index do |message, index|
         assert_nil HouseholdFinance::TransactionDraftBuilder.new(@household, message, user: @user, idempotency_key: "stock-#{index}").call, message
       end
     end

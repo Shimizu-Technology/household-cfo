@@ -1089,7 +1089,12 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       "I spent $30 on groceries today and put $50 in savings",
       "Put $50 in savings and spent $30 at Payless",
       "I paid $20 for gas then moved $100 into savings",
-      "I spent $30 at Payless and $100 on crypto"
+      "I spent $30 at Payless and $100 on crypto",
+      "I paid $50 to my savings and $30 for gas",
+      "I paid $30 for gas and $50 to my savings",
+      "I paid $100 to savings, $30 to Payless",
+      "I paid $30 to Payless, $100 to savings",
+      "I put $50 in savings and spent $30 on groceries"
     ].each do |prompt|
       assert_nil HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call, prompt
     end
@@ -1102,6 +1107,17 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       assert_includes answer, opening, prompt
       assert_includes answer, "I also see a $30 purchase in your message, and I have not added it yet", prompt
       refute_includes answer, "I did not add it as an expense", prompt
+    end
+  end
+
+  test "a card payment beside a deposit is neither a purchase nor a promised draft" do
+    household = create_yellow_household
+
+    [ "I put $40 in savings and paid my $50 visa bill", "I paid my $50 visa bill and put $40 in savings" ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+
+      assert_includes answer, "Nice work putting $40 into savings!", prompt
+      refute_match(/purchase|draft it/i, answer, prompt)
     end
   end
 

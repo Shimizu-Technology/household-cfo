@@ -16,12 +16,14 @@ module HouseholdFinance
       "(?:(?!(?:from|out|of|and|then|pay|for|with|on|at|in|to|into|#{OTHER_OWNER_SOURCE}(?:['’]?s)?)\\b)[a-z0-9'’-]+\\s+){0,2}?" \
       "#{SAVINGS_WORD_SOURCE}\\b(?!\\s+(?:mart|market|store|shop|outlet|cent(?:er|re)|bond|loan|card|fee|entry|category|categories|budget|line|allocation|bucket\\s+in\\s+(?:my|the)\\s+budget)\\b)".freeze
     SAVINGS_DEPOSIT_VERB_SOURCE = "(?:put|paid|payed|transferred|transfered|moved|deposited|added|sent|stashed|dropped|saved|tucked)".freeze
+    # The fourth form is a second amount sharing an earlier verb: "I paid $30 for gas and $50 to my savings".
     SAVINGS_DEPOSIT_PATTERN = Regexp.new(
       "\\b#{SAVINGS_DEPOSIT_VERB_SOURCE}\\s+(?:(?:in|another|an\\s+extra|extra)\\s+)?#{AMOUNT_SOURCE}" \
       "(?:\\s+(?:cash|more|extra|aside|away|over|back|today|yesterday|already))*" \
       "(?:\\s+from\\s+(?:my\\s+|our\\s+|the\\s+)?(?:checking|paycheck|pay\\s*check|pay|check|wallet|cash)(?:\\s+account)?)?" \
       "\\s+#{SAVINGS_DESTINATION_SOURCE}" \
       "|\\b#{SAVINGS_DEPOSIT_VERB_SOURCE}\\s+(?:it\\s+|that\\s+)?#{SAVINGS_DESTINATION_SOURCE}\\s+(?:account\\s+)?#{AMOUNT_SOURCE}" \
+      "|(?:,\\s*|\\b(?:and|plus)\\s+)\\$\\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)(?:\\s+(?:cash|more|extra))*\\s+#{SAVINGS_DESTINATION_SOURCE}" \
       "|\\b(?:set|put)\\s+(?:aside\\s+#{AMOUNT_SOURCE}|#{AMOUNT_SOURCE}\\s+aside)\\s+for\\s+(?:my\\s+|our\\s+|the\\s+)?(?:savings|challenge)\\b(?!\\s+(?:fee|entry|shirt|t-shirt))",
       Regexp::IGNORECASE
     ).freeze
@@ -83,6 +85,10 @@ module HouseholdFinance
     THIRD_PARTY_PATTERN = /\b(?:friend|cousin|neighbou?r|auntie|aunty|uncle|brother|sister|sibling|mom|mother|dad|father|parents?|in-laws?|co-?worker|grandma|grandpa|nana|tata|she|he|they)\b/i.freeze
     OWN_HARDSHIP_PATTERN = Regexp.new("\\b(?:i|we|us|our|my\\s+(?:kids?|children|son|daughter|baby|family))\\b[^.!?]{0,30}(?:#{HARDSHIP_REASON_SOURCE}|hungry|skip)", Regexp::IGNORECASE).freeze
 
+    CLAUSE_MARKER_OPEN = "\u27E6".freeze
+    CLAUSE_MARKER_CLOSE = "\u27E7".freeze
+    CLAUSE_MARKER_PATTERN = /\s*\u27E6[^\u27E7]*\u27E7\s*(?:,\s*)?(?:(?:and|then|plus|also)\b\s*)?/i.freeze
+    SHARED_VERB_PATTERN = /\u27E6([^\u27E7]*)\u27E7\s*(?:,\s*)?(?:(?:and|then|plus|also)\s+)?(?=\$\s*\d)/i.freeze
     SEPARATE_SPEND_VERB_PATTERN = /\b(?:spent|paid|payed|charged|bought|purchased)\b/i.freeze
     SEPARATE_SPEND_AMOUNT_PATTERN = /\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)|\b(?:spent|paid|charged|bought)\s+(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)\b/i.freeze
 
@@ -126,24 +132,41 @@ module HouseholdFinance
 
     # The message with savings-deposit and investment clauses removed, so a spend
     # reported beside them ("spent $30 on groceries and put $50 in savings") survives.
+    #
+    # Each removed clause leaves its verb behind as a marker. A following amount with no
+    # verb of its own shares it ("I paid $50 to savings and $30 for gas" -> "I paid $30
+    # for gas"); otherwise the marker and its joining word go ("I put $50 in savings and
+    # spent $30" -> "I spent $30").
     def without_non_expense(text)
       value = text.to_s.squish
       return value unless non_expense?(value)
 
-      value
-        .gsub(SAVINGS_DEPOSIT_PATTERN, " ")
-        .gsub(INVESTMENT_PURCHASE_PATTERN, " ")
+      marked = value
+        .gsub(SAVINGS_DEPOSIT_PATTERN) { |clause| clause_marker(clause) }
+        .gsub(INVESTMENT_PURCHASE_PATTERN) { |clause| clause_marker(clause) }
+      marked
+        .gsub(SHARED_VERB_PATTERN) { "#{Regexp.last_match(1)} " }
+        .gsub(CLAUSE_MARKER_PATTERN, " ")
         .gsub(/\s*(?:,\s*)?\b(?:and|then|plus)\s*(?:(?:i|we)\s*)?(?=[.,;!?]|\z)/i, "")
         .squish
         .sub(/\A(?:[,;]\s*)?(?:and|then|plus|also)\b[\s,]*/i, "")
     end
 
-    # A real spend with its own amount sits beside the deposit or investment buy.
+    def clause_marker(clause)
+      verb = clause[/\A[a-z]+/i].to_s
+      verb = "" if verb.match?(/\A(?:and|plus)\z/i)
+      " #{CLAUSE_MARKER_OPEN}#{verb}#{CLAUSE_MARKER_CLOSE} "
+    end
+
+    # A real spend with its own amount sits beside the deposit or investment buy. Card,
+    # loan and other non-expense payments left over are not purchases.
     def separate_spend?(text)
       return false unless non_expense?(text)
 
       remainder = without_non_expense(text).gsub(/\b(?:got|get|gets|getting)\s+paid\b/i, " ")
-      remainder.match?(SEPARATE_SPEND_VERB_PATTERN) && remainder.match?(SEPARATE_SPEND_AMOUNT_PATTERN)
+      return false unless remainder.match?(SEPARATE_SPEND_VERB_PATTERN) && remainder.match?(SEPARATE_SPEND_AMOUNT_PATTERN)
+
+      !remainder.match?(TransactionDraftBuilder::NON_EXPENSE_MOVEMENT_PATTERN) || TransactionDraftBuilder.explicit_purchase_details(remainder).present?
     end
 
     def separate_spend_cents(text)

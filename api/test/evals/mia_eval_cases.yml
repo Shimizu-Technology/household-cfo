@@ -589,3 +589,30 @@ cases:
     prompt: My kids skipped lunch today
     forbidden_phrases:
       - local food pantry
+
+  - id: shared_verb_spend_beside_deposit_is_drafted
+    route: controller
+    prompt: I paid $50 to my savings and $30 for gas
+    expected_phrases:
+      - drafted this for review
+      - $30
+    forbidden_phrases:
+      - I did not add it as an expense
+
+  - id: deposit_first_then_spend_is_drafted
+    route: controller
+    prompt: I put $50 in savings and spent $30 on groceries
+    expected_phrases:
+      - drafted this for review
+      - $30
+    forbidden_phrases:
+      - I have not added it yet
+
+  - id: card_payment_beside_deposit_is_not_a_purchase
+    route: controller
+    prompt: I put $40 in savings and paid my $50 visa bill
+    expected_phrases:
+      - Nice work putting $40 into savings!
+    forbidden_phrases:
+      - purchase
+      - drafted this for review
