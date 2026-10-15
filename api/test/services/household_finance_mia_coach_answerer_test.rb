@@ -819,7 +819,13 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes bill, "Please do not skip meals to cover a bill."
     assert_includes bill, "food comes first"
 
-    [ "I skipped meals last month to save for the challenge.", "I skip lunch at work to save for the challenge." ].each do |prompt|
+    [
+      "I skipped meals last month to save for the challenge.",
+      "I skip lunch at work to save for the challenge.",
+      "I'm going to skip meals to save for the challenge",
+      "We are going to skip lunch so we can save more",
+      "I've been skipping meals to save for the goal, it's cheaper"
+    ].each do |prompt|
       assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s, "Please do not skip food", prompt
     end
   end
