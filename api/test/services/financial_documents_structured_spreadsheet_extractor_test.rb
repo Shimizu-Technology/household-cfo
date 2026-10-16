@@ -253,7 +253,9 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_equal [ "Valid groceries" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
     assert_includes result.data.fetch(:warnings).join, "above $9,999,999.99"
     huge = result.data[:source_accounting][:events].find { |event| event[:evidence][:merchant] == "Huge debit" }
-    assert_not_equal 10_00, huge&.dig(:signed_amount_cents)
+    assert huge, "the over-limit row should stay in the source events as unresolved"
+    assert_equal "unresolved", huge[:row_kind]
+    assert_nil huge[:signed_amount_cents]
   ensure
     file&.close!
   end
