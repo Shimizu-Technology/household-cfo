@@ -1286,6 +1286,14 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     assert_equal "June spending was $425.", narrate("In June, Dining Out was at $45 of $310. Next CFO move: review June.", packet, "How did I do in June?")
   end
 
+  test "a negative remaining figure is accepted with its sign and rejected without it" do
+    packet = { kind: "budget_question", fallback_response: "Dining Out is over plan.", write_state: "no_write", annual_plan_summary: { top_categories: [ { name: "Dining Out", planned: 80, actual: 92, remaining: -12 } ] } }
+
+    correct = "Dining Out has -$12 remaining after $92 of actuals. Next CFO move: pause dining out until next month."
+    assert_equal correct, narrate(correct, packet, "How is Dining Out doing?")
+    assert_equal "Dining Out is over plan.", narrate(correct.sub("-$12", "$12"), packet, "How is Dining Out doing?")
+  end
+
   test "draft projections and proposed amounts are not accepted as category facts" do
     fallback = "I drafted McDonald's for $25 for your review."
     packet = draft_packet(remaining_if_approved: "$218.00", projected_if_approved: "$92.00")

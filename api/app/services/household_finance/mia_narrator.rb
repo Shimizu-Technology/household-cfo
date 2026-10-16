@@ -416,7 +416,8 @@ module HouseholdFinance
       narrated_amounts = currency_cents_from_text(content)
       return false if narrated_amounts.empty?
 
-      (narrated_amounts - allowed_currency_cents).any?
+      # Existence check only, so compare magnitudes; signs are checked per category.
+      (narrated_amounts - allowed_currency_cents.map(&:abs)).any?
     end
 
     def incorrect_financial_fact_relationship?(content)
@@ -437,7 +438,7 @@ module HouseholdFinance
         boundary = mentions[index + 1]&.fetch(:starts_at) || content.length
         clause = content[mention.fetch(:ends_at)...boundary].to_s.split(/[;\n]|\.(?=\s|\z)/, 2).first.to_s
         relevant_clause = clause.first(100)
-        amounts = currency_cents_from_text(relevant_clause)
+        amounts = signed_currency_cents_from_text(relevant_clause)
         next false if amounts.empty?
 
         candidates = category_fact_sources.filter_map { |source| source[mention.fetch(:key)] }
@@ -454,6 +455,7 @@ module HouseholdFinance
       clause.to_enum(:scan, MONEY_AMOUNT_PATTERN).any? do
         amount_match = Regexp.last_match
         amount = HouseholdFinance::Money.cents(amount_match[1].delete(","))
+        amount = -amount if clause[[ amount_match.begin(0) - 1, 0 ].max...amount_match.begin(0)].to_s.match?(/[-−]/)
         before = clause[[ amount_match.begin(0) - 18, 0 ].max...amount_match.begin(0)].to_s
         after = clause[amount_match.end(0), 18].to_s
         metric = after.match(/\A\s*(?:in\s+)?(planned|actuals?|remaining|pending)\b/i)&.captures&.first ||
@@ -504,6 +506,15 @@ module HouseholdFinance
 
     # Packet figures can be negative ("-$12" over plan); a reply's "$12 remaining"
     # must not match them.
+    # "-$12" in a reply is negative, matching how packet figures are stored.
+    def signed_currency_cents_from_text(text)
+      text.to_s.to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
+        amount_match = Regexp.last_match
+        cents = HouseholdFinance::Money.cents(amount_match[1].delete(","))
+        text[[ amount_match.begin(0) - 1, 0 ].max...amount_match.begin(0)].to_s.match?(/[-−]/) ? -cents : cents
+      end.uniq
+    end
+
     def signed_cents(value)
       return HouseholdFinance::Money.cents(value) if value.is_a?(Numeric)
 
