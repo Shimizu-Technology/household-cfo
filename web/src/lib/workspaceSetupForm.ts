@@ -24,7 +24,9 @@ function sameSetupValue(left: unknown, right: unknown) {
     return String(left ?? '').replace(/\s+/g, ' ').trim() === String(right ?? '').replace(/\s+/g, ' ').trim()
   }
   if (left === null || left === undefined || right === null || right === undefined) return left === right
-  return Math.round(Number(left) * 100) === Math.round(Number(right) * 100)
+  // Sub-cent differences (a typed 0.001 against a $0 baseline) are real edits:
+  // keep them so the money check can report them instead of silently dropping them.
+  return Math.abs(Number(left) - Number(right)) < 1e-6
 }
 
 /**

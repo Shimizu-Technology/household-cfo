@@ -2450,6 +2450,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           const refreshed = fresh
           setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: refreshed } : current } : { type: 'financial_mutation', update: (current) => current ? { ...current, budget: refreshed } : current })
           refreshSpendingReportForBudget(refreshed)
+          if (changes.categories.length > 0) await refreshCurrentHomeAfterSharedChange(refreshed)
           setBudgetError(message)
           throw new BudgetEditPartialSaveError(message, refreshed, { cause: caught })
         }

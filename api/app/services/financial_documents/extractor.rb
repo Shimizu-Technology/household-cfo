@@ -565,6 +565,10 @@ module FinancialDocuments
       target_type = item["target_type"].to_s
       return nil unless target_type.in?(FinancialDocumentImportItem::TARGET_TYPES)
 
+      # An over-limit amount is not "no amount": drop the whole row (the
+      # warning says so) rather than keeping it with that field missing.
+      return nil if %w[amount balance payment].any? { |key| HouseholdFinance::Money.document_amount_over_limit?(item[key]) }
+
       account_type = normalized_value(item["account_type"], Account::ACCOUNT_TYPES, fallback: "other")
 
       normalized = {

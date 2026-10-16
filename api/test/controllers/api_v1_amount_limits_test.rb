@@ -70,6 +70,17 @@ class ApiV1AmountLimitsTest < ActionDispatch::IntegrationTest
     assert_includes result.fetch(:warnings).join, "above $9,999,999.99"
   end
 
+  test "a debt row with an over-limit balance is dropped even when its payment is valid" do
+    data = { "items" => [
+      { "target_type" => "debt", "label" => "Huge card", "balance" => "25,000,000.00", "payment" => "200.00" },
+      { "target_type" => "debt", "label" => "Visa", "balance" => "3400.00", "payment" => "175.00" }
+    ] }
+    result = FinancialDocuments::Extractor.new.send(:normalize_extraction, data, FinancialDocumentImport.new(document_kind: "other"))
+
+    assert_equal [ "Visa" ], result.fetch(:items).map { |item| item.fetch(:label) }
+    assert_includes result.fetch(:warnings).join, "above $9,999,999.99"
+  end
+
   test "document import items cannot store out-of-range cents" do
     item = FinancialDocumentImportItem.new(target_type: "expense_item", label: "Huge", amount_cents: 2_500_000_000)
     assert_not item.valid?

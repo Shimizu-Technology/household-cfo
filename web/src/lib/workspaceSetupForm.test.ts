@@ -15,6 +15,12 @@ describe('changedWorkspaceSetupValues', () => {
     expect(changedWorkspaceSetupValues({ ...baseline, flexible_spend: 1020.0, household_name: ' Cruz  Household ' }, baseline)).toEqual({})
   })
 
+  it('keeps a sub-cent entry against a zero baseline so it can be validated, not dropped', () => {
+    const changed = changedWorkspaceSetupValues({ ...baseline, expected_sinking_fund: 0.001 }, baseline)
+    expect(changed).toEqual({ expected_sinking_fund: 0.001 })
+    expect(moneyInputProblem('Expected sinking fund', '0.001')).toBe('Expected sinking fund: use no more than two decimal places (cents), like 1250.50.')
+  })
+
   it('keeps a cleared optional balance and a changed amount', () => {
     expect(changedWorkspaceSetupValues({ ...baseline, other_assets: null, fixed_expenses: 2_450.5 }, baseline)).toEqual({ other_assets: null, fixed_expenses: 2_450.5 })
   })
