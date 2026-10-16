@@ -517,6 +517,9 @@ module FinancialDocuments
       payload = data.is_a?(Hash) ? data : {}
       warnings = Array(payload["warnings"]).filter_map { |warning| sanitized_text(warning, max_length: 240).presence }.first(MAX_WARNINGS)
       normalized_items = Array(payload["items"]).filter_map { |item| normalize_item(item) }
+      over_limit_count = Array(payload["items"]).count { |item| item.is_a?(Hash) && %w[amount balance payment].any? { |key| HouseholdFinance::Money.document_amount_over_limit?(item[key]) } } +
+        Array(payload["transaction_drafts"]).count { |draft| draft.is_a?(Hash) && HouseholdFinance::Money.document_amount_over_limit?(draft["total_amount"] || draft["amount"]) }
+      warnings.unshift("Left out #{over_limit_count} #{over_limit_count == 1 ? 'row' : 'rows'} with an amount above #{HouseholdFinance::Money::MAX_AMOUNT_TEXT}. Check the file, or add those amounts by hand.") if over_limit_count.positive?
       normalized_transaction_drafts = Array(payload["transaction_drafts"]).filter_map { |draft| normalize_transaction_draft(draft, document_import) }
 
       typed_source = payload["source_accounting"].is_a?(Hash) && (document_import.document_kind.in?(%w[statement spreadsheet]) || Array(payload.dig("source_accounting", "events")).any?)

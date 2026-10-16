@@ -58,6 +58,24 @@ class ApiV1AmountLimitsTest < ActionDispatch::IntegrationTest
     refute_includes response.parsed_body.fetch("errors").join, "decimal places"
   end
 
+  test "document rows above the household limit are left out with a plain warning" do
+    data = { "items" => [
+      { "target_type" => "expense_item", "label" => "Huge", "amount" => "25,000,000.00" },
+      { "target_type" => "expense_item", "label" => "Rent", "amount" => "1500.00" }
+    ] }
+    import = FinancialDocumentImport.new(document_kind: "other")
+    result = FinancialDocuments::Extractor.new.send(:normalize_extraction, data, import)
+
+    assert_equal [ "Rent" ], result.fetch(:items).map { |item| item.fetch(:label) }
+    assert_includes result.fetch(:warnings).join, "above $9,999,999.99"
+  end
+
+  test "document import items cannot store out-of-range cents" do
+    item = FinancialDocumentImportItem.new(target_type: "expense_item", label: "Huge", amount_cents: 2_500_000_000)
+    assert_not item.valid?
+    assert_includes item.errors.full_messages.join, LIMIT_COPY
+  end
+
   test "an out-of-range cents value that bypasses parsing is still a 422, never a 500" do
     post "/api/v1/budget_categories", params: { category: { name: "Dining out", stack_key: "discretionary", monthly_amount: 250 } }, headers: headers, as: :json
     allocation = @household.budget_categories.find_by!(name: "Dining out").budget_allocations.first

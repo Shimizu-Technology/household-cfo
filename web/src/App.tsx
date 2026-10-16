@@ -62,6 +62,7 @@ import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/f
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import { guamTodayIso } from './lib/householdDate'
+import { changedElsewhereMessage, latestAllocation, latestCategory } from './lib/budgetConflict'
 import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceSetupForm'
 import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
 import { documentNeedsReview, latestAppliedImport, transactionReviewCoverage } from './lib/documentReview'
@@ -88,6 +89,7 @@ import {
   deleteIncomeScheduleEntry,
   fetchAppData,
   fetchBudget,
+  ApiRequestError,
   fetchDocumentImport,
   fetchDocumentImportSourcePreview,
   fetchDocumentImportSourceUrl,
@@ -2390,8 +2392,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     setBudgetError(null)
     let latestBudget = data.budget
     let appliedChanges = 0
+    let attempted: { kind: 'category'; change: BudgetCategoryChange } | { kind: 'allocation'; change: BudgetAllocationChange } | null = null
     try {
       for (const change of changes.categories) {
+        attempted = { kind: 'category', change }
         const input = { name: change.name, stack_key: change.stack_key, expected_name: change.expected_name, expected_stack_key: change.expected_stack_key }
         const signature = `update-category:${selectedBudgetYear}:${change.id}:${JSON.stringify(input)}`
         latestBudget = await updateBudgetCategory(change.id, input, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
@@ -2399,6 +2403,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         appliedChanges += 1
       }
       for (const change of changes.allocations) {
+        attempted = { kind: 'allocation', change }
         const amount = change.planned_amount || 0
         const signature = budgetAllocationOperationSignature(selectedBudgetYear, change.allocation_id, amount, change.expected_planned_amount)
         latestBudget = await updateBudgetAllocation(change.allocation_id, amount, budgetOperationKeysRef.current.keyFor(signature), change.expected_planned_amount)
@@ -2417,6 +2422,40 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         ]).size,
       })
     } catch (caught) {
+      if (caught instanceof ApiRequestError && caught.code === 'changed_elsewhere' && attempted) {
+        // Stop at the first conflict, pull the latest numbers so the editor's
+        // baseline matches, and keep everything the person typed.
+        let fresh: BudgetData | null = null
+        try { fresh = await fetchBudget(selectedBudgetYear) } catch { fresh = null }
+        const message = attempted.kind === 'allocation'
+          ? (() => {
+              const latest = latestAllocation(fresh?.annual_plan, attempted.change.allocation_id)
+              return changedElsewhereMessage({
+                rowName: latest?.rowName ?? 'This row',
+                latest: latest ? currency.format(latest.planned) : 'different now',
+                mine: currency.format(Number(attempted.change.planned_amount || 0)),
+                savedCount: appliedChanges,
+              })
+            })()
+          : (() => {
+              const latest = latestCategory(fresh?.annual_plan, attempted.change.id)
+              return changedElsewhereMessage({
+                rowName: latest?.name ?? attempted.change.expected_name,
+                latest: latest ? `${latest.name} in ${latest.stack_key.replace(/_/g, ' ')}` : 'different now',
+                mine: `${attempted.change.name} in ${attempted.change.stack_key.replace(/_/g, ' ')}`,
+                savedCount: appliedChanges,
+              })
+            })()
+        if (fresh?.annual_plan) {
+          const refreshed = fresh
+          setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: refreshed } : current } : { type: 'financial_mutation', update: (current) => current ? { ...current, budget: refreshed } : current })
+          refreshSpendingReportForBudget(refreshed)
+          setBudgetError(message)
+          throw new BudgetEditPartialSaveError(message, refreshed, { cause: caught })
+        }
+        setBudgetError(`${message} Refresh the page to see the latest numbers.`)
+        throw caught
+      }
       const message = participantErrorMessage(caught, 'Budget edits could not be saved.')
       if (appliedChanges > 0) {
         setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current } : { type: 'financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current })

@@ -541,6 +541,10 @@ module FinancialDocuments
     end
 
     def money_cents(value, negative_as_magnitude: false, allow_negative: false)
+      if HouseholdFinance::Money.document_amount_over_limit?(value)
+        over_limit_warning = "Left out a row with an amount above #{HouseholdFinance::Money::MAX_AMOUNT_TEXT}. Check the file, or add that amount by hand."
+        warnings << over_limit_warning unless warnings.include?(over_limit_warning)
+      end
       HouseholdFinance::Money.document_cents(value, negative_as_magnitude: negative_as_magnitude, allow_negative: allow_negative)
     end
 

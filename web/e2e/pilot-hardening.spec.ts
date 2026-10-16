@@ -4656,14 +4656,21 @@ test('first-run setup saves blank money as $0, accepts cents, and explains probl
   })
 })
 
-test('a budget edit from a stale tab explains the conflict instead of silently overwriting', async ({ page }) => {
-  let allocationBody: { allocation?: { planned_amount?: unknown; expected_planned_amount?: unknown } } = {}
+test('a budget edit from a stale tab refreshes the baseline, keeps typing, and the next save applies', async ({ page }) => {
+  const bodies: Array<{ planned_amount?: unknown; expected_planned_amount?: unknown }> = []
+  let latest: ReturnType<typeof realWorkspaceData>['budget'] | null = null
+  await page.route('http://api.test/api/v1/budget?**', (route) => route.fulfill({ json: latest }))
   await page.route('http://api.test/api/v1/budget_allocations/*', (route) => {
-    allocationBody = route.request().postDataJSON()
-    return route.fulfill({
-      status: 409,
-      json: { errors: ['This budget changed in another tab or on another device. Refresh to see the latest numbers, then make your change again. Nothing changed.'], code: 'changed_elsewhere' },
-    })
+    bodies.push(route.request().postDataJSON().allocation)
+    if (bodies.length === 1) {
+      latest = structuredClone(realWorkspaceData(true).budget)
+      latest.annual_plan.rows.find((row: { name: string }) => row.name === 'Dining out')!.months[0].planned = 700
+      return route.fulfill({
+        status: 409,
+        json: { errors: ['This budget changed in another tab or on another device. Refresh to see the latest numbers, then make your change again. Nothing changed.'], code: 'changed_elsewhere' },
+      })
+    }
+    return route.fulfill({ json: { budget: latest } })
   })
 
   await page.goto('/?pilot_e2e_role=participant')
@@ -4675,9 +4682,13 @@ test('a budget edit from a stale tab explains the conflict instead of silently o
   await page.getByRole('button', { name: 'Save 1 change' }).click()
 
   const manager = page.locator('.budget-manual-manager')
-  await expect(manager.getByRole('alert')).toContainText('This budget changed in another tab or on another device. Refresh to see the latest numbers')
-  expect(allocationBody.allocation).toEqual({ planned_amount: '650', expected_planned_amount: 450 })
+  await expect(manager.getByRole('alert')).toContainText('Dining out changed in another tab — the latest is $700.00; your value $650.00 is kept, save again to apply.')
+  expect(bodies[0]).toEqual({ planned_amount: '650', expected_planned_amount: 450 })
   await expect(page.getByLabel('Dining out planned for Jan')).toHaveValue('650')
+
+  await page.getByRole('button', { name: 'Save 1 change' }).click()
+  await expect.poll(() => bodies.length).toBe(2)
+  expect(bodies[1]).toEqual({ planned_amount: '650', expected_planned_amount: 700 })
 })
 
 test('Mia explains when starting numbers have not been approved yet', async ({ page }) => {

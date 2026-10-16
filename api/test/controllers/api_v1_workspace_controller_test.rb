@@ -269,6 +269,27 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 20_000, october.reload.planned_amount_cents
   end
 
+  test "a full-field submit with an unchanged multi-category total saves only the changed goal text" do
+    user = create_user(email: "profile-full-submit@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 400)
+    dining = manager.create_category!(name: "Dining out", stack_key: "discretionary", monthly_amount: 120)
+    october = dining.budget_allocations.joins(:budget_period)
+      .find_by!(budget_periods: { starts_on: Date.new(Date.current.year, 10, 1) })
+    manager.update_allocation!(october, 200)
+    shown = household.expense_items.where(active: true, stack_key: "discretionary").sum { |item| HouseholdFinance::Money.monthly_cents(item.amount_cents, item.cadence) } / 100.0
+
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { primary_goal: "Pay down the card", flexible_spend: shown } },
+      headers: auth_headers(user).merge("Idempotency-Key" => "profile-full-submit"),
+      as: :json
+
+    assert_response :success
+    assert_equal "Pay down the card", household.reload.primary_goal
+    assert_equal 20_000, october.reload.planned_amount_cents
+  end
+
   test "changing a group total split across categories explains where to edit it" do
     user = create_user(email: "profile-multi-category@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

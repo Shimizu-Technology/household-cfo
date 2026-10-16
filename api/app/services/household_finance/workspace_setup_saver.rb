@@ -164,6 +164,8 @@ module HouseholdFinance
           .transform_values { |rows| rows.sum(&:planned_amount_cents) }
         return if allocation_totals.keys.sort == (1..12).to_a && allocation_totals.values.all? { |total| total == cents } && current_cents == cents
       end
+      # An older client resubmits every field; a total the person did not change must not be re-split across categories.
+      return if categories.many? && current_cents == cents
       if categories.many?
         raise ArgumentError, "#{setup_label(field)} is split across #{categories.length} budget categories, so it can't be changed as one total here. " \
           "Change those categories in Budget > Edit monthly plan so no detailed amounts change silently."

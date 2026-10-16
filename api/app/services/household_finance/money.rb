@@ -92,9 +92,22 @@ module HouseholdFinance
 
       decimal = BigDecimal(normalized.delete("$,"))
       cents = (decimal * 100).to_i
+      return nil if cents > MAX_AMOUNT_CENTS
+
       negative && allow_negative ? -cents : cents
     rescue ArgumentError, FloatDomainError
       nil
+    end
+
+    # True when a document amount is well-formed but above the household limit,
+    # so extractors can say why a row was left out instead of dropping it silently.
+    def document_amount_over_limit?(value)
+      text = value.to_s.unicode_normalize(:nfkc).strip.delete_prefix("-").delete_prefix("(").delete_suffix(")").strip.sub(/\A\$\s+/, "$")
+      return false unless text.match?(DOCUMENT_AMOUNT_PATTERN)
+
+      (BigDecimal(text.delete("$,")) * 100).to_i > MAX_AMOUNT_CENTS
+    rescue ArgumentError, FloatDomainError
+      false
     end
 
     def monthly_cents(amount_cents, cadence)
