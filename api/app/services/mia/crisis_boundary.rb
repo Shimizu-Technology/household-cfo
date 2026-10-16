@@ -8,6 +8,10 @@ module Mia
     SENTENCE_END = "(?=\\s*(?:[.!?…]|\\z|\\b(?:tbh|honestly|fr)\\b))"
     PATTERNS = [
       /\b(?:kill(?:ing)? myself|end(?:ing)? my life|tak(?:e|ing) my own life|end it all|want to die|suicidal|suicide|hurt(?:ing)? myself|harm(?:ing)? myself|self[-\s]?harm)\b/i,
+      # Common texting slang for the same thing.
+      /(?<!the )(?<!my )(?<!of )(?<!\d )(?<!\d)\bkmsl?\b/i,
+      /\b(?:unaliv(?:e|ing) myself|off(?:ing)? myself)\b/i,
+      /(?:\A\s*|\b(?:i|im|i['’]m|i am|ima|i['’]ma)\s+(?:\w+\s+)?)(?:wanna|want ta|gonna|going to|finna)\s+(?:just\s+)?(?:die|end it(?=\s*(?:[.!?,;…]|\z|\b(?:all|tonight|today|now|fr|tbh|lol)\b))|end my life|kill myself)\b/i,
       /\b#{FIRST_PERSON_SELF_HARM_INTENT_SOURCE}\s+(?:shoot(?:ing)?|hang(?:ing)?|drown(?:ing)?|stab(?:bing)?|poison(?:ing)?|suffocat(?:e|ing))\s+myself\b/i,
       /\b#{FIRST_PERSON_SELF_HARM_INTENT_SOURCE}\s+overdos(?:e|ing)\b/i,
       /\bi\s+wish\s+i\s+(?:were|was)\s+(?:dead|not alive)\b|\bi(?:['’]d|\s+would)\s+rather\s+be\s+dead\b/i,
