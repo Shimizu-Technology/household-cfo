@@ -21,9 +21,12 @@ module HouseholdFinance
       return category_status_answer(categories, totals) if category_status_question?
       return budget_status_answer(totals, top_line) if budget_status_question?
 
+      focused = merchant_focus_answer || category_focus_answer(categories)
+      return focused if focused
+
       [
         spending_comparison_line(totals),
-        "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}. Posted bank activity still needing household review totals #{money(totals.fetch(:bank_needs_review, 0))}; bank-pending activity totals #{money(totals.fetch(:bank_pending, 0))} and is excluded from posted spending.",
+        pending_and_bank_line(totals),
         "Top actual categories: #{top_line}.",
         bank_merchant_line(bank),
         recent_transaction_line,
@@ -133,11 +136,103 @@ module HouseholdFinance
     def spending_comparison_line(totals)
       observed = money(totals.fetch(:bank_observed, 0))
       actual = money(totals.fetch(:actual))
+      unless bank_activity_present?(totals)
+        return "For #{report.fetch(:period_label)}, confirmed spending is #{actual} against #{money(totals.fetch(:planned))} planned." if plan_available?
+
+        return "For #{report.fetch(:period_label)}, confirmed spending is #{actual}. No approved historical plan is available for this period, so no planned comparison is shown."
+      end
       if plan_available?
         return "For #{report.fetch(:period_label)}, synced bank activity shows #{observed} in posted outflows; based on confirmed transactions, confirmed spending is #{actual} against #{money(totals.fetch(:planned))} planned."
       end
 
       "For #{report.fetch(:period_label)}, synced bank activity shows #{observed} in posted outflows and confirmed spending is #{actual}. No approved historical plan is available for this period, so no planned comparison is shown."
+    end
+
+    def pending_and_bank_line(totals)
+      pending = "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}."
+      return pending unless bank_activity_present?(totals)
+
+      "#{pending} Posted bank activity still needing household review totals #{money(totals.fetch(:bank_needs_review, 0))}; bank-pending activity totals #{money(totals.fetch(:bank_pending, 0))} and is excluded from posted spending."
+    end
+
+    # A household with no synced bank activity in the period should not read
+    # about "synced bank activity" at all.
+    def bank_activity_present?(totals)
+      bank = report[:bank_activity] || {}
+      [ totals.fetch(:bank_observed, 0), totals.fetch(:bank_needs_review, 0), totals.fetch(:bank_pending, 0), bank[:inflow].to_f ].any? { |value| value.to_f.positive? } ||
+        bank[:posted_outflow_count].to_i.positive? || bank[:pending_count].to_i.positive? || bank[:inflow_count].to_i.positive?
+    end
+
+    # "And dining out?" asks about one category, not the whole month.
+    def category_focus_answer(categories)
+      named = categories.select { |category| category.fetch(:id).to_i.positive? && mentions?(category.fetch(:name)) }
+      named = named.reject { |category| named.any? { |other| other != category && normalized(other.fetch(:name)).include?(normalized(category.fetch(:name))) } }
+      return if named.empty?
+
+      lines = named.first(3).map do |category|
+        actual = category.fetch(:actual).to_f
+        planned = category.fetch(:planned).to_f
+        comparison = if !plan_available?
+          ""
+        elsif actual > planned
+          " against #{money(planned)} planned, #{money(actual - planned)} over plan"
+        else
+          " against #{money(planned)} planned, #{money(planned - actual)} under plan"
+        end
+        pending = category.fetch(:pending).to_f.positive? ? " Pending drafts there total #{money(category.fetch(:pending))} and are not counted until you confirm them." : ""
+        "#{category.fetch(:name)} has #{money(actual)} in confirmed spending#{comparison}.#{pending}"
+      end
+      largest = category_transactions(named.first).max_by { |transaction| transaction[:amount].to_f }
+      largest_line = largest ? " The largest confirmed charge there was #{transaction_label(largest)}." : ""
+      "For #{report.fetch(:period_label)}: #{lines.join(' ')}#{largest_line}"
+    end
+
+    # "How much of that was Jollibee?" asks about one merchant.
+    def merchant_focus_answer
+      transactions = Array(report[:transactions])
+      drafts = Array(report[:pending_drafts])
+      merchant = (transactions + drafts).map { |row| row[:merchant].to_s }.compact_blank.uniq
+        .select { |name| normalized(name).length >= 3 && mentions?(name) }
+        .max_by(&:length)
+      return unless merchant
+
+      matches = transactions.select { |transaction| normalized(transaction[:merchant]) == normalized(merchant) }
+      pending = drafts.select { |draft| normalized(draft[:merchant]) == normalized(merchant) }
+      total = matches.sum { |transaction| transaction[:amount].to_f }
+      count = matches.length
+      dates = matches.first(3).map { |transaction| transaction_label(transaction) }.to_sentence
+      lead = if count.positive?
+        "For #{report.fetch(:period_label)}, confirmed spending at #{merchant} is #{money(total)} across #{count} #{'transaction'.pluralize(count)}: #{dates}."
+      else
+        "For #{report.fetch(:period_label)}, there is no confirmed spending at #{merchant}."
+      end
+      pending_line = pending.any? ? " Pending drafts at #{merchant} total #{money(pending.sum { |draft| draft[:amount].to_f })} and are not counted until you confirm them." : ""
+      share = totals_actual.positive? && count.positive? ? " That is #{(total / totals_actual * 100).round}% of the #{money(totals_actual)} confirmed for the period." : ""
+      "#{lead}#{share}#{pending_line}"
+    end
+
+    def category_transactions(category)
+      Array(report[:transactions]).select { |transaction| Array(transaction[:categories]).include?(category.fetch(:name)) }
+    end
+
+    def transaction_label(transaction)
+      date = Date.iso8601(transaction[:occurred_on].to_s).strftime("%b %-d") if transaction[:occurred_on].present?
+      [ transaction[:merchant].presence || "Transaction", money(transaction[:amount]), date ].compact.join(" ")
+    rescue ArgumentError
+      [ transaction[:merchant].presence || "Transaction", money(transaction[:amount]) ].join(" ")
+    end
+
+    def totals_actual
+      report.fetch(:totals).fetch(:actual).to_f
+    end
+
+    def mentions?(name)
+      phrase = normalized(name)
+      phrase.present? && normalized(prompt).match?(/(?<![a-z0-9])#{Regexp.escape(phrase)}(?![a-z0-9])/)
+    end
+
+    def normalized(value)
+      value.to_s.downcase.delete("'’").gsub(/[^a-z0-9]+/, " ").squish
     end
 
     def plan_available?

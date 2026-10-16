@@ -1,6 +1,11 @@
 module Api
   module V1
     class MiaMessagesController < BaseController
+      # "also remember…" and "ok mia, remember…" are the same request as "remember…".
+      MIA_MEMORY_COMMAND_PATTERN = /\A(?:(?:also|and|and\s+also|plus|oh|ok(?:ay)?|so|btw|hey(?:\s+mia)?|mia)[,!:\s]+)*(?:please[,\s]+|pls[,\s]+)?(?:also\s+)?remember(?: that| this)?[,:]?\s+(.+)\z/i.freeze
+      # Health details, including named conditions and medicines, always wait for
+      # explicit confirmation as sensitive memory.
+      MIA_SENSITIVE_MEMORY_PATTERN = /\b(?:health|medical|medic(?:ine|ines|ation|ations)|meds|prescriptions?|pharmacy|insulin|diabet(?:es|ic)|cancer|chemo(?:therapy)?|dialysis|kidneys?|heart\s+(?:attack|disease|condition|failure|problems?)|strokes?|blood\s+pressure|hypertension|asthma|copd|dementia|alzheimer['’]?s?|parkinson['’]?s?|hiv|hepatitis|seizures?|epilep(?:sy|tic)|surgery|surgeries|hospital(?:ized|ised|ization|isation|s)?|doctors?|clinic|therap(?:y|ies|ist|ists)|counsel(?:ing|ling|or|ors)|psychiatr\w*|mental\s+health|depress(?:ed|ion)|anxiety|bipolar|schizophreni\w*|ptsd|adhd|autism|autistic|illness(?:es)?|chronic(?:ally)?|diagnos(?:e|ed|es|ing|is|ises|tic|tics)?|disabil(?:ity|ities|ed)|pregnan(?:t|cy|cies)|fertil(?:e|ity|ization|isation|ized|ised)?|religions?|politics?|political|sexual|gender|pronouns?|race|ethnic|ethnicity|trauma|abuse|addiction|rehab|sobriety|alcoholi(?:c|sm))\b/.freeze
       ATTACHMENT_ACTION_VERB_SOURCE = "set|change|update|increase|decrease|lower|raise|move|create|add(?!\\s+up\\b)|rename|archive|restore|schedule|end|stop|link|unlink|reconcile".freeze
       ATTACHMENT_ACTION_NOUN_SOURCE = "budget|category|allocation|income|goal|household|runway|expense|spending|debt|asset|account|bank".freeze
       ATTACHMENT_ACTION_VERB_PATTERN = /\b(?:#{ATTACHMENT_ACTION_VERB_SOURCE})\b/i.freeze
@@ -563,7 +568,7 @@ module Api
         normalized = content.to_s.squish
         return { type: :list } if normalized.match?(/\A(?:what|which) (?:things? )?(?:does mia|do you) remember(?: about me| about us)?\??\z/i)
 
-        match = normalized.match(/\A(?:please )?remember(?: that| this)?[,:]?\s+(.+)\z/i)
+        match = normalized.match(MIA_MEMORY_COMMAND_PATTERN)
         return unless match
 
         value = match[1].to_s.squish
@@ -671,9 +676,7 @@ module Api
       end
 
       def mia_memory_sensitive?(value)
-        value.downcase.match?(
-          /\b(?:health|medical|diagnos(?:e|ed|es|ing|is|ises|tic|tics)?|disabil(?:ity|ities|ed)|pregnan(?:t|cy|cies)|fertil(?:e|ity|ization|isation|ized|ised)?|religions?|politics?|political|sexual|gender|pronouns?|race|ethnic|ethnicity|trauma|abuse|addiction)\b/
-        )
+        value.downcase.match?(MIA_SENSITIVE_MEMORY_PATTERN)
       end
 
       def setup_guide_intent_result(content)
@@ -899,6 +902,8 @@ module Api
       def supported_attached_action_intent?(intent_result)
         return false unless intent_result
         return false unless intent_result.intent.in?(%w[action_plan budget_action household_action income_action debt_action asset_action goal_action])
+        # Uploads draft their own expense reviews; chat-reported expenses do not ride along.
+        return false if intent_result.transaction_report_plan?
 
         intent_result.action_plan? || intent_result.action.to_h[:type].to_s != "none"
       end
@@ -1600,7 +1605,10 @@ module Api
 
           case (transaction_lookup_answer || coach_answer) ? nil : intent_result.intent
           when "action_plan"
-            if intent_result.actionable?
+            if intent_result.actionable? && intent_result.transaction_report_plan?
+              transaction_draft, direct_answer = create_reported_transaction_drafts(intent_result, content)
+              annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
+            elsif intent_result.actionable?
               action_result = HouseholdFinance::MiaActionDraftBuilder.new(
                 current_household,
                 user: current_user,
@@ -1731,6 +1739,45 @@ module Api
           transaction_draft: transaction_draft,
           transaction_draft_answer: transaction_draft_answer
         }
+      end
+
+      # Several expenses in one message become one pending review each. Reviews
+      # never touch actuals; the participant still confirms each one.
+      def create_reported_transaction_drafts(intent_result, content)
+        drafted = []
+        failed = []
+        Array(intent_result.write_plan.to_h[:actions]).each_with_index do |entry, index|
+          command = entry.to_h.deep_symbolize_keys.fetch(:action)
+          creation = HouseholdFinance::MiaTransactionDraftCreator.new(
+            current_household,
+            command: command,
+            raw_input: entry.to_h.deep_symbolize_keys.fetch(:source_text),
+            user: current_user,
+            idempotency_key: mia_transaction_idempotency_key("create-#{index + 1}")
+          ).call
+          if creation.success?
+            drafted << creation.draft
+          else
+            failed << [ command[:merchant].presence || "one expense", "$#{command[:amount]}" ].join(" ")
+          end
+        end
+        [ drafted.first, reported_transaction_drafts_answer(drafted, failed) ]
+      end
+
+      def reported_transaction_drafts_answer(drafted, failed)
+        labels = drafted.map do |draft|
+          category = draft.budget_category&.name || draft.transaction_draft_splits.first&.budget_category&.name
+          [ "#{draft.merchant} #{money(draft.total_amount_cents)} on #{draft.occurred_on.strftime('%b %-d')}", category && "in #{category}" ].compact.join(" ")
+        end
+        parts = []
+        if drafted.any?
+          parts << "I drafted #{drafted.length} expense #{'review'.pluralize(drafted.length)}: #{labels.to_sentence}."
+          parts << "#{drafted.many? ? 'Each one is' : 'It is'} pending your review, and month-to-date actuals have not changed."
+        end
+        parts << "I could not draft #{failed.to_sentence}, so send #{failed.many? ? 'those' : 'that one'} again with the merchant, amount, and date." if failed.any?
+        parts << "Your next move is to check each merchant, amount, and category, then confirm the ones that are right." if drafted.any?
+        parts << "Nothing changed." if drafted.empty?
+        parts.join(" ")
       end
 
       def read_only_answer_plan(intent_result, content)
