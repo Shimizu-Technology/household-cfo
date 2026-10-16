@@ -4,6 +4,8 @@ module Mia
     # The phrase must end its clause, so "done with life insurance" or "point of
     # living paycheck to paycheck" stays money talk.
     PHRASE_END = "(?=\\s*(?:[.!?,;…]|\\z|\\b(?:anyway|tbh|lol|honestly|fr|man)\\b))"
+    # Stricter end: the sentence itself ends ("…wake up." not "…wake up, it's Monday").
+    SENTENCE_END = "(?=\\s*(?:[.!?…]|\\z|\\b(?:tbh|honestly|fr)\\b))"
     PATTERNS = [
       /\b(?:kill(?:ing)? myself|end(?:ing)? my life|tak(?:e|ing) my own life|end it all|want to die|suicidal|suicide|hurt(?:ing)? myself|harm(?:ing)? myself|self[-\s]?harm)\b/i,
       /\b#{FIRST_PERSON_SELF_HARM_INTENT_SOURCE}\s+(?:shoot(?:ing)?|hang(?:ing)?|drown(?:ing)?|stab(?:bing)?|poison(?:ing)?|suffocat(?:e|ing))\s+myself\b/i,
@@ -19,8 +21,12 @@ module Mia
       /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+be (?:here|alive) any\s?more(?=\s*(?:[.!?…]|\z|\b(?:tbh|lol|honestly|fr)\b))/i,
       /\b(?:i['’]m|im|i am)\s+(?:so\s+)?done (?:with (?:life|living)|living)#{PHRASE_END}/i,
       /\b(?:what['’]?s|whats|what is) (?:even )?the point (?:of|in) (?:living|being alive|life)#{PHRASE_END}/i,
-      /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+wake up(?:\s+(?:tomorrow|again|anymore))?#{PHRASE_END}/i,
-      /\bi\s+wish\s+i\s+(?:wasn['’]?t|weren['’]?t|was not|were not)\s+(?:here|alive|born)#{PHRASE_END}/i,
+      /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+wake up(?:\s+(?:tomorrow|again|anymore))?#{SENTENCE_END}/i,
+      /\bi\s+wish\s+i\s+(?:wasn['’]?t|wasnt|weren['’]?t|was not|were not)\s+(?:here|alive|born)#{SENTENCE_END}/i,
+      /\b(?:no|see no|don['’]?t see (?:the|any)|dont see (?:the|any)) point in (?:living|being alive|life)#{PHRASE_END}/i,
+      /\b(?:it['’]?s|its|life|life is|life['’]s)\s+(?:not|isn['’]?t|isnt|aint)\s+worth (?:living|it)#{SENTENCE_END}/i,
+      /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+exist(?:\s+any\s?more)?#{PHRASE_END}/i,
+      /\b(?:can['’]?t|cant|cannot|can not)\s+do life(?:\s+any\s?more)?#{PHRASE_END}/i,
       /\b(?:nobody|no one|noone)\s+would\s+(?:even\s+)?(?:miss|notice|care if)\s+(?:me|i (?:was|were) gone)\b/i,
       /\b(?:want|wanna|wish i could)\s+(?:to\s+)?(?:go to\s+)?sleep and (?:never|not) wake up\b/i
     ].freeze
@@ -34,6 +40,10 @@ module Mia
     POINT_END = "(?=\\s*(?:[.!?,;…:]|\\z|\\b(?:lol|tbh|honestly)\\b|any\\s?more\\s*(?:[.!?,…]|\\z)))"
     HOPELESS_PATTERNS = [
       /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+be (?:here|alive) any\s?more\s*,/i,
+      /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+wake up(?:\s+(?:tomorrow|again|anymore))?\s*,/i,
+      /\bi\s+wish\s+i\s+(?:wasn['’]?t|wasnt|weren['’]?t|was not|were not)\s+(?:here|alive|born)\s*,/i,
+      /\bwant (?:it|this|everything) to (?:be over|end)#{CLAUSE_END}/i,
+      /\b(?:don['’]?t|dont|do not) see (?:the|any) point(?:\s+any\s?more)?#{CLAUSE_END}/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle|deal with)\s+(?:this|it|any of this)\s+(?:any\s?more|no more|any longer|much longer)\b/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle)\s+this#{CLAUSE_END}/i,
       /\bi(?:['’]m|m|\s+am)?\s+(?:just\s+|so\s+|really\s+)?(?:giving up|give up|gave up|want to give up|ready to give up)(?:\s+on\s+(?:everything|life|myself))?#{CLAUSE_END}/i,

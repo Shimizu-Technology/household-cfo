@@ -24,7 +24,11 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       "I'm tired of everything",
       "I just wanna disappear",
       "I feel like a burden to my family",
-      "I don't want to be here anymore, this apartment is too expensive"
+      "I don't want to be here anymore, this apartment is too expensive",
+      "I want it to be over",
+      "i dont see the point anymore",
+      "I don't want to wake up, it's Monday lol",
+      "i wish i wasnt here, prices in guam are crazy"
     ].each do |message|
       assert Mia::CrisisBoundary.hopeless?(message), message
       assert_not Mia::CrisisBoundary.matches?(message), "#{message} should keep money help, not the crisis response"
@@ -80,7 +84,13 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       "I want to go to sleep and not wake up",
       "Im done living",
       "I don't want to wake up tomorrow",
-      "I wish I wasn't here"
+      "I wish I wasn't here",
+      "no point in living",
+      "i see no point in living",
+      "its not worth living",
+      "life isnt worth it",
+      "I don't want to exist anymore",
+      "i cant do life anymore"
     ].each do |message|
       assert Mia::CrisisBoundary.matches?(message), message
     end
