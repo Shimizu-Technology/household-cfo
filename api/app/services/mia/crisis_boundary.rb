@@ -10,18 +10,29 @@ module Mia
       /\b(?:don['’]?t|do not) think I can (?:keep living|go on)\b/i,
       /\b(?:can['’]?t|cannot) go on(?:[.!?,;:]|\z|\s+(?:anymore|living|like this|with (?:my )?life|with this anymore)\b)/i,
       /\b(?:can['’]?t|cannot) go on\s+with\s+(?:this|the|my)?\s*(?:debt|bills?|money stress)\b.*\banymore\b/i,
-      /\b(?:everyone|everybody|they|my (?:family|kids|wife|husband|partner))(?:\s+would|['’]d)?\s+(?:be\s+)?better off without me\b/i
+      /\b(?:everyone|everybody|they|my (?:family|kids|children|wife|husband|partner))(?:['’]s|['’]d|['’]re|\s+would|\s+will|\s+is|\s+are)?\s+(?:be\s+)?better off without me(?=\s*(?:[.!?,;…]|\z|anyway|if i (?:was|were) gone))/i,
+      /\b(?:nobody|no one|noone)\s+would\s+(?:even\s+)?(?:miss|notice|care if)\s+(?:me|i (?:was|were) gone)\b/i,
+      /\b(?:want|wanna|wish i could)\s+(?:to\s+)?(?:go to\s+)?sleep and (?:never|not) wake up\b/i
     ].freeze
     # Hopeless language that is not a stated plan to self-harm. Mia keeps helping
-    # with the money question but always adds a gentle safety check.
+    # with the money question but always adds a gentle safety check. Each phrase
+    # must end its clause ("I give up." / "whats the point"), so money objects
+    # ("give up dining out", "hopeless with money", "point of a sinking fund") do
+    # not match.
+    CLAUSE_END = "(?=\\s*(?:[.!?,;…:]|\\z|\\b(?:lol|tbh|honestly|man|bro|already|anymore|any more|no more|any longer)\\b))"
     HOPELESS_PATTERNS = [
-      /\b(?:can['’]?t|cannot) (?:do|take|handle) (?:this|it)(?:\s+any\s?more|\s+much longer|\s*(?:[.!?,;]|\z))/i,
-      /\bi(?:['’]m|\s+am)?\s+(?:just\s+)?(?:giving up|give up|want to give up|ready to give up)(?:\s+on\s+(?:everything|life|myself))?(?:\s*[.!?,;]|\s*\z)/i,
-      /\b(?:i(?:['’]m|\s+am)?\s+(?:so\s+|just\s+)?(?:feel(?:ing)?\s+)?hopeless|feel(?:ing)?\s+(?:so\s+)?hopeless)\b/i,
-      /\btired of (?:everything|living|it all|life|trying)\b/i,
-      /\b(?:want to|wanna) disappear\b/i,
-      /\b(?:what['’]?s the|what is the|there['’]?s no|is there any) point (?:anymore|in anything|in trying|in any of this|in living)\b/i
+      /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle|deal with)\s+(?:this|it|any of this)\s+(?:any\s?more|no more|any longer|much longer)\b/i,
+      /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle)\s+this#{CLAUSE_END}/i,
+      /\bi(?:['’]m|m|\s+am)?\s+(?:just\s+|so\s+|really\s+)?(?:giving up|give up|gave up|want to give up|ready to give up)(?:\s+on\s+(?:everything|life|myself))?#{CLAUSE_END}/i,
+      /\bi(?:['’]m|m|\s+am)\s+(?:just\s+|so\s+)?done#{CLAUSE_END}/i,
+      /\b(?:i(?:['’]m|m|\s+am)?\s+(?:so\s+|just\s+)?(?:feel(?:ing)?\s+)?|feel(?:ing)?\s+(?:so\s+)?)hopeless(?!\s+(?:with|at)\b)/i,
+      /\btired of (?:everything|living|it all|life|trying)#{CLAUSE_END}/i,
+      /\b(?:want to|wanna)\s+disappear#{CLAUSE_END}/i,
+      /\b(?:what['’]?s the|whats the|what is the|there['’]?s no|theres no|is there any)\s+point(?:\s+(?:in anything|in trying|in any of this|in living|of anything|of any of this))?#{CLAUSE_END}/i,
+      /\b(?:i\s+)?(?:feel|am|i['’]m|im)\s+(?:like\s+)?(?:such\s+)?a burden\b/i
     ].freeze
+    # "Should I give up?" asks for advice, not help.
+    ADVICE_QUESTION_PATTERN = /\A\s*(?:should|can|could|would|do|does|is it|when do)\b[^.!?]*\?\s*\z/i
     WELLBEING_CHECK = "If you ever feel like you might hurt yourself, please call or text 988 right now, or 911 in an emergency. You deserve support, and the money plan can wait until you have it."
     WELLBEING_OPENING = "I’m really glad you told me, and feeling this way does not make you a failure."
 
@@ -32,16 +43,21 @@ module Mia
 
     def self.hopeless?(message)
       normalized = message.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").squish
-      !matches?(normalized) && HOPELESS_PATTERNS.any? { |pattern| normalized.match?(pattern) }
+      return false if matches?(normalized)
+
+      sentences = normalized.split(/(?<=[.!?])\s+/)
+      sentences.any? do |sentence|
+        !sentence.match?(ADVICE_QUESTION_PATTERN) && HOPELESS_PATTERNS.any? { |pattern| sentence.match?(pattern) }
+      end
     end
 
     # Adds an acknowledgement (when the reply has none) and the safety check to
     # any reply, model-written or scripted.
     def self.with_wellbeing_check(reply)
       text = reply.to_s
-      return text if text.include?("988")
+      return text if text.match?(/(?<![\d$,.])988(?![\d,.])/)
 
-      acknowledged = text.match?(/\b(?:not (?:a|mean you are a) failure|glad you (?:told|said)|(?:so |really )?(?:heavy|hard)\b|sounds (?:exhausting|overwhelming))/i)
+      acknowledged = text.match?(/\b(?:not (?:a|mean you are a) failure|glad you (?:told|said)|(?:that|this) (?:sounds|feels|is) (?:so |really )?(?:heavy|hard|exhausting|overwhelming))\b/i)
       [ (acknowledged ? nil : WELLBEING_OPENING), text, WELLBEING_CHECK ].compact_blank.join(" ")
     end
 

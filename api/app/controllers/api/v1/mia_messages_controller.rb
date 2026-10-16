@@ -289,10 +289,10 @@ module Api
         mia_action_draft = action_result&.existing_draft || persist_mia_action_draft(action_result, user_message, assistant_message)
         if mia_action_draft && !::Mia::ActionDraftScope.visible?(mia_action_draft, user: current_user, membership: current_cohort_membership)
           mia_action_draft = nil
-          assistant_message.update!(content: "Open the program where Mia prepared that review card. Nothing changed.")
+          assistant_message.update!(content: with_wellbeing_check(content, "Open the program where Mia prepared that review card. Nothing changed."))
         end
         if action_result&.proposal && mia_action_draft.nil?
-          assistant_message.update!(content: action_draft_persistence_failure_message)
+          assistant_message.update!(content: with_wellbeing_check(content, action_draft_persistence_failure_message))
           assistant_message.coach_content_citations.delete_all
           assistant_message.reload
         end
@@ -767,7 +767,7 @@ module Api
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(user_message_attributes(content, processed_imports)),
-            assistant_message_writer(session).create!(content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"))
+            assistant_message_writer(session).create!(content: with_wellbeing_check(content, assistant_content).to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"))
           ]
         end
         persist_document_evidence_state(
@@ -1237,11 +1237,17 @@ module Api
         document_imports.map(&:reload)
       end
 
+      def with_wellbeing_check(user_content, assistant_content)
+        return assistant_content unless ::Mia::CrisisBoundary.hopeless?(user_content)
+
+        ::Mia::CrisisBoundary.with_wellbeing_check(assistant_content)
+      end
+
       def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})
-        # Every reply path saves here, so hopeless language always gets the safety
-        # check; plain text only, so no structured card can hide it.
+        # Replies to hopeless language always carry the safety check, as plain text
+        # so no structured card can hide it. Other save paths use the same helper.
         if ::Mia::CrisisBoundary.hopeless?(content)
-          assistant_content = ::Mia::CrisisBoundary.with_wellbeing_check(assistant_content)
+          assistant_content = with_wellbeing_check(content, assistant_content)
           assistant_presentation = {}
         end
         ApplicationRecord.transaction do
