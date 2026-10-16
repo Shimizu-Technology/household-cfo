@@ -96,6 +96,26 @@ class ApiV1MiaFallbackRepliesTest < ActionDispatch::IntegrationTest
     assert_includes post_message("forget that our income is actually 9000 a month"), forget_copy
   end
 
+  test "unpunctuated forget messages that ask or report money reach normal routing" do
+    forget_copy = "choose Forget on that item"
+    [
+      "forget that my car broke down and I can't pay rent",
+      "forget that my rent is due friday how much do I have"
+    ].each do |message|
+      content = post_message(message)
+      assert_response :created
+      refute_includes content, forget_copy, message
+    end
+    [
+      "forget that I like short answers",
+      "please forget the memory about my job",
+      "forget that I told you about my divorce"
+    ].each do |message|
+      assert_includes post_message(message), forget_copy, message
+    end
+    assert_equal 0, @household.household_memories.count
+  end
+
   private
 
   def post_message(content)

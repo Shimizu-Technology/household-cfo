@@ -9,11 +9,12 @@ module Api
       ATTACHMENT_INFORMATIONAL_FRAME_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:update\s+me\b|tell\s+me\b|explain\b|increase\s+(?:my|our)\s+understanding\b)/i.freeze
       ATTACHMENT_NAMED_AMOUNT_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:set|change|update|increase|decrease|lower|raise)\s+[^?!.;,\r\n]{1,60}?\s+(?:to|at|by)\s+\$?\d[\d,]*(?:\.\d{1,2})?(?:\s*(?:dollars?|monthly|per\s+month))?\s*[?!.;]*\z/i.freeze
       MIA_PERSONALIZATION_CONTROL_PATTERN = /\A(?:please\s+)?(?:pause|stop|turn off|disable|resume|restart|turn on|unpause)\s+(?:my\s+|the\s+|your\s+)?(?:personali[sz]ation|memor(?:y|ies)|remembering(?:\s+things)?)(?:\s+(?:for now|please|for a while))?[\s.!]*\z/i.freeze
-      # The whole message must be one memory request ("forget that our income is
-      # 9000"): no question, second clause, or reported spending, so "forget that
-      # my rent went up, how much did I spend?" or "delete that I spent $40"
-      # still reach normal routing.
-      MIA_FORGET_MEMORY_PATTERN = /\A(?:please\s+)?forget\s+(?:the\s+memory\s+(?:that|about)|that|what i said about)\s+(?:my|our|we|i|i['’]m|im|the|his|her|their|he|she)\s+(?![^,;:?!…]*\b(?:spent|spend|paid|bought|charged|owe|food|groceries|eat)\b)[^,;:?!…]{1,200}?[.!]?\s*\z/i.freeze
+      # The whole message must be one memory request ("forget that I like short
+      # answers"). Anything that also asks, reports money or hardship, or adds a
+      # second clause ("forget that my rent is due friday how much do I have")
+      # reaches normal routing instead.
+      MIA_FORGET_MEMORY_PATTERN = /\A(?:please\s+)?forget\s+(?:the\s+memory\s+(?:that|about)|that|what i said about)\s+(?:my|our|we|i|i['’]m|im|the|his|her|their|he|she)\s+[^,;:?!…]{1,200}?[.!]?\s*\z/i.freeze
+      MIA_FORGET_MEMORY_EXCLUSION_PATTERN = /\b(?:how|what|when|where|why|which|can|can['’]?t|cant|cannot|could|should|would|do\s+(?:i|we)|does|is\s+it|rent|pay|paid|paying|payment|bills?|owe[sd]?|spent|spend|bought|charged|afford|food|groceries|eat|due|broke|money)\b|\b(?:and|but|because|so|then)\s+(?:i|we|my|our|now|then|the|it|he|she|they)\b/i.freeze
 
       rescue_from SavingsChallenge::AccessPolicy::Unavailable do |error|
         render json: { errors: [ error.message ], code: "savings_challenge_unavailable" }, status: :forbidden
@@ -577,7 +578,7 @@ module Api
         # Pausing and forgetting are panel controls; chat points there instead
         # of guessing.
         return { type: :personalization_help, resume: normalized.match?(/\A(?:please\s+)?(?:resume|restart|turn on|unpause)\b/i) } if normalized.match?(MIA_PERSONALIZATION_CONTROL_PATTERN)
-        return { type: :forget_help } if normalized.match?(MIA_FORGET_MEMORY_PATTERN) && !HouseholdFinance::MoneyMovementText.food_insecurity?(normalized) && !::Mia::CrisisBoundary.hopeless?(normalized)
+        return { type: :forget_help } if normalized.match?(MIA_FORGET_MEMORY_PATTERN) && !normalized.match?(MIA_FORGET_MEMORY_EXCLUSION_PATTERN) && !HouseholdFinance::MoneyMovementText.food_insecurity?(normalized) && !::Mia::CrisisBoundary.hopeless?(normalized)
 
         match = normalized.match(/\A(?:please )?remember(?: that| this)?[,:]?\s+(.+)\z/i)
         return unless match

@@ -35,6 +35,7 @@ module Mia
       income: "If that number is out of date, update it in My Money so I coach from the right picture.",
       savings: "Ask me how to grow your runway, and I’ll work from these numbers."
     }.freeze
+    NO_DEBT_NEXT_MOVE = "If a balance or payment is missing, add it in My Money so I coach from the right picture.".freeze
     READINESS_UNAVAILABLE = {
       "unavailable_until_debt_minimums_confirmed" => "I can’t give a readiness color yet because your monthly debt minimums are not confirmed; add them, or a $0 debt summary if nothing is owed.",
       "unavailable_until_liquid_balances_confirmed" => "I can’t give a readiness color yet because your account balances are not entered.",
@@ -59,7 +60,7 @@ module Mia
       return provider_unavailable_reply if @reason == :provider_unavailable
 
       direct = topic_fact
-      return [ direct, CHECKED_BASIS, NEXT_MOVES.fetch(@topic) ].join(" ") if direct
+      return [ direct, CHECKED_BASIS, next_move ].join(" ") if direct
 
       [ @persona.uncertainty_line, general_fact || NO_FACTS, ASK_INSTEAD ].join(" ")
     end
@@ -76,6 +77,13 @@ module Mia
     def hopeless_reply
       owes = debt_owed?
       [ HOPELESS_OPENING, owes ? debt_fact : general_fact, owes ? HOPELESS_DEBT_STEP : HOPELESS_STEP ].compact.join(" ")
+    end
+
+    # Minimum-payment advice only when a positive debt balance is saved.
+    def next_move
+      return NO_DEBT_NEXT_MOVE if @topic == :debt && !debt_owed?
+
+      NEXT_MOVES.fetch(@topic)
     end
 
     def topic_fact
@@ -114,7 +122,7 @@ module Mia
       total = debt_total
       return unless total
 
-      minimum = @payload.dig("debts", "canonical_monthly_minimum").presence
+      minimum = @payload.dig("debts", "canonical_monthly_minimum").presence if debt_owed?
       minimum ? "Your saved debt total is #{total}, with #{minimum} a month in minimum payments." : "Your saved debt total is #{total}."
     end
 

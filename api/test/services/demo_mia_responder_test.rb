@@ -906,6 +906,20 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     end
   end
 
+  test "a debt question with no saved debt gets no minimum-payment advice" do
+    [
+      { metrics: { total_debt_entered: "$0" }, debts: { canonical_total_balance: "$0", canonical_monthly_minimum: "$0" } },
+      { metrics: { readiness: "Red — pause and stabilize basics" } }
+    ].each do |context|
+      reply = stubbed_model_responder("You owe $9,999.").call("how much do we owe on the credit card", context: context.to_json)
+
+      refute_match(/minimum/i, reply)
+      refute_includes reply, "$9,999"
+    end
+    reply = stubbed_model_responder("You owe $9,999.").call("how much do we owe", context: { metrics: { total_debt_entered: "$0" } }.to_json)
+    assert_equal "Your saved debt total is $0. #{Mia::FallbackReply::CHECKED_BASIS} #{Mia::FallbackReply::NO_DEBT_NEXT_MOVE}", reply
+  end
+
   test "no fallback ever quotes the participant's message" do
     long_message = ("my husband got his hours cut at the hotel in tumon and now we only getting like 3800 a month, " * 75).strip
     assert_operator long_message.length, :>, 7_000
