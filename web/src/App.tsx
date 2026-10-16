@@ -3952,7 +3952,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <article className="panel profile-section" key={section.label}>
                 <div className="row-between">
                   <h3>{section.label}</h3>
-                  <button type="button" onClick={() => handleProfileSectionEdit(section.label)}>Edit</button>
+                  <button type="button" aria-label={`Edit ${section.label}`} onClick={() => handleProfileSectionEdit(section.label)}>Edit</button>
                 </div>
                 <p>{section.summary}</p>
                 {section.items.map((item) => (
@@ -8499,7 +8499,7 @@ function AnnualIncomePlanner({
                               </>
                             ) : (
                               <>
-                                <button type="button" className="secondary-button" onClick={() => editEntry(source.id, entry)}>Edit</button>
+                                <button type="button" className="secondary-button" aria-label={`Edit ${source.label} income change from ${formatMonthYear(entry.effective_on)}`} onClick={() => editEntry(source.id, entry)}>Edit</button>
                                 <button type="button" data-income-entry-action="remove" className="secondary-button" onClick={() => { if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before removing a change.'); return }; cancelEdit(); setRemovingId(entry.id) }}>Remove</button>
                               </>
                             )}
