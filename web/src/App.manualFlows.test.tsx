@@ -54,7 +54,7 @@ describe('transaction review cards', () => {
   it('names every repeated card button for its own transaction while keeping the visible text short', () => {
     render(<TransactionDraftReviewStack {...stackProps([draft(), draft({ id: 221, merchant: 'Shell', amount: 40, amount_cents: 4000 })])} />)
 
-    for (const [name, text] of [["Edit McDonald's $25.00", 'Edit'], ["Confirm McDonald's $25.00", 'Confirm'], ["Ignore McDonald's $25.00", 'Ignore'], ['Edit Shell $40.00', 'Edit'], ['Confirm Shell $40.00', 'Confirm']]) {
+    for (const [name, text] of [["Edit McDonald's $25.00 on Oct 4", 'Edit'], ["Confirm McDonald's $25.00 on Oct 4", 'Confirm'], ["Ignore McDonald's $25.00 on Oct 4", 'Ignore'], ['Edit Shell $40.00 on Oct 4', 'Edit'], ['Confirm Shell $40.00 on Oct 4', 'Confirm']]) {
       expect(screen.getByRole('button', { name }).textContent).toBe(text)
     }
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
@@ -63,9 +63,9 @@ describe('transaction review cards', () => {
   it('names the restore and undo buttons on reviewed cards', () => {
     const onReopen = vi.fn()
     render(<TransactionDraftReviewStack {...stackProps([draft({ status: 'ignored' }), draft({ id: 222, merchant: 'Shell', status: 'confirmed', amount: 40, amount_cents: 4000 })], { onReopen })} />)
-    fireEvent.click(screen.getByRole('button', { name: "Restore draft McDonald's $25.00" }))
+    fireEvent.click(screen.getByRole('button', { name: "Restore draft McDonald's $25.00 on Oct 4" }))
     expect(onReopen).toHaveBeenCalledWith(expect.objectContaining({ id: 220, status: 'ignored' }))
-    expect(screen.getByRole('button', { name: 'Undo to edit Shell $40.00' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Undo to edit Shell $40.00 on Oct 4' })).toBeTruthy()
   })
 
   it('does not credit Mia for manual or bank drafts', () => {
@@ -121,10 +121,20 @@ describe('budget ledger reversals', () => {
     const onReopen = vi.fn()
     render(<CurrentMonthActivityPanel plan={plan} currentMonthIndex={9} spendingReport={report} loading={false} error={null} reopen={{ action: null, disabled: false, onReopen }} />)
     const ledgerRow = screen.getByText("McDonald's").closest('.recent-transaction-row') as HTMLElement
-    fireEvent.click(within(ledgerRow).getByRole('button', { name: "Reopen McDonald's $25.00" }))
+    fireEvent.click(within(ledgerRow).getByRole('button', { name: "Reopen McDonald's $25.00 on Oct 4" }))
     expect(onReopen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 220, status: 'confirmed' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Restore Shell $40.00' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Restore Shell $40.00 on Oct 2' }))
     expect(onReopen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 221, status: 'ignored' }))
+  })
+
+  it('renders a Reopen button for every confirmed manual row and tells repeat purchases apart by date', () => {
+    const repeated = { ...report, transactions: [
+      { id: 31, occurred_on: '2026-10-04', merchant: 'Pay-Less', amount: 25, source_type: 'manual_ui', categories: ['Groceries'], transaction_draft_id: 220 },
+      { id: 32, occurred_on: '2026-10-03', merchant: 'Pay-Less', amount: 25, source_type: 'manual_ui', categories: ['Groceries'], transaction_draft_id: 222 },
+      { id: 33, occurred_on: '2026-10-02', merchant: 'Bank import', amount: 9, source_type: 'plaid', categories: ['Fees'], transaction_draft_id: null },
+    ] }
+    render(<CurrentMonthActivityPanel plan={plan} currentMonthIndex={9} spendingReport={repeated} loading={false} error={null} reopen={{ action: null, disabled: false, onReopen: vi.fn() }} />)
+    expect(screen.getAllByRole('button', { name: /^Reopen / }).map((button) => button.getAttribute('aria-label'))).toEqual(['Reopen Pay-Less $25.00 on Oct 4', 'Reopen Pay-Less $25.00 on Oct 3'])
   })
 
   it('keeps the ledger read-only without reopen controls (demo workspaces)', () => {

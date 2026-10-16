@@ -32,12 +32,12 @@ describe('ReviewedTransactionsPanel', () => {
 
     const confirmed = screen.getByRole('region', { name: 'Confirmed this month' })
     expect(within(confirmed).getAllByRole('button')).toHaveLength(1)
-    const reopen = within(confirmed).getByRole('button', { name: "Reopen McDonald's $25.00" })
+    const reopen = within(confirmed).getByRole('button', { name: "Reopen McDonald's $25.00 on Oct 4" })
     expect(reopen.textContent).toBe('Reopen')
     fireEvent.click(reopen)
     expect(onReopen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 220, status: 'confirmed', merchant: "McDonald's" }))
 
-    const restore = screen.getByRole('button', { name: 'Restore Shell $40.00' })
+    const restore = screen.getByRole('button', { name: 'Restore Shell $40.00 on Oct 2' })
     expect(restore.textContent).toBe('Restore')
     fireEvent.click(restore)
     expect(onReopen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 221, status: 'ignored' }))
@@ -46,8 +46,8 @@ describe('ReviewedTransactionsPanel', () => {
 
   it('locks every reversal while another review action is running and shows progress on the active row', () => {
     render(<ReviewedTransactionsPanel report={report()} action="reopen-draft:220" onReopen={vi.fn()} />)
-    expect((screen.getByRole('button', { name: "Reopening McDonald's $25.00" }) as HTMLButtonElement).disabled).toBe(true)
-    expect((screen.getByRole('button', { name: 'Restore Shell $40.00' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: "Reopening McDonald's $25.00 on Oct 4" }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Restore Shell $40.00 on Oct 2' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('renders nothing when there is nothing to reverse', () => {

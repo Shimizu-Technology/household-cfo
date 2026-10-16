@@ -2,16 +2,23 @@ import type { IgnoredTransactionDraft, RecentTransaction, TransactionDraft } fro
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-type DraftIdentity = Pick<TransactionDraft, 'merchant' | 'amount' | 'amount_cents'>
+type DraftIdentity = Pick<TransactionDraft, 'merchant' | 'amount' | 'amount_cents'> & { occurred_on?: string }
 
 function draftAmount(draft: DraftIdentity) {
   if (typeof draft.amount_cents === 'number') return draft.amount_cents / 100
   return Number.isFinite(draft.amount) ? draft.amount : 0
 }
 
-/** Names one transaction for screen readers, e.g. "McDonald's $25.00". */
+function shortDate(occurredOn?: string) {
+  const [year, month, day] = (occurredOn || '').split('-').map(Number)
+  if (!year || !month || !day) return null
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)))
+}
+
+/** Names one transaction for screen readers, e.g. "McDonald's $25.00 on Oct 3" (date keeps repeat purchases distinct). */
 export function transactionItemName(draft: DraftIdentity) {
-  return `${draft.merchant} ${currency.format(draftAmount(draft))}`
+  const date = shortDate(draft.occurred_on)
+  return `${draft.merchant} ${currency.format(draftAmount(draft))}${date ? ` on ${date}` : ''}`
 }
 
 export function transactionMonthName(occurredOn: string) {
