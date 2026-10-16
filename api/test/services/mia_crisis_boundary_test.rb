@@ -11,8 +11,13 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       "I give up.",
       "I gave up",
       "ugh i give up lol",
-      "I'm done.",
-      "im done",
+      "im so done with everything",
+      "I'm done with it all",
+      "i cant even anymore",
+      "I can't anymore",
+      "no point anymore",
+      "whats even the point",
+      "I just want it all to stop",
       "I'm so hopeless about our money",
       "whats the point",
       "What's the point in trying anymore, the bills never stop",
@@ -39,6 +44,11 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       "I wanna disappear from my creditors' call lists",
       "I can't do it, can you cut Dining Out instead?",
       "I'm done with takeout",
+      "I'm done, I added all the receipts",
+      "I'm done, what's next?",
+      "I'm done!",
+      "Im giving up on this budget",
+      "I'm done paying this card off early",
       "I can't do this budget alone, can you help me set it up?"
     ].each do |message|
       assert_not Mia::CrisisBoundary.hopeless?(message), message
@@ -52,6 +62,15 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       "everyone is better off without me",
       "my kids are better off without me",
       "Nobody would miss me",
+      "i don't wanna be here anymore",
+      "i dont want to be here anymore",
+      "i'm done with life",
+      "what's the point of living",
+      "everyone would be better off if i was gone",
+      "they'd all be better off without me",
+      "my kids are better off without me tbh",
+      "honestly everyone would be better off without me lol",
+      "the kids r better off without me",
       "I want to go to sleep and not wake up"
     ].each do |message|
       assert Mia::CrisisBoundary.matches?(message), message
@@ -69,8 +88,9 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
     with_rent = Mia::CrisisBoundary.with_wellbeing_check("Your rent is $1,988 this month. Next CFO move: list what is due.")
     assert_includes with_rent, "call or text 988"
 
-    already = "Please call or text 988 now if you might hurt yourself."
-    assert_equal already, Mia::CrisisBoundary.with_wellbeing_check(already)
+    [ "Please call or text 988 now if you might hurt yourself.", "You can call or text 988.", "Call or text 988, the Lifeline." ].each do |already|
+      assert_equal already, Mia::CrisisBoundary.with_wellbeing_check(already)
+    end
 
     scripted = Mia::CrisisBoundary.with_wellbeing_check("Start with the bill that protects the household baseline first.")
     assert scripted.start_with?(Mia::CrisisBoundary::WELLBEING_OPENING)

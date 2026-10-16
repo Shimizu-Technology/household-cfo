@@ -1240,7 +1240,9 @@ module Api
       def with_wellbeing_check(user_content, assistant_content)
         return assistant_content unless ::Mia::CrisisBoundary.hopeless?(user_content)
 
-        ::Mia::CrisisBoundary.with_wellbeing_check(assistant_content)
+        # Leave room so the check is never cut off by the length limit.
+        room = ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH - 400
+        ::Mia::CrisisBoundary.with_wellbeing_check(assistant_content.to_s.truncate(room, omission: "…"))
       end
 
       def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})

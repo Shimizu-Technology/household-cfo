@@ -10,7 +10,10 @@ module Mia
       /\b(?:don['’]?t|do not) think I can (?:keep living|go on)\b/i,
       /\b(?:can['’]?t|cannot) go on(?:[.!?,;:]|\z|\s+(?:anymore|living|like this|with (?:my )?life|with this anymore)\b)/i,
       /\b(?:can['’]?t|cannot) go on\s+with\s+(?:this|the|my)?\s*(?:debt|bills?|money stress)\b.*\banymore\b/i,
-      /\b(?:everyone|everybody|they|my (?:family|kids|children|wife|husband|partner))(?:['’]s|['’]d|['’]re|\s+would|\s+will|\s+is|\s+are)?\s+(?:be\s+)?better off without me(?=\s*(?:[.!?,;…]|\z|anyway|if i (?:was|were) gone))/i,
+      /\b(?:everyone|everybody|they|my (?:family|kids|children|wife|husband|partner)|the kids)(?:['’]s|['’]d|['’]re|\s+would|\s+will|\s+is|\s+are|\s+r)?(?:\s+all)?\s+(?:be\s+)?better off (?:without me|if i (?:was|were) gone|if i (?:wasn['’]?t|weren['’]?t) here)(?=\s*(?:[.!?,;…]|\z|\b(?:anyway|tbh|lol|honestly|fr)\b))/i,
+      /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+be (?:here|alive) any\s?more\b/i,
+      /\b(?:i['’]m|im|i am)\s+(?:so\s+)?done with (?:life|living)\b/i,
+      /\b(?:what['’]?s|whats|what is) (?:even )?the point (?:of|in) (?:living|being alive|life)\b/i,
       /\b(?:nobody|no one|noone)\s+would\s+(?:even\s+)?(?:miss|notice|care if)\s+(?:me|i (?:was|were) gone)\b/i,
       /\b(?:want|wanna|wish i could)\s+(?:to\s+)?(?:go to\s+)?sleep and (?:never|not) wake up\b/i
     ].freeze
@@ -24,11 +27,14 @@ module Mia
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle|deal with)\s+(?:this|it|any of this)\s+(?:any\s?more|no more|any longer|much longer)\b/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle)\s+this#{CLAUSE_END}/i,
       /\bi(?:['’]m|m|\s+am)?\s+(?:just\s+|so\s+|really\s+)?(?:giving up|give up|gave up|want to give up|ready to give up)(?:\s+on\s+(?:everything|life|myself))?#{CLAUSE_END}/i,
-      /\bi(?:['’]m|m|\s+am)\s+(?:just\s+|so\s+)?done#{CLAUSE_END}/i,
+      /\bi(?:['’]m|m|\s+am)\s+(?:just\s+|so\s+)?done with (?:everything|it all|all of (?:it|this))#{CLAUSE_END}/i,
+      /\b(?:can['’]?t|cant|cannot|can not)\s+(?:even\s+)?any\s?more#{CLAUSE_END}/i,
+      /\b(?:no|there['’]?s no|theres no) point any\s?more\b/i,
+      /\bjust want (?:it all|everything) to stop\b/i,
       /\b(?:i(?:['’]m|m|\s+am)?\s+(?:so\s+|just\s+)?(?:feel(?:ing)?\s+)?|feel(?:ing)?\s+(?:so\s+)?)hopeless(?!\s+(?:with|at)\b)/i,
       /\btired of (?:everything|living|it all|life|trying)#{CLAUSE_END}/i,
       /\b(?:want to|wanna)\s+disappear#{CLAUSE_END}/i,
-      /\b(?:what['’]?s the|whats the|what is the|there['’]?s no|theres no|is there any)\s+point(?:\s+(?:in anything|in trying|in any of this|in living|of anything|of any of this))?#{CLAUSE_END}/i,
+      /\b(?:what['’]?s (?:even )?the|whats (?:even )?the|what is (?:even )?the|there['’]?s no|theres no|is there any)\s+point(?:\s+(?:in anything|in trying|in any of this|in living|of anything|of any of this))?#{CLAUSE_END}/i,
       /\b(?:i\s+)?(?:feel|am|i['’]m|im)\s+(?:like\s+)?(?:such\s+)?a burden\b/i
     ].freeze
     # "Should I give up?" asks for advice, not help.
@@ -55,7 +61,7 @@ module Mia
     # any reply, model-written or scripted.
     def self.with_wellbeing_check(reply)
       text = reply.to_s
-      return text if text.match?(/(?<![\d$,.])988(?![\d,.])/)
+      return text if text.match?(/(?<![\d$,.])988(?!\d|[.,]\d)/)
 
       acknowledged = text.match?(/\b(?:not (?:a|mean you are a) failure|glad you (?:told|said)|(?:that|this) (?:sounds|feels|is) (?:so |really )?(?:heavy|hard|exhausting|overwhelming))\b/i)
       [ (acknowledged ? nil : WELLBEING_OPENING), text, WELLBEING_CHECK ].compact_blank.join(" ")
