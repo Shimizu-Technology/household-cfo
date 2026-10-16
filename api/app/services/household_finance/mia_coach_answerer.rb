@@ -27,6 +27,13 @@ module HouseholdFinance
     ESSENTIAL_PURCHASE_TERMS = /\b(?:groceries|grocery|food|medicine|medication|rent|mortgage|power|water|utilities|utility|insurance|gas|daycare|childcare|school|tuition|diapers|formula|doctor|medical|dental)\b/i.freeze
     SCREENSHOT_PURCHASE_TERMS = /\b(?:purse|bag|handbag)\b/i.freeze
     PLANNED_PURCHASE_DETAIL_PATTERN = /(?:costs?|price|\$\s*\d|does that change|kid|school|work|league)/i.freeze
+    # The purchase-detail answer continues a purchase decision ("They cost $85…",
+    # "Does that change it?", a question, or a follow-up to a purchase topic). A
+    # plain statement with a dollar amount is not a purchase question.
+    PURCHASE_DETAIL_CONTEXT_PATTERN = /\b(?:costs?|price[sd]?|would cost|does that change)\b|\?|\bfollow-up to previous\b.*\b(?:purchase|buy|buying|afford)\b/i.freeze
+    # "Saved $30 with coupons", "my savings went down $200": a change already
+    # described, not money about to be spent.
+    AMOUNT_CHANGE_STATEMENT_PATTERN = /\b(?:saved|went (?:down|up)|dropped|grew|increased|decreased|fell|rose)\b/i.freeze
     READ_ONLY_AMOUNT_EDIT_PATTERN = /(?:\A|[.!?;])\s*(?:(?:please|can you|could you|would you)\s+)?(?:set|change|update|adjust|increase|raise|decrease|lower|reduce|cut)\s+[^.!?;]{1,120}?\b(?:to|at|by)\s*\$?\s*\d/i.freeze
     FAMILY_SUPPORT_PATTERN = /\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend)\b.*\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b|\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b.*\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend|off-island)\b/i.freeze
     DEBT_VS_SAVINGS_PATTERN = /\b(?:debt|credit card|loan)\b.*\b(?:saving|savings|emergency|runway|extra|payoff|pay off)\b|\b(?:saving|savings|emergency|runway)\b.*\b(?:debt|credit card|loan|payoff|pay off)\b/i.freeze
@@ -886,6 +893,8 @@ module HouseholdFinance
     def planned_purchase_detail_answer
       return nil unless amount_from_message_cents&.positive?
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
+      return nil unless purchase_question? || message.match?(PURCHASE_DETAIL_CONTEXT_PATTERN)
+      return nil if !purchase_question? && normalized_message.match?(AMOUNT_CHANGE_STATEMENT_PATTERN)
       return nil if !purchase_question? && normalized_message.match?(/\b(?:income|take home|salary|paycheck|balance|minimum|account|apr|goal progress)\b/)
       return nil if !purchase_question? && normalized_message.match?(SAVINGS_GOAL_PATTERN)
       return nil if transaction_report? || MoneyMovementText.non_expense?(message)

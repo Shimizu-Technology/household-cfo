@@ -1224,6 +1224,30 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert ::Mia::CrisisBoundary.matches?("I don't want to live anymore, we have nothing to eat until payday")
   end
 
+
+  test "a dollar statement that is not a purchase decision gets no purchase verdict" do
+    household = create_yellow_household
+
+    [
+      "Saved $30 by using coupons at Payless",
+      "My savings went down $200 this month",
+      "I put $20 gas in my car",
+      "Our power bill was $180 last month",
+      "Saved $30 with coupons, is that good?"
+    ].each do |prompt|
+      refute_match(/the purchase is|need or a want|pre-spend CFO decision/i, HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s, prompt)
+    end
+
+    [
+      "They cost $85 and are for my kid's basketball league. Does that change the answer?",
+      "My kid needs $120 in school supplies. Can I cover that?",
+      "The shoes are $90. Can I get them?"
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
+      assert_match(/purchase is \$|pre-spend|safe-to-spend|baseline need/i, answer, "#{prompt} => #{answer}")
+    end
+  end
+
   private
 
   def create_yellow_household
