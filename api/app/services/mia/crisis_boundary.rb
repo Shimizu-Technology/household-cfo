@@ -46,7 +46,6 @@ module Mia
       /\b(?:don['’]?t|dont|do not) see (?:the|any) point(?:\s+any\s?more)?#{CLAUSE_END}/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle|deal with)\s+(?:this|it|any of this)\s+(?:any\s?more|no more|any longer|much longer)\b/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle)\s+this#{CLAUSE_END}/i,
-      /\bi(?:['’]m|m|\s+am)?\s+(?:just\s+|so\s+|really\s+)?(?:giving up|give up|gave up|want to give up|ready to give up)(?:\s+on\s+(?:everything|life|myself))?#{CLAUSE_END}/i,
       /\bi(?:['’]m|m|\s+am)\s+(?:just\s+|so\s+)?done with (?:everything|it all|all of (?:it|this))#{CLAUSE_END}/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:even\s+)?any\s?more#{CLAUSE_END}/i,
       /\b(?:no|there['’]?s no|theres no) point any\s?more(?=\s*(?:[.!?,;…]|\z|\b(?:lol|tbh|honestly)\b))/i,
@@ -57,6 +56,9 @@ module Mia
       /\b(?:what['’]?s (?:even )?the|whats (?:even )?the|what is (?:even )?the|there['’]?s no|theres no|is there any)\s+point(?:\s+(?:in anything|in trying|in any of this|in living|of anything|of any of this))?#{POINT_END}/i,
       /\b(?:i\s+)?(?:feel|am|i['’]m|im)\s+(?:like\s+)?(?:such\s+)?a burden\b/i
     ].freeze
+    # "I give up." Kept separate so an advice question ("Should I give up?") can be
+    # set aside without hiding other hopeless words in the same sentence.
+    GIVE_UP_PATTERN = /\bi(?:['’]m|m|\s+am)?\s+(?:just\s+|so\s+|really\s+)?(?:giving up|give up|gave up|want to give up|ready to give up)(?:\s+on\s+(?:everything|life|myself))?#{CLAUSE_END}/i
     # "Should I give up?" asks for advice, not help.
     ADVICE_QUESTION_PATTERN = /\A\s*(?:should|can|could|would|do|does|is it|when do)\b[^.!?]*\?\s*\z/i
     WELLBEING_CHECK = "If you ever feel like you might hurt yourself, please call or text 988 right now, or 911 in an emergency. You deserve support, and the money plan can wait until you have it."
@@ -73,7 +75,8 @@ module Mia
 
       sentences = normalized.split(/(?<=[.!?])\s+/)
       sentences.any? do |sentence|
-        !sentence.match?(ADVICE_QUESTION_PATTERN) && HOPELESS_PATTERNS.any? { |pattern| sentence.match?(pattern) }
+        HOPELESS_PATTERNS.any? { |pattern| sentence.match?(pattern) } ||
+          (sentence.match?(GIVE_UP_PATTERN) && !sentence.match?(ADVICE_QUESTION_PATTERN))
       end
     end
 
@@ -81,10 +84,14 @@ module Mia
     # any reply, model-written or scripted.
     def self.with_wellbeing_check(reply)
       text = reply.to_s
-      return text if text.match?(/(?<![\d$,.])988(?!\d|[.,]\d)/)
+      return text if includes_wellbeing_check?(text)
 
       acknowledged = text.match?(/\b(?:not (?:a|mean you are a) failure|glad you (?:told|said)|(?:that|this) (?:sounds|feels|is) (?:so |really )?(?:heavy|hard|exhausting|overwhelming))\b/i)
       [ (acknowledged ? nil : WELLBEING_OPENING), text, WELLBEING_CHECK ].compact_blank.join(" ")
+    end
+
+    def self.includes_wellbeing_check?(reply)
+      reply.to_s.match?(/(?<![\d$,.])988(?!\d|[.,]\d)/)
     end
 
     def self.response
