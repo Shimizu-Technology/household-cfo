@@ -83,9 +83,14 @@ class PlaidIntegrationTransactionStagerTest < ActiveSupport::TestCase
     assert_equal 2, drafts.length
     drafts.each do |draft|
       assert_equal PlaidTransaction::REVIEW_NOTE_TRANSFER_OR_PAYMENT, draft.draft_payload["review_note"]
-      assert_match(/you decide/i, draft.raw_input)
+      refute_match(/you decide/i, draft.raw_input)
       assert_nil draft.budget_category
     end
+
+    category = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).create_category!(name: "Cash", stack_key: "discretionary", monthly_amount: 300)
+    result = HouseholdFinance::TransactionDraftConfirmer.new(drafts.first, { budget_category_id: category.id }).call
+    assert result.success?
+    refute_match(/you decide|transfer or payment/i, @household.household_transactions.order(:id).last.description.to_s)
   end
 
   test "keeps bank fees and interest charges as spending" do

@@ -126,6 +126,17 @@ class PlaidIntegrationReviewQueueHydratorTest < ActiveSupport::TestCase
     assert_empty @household.household_audit_events.where(event_type: "plaid_transaction.not_counted_as_spending")
   end
 
+  test "keeps a legacy draft whose split carries a participant note" do
+    legacy = create_transaction("hydrator-note", "CARD PAYMENT N", 1_000, "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
+    draft = @household.transaction_drafts.create!(occurred_on: legacy.occurred_on, merchant: legacy.name, total_amount_cents: legacy.amount_cents, source_type: "plaid", status: "pending")
+    draft.transaction_draft_splits.create!(amount_cents: legacy.amount_cents, notes: "my note")
+    legacy.update!(transaction_draft: draft, review_status: "drafted", drafted_source_fingerprint: legacy.source_fingerprint)
+
+    PlaidIntegration::ReviewQueueHydrator.new(@item).call
+
+    assert TransactionDraft.exists?(draft.id)
+  end
+
   test "one failing release does not block the others" do
     first = create_transaction("hydrator-fail-1", "CARD PAYMENT A", 1_000, "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
     second = create_transaction("hydrator-fail-2", "CARD PAYMENT B", 2_000, "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")

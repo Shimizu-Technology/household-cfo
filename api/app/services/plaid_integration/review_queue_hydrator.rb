@@ -54,7 +54,7 @@ module PlaidIntegration
       draft.budget_category_id.nil? && draft.matched_transaction_id.nil? && draft.confirmed_transaction_id.nil? &&
         draft.total_amount_cents == transaction.amount_cents && draft.occurred_on == transaction.occurred_on &&
         draft.merchant == (transaction.merchant_name.presence || transaction.name).first(120) &&
-        splits.length == 1 && splits.first.budget_category_id.nil? && splits.first.amount_cents == transaction.amount_cents
+        splits.length == 1 && splits.first.budget_category_id.nil? && splits.first.notes.blank? && splits.first.amount_cents == transaction.amount_cents
     end
 
     def release_draft!(transaction)
@@ -64,7 +64,7 @@ module PlaidIntegration
         next unless draft&.pending? && draft.source_type == "plaid" && !transaction.counts_as_spending?
         next unless untouched_draft?(transaction, draft)
 
-        prior = { draft: draft.attributes.slice("merchant", "occurred_on", "total_amount_cents", "budget_category_id", "draft_payload", "raw_input"), splits: draft.transaction_draft_splits.map { |split| split.attributes.slice("amount_cents", "budget_category_id", "category_name") } }
+        prior = { draft: draft.attributes.slice("merchant", "occurred_on", "total_amount_cents", "budget_category_id", "draft_payload", "raw_input"), splits: draft.transaction_draft_splits.map { |split| split.attributes.slice("amount_cents", "budget_category_id", "category_name", "notes", "metadata") } }
         transaction.update!(transaction_draft: nil, review_status: "unreviewed", drafted_source_fingerprint: nil)
         draft.destroy!
         plaid_item.household.household_audit_events.create!(
