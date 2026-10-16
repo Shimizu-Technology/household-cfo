@@ -30,6 +30,22 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
     assert_includes answer, "1 bank-pending Amazon transaction totaling $5"
   end
 
+  test "bank summary leaves transfers and card payments out of outflows and review counts" do
+    plaid_transaction("purchase-shop", 1_000, merchant: "Island Market")
+    plaid_transaction("card-payment", 207_850, merchant: "Card Payment", primary: "LOAN_PAYMENTS", detailed: "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
+    plaid_transaction("venmo", 4_500, merchant: "Venmo", primary: "TRANSFER_OUT", detailed: "TRANSFER_OUT_OTHER_TRANSFER_OUT")
+
+    answer = HouseholdFinance::TransactionLookupAnswerer.new(@household, "Summarize my synced bank activity this month", today: Date.new(2026, 8, 16)).call
+
+    assert_includes answer, "2 posted outflows totaling $55"
+    assert_includes answer, "1 posted movement totaling $2,078.50 (transfers, card or loan payments) is not counted as spending"
+    assert_includes answer, "2 posted outflows totaling $55 still need household review"
+    refute_includes answer, "$2,078.50 still need"
+
+    merchant = HouseholdFinance::TransactionLookupAnswerer.new(@household, "How much did I spend at Card Payment this month?", today: Date.new(2026, 8, 16)).call
+    refute_match(/2,078/, merchant.to_s)
+  end
+
   test "across synced bank activity uses all available history" do
     plaid_transaction("august-amazon", 1_000)
     plaid_transaction("july-amazon", 2_000, occurred_on: Date.new(2026, 7, 24))
@@ -125,7 +141,7 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
 
   private
 
-  def plaid_transaction(id, amount_cents, pending: false, occurred_on: Date.new(2026, 8, 14), merchant: "Amazon")
+  def plaid_transaction(id, amount_cents, pending: false, occurred_on: Date.new(2026, 8, 14), merchant: "Amazon", primary: "GENERAL_MERCHANDISE", detailed: nil)
     @item.plaid_transactions.create!(
       plaid_account: @account,
       plaid_transaction_id: id,
@@ -134,7 +150,8 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
       occurred_on: occurred_on,
       amount_cents: amount_cents,
       pending: pending,
-      primary_category: "GENERAL_MERCHANDISE",
+      primary_category: primary,
+      detailed_category: detailed,
       source_fingerprint: SecureRandom.hex(32)
     )
   end

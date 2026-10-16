@@ -96,6 +96,7 @@ class PlaidIntegrationReviewQueueHydratorTest < ActiveSupport::TestCase
     transfer = create_transaction("hydrator-transfer", "CD DEPOSIT .INITIAL.", 100_000, "TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER")
     legacy = create_transaction("hydrator-card", "CREDIT CARD 3333 PAYMENT", 2_500, "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
     legacy_draft = @household.transaction_drafts.create!(occurred_on: legacy.occurred_on, merchant: legacy.name, total_amount_cents: legacy.amount_cents, source_type: "plaid", status: "pending")
+    legacy_draft.transaction_draft_splits.create!(amount_cents: legacy.amount_cents)
     legacy.update!(transaction_draft: legacy_draft, review_status: "drafted", drafted_source_fingerprint: legacy.source_fingerprint)
 
     staged = PlaidIntegration::ReviewQueueHydrator.new(@item).call
@@ -106,18 +107,51 @@ class PlaidIntegrationReviewQueueHydratorTest < ActiveSupport::TestCase
     assert_equal "unreviewed", legacy.reload.review_status
     assert_nil legacy.transaction_draft_id
     refute TransactionDraft.exists?(legacy_draft.id)
-    assert_equal "plaid_transaction.not_counted_as_spending", @household.household_audit_events.where(event_type: "plaid_transaction.not_counted_as_spending").sole.event_type
+    audit = @household.household_audit_events.where(event_type: "plaid_transaction.not_counted_as_spending").sole
+    assert_equal legacy.name, audit.metadata.dig("prior_draft", "draft", "merchant")
+    assert_equal 1, audit.metadata.dig("prior_draft", "splits").length
   end
 
-  test "leaves a decided card-payment draft untouched" do
-    legacy = create_transaction("hydrator-confirmed-card", "CREDIT CARD 3333 PAYMENT", 2_500, "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
-    draft = @household.transaction_drafts.create!(occurred_on: legacy.occurred_on, merchant: legacy.name, total_amount_cents: legacy.amount_cents, source_type: "plaid", status: "ignored")
+  test "keeps a participant-edited legacy draft instead of destroying it" do
+    legacy = create_transaction("hydrator-edited", "MORTGAGE PAYMENT", 150_000, "LOAN_PAYMENTS", "LOAN_PAYMENTS_MORTGAGE_PAYMENT")
+    category = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).create_category!(name: "Housing", stack_key: "discretionary", monthly_amount: 1500)
+    draft = @household.transaction_drafts.create!(occurred_on: legacy.occurred_on, merchant: legacy.name, total_amount_cents: legacy.amount_cents, source_type: "plaid", status: "pending", budget_category: category)
+    draft.transaction_draft_splits.create!(amount_cents: legacy.amount_cents, budget_category: category)
     legacy.update!(transaction_draft: draft, review_status: "drafted", drafted_source_fingerprint: legacy.source_fingerprint)
 
     PlaidIntegration::ReviewQueueHydrator.new(@item).call
 
     assert_equal draft, legacy.reload.transaction_draft
-    assert_equal "drafted", legacy.review_status
+    assert TransactionDraft.exists?(draft.id)
+    assert_empty @household.household_audit_events.where(event_type: "plaid_transaction.not_counted_as_spending")
+  end
+
+  test "one failing release does not block the others" do
+    first = create_transaction("hydrator-fail-1", "CARD PAYMENT A", 1_000, "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
+    second = create_transaction("hydrator-fail-2", "CARD PAYMENT B", 2_000, "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
+    [ first, second ].each do |legacy|
+      draft = @household.transaction_drafts.create!(occurred_on: legacy.occurred_on, merchant: legacy.name, total_amount_cents: legacy.amount_cents, source_type: "plaid", status: "pending")
+      draft.transaction_draft_splits.create!(amount_cents: legacy.amount_cents)
+      legacy.update!(transaction_draft: draft, review_status: "drafted", drafted_source_fingerprint: legacy.source_fingerprint)
+    end
+    reported = []
+    failing = Module.new do
+      define_method(:update!) { |*args, **kw| name == "CARD PAYMENT A" && review_status == "drafted" ? raise(ActiveRecord::RecordNotSaved, "boom") : super(*args, **kw) }
+    end
+    PlaidTransaction.prepend(failing)
+    begin
+      subscriber = Object.new
+      subscriber.define_singleton_method(:report) { |error, **_opts| reported << error }
+      Rails.error.subscribe(subscriber)
+      PlaidIntegration::ReviewQueueHydrator.new(@item).call
+    ensure
+      Rails.error.unsubscribe(subscriber) if subscriber
+      failing.send(:remove_method, :update!)
+    end
+
+    assert_equal 1, reported.length
+    assert_equal "drafted", first.reload.review_status
+    assert_equal "unreviewed", second.reload.review_status
   end
 
   private

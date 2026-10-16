@@ -121,6 +121,7 @@ const activityViews: Array<{ id: PlaidActivityView; label: string; count: (summa
   { id: 'excluded', label: 'Excluded', count: (summary) => summary.excluded_count },
   { id: 'pending', label: 'Bank pending', count: (summary) => summary.pending_count },
   { id: 'inflow', label: 'Money in', count: (summary) => summary.inflow_count },
+  { id: 'not_spending', label: 'Not spending', count: (summary) => summary.not_counted_as_spending_count ?? 0 },
 ]
 
 const trustLabels: Record<PlaidTransaction['trust_state'], string> = {
@@ -735,6 +736,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
                     <small>{transaction.occurred_on} · {transaction.account_name}{transaction.account_mask ? ` ••${transaction.account_mask}` : ''}</small>
                     {transaction.category_names.length > 0 && <small>{transaction.category_names.join(' + ')}</small>}
                     {transaction.trust_state === 'not_spending' && transaction.movement_type && <small>{sourceTypeLabel(transaction.movement_type)} · No spending is recorded for this row.</small>}
+                    {transaction.review_note && <small>{transaction.review_note}</small>}
                     {transaction.source_changed_after_draft && <small className="plaid-source-warning">Plaid changed this source after review. Reconcile it before relying on the actual.</small>}
                     {transaction.removed && <small className="plaid-source-warning">The institution removed this source transaction after it entered your household record.</small>}
                   </span>

@@ -3,7 +3,7 @@ module Api
     module Plaid
       class TransactionsController < BaseController
         MAX_PAGE_SIZE = 100
-        ACTIVITY_VIEWS = %w[all needs_review confirmed excluded pending inflow].freeze
+        ACTIVITY_VIEWS = %w[all needs_review confirmed excluded pending inflow not_spending].freeze
 
         before_action :authenticate_user!
         before_action :require_writable_household!, only: %i[stage ignore]
@@ -73,6 +73,8 @@ module Api
             joined.where(removed_at: nil, transaction_drafts: { status: %w[confirmed corrected matched] })
           when "excluded"
             joined.where("plaid_transactions.review_status = 'ignored' OR transaction_drafts.status = 'ignored'")
+          when "not_spending"
+            scope.visible.where(pending: false).where("amount_cents > 0").not_counted_as_spending
           when "pending"
             scope.where(pending: true, removed_at: nil)
           when "inflow"
@@ -162,6 +164,7 @@ module Api
             direction: transaction.amount_cents.positive? ? "outflow" : "inflow",
             movement_type: transaction.movement_type,
             counts_as_spending: transaction.counts_as_spending?,
+            review_note: transaction.review_note,
             primary_category: transaction.primary_category,
             detailed_category: transaction.detailed_category,
             review_status: transaction.review_status,

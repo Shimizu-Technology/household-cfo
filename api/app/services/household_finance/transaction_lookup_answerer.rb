@@ -187,18 +187,26 @@ module HouseholdFinance
       posted = base_bank_transactions.reject(&:pending?)
       pending = base_bank_transactions.select(&:pending?)
       inflows = posted.select { |transaction| transaction.amount_cents.negative? }
-      outflows = posted.select { |transaction| transaction.amount_cents.positive? }
+      all_outflows = posted.select { |transaction| transaction.amount_cents.positive? }
+      outflows, not_spending = all_outflows.partition(&:counts_as_spending?)
       needs_review = outflows.select { |transaction| needs_household_review?(transaction) }
       confirmed = household.household_transactions.where(source_type: "plaid", status: %w[confirmed reconciled], occurred_on: start_on..end_on)
 
       [
         "For #{period_label}, synced bank activity shows #{outflows.length} posted outflows totaling #{money(outflows.sum(&:amount_cents))} and #{inflows.length} inflows totaling #{money(inflows.sum { |transaction| transaction.amount_cents.abs })}.",
+        not_spending_line(not_spending),
         recent_outflow_line(outflows),
         top_bank_merchants_line(outflows),
         "Confirmed Plaid-derived household actuals total #{money(confirmed.sum(:total_amount_cents))} across #{confirmed.count} #{'transaction'.pluralize(confirmed.count)}.",
         "#{needs_review.length} posted outflows totaling #{money(needs_review.sum(&:amount_cents))} still need household review or source reconciliation.",
         "#{pending.length} bank-pending #{'transaction'.pluralize(pending.length)} #{pending.length == 1 ? 'is' : 'are'} tracked separately and excluded from posted totals."
       ].compact.join("\n\n")
+    end
+
+    def not_spending_line(not_spending)
+      return if not_spending.empty?
+
+      "#{not_spending.length} posted #{'movement'.pluralize(not_spending.length)} totaling #{money(not_spending.sum(&:amount_cents))} (transfers, card or loan payments) #{not_spending.length == 1 ? 'is' : 'are'} not counted as spending."
     end
 
     def recent_outflow_line(outflows)
@@ -308,12 +316,14 @@ module HouseholdFinance
 
     def matching_bank_transactions(label, pending:)
       base_bank_transactions.select do |transaction|
-        transaction.pending? == pending && transaction.amount_cents.positive? && merchant_matches?(transaction.merchant_name.presence || transaction.name, label)
+        transaction.pending? == pending && transaction.amount_cents.positive? && transaction.counts_as_spending? && merchant_matches?(transaction.merchant_name.presence || transaction.name, label)
       end
     end
 
     def needs_household_review?(transaction)
       draft = transaction.transaction_draft
+      return false if draft.nil? && !transaction.counts_as_spending?
+
       source_changed = transaction.drafted_source_fingerprint.present? && transaction.source_fingerprint != transaction.drafted_source_fingerprint
       return true if source_changed
       return false if transaction.review_status == "ignored" || draft&.status == "ignored"

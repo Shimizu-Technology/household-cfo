@@ -58,13 +58,14 @@ module PlaidIntegration
         source_type: "plaid",
         status: "pending",
         confidence: category ? BigDecimal("0.80") : BigDecimal("0.00"),
-        raw_input: "Bank-connected transaction for participant review",
+        raw_input: transaction.review_note || "Bank-connected transaction for participant review",
         draft_payload: {
           parser: "plaid_transactions_sync_v1",
           category_match_status: suggestion.match_status,
           category_match_reason: suggestion.match_reason,
           plaid_primary_category: transaction.primary_category,
-          plaid_detailed_category: transaction.detailed_category
+          plaid_detailed_category: transaction.detailed_category,
+          review_note: transaction.review_note
         }
       )
       draft.transaction_draft_splits.create!(

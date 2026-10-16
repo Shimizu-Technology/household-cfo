@@ -17,7 +17,12 @@ class PlaidTransaction < ApplicationRecord
     "TRANSFER_OUT_WITHDRAWAL" => "cash_withdrawal",
     "BANK_FEES_INTEREST_CHARGE" => "interest"
   }.freeze
-  COUNTED_AS_SPENDING_SQL = "(plaid_transactions.primary_category IS NULL OR UPPER(plaid_transactions.primary_category) NOT IN (:non_spending))".freeze
+  # Person-to-person transfers (Venmo, Zelle, Cash App, PayPal) and ATM
+  # withdrawals are often real spending, so they stay spending candidates: they
+  # stage a draft carrying a "transfer or payment? you decide" note.
+  SPENDING_CANDIDATE_DETAILED = %w[TRANSFER_OUT_OTHER_TRANSFER_OUT TRANSFER_OUT_WITHDRAWAL].freeze
+  REVIEW_NOTE_TRANSFER_OR_PAYMENT = "Transfer or payment? You decide whether this counts as spending.".freeze
+  COUNTED_AS_SPENDING_SQL = "(plaid_transactions.primary_category IS NULL OR UPPER(plaid_transactions.primary_category) NOT IN (:non_spending) OR UPPER(COALESCE(plaid_transactions.detailed_category, '')) IN (:candidates))".freeze
 
   belongs_to :plaid_item
   belongs_to :plaid_account
@@ -37,12 +42,12 @@ class PlaidTransaction < ApplicationRecord
 
   scope :visible, -> { where(removed_at: nil) }
   scope :recent_first, -> { order(occurred_on: :desc, id: :desc) }
-  scope :counted_as_spending, -> { where(COUNTED_AS_SPENDING_SQL, non_spending: NON_SPENDING_PRIMARY_TYPES.keys) }
-  scope :not_counted_as_spending, -> { where.not(COUNTED_AS_SPENDING_SQL, non_spending: NON_SPENDING_PRIMARY_TYPES.keys) }
+  scope :counted_as_spending, -> { where(COUNTED_AS_SPENDING_SQL, non_spending: NON_SPENDING_PRIMARY_TYPES.keys, candidates: SPENDING_CANDIDATE_DETAILED) }
+  scope :not_counted_as_spending, -> { where.not(COUNTED_AS_SPENDING_SQL, non_spending: NON_SPENDING_PRIMARY_TYPES.keys, candidates: SPENDING_CANDIDATE_DETAILED) }
   scope :stageable, -> { current_picture.visible.counted_as_spending.where(pending: false, review_status: "unreviewed").where("amount_cents > 0") }
 
   def self.counted_as_spending_sql
-    sanitize_sql_array([ COUNTED_AS_SPENDING_SQL, { non_spending: NON_SPENDING_PRIMARY_TYPES.keys } ])
+    sanitize_sql_array([ COUNTED_AS_SPENDING_SQL, { non_spending: NON_SPENDING_PRIMARY_TYPES.keys, candidates: SPENDING_CANDIDATE_DETAILED } ])
   end
 
   def stageable?
@@ -50,7 +55,15 @@ class PlaidTransaction < ApplicationRecord
   end
 
   def counts_as_spending?
-    !NON_SPENDING_PRIMARY_TYPES.key?(primary_category.to_s.upcase)
+    !NON_SPENDING_PRIMARY_TYPES.key?(primary_category.to_s.upcase) || transfer_or_payment_candidate?
+  end
+
+  def transfer_or_payment_candidate?
+    SPENDING_CANDIDATE_DETAILED.include?(detailed_category.to_s.upcase)
+  end
+
+  def review_note
+    REVIEW_NOTE_TRANSFER_OR_PAYMENT if transfer_or_payment_candidate?
   end
 
   def movement_type

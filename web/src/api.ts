@@ -3505,6 +3505,7 @@ export type PlaidTransaction = {
   /** Same movement vocabulary as statement rows; only purchase, fee and interest count as spending. */
   movement_type?: SourceEvent['event_type']
   counts_as_spending?: boolean
+  review_note?: string | null
   primary_category: string | null
   detailed_category: string | null
   review_status: 'unreviewed' | 'drafted' | 'ignored'
@@ -3519,7 +3520,7 @@ export type PlaidTransaction = {
   source_changed_after_draft: boolean
 }
 
-export type PlaidActivityView = 'all' | 'needs_review' | 'confirmed' | 'excluded' | 'pending' | 'inflow'
+export type PlaidActivityView = 'all' | 'needs_review' | 'confirmed' | 'excluded' | 'pending' | 'inflow' | 'not_spending'
 
 export type PlaidActivitySummary = {
   all_count: number
