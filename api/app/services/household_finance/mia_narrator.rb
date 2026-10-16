@@ -15,7 +15,7 @@ module HouseholdFinance
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 10
     BANNED_OPENERS = /\A(?:(?:(?:that['’]s|that is|this is) a )?(?:good|smart|great) question[.!]?)\s*/i
-    MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
+    MONEY_AMOUNT_PATTERN = HouseholdFinance::Money::CHAT_DOLLAR_AMOUNT_PATTERN
     MONTH_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*(?:-|\s)\s*months?\b/i
     PERCENT_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*%/.freeze
     DANGEROUS_WRITE_CLAIMS = [
@@ -79,7 +79,7 @@ module HouseholdFinance
       request["X-Title"] = "Household CFO Method Mia Narrator"
       request.body = payload.to_json
 
-      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: READ_TIMEOUT_SECONDS, open_timeout: OPEN_TIMEOUT_SECONDS) do |http|
+      response = OpenRouterConnection.start(uri, read_timeout: READ_TIMEOUT_SECONDS, open_timeout: OPEN_TIMEOUT_SECONDS) do |http|
         http.request(request)
       end
       return unless response.is_a?(Net::HTTPSuccess)
@@ -105,7 +105,7 @@ module HouseholdFinance
           *conversation_history,
           { role: "user", content: narration_request }
         ],
-        max_tokens: MAX_OUTPUT_TOKENS
+        max_tokens: AiModels.output_budget(model, MAX_OUTPUT_TOKENS)
       }.tap { |body| body[:reasoning] = reasoning if reasoning }.merge(AiModels.sampling(model, 0.45))
     end
 
@@ -460,12 +460,12 @@ module HouseholdFinance
       end
     end
 
-    LEADING_AMOUNT_FOR_NEXT_CATEGORY_PATTERN = /[-−]?\$\s*[\d,]+(?:\.\d{1,2})?\s+(?:on|for|in|toward|towards|to)\s+(?:the\s+|your\s+|my\s+)?\z/i
+    LEADING_AMOUNT_FOR_NEXT_CATEGORY_PATTERN = /[-−]?\$\s*[\d,]+(?:\.\d{1,2})?(?:\s?[kK]\b)?\s+(?:on|for|in|toward|towards|to)\s+(?:the\s+|your\s+|my\s+)?\z/i
 
     def incorrect_category_metric?(clause, category)
       clause.to_enum(:scan, MONEY_AMOUNT_PATTERN).any? do
         amount_match = Regexp.last_match
-        amount = HouseholdFinance::Money.cents(amount_match[1].delete(","))
+        amount = HouseholdFinance::Money.chat_cents(amount_match[1])
         amount = -amount if clause[[ amount_match.begin(0) - 1, 0 ].max...amount_match.begin(0)].to_s.match?(/[-−]/)
         before = clause[[ amount_match.begin(0) - 18, 0 ].max...amount_match.begin(0)].to_s
         after = clause[amount_match.end(0), 18].to_s
@@ -521,7 +521,7 @@ module HouseholdFinance
     def signed_currency_cents_from_text(text)
       text.to_s.to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
         amount_match = Regexp.last_match
-        cents = HouseholdFinance::Money.cents(amount_match[1].delete(","))
+        cents = HouseholdFinance::Money.chat_cents(amount_match[1])
         text[[ amount_match.begin(0) - 1, 0 ].max...amount_match.begin(0)].to_s.match?(/[-−]/) ? -cents : cents
       end.uniq
     end
@@ -572,7 +572,7 @@ module HouseholdFinance
           amount_matches = clause.fetch(:text).to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
             amount_match = Regexp.last_match
             {
-              cents: HouseholdFinance::Money.cents(amount_match[1].delete(",")),
+              cents: HouseholdFinance::Money.chat_cents(amount_match[1]),
               distance: [ (amount_match.begin(0) - clause.fetch(:merchant_start)).abs, (amount_match.end(0) - clause.fetch(:merchant_end)).abs ].min
             }
           end
@@ -608,7 +608,7 @@ module HouseholdFinance
           amount_matches = clause.to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
             amount_match = Regexp.last_match
             {
-              cents: HouseholdFinance::Money.cents(amount_match[1].delete(",")),
+              cents: HouseholdFinance::Money.chat_cents(amount_match[1]),
               distance: [ (amount_match.begin(0) - mention.begin(0)).abs, (amount_match.end(0) - mention.end(0)).abs ].min
             }
           end
@@ -638,7 +638,7 @@ module HouseholdFinance
     end
 
     def invented_transaction_merchant?(content, transactions)
-      matches = content.scan(/\$\s*[\d,]+(?:\.\d{1,2})?\s+(?:charge\s+|purchase\s+|transaction\s+)?(?:at|from)\s+([\p{L}\d][\p{L}\d'’&.\- ]{1,45}?)(?=[,;.]|\s+(?:on|for|in|and|that|which)\b|\z)/i)
+      matches = content.scan(/\$\s*[\d,]+(?:\.\d{1,2})?#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?\s+(?:charge\s+|purchase\s+|transaction\s+)?(?:at|from)\s+([\p{L}\d][\p{L}\d'’&.\- ]{1,45}?)(?=[,;.]|\s+(?:on|for|in|and|that|which)\b|\z)/i)
       matches.flatten.any? do |merchant|
         normalized = normalize_merchant_label(merchant.sub(/\s+(?:happened|occurred|posted|cleared|was|is)\z/i, ""))
         compatible = transactions.select do |transaction|
@@ -810,7 +810,7 @@ module HouseholdFinance
     end
 
     def currency_cents_from_text(text)
-      text.to_s.scan(MONEY_AMOUNT_PATTERN).flatten.map { |amount| HouseholdFinance::Money.cents(amount.delete(",")) }.uniq
+      text.to_s.scan(MONEY_AMOUNT_PATTERN).flatten.map { |amount| HouseholdFinance::Money.chat_cents(amount) }.uniq
     end
 
     def currency_cents_from_numeric(value, key: nil)

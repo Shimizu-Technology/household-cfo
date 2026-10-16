@@ -1414,6 +1414,84 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal draft.id, body.dig("budget", "annual_plan", "pending_transaction_drafts", 0, "id")
   end
 
+  test "model labeled savings deposits, crypto buys and food hardship never become expense reviews or reports" do
+    user = create_user(email: "mia-model-non-expense@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 400)
+    cases = [
+      [ "Paid $50 to Bank of Guam savings for the challenge", "transaction_report", "Nice work putting $50 into savings!" ],
+      [ "I spent $100 on crypto", "transaction_report", "not everyday spending, so I did not add it as an expense" ],
+      [ "We ran out of food and payday is Friday", "spending_report", "your program team or a local food pantry" ],
+      [ "I spent my last $20 at Payless and we have nothing to eat until payday", "transaction_report", "your program team or a local food pantry" ]
+    ]
+
+    cases.each_with_index do |(message, intent_name, expected), index|
+      amount = message[/\$(\d+)/, 1].to_s
+      action = if intent_name == "transaction_report"
+        { type: "create_transaction_draft", draft_id: 0, merchant: "Payless", amount: amount, occurred_on: Date.current.iso8601,
+          category_id: 0, category_name: "", stack_key: "", splits: [] }
+      else
+        { type: "none" }
+      end
+      intent = HouseholdFinance::MiaIntentResolver::Result.new(
+        intent: intent_name, confidence: 0.99, continuation: false, resolved_message: message,
+        needs_clarification: false, clarification: "", topic: { type: intent_name, title: "Reported", subject: "Reported" },
+        action: action, source: "model"
+      )
+      resolver = Object.new
+      resolver.define_singleton_method(:call) { intent }
+
+      assert_no_difference([ "TransactionDraft.count", "HouseholdTransaction.count" ], message) do
+        with_intent_resolver(resolver) do
+          post "/api/v1/mia/messages", params: { message: message, request_id: "model-non-expense-#{index}" }, headers: auth_headers(user), as: :json
+        end
+      end
+
+      assert_response :created
+      body = JSON.parse(response.body)
+      assert_includes body.dig("assistant_message", "content"), expected, message
+      assert_nil body.fetch("transaction_draft"), message
+      assert_nil body.fetch("spending_report"), message
+
+      # The pre-empted model action must not stay open for a later "yes".
+      session = household.chat_sessions.order(:updated_at).last
+      topics = [ session.active_topic, *Array(session.open_topics) ].compact
+      refute topics.any? { |topic| topic.to_h.dig("action", "type") == "create_transaction_draft" }, message
+      refute topics.any? { |topic| topic.to_h["intent"] == "transaction_report" }, message
+    end
+  end
+
+  test "a model expense beside a savings deposit still drafts the separate purchase" do
+    [ "I spent $30 on groceries and put $50 in savings", "I paid $50 to savings and then $30 for gas", "I paid $30 for gas and also $50 to my savings" ].each_with_index do |message, index|
+      assert_model_drafts_separate_purchase(message, index)
+    end
+  end
+
+  def assert_model_drafts_separate_purchase(message, index)
+    user = create_user(email: "mia-model-mixed-deposit-#{index}@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "transaction_report", confidence: 0.99, continuation: false, resolved_message: message,
+      needs_clarification: false, clarification: "", topic: { type: "transaction_report", title: "Groceries", subject: "Groceries" },
+      action: { type: "create_transaction_draft", draft_id: 0, merchant: "Groceries", amount: "30", occurred_on: Date.current.iso8601,
+        category_id: 0, category_name: "", stack_key: "", splits: [] },
+      source: "model"
+    )
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { intent }
+
+    assert_difference("TransactionDraft.count", 1) do
+      with_intent_resolver(resolver) do
+        post "/api/v1/mia/messages", params: { message: message, request_id: "model-mixed-deposit-#{index}" }, headers: auth_headers(user), as: :json
+      end
+    end
+
+    assert_response :created
+    assert_equal 3_000, household.transaction_drafts.sole.total_amount_cents, message
+    refute_includes JSON.parse(response.body).dig("assistant_message", "content"), "I did not add it as an expense", message
+  end
+
   test "model resolved transaction correction updates the pending review without changing actuals" do
     user = create_user(email: "mia-transaction-correction@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

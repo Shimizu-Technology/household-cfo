@@ -74,4 +74,12 @@ class AiModelsTest < ActiveSupport::TestCase
     assert_equal({}, AiModels.sampling("anthropic/claude-sonnet-5.5", 0.45))
     assert_equal({}, AiModels.sampling("~anthropic/claude-sonnet-latest", 0))
   end
+
+  test "models that always reason get an allowance on top of the reply budget" do
+    assert_equal 512 + AiModels::REASONING_ALLOWANCE_TOKENS, AiModels.output_budget("anthropic/claude-haiku-5.5", 512)
+    assert_equal 512 + AiModels::REASONING_ALLOWANCE_TOKENS, AiModels.output_budget("google/gemini-3.8-flash", 512)
+    assert_equal 512, AiModels.output_budget("google/gemini-2.5-flash", 512)
+    assert_equal({ effort: "low" }, AiModels.chat_reasoning("google/gemini-3.8-flash"))
+    assert_nil AiModels.chat_reasoning("google/gemini-2.5-flash")
+  end
 end

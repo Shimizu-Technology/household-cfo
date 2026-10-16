@@ -9,6 +9,7 @@ module SavingsChallenge
     def call
       return HouseholdFinance::MiaCoachAnswerer.prompt_injection_boundary if HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
       return privacy_answer if @message.match?(/\b(?:employer|sponsor|bank of guam|bog)\b.{0,100}\b(?:see|share|send|give|feelings?|balances?|statements?|transactions?)\b|\bwho\b.{0,40}\b(?:sees?|access|read)\b/i)
+      return food_insecurity_answer if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
       return guarantee_answer if @message.match?(/\b(?:guarantee|guaranteed|eligibility|eligible for|approve (?:my|a) loan|bank endorsement)\b/i)
       return protected_baseline_answer if @message.match?(/\b(?:can.t afford|cannot afford|not enough|shortfall|behind on|skip (?:buying |eating |paying (?:for )?)?(?:food|meals|groceries|rent|medicine|medication|minimum)|go without (?:food|meals|groceries|medicine|medication)|stop paying|cut (?:food|meals|medicine|medication))\b|\b(?:income|pay|salary)\b.{0,100}\b(?:essentials?|rent|bills?)\b|\b(?:essentials?|rent|bills?)\b.{0,100}\b(?:income|pay|salary)\b/i)
       return "The recommended goal is $500 in new money you actually set aside over 90 days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
@@ -16,6 +17,8 @@ module SavingsChallenge
         return attachment_answer if @attachments.any?
         return debt_answer if @message.match?(/\b(?:credit cards?|debts?|interest|apr|payoff|minimum payment)\b/i)
         return feeling_answer if @message.match?(/\b(?:feel|feeling|ashamed|embarrassed|guilty|overwhelmed|anxious)\b/i)
+        return investment_answer if HouseholdFinance::MoneyMovementText.investment_purchase_report?(@message)
+        return savings_answer if HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
         return daily_answer if @message.match?(/\b(?:spent|bought|purchase|receipt|cash|no.sp[eai]nd|check.in|yesterday)\b/i)
         return savings_answer if @message.match?(/\b(?:saved|savings|set aside|reserved|withdrew|withdrawal|progress|goal|target)\b/i)
         baseline_answer
@@ -40,6 +43,14 @@ module SavingsChallenge
 
     def privacy_answer
       "Participation does not give an employer or sponsor access to your balances, statements, purchases, chat or feelings. Your records are private by default; coach monetary summaries and selected details require separate choices in Privacy & notifications. Sponsor reporting uses fixed, coarse cohort summaries with suppression, not individual financial records. You choose what to share, and can revoke a grant. What access would you like to review?"
+    end
+
+    def food_insecurity_answer
+      "Thank you for telling me; a week like this is hard, and it is not a failure on your part. Food comes first, ahead of the savings challenge, so pausing or lowering your savings to buy food is the right call; the $500 suggestion is not an obligation. It is okay to ask for help this week; your program team or a local food pantry can help you get through to payday. Would it help to list what is due before your next paycheck, so we can decide together what can be paused or moved so food comes first?"
+    end
+
+    def investment_answer
+      "Buying crypto or stocks is not a purchase check-in, and it does not count as money reserved for the challenge. I cannot give licensed investment advice or tell you what to buy, sell, or hold. Keep money for food, housing, medication, utilities and required payments in cash you can reach. Would you like to check what is due before your next paycheck?"
     end
 
     def guarantee_answer

@@ -6,7 +6,7 @@ module HouseholdFinance
     include MiaActionDraftAssetCommands
     include MiaActionDraftGoalCommands
 
-    MONEY_PATTERN = /\$?\s*\d[\d,]*(?:\.\d{1,2})?/.freeze
+    MONEY_PATTERN = /\$?\s*\d[\d,]*(?:\.\d{1,2})?#{Money::CHAT_THOUSANDS_SOURCE}?/.freeze
     ACTION_TERMS = /\b(set|change|update|adjust|make|increase|raise|decrease|lower|reduce|move|transfer|shift|add|create|rename|reclassify|recategorize|archive|delete|remove|restore)\b/i
     BUDGET_CONTEXT_TERMS = /\b(budget|category|categories|planned|plan|allocation|monthly|per month|expense stack|line item|row)\b/i
     ALL_YEAR_TERMS = /\b(all year|every month|for the year|annual(?:ly)?)\b/i
@@ -433,7 +433,7 @@ module HouseholdFinance
         prefix = authored[previous_end...mention.fetch(:starts_at)].to_s
         boundary = mentions[index + 1]&.fetch(:starts_at) || authored.length
         suffix = authored[mention.fetch(:ends_at)...boundary].to_s
-        amount_match = suffix.match(/\b(?<modifier>to|at|by)\s*(?<amount>#{MONEY_PATTERN})|(?<amount_only>\$\s*\d[\d,]*(?:\.\d{1,2})?)/i) || shared_amount
+        amount_match = suffix.match(/\b(?<modifier>to|at|by)\s*(?<amount>#{MONEY_PATTERN})|(?<amount_only>\$\s*\d[\d,]*(?:\.\d{1,2})?#{Money::CHAT_THOUSANDS_SOURCE}?)/i) || shared_amount
         unless amount_match
           return validation_result("Tell me the exact amount for #{mention.fetch(:category).name}. I did not draft a partial change.")
         end
@@ -827,7 +827,7 @@ module HouseholdFinance
     end
 
     def amount_cents_from(value)
-      Money.cents!(value.to_s.delete("$, "), message: "Amount must be a number")
+      Money.cents!(Money.chat_amount_text(value.to_s.delete("$ ")), message: "Amount must be a number")
     rescue ArgumentError
       -1
     end

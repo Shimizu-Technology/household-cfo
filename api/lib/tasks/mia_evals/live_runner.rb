@@ -44,6 +44,9 @@ module MiaEvals
       def connect
         return super unless address.to_s.end_with?(PROVIDER_HOST)
 
+        # A slow local network shouldn't decide a model comparison; production keeps
+        # its own timeouts. MIA_EVAL_OPEN_TIMEOUT=5 reproduces production exactly.
+        self.open_timeout = [ open_timeout.to_f, LiveRunner.local_open_timeout ].max
         started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         begin
           super
@@ -54,9 +57,25 @@ module MiaEvals
       end
     end
 
+    # Records the text of narrations the Rails guardrails reject, so a report can
+    # tell a real model mistake from an over-strict guardrail.
+    module RejectedNarrationRecorder
+      private
+
+      def narration_rejection_reason(content)
+        reason = super
+        Rails.logger.info("[MiaEvals] narration rejected #{reason}: #{content.to_s.squish.truncate(600)}") if reason
+        reason
+      end
+    end
+
     class << self
       def provider_calls
         @provider_calls ||= []
+      end
+
+      def local_open_timeout
+        ENV.fetch("MIA_EVAL_OPEN_TIMEOUT", "15").to_f
       end
 
       def elapsed_ms(started_at)
@@ -99,6 +118,7 @@ module MiaEvals
       return false unless preflight
 
       Net::HTTP.prepend(ProviderCallRecorder) unless Net::HTTP < ProviderCallRecorder
+      HouseholdFinance::MiaNarrator.prepend(RejectedNarrationRecorder) unless HouseholdFinance::MiaNarrator < RejectedNarrationRecorder
       model = AiModels.text
       cases = selected_cases
       puts "Running #{cases.length} Mia eval cases live with #{model}..."
@@ -209,7 +229,7 @@ module MiaEvals
         status: session.response.status,
         latency_ms: elapsed_ms,
         provider_calls: self.class.provider_calls.dup,
-        notes: log.string.lines.grep(LOG_NOTE_PATTERN).map(&:strip).uniq.first(5)
+        notes: log.string.lines.grep(LOG_NOTE_PATTERN).map(&:strip).uniq.first(8)
       }
     ensure
       Rails.logger.stop_broadcasting_to(capture) if capture

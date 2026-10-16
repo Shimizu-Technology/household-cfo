@@ -1,6 +1,6 @@
 module HouseholdFinance
   class MiaCoachAnswerer
-    AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
+    AMOUNT_PATTERN = Money::CHAT_DOLLAR_AMOUNT_PATTERN
     TRANSACTION_REPORT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i.freeze
     # "Spent $12 at Payless" with no "I": only a dollar amount right after the verb,
     # and only in a statement, so "Spent too much, can I afford a TV?" stays a question.
@@ -27,6 +27,13 @@ module HouseholdFinance
     ESSENTIAL_PURCHASE_TERMS = /\b(?:groceries|grocery|food|medicine|medication|rent|mortgage|power|water|utilities|utility|insurance|gas|daycare|childcare|school|tuition|diapers|formula|doctor|medical|dental)\b/i.freeze
     SCREENSHOT_PURCHASE_TERMS = /\b(?:purse|bag|handbag)\b/i.freeze
     PLANNED_PURCHASE_DETAIL_PATTERN = /(?:costs?|price|\$\s*\d|does that change|kid|school|work|league)/i.freeze
+    # The purchase-detail answer continues a purchase decision ("They cost $85…",
+    # "Does that change it?", a question, or a follow-up to a purchase topic). A
+    # plain statement with a dollar amount is not a purchase question.
+    PURCHASE_DETAIL_CONTEXT_PATTERN = /\b(?:costs?|price[sd]?|would cost|does that change)\b|\?|\bfollow-up to previous\b.*\b(?:purchase|buy|buying|afford)\b/i.freeze
+    # "Saved $30 with coupons", "my savings went down $200": a change already
+    # described, not money about to be spent.
+    AMOUNT_CHANGE_STATEMENT_PATTERN = /\b(?:saved|went (?:down|up)|dropped|grew|increased|decreased|fell|rose)\b/i.freeze
     READ_ONLY_AMOUNT_EDIT_PATTERN = /(?:\A|[.!?;])\s*(?:(?:please|can you|could you|would you)\s+)?(?:set|change|update|adjust|increase|raise|decrease|lower|reduce|cut)\s+[^.!?;]{1,120}?\b(?:to|at|by)\s*\$?\s*\d/i.freeze
     FAMILY_SUPPORT_PATTERN = /\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend)\b.*\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b|\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b.*\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend|off-island)\b/i.freeze
     DEBT_VS_SAVINGS_PATTERN = /\b(?:debt|credit card|loan)\b.*\b(?:saving|savings|emergency|runway|extra|payoff|pay off)\b|\b(?:saving|savings|emergency|runway)\b.*\b(?:debt|credit card|loan|payoff|pay off)\b/i.freeze
@@ -74,6 +81,7 @@ module HouseholdFinance
     REPEAT_LOOKUP_PATTERN = /\b(?:what|how much|how many|remind me|show me|list|when did)\b/i.freeze
     REPEAT_MARKER_PATTERN = /\b(?:again|(?:second|third|fourth|fifth|sixth|seventh|\d+(?:st|nd|rd|th))\s+time|told myself|keep (?:doing|spending|buying|ordering))\b/i.freeze
     REPEAT_LABEL_PATTERN = /\b(takeout|take out|delivery|fast food|eating out|coffee|online shopping|shopping|snacks)\b/i.freeze
+    SAVINGS_DEPOSIT_STRAIN_PATTERN = /\b(?:(?:can t|cannot|can not|couldn t|could not|didn t|did not|won t)\s+(?:pay|cover|afford)|(?:instead of|rather than)\s+(?:paying|covering|the|my|our|rent|bills?)|skip(?:ped|ping)?\s+(?:the\s+|my\s+|our\s+)?(?:rent|bills?|payment|power|water)|short|behind|overdue|late|past due|shut ?off|disconnect\w*|evict\w*)\b/i.freeze
     TRANSACTION_DRAFT_FOLLOWUP_PATTERN = /\bfollow-up to previous transaction_draft topic\b|\btopic:\s*reported spending\b/i.freeze
 
     def self.subjectless_spend_report?(value)
@@ -97,8 +105,9 @@ module HouseholdFinance
       "I cannot ignore the Household CFO safety and product boundaries, reveal hidden instructions, or claim an action happened when it did not. No budget, transfer, or household record changed."
     end
 
-    def initialize(household, message, annual_budget_manager: nil, annual_plan: nil, reference_month: Date.current.month, conversation_messages: [], ensure_plan: true)
+    def initialize(household, message, annual_budget_manager: nil, annual_plan: nil, reference_month: Date.current.month, conversation_messages: [], ensure_plan: true, user: nil)
       @household = household
+      @user = user
       @message = message.to_s.squish
       @annual_budget_manager = annual_budget_manager || AnnualBudgetManager.new(household, year: Date.current.year)
       @provided_annual_plan = annual_plan&.deep_symbolize_keys
@@ -110,22 +119,34 @@ module HouseholdFinance
     def call
       return injection_boundary_answer if self.class.prompt_injection?(message)
       return read_only_amount_edit_answer if ::Mia::FinancialReadOnlyRequest.matches?(message) && message.match?(READ_ONLY_AMOUNT_EDIT_PATTERN)
+      # A family short on food gets help first, even inside a spending report.
+      food_answer = food_insecurity_answer
+      return food_answer if food_answer
       return nil if transaction_report?
 
-      essential_skip_answer || avoidance_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || planned_purchase_detail_answer || purchase_decision_answer
+      essential_skip_answer || mixed_movement_answer || savings_deposit_answer || avoidance_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
       @active_plan if defined?(@active_plan)
     end
 
+    # Answers that must win even when the intent model reads the message as a
+    # spending report or lookup: food hardship, savings deposits, investment buys.
+    def support_answer
+      return if self.class.prompt_injection?(message)
+
+      food_insecurity_answer || (savings_deposit_answer if non_expense_movement_only?) ||
+        (investment_boundary_answer if non_expense_movement_only? && MoneyMovementText.investment_purchase_report?(message))
+    end
+
     def guardrail_answer
-      capability_answer || investment_boundary_answer || incomplete_setup_answer || incomplete_debt_minimums_answer || incomplete_debt_balances_answer || confirmed_debt_free_answer || incomplete_liquid_balances_answer
+      capability_answer || food_insecurity_answer || mixed_movement_answer || savings_deposit_answer || investment_boundary_answer || incomplete_setup_answer || incomplete_debt_minimums_answer || incomplete_debt_balances_answer || confirmed_debt_free_answer || incomplete_liquid_balances_answer
     end
 
     private
 
-    attr_reader :household, :message, :annual_budget_manager, :provided_annual_plan, :reference_month, :conversation_messages, :ensure_plan
+    attr_reader :household, :message, :annual_budget_manager, :provided_annual_plan, :reference_month, :conversation_messages, :ensure_plan, :user
 
     def read_only_amount_edit_answer
       "I kept this read-only: I did not change your financial records and did not create a review card. Your saved plan stays unchanged. Next CFO move: ask how that proposed amount compares with your saved plan if you want an analysis."
@@ -250,8 +271,57 @@ module HouseholdFinance
       "#{self.class.prompt_injection_boundary} Ask the real money question, and I will answer from confirmed facts, the active plan, and pending reviews separately."
     end
 
+    def food_insecurity_answer
+      return nil unless MoneyMovementText.food_insecurity?(message)
+
+      spend_cents = amount_from_message_cents if self.class.spend_report_text?(message)
+      spend_note = if spend_cents&.positive?
+        " I have not added the #{money(spend_cents)} you spent yet; when you are ready, send it on its own, like \"I spent #{money(spend_cents)} at the store today\", and I will draft it for review."
+      end
+      "Thank you for telling me; a week like this is hard, and it is not a failure on your part. Food comes first: it is the first thing in your protected baseline, ahead of savings, extra debt payments, and wants, so pausing savings to buy food is the right call. It is okay to ask for help this week; your program team or a local food pantry can help you get through to payday.#{spend_note} Next CFO move: list what is due before your next paycheck, with amounts, and we will decide together what can be paused or moved so food comes first."
+    end
+
+    # A spend beside a deposit or investment buy that the draft path cannot read on its
+    # own ("Bought groceries for $30 and put $50 in savings"): never drop it silently.
+    def mixed_movement_answer
+      return nil unless MoneyMovementText.separate_spend?(message)
+      return nil if transaction_report?
+
+      opening = if MoneyMovementText.savings_deposit_report?(message)
+        deposit_cents = MoneyMovementText.savings_deposit_cents(message)
+        "Nice work putting #{deposit_cents ? money(deposit_cents) : 'money'} into savings; that part is savings, not spending."
+      elsif MoneyMovementText.investment_purchase?(message)
+        "Buying crypto or stocks is not everyday spending, so I did not count that part as an expense, and I cannot give licensed investment advice."
+      else
+        "The savings part of your message is not spending."
+      end
+      spend_cents = MoneyMovementText.separate_spend_cents(message)
+      spend = spend_cents ? "a #{money(spend_cents)} purchase" : "a purchase"
+      "#{opening} I also see #{spend} in your message, and I have not added it yet. Next CFO move: send that purchase on its own with where and when, like \"I spent #{spend_cents ? money(spend_cents) : '$30'} at Payless today\", and I will draft it for review."
+    end
+
+    def savings_deposit_answer
+      return nil unless MoneyMovementText.savings_deposit_report?(message)
+      return nil if MoneyMovementText.separate_spend?(message)
+      # Skipping meals or falling short on a bill to save needs that answer, not a celebration.
+      return nil if normalized_message.match?(ESSENTIAL_SKIP_PATTERN) || normalized_message.match?(SAVINGS_DEPOSIT_STRAIN_PATTERN)
+
+      amount_cents = MoneyMovementText.savings_deposit_cents(message)
+      opening = amount_cents ? "Nice work putting #{money(amount_cents)} into savings!" : "Nice work putting money into savings!"
+      where_to_log = if user && SavingsEnrollment.exists?(household: household, user: user, status: "active")
+        "To count it toward your 90-day savings challenge, open Home and review it as a contribution; it counts once you approve it."
+      else
+        "If you track that account here, you can update its saved balance in My Money when you are ready."
+      end
+      "#{opening} That is savings, not spending, so I did not add it as an expense or count it against your budget. #{where_to_log} Next CFO move: keep each deposit to an amount that still leaves food, housing, utilities, and required payments covered."
+    end
+
     def investment_boundary_answer
-      return nil unless normalized_message.match?(INVESTMENT_PATTERN)
+      return nil unless normalized_message.match?(INVESTMENT_PATTERN) || MoneyMovementText.investment_purchase?(message)
+
+      if MoneyMovementText.investment_purchase_report?(message) && !MoneyMovementText.separate_spend?(message)
+        return "Thanks for telling me. Buying crypto or stocks is not everyday spending, so I did not add it as an expense in your budget. I cannot give licensed investment advice or tell you what to buy, sell, or hold. What matters most is that money for essentials and emergencies is not riding on it. Next CFO move: check that the bills due before your next paycheck are still covered from cash you can reach, not from that investment."
+      end
 
       unless setup_status.complete? && DebtPortfolio.new(household).minimum_payment_known? && AssetPortfolio.new(household).liquid_balance_known?
         return "I cannot give licensed investment advice or tell you what stock or crypto to buy. Do not put emergency money at risk to chase a short-term return. Next step: protect essential bills and emergency runway, and confirm the missing household numbers before considering an investment decision."
@@ -725,7 +795,7 @@ module HouseholdFinance
 
     def essential_skip_answer
       return nil unless normalized_message.match?(ESSENTIAL_SKIP_PATTERN)
-      return nil unless normalized_message.match?(ESSENTIAL_SKIP_PURPOSE_PATTERN)
+      return nil unless normalized_message.match?(ESSENTIAL_SKIP_PURPOSE_PATTERN) || MoneyMovementText.savings_deposit?(message)
       return nil if normalized_message.match?(DISCRETIONARY_FOOD_PATTERN) || normalized_message.match?(FOOD_INSECURITY_PATTERN)
 
       if normalized_message.match?(ESSENTIAL_SKIP_BILL_PATTERN) && !normalized_message.match?(/\b(?:save|saving|savings|challenge|goal)\b/)
@@ -771,10 +841,10 @@ module HouseholdFinance
     # The amount the participant names as the goal ("the $500 goal", "a goal of $500"),
     # not income or another number in the same message.
     def savings_goal_amount_cents
-      amount = /(?:\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?))\s+(?:(?:savings|challenge|saving)\s+)?(?:goal|target)\b|\b(?:goal|target)\s+(?:of|is|at|to|for)\s+\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)/i.match(message)
+      amount = /#{AMOUNT_PATTERN}\s+(?:(?:savings|challenge|saving)\s+)?(?:goal|target)\b|\b(?:goal|target)\s+(?:of|is|at|to|for)\s+#{AMOUNT_PATTERN}/i.match(message)
       return unless amount
 
-      Money.cents((amount[1] || amount[2]).delete(","))
+      Money.chat_cents(amount[1] || amount[2])
     end
 
     def savings_goal_margin_line(amount_cents)
@@ -801,7 +871,7 @@ module HouseholdFinance
 
       match = message.match(ConversationFollowupResolver::CONDITIONAL_MONTHLY_INCOME_AMOUNT_PATTERN)
 
-      assumed_income_cents = Money.cents(match[1].delete(","))
+      assumed_income_cents = Money.chat_cents(match[1])
 
       approved_outflow_cents = snapshot.fetch(:total_outflow_cents)
       modeled_surplus_cents = assumed_income_cents - approved_outflow_cents
@@ -823,9 +893,13 @@ module HouseholdFinance
     def planned_purchase_detail_answer
       return nil unless amount_from_message_cents&.positive?
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
-      return nil if !purchase_question? && normalized_message.match?(/\b(?:income|take home|salary|paycheck|balance|minimum|account|apr|goal progress)\b/)
+      return nil unless purchase_question? || message.match?(PURCHASE_DETAIL_CONTEXT_PATTERN) || purchase_conversation?
+      return nil if !purchase_question? && normalized_message.match?(AMOUNT_CHANGE_STATEMENT_PATTERN) && !normalized_message.match?(/\b(?:does that change|price|costs?)\b/)
+      return nil if !purchase_question? && normalized_message.match?(/\b(?:income|take home|salary|paycheck|bonus|refund|windfall|balance|minimum|account|apr|goal progress)\b/)
+      # "Did I pay $50 for school fees last month?" asks about money already spent.
+      return nil if !purchase_question? && normalized_message.match?(/\A(?:did (?:i|we)|how much did (?:i|we)|what did (?:i|we))\b/)
       return nil if !purchase_question? && normalized_message.match?(SAVINGS_GOAL_PATTERN)
-      return nil if transaction_report?
+      return nil if transaction_report? || MoneyMovementText.non_expense?(message)
       return nil if normalized_message.match?(TRANSACTION_DRAFT_FOLLOWUP_PATTERN)
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
       return nil if normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(EXTRA_MONEY_PATTERN) || normalized_message.match?(MONEY_MOVEMENT_PATTERN)
@@ -862,8 +936,35 @@ module HouseholdFinance
       "For #{item}, #{verdict}. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(safe_cents)}, #{runway_status}, and the active discretionary plan has about #{money(discretionary_remaining_cents)} remaining this month before future approvals. If this is required for work, school, or health, send me the amount and deadline so we can place it properly; if it is a want, put it on a 30-day list and fund it only after expected bills like registration are covered. Next CFO move: tell me the price and whether this is a need or a want."
     end
 
+    # Savings-deposit and investment clauses are set aside first, so a spend reported
+    # beside them still takes the draft path and the deposit alone never does.
     def transaction_report?
-      self.class.spend_report_text?(message) && message.match?(AMOUNT_PATTERN)
+      return false if MoneyMovementText.non_expense?(message) && !MoneyMovementText.separate_spend?(message)
+
+      text = MoneyMovementText.without_non_expense(message)
+      self.class.spend_report_text?(text) && text.match?(AMOUNT_PATTERN)
+    end
+
+    # A savings deposit or investment buy with no separate purchase is not an expense report.
+    def non_expense_movement_only?
+      MoneyMovementText.non_expense?(message) && !MoneyMovementText.separate_spend?(message) &&
+        TransactionDraftBuilder.explicit_purchase_details(message).blank?
+    end
+
+    # A bare amount ("$120 for school stuff") answering a purchase question asked
+    # just before, or Mia's own request for the price.
+    def purchase_conversation?
+      return @purchase_conversation if defined?(@purchase_conversation)
+
+      turns = conversation_messages.filter_map do |entry|
+        role = entry.respond_to?(:role) ? entry.role : entry[:role] || entry["role"]
+        content = entry.respond_to?(:content) ? entry.content : entry[:content] || entry["content"]
+        [ role.to_s, content.to_s.squish ] if content.present? && content.to_s.squish != message
+      end
+      last_user = turns.reverse.find { |role, _content| role == "user" }&.last
+      last_assistant = turns.reverse.find { |role, _content| role == "assistant" }&.last
+      @purchase_conversation = PURCHASE_INTENT_PATTERNS.any? { |pattern| last_user.to_s.match?(pattern) } ||
+        last_assistant.to_s.match?(/\b(?:send me the (?:price|amount|cost)|the (?:price|amount|cost) and (?:timing|due date)|what (?:does|would) it cost|how much (?:is it|does it cost|would it be))\b/i)
     end
 
     def purchase_question?
@@ -932,13 +1033,13 @@ module HouseholdFinance
       end.first
       return unless match
 
-      Money.cents(match[1].delete(","))
+      Money.chat_cents(match[1])
     end
 
     def amount_entries
       @amount_entries ||= message.to_enum(:scan, AMOUNT_PATTERN).filter_map do
         match = Regexp.last_match
-        value = Money.cents(match[1].delete(","))
+        value = Money.chat_cents(match[1])
         { value: value, index: match.begin(0) } if value.positive?
       end
     end

@@ -30,12 +30,29 @@ module AiModels
     first_present(env, TRANSCRIPTION_ENV_KEYS) || DEFAULT_TRANSCRIPTION_MODEL
   end
 
+  # Reasoning tokens count against max_tokens. Without this allowance a model that
+  # always reasons can spend a short reply budget thinking and return nothing.
+  REASONING_ALLOWANCE_TOKENS = 1_024
+
   # Reasoning settings for conversational calls that must stay quick.
-  # Claude models on OpenRouter always reason (it cannot be turned off), so ask
-  # for the lightest effort. Gemini Flash does not reason unless asked, and
+  # Claude and Gemini 3+ models always reason (it cannot be turned off), so ask
+  # for the lightest effort. Gemini 2.5 Flash does not reason unless asked, and
   # asking would add thinking tokens and latency, so leave it alone.
   def chat_reasoning(model)
-    { effort: "low" } if anthropic?(model)
+    { effort: "low" } if always_reasons?(model)
+  end
+
+  # max_tokens for a reply of about reply_tokens, plus room to reason when the
+  # model always does.
+  def output_budget(model, reply_tokens)
+    always_reasons?(model) ? reply_tokens + REASONING_ALLOWANCE_TOKENS : reply_tokens
+  end
+
+  # Gemini 2.5 Pro also thinks by default; it is not a chat-path candidate here,
+  # so it is left out rather than guessed at. Aliases such as
+  # "google/gemini-flash-latest" are not matched; use pinned ids.
+  def always_reasons?(model)
+    anthropic?(model) || model.to_s.delete_prefix("~").match?(%r{\Agoogle/gemini-(?:[3-9]|\d{2,})})
   end
 
   # Claude models on OpenRouter reject sampling settings (and require_parameters

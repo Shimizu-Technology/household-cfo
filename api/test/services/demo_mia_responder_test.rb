@@ -557,6 +557,24 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     )
   end
 
+  test "a participant shorthand amount grounds the full thousands value, not single dollars" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = { metrics: { readiness: "Yellow — protect the baseline", safe_to_spend: "$262" } }.to_json
+
+    refute responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Treat the $5,000 car as a scenario, not approved spending.",
+      context: context,
+      user_message: "What if the car costs $5k?"
+    )
+    assert responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Treat the $5 car as a scenario, not approved spending.",
+      context: context,
+      user_message: "What if the car costs $5k?"
+    )
+  end
+
   test "generic model responses require approved percentages to match their metric label" do
     responder = Demo::MiaResponder.new(api_key: nil)
     context = { metrics: { monthly_surplus_rate_percent: 8, readiness: "Yellow — protect the baseline" } }.to_json

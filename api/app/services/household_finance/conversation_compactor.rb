@@ -4,7 +4,7 @@ module HouseholdFinance
   class ConversationCompactor
     MAX_TOPICS = 8
     MAX_TEXT_LENGTH = 240
-    AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    AMOUNT_PATTERN = /\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
     FOLLOW_UP_PATTERN = /\b(?:what if|does that change|what about|how about|and if|then what|should i|should we|can i|can we|it|they|them|that|this|those|remind me|pick up|continue|same thing|from earlier|we were talking)\b/i.freeze
     RECALL_PATTERN = /\b(?:remind me|what were we(?: just)? talking about|what did we(?: just)? talk about|what were we(?: just)? doing|what did we(?: just)? do|what was the plan|pick up where we left off|continue where we left off|from earlier|earlier plan)\b/i.freeze
     FAMILY_TERMS = /\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend|off-island)\b/i.freeze
@@ -282,14 +282,16 @@ module HouseholdFinance
     end
 
     def transaction_report?(normalized)
-      normalized.match?(TRANSACTION_TERMS) && normalized.match?(AMOUNT_PATTERN)
+      return false unless normalized.match?(TRANSACTION_TERMS) && normalized.match?(AMOUNT_PATTERN)
+
+      !MoneyMovementText.non_expense?(normalized) || TransactionDraftBuilder.explicit_purchase_details(normalized).present?
     end
 
     def amount_from_text(text)
       match = text.to_s.match(AMOUNT_PATTERN)
       return unless match
 
-      Money.cents(match[1].delete(","))
+      Money.chat_cents(match[1])
     end
 
     def assistant_summary(text)
