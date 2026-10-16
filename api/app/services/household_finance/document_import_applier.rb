@@ -211,7 +211,9 @@ module HouseholdFinance
 
     def reconciled_status
       unapplied_actionable = document_import.items.where(ignored: false, applied_at: nil).exists?
-      return "applied" unless unapplied_actionable
+      unless unapplied_actionable
+        return document_import.approved_values? ? "applied" : "nothing_applied"
+      end
 
       document_import.items.where(ignored: false).where.not(applied_at: nil).exists? ? "partially_applied" : "needs_review"
     end

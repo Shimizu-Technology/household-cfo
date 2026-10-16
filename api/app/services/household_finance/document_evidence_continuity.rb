@@ -7,7 +7,7 @@ module HouseholdFinance
     MAX_IMPORTS = 5
     MAX_SCOPE_ENTITIES = 4
     MAX_RECORD_ID = 9_223_372_036_854_775_807
-    READY_STATUSES = %w[needs_review applied partially_applied].freeze
+    READY_STATUSES = %w[needs_review applied partially_applied nothing_applied].freeze
 
     module_function
 

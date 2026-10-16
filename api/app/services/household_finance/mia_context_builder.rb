@@ -303,7 +303,7 @@ module HouseholdFinance
 
     def recent_applied_summaries
       @recent_applied_summaries ||= household.financial_document_imports.current_picture
-        .where(status: %w[applied partially_applied])
+        .where(status: %w[applied partially_applied]).with_approved_values
         .where.not(extracted_summary: [ nil, "" ])
         .order(Arel.sql("COALESCE(applied_at, updated_at) DESC"), id: :desc)
         .limit(3)
@@ -319,7 +319,7 @@ module HouseholdFinance
 
     def latest_applied_documents_by_kind
       @latest_applied_documents_by_kind ||= household.financial_document_imports.current_picture
-        .where(status: %w[applied partially_applied])
+        .where(status: %w[applied partially_applied]).with_approved_values
         .select("DISTINCT ON (document_kind) financial_document_imports.*")
         .order(Arel.sql("document_kind, COALESCE(period_end_on, document_date, applied_at, updated_at) DESC, id DESC"))
         .to_a

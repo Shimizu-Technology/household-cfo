@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
 require "csv"
+require "fileutils"
 require "roo"
 require "roo-xls"
+require "tempfile"
+require "zip"
 
 module FinancialDocuments
   class SpreadsheetSummarizer
@@ -12,6 +15,16 @@ module FinancialDocuments
     MAX_SCANNED_CELLS = 250_000
     MAX_CELL_LENGTH = 120
     MAX_SHEET_NAME_LENGTH = 80
+    WORKSHEET_ENTRY = %r{\Axl/worksheets/[^/]+\.xml\z}
+    EMPTY_CACHED_VALUE = %r{<v\s*/>|<v>\s*</v>}
+    UNCALCULATED_MESSAGE = "This workbook has formulas without saved results, so we couldn't read it. Open it in Excel or Google Sheets, save it again (or export it as CSV), then upload the new copy."
+
+    # A participant-safe reason the workbook cannot be read.
+    class Unreadable < StandardError; end
+
+    def self.uncalculated_formula_warning(count)
+      "#{count} formula #{count == 1 ? 'cell' : 'cells'} (such as a total) had no saved result, so #{count == 1 ? 'it was' : 'they were'} left blank. If you need #{count == 1 ? 'that value' : 'those values'}, open the file in Excel or Google Sheets, save it, and upload it again."
+    end
 
     def initialize(file_path:, filename:)
       @file_path = file_path
@@ -19,7 +32,59 @@ module FinancialDocuments
     end
 
     def call
-      spreadsheet = open_spreadsheet
+      summarize(open_spreadsheet)
+    rescue ArgumentError, TypeError => error
+      raise unless xlsx?
+
+      summarize_without_uncalculated_formulas(error)
+    end
+
+    private
+
+    attr_reader :file_path, :filename
+
+    def xlsx?
+      File.extname(filename.to_s).downcase == ".xlsx"
+    end
+
+    # Roo cannot load a sheet containing a formula whose cached result is
+    # empty (a file written by a script, never opened in Excel). Read a copy
+    # with those empty results removed: the formula cells read as blank and
+    # the participant is told which values are missing.
+    def summarize_without_uncalculated_formulas(original_error)
+      patched = Tempfile.new([ "financial_document_formulas", ".xlsx" ])
+      patched.close
+      count = strip_empty_cached_values(patched.path)
+      raise original_error if count.zero?
+
+      begin
+        summarize(Roo::Excelx.new(patched.path)).merge(uncalculated_formula_cells: count)
+      rescue ArgumentError, TypeError
+        raise Unreadable, UNCALCULATED_MESSAGE
+      end
+    ensure
+      patched&.close!
+    end
+
+    def strip_empty_cached_values(path)
+      FileUtils.cp(file_path, path)
+      count = 0
+      Zip::File.open(path) do |zip|
+        zip.entries.select { |entry| entry.name.match?(WORKSHEET_ENTRY) }.each do |entry|
+          xml = SourceSafety.read_ooxml_xml(zip, entry.name)
+          next unless xml
+
+          stripped = xml.gsub(EMPTY_CACHED_VALUE) { count += 1; "" }
+          zip.get_output_stream(entry.name) { |io| io.write(stripped) } if stripped != xml
+        end
+        zip.commit
+      end
+      count
+    rescue Zip::Error
+      raise Unreadable, UNCALCULATED_MESSAGE
+    end
+
+    def summarize(spreadsheet)
       sheet_names = spreadsheet.sheets
       @scanned_cells = 0
       @scan_incomplete = false
@@ -37,10 +102,6 @@ module FinancialDocuments
         scan_incomplete: @scan_incomplete || sheet_limit_exceeded
       }
     end
-
-    private
-
-    attr_reader :file_path, :filename
 
     def open_spreadsheet
       case File.extname(filename.to_s).downcase

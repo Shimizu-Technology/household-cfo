@@ -23,7 +23,7 @@ export type SourceEvent = {
   locator: { page?: number; sheet_index?: number; row?: number; extraction_index?: number }
   funding_components: Array<{ source_key: string; amount_cents: number }>; limitations: string[]
   review_state: string; expense_projection_eligible: boolean; evidence_available: boolean
-  evidence?: { merchant?: string; raw_description?: string; evidence?: string; source_amount_text?: string; displayed_amount_cents?: number; category_name?: string } | null
+  evidence?: { merchant?: string; raw_description?: string; evidence?: string; source_amount_text?: string; displayed_amount_cents?: number; category_name?: string; extraction_limitations?: string[] } | null
   transaction_draft?: TransactionDraft | null
 }
 export type SourceReview = {
@@ -92,7 +92,13 @@ export function sourceEventLabel(event: SourceEvent): string {
     cash_withdrawal: 'Cash withdrawal', interest: 'Interest', adjustment: 'Adjustment', unknown: 'Unknown type',
   }
   const direction = event.signed_amount_cents == null ? 'unknown amount' : event.signed_amount_cents < 0 ? 'outflow' : event.signed_amount_cents > 0 ? 'inflow' : 'zero movement'
-  return `${names[event.event_type]} · ${direction}`
+  const notSpending = event.event_type === 'transfer' || event.event_type === 'debt_payment' ? ' · not counted as spending' : ''
+  return `${names[event.event_type]} · ${direction}${notSpending}`
+}
+
+/** The row's own words: merchant, else the statement description. */
+export function sourceEventTitle(event: Pick<SourceEvent, 'position' | 'evidence'>): string {
+  return event.evidence?.merchant?.trim() || event.evidence?.raw_description?.trim() || `Source row ${event.position + 1}`
 }
 
 export function sourceLocator(event: SourceEvent): string {

@@ -238,6 +238,21 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     assert_not ignored.reload.applied?
   end
 
+  test "finishing review with every value ignored saves nothing and is not an applied source" do
+    @document_import.items.create!(target_type: "expense_item", label: "Rent", amount_cents: 950_00, cadence: "monthly", stack_key: "non_discretionary", selected: false, ignored: true)
+    @document_import.items.create!(target_type: "expense_item", label: "Groceries", amount_cents: 600_00, cadence: "monthly", stack_key: "discretionary", selected: false, ignored: true)
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.inspect
+    assert_equal 0, result.applied_count
+    assert_equal "nothing_applied", @document_import.reload.status
+    assert_nil @document_import.applied_at
+    assert_nil @document_import.applied_by_user
+    assert_empty @household.expense_items.where(label: %w[Rent Groceries])
+    refute_includes @household.financial_document_imports.with_approved_values, @document_import
+  end
+
   test "unselected unresolved items keep import reviewable instead of finalizing" do
     @document_import.items.create!(
       target_type: "expense_item",

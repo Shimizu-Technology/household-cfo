@@ -28,6 +28,33 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_includes state[:deficiencies], "account_reconciliation_incomplete"
   end
 
+  # Review of #197 (M1): spending approved through source review creates a
+  # confirmed actual and flips only pending drafts, so an import whose
+  # drafts were ignored first still holds approved values.
+  test "source review approvals count as approved values for status, guards and Mia" do
+    fresh = source([ movement(-1_000) ])
+    import = fresh[:import]
+    staged = HouseholdFinance::DocumentTransactionDraftPersister.new(import, fresh[:transaction_drafts]).call
+    assert_equal 1, staged[:created_count]
+    import.transaction_drafts.sole.update!(status: "ignored")
+    refute import.approved_values?
+
+    identity = link(fresh)
+    assert import.approved_values?, "an approved account identity is an approved value"
+    project(approve(stage(fresh[:events].sole, identity: identity)))
+    actual = @household.household_transactions.find_by!(source_import: import)
+    assert_equal "confirmed", actual.status
+    assert_equal "ignored", import.transaction_drafts.sole.reload.status
+    @identity = identity
+    @source = fresh
+    attest("qualified")
+
+    import.update!(metadata: import.metadata.merge("source_accounting_review_pending" => false))
+    HouseholdFinance::DocumentImportStatusReconciler.new(import).call
+    assert_equal "applied", import.reload.status
+    assert_includes @household.financial_document_imports.with_approved_values, import
+  end
+
   test "staging and cancelling do not change actuals or hide an approved head" do
     approved = approve(stage(@source[:events].first))
     head = approved.source_review_head

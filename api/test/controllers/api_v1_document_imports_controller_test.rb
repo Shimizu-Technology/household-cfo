@@ -490,7 +490,54 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     assert_equal 1, upload_count
-    assert_includes JSON.parse(response.body).fetch("errors").join, "exact file is already uploaded"
+    assert_equal [ %("budget.csv" is already uploaded and still waiting for review. Remove this attachment, or finish or delete the existing upload before adding it again.) ], JSON.parse(response.body).fetch("errors")
+  end
+
+  # Upload QA (U-10): the same CSV was rejected as a second "spreadsheet" but
+  # accepted as "other" under a new name, opening a second review queue.
+  test "create rejects the same bytes uploaded again under another document type and names the file" do
+    upload_count = 0
+    with_s3_stubs(configured?: true, upload: ->(key, _io, content_type:) { upload_count += 1; content_type && key }) do
+      post "/api/v1/document_imports", params: { file: uploaded_csv, document_kind: "spreadsheet" }, headers: auth_headers(@user)
+      assert_response :created
+
+      renamed = uploaded_csv
+      renamed.instance_variable_set(:@original_filename, "N_bank_export_copy.csv")
+      assert_no_difference("FinancialDocumentImport.count") do
+        post "/api/v1/document_imports", params: { file: renamed, document_kind: "other" }, headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal 1, upload_count
+    error = JSON.parse(response.body).fetch("errors").sole
+    assert_includes error, %("N_bank_export_copy.csv" is already uploaded (as "budget.csv"))
+  end
+
+  test "direct upload completion rejects a duplicate of another document type and names the attachment" do
+    checksum = "d" * 64
+    create_import!(document_kind: "statement", status: "needs_review", filename: "june-statement.csv", checksum_sha256: checksum)
+    deleted_keys = []
+    with_s3_stubs(
+      configured?: true,
+      presigned_upload: ->(_key, content_type:, **) { { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 } },
+      object_metadata: ->(_key) { { byte_size: 32, content_type: "text/csv", checksum_sha256: Base64.strict_encode64([ checksum ].pack("H*")), etag: "etag-dup", server_side_encryption: "AES256" } },
+      download_to_io!: ->(_key, io) { io.write("Date,Amount\n2026-10-01,-12.00\n"); true },
+      delete: ->(key) { deleted_keys << key; true }
+    ) do
+      post "/api/v1/document_imports/presign",
+        params: { filename: "lunch-receipt.csv", content_type: "text/csv", byte_size: 32, checksum_sha256: checksum, document_kind: "receipt", upload_origin: "mia" },
+        headers: auth_headers(@user), as: :json
+      token = JSON.parse(response.body).fetch("upload_token")
+
+      assert_no_difference("FinancialDocumentImport.count") do
+        post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user), as: :json
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors").sole, %("lunch-receipt.csv" is already uploaded (as "june-statement.csv"))
+    assert_equal 1, deleted_keys.length
   end
 
   test "create enqueues Mia chat attachment extraction immediately" do
@@ -1525,6 +1572,31 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
     body = JSON.parse(response.body)
     assert_match(/cannot be reprocessed/i, body.fetch("errors").join)
+    assert_equal "applied", document_import.reload.status
+  end
+
+  # Review of #197 (M2): an import marked nothing_applied whose row was
+  # later approved through source review must not be re-extracted, or the
+  # new extraction would duplicate the approved actual.
+  test "reprocess rejects a nothing_applied import that has an actual approved through source review" do
+    document_import = create_import!(status: "nothing_applied", document_kind: "statement", s3_key: "household-cfo/test/reviewed-source.pdf")
+    groceries = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    actual = @household.household_transactions.create!(budget_period: period, source_import: document_import, occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless", total_amount_cents: 6_612, source_type: "statement", status: "confirmed")
+    actual.transaction_splits.create!(budget_category: groceries, amount_cents: 6_612)
+
+    with_s3_stubs(configured?: true) do
+      assert_no_enqueued_jobs only: FinancialDocumentExtractionJob do
+        post "/api/v1/document_imports/#{document_import.id}/reprocess", headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/cannot be reprocessed/i, JSON.parse(response.body).fetch("errors").join)
+    assert_equal "nothing_applied", document_import.reload.status
+    assert document_import.approved_values?
+    HouseholdFinance::DocumentImportStatusReconciler.new(document_import).call
     assert_equal "applied", document_import.reload.status
   end
 

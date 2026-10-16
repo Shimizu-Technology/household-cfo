@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { sourceBasisLabel, sourceDispositionLabel, sourceLocator, sourceMoney, sourceOverlapLabel, sourceTypeLabel, type SourceEvent } from '../lib/sourceReview'
+import { sourceBasisLabel, sourceDispositionLabel, sourceEventTitle, sourceLocator, sourceMoney, sourceOverlapLabel, sourceTypeLabel, type SourceEvent } from '../lib/sourceReview'
 import type { ParticipantSourceReview, ReviewedFacts, SourceReviewAction } from '../lib/participantSourceReview'
 
 type Mutation = (action: SourceReviewAction, input: object) => Promise<boolean>
@@ -96,7 +96,7 @@ export function StatementBatchReview({ events, selected, context, mutate, disabl
         const projection = pending?.projection.action ?? 'none'
         const stalePending = Boolean(pending && (facts.source_account_identity_version_id !== item.identity?.id || pending.recognized_account?.current === false))
         return <article className="source-link-member" key={item.event.id}>
-          <strong>Source row {item.event.position + 1}</strong>
+          <strong>{sourceEventTitle(item.event)}</strong>
           <p>Current reviewed account: {item.identity?.tracked_account.label ?? 'Account not reviewed'} · {sourceBasisLabel(item.identity?.tracked_account.account_basis)}</p>
           {pending && <p className={stalePending ? 'source-row-review-status' : undefined}>Saved proposal account: {pending.recognized_account?.label ?? 'Account details unavailable'}{stalePending ? ' · differs from the current reviewed account and requires individual review before approval.' : ' · matches the current reviewed account.'}</p>}
           <p>{sourceDispositionLabel(facts.disposition)} · {sourceTypeLabel(facts.event_type)} · {facts.merchant ?? 'Merchant unknown'} · {sourceMoney(facts.signed_amount_cents, true)} · {facts.posted_on ?? 'Date unknown'} · Complete purchase {sourceMoney(facts.purchase_amount_cents)}</p>

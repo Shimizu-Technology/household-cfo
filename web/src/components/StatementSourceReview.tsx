@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { fetchDocumentSourceReview, type TransactionDraft } from '../api'
-import { sourceAccountLabel, sourceEventLabel, sourceLocator, sourceMoney, validateSourceReview, type SourceReview, type SourceReviewFilter } from '../lib/sourceReview'
+import { sourceAccountLabel, sourceEventLabel, sourceEventTitle, sourceLocator, sourceMoney, validateSourceReview, type SourceReview, type SourceReviewFilter } from '../lib/sourceReview'
 import { StatementBatchReview } from './StatementBatchReview'
 import { StatementAccountReview, StatementCoverageReview, StatementRowEditor } from './StatementReviewControls'
 import { isStatementReviewActor } from '../lib/statementReviewRecovery'
@@ -118,7 +118,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, render
             return <li key={event.id} className={`source-event source-event-${event.row_kind}`}>
               {reviewed && <label className="source-review-check"><input type="checkbox" disabled={mutation.busy} checked={batchSelected.includes(event.id)} onChange={(change) => setBatchSelected(change.target.checked ? [...batchSelected, event.id] : batchSelected.filter((id) => id !== event.id))} />Select statement line {event.position + 1} for explicit batch review</label>}
               {reviewed && <p className="source-row-review-status">{reviewed.pending ? 'Pending proposal' : reviewed.approved ? `Approved${reviewed.approved.current === false ? ' · account changed; review needed' : ''}` : 'Needs participant review'}{reviewed.approved && ` · Current reviewed facts: ${reviewed.approved.facts.merchant ?? 'No merchant'} · ${reviewed.approved.facts.event_type.replaceAll('_', ' ')} · ${sourceMoney(reviewed.approved.facts.signed_amount_cents, true)} · ${reviewed.approved.facts.posted_on ?? 'Date unknown'}`}</p>}
-              <div className="source-event-main" aria-label="Original extracted facts"><div><strong>{event.evidence?.merchant || `Source row ${event.position + 1}`}</strong><span>{sourceEventLabel(event)}</span></div><strong className="source-event-amount">{event.row_kind === 'informational' ? `${sourceMoney(event.evidence?.displayed_amount_cents)} (information)` : sourceMoney(event.signed_amount_cents, true)}</strong></div>
+              <div className="source-event-main" aria-label="Original extracted facts"><div><strong>{sourceEventTitle(event)}</strong><span>{sourceEventLabel(event)}</span></div><strong className="source-event-amount">{event.row_kind === 'informational' ? `${sourceMoney(event.evidence?.displayed_amount_cents)} (information)` : sourceMoney(event.signed_amount_cents, true)}</strong></div>
               <p>{event.posted_on ?? 'Posted date unknown'} · {sourceAccountLabel(account, event.financial_source_account_id)} · {sourceLocator(event)}</p>
               {event.authorized_on && event.authorized_on !== event.posted_on && <p>Authorized {event.authorized_on}</p>}
               {!event.evidence_available && <p>Row description evidence unavailable.</p>}
@@ -128,6 +128,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, render
               {selectedRow === event.id && <div id={`source-event-details-${event.id}`} className="source-event-details" tabIndex={-1}>
                 {event.evidence?.raw_description && <p>{event.evidence.raw_description}</p>}
                 {event.evidence?.evidence && <p>{event.evidence.evidence}</p>}
+                {(event.evidence?.extraction_limitations ?? []).map((note) => <p key={note}>Reader note: {note}</p>)}
                 <p>Original extraction classification: {event.event_type.replaceAll('_', ' ')}. Original source review: {event.review_state}. {event.expense_projection_eligible ? 'This row can propose an expense; approval below is separate from source accounting.' : 'This row does not propose an expense.'}</p>
                 {data.participant_review ? <StatementRowEditor importId={importId} context={data.participant_review} event={event} mutate={mutation.mutate} disabled={mutation.busy} /> : linkedDraft ? renderExpenseDraft(linkedDraft) : <p>No expense review is attached to this statement line.</p>}
               </div>}

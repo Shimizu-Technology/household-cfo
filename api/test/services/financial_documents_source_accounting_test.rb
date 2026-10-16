@@ -277,6 +277,70 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
     refute_includes FinancialDocumentImport.pending_review, @import
   end
 
+  # Rows as the extractor returned them during upload QA (statements A, B
+  # and D): explanatory notes in `limitations` used to demote every one of
+  # these rows to unresolved with no expense draft.
+  test "explanatory extractor notes keep bills fees and rent reviewable while transfers stay non-spending" do
+    rows = [
+      event(-20_311, row: 1, merchant: "GPA Electric", raw_description: "GPA ELECTRIC BILLPAY", limitations: [ "This is a utility bill payment." ]),
+      event(-7_000, row: 2, merchant: "IT&E Wireless", raw_description: "IT&E WIRELESS AUTOPAY", limitations: [ "This is a recurring-looking phone bill autopay." ]),
+      event(-250, type: "fee", row: 3, merchant: nil, raw_description: "NON-NETWORK ATM FEE"),
+      event(-95_000, row: 4, merchant: nil, raw_description: "RENT CHECK 1043", limitations: [ "Payee not shown; rent is inferred from the description." ]),
+      event(-6_612, row: 5, merchant: "Payless Supermarkets", raw_description: "POS PAYLESS SUPERMARKETS YIGO GU", limitations: [ "Distinct row from the 10/01 Payless purchase, which has a different location and amount." ]),
+      event(-20_000, type: "transfer", row: 6, merchant: nil, raw_description: "TRANSFER TO SAVINGS XXXX4410", limitations: [ "This is a transfer to the participant's own savings account, not spending." ]),
+      event(-30_000, type: "debt_payment", row: 7, merchant: "MCB Visa", raw_description: "PAYMENT TO MCB VISA XXXX9012", limitations: [ "Credit card payment to account XXXX9012; card balance and APR not shown" ]),
+      event(25_000, type: "income", row: 8, merchant: nil, raw_description: "MOBILE CHECK DEPOSIT", limitations: [ "The check source is not identified." ])
+    ]
+    result = persist(normalized(rows))
+
+    assert_equal %w[posted] * 8, result[:events].map(&:row_kind)
+    assert result[:events].all? { |row| row.limitations.empty? }
+    assert_equal [ 20_311, 7_000, 250, 95_000, 6_612 ], result[:transaction_drafts].pluck(:total_amount_cents)
+    assert_equal [ "GPA Electric", "IT&E Wireless", "NON-NETWORK ATM FEE", "RENT CHECK 1043", "Payless Supermarkets" ], result[:transaction_drafts].pluck(:merchant)
+    # The reader's note stays visible on the draft and in the row evidence.
+    assert_equal [ "This is a utility bill payment." ], result[:transaction_drafts].first[:warnings]
+    assert_equal [ "This is a utility bill payment." ], result[:events].first.financial_source_evidence.payload["extraction_limitations"]
+    transfer, card_payment = result[:events].values_at(5, 6)
+    assert_nil transfer.expense_amount_cents
+    assert_nil card_payment.expense_amount_cents
+    refute transfer.expense_projection_eligible?
+    refute card_payment.expense_projection_eligible?
+
+    staged = HouseholdFinance::DocumentTransactionDraftPersister.new(@import, result[:transaction_drafts]).call
+    assert_equal 5, staged[:created_count]
+    assert_equal 0, @household.household_transactions.count
+  end
+
+  # Any doubt about what was read holds the row back, so a guessed amount,
+  # date or merchant never becomes a spending draft (review of #197).
+  test "a note doubting the amount date or image holds the row for clarification" do
+    notes = [
+      "Unable to read the amount", "Last digit not visible", "Total is cut-off", "Amount is blurry", "The image is skewed and blurry.",
+      "Hard to read amount", "Unclear amount; may be $45 or $46", "Amount approximate", "Digits uncertain", "Amount not fully visible", "verify amount",
+      "Row is partially cropped. Amount inferred from the balance change. Please verify.", "The amount is illegible.", "Date estimated from the previous row.", "Merchant name is faded."
+    ]
+    rows = notes.each_with_index.map { |note, index| event(-4_100, row: index + 1, merchant: "Shell", limitations: [ note ]) }
+    rows << event(-500, type: "fee", row: notes.length + 1, merchant: nil, raw_description: nil)
+    accounting = normalized(rows)
+
+    notes.each_with_index do |note, index|
+      row = accounting[:events][index]
+      assert_equal "unresolved", row[:row_kind], note
+      assert_includes row[:limitations], "extractor_reported_uncertain_value", note
+    end
+    assert_includes accounting[:events].last[:limitations], "merchant_missing"
+    assert_empty persist(accounting)[:transaction_drafts]
+  end
+
+  test "purely descriptive notes never hold a row back" do
+    notes = [ "This is a utility bill payment.", "recurring transfer to savings", "Payee not shown; rent is inferred from the description.",
+      "Credit card payment to account XXXX9012; card balance and APR not shown", "The check number 1043 repeats from earlier rows." ]
+    accounting = normalized(notes.each_with_index.map { |note, index| event(-1_000, row: index + 1, limitations: [ note ]) })
+
+    assert_equal %w[posted] * notes.length, accounting[:events].pluck(:row_kind)
+    assert accounting[:events].all? { |row| row[:limitations].empty? }
+  end
+
   private
 
   def source_operation(klass, input)

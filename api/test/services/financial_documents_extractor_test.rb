@@ -1,4 +1,5 @@
 require "test_helper"
+require "open3"
 require "tempfile"
 require "zip"
 
@@ -133,7 +134,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
 
     prompt = FinancialDocuments::Extractor.new(api_key: "test-key").send(:user_content, document_import, file.path).first.fetch(:text)
 
-    assert_equal "financial_document_extraction_v6", FinancialDocuments::Extractor::PROMPT_VERSION
+    assert_equal "financial_document_extraction_v7", FinancialDocuments::Extractor::PROMPT_VERSION
     assert_includes prompt, "Categorize each split from its own line items"
     assert_includes prompt, "never apply the merchant's usual category to every split"
     assert_includes prompt, "participant will choose the category during review"
@@ -237,7 +238,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal 9, result.metadata.fetch(:page_count)
     assert_equal 5, result.metadata.fetch(:batch_count)
     assert_equal 500, result.metadata.dig(:usage, "total_tokens")
-    assert_includes result.data.fetch(:warnings), "Processed all 9 PDF pages in 5 extraction batches."
+    assert_includes result.data.fetch(:warnings), "Mia read all 9 pages of this statement."
   ensure
     file&.close!
   end
@@ -257,7 +258,8 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     result = extractor.send(:extract_openrouter_document, nil, "/tmp/not-read.pdf", batch_label: "pages 1-2 of 8")
 
     refute result.success?
-    assert_match(/output limit/i, result.error)
+    assert_equal FinancialDocuments::Extractor::OUTPUT_LIMIT_MESSAGE, result.error
+    assert_match(/output limit/i, result.metadata.fetch(:error_detail))
     assert_equal "length", result.metadata.fetch(:finish_reason)
   end
 
@@ -284,7 +286,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
       refute result.success?
       assert_equal [ "pages 1-2 of 6" ], batches
       assert_operator heartbeats, :>=, 4
-      assert_match(/could not finish/, result.error)
+      assert_equal FinancialDocuments::Extractor::UNREADABLE_RESULT_MESSAGE, result.error
     end
   ensure
     file&.close!
@@ -495,6 +497,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
 
       assert_not result.success?
       assert_match(/too large/i, result.error)
+      assert_no_match(/OpenRouter|AI extraction/, result.error)
     end
   end
 
@@ -601,7 +604,281 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
       extractor.send(:unreadable_source_message, FinancialDocuments::SourceSafety::Unreadable.new("pdf_resource_limit"))
   end
 
+  # Upload QA P_password_protected.pdf (AES-256 user password): CombinePDF
+  # loads such files without raising, so the sandbox probe used to pass it
+  # to the model and the participant saw "OpenRouter extraction failed with
+  # HTTP 400" instead of the password message.
+  test "a password-protected PDF gets the password message without any model request" do
+    document_import = FinancialDocumentImport.new(document_kind: "statement", filename: "P_password_protected.pdf", content_type: "application/pdf", s3_key: "qa/password")
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    extractor.define_singleton_method(:perform_openrouter_request) { |_payload| raise "an encrypted PDF must not reach the provider" }
+    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write(encrypted_pdf_bytes); true }) do
+      result = extractor.call(document_import)
+
+      refute result.success?
+      assert_equal FinancialDocuments::Extractor::PDF_ENCRYPTED_MESSAGE, result.error
+    end
+  end
+
+  # PDF::Reader raises EncryptedPDFError("Unsupported encryption style")
+  # for handlers it lacks; only a wrong-password failure means locked.
+  test "the PDF probe reports a password lock but not an unsupported encryption handler" do
+    pdf = Tempfile.new([ "probe", ".pdf" ])
+    pdf.binmode
+    pdf.write(blank_pdf_bytes(2))
+    pdf.close
+    { "Unsupported encryption style" => { "ok" => true, "page_count" => 2 }, "Invalid password ()" => { "ok" => false, "code" => "pdf_encrypted" } }.each do |message, expected|
+      stub = Tempfile.new([ "pdf_reader_stub", ".rb" ])
+      stub.write(<<~RUBY)
+        require "pdf/reader"
+        class PDF::Reader
+          def self.new(*) = raise(PDF::Reader::EncryptedPDFError, #{message.inspect})
+        end
+      RUBY
+      stub.close
+      includes = FinancialDocuments::SourceSafety.pdf_probe_load_paths.flat_map { |path| [ "-I", path ] }
+      output, status = Open3.capture2(RbConfig.ruby, *includes, "-r", stub.path, Rails.root.join(FinancialDocuments::SourceSafety::PDF_PROBE_SCRIPT).to_s, pdf.path, "structure")
+
+      assert status.success?, message
+      assert_equal expected, JSON.parse(output), message
+    ensure
+      stub&.close!
+    end
+  ensure
+    pdf&.close!
+  end
+
+  test "provider failures show plain temporary copy and keep the technical cause for admins" do
+    { 400 => 1, 402 => 1, 503 => FinancialDocuments::Extractor::PROVIDER_ATTEMPTS }.each do |status, expected_calls|
+      calls = 0
+      extractor = provider_extractor
+      error_response = http_error(status)
+      with_net_http_start(->(*_args, **_options, &_block) { calls += 1; error_response }) do
+        result = extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png")
+
+        refute result.success?
+        assert_equal FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, result.error
+        assert_no_match(/HTTP|OpenRouter|\d{3}/, result.error)
+        assert_match(/temporary/i, result.error)
+        assert_match(/Reprocess/, result.error)
+        assert_equal "OpenRouter extraction failed with HTTP #{status}", result.metadata.fetch(:error_detail)
+        assert_equal status, result.metadata.fetch(:status_code)
+        assert_equal expected_calls, calls, "HTTP #{status} retry count"
+      end
+    end
+  end
+
+  test "a dropped connection is retried before the extraction fails" do
+    calls = 0
+    extractor = provider_extractor
+    success = http_success(JSON.generate(items: [], transaction_drafts: [], warnings: [], summary: "Synthetic receipt"))
+    start = lambda do |*_args, **_options, &_block|
+      calls += 1
+      raise Errno::ECONNRESET if calls == 1
+
+      success
+    end
+    with_net_http_start(start) do
+      result = extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png")
+
+      assert result.success?, result.error
+      assert_equal 2, calls
+    end
+  end
+
+  test "a rate limit waits for its bounded Retry-After and a read timeout is retried only once" do
+    { "7" => 7, "3600" => FinancialDocuments::Extractor::MAX_RETRY_AFTER_SECONDS }.each do |header, expected_pause|
+      pauses = []
+      extractor = provider_extractor(pauses)
+      limited = http_error(429, "Retry-After" => header)
+      with_net_http_start(->(*_args, **_options, &_block) { limited }) do
+        refute extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png").success?
+      end
+      assert_equal [ expected_pause ] * (FinancialDocuments::Extractor::PROVIDER_ATTEMPTS - 1), pauses
+    end
+
+    calls = 0
+    extractor = provider_extractor
+    with_net_http_start(->(*_args, **_options, &_block) { calls += 1; raise Net::ReadTimeout }) do
+      result = extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png")
+
+      refute result.success?
+      assert_equal FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, result.error
+    end
+    assert_equal 1 + FinancialDocuments::Extractor::READ_TIMEOUT_RETRIES, calls
+  end
+
+  # Upload QA E_long_jul2026.pdf: ECONNRESET on pages 7-8 failed all ten
+  # pages. One retried batch must not fail or re-run the others.
+  test "one statement batch that hits a network error is retried without failing the statement" do
+    document_import = FinancialDocumentImport.new(document_kind: "statement", filename: "E_long_jul2026.pdf", content_type: "application/pdf", s3_key: "qa/long")
+    file = Tempfile.new([ "E_long", ".pdf" ])
+    file.close
+    pdf = CombinePDF.new
+    6.times { pdf << CombinePDF.create_page }
+    pdf.save(file.path)
+    extractor = provider_extractor
+    extractor.define_singleton_method(:build_payload) { |_import, _path, batch_label: nil| { batch_label: batch_label } }
+    requests = Hash.new(0)
+    extractor.define_singleton_method(:perform_openrouter_request) do |payload|
+      label = payload.fetch(:batch_label)
+      requests[label] += 1
+      if label == "pages 3-4 of 6" && requests[label] == 1
+        next FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, metadata: { retryable: true, error_detail: "Provider request failed: Errno::ECONNRESET" })
+      end
+      FinancialDocuments::Extractor::Result.new(success: true, data: { content: JSON.generate(items: [], transaction_drafts: [], warnings: []) }, error: nil, metadata: {})
+    end
+
+    result = extractor.send(:batched_pdf_result, document_import, file.path)
+
+    assert result.success?, result.error
+    assert_equal({ "pages 1-2 of 6" => 1, "pages 3-4 of 6" => 2, "pages 5-6 of 6" => 1 }, requests)
+  ensure
+    file&.close!
+  end
+
+  test "a statement batch that keeps failing names the pages in plain language" do
+    document_import = FinancialDocumentImport.new(document_kind: "statement", filename: "E_long_jul2026.pdf", content_type: "application/pdf", s3_key: "qa/long")
+    file = Tempfile.new([ "E_long", ".pdf" ])
+    file.close
+    pdf = CombinePDF.new
+    4.times { pdf << CombinePDF.create_page }
+    pdf.save(file.path)
+    extractor = provider_extractor
+    extractor.define_singleton_method(:build_payload) { |_import, _path, batch_label: nil| { batch_label: batch_label } }
+    extractor.define_singleton_method(:perform_openrouter_request) do |payload|
+      next FinancialDocuments::Extractor::Result.new(success: true, data: { content: JSON.generate(items: [], transaction_drafts: [], warnings: []) }, error: nil, metadata: {}) if payload[:batch_label].start_with?("pages 1-2")
+
+      FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, metadata: { retryable: true, status_code: 503, error_detail: "OpenRouter extraction failed with HTTP 503" })
+    end
+
+    result = extractor.send(:batched_pdf_result, document_import, file.path)
+
+    refute result.success?
+    assert_equal "Pages 3-4 of this statement didn't finish. #{FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE}", result.error
+    assert_equal "pages 3-4 of 4: OpenRouter extraction failed with HTTP 503", result.metadata.fetch(:error_detail)
+  ensure
+    file&.close!
+  end
+
+  # Upload QA E_long_jul2026.pdf: batch 1 keyed the account by its label and
+  # later batches by "XXXX-XX-5590 continued", producing two accounts for
+  # one statement, plus "Only pages 1-2 of 10 were provided" warnings.
+  test "statement batches join one account by its printed number and drop batch-only warnings" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    first = { account_key: "premier-checking", account_basis: "asset", label: "Premier Checking", masked_identifier: "XXXX-XX-5590",
+      period_start_on: "2026-07-01", period_end_on: "2026-07-31", opening_balance_cents: 352_010, closing_balance_cents: 418_425,
+      printed_debit_cents: 753_585, printed_credit_cents: 820_000, header_evidence: "Beginning balance $3,520.10; Ending balance $4,184.25" }
+    continued = { account_key: "XXXX-XX-5590 continued", account_basis: "asset", label: "Premier Checking", masked_identifier: "XXXX-XX-5590",
+      header_evidence: "Marianas Community Bank · Premier Checking · XXXX-XX-5590 · continued" }
+    batches = [ [ first, 1 ], [ continued, 3 ], [ continued, 5 ] ].map do |account, page|
+      accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: [ account ],
+        events: [ { account_key: account[:account_key], row_kind: "posted", event_type: "purchase", signed_amount_cents: -1_211, amount_column_cents: 1_211,
+          posted_on: "2026-07-16", locator: { page: page, row: 1 }, merchant: "McDonalds Tamuning" } ] },
+        coverage: { expected_page_count: 6, processed_pages: [ page, page + 1 ] })
+      { document_kind: "statement", confidence: "high", items: [], transaction_drafts: [], source_accounting: accounting,
+        warnings: [ "Only pages #{page}-#{page + 1} of 6 were provided. Rows from 07/01/2026 through 07/06/2026 are extracted; the rest of the month is not covered.",
+          "The running balances on these pages reconcile row by row.", "No category was assigned to any row; the participant should choose categories during review." ] }
+    end
+
+    result = extractor.send(:merge_pdf_batch_results, batches, Array.new(3) { {} }, page_count: 6)
+
+    assert result.success?, result.error
+    accounting = result.data.fetch(:source_accounting)
+    account = accounting.fetch(:accounts).sole
+    assert_equal 352_010, account[:opening_balance_cents]
+    assert_equal 418_425, account[:closing_balance_cents]
+    assert_empty account[:limitations]
+    assert_equal [ account[:source_key] ] * 3, accounting.fetch(:events).pluck(:source_key)
+    assert_equal 3, accounting.fetch(:events).pluck(:row_identity).uniq.length
+    assert_equal [ "Mia read all 6 pages of this statement.", "No category was assigned to any row; the participant should choose categories during review." ], result.data.fetch(:warnings)
+  end
+
+  test "statement batches keep genuinely different accounts apart" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    account = ->(key, masked, basis) { { account_key: key, account_basis: basis, masked_identifier: masked } }
+    batch = lambda do |page, *accounts|
+      { source_accounting: FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: accounts,
+        events: accounts.each_with_index.map { |item, row| { account_key: item[:account_key], row_kind: "posted", event_type: "purchase", signed_amount_cents: -100, amount_column_cents: 100, posted_on: "2026-07-02", locator: { page: page, row: row + 1 }, merchant: "Synthetic" } } }) }
+    end
+    accounts_for = ->(*batches) { extractor.send(:merge_source_accounting, batches, page_count: 2 * batches.length).fetch(:accounts) }
+
+    # Checking and savings that share last four digits in one batch.
+    assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset"), account.call("savings", "XXXX1234", "asset"))).length
+    # The same pair split across batches cannot be told apart either.
+    assert_equal 3, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset"), account.call("savings", "XXXX1234", "asset")),
+      batch.call(3, account.call("checking-continued", "XXXX1234", "asset"))).length
+    # A card with the same digits but an unknown basis.
+    assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset")), batch.call(3, account.call("card", "XXXX1234", "unknown"))).length
+    # Same digits, different known basis.
+    assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset")), batch.call(3, account.call("card", "XXXX1234", "liability"))).length
+    # A numbered checking on pages 1-2 and an unnumbered savings on pages 3-4.
+    assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset")), batch.call(3, account.call("savings", nil, "asset"))).length
+    # Different numbers.
+    assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1111", "asset")), batch.call(3, account.call("savings", "XXXX2222", "asset"))).length
+  end
+
   private
+
+  def provider_import
+    user = User.create!(clerk_id: "clerk_extractor_provider_#{SecureRandom.hex(4)}", email: "extractor-provider-#{SecureRandom.hex(4)}@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Extractor Provider Household")
+    FinancialDocumentImport.create!(household: household, uploaded_by_user: user, document_kind: "other", status: "uploaded",
+      filename: "notes.csv", content_type: "text/csv", byte_size: 4, s3_key: "household-cfo/test/notes-#{SecureRandom.hex(4)}.csv")
+  end
+
+  def provider_extractor(pauses = [])
+    FinancialDocuments::Extractor.new(api_key: "test-key").tap do |extractor|
+      extractor.define_singleton_method(:provider_retry_pause) { |seconds| pauses << seconds }
+      extractor.define_singleton_method(:user_content) { |*_args, **_options| [ { type: "text", text: "Synthetic" } ] }
+    end
+  end
+
+  def http_error(status, headers = {})
+    Net::HTTPResponse::CODE_TO_OBJ.fetch(status.to_s).new("1.1", status.to_s, "Error").tap do |response|
+      headers.each { |name, value| response[name] = value }
+      response.instance_variable_set(:@read, true)
+      response.body = JSON.generate(error: { message: "Synthetic provider error" })
+    end
+  end
+
+  def http_success(content)
+    Net::HTTPOK.new("1.1", "200", "OK").tap do |response|
+      response.instance_variable_set(:@read, true)
+      response.body = JSON.generate(choices: [ { message: { content: content }, finish_reason: "stop" } ])
+    end
+  end
+
+  def with_net_http_start(replacement)
+    singleton = Net::HTTP.singleton_class
+    original = singleton.instance_method(:start)
+    singleton.define_method(:start, replacement)
+    yield
+  ensure
+    singleton.send(:remove_method, :start) if singleton.method_defined?(:start, false)
+    singleton.define_method(:start, original)
+  end
+
+  # Minimal AES-256 (V5/R6) protected PDF with a non-empty user password.
+  def encrypted_pdf_bytes(filter: "Standard")
+    hex = ->(bytes) { "<#{'ab' * bytes}>" }
+    objects = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+      "<< /Filter /#{filter} /V 5 /R 6 /Length 256 /P -1028 /O #{hex.call(48)} /U #{hex.call(48)} /OE #{hex.call(32)} /UE #{hex.call(32)} /Perms #{hex.call(16)} /CF << /StdCF << /CFM /AESV3 /AuthEvent /DocOpen /Length 32 >> >> /StmF /StdCF /StrF /StdCF >>"
+    ]
+    body = +"%PDF-1.7\n"
+    offsets = objects.each_with_index.map do |object, index|
+      offset = body.bytesize
+      body << "#{index + 1} 0 obj\n#{object}\nendobj\n"
+      offset
+    end
+    xref = body.bytesize
+    body << "xref\n0 #{objects.length + 1}\n0000000000 65535 f \n"
+    offsets.each { |offset| body << format("%010d 00000 n \n", offset) }
+    body << "trailer\n<< /Size #{objects.length + 1} /Root 1 0 R /Encrypt 4 0 R /ID [<#{'01' * 16}> <#{'01' * 16}>] >>\nstartxref\n#{xref}\n%%EOF\n"
+  end
 
   def blank_pdf_bytes(pages)
     pdf = CombinePDF.new

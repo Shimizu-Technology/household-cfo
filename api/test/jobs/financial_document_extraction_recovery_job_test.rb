@@ -36,7 +36,7 @@ class FinancialDocumentExtractionRecoveryJobTest < ActiveJob::TestCase
     end
     assert_equal 1, @import.attempts.count
     assert_equal "completed", dispatch.reload.status
-    assert_equal "applied", @import.reload.status
+    assert_equal "nothing_applied", @import.reload.status
   end
 
   test "queue rejection and exceptions keep the committed intent with bounded backoff" do
@@ -67,7 +67,7 @@ class FinancialDocumentExtractionRecoveryJobTest < ActiveJob::TestCase
     end
     assert_equal "completed", dispatch.reload.status
     assert_equal 1, @import.attempts.count
-    assert_equal "applied", @import.reload.status
+    assert_equal "nothing_applied", @import.reload.status
   end
 
   test "lost admitted job is redispatched after its lease expires" do
@@ -136,7 +136,7 @@ class FinancialDocumentExtractionRecoveryJobTest < ActiveJob::TestCase
     FinancialDocumentExtractionDispatch.request!(@import, restart: true)
     assert_equal 0, dispatch.reload.processing_attempts
     with_extractor { FinancialDocumentExtractionJob.perform_now(@import.id, dispatch.id, 2) }
-    assert_equal "applied", @import.reload.status
+    assert_equal "nothing_applied", @import.reload.status
     assert_equal 1, dispatch.reload.processing_attempts
   ensure
     travel_back
@@ -246,7 +246,7 @@ class FinancialDocumentExtractionRecoveryJobTest < ActiveJob::TestCase
     FinancialDocumentExtractionDispatch.request!(@import, restart: true)
     assert_equal 2, dispatch.reload.generation
     with_extractor { FinancialDocumentExtractionJob.perform_now(@import.id, dispatch.id, 2) }
-    assert_equal "applied", @import.reload.status
+    assert_equal "nothing_applied", @import.reload.status
   end
 
   test "bounded legacy backfill advances past queue failures and excludes completed imports" do
@@ -293,7 +293,7 @@ class FinancialDocumentExtractionRecoveryJobTest < ActiveJob::TestCase
     @import.update!(status: "uploaded")
     FinancialDocumentExtractionDispatch.request!(@import, restart: true)
     with_extractor { FinancialDocumentExtractionJob.perform_now(@import.id, dispatch.id, 2) }
-    assert_equal "applied", @import.reload.status
+    assert_equal "nothing_applied", @import.reload.status
   end
 
   test "source lease expiring during provider work rejects even successful output" do

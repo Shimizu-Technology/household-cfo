@@ -237,7 +237,7 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     household = Household.create!(created_by_user: user, name: "Document Context Household")
     household.household_memberships.create!(user: user, role: "owner")
 
-    FinancialDocumentImport.create!(
+    statement = FinancialDocumentImport.create!(
       household: household,
       uploaded_by_user: user,
       document_kind: "statement",
@@ -251,6 +251,7 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
       extracted_summary: "Groceries and card balance were updated.",
       applied_at: Time.zone.parse("2026-07-01 10:00:00")
     )
+    statement.items.create!(target_type: "debt", label: "Visa", balance_cents: 120_000, applied_at: Time.zone.parse("2026-07-01 10:00:00"), applied_by_user: user)
     FinancialDocumentImport.create!(
       household: household,
       uploaded_by_user: user,
@@ -304,6 +305,54 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     assert_equal 50, inventory.fetch("shown_count")
     assert_equal "bounded_saved_records", inventory.fetch("coverage")
     assert_equal 51.0, inventory.fetch("selected_month_amount")
+  end
+
+  # Upload QA (U-04): ignoring all 12 values of M_budget.csv, or uploading a
+  # cat photo, finished the import as "applied", so Mia was told the rejected
+  # budget ("total 2,590.00") and the cat "receipt" were approved sources.
+  test "imports with nothing approved never reach Mia as approved sources" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "nothing-applied-#{SecureRandom.hex(4)}@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Nothing Applied Household")
+    household.household_memberships.create!(user: user, role: "owner")
+    import = lambda do |kind, filename, summary, status: "needs_review", metadata: {}|
+      FinancialDocumentImport.create!(household: household, uploaded_by_user: user, document_kind: kind, status: status, filename: filename,
+        content_type: "text/csv", byte_size: 100, s3_key: "private/#{SecureRandom.hex(4)}/#{filename}", extracted_summary: summary, metadata: metadata,
+        document_date: Date.current)
+    end
+
+    budget = import.call("spreadsheet", "M_budget.csv", "October budget with 12 planned lines totaling 2,590.00.")
+    rent = budget.items.create!(target_type: "expense_item", label: "Rent", amount_cents: 95_000, cadence: "monthly", stack_key: "non_discretionary")
+    groceries = budget.items.create!(target_type: "expense_item", label: "Groceries", amount_cents: 60_000, cadence: "monthly", stack_key: "non_discretionary")
+    rent.update!(ignored: true, selected: false)
+    HouseholdFinance::DocumentImportStatusReconciler.new(budget).call
+    assert_equal "needs_review", budget.reload.status, "ignoring one value is not a partial apply"
+    groceries.update!(ignored: true, selected: false)
+    HouseholdFinance::DocumentImportStatusReconciler.new(budget).call
+    assert_equal "nothing_applied", budget.reload.status
+    assert_nil budget.applied_at
+
+    cat = import.call("receipt", "I_cat_photo.png", "A photo of a cat. No financial information is visible.", metadata: { "no_reviewable_transactions" => true })
+    HouseholdFinance::DocumentImportStatusReconciler.new(cat).call
+    assert_equal "nothing_applied", cat.reload.status
+    # Rows written as "applied" before this status existed, and partial
+    # states holding only ignored values, are filtered by approved values too.
+    import.call("pay_stub", "legacy-ignored.pdf", "Legacy pay stub nobody approved.", status: "applied")
+    partial = import.call("statement", "ignored-only.pdf", "Statement whose only decision was an ignore.", status: "partially_applied")
+    partial.items.create!(target_type: "debt", label: "Visa", balance_cents: 50_000, ignored: true, selected: false)
+
+    documents = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household).call).fetch("documents")
+
+    assert_empty documents.fetch("recent_applied_summaries")
+    assert documents.fetch("latest_applied_sources").values.all?(&:nil?), documents.fetch("latest_applied_sources").inspect
+    refute_includes documents.to_json, "2,590.00"
+    refute_includes documents.to_json, "cat"
+
+    approved = import.call("spreadsheet", "approved-budget.csv", "Approved budget with rent.")
+    approved.items.create!(target_type: "expense_item", label: "Rent", amount_cents: 95_000, cadence: "monthly", stack_key: "non_discretionary", applied_at: Time.current, applied_by_user: user)
+    HouseholdFinance::DocumentImportStatusReconciler.new(approved).call
+    assert_equal "applied", approved.reload.status
+    documents = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household).call).fetch("documents")
+    assert_equal [ "Approved budget with rent." ], documents.fetch("recent_applied_summaries").pluck("summary")
   end
 
   private

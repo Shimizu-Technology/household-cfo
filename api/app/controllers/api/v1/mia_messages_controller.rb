@@ -1439,7 +1439,7 @@ module Api
         end
         parts << "I also found #{items.length} budget/profile setup value#{'s' unless items.length == 1} for review in Import history." if items.any?
         if failed.any?
-          failure_details = failed.map { |document_import| "#{evidence_label(document_import)}: #{document_import.extraction_error.presence || 'extraction failed'}" }.to_sentence
+          failure_details = failed.map { |document_import| "#{evidence_label(document_import)}: #{document_import.extraction_error.to_s.strip.delete_suffix('.').presence || 'extraction failed'}" }.to_sentence
           parts << "#{failed.length} upload#{'s' unless failed.length == 1} failed, so those files produced no drafts: #{failure_details}."
         end
         if drafts.empty? && items.empty? && failed.empty?
@@ -1486,7 +1486,7 @@ module Api
 
       def attached_document_result_message(document_import)
         if document_import.status == "failed"
-          return "I could not read the #{evidence_label(document_import)} yet: #{document_import.extraction_error.presence || 'extraction failed'}. The upload is saved, but no household numbers changed."
+          return "I could not read the #{evidence_label(document_import)} yet: #{document_import.extraction_error.to_s.strip.delete_suffix('.').presence || 'extraction failed'}. The upload is saved, but no household numbers changed."
         end
 
         route_line = attached_document_route_line(document_import)

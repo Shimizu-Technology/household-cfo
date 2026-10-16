@@ -219,7 +219,7 @@ export type ProfileUpload = {
 }
 
 export type DocumentImportKind = 'spreadsheet' | 'statement' | 'pay_stub' | 'receipt' | 'other'
-export type DocumentImportStatus = 'uploaded' | 'processing' | 'needs_review' | 'applied' | 'partially_applied' | 'failed' | 'source_deleted'
+export type DocumentImportStatus = 'uploaded' | 'processing' | 'needs_review' | 'applied' | 'partially_applied' | 'nothing_applied' | 'failed' | 'source_deleted'
 export type DocumentImportTargetType = 'income_source' | 'expense_item' | 'account' | 'debt' | 'goal' | 'profile_note'
 export type DocumentImportConfidence = 'high' | 'medium' | 'low'
 export type TransactionDraftMatchStatus = 'proposed' | 'accepted' | 'rejected'

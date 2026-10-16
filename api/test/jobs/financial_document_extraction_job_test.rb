@@ -195,8 +195,8 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
 
     @document_import.reload
-    assert_equal "applied", @document_import.status
-    assert @document_import.applied_at.present?
+    assert_equal "nothing_applied", @document_import.status
+    assert_nil @document_import.applied_at
     assert_equal true, @document_import.metadata.fetch("no_reviewable_transactions")
     assert_includes @document_import.metadata.fetch("warnings").first, "Payroll"
     assert_empty @document_import.items
@@ -204,7 +204,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal "succeeded", @document_import.attempts.last.status
 
     HouseholdFinance::DocumentImportStatusReconciler.new(@document_import).call
-    assert_equal "applied", @document_import.reload.status
+    assert_equal "nothing_applied", @document_import.reload.status
   end
 
   test "an empty general AI extraction completes without depending on a spreadsheet-specific marker" do
@@ -230,8 +230,8 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
 
     @document_import.reload
-    assert_equal "applied", @document_import.status
-    assert @document_import.applied_at.present?
+    assert_equal "nothing_applied", @document_import.status
+    assert_nil @document_import.applied_at
     assert_equal true, @document_import.metadata.fetch("no_reviewable_transactions")
     assert_includes @document_import.metadata.fetch("warnings").first, "incoming transfers"
   end
@@ -259,7 +259,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
 
     @document_import.reload
-    assert_equal "applied", @document_import.status
+    assert_equal "nothing_applied", @document_import.status
     assert_equal "pdf_batches", @document_import.metadata.fetch("extraction_mode")
     assert_equal 4, @document_import.metadata.fetch("extraction_page_count")
     assert_equal true, @document_import.metadata.fetch("no_reviewable_transactions")
@@ -568,7 +568,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
       end
     end
 
-    assert_equal "applied", @document_import.reload.status
+    assert_equal "nothing_applied", @document_import.reload.status
     assert_equal "failed", stale_attempt.reload.status
     assert_equal true, stale_attempt.metadata.fetch("stalled")
     assert_equal "succeeded", @document_import.attempts.order(:id).last.status
@@ -699,6 +699,26 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal "failed", @document_import.attempts.last.status
     assert_equal "model unavailable", @document_import.attempts.last.error
     assert_equal 503, @document_import.attempts.last.metadata.fetch("status_code")
+  end
+
+  # Upload QA (U-03/U-09): participants saw "OpenRouter extraction failed
+  # with HTTP 402". The panel gets plain copy; admins keep the cause.
+  test "provider failure shows the participant plain copy and keeps the technical cause on the attempt" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE,
+        metadata: { status_code: 402, retryable: false, error_detail: "OpenRouter extraction failed with HTTP 402" })
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    @document_import.reload
+    assert_equal "failed", @document_import.status
+    assert_equal FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, @document_import.extraction_error
+    assert_no_match(/HTTP|OpenRouter|402/, @document_import.extraction_error)
+    attempt = @document_import.attempts.last
+    assert_includes attempt.error, "OpenRouter extraction failed with HTTP 402"
+    assert_equal 402, attempt.metadata.fetch("status_code")
+    assert_not attempt.metadata.key?("error_detail")
   end
 
   test "stale extraction success does not overwrite import reset by reprocess" do

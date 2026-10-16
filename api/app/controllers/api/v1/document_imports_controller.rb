@@ -68,10 +68,8 @@ module Api
         return render json: { errors: [ validation_error ] }, status: :unprocessable_entity if validation_error
 
         document_import = build_document_import(file)
-        if duplicate_active_import?(document_import)
-          return render json: {
-            errors: [ "This exact file is already uploaded and still waiting for review. Remove the duplicate attachment or finish the existing import before uploading it again." ]
-          }, status: :unprocessable_entity
+        if (duplicate = duplicate_active_import(document_import))
+          return render json: { errors: [ duplicate_upload_message(document_import, duplicate) ] }, status: :unprocessable_entity
         end
         document_import.save!
 
@@ -158,7 +156,7 @@ module Api
         when :invalid_object
           render json: { errors: [ "The private upload was incomplete. Choose the file and try again." ] }, status: :unprocessable_entity
         when :duplicate_file
-          render json: { errors: [ "This exact file is already uploaded and still waiting for review. Remove the duplicate attachment or finish the existing import before uploading it again." ] }, status: :unprocessable_entity
+          render json: { errors: [ outcome.fetch(:message) ] }, status: :unprocessable_entity
         when :created
           document_import = outcome.fetch(:document_import)
           document_import.extraction_dispatch.enqueue_retry
@@ -227,7 +225,10 @@ module Api
             next
           end
 
-          if @document_import.applied? || @document_import.partially_applied? || @document_import.items.where.not(applied_at: nil).exists? || @document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
+          # Re-extracting an import with any approved value (including
+          # source-review actuals on a nothing_applied import) would
+          # duplicate it.
+          if @document_import.applied? || @document_import.partially_applied? || @document_import.approved_values?
             reprocess_error = "Applied document imports cannot be reprocessed; upload a new copy to extract updated values."
             next
           end
@@ -391,8 +392,7 @@ module Api
       end
 
       def import_has_resolved_values?(document_import)
-        document_import.items.where.not(applied_at: nil).exists? ||
-          document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
+        document_import.approved_values?
       end
 
       def valid_upload_param?(file)
@@ -498,9 +498,9 @@ module Api
             s3_key: s3_key,
             metadata: metadata.fetch(:metadata, {}).merge("direct_to_s3" => true, "s3_etag" => object[:etag]).compact
           )
-          if duplicate_active_import?(document_import)
+          if (duplicate = duplicate_active_import(document_import))
             delete_direct_upload_object_unless_registered(s3_key)
-            next({ status: :duplicate_file })
+            next({ status: :duplicate_file, message: duplicate_upload_message(document_import, duplicate) })
           end
 
           document_import.save!
@@ -606,15 +606,26 @@ module Api
         )
       end
 
-      def duplicate_active_import?(document_import)
+      # The same bytes are the same document whatever type was chosen for
+      # them, so a different document kind must not open a second review.
+      def duplicate_active_import(document_import)
+        return if document_import.checksum_sha256.blank?
+
         current_household.financial_document_imports.current_picture
           .where(
             checksum_sha256: document_import.checksum_sha256,
-            document_kind: document_import.document_kind,
             status: %w[uploaded processing needs_review]
           )
           .where(source_deleted_at: nil)
-          .exists?
+          .order(:id)
+          .first
+      end
+
+      # Chat can attach several files at once, so name the one rejected.
+      def duplicate_upload_message(document_import, duplicate)
+        name = document_import.filename.to_s.truncate(80)
+        existing = duplicate.filename.to_s == document_import.filename.to_s ? "" : " (as \"#{duplicate.filename.to_s.truncate(80)}\")"
+        "\"#{name}\" is already uploaded#{existing} and still waiting for review. Remove this attachment, or finish or delete the existing upload before adding it again."
       end
 
       def sanitized_upload_context
