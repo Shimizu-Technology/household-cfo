@@ -1,6 +1,9 @@
 module Mia
   class CrisisBoundary
     FIRST_PERSON_SELF_HARM_INTENT_SOURCE = "(?:i(?:['’]m|\\s+am)\\s+(?:going\\s+to|about\\s+to|planning\\s+to|thinking\\s+(?:about|of))|i\\s+(?:want|plan|intend)\\s+to)".freeze
+    # The phrase must end its clause, so "done with life insurance" or "point of
+    # living paycheck to paycheck" stays money talk.
+    PHRASE_END = "(?=\\s*(?:[.!?,;…]|\\z|\\b(?:anyway|tbh|lol|honestly|fr|man)\\b))"
     PATTERNS = [
       /\b(?:kill(?:ing)? myself|end(?:ing)? my life|tak(?:e|ing) my own life|end it all|want to die|suicidal|suicide|hurt(?:ing)? myself|harm(?:ing)? myself|self[-\s]?harm)\b/i,
       /\b#{FIRST_PERSON_SELF_HARM_INTENT_SOURCE}\s+(?:shoot(?:ing)?|hang(?:ing)?|drown(?:ing)?|stab(?:bing)?|poison(?:ing)?|suffocat(?:e|ing))\s+myself\b/i,
@@ -11,9 +14,13 @@ module Mia
       /\b(?:can['’]?t|cannot) go on(?:[.!?,;:]|\z|\s+(?:anymore|living|like this|with (?:my )?life|with this anymore)\b)/i,
       /\b(?:can['’]?t|cannot) go on\s+with\s+(?:this|the|my)?\s*(?:debt|bills?|money stress)\b.*\banymore\b/i,
       /\b(?:everyone|everybody|they|my (?:family|kids|children|wife|husband|partner)|the kids)(?:['’]s|['’]d|['’]re|\s+would|\s+will|\s+is|\s+are|\s+r)?(?:\s+all)?\s+(?:be\s+)?better off (?:without me|if i (?:was|were) gone|if i (?:wasn['’]?t|weren['’]?t) here)(?=\s*(?:[.!?,;…]|\z|\b(?:anyway|tbh|lol|honestly|fr)\b))/i,
-      /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+be (?:here|alive) any\s?more\b/i,
-      /\b(?:i['’]m|im|i am)\s+(?:so\s+)?done with (?:life|living)\b/i,
-      /\b(?:what['’]?s|whats|what is) (?:even )?the point (?:of|in) (?:living|being alive|life)\b/i,
+      # Crisis when the sentence ends there; with more after a comma it gets the
+      # gentler check instead (see HOPELESS_PATTERNS).
+      /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+be (?:here|alive) any\s?more(?=\s*(?:[.!?…]|\z|\b(?:tbh|lol|honestly|fr)\b))/i,
+      /\b(?:i['’]m|im|i am)\s+(?:so\s+)?done (?:with (?:life|living)|living)#{PHRASE_END}/i,
+      /\b(?:what['’]?s|whats|what is) (?:even )?the point (?:of|in) (?:living|being alive|life)#{PHRASE_END}/i,
+      /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+wake up(?:\s+(?:tomorrow|again|anymore))?#{PHRASE_END}/i,
+      /\bi\s+wish\s+i\s+(?:wasn['’]?t|weren['’]?t|was not|were not)\s+(?:here|alive|born)#{PHRASE_END}/i,
       /\b(?:nobody|no one|noone)\s+would\s+(?:even\s+)?(?:miss|notice|care if)\s+(?:me|i (?:was|were) gone)\b/i,
       /\b(?:want|wanna|wish i could)\s+(?:to\s+)?(?:go to\s+)?sleep and (?:never|not) wake up\b/i
     ].freeze
@@ -23,18 +30,21 @@ module Mia
     # ("give up dining out", "hopeless with money", "point of a sinking fund") do
     # not match.
     CLAUSE_END = "(?=\\s*(?:[.!?,;…:]|\\z|\\b(?:lol|tbh|honestly|man|bro|already|anymore|any more|no more|any longer)\\b))"
+    # "anymore" ends the phrase only when the sentence ends with it.
+    POINT_END = "(?=\\s*(?:[.!?,;…:]|\\z|\\b(?:lol|tbh|honestly)\\b|any\\s?more\\s*(?:[.!?,…]|\\z)))"
     HOPELESS_PATTERNS = [
+      /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+be (?:here|alive) any\s?more\s*,/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle|deal with)\s+(?:this|it|any of this)\s+(?:any\s?more|no more|any longer|much longer)\b/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle)\s+this#{CLAUSE_END}/i,
       /\bi(?:['’]m|m|\s+am)?\s+(?:just\s+|so\s+|really\s+)?(?:giving up|give up|gave up|want to give up|ready to give up)(?:\s+on\s+(?:everything|life|myself))?#{CLAUSE_END}/i,
       /\bi(?:['’]m|m|\s+am)\s+(?:just\s+|so\s+)?done with (?:everything|it all|all of (?:it|this))#{CLAUSE_END}/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:even\s+)?any\s?more#{CLAUSE_END}/i,
-      /\b(?:no|there['’]?s no|theres no) point any\s?more\b/i,
-      /\bjust want (?:it all|everything) to stop\b/i,
+      /\b(?:no|there['’]?s no|theres no) point any\s?more(?=\s*(?:[.!?,;…]|\z|\b(?:lol|tbh|honestly)\b))/i,
+      /\bjust want (?:it all|everything) to stop#{CLAUSE_END}/i,
       /\b(?:i(?:['’]m|m|\s+am)?\s+(?:so\s+|just\s+)?(?:feel(?:ing)?\s+)?|feel(?:ing)?\s+(?:so\s+)?)hopeless(?!\s+(?:with|at)\b)/i,
       /\btired of (?:everything|living|it all|life|trying)#{CLAUSE_END}/i,
       /\b(?:want to|wanna)\s+disappear#{CLAUSE_END}/i,
-      /\b(?:what['’]?s (?:even )?the|whats (?:even )?the|what is (?:even )?the|there['’]?s no|theres no|is there any)\s+point(?:\s+(?:in anything|in trying|in any of this|in living|of anything|of any of this))?#{CLAUSE_END}/i,
+      /\b(?:what['’]?s (?:even )?the|whats (?:even )?the|what is (?:even )?the|there['’]?s no|theres no|is there any)\s+point(?:\s+(?:in anything|in trying|in any of this|in living|of anything|of any of this))?#{POINT_END}/i,
       /\b(?:i\s+)?(?:feel|am|i['’]m|im)\s+(?:like\s+)?(?:such\s+)?a burden\b/i
     ].freeze
     # "Should I give up?" asks for advice, not help.

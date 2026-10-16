@@ -23,7 +23,8 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       "What's the point in trying anymore, the bills never stop",
       "I'm tired of everything",
       "I just wanna disappear",
-      "I feel like a burden to my family"
+      "I feel like a burden to my family",
+      "I don't want to be here anymore, this apartment is too expensive"
     ].each do |message|
       assert Mia::CrisisBoundary.hopeless?(message), message
       assert_not Mia::CrisisBoundary.matches?(message), "#{message} should keep money help, not the crisis response"
@@ -49,6 +50,11 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       "I'm done!",
       "Im giving up on this budget",
       "I'm done paying this card off early",
+      "no point anymore in keeping Netflix",
+      "No point anymore paying for Hulu",
+      "there's no point anymore in the coupon app",
+      "I just want it all to stop going up",
+      "I just want everything to stop costing so much",
       "I can't do this budget alone, can you help me set it up?"
     ].each do |message|
       assert_not Mia::CrisisBoundary.hopeless?(message), message
@@ -71,14 +77,24 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       "my kids are better off without me tbh",
       "honestly everyone would be better off without me lol",
       "the kids r better off without me",
-      "I want to go to sleep and not wake up"
+      "I want to go to sleep and not wake up",
+      "Im done living",
+      "I don't want to wake up tomorrow",
+      "I wish I wasn't here"
     ].each do |message|
       assert Mia::CrisisBoundary.matches?(message), message
     end
 
     [
       "my kids would be better off without me buying junk food",
-      "my family would be better off without me working nights"
+      "my family would be better off without me working nights",
+      "I'm done with life insurance, can I cancel it?",
+      "I'm done with living paycheck to paycheck",
+      "What's the point of life insurance?",
+      "whats the point of living paycheck to paycheck",
+      "what's the point of living on a budget if prices keep rising",
+      "I don't wanna be here anymore at this job",
+      "I don't want to be here anymore, this apartment is too expensive"
     ].each do |message|
       assert_not Mia::CrisisBoundary.matches?(message), message
     end
