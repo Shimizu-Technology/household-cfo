@@ -74,6 +74,7 @@ module Mia
           transport.call(payload_for(context:, user_message:))
         end
         raise Error.new("Persona setup is busy. Try again shortly.", code: "persona_setup_busy") unless response
+        ProviderOutageAlert.check(response, service: "persona_setup")
         raise Error.new("Persona setup is temporarily unavailable.", code: "persona_setup_unavailable") unless response.is_a?(Net::HTTPSuccess)
 
         json = JSON.parse(response.body)

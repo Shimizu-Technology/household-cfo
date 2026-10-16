@@ -213,3 +213,8 @@ Run the representative workflows below on desktop, a real phone, and the automat
 | Cohort progress | Invited, signed-in, setup state, pending review, and safe last activity match known test-account state. |
 
 Record failures with the in-app feedback form using only demo-safe descriptions. A local automated pass is necessary but does not replace real iOS Safari and Android Chrome evidence.
+
+## AI provider outage alerts
+- Set `OPS_ALERT_EMAILS` on Render (comma-separated) so someone is emailed, at most hourly, when OpenRouter returns 401/402/403 (bad key, out of credits, access denied). Without it the failure is only logged and Mia quietly answers with scripted fallbacks.
+- Production has no `SENTRY_DSN`; setting one also sends these as Sentry errors.
+- Keep OpenRouter auto top-up on. On 2026-10-16 the shared account ran out of credits and production Mia fell back silently.
