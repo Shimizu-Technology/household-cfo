@@ -1238,6 +1238,12 @@ module Api
       end
 
       def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})
+        # Every reply path saves here, so hopeless language always gets the safety
+        # check; plain text only, so no structured card can hide it.
+        if ::Mia::CrisisBoundary.hopeless?(content)
+          assistant_content = ::Mia::CrisisBoundary.with_wellbeing_check(assistant_content)
+          assistant_presentation = {}
+        end
         ApplicationRecord.transaction do
           if session.cohort_id
             current_household.lock!
