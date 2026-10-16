@@ -142,7 +142,7 @@ module Demo
           *conversation_history(history),
           { role: "user", content: message }
         ],
-        max_tokens: 220
+        max_tokens: AiModels.output_budget(@model, 220)
       }
       reasoning = AiModels.chat_reasoning(@model)
       payload[:reasoning] = reasoning if reasoning
@@ -153,7 +153,7 @@ module Demo
       end
       request.body = payload.to_json
 
-      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: 20, open_timeout: 5) do |http|
+      response = OpenRouterConnection.start(uri, read_timeout: 20, open_timeout: 5) do |http|
         http.request(request)
       end
 

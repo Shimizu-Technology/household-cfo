@@ -79,7 +79,7 @@ module HouseholdFinance
       request["X-Title"] = "Household CFO Method Mia Narrator"
       request.body = payload.to_json
 
-      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: READ_TIMEOUT_SECONDS, open_timeout: OPEN_TIMEOUT_SECONDS) do |http|
+      response = OpenRouterConnection.start(uri, read_timeout: READ_TIMEOUT_SECONDS, open_timeout: OPEN_TIMEOUT_SECONDS) do |http|
         http.request(request)
       end
       return unless response.is_a?(Net::HTTPSuccess)
@@ -105,7 +105,7 @@ module HouseholdFinance
           *conversation_history,
           { role: "user", content: narration_request }
         ],
-        max_tokens: MAX_OUTPUT_TOKENS
+        max_tokens: AiModels.output_budget(model, MAX_OUTPUT_TOKENS)
       }.tap { |body| body[:reasoning] = reasoning if reasoning }.merge(AiModels.sampling(model, 0.45))
     end
 
