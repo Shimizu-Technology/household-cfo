@@ -744,39 +744,42 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     }
   }.to_json.freeze
 
-  test "QA false positives: approved numbers named the way people say them are accepted" do
+  # Two saved debts: totals ($3,200 balance, $150 of minimums) must never be
+  # attached to one debt.
+  INDIVIDUAL_DEBT_CONTEXT = {
+    metrics: { readiness: "Red — pause and stabilize basics", total_debt_entered: "$3,200", baseline_surplus: "$955", safe_to_spend: "$0" },
+    debts: {
+      tracking_mode: "individual", canonical_total_balance: "$3,200", canonical_monthly_minimum: "$150",
+      records: [ { label: "Visa", balance: "$1,000", minimum_payment: "$50" }, { label: "Car loan", balance: "$2,200", minimum_payment: "$100" } ]
+    }
+  }.to_json.freeze
+
+  test "verification is unchanged: wrong or misattached figures are rejected" do
     responder = Demo::MiaResponder.new(api_key: nil)
-    {
-      "whats our readiness color" => "Your readiness is Red: pause and stabilize basics. You have $2,750 in checking and savings, which is 0.8 months of runway against $3,245 in monthly expenses. Your next move is to send part of the $955 surplus to runway each month until you reach Yellow.",
-      "how much do we owe on the credit card again" => "You owe $3,200 on your saved debt summary, with a $95 monthly minimum. That is the approved total, not a live statement balance. Next move: keep the minimum current and check the card statement before choosing an extra payment.",
-      "ross gave me a refund of $40 for the shoes i returned" => "A $40 refund is money coming back, not new spending. It does not count against your budget as an expense. Next move: if the shoes were charged to a card, check that the refund posts there.",
-      "if i do the challenge can you guarantee ill save $500 by january" => "I can't guarantee you'll save $500 by January, because that depends on what happens each month. The challenge gives you a steady routine. Next move: pick a weekly amount that still leaves food, rent, and bills covered.",
-      "if i pay an extra 100 a month how long till its paid off" => "Paying an extra $100 a month on top of the $95 minimum would shorten the payoff, but the APR is not stored, so I can't give an exact date. You owe $3,200 in total. Next move: add the card's APR so I can compare timelines.",
-      "how are we doing" => "You bring home $4,200 a month and your monthly plan is $3,245, leaving a $955 surplus. Your BOG Checking balance is $1,850 and GPA Power was $248.10. Next move: decide where the $955 goes first."
-    }.each do |message, reply|
-      assert_nil responder.send(:generic_claim_rejection, reply, context: QA_CONTEXT, user_message: message), message
+    [
+      [ "You owe $3,200 on your Visa.", INDIVIDUAL_DEBT_CONTEXT, "how much is on my visa" ],
+      [ "Your Visa minimum payment is $150.", INDIVIDUAL_DEBT_CONTEXT, "whats my visa minimum" ],
+      [ "Your baseline surplus is $955. Before anything else this month, remember that your rent payment is $955.", INDIVIDUAL_DEBT_CONTEXT, "how are we doing" ],
+      [ "Your car loan minimum is $40, the refund covers it.", INDIVIDUAL_DEBT_CONTEXT, "ross gave me a refund of $40" ],
+      [ "Put an extra $15 toward the Visa.", INDIVIDUAL_DEBT_CONTEXT, "i get paid on the 15th, can i pay extra" ],
+      [ "You have $2,750 in checking and savings.", QA_CONTEXT, "how much do we have" ],
+      [ "You owe $3,200 on the card.", QA_CONTEXT, "how much do we owe" ],
+      [ "You'd have $300 left over each month.", QA_CONTEXT, "what should we do" ],
+      [ "Your monthly income is $955.", QA_CONTEXT, "whats our income" ]
+    ].each do |reply, context, message|
+      assert_equal "unverified_amount", responder.send(:generic_claim_rejection, reply, context: context, user_message: message), reply
     end
+    assert_equal "readiness_mismatch", responder.send(:generic_claim_rejection, "Your readiness is Yellow, so you're close.", context: QA_CONTEXT)
+    assert_nil responder.send(:generic_claim_rejection, "Visa has a $1,000 balance and a $50 monthly minimum payment.", context: INDIVIDUAL_DEBT_CONTEXT)
   end
 
-  test "invented or mislabeled amounts are still rejected after the label fixes" do
-    responder = Demo::MiaResponder.new(api_key: nil)
-    {
-      "You have $2,750 in checking and savings, so your safe-to-spend is $955." => "unverified_amount",
-      "You owe $3,500 on the card." => "unverified_amount",
-      "Your monthly income is $955." => "unverified_amount",
-      "Your BOG Checking balance is $3,200." => "unverified_amount",
-      "Paying $195 a month clears it in 17 months." => "unverified_amount",
-      "You'd have $300 left over each month." => "unverified_amount",
-      "Your readiness is Yellow, so you're close." => "readiness_mismatch",
-      "Put $100 toward the trip." => "unverified_amount",
-      "Your safe-to-spend is $0. Put the $955 toward the trip." => "unverified_amount",
-      "Your baseline surplus is $955, and your safe-to-spend is $955." => "unverified_amount"
-    }.each do |reply, check|
-      assert_equal check, responder.send(:generic_claim_rejection, reply, context: QA_CONTEXT, user_message: "what should we do"), reply
-    end
-    # A participant's own number is accepted only when framed as theirs.
-    assert_equal "unverified_amount", responder.send(:generic_claim_rejection, "Put $100 toward the card.", context: QA_CONTEXT, user_message: "should i pay 100 more")
-    assert_nil responder.send(:generic_claim_rejection, "Paying an extra $100 toward the card helps.", context: QA_CONTEXT, user_message: "should i pay 100 more")
+  test "a rejected wrong figure is replaced by the approved fact, never passed through" do
+    responder = stubbed_model_responder("You owe $3,200 on your Visa.")
+    reply = responder.call("how much do we owe on the visa", context: INDIVIDUAL_DEBT_CONTEXT)
+
+    assert_equal :reply_rejected, responder.fallback_reason
+    assert reply.start_with?("Your saved debt total is $3,200, with $150 a month in minimum payments."), reply
+    refute_includes reply, "on your Visa"
   end
 
   test "a rejected reply falls back to the approved fact that answers the question" do
@@ -885,6 +888,21 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       refute_includes reply, "hopeless"
       refute_includes reply, "$9,999"
       assert_equal 5, reply.split(Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).count(&:present?), reply
+    end
+  end
+
+  test "the hopeless reply never mentions minimum payments when no debt is owed" do
+    message = "whats the point, we're never gonna get out of this. i feel hopeless"
+    [
+      { metrics: { readiness: "Red — pause and stabilize basics", total_debt_entered: "$0" }, debts: { canonical_total_balance: "$0", canonical_monthly_minimum: "$0" } },
+      { metrics: { readiness: "Red — pause and stabilize basics" } },
+      { metrics: {} }
+    ].each do |context|
+      reply = stubbed_model_responder("You owe $9,999.").call(message, context: context.to_json)
+
+      assert reply.start_with?("That sounds really heavy"), reply
+      refute_match(/minimum|debt total/i, reply)
+      assert_includes reply, Mia::FallbackReply::HOPELESS_STEP
     end
   end
 

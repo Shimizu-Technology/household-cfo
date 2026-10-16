@@ -20,27 +20,18 @@ module Demo
     PERCENT_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*(?:%|percent\b)/i.freeze
     RUNWAY_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s+months?\s+of\s+runway\b/i.freeze
     READINESS_CLAIM_PATTERN = /\b(?:your|the|household(?: cfo method)?)\s+(?:baseline|readiness)(?:\s+status)?\s+(?:is|looks|reads|shows)\s+(?:currently\s+)?(?:["“])?(red|yellow|green)\b/i.freeze
-    # Each approved amount may be named the way people say it ("$2,750 in
-    # checking and savings", "you owe $3,200"), but only beside a label for
-    # that same metric: an approved number next to another metric's label is
-    # still rejected.
     METRIC_LABELS = {
-      "monthly_income" => /\b(?:monthly|approved)?\s*income\b|\btake[- ]home(?:\s+pay)?\b|\bbring(?:s|ing)?\s+home\b/i,
-      "planned_monthly_outflow" => /\b(?:planned\s+monthly\s+outflow|(?:total\s+|monthly\s+)?outflow|money\s+out|planned\s+(?:monthly\s+)?(?:spending|expenses|costs)|monthly\s+(?:plan|expenses|costs|bills|obligations))\b/i,
-      "baseline_surplus" => /\b(?:baseline\s+|monthly\s+)?surplus\b(?!\s+rate)|\bleft\s*over\b/i,
+      "monthly_income" => /\b(?:monthly|approved)?\s*income\b/i,
+      "planned_monthly_outflow" => /\b(?:planned\s+monthly\s+outflow|total\s+outflow|money\s+out)\b/i,
+      "baseline_surplus" => /\bbaseline\s+surplus\b/i,
       "safe_to_spend" => /\bsafe-to-spend\b/i,
-      "total_debt_entered" => /\b(?:total\s+debt|debt\s+(?:total|balance)|total\s+(?:you\s+|we\s+)?owed?)\b|\b(?:you|we|i)\s+(?:still\s+)?owe\b/i,
-      "liquid_assets" => /\bliquid\s+(?:assets?|savings|cash|accounts?|money|funds)\b|\bcash\s+on\s+hand\b|\b(?:checking\s+and\s+savings|savings\s+and\s+checking)\b/i
-    }.freeze
-    # Debt summaries keep totals here instead of per-debt records.
-    DEBT_SUMMARY_LABELS = {
-      "canonical_total_balance" => METRIC_LABELS.fetch("total_debt_entered"),
-      "canonical_monthly_minimum" => /\b(?:(?:total\s+|monthly\s+)?minimum(?:\s+payments?)?|minimums)\b/i
+      "total_debt_entered" => /\btotal\s+debt\b/i,
+      "liquid_assets" => /\bliquid\s+assets?\b/i
     }.freeze
     PERCENT_METRIC_LABELS = {
       "monthly_surplus_rate_percent" => /\b(?:monthly\s+)?surplus\s+rate\b/i
     }.freeze
-    PARTICIPANT_SCENARIO_LABEL_PATTERN = /\b(?:scenario|assumption|input|costs?|prices?|quoted|amount|percentage|rate|refund(?:ed|s)?|returned|extra|additional|goal|target|guarantee(?:d)?|borrow|lend|you\s+(?:gave|provided|entered|mentioned|asked\s+about|said|got|received|reported|told\s+me))\b/i.freeze
+    PARTICIPANT_SCENARIO_LABEL_PATTERN = /\b(?:scenario|assumption|input|costs?|prices?|quoted|amount|percentage|rate|you\s+(?:gave|provided|entered|mentioned|asked\s+about))\b/i.freeze
     UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN = /\b(?:you|we)\s+(?:can|could|should|may)\s+(?:comfortably\s+)?afford\b|\b(?:safe|okay|ok|fine|clear|approved)\s+(?:for\s+you\s+)?to\s+(?:spend|buy|book|purchase)\b|\b(?:trip|purchase|expense|it|that)\s+(?:works|fits|is\s+affordable|looks\s+affordable)\b|\bwithin\s+(?:your|the)\s+(?:budget|safe-to-spend)\b|\byou(?:['’]re|\s+are)\s+(?:clear|good)\s+to\s+(?:spend|buy|book)\b/i.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(can|should|could|may) i\b.*\b(buy|spend|purchase|afford|get|book|order)\b/,
@@ -384,43 +375,13 @@ module Demo
       mentions = currency_mentions(content)
       return true if mentions.empty?
 
-      metric_mentions = approved_metric_mentions(content, metrics: metrics) +
-        approved_debt_summary_mentions(content, payload: payload) +
-        approved_saved_record_mentions(content, payload: payload)
-      participant_values = participant_amount_values(user_message)
-      statuses = mentions.map { |mention| nearest_label_status(metric_mentions, mention) }
-      labeled_values = mentions.zip(statuses).filter_map { |mention, status| mention.fetch(:value) if status == :match }
-      mentions.zip(statuses).all? do |mention, status|
-        status == :match ||
-          (participant_values.include?(mention.fetch(:value)) && participant_scenario_labeled?(content, mention)) ||
-          # "...a $955 surplus. Decide where the $955 goes first." A repeat of an
-          # amount already labeled in this reply, with no other label beside it.
-          (status == :unlabeled && labeled_values.include?(mention.fetch(:value)))
+      metric_mentions = approved_metric_mentions(content, metrics: metrics) + approved_saved_record_mentions(content, payload: payload)
+      participant_values = currency_values(user_message)
+      mentions.all? do |mention|
+        nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
+        (participant_values.include?(mention.fetch(:value)) && participant_scenario_labeled?(content, mention)) ||
+          (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
       end
-    end
-
-    # :match when the closest label carries the same approved value, :mismatch
-    # when it names a different value, :unlabeled when no label is close. Labels
-    # that tie for closest (one word anchoring a record field and a summary
-    # total) count together, so overlapping labels cannot reject a correct amount.
-    def nearest_label_status(labels, mention)
-      closest = labels.map { |label| range_distance(label, mention) }.min
-      return :unlabeled if closest.nil? || closest > 40
-
-      matched = labels.any? { |label| range_distance(label, mention) == closest && label.fetch(:value) == mention.fetch(:value) }
-      matched ? :match : :mismatch
-    end
-
-    # Amounts the participant wrote in this message, with or without "$"
-    # ("pay an extra 100 a month"). They are still only accepted when the reply
-    # frames them as the participant's own figure.
-    def participant_amount_values(text)
-      bare = text.to_s.scan(/(?<![\w$.,])(#{HouseholdFinance::Money::CHAT_NUMBER_SOURCE}(?![\d,])#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?)(?![\w%])/).flatten.filter_map do |amount|
-        HouseholdFinance::Money.chat_cents(amount)
-      rescue ArgumentError
-        nil
-      end
-      (currency_values(text) + bare).uniq
     end
 
     def grounded_percent_mentions?(content, metrics:, user_message: nil)
@@ -430,8 +391,9 @@ module Demo
       metric_mentions = approved_percent_metric_mentions(content, metrics: metrics)
       participant_values = percent_values(user_message)
       mentions.all? do |mention|
+        nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
         (participant_values.include?(mention.fetch(:value)) && participant_scenario_labeled?(content, mention)) ||
-          nearest_label_status(metric_mentions, mention) == :match
+          (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
       end
     end
 
@@ -455,18 +417,6 @@ module Demo
       end
     end
 
-    def approved_debt_summary_mentions(content, payload:)
-      DEBT_SUMMARY_LABELS.flat_map do |key, label_pattern|
-        approved = currency_values(payload.dig("debts", key).to_s).first
-        next [] unless approved
-
-        content.to_s.to_enum(:scan, label_pattern).map do
-          match = Regexp.last_match
-          { start: match.begin(0), finish: match.end(0), value: approved }
-        end
-      end
-    end
-
     def approved_saved_record_mentions(content, payload:)
       records = []
       Array(payload.dig("financial_accounts", "records")).each do |account|
@@ -474,12 +424,6 @@ module Demo
       end
       Array(payload.dig("debts", "records")).each do |debt|
         records << { label: debt["label"], fields: { "balance" => debt["balance"], "minimum" => debt["minimum_payment"] } }
-      end
-      Array(payload.dig("annual_budget", "recent_transactions")).each do |transaction|
-        records << { label: transaction["merchant"], fields: { "amount" => transaction["amount"] } }
-      end
-      Array(payload.dig("tracked_goals", "records")).each do |goal|
-        records << { label: goal["label"], fields: { "target" => goal["target_amount"], "saved" => goal["current_progress"] } }
       end
       Array(payload.dig("annual_budget", "selected_month_budget_rows")).each do |category|
         records << {

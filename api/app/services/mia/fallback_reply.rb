@@ -72,10 +72,10 @@ module Mia
 
     # The wellbeing check (988) is added where every reply is saved; this keeps
     # the money help itself short and kind so the whole reply stays readable.
+    # Minimum payments come up only when a positive debt balance is saved.
     def hopeless_reply
-      fact = debt_fact if debt_known?
-      fact ||= general_fact
-      [ HOPELESS_OPENING, fact, debt_known? ? HOPELESS_DEBT_STEP : HOPELESS_STEP ].compact.join(" ")
+      owes = debt_owed?
+      [ HOPELESS_OPENING, owes ? debt_fact : general_fact, owes ? HOPELESS_DEBT_STEP : HOPELESS_STEP ].compact.join(" ")
     end
 
     def topic_fact
@@ -106,16 +106,22 @@ module Mia
       runway ? "#{sentence.delete_suffix('.')}, with #{runway} months of runway." : sentence
     end
 
+    def debt_total
+      metric("total_debt_entered") || @payload.dig("debts", "canonical_total_balance").presence
+    end
+
     def debt_fact
-      total = metric("total_debt_entered") || @payload.dig("debts", "canonical_total_balance").presence
+      total = debt_total
       return unless total
 
       minimum = @payload.dig("debts", "canonical_monthly_minimum").presence
       minimum ? "Your saved debt total is #{total}, with #{minimum} a month in minimum payments." : "Your saved debt total is #{total}."
     end
 
-    def debt_known?
-      debt_fact.present? && metric("total_debt_entered") != "$0"
+    def debt_owed?
+      HouseholdFinance::Money.chat_cents(debt_total.to_s.delete("$")).to_i.positive?
+    rescue ArgumentError
+      false
     end
 
     def safe_to_spend_fact

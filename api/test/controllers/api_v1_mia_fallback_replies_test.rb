@@ -81,6 +81,21 @@ class ApiV1MiaFallbackRepliesTest < ActionDispatch::IntegrationTest
     assert_equal 0, @household.household_memories.count
   end
 
+  test "forget and delete only become memory help when the whole message is a memory request" do
+    forget_copy = "choose Forget on that item"
+    [
+      "forget that my rent went up, how much did I spend?",
+      "delete that i spent $40 at Payless",
+      "Forget that… we are out of food and we have no money until friday"
+    ].each do |message|
+      content = post_message(message)
+      assert_response :created
+      refute_includes content, forget_copy, message
+    end
+    assert_includes post_message("Forget that we are out of food and we have no money until friday"), "food pantry"
+    assert_includes post_message("forget that our income is actually 9000 a month"), forget_copy
+  end
+
   private
 
   def post_message(content)
