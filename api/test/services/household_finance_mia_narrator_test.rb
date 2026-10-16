@@ -1271,7 +1271,84 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  JULY_PLAN = { top_categories: [ { name: "Groceries", planned: 650, actual: 98, remaining: 552 }, { name: "Dining Out", planned: 310, actual: 45, remaining: 265, pending: 22 } ] }.freeze
+
+  test "a spending report is held to its own month, not the plan's" do
+    narrated = "For June 2026, confirmed spending is $425. Your top spending categories were Groceries at $229, Dining Out at $176, and Software at $20. Next CFO move: review your June transactions."
+    packet = {
+      kind: "spending_report", fallback_response: "June spending was $425.", write_state: "no_write",
+      annual_plan_summary: JULY_PLAN,
+      spending_report_summary: { top_categories: [ { name: "Groceries", planned: 650, actual: 229, remaining: 421 }, { name: "Dining Out", planned: 310, actual: 176, remaining: 134 }, { name: "Software", planned: 100, actual: 20, remaining: 80 } ] }
+    }
+
+    assert_equal narrated, narrate(narrated, packet, "How did I do in June?")
+    assert_equal "June spending was $425.", narrate(narrated.sub("$229", "$300"), packet, "How did I do in June?")
+    assert_equal "June spending was $425.", narrate("In June, Dining Out had $265 remaining. Next CFO move: review June.", packet, "How did I do in June?")
+    assert_equal "June spending was $425.", narrate("In June, Dining Out was at $45 of $310. Next CFO move: review June.", packet, "How did I do in June?")
+  end
+
+  test "an amount written before a category belongs to that category" do
+    packet = { kind: "coaching", fallback_response: "Groceries and Dining Out are within plan.", write_state: "no_write", annual_plan_summary: JULY_PLAN }
+    reply = "So far this month you have $98 on Groceries and $45 on Dining Out. Next CFO move: keep the baseline protected."
+
+    assert_equal reply, narrate(reply, packet, "How am I doing?")
+    assert_equal "Groceries and Dining Out are within plan.", narrate(reply.sub("$45 on Dining Out", "$98 on Dining Out"), packet, "How am I doing?")
+  end
+
+  test "a negative remaining figure is accepted with its sign and rejected without it" do
+    packet = { kind: "budget_question", fallback_response: "Dining Out is over plan.", write_state: "no_write", annual_plan_summary: { top_categories: [ { name: "Dining Out", planned: 80, actual: 92, remaining: -12 } ] } }
+
+    correct = "Dining Out has -$12 remaining after $92 of actuals. Next CFO move: pause dining out until next month."
+    assert_equal correct, narrate(correct, packet, "How is Dining Out doing?")
+    assert_equal "Dining Out is over plan.", narrate(correct.sub("-$12", "$12"), packet, "How is Dining Out doing?")
+  end
+
+  test "draft projections and proposed amounts are not accepted as category facts" do
+    fallback = "I drafted McDonald's for $25 for your review."
+    packet = draft_packet(remaining_if_approved: "$218.00", projected_if_approved: "$92.00")
+    [
+      "I drafted McDonald's for $25 in Dining Out. If you approve it, Dining Out will have $218 remaining in its $310 plan. Next CFO move: review the draft.",
+      "I drafted McDonald's for $25. Dining Out has $218 remaining this month. Next CFO move: review the draft.",
+      "I drafted McDonald's for $25. Dining Out would be fine: you have spent $92 so far. Next CFO move: review the draft."
+    ].each { |reply| assert_equal fallback, narrate(reply, packet, "I spent $25 at McDonald's."), reply }
+
+    over = draft_packet(planned: "$80.00", remaining_if_approved: "-$12.00", projected_if_approved: "$92.00")
+    assert_equal fallback, narrate("If approved, Dining Out would have $12 left in its $80 plan. Next CFO move: review the draft.", over, "I spent $25 at McDonald's.")
+
+    budget = {
+      kind: "budget_action", fallback_response: "I drafted the Dining Out change for review.", write_state: "proposal_created",
+      annual_plan_summary: JULY_PLAN,
+      budget_action: { status: "proposed", title: "Set Dining Out to $250", items: [ { action_type: "set_monthly_amount", label: "Dining Out July 2026", before: { amount: "$310.00" }, after: { amount: "$250.00" } } ] }
+    }
+    assert_equal "I drafted the Dining Out change for review.", narrate("Dining Out is at $250 right now. Next CFO move: review the draft card.", budget, "Set Dining Out to $250 for July 2026.")
+  end
+
+  test "an amount the participant typed is not a fact about another category" do
+    packet = draft_packet(remaining_if_approved: "$218.00", projected_if_approved: "$92.00")
+
+    assert_equal "I drafted McDonald's for $25 for your review.", narrate("I drafted McDonald's for $25. Groceries has $25 remaining. Next CFO move: review the draft.", packet, "I spent $25 at McDonald's.")
+    lookup = { kind: "purchase_decision", fallback_response: "Let us check Dining Out first.", write_state: "no_write", annual_plan_summary: JULY_PLAN }
+    assert_equal "Let us check Dining Out first.", narrate("Dining Out has $98 remaining, so yes. Next CFO move: enjoy dinner.", lookup, "Can I spend $98 on dinner?")
+  end
+
   private
+
+  def draft_packet(planned: "$310.00", remaining_if_approved:, projected_if_approved:)
+    {
+      kind: "transaction_draft", fallback_response: "I drafted McDonald's for $25 for your review.", write_state: "draft_created",
+      annual_plan_summary: JULY_PLAN,
+      transaction_draft: {
+        merchant: "McDonald's", amount: "$25.00", category: "Dining Out", status: "pending",
+        budget_impacts_if_approved: [ { category_name: "Dining Out", draft_amount: "$25.00", planned: planned, actual: "$45.00", other_pending: "$22.00", projected_if_approved: projected_if_approved, remaining_if_approved: remaining_if_approved } ]
+      }
+    }
+  end
+
+  def narrate(content, packet, user_message)
+    with_net_http_start_stub(ok_response(choices: [ { message: { content: content } } ])) do
+      HouseholdFinance::MiaNarrator.new(user_message: user_message, answer_packet: packet, api_key: "test-key").call
+    end
+  end
 
   def ok_response(payload)
     Net::HTTPOK.new("1.1", "200", "OK").tap do |response|

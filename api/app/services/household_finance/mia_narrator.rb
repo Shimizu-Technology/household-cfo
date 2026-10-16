@@ -287,6 +287,7 @@ module HouseholdFinance
       DANGEROUS_WRITE_CLAIMS.any? { |pattern| content.match?(pattern) }
     end
 
+
     def dynamic_persona_write_claim?(content)
       subject = /\b#{Regexp.escape(persona.name)}\s+(?:already\s+|just\s+)?/i
       return true if content.match?(/#{subject}(?:added|recorded|logged|posted|tracked|deducted|applied|updated)\b/i)
@@ -415,7 +416,8 @@ module HouseholdFinance
       narrated_amounts = currency_cents_from_text(content)
       return false if narrated_amounts.empty?
 
-      (narrated_amounts - allowed_currency_cents).any?
+      # Signs count: "-$12" matches a -$12 figure, "$12" does not.
+      (signed_currency_cents_from_text(content) - allowed_currency_cents).any?
     end
 
     def incorrect_financial_fact_relationship?(content)
@@ -423,31 +425,48 @@ module HouseholdFinance
     end
 
     def incorrect_category_amount_relationship?(content)
-      categories = approved_category_facts
-      return false if categories.empty?
+      names = category_fact_sources.flat_map(&:keys).uniq
+      return false if names.empty?
 
-      mentions = categories.flat_map do |category|
-        content.to_enum(:scan, /\b#{Regexp.escape(category.fetch(:name))}\b/i).map do
-          { category: category, starts_at: Regexp.last_match.begin(0), ends_at: Regexp.last_match.end(0) }
+      mentions = names.flat_map do |name|
+        content.to_enum(:scan, /\b#{Regexp.escape(name)}\b/i).map do
+          { key: name.downcase, starts_at: Regexp.last_match.begin(0), ends_at: Regexp.last_match.end(0) }
         end
       end.sort_by { |mention| mention.fetch(:starts_at) }
 
+      carried = []
       mentions.each_with_index.any? do |mention, index|
         boundary = mentions[index + 1]&.fetch(:starts_at) || content.length
         clause = content[mention.fetch(:ends_at)...boundary].to_s.split(/[;\n]|\.(?=\s|\z)/, 2).first.to_s
+        leading = carried
+        carried = []
+        # "$98 on groceries and $45 on dining out": an amount right before the next
+        # category name belongs to that category, so it is checked there instead.
+        if mentions[index + 1] && (tail = clause[LEADING_AMOUNT_FOR_NEXT_CATEGORY_PATTERN])
+          carried = signed_currency_cents_from_text(tail)
+          clause = clause.delete_suffix(tail)
+        end
         relevant_clause = clause.first(100)
-        amounts = currency_cents_from_text(relevant_clause)
+        amounts = (leading + signed_currency_cents_from_text(relevant_clause)).uniq
         next false if amounts.empty?
 
-        approved = mention.fetch(:category).fetch(:amounts)
-        amounts.any? { |amount| approved.exclude?(amount) } || incorrect_category_metric?(relevant_clause, mention.fetch(:category))
+        candidates = category_fact_sources.filter_map { |source| source[mention.fetch(:key)] }
+        next false if candidates.empty?
+
+        # Every figure in the clause must come from one source: one month, one view.
+        candidates.none? do |fact|
+          amounts.all? { |amount| fact.fetch(:amounts).include?(amount) } && !incorrect_category_metric?(relevant_clause, fact)
+        end
       end
     end
+
+    LEADING_AMOUNT_FOR_NEXT_CATEGORY_PATTERN = /[-−]?\$\s*[\d,]+(?:\.\d{1,2})?(?:\s?[kK]\b)?\s+(?:on|for|in|toward|towards|to)\s+(?:the\s+|your\s+|my\s+)?\z/i
 
     def incorrect_category_metric?(clause, category)
       clause.to_enum(:scan, MONEY_AMOUNT_PATTERN).any? do
         amount_match = Regexp.last_match
         amount = HouseholdFinance::Money.chat_cents(amount_match[1])
+        amount = -amount if clause[[ amount_match.begin(0) - 1, 0 ].max...amount_match.begin(0)].to_s.match?(/[-−]/)
         before = clause[[ amount_match.begin(0) - 18, 0 ].max...amount_match.begin(0)].to_s
         after = clause[amount_match.end(0), 18].to_s
         metric = after.match(/\A\s*(?:in\s+)?(planned|actuals?|remaining|pending)\b/i)&.captures&.first ||
@@ -455,24 +474,68 @@ module HouseholdFinance
         next false unless metric
 
         key = metric.downcase.start_with?("actual") ? :actual : metric.downcase.to_sym
-        expected = category.fetch(:metrics)[key]
-        expected.present? && expected != amount
+        expected = category.fetch(:metrics).fetch(key, [])
+        expected.any? && expected.exclude?(amount)
       end
     end
 
-    def approved_category_facts
-      summaries = [ answer_packet[:annual_plan_summary], answer_packet[:spending_report_summary] ].compact
-      summaries.flat_map { |summary| Array(summary[:top_categories]) }.filter_map do |category|
-        name = category[:name].to_s.strip
-        next if name.blank?
-
-        metrics = %i[planned actual remaining pending].filter_map do |key|
-          value = category[key]
-          [ key, HouseholdFinance::Money.cents(value) ] unless value.nil?
-        end
-        { name: name, amounts: metrics.map(&:last).uniq, metrics: metrics.to_h } if metrics.any?
+    # Approved category figures, one hash per source so figures from different
+    # months or views never combine. A spending report answer is held to the
+    # report's month; other answers may use the plan or the report.
+    def category_fact_sources
+      @category_fact_sources ||= begin
+        plan = summary_facts(answer_packet[:annual_plan_summary])
+        report = summary_facts(answer_packet[:spending_report_summary])
+        sources = answer_packet[:kind].to_s.in?(%w[spending_report transaction_lookup]) && report.any? ? [ report ] : [ plan, report ]
+        sources.reject(&:empty?)
       end
     end
+
+    def summary_facts(summary)
+      Array(summary&.dig(:top_categories)).each_with_object({}) do |category, facts|
+        add_category_fact(facts, category[:name], category.slice(:planned, :actual, :remaining, :pending))
+      end
+    end
+
+    def add_category_fact(facts, name, values)
+      name = name.to_s.strip
+      return if name.blank?
+
+      fact = facts[name.downcase] ||= { name: name, amounts: [], metrics: {} }
+      values.each do |key, value|
+        cents = signed_cents(value)
+        next unless cents
+
+        fact[:amounts] |= [ cents ]
+        (fact[:metrics][key] ||= []) << cents unless fact[:metrics].fetch(key, []).include?(cents)
+      end
+      facts.delete(name.downcase) if fact[:amounts].empty?
+    end
+
+
+
+
+    # Packet figures can be negative ("-$12" over plan); a reply's "$12 remaining"
+    # must not match them.
+    # "-$12" in a reply is negative, matching how packet figures are stored.
+    def signed_currency_cents_from_text(text)
+      text.to_s.to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
+        amount_match = Regexp.last_match
+        cents = HouseholdFinance::Money.chat_cents(amount_match[1])
+        text[[ amount_match.begin(0) - 1, 0 ].max...amount_match.begin(0)].to_s.match?(/[-−]/) ? -cents : cents
+      end.uniq
+    end
+
+    def signed_cents(value)
+      return HouseholdFinance::Money.cents(value) if value.is_a?(Numeric)
+
+      text = value.to_s.strip
+      cents = currency_cents_from_text(text).first
+      return unless cents
+
+      text.match?(/\A(?:-|\(|−)/) ? -cents : cents
+    end
+
 
     def incorrect_transaction_relationship?(content)
       return false unless answer_packet[:kind].to_s.in?(%w[transaction_lookup transaction_draft])
