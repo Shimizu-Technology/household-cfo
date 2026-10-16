@@ -895,7 +895,9 @@ module HouseholdFinance
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
       return nil unless purchase_question? || message.match?(PURCHASE_DETAIL_CONTEXT_PATTERN) || purchase_conversation?
       return nil if !purchase_question? && normalized_message.match?(AMOUNT_CHANGE_STATEMENT_PATTERN) && !normalized_message.match?(/\b(?:does that change|price|costs?)\b/)
-      return nil if !purchase_question? && normalized_message.match?(/\b(?:income|take home|salary|paycheck|balance|minimum|account|apr|goal progress)\b/)
+      return nil if !purchase_question? && normalized_message.match?(/\b(?:income|take home|salary|paycheck|bonus|refund|windfall|balance|minimum|account|apr|goal progress)\b/)
+      # "Did I pay $50 for school fees last month?" asks about money already spent.
+      return nil if !purchase_question? && normalized_message.match?(/\A(?:did (?:i|we)|how much did (?:i|we)|what did (?:i|we))\b/)
       return nil if !purchase_question? && normalized_message.match?(SAVINGS_GOAL_PATTERN)
       return nil if transaction_report? || MoneyMovementText.non_expense?(message)
       return nil if normalized_message.match?(TRANSACTION_DRAFT_FOLLOWUP_PATTERN)

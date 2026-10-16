@@ -1233,7 +1233,9 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       "My savings went down $200 this month",
       "I put $20 gas in my car",
       "Our power bill was $180 last month",
-      "Saved $30 with coupons, is that good?"
+      "Saved $30 with coupons, is that good?",
+      "Did I pay $50 for school fees last month?",
+      "My work bonus is $500"
     ].each do |prompt|
       refute_match(/the purchase is|need or a want|pre-spend CFO decision/i, HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s, prompt)
     end
