@@ -1241,11 +1241,28 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     [
       "They cost $85 and are for my kid's basketball league. Does that change the answer?",
       "My kid needs $120 in school supplies. Can I cover that?",
-      "The shoes are $90. Can I get them?"
+      "The shoes are $90. Can I get them?",
+      "The price went up to $95 for the league. Does that change the answer?"
     ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
       assert_match(/purchase is \$|pre-spend|safe-to-spend|baseline need/i, answer, "#{prompt} => #{answer}")
     end
+  end
+
+
+  test "a bare amount answering a purchase question gets the purchase answer" do
+    household = create_yellow_household
+    [
+      [ "Can I afford new school supplies for my daughter?", "$120 for school stuff" ],
+      [ "Should I buy a laptop bag for my job?", "For work, $60" ]
+    ].each do |question, amount|
+      history = [ { role: "user", content: question }, { role: "assistant", content: "I still need the amount and timing. Next CFO move: send me the price and due date." } ]
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, amount, conversation_messages: history).call.to_s
+      assert_match(/purchase is \$|pre-spend/i, answer, "#{amount} => #{answer}")
+    end
+
+    unrelated = [ { role: "user", content: "How did I do in June?" }, { role: "assistant", content: "June spending was $425." } ]
+    refute_match(/the purchase is|need or a want/i, HouseholdFinance::MiaCoachAnswerer.new(household, "Saved $30 with coupons", conversation_messages: unrelated).call.to_s)
   end
 
   private

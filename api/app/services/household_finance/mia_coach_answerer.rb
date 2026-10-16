@@ -893,8 +893,8 @@ module HouseholdFinance
     def planned_purchase_detail_answer
       return nil unless amount_from_message_cents&.positive?
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
-      return nil unless purchase_question? || message.match?(PURCHASE_DETAIL_CONTEXT_PATTERN)
-      return nil if !purchase_question? && normalized_message.match?(AMOUNT_CHANGE_STATEMENT_PATTERN)
+      return nil unless purchase_question? || message.match?(PURCHASE_DETAIL_CONTEXT_PATTERN) || purchase_conversation?
+      return nil if !purchase_question? && normalized_message.match?(AMOUNT_CHANGE_STATEMENT_PATTERN) && !normalized_message.match?(/\b(?:does that change|price|costs?)\b/)
       return nil if !purchase_question? && normalized_message.match?(/\b(?:income|take home|salary|paycheck|balance|minimum|account|apr|goal progress)\b/)
       return nil if !purchase_question? && normalized_message.match?(SAVINGS_GOAL_PATTERN)
       return nil if transaction_report? || MoneyMovementText.non_expense?(message)
@@ -947,6 +947,22 @@ module HouseholdFinance
     def non_expense_movement_only?
       MoneyMovementText.non_expense?(message) && !MoneyMovementText.separate_spend?(message) &&
         TransactionDraftBuilder.explicit_purchase_details(message).blank?
+    end
+
+    # A bare amount ("$120 for school stuff") answering a purchase question asked
+    # just before, or Mia's own request for the price.
+    def purchase_conversation?
+      return @purchase_conversation if defined?(@purchase_conversation)
+
+      turns = conversation_messages.filter_map do |entry|
+        role = entry.respond_to?(:role) ? entry.role : entry[:role] || entry["role"]
+        content = entry.respond_to?(:content) ? entry.content : entry[:content] || entry["content"]
+        [ role.to_s, content.to_s.squish ] if content.present? && content.to_s.squish != message
+      end
+      last_user = turns.reverse.find { |role, _content| role == "user" }&.last
+      last_assistant = turns.reverse.find { |role, _content| role == "assistant" }&.last
+      @purchase_conversation = PURCHASE_INTENT_PATTERNS.any? { |pattern| last_user.to_s.match?(pattern) } ||
+        last_assistant.to_s.match?(/\b(?:send me the (?:price|amount|cost)|the (?:price|amount|cost) and (?:timing|due date)|what (?:does|would) it cost|how much (?:is it|does it cost|would it be))\b/i)
     end
 
     def purchase_question?
