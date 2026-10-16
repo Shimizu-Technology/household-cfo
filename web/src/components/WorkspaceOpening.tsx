@@ -19,7 +19,7 @@ export function WorkspaceOpening({ status, error, onRetry, recovery, children }:
   return <main className="workspace-opening">
     <section className="workspace-opening-panel" aria-label="Opening workspace" aria-busy={!error}>
       <p className="workspace-opening-brand" title={brandStatus === 'ready' ? brand.organization_name : undefined}>{brandStatus === 'ready' ? brand.organization_name : 'Secure workspace'}</p>
-      <h1>Opening your workspace…</h1>
+      <h1>{error ? 'We couldn’t open your workspace' : 'Opening your workspace…'}</h1>
       {error ? <p className="workspace-opening-error" role="alert">{error}</p> : <OpeningProgress status={status} />}
       {(error || slow) && <div className="workspace-opening-recovery">
         {!error && <p>This is taking a little longer. You can keep waiting or try again.</p>}

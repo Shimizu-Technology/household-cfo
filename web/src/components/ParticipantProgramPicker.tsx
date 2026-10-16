@@ -2,10 +2,11 @@ import {useCallback,useEffect,useRef,useState} from 'react'
 import {ApiRequestError} from '../api'
 import {fetchParticipantPrograms,type ParticipantPrograms,type ParticipantProgram} from '../participantProgramsApi'
 import './ParticipantProgramPicker.css'
-type Props={actorId:number;currentCohortId?:number;onChoose:(cohortId:number)=>void;initialPrograms?:ParticipantPrograms}
+// hideWhenEmpty: on a workspace load failure the picker is only a way out, so an empty list adds nothing.
+type Props={actorId:number;currentCohortId?:number;onChoose:(cohortId:number)=>void;initialPrograms?:ParticipantPrograms;hideWhenEmpty?:boolean}
 const statusLabel:Record<ParticipantProgram['status'],string>={draft:'Preparing',enrolling:'Enrolling',active:'Active',completed:'Completed',archived:'Archived'}
 export function ParticipantProgramPicker(props:Props){return <ParticipantProgramPickerBody key={`${props.actorId}:${props.currentCohortId??'current'}`} {...props}/>}
-function ParticipantProgramPickerBody({actorId,currentCohortId,onChoose,initialPrograms}:Props){
+function ParticipantProgramPickerBody({actorId,currentCohortId,onChoose,initialPrograms,hideWhenEmpty=false}:Props){
  const[initial]=useState(()=>initialPrograms?.actor_id===actorId&&initialPrograms.current_cohort_id===currentCohortId?initialPrograms:null)
  const[data,setData]=useState<ParticipantPrograms|null>(initial),[loading,setLoading]=useState(!initial),[error,setError]=useState<string|null>(null),[attempt,setAttempt]=useState(0)
  const active=useRef(false),epoch=useRef(0),controllers=useRef(new Set<AbortController>())
@@ -21,6 +22,7 @@ function ParticipantProgramPickerBody({actorId,currentCohortId,onChoose,initialP
  const choices=data?[...data.programs,...(data.current_program&&!data.programs.some(row=>row.id===data.current_program!.id)?[data.current_program]:[])]:[]
  const explicit=currentCohortId===undefined?data?.current_cohort_id??null:currentCohortId
  const selected=choices.find(row=>row.id===explicit),unavailable=Boolean(data?.selection_unavailable||(currentCohortId!==undefined&&data&&!selected&&data.next_cursor===null))
+ if(hideWhenEmpty&&!loading&&!error&&data&&choices.length===0&&data.next_cursor===null)return null
  function choose(id:number){if(!active.current||loading||error||!choices.some(row=>row.id===id))return;onChoose(id)}
  return <section className="participant-program-picker" aria-label="Your participant programs"><h2>Your program</h2>{loading&&<p role="status">{data?'Loading more programs…':'Checking your program choices…'}</p>}{error&&<p role="alert">{error} Refresh before choosing a program.</p>}{(error||unavailable)&&<button type="button" disabled={loading} onClick={()=>setAttempt(value=>value+1)}>Retry program choices</button>}{unavailable&&<p role="status">The selected program is unavailable for this account in this workspace. Choose a listed program or retry.</p>}
   {data&&!error&&<><button type="button" disabled={loading} onClick={()=>setAttempt(value=>value+1)}>Refresh program choices</button>{choices.length===0?<p>No participant programs are available in this workspace.</p>:choices.length===1&&!data.next_cursor?<><p><strong>{choices[0].name}</strong> · {statusLabel[choices[0].status]}</p>{(!selected||unavailable)&&<button type="button" disabled={loading} onClick={()=>choose(choices[0].id)}>Use {choices[0].name}</button>}</>:<label>Switch participant program<select value={selected&&!unavailable?selected.id:''} disabled={loading} onChange={event=>choose(Number(event.target.value))}><option value="" disabled>Choose one of your programs</option>{choices.map(row=><option key={row.id} value={row.id}>{row.name} · {statusLabel[row.status]}</option>)}</select></label>}
