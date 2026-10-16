@@ -92,7 +92,14 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       "its not worth living",
       "life isnt worth it",
       "I don't want to exist anymore",
-      "i cant do life anymore"
+      "i cant do life anymore",
+      "i wanna kms fr",
+      "lowkey want to kms",
+      "i might unalive myself",
+      "thinking of offing myself",
+      "i wanna die",
+      "honestly im gonna end it",
+      "i wanna just die"
     ].each do |message|
       assert Mia::CrisisBoundary.matches?(message), message
     end
@@ -100,6 +107,11 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
     [
       "my kids would be better off without me buying junk food",
       "my family would be better off without me working nights",
+      "the kms on my car are adding up",
+      "drove 40 kms to work",
+      "my phone is gonna die",
+      "this budget is killing me lol",
+      "im gonna end it with my old bank and switch",
       "I'm done with life insurance, can I cancel it?",
       "I'm done with living paycheck to paycheck",
       "What's the point of life insurance?",
