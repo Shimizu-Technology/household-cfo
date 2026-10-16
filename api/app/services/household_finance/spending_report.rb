@@ -178,7 +178,8 @@ module HouseholdFinance
     def bank_activity
       @bank_activity ||= begin
         transactions = household.plaid_transactions.current_picture.visible.includes(:transaction_draft).where(occurred_on: start_on..end_on).to_a
-        posted_outflows = transactions.select { |transaction| !transaction.pending? && transaction.amount_cents.positive? }
+        all_posted_outflows = transactions.select { |transaction| !transaction.pending? && transaction.amount_cents.positive? }
+        posted_outflows, not_spending = all_posted_outflows.partition(&:counts_as_spending?)
         pending = transactions.select { |transaction| transaction.pending? && transaction.amount_cents.positive? }
         inflows = transactions.select { |transaction| !transaction.pending? && transaction.amount_cents.negative? }
         needs_review = posted_outflows.select do |transaction|
@@ -197,6 +198,8 @@ module HouseholdFinance
           needs_review_cents: needs_review.sum(&:amount_cents),
           pending_count: pending.length,
           pending_cents: pending.sum(&:amount_cents),
+          not_counted_as_spending_count: not_spending.length,
+          not_counted_as_spending: Money.dollars(not_spending.sum(&:amount_cents)),
           inflow_count: inflows.length,
           inflow: Money.dollars(inflows.sum { |transaction| transaction.amount_cents.abs }),
           top_merchants: merchants

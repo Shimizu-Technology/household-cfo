@@ -1,5 +1,23 @@
 class PlaidTransaction < ApplicationRecord
   REVIEW_STATUSES = %w[unreviewed drafted ignored].freeze
+  # Plaid personal_finance_category mapped onto the movement vocabulary that
+  # statement imports use (FinancialSourceEvent::TYPES). Like a statement row,
+  # a bank row is spending only when its type is in FinancialSourceEvent::EXPENSE_TYPES,
+  # so transfers, card/loan payments, savings or CD deposits and income stay
+  # visible in bank activity without becoming spending drafts. Bank fees and
+  # interest charges remain spending, exactly as statement fee/interest rows do.
+  NON_SPENDING_PRIMARY_TYPES = {
+    "TRANSFER_IN" => "transfer",
+    "TRANSFER_OUT" => "transfer",
+    "LOAN_PAYMENTS" => "debt_payment",
+    "LOAN_DISBURSEMENTS" => "transfer",
+    "INCOME" => "income"
+  }.freeze
+  DETAILED_MOVEMENT_TYPES = {
+    "TRANSFER_OUT_WITHDRAWAL" => "cash_withdrawal",
+    "BANK_FEES_INTEREST_CHARGE" => "interest"
+  }.freeze
+  COUNTED_AS_SPENDING_SQL = "(plaid_transactions.primary_category IS NULL OR UPPER(plaid_transactions.primary_category) NOT IN (:non_spending))".freeze
 
   belongs_to :plaid_item
   belongs_to :plaid_account
@@ -19,10 +37,26 @@ class PlaidTransaction < ApplicationRecord
 
   scope :visible, -> { where(removed_at: nil) }
   scope :recent_first, -> { order(occurred_on: :desc, id: :desc) }
-  scope :stageable, -> { current_picture.visible.where(pending: false, review_status: "unreviewed").where("amount_cents > 0") }
+  scope :counted_as_spending, -> { where(COUNTED_AS_SPENDING_SQL, non_spending: NON_SPENDING_PRIMARY_TYPES.keys) }
+  scope :not_counted_as_spending, -> { where.not(COUNTED_AS_SPENDING_SQL, non_spending: NON_SPENDING_PRIMARY_TYPES.keys) }
+  scope :stageable, -> { current_picture.visible.counted_as_spending.where(pending: false, review_status: "unreviewed").where("amount_cents > 0") }
+
+  def self.counted_as_spending_sql
+    sanitize_sql_array([ COUNTED_AS_SPENDING_SQL, { non_spending: NON_SPENDING_PRIMARY_TYPES.keys } ])
+  end
 
   def stageable?
-    current_financial_picture? && removed_at.nil? && !pending? && amount_cents.positive? && review_status == "unreviewed"
+    current_financial_picture? && removed_at.nil? && !pending? && amount_cents.positive? && review_status == "unreviewed" && counts_as_spending?
+  end
+
+  def counts_as_spending?
+    !NON_SPENDING_PRIMARY_TYPES.key?(primary_category.to_s.upcase)
+  end
+
+  def movement_type
+    DETAILED_MOVEMENT_TYPES[detailed_category.to_s.upcase] ||
+      NON_SPENDING_PRIMARY_TYPES[primary_category.to_s.upcase] ||
+      (primary_category.to_s.casecmp?("BANK_FEES") ? "fee" : spending_or_refund_type)
   end
 
   def current_financial_picture?
@@ -30,6 +64,12 @@ class PlaidTransaction < ApplicationRecord
   end
 
   private
+
+  def spending_or_refund_type
+    return "purchase" if amount_cents.to_i.positive?
+
+    primary_category.present? ? "refund" : "unknown"
+  end
 
   def stamp_financial_generation
     self.financial_generation = plaid_item.financial_generation

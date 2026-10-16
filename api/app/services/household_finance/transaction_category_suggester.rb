@@ -15,6 +15,9 @@ module HouseholdFinance
     TOBACCO_TERMS = /\b(cigarette|cigarettes|tobacco|vape|nicotine)\b/i
     TAX_TERMS = /\b(tax|sales tax)\b/i
     RELIABLE_HEURISTIC_CONFIDENCE = BigDecimal("0.65")
+    TRANSPORT_CATEGORY_NAMES = /\b(?:gas|gasoline|fuel|transport|transportation|commute)\b/
+    # A fuel or ride signal must not land in a vehicle cost that is not a trip.
+    NON_TRIP_VEHICLE_NAMES = /\b(?:insurance|registration|payment|payments|loan|repair|repairs|maintenance)\b/
 
     def initialize(household)
       @household = household
@@ -124,7 +127,7 @@ module HouseholdFinance
       elsif normalized_text.match?(UTILITIES_TERMS)
         category_named(categories, /rent|mortgage|fixed|essential|utilities|power|water|internet/)
       elsif normalized_text.match?(TRANSPORT_TERMS)
-        category_named(categories, /gas|transport|fuel|car/)
+        transport_category(categories)
       elsif normalized_text.match?(DINING_TERMS)
         category_named(categories, /dining|restaurant|coffee|takeout|food/)
       elsif normalized_text.match?(GROCERY_TERMS)
@@ -132,6 +135,14 @@ module HouseholdFinance
       elsif normalized_text.match?(MEDICAL_TERMS)
         category_named(categories, /medical|health|copay|unexpected/)
       end
+    end
+
+    def transport_category(categories)
+      category_named(categories, TRANSPORT_CATEGORY_NAMES) ||
+        categories.find do |category|
+          name = normalized(category.name)
+          name.match?(/\bcars?\b/) && !name.match?(NON_TRIP_VEHICLE_NAMES)
+        end
     end
 
     def category_named(categories, pattern)

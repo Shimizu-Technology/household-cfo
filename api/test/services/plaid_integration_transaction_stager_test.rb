@@ -52,21 +52,62 @@ class PlaidIntegrationTransactionStagerTest < ActiveSupport::TestCase
     refute income.stageable?
   end
 
-  test "keeps transfer-like activity uncategorized instead of forcing the only category" do
+  test "does not draft transfers, card payments or CD deposits as spending" do
+    movements = [
+      plaid_transaction(amount_cents: 100_000, name: "CD DEPOSIT .INITIAL.", primary_category: "TRANSFER_OUT", detailed_category: "TRANSFER_OUT_ACCOUNT_TRANSFER"),
+      plaid_transaction(amount_cents: 207_850, name: "AUTOMATIC PAYMENT - THANK", primary_category: "LOAN_PAYMENTS", detailed_category: "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"),
+      plaid_transaction(amount_cents: 2_500, name: "CREDIT CARD 3333 PAYMENT", primary_category: "loan_payments", detailed_category: "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"),
+      plaid_transaction(amount_cents: 6_000, name: "ATM WITHDRAWAL", primary_category: "TRANSFER_OUT", detailed_category: "TRANSFER_OUT_WITHDRAWAL")
+    ]
+
+    assert_equal %w[transfer debt_payment debt_payment cash_withdrawal], movements.map(&:movement_type)
+    assert movements.none?(&:counts_as_spending?)
+    assert movements.none?(&:stageable?)
+    assert_empty PlaidTransaction.where(id: movements.map(&:id)).stageable
+    assert_no_difference("TransactionDraft.count") do
+      error = assert_raises(PlaidIntegration::Error) do
+        PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: movements.map(&:id)).call
+      end
+      assert_equal "Only unreviewed, posted expenses can be drafted", error.message
+    end
+  end
+
+  test "keeps bank fees and interest charges as spending" do
+    fee = plaid_transaction(amount_cents: 3_500, name: "OVERDRAFT FEE", primary_category: "BANK_FEES", detailed_category: "BANK_FEES_OVERDRAFT_FEES")
+    interest = plaid_transaction(amount_cents: 1_200, name: "INTEREST CHARGE", primary_category: "BANK_FEES", detailed_category: "BANK_FEES_INTEREST_CHARGE")
+
+    assert_equal %w[fee interest], [ fee, interest ].map(&:movement_type)
+    result = PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: [ fee.id, interest.id ]).call
+
+    assert_equal 2, result.drafts.length
+    assert result.drafts.all? { |draft| draft.budget_category.nil? }
+  end
+
+  test "leaves a ride share as needs category instead of guessing car insurance" do
+    HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).create_category!(name: "Car insurance", stack_key: "sinking_expected", monthly_amount: 100)
     transaction = plaid_transaction(
-      amount_cents: 100_000,
-      name: "CD DEPOSIT .INITIAL.",
-      primary_category: "TRANSFER_OUT",
-      detailed_category: "TRANSFER_OUT_ACCOUNT_TRANSFER"
+      amount_cents: 2_340,
+      name: "Uber 063015 SF**POOL**",
+      primary_category: "TRANSPORTATION",
+      detailed_category: "TRANSPORTATION_TAXIS_AND_RIDE_SHARES"
     )
 
-    result = PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: [ transaction.id ]).call
+    draft = PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: [ transaction.id ]).call.drafts.first
 
-    draft = result.drafts.first
     assert_nil draft.budget_category
-    assert_nil draft.transaction_draft_splits.first.budget_category
     assert_equal "needs_review", draft.draft_payload.fetch("category_match_status")
     assert_equal "no_strong_match", draft.draft_payload.fetch("category_match_reason")
+  end
+
+  test "maps a Plaid fuel purchase to a fuel category, never to car insurance" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    manager.create_category!(name: "Car insurance", stack_key: "sinking_expected", monthly_amount: 100)
+    gas = manager.create_category!(name: "Gas", stack_key: "discretionary", monthly_amount: 200)
+    transaction = plaid_transaction(amount_cents: 4_500, name: "Chevron", primary_category: "TRANSPORTATION", detailed_category: "TRANSPORTATION_GAS")
+
+    draft = PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: [ transaction.id ]).call.drafts.first
+
+    assert_equal gas, draft.budget_category
   end
 
   test "uses Plaid fast-food taxonomy when a matching household category exists" do

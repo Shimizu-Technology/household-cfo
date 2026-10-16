@@ -9,6 +9,7 @@ module PlaidIntegration
     def call
       return [] unless plaid_item.current_financial_picture?
 
+      release_non_spending_drafts
       staged = []
       plaid_item.plaid_transactions.stageable.in_batches(of: BATCH_SIZE) do |batch|
         transaction_ids = batch.pluck(:id)
@@ -32,6 +33,33 @@ module PlaidIntegration
     private
 
     attr_reader :plaid_item
+
+    # Earlier syncs queued transfers and card/loan payments as spending drafts.
+    # Return any still-undecided ones to bank activity, where they are shown
+    # as not counted as spending. Decided drafts are left alone.
+    def release_non_spending_drafts
+      drafts = plaid_item.household.transaction_drafts.pending.where(source_type: "plaid")
+      plaid_item.plaid_transactions.current_picture.visible.not_counted_as_spending
+        .where(review_status: "drafted", transaction_draft_id: drafts.select(:id))
+        .find_each { |transaction| release_draft!(transaction) }
+    rescue StandardError => error
+      report_handled_error(error, operation: "plaid_non_spending_release", transaction_count: 0)
+    end
+
+    def release_draft!(transaction)
+      ApplicationRecord.transaction do
+        transaction.lock!
+        draft = transaction.transaction_draft&.lock!
+        next unless draft&.pending? && draft.source_type == "plaid" && !transaction.counts_as_spending?
+
+        transaction.update!(transaction_draft: nil, review_status: "unreviewed", drafted_source_fingerprint: nil)
+        draft.destroy!
+        plaid_item.household.household_audit_events.create!(
+          user: plaid_item.connected_by_user, actor_type: "system", event_type: "plaid_transaction.not_counted_as_spending",
+          occurred_at: Time.current, metadata: { plaid_transaction_record_id: transaction.id, movement_type: transaction.movement_type, released_transaction_draft_id: draft.id }
+        )
+      end
+    end
 
     def auto_confirm(staged)
       AutoConfirmer.new(plaid_item, drafts: staged).call

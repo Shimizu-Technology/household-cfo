@@ -90,4 +90,42 @@ class PlaidIntegrationReviewQueueHydratorTest < ActiveSupport::TestCase
     assert_equal [ transaction.reload.transaction_draft ], staged
     assert_equal "drafted", transaction.review_status
   end
+
+  test "queues purchases only and returns earlier card-payment drafts to bank activity" do
+    purchase = create_transaction("hydrator-purchase", "Island Market", 4_200, "FOOD_AND_DRINK", "FOOD_AND_DRINK_GROCERIES")
+    transfer = create_transaction("hydrator-transfer", "CD DEPOSIT .INITIAL.", 100_000, "TRANSFER_OUT", "TRANSFER_OUT_ACCOUNT_TRANSFER")
+    legacy = create_transaction("hydrator-card", "CREDIT CARD 3333 PAYMENT", 2_500, "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
+    legacy_draft = @household.transaction_drafts.create!(occurred_on: legacy.occurred_on, merchant: legacy.name, total_amount_cents: legacy.amount_cents, source_type: "plaid", status: "pending")
+    legacy.update!(transaction_draft: legacy_draft, review_status: "drafted", drafted_source_fingerprint: legacy.source_fingerprint)
+
+    staged = PlaidIntegration::ReviewQueueHydrator.new(@item).call
+
+    assert_equal [ purchase.reload.transaction_draft ], staged
+    assert_equal "unreviewed", transfer.reload.review_status
+    assert_nil transfer.transaction_draft_id
+    assert_equal "unreviewed", legacy.reload.review_status
+    assert_nil legacy.transaction_draft_id
+    refute TransactionDraft.exists?(legacy_draft.id)
+    assert_equal "plaid_transaction.not_counted_as_spending", @household.household_audit_events.where(event_type: "plaid_transaction.not_counted_as_spending").sole.event_type
+  end
+
+  test "leaves a decided card-payment draft untouched" do
+    legacy = create_transaction("hydrator-confirmed-card", "CREDIT CARD 3333 PAYMENT", 2_500, "LOAN_PAYMENTS", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
+    draft = @household.transaction_drafts.create!(occurred_on: legacy.occurred_on, merchant: legacy.name, total_amount_cents: legacy.amount_cents, source_type: "plaid", status: "ignored")
+    legacy.update!(transaction_draft: draft, review_status: "drafted", drafted_source_fingerprint: legacy.source_fingerprint)
+
+    PlaidIntegration::ReviewQueueHydrator.new(@item).call
+
+    assert_equal draft, legacy.reload.transaction_draft
+    assert_equal "drafted", legacy.review_status
+  end
+
+  private
+
+  def create_transaction(id, name, amount_cents, primary, detailed)
+    @item.plaid_transactions.create!(
+      plaid_account: @account, plaid_transaction_id: id, name: name, occurred_on: Date.new(2026, 8, 1), amount_cents: amount_cents,
+      pending: false, primary_category: primary, detailed_category: detailed, source_fingerprint: SecureRandom.hex(32)
+    )
+  end
 end

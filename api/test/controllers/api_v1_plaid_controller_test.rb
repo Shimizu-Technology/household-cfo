@@ -66,6 +66,34 @@ class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
     assert_equal Date.current.year, payload.dig("summary", "review_year")
   end
 
+  test "transfers and card payments are listed as not counted as spending" do
+    purchase = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "spend-purchase", name: "Island Market", occurred_on: Date.new(2026, 7, 10), amount_cents: 4_200, pending: false, primary_category: "FOOD_AND_DRINK", detailed_category: "FOOD_AND_DRINK_GROCERIES", source_fingerprint: SecureRandom.hex(32))
+    payment = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "spend-card-payment", name: "CREDIT CARD 3333 PAYMENT", occurred_on: Date.new(2026, 7, 11), amount_cents: 2_500, pending: false, primary_category: "LOAN_PAYMENTS", detailed_category: "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", source_fingerprint: SecureRandom.hex(32))
+
+    get "/api/v1/plaid/transactions", params: { review_year: 2026 }, headers: auth_headers(@user)
+
+    assert_response :success
+    payload = JSON.parse(response.body)
+    rows = payload.fetch("transactions").index_by { |row| row.fetch("id") }
+    assert_equal "not_spending", rows.fetch(payment.id).fetch("trust_state")
+    assert_equal "debt_payment", rows.fetch(payment.id).fetch("movement_type")
+    refute rows.fetch(payment.id).fetch("counts_as_spending")
+    refute rows.fetch(payment.id).fetch("stageable")
+    assert_equal "needs_review", rows.fetch(purchase.id).fetch("trust_state")
+    assert_equal "purchase", rows.fetch(purchase.id).fetch("movement_type")
+    summary = payload.fetch("summary")
+    assert_equal 4_200, summary.fetch("posted_outflow_cents")
+    assert_equal 1, summary.fetch("posted_outflow_count")
+    assert_equal 1, summary.fetch("not_counted_as_spending_count")
+    assert_equal 2_500, summary.fetch("not_counted_as_spending_cents")
+    assert_equal 1, summary.fetch("needs_review_count")
+    assert_equal 4_200, summary.fetch("needs_review_cents")
+
+    get "/api/v1/plaid/transactions", params: { view: "needs_review" }, headers: auth_headers(@user)
+
+    assert_equal [ purchase.id ], JSON.parse(response.body).fetch("transactions").map { |row| row.fetch("id") }
+  end
+
   test "transaction summary reconciles all-history and selected-year review counts" do
     current = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "current-review", name: "Current purchase", occurred_on: Date.new(2026, 7, 10), amount_cents: 4_200, pending: false, source_fingerprint: SecureRandom.hex(32))
     @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "older-review", name: "Older purchase", occurred_on: Date.new(2025, 7, 10), amount_cents: 9_900, pending: false, source_fingerprint: SecureRandom.hex(32))

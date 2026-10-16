@@ -100,6 +100,30 @@ class HouseholdFinanceSpendingReportTest < ActiveSupport::TestCase
     refute_includes status, "within budget: $0 confirmed against $0 planned"
   end
 
+  test "bank-observed spending leaves out transfers and card payments" do
+    household = create_household
+    user = household.created_by_user
+    item = household.plaid_items.create!(connected_by_user: user, plaid_item_id: "report-item-#{SecureRandom.hex(3)}", access_token: "report-secret", institution_name: "Sandbox Bank", environment: "sandbox", consented_at: Time.current, consent_policy_version: "test")
+    account = item.plaid_accounts.create!(plaid_account_id: "report-account-#{SecureRandom.hex(3)}", name: "Checking", account_type: "depository")
+    [
+      [ "Island Market", 4_200, "FOOD_AND_DRINK" ],
+      [ "OVERDRAFT FEE", 3_500, "BANK_FEES" ],
+      [ "AUTOMATIC PAYMENT - THANK", 207_850, "LOAN_PAYMENTS" ],
+      [ "CD DEPOSIT .INITIAL.", 100_000, "TRANSFER_OUT" ]
+    ].each_with_index do |(name, cents, primary), index|
+      item.plaid_transactions.create!(plaid_account: account, plaid_transaction_id: "report-#{index}-#{SecureRandom.hex(3)}", name: name, occurred_on: Date.new(2026, 7, 10), amount_cents: cents, pending: false, primary_category: primary, source_fingerprint: SecureRandom.hex(32))
+    end
+
+    payload = HouseholdFinance::SpendingReport.new(household, start_on: Date.new(2026, 7, 1), end_on: Date.new(2026, 7, 31)).as_json
+
+    assert_equal 77.0, payload.dig(:totals, :bank_observed)
+    assert_equal 77.0, payload.dig(:totals, :bank_needs_review)
+    assert_equal 2, payload.dig(:bank_activity, :posted_outflow_count)
+    assert_equal 2, payload.dig(:bank_activity, :not_counted_as_spending_count)
+    assert_equal 3_078.5, payload.dig(:bank_activity, :not_counted_as_spending)
+    refute_includes payload.dig(:bank_activity, :top_merchants).map { |row| row.fetch(:merchant) }, "AUTOMATIC PAYMENT - THANK"
+  end
+
   private
 
   def create_household
