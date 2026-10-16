@@ -14,9 +14,9 @@ module Demo
       groceries grocery food medicine medication rent mortgage power water utilities utility
       insurance gas daycare childcare school tuition diapers formula doctor medical dental
     ].freeze
-    TRANSACTION_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
-    BARE_TRANSACTION_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
-    MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
+    TRANSACTION_AMOUNT_PATTERN = HouseholdFinance::Money::CHAT_DOLLAR_AMOUNT_PATTERN
+    BARE_TRANSACTION_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\s+(#{HouseholdFinance::Money::CHAT_NUMBER_SOURCE}(?!\d|,\d)#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?)(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
+    MONEY_AMOUNT_PATTERN = HouseholdFinance::Money::CHAT_DOLLAR_AMOUNT_PATTERN
     PERCENT_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*(?:%|percent\b)/i.freeze
     RUNWAY_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s+months?\s+of\s+runway\b/i.freeze
     READINESS_CLAIM_PATTERN = /\b(?:your|the|household(?: cfo method)?)\s+(?:baseline|readiness)(?:\s+status)?\s+(?:is|looks|reads|shows)\s+(?:currently\s+)?(?:["“])?(red|yellow|green)\b/i.freeze
@@ -451,7 +451,7 @@ module Demo
     def currency_mentions(text)
       text.to_s.to_enum(:scan, MONEY_AMOUNT_PATTERN).filter_map do
         match = Regexp.last_match
-        value = HouseholdFinance::Money.cents(match[1].delete(","))
+        value = HouseholdFinance::Money.chat_cents(match[1])
         { start: match.begin(0), finish: match.end(0), value: value }
       rescue ArgumentError
         nil
@@ -487,7 +487,7 @@ module Demo
 
     def currency_values(text)
       text.to_s.scan(MONEY_AMOUNT_PATTERN).flatten.filter_map do |amount|
-        HouseholdFinance::Money.cents(amount.delete(","))
+        HouseholdFinance::Money.chat_cents(amount)
       rescue ArgumentError
         nil
       end.uniq
@@ -522,7 +522,7 @@ module Demo
 
     def transaction_report_amount_cents(message)
       match = transaction_report_amount_match(message)
-      HouseholdFinance::Money.cents(match&.[](1).to_s.delete(","))
+      HouseholdFinance::Money.chat_cents(match&.[](1))
     end
 
     def transaction_report_amount_match(message)

@@ -17,7 +17,7 @@ module HouseholdFinance
     def call
       movement = TransactionDraftBuilder.non_expense_movement?(raw_input)
       purchase = TransactionDraftBuilder.explicit_purchase_details(raw_input) if movement
-      if movement && purchase.blank?
+      if movement && purchase.blank? && !TransactionDraftBuilder.mixed_spend_amount?(raw_input, command[:amount])
         raise ArgumentError, "Only already incurred purchases can become transaction reviews"
       end
 

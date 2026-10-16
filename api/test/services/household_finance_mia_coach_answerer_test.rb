@@ -894,6 +894,336 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert ::Mia::CrisisBoundary.matches?(prompt)
   end
 
+  test "a savings deposit is celebrated as savings, never read as spending or a purchase" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "deposit-incomplete-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+    incomplete = Household.create!(created_by_user: user, name: "Deposit household")
+
+    [ create_yellow_household, incomplete ].each do |household|
+      {
+        "Paid $50 to Bank of Guam savings for the challenge" => "$50",
+        "Put $40 in my savings" => "$40",
+        "Transferred $100 to my challenge account" => "$100",
+        "Moved $25 into savings" => "$25",
+        "I wen put $30 inside my savings already" => "$30",
+        "Yesterday we moved $100 from checking to our savings." => "$100",
+        "Deposited $75 into BOG savings, felt good" => "$75",
+        "Put $40 in my savins" => "$40",
+        "Put $1.5k in savings from my tax refund" => "$1,500"
+      }.each do |prompt, amount|
+        answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+
+        assert_includes answer, "Nice work putting #{amount} into savings!", prompt
+        assert_includes answer, "not spending, so I did not add it as an expense", prompt
+        assert_includes answer, "Next CFO move:", prompt
+        refute_match(/purchase is|need or a want|cannot give a readiness|act like your banker/i, answer, prompt)
+      end
+    end
+  end
+
+  test "savings words in lookups, plans, withdrawals, debt payments, fees and store names are not deposits" do
+    household = create_yellow_household
+
+    [
+      "What did I put in savings?",
+      "How much have I put in savings this month?",
+      "Did I put $40 in savings?",
+      "I'm going to put $50 in savings",
+      "I want to put $50 in savings this payday",
+      "Can I put $50 in savings",
+      "Should I transfer $500 from checking to savings for my challenge goal?",
+      "I didn't put $40 in savings this week",
+      "Next payday I put $50 in savings",
+      "Moved $25 from savings to checking",
+      "Withdrew $50 from my savings",
+      "Took $40 out of savings for rent",
+      "Paid $200 to my car loan",
+      "Paid $100 to BOG for my loan",
+      "Paid a $5 fee on my savings account",
+      "I saved $50 on groceries with coupons",
+      "Put $40 on my BOG card",
+      "I put $40 in savings yesterday but took it out today",
+      "My husband put $200 in savings and now we can't pay the power bill",
+      "I skipped lunch and put $10 in savings"
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
+
+      refute_includes answer, "into savings!", prompt
+    end
+    assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, "I skipped lunch and put $10 in savings").call, "Please do not skip food to save money."
+    [ "I spent $50 at the Savings Mart", "Paid $50 to Savings Mart" ].each do |prompt|
+      assert_nil HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call, prompt
+    end
+  end
+
+  test "a savings deposit with a separate store purchase still leaves the purchase for its draft" do
+    household = create_yellow_household
+
+    assert_nil HouseholdFinance::MiaCoachAnswerer.new(household, "Spent $40 at Kmart and put $20 in savings").call
+  end
+
+  test "shorthand thousands are read as thousands, never as single dollars" do
+    household = create_yellow_household
+
+    {
+      "Can I afford a $5k car?" => "the purchase is $5,000",
+      "Can we afford a $1.5k trip for the kids?" => "the purchase is $1,500",
+      "Can I afford a $2K couch for work?" => "the purchase is $2,000",
+      "Can I afford a $3 thousand trip?" => "the purchase is $3,000"
+    }.each do |prompt, expected|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+      assert_includes answer, expected, prompt
+    end
+
+    goal = HouseholdFinance::MiaCoachAnswerer.new(household, "Should I choose a $1.5k savings goal for the challenge?").call
+    assert_includes goal, "$1,500 is a good goal if it fits"
+
+    income = HouseholdFinance::MiaCoachAnswerer.new(household, "If my monthly income is $5k, how much could I save?").call
+    assert_includes income, "if monthly income were $5,000"
+
+    [ "Can I afford a $5 kids meal?", "Can I buy a $5 Kmart shirt?" ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+      assert_includes answer, "the purchase is $5,", prompt
+      refute_includes answer, "$5,000", prompt
+    end
+  end
+
+  test "a reported crypto or stock buy is not an expense and gets a non-judgmental investment boundary" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "invest-incomplete-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+    incomplete = Household.create!(created_by_user: user, name: "Invest household")
+
+    [ create_yellow_household, incomplete ].each do |household|
+      [
+        "Bought $200 worth of bitcoin",
+        "I spent $100 on crypto",
+        "Put $300 into stocks",
+        "Invested $500 in an index fund last week.",
+        "Threw $50 into Coinbase",
+        "I bought $1k of ETH"
+      ].each do |prompt|
+        answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+
+        assert_includes answer, "not everyday spending, so I did not add it as an expense", prompt
+        assert_includes answer, "cannot give licensed investment advice", prompt
+        assert_includes answer, "Next CFO move:", prompt
+        refute_match(/not the moment|shortcut|should not have|mistake|purchase is|need or a want/i, answer, prompt)
+      end
+    end
+  end
+
+  test "a company stock buy is an investment, while soup stock and store inventory are not" do
+    household = create_yellow_household
+
+    [ "I bought $50 of Apple stock", "Bought $100 of Tesla stock today" ].each do |prompt|
+      assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call, "not everyday spending", prompt
+    end
+    [ "Bought a $40 stock pot at Kmart", "Bought $20 of chicken stock at Payless", "I spent $30 on items in stock at Costco",
+      "We spent $60 at the stock show", "Bought $200 of stock for my store" ].each do |prompt|
+      refute_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s, "not everyday spending", prompt
+    end
+  end
+
+  test "investment questions and non-investment buys keep their existing answers" do
+    household = create_yellow_household
+
+    question = HouseholdFinance::MiaCoachAnswerer.new(household, "Should I buy $200 of bitcoin?").call
+    assert_includes question, "not the moment to use investing or risky products"
+    refute_includes question, "not everyday spending"
+
+    [ "I'm thinking about putting $100 into crypto", "I sold $200 of bitcoin" ].each do |prompt|
+      refute_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s, "not everyday spending", prompt
+    end
+    [ "I bought $50 of stock for my food stand", "Bought $20 of chicken stock at Payless", "We spent $60 at the stock show", "Paid $30 for ethnic food", "I spent $12 at Payless",
+      "I spent $15 on lunch, money is tight since my crypto crashed" ].each do |prompt|
+      assert_nil HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call, prompt
+    end
+  end
+
+  test "food insecurity gets compassionate help first, even before setup is confirmed" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "food-incomplete-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+    incomplete = Household.create!(created_by_user: user, name: "Food household")
+
+    [ create_yellow_household, incomplete ].each do |household|
+      [
+        "We can't afford groceries this week",
+        "My kids are skipping meals because we have no money",
+        "We ran out of food and payday is Friday",
+        "I have nothing to eat until payday",
+        "cant afford grocerys til payday",
+        "We no more food in the house",
+        "The kids are hungry and we're broke",
+        "Our EBT ran out and the kids need lunch",
+        "I skipped dinner because we have no money",
+        "My kids are skipping meals so we can pay rent",
+        "The kids skipped dinner, we're broke until payday",
+        "We're low on food and broke until payday",
+        "We are out of food"
+      ].each do |prompt|
+        answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+
+        assert_includes answer, "Food comes first: it is the first thing in your protected baseline", prompt
+        assert_includes answer, "It is okay to ask for help this week; your program team or a local food pantry", prompt
+        assert_includes answer, "Next CFO move: list what is due before your next paycheck", prompt
+        refute_match(/\$\d|readiness|cannot give a readiness|Please do not skip food|ashamed|irresponsible/i, answer, prompt)
+      end
+    end
+  end
+
+  test "a spend reported with food hardship is named as not yet added, never silently dropped" do
+    household = create_yellow_household
+
+    [ [ "I spent my last $20 on gas and we have nothing to eat until payday", "$20" ], [ "Spent $40 on gas, we have no food until payday", "$40" ] ].each do |prompt, amount|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+
+      assert_includes answer, "Food comes first", prompt
+      assert_includes answer, "I have not added the #{amount} you spent yet", prompt
+      assert_includes answer, "I will draft it for review", prompt
+    end
+    refute_includes HouseholdFinance::MiaCoachAnswerer.new(household, "We ran out of food and payday is Friday").call, "you spent yet"
+  end
+
+  test "a spend beside a deposit or investment buy keeps the expense path" do
+    household = create_yellow_household
+
+    [
+      "I spent $30 on groceries and put $50 in savings",
+      "I spent $30 on groceries today and put $50 in savings",
+      "Put $50 in savings and spent $30 at Payless",
+      "I paid $20 for gas then moved $100 into savings",
+      "I spent $30 at Payless and $100 on crypto",
+      "I paid $50 to my savings and $30 for gas",
+      "I paid $30 for gas and $50 to my savings",
+      "I paid $100 to savings, $30 to Payless",
+      "I paid $30 to Payless, $100 to savings",
+      "I put $50 in savings and spent $30 on groceries",
+      "I paid $50 to savings and then $30 for gas",
+      "I paid $50 to savings and also $30 for gas",
+      "I paid $50 to savings, then $30 for gas",
+      "I paid $50 to savings as well as $30 for gas",
+      "I paid $30 for gas and then $50 to my savings",
+      "I paid $30 for gas and also $50 to my savings",
+      "I put $50 in savings and then spent $30 on groceries"
+    ].each do |prompt|
+      assert_nil HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call, prompt
+    end
+
+    [
+      [ "Bought groceries for $30 and put $50 in savings", "Nice work putting $50 into savings; that part is savings, not spending." ],
+      [ "Bought groceries for $30 and bought $100 of bitcoin", "Buying crypto or stocks is not everyday spending" ]
+    ].each do |prompt, opening|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+      assert_includes answer, opening, prompt
+      assert_includes answer, "I also see a $30 purchase in your message, and I have not added it yet", prompt
+      refute_includes answer, "I did not add it as an expense", prompt
+    end
+  end
+
+  test "a leftover purchase amount beside a deposit is named, never silently dropped" do
+    household = create_yellow_household
+
+    [ "I put $50 in savings and $30 for gas", "I put $30 for gas and $50 in savings" ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+      assert_includes answer, "Nice work putting $50 into savings; that part is savings, not spending.", prompt
+      assert_includes answer, "I also see a $30 purchase in your message, and I have not added it yet", prompt
+      assert_nil HouseholdFinance::MiaCoachAnswerer.new(household, prompt).support_answer, prompt
+    end
+
+    [
+      "Put $50 in savings and $30 in checking",
+      "Put $50 in savings toward my $500 goal",
+      "Put $50 in savings, now I have $300",
+      "Put $50 in savings and sent $30 to my mom"
+    ].each do |prompt|
+      refute_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s, "purchase in your message", prompt
+    end
+  end
+
+  test "a card payment beside a deposit is neither a purchase nor a promised draft" do
+    household = create_yellow_household
+
+    [ "I put $40 in savings and paid my $50 visa bill", "I paid my $50 visa bill and put $40 in savings" ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+
+      assert_includes answer, "Nice work putting $40 into savings!", prompt
+      refute_match(/purchase|draft it/i, answer, prompt)
+    end
+  end
+
+  test "requests, habits, budget plans and other people's savings are not completed deposits" do
+    household = create_yellow_household
+
+    [
+      "Set $200 for savings each month",
+      "Put $100 in the savings category every month",
+      "Kids want me to put $40 in savings",
+      "I usually put $50 in savings",
+      "Every payday I put $50 in savings",
+      "Please put $40 in my savings",
+      "I sent $200 to my mom's savings",
+      "Sent $100 to her savings"
+    ].each do |prompt|
+      refute_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s, "Nice work putting", prompt
+    end
+    [ "Set aside $20 for the challenge", "Put $30 in my kids' savings" ].each do |prompt|
+      assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call, "Nice work putting", prompt
+    end
+  end
+
+  test "a deposit made instead of paying a bill gets bill-first guidance, not celebration" do
+    household = create_yellow_household
+
+    [ "I put $40 in my savings instead of paying the power bill", "Put $60 in savings and skipped the water bill" ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
+
+      refute_includes answer, "Nice work", prompt
+      assert_includes answer, "Start with the bill that protects the household baseline first", prompt
+    end
+  end
+
+  test "food planning, lookups, eating out and other people's hardship are not food insecurity" do
+    household = create_yellow_household
+
+    [
+      "can I afford groceries and rent this month?",
+      "Can we afford groceries this week?",
+      "We can't afford to eat out anymore",
+      "I ran out of grocery budget this month",
+      "We ran out of food budget, can I move money from dining?",
+      "How much did we spend on groceries this week?",
+      "No food delivery this week, trying to save",
+      "We have no food allergies",
+      "I'm hungry, should I order takeout?",
+      "Last year we couldn't afford groceries but now we're doing better",
+      "What if we can't afford groceries next month?",
+      "My son skips lunch because he doesn't like the school food",
+      "I can't afford groceries at Payless anymore so I switched to Costco",
+      "Can't afford the food truck today lol",
+      "Paid $120 for groceries at Payless",
+      "I'm out of money until payday",
+      "My friend can't afford groceries, can I lend her $50?",
+      "I keep skipping meals to save for the challenge",
+      "We're running low on groceries, can I spend $80 at Payless?",
+      "I have nothing to eat at work, should I buy lunch?",
+      "My kids skipped breakfast because we were running late",
+      "We can't afford food for the fiesta",
+      "I can't afford lunch at work every day",
+      "My kids skipped lunch today",
+      "My son skips lunch at school"
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
+
+      refute_includes answer, "local food pantry", prompt
+    end
+
+    planning = HouseholdFinance::MiaCoachAnswerer.new(household, "can I afford groceries and rent this month?").call
+    assert_includes planning, "This sounds like a baseline need"
+    skip = HouseholdFinance::MiaCoachAnswerer.new(household, "I keep skipping meals to save for the challenge").call
+    assert_includes skip, "Please do not skip food to save money."
+  end
+
+  test "crisis language with food insecurity still matches the controller crisis boundary first" do
+    assert ::Mia::CrisisBoundary.matches?("I don't want to live anymore, we have nothing to eat until payday")
+  end
+
   private
 
   def create_yellow_household

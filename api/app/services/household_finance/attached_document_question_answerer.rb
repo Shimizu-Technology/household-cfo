@@ -291,10 +291,10 @@ module HouseholdFinance
     end
 
     def threshold_filtered(rows)
-      amount = message[/\$\s*([\d,]+(?:\.\d{1,2})?)/, 1]
+      amount = message[/\$\s*([\d,]+(?:\.\d{1,2})?#{Money::CHAT_THOUSANDS_SOURCE}?)/, 1]
       return rows unless amount
 
-      cents = Money.cents(amount.delete(","))
+      cents = Money.chat_cents(amount)
       if message.match?(/\b(?:over|above|more than|greater than)\b/i)
         rows.select { |row| question_amount_cents(row) > cents }
       elsif message.match?(/\b(?:under|below|less than)\b/i)

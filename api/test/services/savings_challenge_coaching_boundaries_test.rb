@@ -73,6 +73,73 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
     refute narrator.send(:challenge_boundary_violation?, "The suggested goal is $500 over 90 days. Choose what is comfortable.")
   end
 
+  test "food insecurity in the challenge puts food ahead of savings and points to help" do
+    with_savings_runtime do
+      [ false, true ].each do |enrolled|
+        savings_enroll if enrolled
+        [ "We can't afford groceries this week", "My kids are skipping meals because we have no money", "We ran out of food and payday is Friday", "I have nothing to eat until payday" ].each do |message|
+          response = answer(message)
+          assert_includes response, "Food comes first, ahead of the savings challenge", message
+          assert_includes response, "program team or a local food pantry", message
+          refute_match(/\$\d+\.\d{2}|progress is/, response, message)
+        end
+      end
+    end
+    [ "Can I skip meals to save $500?", "I cannot afford savings and I am behind on rent", "Can we afford groceries this week?", "We can't afford to eat out anymore" ].each do |message|
+      refute_includes answer(message), "local food pantry", message
+    end
+  end
+
+  test "challenge deposits point to the contribution review and crypto buys are not purchase check-ins" do
+    with_savings_runtime do
+      savings_enroll
+      [ "Transferred $100 to my challenge account", "Put $40 cash in my savings yesterday" ].each do |message|
+        response = answer(message)
+        assert_includes response, "Open Home to review a contribution", message
+        refute_includes response, "For a purchase, enter the amount", message
+      end
+      [ "I spent $100 on crypto yesterday", "Bought $200 worth of bitcoin" ].each do |message|
+        response = answer(message)
+        assert_includes response, "not a purchase check-in, and it does not count as money reserved for the challenge", message
+        assert_includes response, "cannot give licensed investment advice", message
+      end
+      assert_includes answer("I bought lunch yesterday"), "amount, where and date"
+
+      household_answer = HouseholdFinance::MiaCoachAnswerer.new(@savings_household, "Paid $50 to Bank of Guam savings for the challenge", user: @savings_user).call
+      assert_includes household_answer, "Nice work putting $50 into savings!"
+      assert_includes household_answer, "open Home and review it as a contribution"
+
+      # Enrollment belongs to the participant, not to everyone in the household.
+      partner = User.create!(clerk_id: "clerk_partner_#{SecureRandom.hex(6)}", email: "partner-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+      [ partner, nil ].each do |other|
+        other_answer = HouseholdFinance::MiaCoachAnswerer.new(@savings_household, "Put $40 in my savings", user: other).call
+        assert_includes other_answer, "Nice work putting $40 into savings!"
+        refute_includes other_answer, "open Home"
+      end
+    end
+  end
+
+  test "chat intake offers deposits as contributions and never turns crypto into a purchase" do
+    with_savings_runtime do
+      enrollment = savings_enroll
+      intake = ->(message) { SavingsChallenge::ChatIntake.new(enrollment, message: message).call }
+
+      deposit = intake.call("Put $40 in my savings today")
+      assert_equal "contribution", deposit.fetch(:kind)
+      assert_equal 4_000, deposit.fetch(:signed_cents)
+      assert deposit.fetch(:new_money_confirmation_required)
+      assert_equal "contribution", intake.call("Paid $50 to Bank of Guam savings today").fetch(:kind)
+      assert_equal 150_000, intake.call("I set aside $1.5k today").fetch(:signed_cents)
+      assert_nil intake.call("I bought $200 of bitcoin at Coinbase today")
+      assert_nil intake.call("I'm going to put $40 in my savings today")
+      [ "Set $200 for savings each month today", "Put $100 in the savings category today", "Kids want me to put $40 in savings today",
+        "I usually put $50 in savings today", "I sent $200 to my mom's savings today", "I bought $50 of Apple stock today" ].each do |message|
+        assert_nil intake.call(message), message
+      end
+      assert_equal "purchase", intake.call("I spent $12 at Payless today").fetch(:kind)
+    end
+  end
+
   private
   def answer(message)
     SavingsChallenge::CoachAnswerer.new(household: @savings_household, user: @savings_user, enrollment: @savings_enrollment, message: message).call

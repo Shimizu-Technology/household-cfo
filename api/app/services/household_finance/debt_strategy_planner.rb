@@ -3,11 +3,11 @@
 module HouseholdFinance
   class DebtStrategyPlanner
     QUESTION_PATTERN = /\b(?:debt (?:plan|strategy|management|payoff)|pay (?:down|off) (?:my |our )?(?:debt|cards?|loans?)|which (?:debt|card|loan)|avalanche|snowball|highest (?:apr|interest)|smallest balance|extra (?:debt )?payment|use (?:it|this|the .{0,20}) (?:on|for|toward) debt|plan for (?:my |our )?debt)\b/i.freeze
-    TEMPORARY_INCOME_PATTERN = /(?:income|pay(?!ing\b)(?!\s+(?:down|off)\b)|take-home).{0,35}(?:down|drop|reduc|cut|lower).{0,20}\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)/i.freeze
+    TEMPORARY_INCOME_PATTERN = /(?:income|pay(?!ing\b)(?!\s+(?:down|off)\b)|take-home).{0,35}(?:down|drop|reduc|cut|lower).{0,20}\$\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)/i.freeze
     DEBT_FOLLOWUP_PATTERN = /\b(?:debt|cards?|loans?|apr|avalanche|snowball|minimums?|principal|extra payment|pay(?:ing)? (?:it|them|those) (?:down|off)|(?:concrete|detailed|three-step|step-by-step) (?:debt )?plan)\b/i.freeze
     DIRECT_PLAN_FOLLOWUP_PATTERN = /\A(?:so\s+)?what should i do(?:\s+(?:now|next))?[?.!]?\z/i.freeze
-    DOLLAR_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)/.freeze
-    SCENARIO_VALUES_PATTERN = /\$\s*(?<balance>[\d,]+(?:\.\d{1,2})?)\s*(?:balance\s*)?(?:at|with|,|and)?\s*(?:a\s*)?(?<apr>[\d.]+)\s*%\s*(?:APR|interest).*?\$\s*(?<minimum>[\d,]+(?:\.\d{1,2})?)\s*(?:monthly\s*)?(?:minimum|min)/i.freeze
+    DOLLAR_PATTERN = /\$\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
+    SCENARIO_VALUES_PATTERN = /\$\s*(?<balance>[\d,]+(?:\.\d{1,2})?(?:k\b)?)\s*(?:balance\s*)?(?:at|with|,|and)?\s*(?:a\s*)?(?<apr>[\d.]+)\s*%\s*(?:APR|interest).*?\$\s*(?<minimum>[\d,]+(?:\.\d{1,2})?(?:k\b)?)\s*(?:monthly\s*)?(?:minimum|min)/i.freeze
     MONTH_WORDS = {
       "one" => 1, "two" => 2, "three" => 3, "four" => 4, "five" => 5, "six" => 6,
       "seven" => 7, "eight" => 8, "nine" => 9, "ten" => 10, "eleven" => 11, "twelve" => 12
@@ -274,7 +274,7 @@ module HouseholdFinance
     end
 
     def dollars_to_cents(value)
-      (BigDecimal(value.to_s.delete(",")) * 100).round.to_i
+      Money.chat_cents(value)
     end
 
     def number(value)

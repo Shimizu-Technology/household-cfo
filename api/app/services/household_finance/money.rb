@@ -1,8 +1,37 @@
 module HouseholdFinance
   module Money
     DOCUMENT_AMOUNT_PATTERN = /\A\$?(?:\d{1,9}|\d{1,3}(?:,\d{3}){1,2})(?:\.\d{1,2})?\z/.freeze
+    # Participant chat amounts. Build chat regexes from these sources so "$5k",
+    # "$1.5K" and "$3 thousand" read as thousands everywhere, never as $5. The
+    # suffix needs a word boundary, so "$5 kids meal" and "$5km" stay $5.
+    CHAT_NUMBER_SOURCE = "(?:\\d{1,3}(?:,\\d{3})+|\\d{1,9})(?:\\.\\d{1,2})?"
+    CHAT_THOUSANDS_SOURCE = "(?:[kK]\\b|\\s*(?i:thousand)\\b)"
+    CHAT_THOUSANDS_SUFFIX = /\s*(?:k|thousand)\z/i.freeze
+    CHAT_DOLLAR_AMOUNT_PATTERN = /\$\s*(#{CHAT_NUMBER_SOURCE}(?!\d|,\d)#{CHAT_THOUSANDS_SOURCE}?)/.freeze
 
     module_function
+
+    # Cents for an amount captured from participant chat ("1,250.50", "5k", "3 thousand").
+    def chat_cents(value)
+      cents(chat_decimal(value))
+    end
+
+    # Plain decimal text for an amount captured from participant chat ("5k" -> "5000").
+    def chat_amount_text(value)
+      text = value.to_s.strip.delete(",")
+      return text unless text.match?(CHAT_THOUSANDS_SUFFIX)
+
+      decimal = chat_decimal(text)
+      decimal.frac.zero? ? decimal.to_i.to_s : decimal.to_s("F")
+    end
+
+    def chat_decimal(value)
+      text = value.to_s.strip.delete(",")
+      multiplier = text.match?(CHAT_THOUSANDS_SUFFIX) ? 1000 : 1
+      BigDecimal(text.sub(CHAT_THOUSANDS_SUFFIX, "").presence || "0") * multiplier
+    rescue ArgumentError
+      BigDecimal("0")
+    end
 
     def dollars(cents)
       cents.to_i / 100.0

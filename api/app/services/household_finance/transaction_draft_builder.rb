@@ -1,17 +1,29 @@
 module HouseholdFinance
   class TransactionDraftBuilder
-    AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
-    BARE_SPEND_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
+    AMOUNT_PATTERN = /\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
+    BARE_SPEND_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\s+(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
     SPEND_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\b/i.freeze
     NON_EXPENSE_MOVEMENT_PATTERN = /\b(?:transfer(?:red|ring)?|withdr(?:aw|ew|awn|awal)|deposit(?:ed)?|refund(?:ed)?|reimburse(?:d|ment)?|(?:credit\s*card|card|loan|debt)\s+payment|balance\s+(?:adjustment|correction))\b|\bpaid\b.{0,50}\b(?:visa|mastercard|amex|credit\s*card|loan)\b/i.freeze
-    EXPLICIT_PURCHASE_PATTERN = /\b(?:(?:i|we)\s+)?(?:spent|charged|bought|purchased)\s+\$?\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)\s+(?:at|from)\s+([^.,;!?$]+?)(?=\s+(?:for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
+    EXPLICIT_PURCHASE_PATTERN = /\b(?:(?:i|we)\s+)?(?:spent|charged|bought|purchased)\s+\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+(?:at|from)\s+([^.,;!?$]+?)(?=\s+(?:for|on|today|yesterday)\b|\s+(?:and|then|&)\s+(?:(?:i|we)\s+)?(?:put|paid|transferred|moved|deposited|added|sent|saved|withdrew|invested)\b|[.,;!?]|\z)/i.freeze
     MERCHANT_PATTERNS = [
       /\b(?:at|from|to)\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i,
-      /\b(?:spent|paid|charged|bought)\s+\$?\s*\d[\d,.]*\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i
+      /\b(?:spent|paid|charged|bought)\s+\$?\s*\d[\d,.]*(?:k\b|\s*thousand\b)?\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i
     ].freeze
 
+    # Transfers, refunds, debt payments, savings deposits and investment buys move
+    # money without being an expense; only a separate store purchase can be drafted.
     def self.non_expense_movement?(value)
-      value.to_s.match?(NON_EXPENSE_MOVEMENT_PATTERN)
+      value.to_s.match?(NON_EXPENSE_MOVEMENT_PATTERN) || MoneyMovementText.non_expense?(value)
+    end
+
+    # A model-proposed amount is allowed beside a deposit or investment buy only when it
+    # is the separate purchase's own amount ("spent $30 on groceries and put $50 in savings").
+    def self.mixed_spend_amount?(value, amount)
+      remainder = MoneyMovementText.without_non_expense(value)
+      return false if non_expense_movement?(remainder)
+
+      cents = Money.chat_cents(amount.to_s.delete("$ "))
+      cents.positive? && MoneyMovementText.separate_spend_amounts(value).include?(cents)
     end
 
     def self.explicit_purchase_details(value)
@@ -19,17 +31,19 @@ module HouseholdFinance
       return unless match
 
       merchant = match[2].to_s.squish.truncate(120, omission: "…")
-      return if merchant.blank?
+      return if merchant.blank? || MoneyMovementText.investment_merchant?(merchant)
 
-      { amount: match[1].delete(","), merchant: merchant }
+      { amount: Money.chat_amount_text(match[1]), merchant: merchant }
     end
 
     def initialize(household, message, user:, annual_budget_manager: nil, plan_prepared: false, raw_input: nil, idempotency_key: nil)
       @household = household
       @message = message.to_s.squish
       @raw_input = raw_input.to_s.squish.presence || @message
-      @draft_text = current_follow_up_text.presence || @raw_input
-      @explicit_purchase = self.class.explicit_purchase_details(@raw_input) if self.class.non_expense_movement?(@raw_input)
+      # Savings-deposit and investment clauses never feed the expense amount or merchant.
+      @spend_input = MoneyMovementText.without_non_expense(@raw_input)
+      @draft_text = MoneyMovementText.without_non_expense(current_follow_up_text.presence || @raw_input)
+      @explicit_purchase = self.class.explicit_purchase_details(@spend_input) if self.class.non_expense_movement?(@spend_input)
       @user = user
       @idempotency_key = idempotency_key.presence || SecureRandom.uuid
     end
@@ -58,7 +72,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :message, :raw_input, :draft_text, :explicit_purchase
+    attr_reader :household, :message, :raw_input, :spend_input, :draft_text, :explicit_purchase
 
     def log_invalid_draft(record)
       Rails.logger.warn(
@@ -84,11 +98,11 @@ module HouseholdFinance
     end
 
     def category_match_text
-      [ draft_text, message, merchant ].join(" ")
+      [ draft_text, MoneyMovementText.without_non_expense(message), merchant ].join(" ")
     end
 
     def transaction_like?
-      return false if self.class.non_expense_movement?(raw_input) && explicit_purchase.blank?
+      return false if self.class.non_expense_movement?(spend_input) && explicit_purchase.blank?
 
       explicit_spend = amount_match.present? && (draft_text.match?(SPEND_PATTERN) || MiaCoachAnswerer.subjectless_spend_report?(draft_text))
       tab_total = draft_text.match?(AMOUNT_PATTERN) && draft_text.match?(/\bmy\s+tab\s+(?:is|was)\b/i)
@@ -106,7 +120,7 @@ module HouseholdFinance
     end
 
     def amount_cents
-      @amount_cents ||= Money.cents(amount_match&.[](1).to_s.delete(","))
+      @amount_cents ||= Money.chat_cents(amount_match&.[](1))
     end
 
     def occurred_on
@@ -122,7 +136,7 @@ module HouseholdFinance
         return explicit_purchase.fetch(:merchant) if explicit_purchase
 
         MERCHANT_PATTERNS.each do |pattern|
-          match = draft_text.match(pattern) || raw_input.match(pattern)
+          match = draft_text.match(pattern) || spend_input.match(pattern)
           next unless match
 
           candidate = clean_merchant(match[1])

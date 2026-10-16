@@ -81,6 +81,18 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_includes result.response, "one review"
   end
 
+  test "budget edits read shorthand thousands instead of single dollars" do
+    [
+      [ "Set Groceries to $1.2k for August", [ 120_000 ] ],
+      [ "Set Groceries to $1k, and Dining Out to $2 thousand for August", [ 100_000, 200_000 ] ]
+    ].each do |prompt, expected|
+      result = HouseholdFinance::MiaActionDraftBuilder.new(@household, prompt, user: @user, annual_budget_manager: @manager, selected_month: 8, raw_input: prompt).call
+
+      assert result.proposal, result.response
+      assert_equal expected, result.proposal.items.map { |item| item.payload.fetch(:changes).first.fetch(:after_cents) }, prompt
+    end
+  end
+
   test "review regression standalone no changes blocks legacy and structured proposals" do
     prompt = "Set Groceries to $650 for July. No changes, please,"
     before = @groceries.budget_allocations.order(:id).pluck(:id, :planned_amount_cents)

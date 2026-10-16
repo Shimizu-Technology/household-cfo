@@ -12,7 +12,7 @@ module Demo
     EXTRA_MONEY_PATTERN = /\b(?:what|how|where)\s+should\s+(?:i|we)\b.*\b(?:do with|use|put|split|allocate|save|pay)\b.*\b(?:bonus|windfall|refund|extra money)\b/i
     APPROVED_SPENDING_LOOKUP_PATTERN = /\bhow much\b.*\b(?:did\b.*\bspend|(?:have|has)\b.*\bspent|spent)\b.*\b(?:at|from)\b|\b(?:what|how much|which|name)\b.{0,120}\b(?:did\b.{0,30}\bspend|spent|transactions?|purchases?)\b/i
     MERCHANT_PATTERN = /\b(?:at|from)\s+([A-Za-z0-9&'’.-]+(?:\s+[A-Za-z0-9&'’.-]+){0,3}?)(?=\s+(?:last|this|in|during|which)\b|[?.!,]|\z)/i
-    AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/
+    AMOUNT_PATTERN = /\$\s*(#{HouseholdFinance::Money::CHAT_NUMBER_SOURCE}(?![\d,])#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?)/
 
     def initialize(message, facts: Demo::HouseholdData.financial_facts)
       @message = message.to_s.squish
@@ -76,7 +76,7 @@ module Demo
     def amount_entries
       @amount_entries ||= message.to_enum(:scan, AMOUNT_PATTERN).filter_map do
         match = Regexp.last_match
-        value = match[1].delete(",").to_f
+        value = HouseholdFinance::Money.chat_decimal(match[1]).to_f
         { value: value, index: match.begin(0) } if value.positive?
       end
     end
@@ -106,13 +106,13 @@ module Demo
     end
 
     def purchase_impact_answer
-      amount = message[AMOUNT_PATTERN, 1]&.delete(",")&.to_f
+      amount = message[AMOUNT_PATTERN, 1]&.then { |text| HouseholdFinance::Money.chat_decimal(text).to_f }
       purchase_label = amount&.positive? ? "The #{money(amount)} purchase" : "The purchase"
       "I cannot calculate the exact runway impact yet because the approved data does not say which account would pay for it or whether protected liquid would decrease. #{purchase_label} is still a pre-spend decision, and safe-to-spend is a monthly guardrail of #{money(facts.fetch(:safe_to_spend))}, not an account balance I can subtract the purchase from. Nothing is approved and no household number changed. Next CFO move: name the funding account and the budget category that would cover it, then I can model the effect without guessing."
     end
 
     def extra_money_answer
-      amount = message[AMOUNT_PATTERN, 1]&.delete(",")&.to_f
+      amount = message[AMOUNT_PATTERN, 1]&.then { |text| HouseholdFinance::Money.chat_decimal(text).to_f }
       amount_label = amount&.positive? ? "The #{money(amount)} bonus" : "The bonus"
       "#{amount_label} is one-time money, so I would not add it to the #{money(facts.fetch(:monthly_income))} recurring monthly income or use it to inflate readiness. Your approved baseline surplus is #{money(facts.fetch(:baseline_surplus))}, safe-to-spend is #{money(facts.fetch(:safe_to_spend))}, and the six-month runway gap is #{money(facts.fetch(:green_runway_gap))}. Protect any due expected expense or debt minimum first, then direct the remainder toward that runway gap. Next CFO move: verify the bonus net amount and deposit date before assigning it in the annual plan."
     end
