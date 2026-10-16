@@ -106,6 +106,9 @@ class S3Service
     def download_to_io!(key, io)
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
 
+      # File bytes are binary; a text-mode file would try to transcode them to UTF-8
+      # (Rails sets Encoding.default_internal) and fail on the first non-ASCII byte.
+      io.binmode if io.respond_to?(:binmode)
       s3_client.get_object(bucket: bucket_name, key: key, response_target: io)
       io.flush if io.respond_to?(:flush)
       true

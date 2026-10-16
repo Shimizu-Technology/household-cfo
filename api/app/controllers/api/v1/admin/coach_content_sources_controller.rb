@@ -237,7 +237,7 @@ module Api
         end
 
         def sniff_uploaded_object!(metadata)
-          Tempfile.create([ "coach-content-source", File.extname(metadata.fetch(:filename)) ]) do |file|
+          Tempfile.create([ "coach-content-source", File.extname(metadata.fetch(:filename)) ], binmode: true) do |file|
             S3Service.download_to_io!(metadata.fetch(:s3_key), file)
             file.flush
             ContentSources::UploadValidator.sniff!(path: file.path, filename: metadata.fetch(:filename))

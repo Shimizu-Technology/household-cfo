@@ -290,6 +290,38 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "direct upload accepts real binary PDF and PNG bytes" do
+    {
+      "statement.pdf" => [ "application/pdf", "statement", "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n".b ],
+      "receipt.png" => [ "image/png", "receipt", "\x89PNG\r\n\x1A\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xDE".b ]
+    }.each do |filename, (content_type, kind, bytes)|
+      checksum = Digest::SHA256.hexdigest(bytes)
+      with_s3_stubs(
+        configured?: true,
+        presigned_upload: ->(_key, content_type:, **) { { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 } },
+        object_metadata: ->(_key) {
+          { byte_size: bytes.bytesize, content_type: content_type, checksum_sha256: Base64.strict_encode64([ checksum ].pack("H*")), etag: "etag-#{filename}", server_side_encryption: "AES256" }
+        },
+        download_to_io!: lambda { |_key, io|
+          io.write(bytes)
+          io.flush
+          true
+        },
+        delete: ->(_key) { true }
+      ) do
+        post "/api/v1/document_imports/presign",
+          params: { filename: filename, content_type: content_type, byte_size: bytes.bytesize, checksum_sha256: checksum, document_kind: kind },
+          headers: auth_headers(@user), as: :json
+        token = JSON.parse(response.body).fetch("upload_token")
+
+        assert_difference("FinancialDocumentImport.count", 1, filename) do
+          post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user), as: :json
+        end
+        assert_response :created, filename
+      end
+    end
+  end
+
   test "direct upload rejects bytes that do not match the declared file format" do
     checksum = "f" * 64
     deleted_keys = []
