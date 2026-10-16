@@ -82,6 +82,8 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
       assert_includes content, "call or text 988", message
       assert_includes content, "the money plan can wait", message
       assert_equal 1, content.scan("988").length, message
+      answer = content.sub(Mia::CrisisBoundary::WELLBEING_CHECK, "").sub(Mia::CrisisBoundary::WELLBEING_OPENING, "").strip
+      assert_operator answer.length, :>, 60, "the money answer must remain: #{message}"
     end
   end
 

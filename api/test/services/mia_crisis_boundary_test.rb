@@ -55,6 +55,7 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       "I'm done!",
       "Im giving up on this budget",
       "I'm done paying this card off early",
+      "I can't do this anymore with my budget",
       "no point anymore in keeping Netflix",
       "No point anymore paying for Hulu",
       "there's no point anymore in the coupon app",
@@ -112,8 +113,9 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
   end
 
   test "the safety check is added once and a dollar amount is not mistaken for 988" do
-    with_rent = Mia::CrisisBoundary.with_wellbeing_check("Your rent is $1,988 this month. Next CFO move: list what is due.")
-    assert_includes with_rent, "call or text 988"
+    [ "Your rent is $1,988 this month. Next CFO move: list what is due.", "Your rent is 988 dollars. Next CFO move: list what is due." ].each do |reply|
+      assert_includes Mia::CrisisBoundary.with_wellbeing_check(reply), "call or text 988", reply
+    end
 
     [ "Please call or text 988 now if you might hurt yourself.", "You can call or text 988.", "Call or text 988, the Lifeline." ].each do |already|
       assert_equal already, Mia::CrisisBoundary.with_wellbeing_check(already)

@@ -44,8 +44,8 @@ module Mia
       /\bi\s+wish\s+i\s+(?:wasn['’]?t|wasnt|weren['’]?t|was not|were not)\s+(?:here|alive|born)\s*,/i,
       /\bwant (?:it|this|everything) to (?:be over|end)#{CLAUSE_END}/i,
       /\b(?:don['’]?t|dont|do not) see (?:the|any) point(?:\s+any\s?more)?#{CLAUSE_END}/i,
-      /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle|deal with)\s+(?:this|it|any of this)\s+(?:any\s?more|no more|any longer|much longer)\b/i,
-      /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle)\s+this#{CLAUSE_END}/i,
+      /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle|deal with)\s+(?:this|it|any of this)\s+(?:any\s?more|no more|any longer|much longer)(?=\s*(?:[.!?,;…:]|\z|\b(?:lol|tbh|honestly|man|bro)\b))/i,
+      /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle)\s+this(?=\s*(?:[.!?,;…:]|\z|\b(?:lol|tbh|honestly)\b))/i,
       /\bi(?:['’]m|m|\s+am)\s+(?:just\s+|so\s+)?done with (?:everything|it all|all of (?:it|this))#{CLAUSE_END}/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:even\s+)?any\s?more#{CLAUSE_END}/i,
       /\b(?:no|there['’]?s no|theres no) point any\s?more(?=\s*(?:[.!?,;…]|\z|\b(?:lol|tbh|honestly)\b))/i,
@@ -91,7 +91,8 @@ module Mia
     end
 
     def self.includes_wellbeing_check?(reply)
-      reply.to_s.match?(/(?<![\d$,.])988(?!\d|[.,]\d)/)
+      # A crisis-line instruction, not any number 988 ("rent is 988 dollars").
+      reply.to_s.match?(/\b(?:call|text|dial|contact|reach)(?:\s+or\s+(?:call|text))?\s+(?:the\s+)?988\b|\b988\s+(?:suicide|lifeline|crisis)|\bsuicide (?:&|and) crisis lifeline\b/i)
     end
 
     def self.response
