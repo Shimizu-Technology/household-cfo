@@ -416,8 +416,8 @@ module HouseholdFinance
       narrated_amounts = currency_cents_from_text(content)
       return false if narrated_amounts.empty?
 
-      # Existence check only, so compare magnitudes; signs are checked per category.
-      (narrated_amounts - allowed_currency_cents.map(&:abs)).any?
+      # Signs count: "-$12" matches a -$12 figure, "$12" does not.
+      (signed_currency_cents_from_text(content) - allowed_currency_cents).any?
     end
 
     def incorrect_financial_fact_relationship?(content)
