@@ -69,13 +69,6 @@ module HouseholdFinance
     }ix.freeze
     SAVINGS_TIMELINE_QUESTION_PATTERN = /\b(?:how long|how many (?:months|weeks|years|paychecks)|how soon|how fast|how much longer|when (?:will|would|can|could|do|did) (?:i|we)|what if (?:i|we) (?:put|set aside|save|add)\b.{0,30}\bextra)\b/i.freeze
     SAVINGS_TIMELINE_CONTEXT_PATTERN = /\b(?:save|saving|savings|saved|set aside|put aside|cushion|emergency fund|rainy day)\b/i.freeze
-    SAVINGS_CADENCE_PATTERNS = {
-      /\b(?:every|each)\s+(?:2|two)\s+weeks\b|\bbi-?weekly\b|\bevery\s+other\s+week\b/i => [ 26, 12, "every two weeks" ],
-      /\b(?:every|each|per|a)\s+week\b|\bweekly\b/i => [ 52, 12, "each week" ],
-      /\b(?:every|each|per|a)\s+month\b|\bmonthly\b/i => [ 1, 1, "each month" ]
-    }.freeze
-    CUSHION_MONTHS_PATTERN = /\b(\d{1,2}|one|two|three|four|five|six)[\s-]+months?\b.{0,25}\b(?:cushion|emergency fund|buffer|runway|savings)\b/i.freeze
-    CUSHION_WORD_NUMBERS = { "one" => 1, "two" => 2, "three" => 3, "four" => 4, "five" => 5, "six" => 6 }.freeze
     SAVINGS_GOAL_PATTERN = /\b(?:save|saving|savings|challenge)\b.{0,40}\b(?:goal|target)s?\b|\b(?:goal|target)s?\b.{0,40}\b(?:save|saving|savings|challenge)\b/i.freeze
     SAVINGS_GOAL_CHOICE_PATTERN = /\b(?:pick|choose|decide|should|realistic|reasonable|help me|start with|too (?:much|high|big|low|small))\b/i.freeze
     SAVINGS_GOAL_PROGRESS_PATTERN = /\b(?:progress|how close|how far|on track|so far)\b/i.freeze
@@ -898,41 +891,18 @@ module HouseholdFinance
     # The amount the participant names as the goal ("the $500 goal", "a goal of $500"),
     # not income or another number in the same message.
     # "If I save 150 every 2 weeks, how long until I have a 3 month cushion?" is a
-    # savings timeline, not a purchase. Only the participant's own numbers and the
-    # approved monthly outflow are used; anything unclear is asked, never guessed.
+    # savings plan question, not a purchase. Numbers parsed loosely from chat are
+    # never turned into a timeline, so this answer states no figures of its own
+    # and asks for the two facts it needs. A single clear "$X goal" goes to the
+    # savings goal answer instead.
     def savings_timeline_answer
       return nil unless normalized_message.match?(SAVINGS_TIMELINE_QUESTION_PATTERN) && normalized_message.match?(SAVINGS_TIMELINE_CONTEXT_PATTERN)
       return nil if normalized_message.match?(DEBT_TERM_PATTERN) || purchase_question? || transaction_report?
 
-      amounts = message.scan(/\$?\s*(\d[\d,]*(?:\.\d{1,2})?)(k\b)?/i).filter_map do |digits, thousands|
-        cents = Money.chat_cents("#{digits}#{thousands}")
-        cents if cents&.positive?
-      end
-      cushion = message.match(CUSHION_MONTHS_PATTERN)
-      cushion_months = cushion && (CUSHION_WORD_NUMBERS[cushion[1].downcase] || cushion[1].to_i)
-      cushion_digits = cushion && cushion[1].match?(/\A\d+\z/) ? Money.chat_cents(cushion[1]) : nil
-      amounts.delete_at(amounts.index(cushion_digits)) if cushion_digits && amounts.include?(cushion_digits)
-      cadence = SAVINGS_CADENCE_PATTERNS.find { |pattern, _| normalized_message.match?(pattern) }&.last
-      saving_cents = amounts.first
-      ask = "Next CFO move: tell me how much you can set aside and how often, plus the target amount, and I will work out the timeline."
-      return "I can work out a savings timeline from your own numbers, but I need both the amount and how often you can set it aside. #{ask} Nothing changed." unless saving_cents && cadence
+      goal_answer = savings_goal_answer if savings_goal_amount_cents&.positive?
+      return goal_answer if goal_answer
 
-      per_month_cents = (saving_cents * cadence[0] / cadence[1].to_f).round
-      yearly = money(per_month_cents * 12)
-      pace = "Setting aside #{money(saving_cents)} #{cadence[2]} is about #{money(per_month_cents)} a month, or #{yearly} a year."
-      target_cents = amounts[1] if cushion.nil?
-      if cushion_months&.positive?
-        outflow = snapshot.fetch(:total_outflow_cents).to_i
-        return "#{pace} I cannot size a #{cushion_months}-month cushion until your monthly bills are confirmed in setup. Next CFO move: finish the household picture, then ask me again. Nothing changed." unless setup_status.complete? && outflow.positive?
-
-        target_cents = outflow * cushion_months
-        basis = "A #{cushion_months}-month cushion at your approved monthly outflow of #{money(outflow)} is #{money(target_cents)}."
-      end
-      return "#{pace} Next CFO move: tell me the target amount or how many months of expenses you want covered, and I will give you the timeline. Nothing changed." unless target_cents&.positive? && per_month_cents.positive?
-
-      months = (target_cents.to_f / per_month_cents).ceil
-      basis ||= "Your target is #{money(target_cents)}."
-      "#{pace} #{basis} Starting from nothing, that takes about #{months} #{'month'.pluralize(months)}, not counting what you have already saved or any interest. Protect food, housing, utilities, and required payments first; if a tight month hits, a smaller amount kept going beats skipping. Next CFO move: pick the amount you can keep even in a tight month. Nothing changed."
+      "I can help you plan how long a savings goal will take, and I will not guess at the math from a loose sentence. Protect food, housing, utilities, and required payments first; savings should come from flexible money, and a smaller amount you can keep up beats a big one you skip. Next CFO move: tell me in one short sentence how much you can set aside each paycheck, and in another what the goal is, then we will work out the timeline together. Nothing changed."
     end
 
     def savings_goal_amount_cents

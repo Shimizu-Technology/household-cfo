@@ -229,6 +229,12 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
       { role: "assistant", content: "I can save a no-debt summary with $0 debt balance and $0 monthly minimums. What are the approved total balance and total monthly minimum?" } ])
     assert_nil resolve("yes", context: two_part)
     assert_nil resolve("0 and 0", context: debt_context(recent: [ { role: "assistant", content: "How is the budget looking?" } ]))
+    compound = debt_context(recent: [ { role: "user", content: "we don't have any debt" },
+      { role: "assistant", content: "Do you want me to save a confirmed no-debt summary? Also do you want to add your checking account?" } ])
+    assert_nil resolve("yes", context: compound)
+    two_questions = debt_context(recent: [ { role: "user", content: "we don't have any debt" },
+      { role: "assistant", content: "Do you want me to save a confirmed no-debt summary, meaning $0 debt balance and $0 monthly minimums? Is checking your main account?" } ])
+    assert_nil resolve("yes", context: two_questions)
   end
 
   # F9

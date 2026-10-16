@@ -1275,20 +1275,25 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     refute_includes category.to_s, "A car repair can be a real baseline need"
   end
 
-  test "savings timeline questions get a timeline, not the purchase template" do
+  test "savings timeline questions never state figures the participant did not write" do
     household = create_yellow_household
-    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "if i save 150 every 2 weeks how long till i have a 3 month cushion").call
-    refute_includes answer, "need or a want"
-    assert_includes answer, "$150 every two weeks is about $325 a month"
-    assert_match(/about \d+ months/, answer)
-    assert_includes answer, "Nothing changed"
-
-    target = HouseholdFinance::MiaCoachAnswerer.new(household, "if I save $200 a month how long until I save $2,400").call
-    assert_includes target, "about 12 months"
-
+    [
+      "we have 3 kids, how long to save 1000 at 50 a week",
+      "if i save 150 every 2 weeks how long till i have a 3 month cushion",
+      "starting on the 15th how long until we save 500 if we put away 25 every payday",
+      "what if i put an extra 200 toward savings, how long until i have a cushion",
+      "if I save $200 a month how long until I save $2,400"
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
+      refute_includes answer, "need or a want", prompt
+      written = prompt.scan(/\d[\d,]*/).map { |n| n.delete(",") }
+      shown = answer.scan(/\$\s*(\d[\d,]*(?:\.\d+)?)/).flatten.map { |n| n.delete(",") }
+      assert_empty shown - written, "#{prompt}: #{answer}"
+      refute_match(/about \d+ months?/, answer, prompt)
+    end
     vague = HouseholdFinance::MiaCoachAnswerer.new(household, "what if i put an extra 200 toward savings, how long until i have a cushion").call
-    refute_includes vague, "need or a want"
-    assert_includes vague, "how often"
+    assert_includes vague, "each paycheck"
+    assert_includes vague, "Nothing changed"
   end
 
   test "readiness is never rendered blank" do

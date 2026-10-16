@@ -326,7 +326,11 @@ module HouseholdFinance
     end
 
     def debt_free_offer_pending?
-      latest_assistant_text.match?(/\bno[- ]debt\s+summary\b|\$0\s+(?:total\s+)?(?:debt\s+)?balance\b.{0,60}\$0\s+(?:total\s+)?(?:monthly\s+)?minimum/i)
+      text = latest_assistant_text
+      # Only a message that asks nothing but the no-debt offer can be answered with "yes".
+      return false if text.count("?") > 1 || text.match?(/\balso\b/i)
+
+      text.match?(/\bno[- ]debt\s+summary\b|\$0\s+(?:total\s+)?(?:debt\s+)?balance\b.{0,60}\$0\s+(?:total\s+)?(?:monthly\s+)?minimum/i)
     end
 
     def latest_assistant_text
