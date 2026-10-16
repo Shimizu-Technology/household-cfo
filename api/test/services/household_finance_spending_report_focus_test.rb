@@ -51,6 +51,41 @@ class HouseholdFinanceSpendingReportFocusTest < ActiveSupport::TestCase
     assert_equal({ start_on: Date.new(2026, 9, 1), end_on: Date.new(2026, 9, 30) }, september)
   end
 
+  test "a part-month report reads as pace, never as a finished month over plan" do
+    report = report(pending: [], bank: nil, bank_observed: 0).merge(start_on: "2026-10-01", end_on: "2026-10-16")
+    report[:categories] = [ { id: 3, name: "Dining out", planned: 80.0, actual: 91.95, pending: 0.0 } ]
+    report[:totals] = report[:totals].merge(planned: 80.0, actual: 91.95, remaining: -11.95)
+
+    focus = HouseholdFinance::SpendingReportNarrator.new(report, prompt: "and dining out?").call
+    refute_match(/\bover plan\b/, focus)
+    assert_includes focus, "over the plan so far"
+    assert_includes focus, "prorated through Oct 16"
+
+    status = HouseholdFinance::SpendingReportNarrator.new(report, prompt: "are we over budget in october").call
+    refute_match(/\bover plan\b/, status)
+    assert_includes status, "over the plan so far"
+    assert_includes status, "not the full-month plan"
+
+    categories = HouseholdFinance::SpendingReportNarrator.new(report, prompt: "what categories are over plan").call
+    assert_includes categories, "over the plan so far"
+    assert_includes categories, "prorated through Oct 16"
+  end
+
+  test "a whole past month keeps plain plan wording" do
+    report = report(pending: [], bank: nil, bank_observed: 0).merge(start_on: "2026-09-01", end_on: "2026-09-30")
+    assert_includes HouseholdFinance::SpendingReportNarrator.new(report, prompt: "and dining out?").call, "under plan"
+  end
+
+  test "a merchant total from a full 100-transaction window says so and omits the share" do
+    report = report(pending: [], bank: nil, bank_observed: 0)
+    report[:transactions] = Array.new(HouseholdFinance::SpendingReport::MAX_TRANSACTIONS) do |index|
+      { merchant: index.zero? ? "Jollibee" : "Shell", amount: 10.0, occurred_on: "2026-10-03", categories: [] }
+    end
+    answer = HouseholdFinance::SpendingReportNarrator.new(report, prompt: "how much of that was jollibee").call
+    assert_includes answer, "In the most recent 100 transactions"
+    refute_includes answer, "% of the"
+  end
+
   private
 
   def narrate(prompt, pending: [], bank: nil, bank_observed: 0)

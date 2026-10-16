@@ -25,7 +25,7 @@ module HouseholdFinance
     CAR_REGISTRATION_PATTERN = /\b(?:(?:car|vehicle|auto)\s+)?(?:registration|tags?)\b/i.freeze
     CAR_REPAIR_PATTERN = /\b(?:car|vehicle|auto)\s+repair\b/i.freeze
     CATEGORY_PLAN_QUESTION_PATTERN = /\b(?:raise|increase|bump|lower|decrease|reduce|cut|adjust|change)\b.{0,60}\b(?:category|budget|allocation|line)\b|\b(?:category|budget|allocation)\b.{0,40}\b(?:enough|too\s+(?:low|high|small|big)|raise|increase|lower)\b/i.freeze
-    CAR_REPAIR_NOT_NEW_BILL_PATTERN = /\b(?:categor(?:y|ies)|rename|archive|restore|allocation|budget(?:ed)?)\b|\bhow much\b.{0,40}\b(?:did|have|was|were)\b|\b(?:did|have)\s+(?:we|i)\s+(?:spend|spent|pay|paid)\b|\bspent\b.{0,40}\b(?:last|in|this)\b/i.freeze
+    CAR_REPAIR_NOT_NEW_BILL_PATTERN = /\b(?:categor(?:y|ies)|rename|archive|restore|allocation)\b|\bhow much\b.{0,40}\b(?:did|have|was|were)\b|\b(?:did|have)\s+(?:we|i)\s+(?:spend|spent|pay|paid)\b|\bspent\b.{0,40}\b(?:last|in|this)\b/i.freeze
     ESSENTIAL_PURCHASE_TERMS = /\b(?:groceries|grocery|food|medicine|medication|rent|mortgage|power|water|utilities|utility|insurance|gas|daycare|childcare|school|tuition|diapers|formula|doctor|medical|dental)\b/i.freeze
     SCREENSHOT_PURCHASE_TERMS = /\b(?:purse|bag|handbag)\b/i.freeze
     PLANNED_PURCHASE_DETAIL_PATTERN = /(?:costs?|price|\$\s*\d|does that change|kid|school|work|league)/i.freeze
@@ -67,6 +67,15 @@ module HouseholdFinance
         (?:bypass|skip|disable)\s+(?:all\s+|the\s+)?(?:human\s+)?(?:review|approval|confirmation)s?\b
       )
     }ix.freeze
+    SAVINGS_TIMELINE_QUESTION_PATTERN = /\b(?:how long|how many (?:months|weeks|years|paychecks)|how soon|how fast|how much longer|when (?:will|would|can|could|do|did) (?:i|we)|what if (?:i|we) (?:put|set aside|save|add)\b.{0,30}\bextra)\b/i.freeze
+    SAVINGS_TIMELINE_CONTEXT_PATTERN = /\b(?:save|saving|savings|saved|set aside|put aside|cushion|emergency fund|rainy day)\b/i.freeze
+    SAVINGS_CADENCE_PATTERNS = {
+      /\b(?:every|each)\s+(?:2|two)\s+weeks\b|\bbi-?weekly\b|\bevery\s+other\s+week\b/i => [ 26, 12, "every two weeks" ],
+      /\b(?:every|each|per|a)\s+week\b|\bweekly\b/i => [ 52, 12, "each week" ],
+      /\b(?:every|each|per|a)\s+month\b|\bmonthly\b/i => [ 1, 1, "each month" ]
+    }.freeze
+    CUSHION_MONTHS_PATTERN = /\b(\d{1,2}|one|two|three|four|five|six)[\s-]+months?\b.{0,25}\b(?:cushion|emergency fund|buffer|runway|savings)\b/i.freeze
+    CUSHION_WORD_NUMBERS = { "one" => 1, "two" => 2, "three" => 3, "four" => 4, "five" => 5, "six" => 6 }.freeze
     SAVINGS_GOAL_PATTERN = /\b(?:save|saving|savings|challenge)\b.{0,40}\b(?:goal|target)s?\b|\b(?:goal|target)s?\b.{0,40}\b(?:save|saving|savings|challenge)\b/i.freeze
     SAVINGS_GOAL_CHOICE_PATTERN = /\b(?:pick|choose|decide|should|realistic|reasonable|help me|start with|too (?:much|high|big|low|small))\b/i.freeze
     SAVINGS_GOAL_PROGRESS_PATTERN = /\b(?:progress|how close|how far|on track|so far)\b/i.freeze
@@ -126,7 +135,7 @@ module HouseholdFinance
       return food_answer if food_answer
       return nil if transaction_report?
 
-      essential_skip_answer || mixed_movement_answer || savings_deposit_answer || avoidance_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || planned_purchase_detail_answer || purchase_decision_answer
+      essential_skip_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || avoidance_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
@@ -888,6 +897,44 @@ module HouseholdFinance
 
     # The amount the participant names as the goal ("the $500 goal", "a goal of $500"),
     # not income or another number in the same message.
+    # "If I save 150 every 2 weeks, how long until I have a 3 month cushion?" is a
+    # savings timeline, not a purchase. Only the participant's own numbers and the
+    # approved monthly outflow are used; anything unclear is asked, never guessed.
+    def savings_timeline_answer
+      return nil unless normalized_message.match?(SAVINGS_TIMELINE_QUESTION_PATTERN) && normalized_message.match?(SAVINGS_TIMELINE_CONTEXT_PATTERN)
+      return nil if normalized_message.match?(DEBT_TERM_PATTERN) || purchase_question? || transaction_report?
+
+      amounts = message.scan(/\$?\s*(\d[\d,]*(?:\.\d{1,2})?)(k\b)?/i).filter_map do |digits, thousands|
+        cents = Money.chat_cents("#{digits}#{thousands}")
+        cents if cents&.positive?
+      end
+      cushion = message.match(CUSHION_MONTHS_PATTERN)
+      cushion_months = cushion && (CUSHION_WORD_NUMBERS[cushion[1].downcase] || cushion[1].to_i)
+      cushion_digits = cushion && cushion[1].match?(/\A\d+\z/) ? Money.chat_cents(cushion[1]) : nil
+      amounts.delete_at(amounts.index(cushion_digits)) if cushion_digits && amounts.include?(cushion_digits)
+      cadence = SAVINGS_CADENCE_PATTERNS.find { |pattern, _| normalized_message.match?(pattern) }&.last
+      saving_cents = amounts.first
+      ask = "Next CFO move: tell me how much you can set aside and how often, plus the target amount, and I will work out the timeline."
+      return "I can work out a savings timeline from your own numbers, but I need both the amount and how often you can set it aside. #{ask} Nothing changed." unless saving_cents && cadence
+
+      per_month_cents = (saving_cents * cadence[0] / cadence[1].to_f).round
+      yearly = money(per_month_cents * 12)
+      pace = "Setting aside #{money(saving_cents)} #{cadence[2]} is about #{money(per_month_cents)} a month, or #{yearly} a year."
+      target_cents = amounts[1] if cushion.nil?
+      if cushion_months&.positive?
+        outflow = snapshot.fetch(:total_outflow_cents).to_i
+        return "#{pace} I cannot size a #{cushion_months}-month cushion until your monthly bills are confirmed in setup. Next CFO move: finish the household picture, then ask me again. Nothing changed." unless setup_status.complete? && outflow.positive?
+
+        target_cents = outflow * cushion_months
+        basis = "A #{cushion_months}-month cushion at your approved monthly outflow of #{money(outflow)} is #{money(target_cents)}."
+      end
+      return "#{pace} Next CFO move: tell me the target amount or how many months of expenses you want covered, and I will give you the timeline. Nothing changed." unless target_cents&.positive? && per_month_cents.positive?
+
+      months = (target_cents.to_f / per_month_cents).ceil
+      basis ||= "Your target is #{money(target_cents)}."
+      "#{pace} #{basis} Starting from nothing, that takes about #{months} #{'month'.pluralize(months)}, not counting what you have already saved or any interest. Protect food, housing, utilities, and required payments first; if a tight month hits, a smaller amount kept going beats skipping. Next CFO move: pick the amount you can keep even in a tight month. Nothing changed."
+    end
+
     def savings_goal_amount_cents
       amount = /#{AMOUNT_PATTERN}\s+(?:(?:savings|challenge|saving)\s+)?(?:goal|target)\b|\b(?:goal|target)\s+(?:of|is|at|to|for)\s+#{AMOUNT_PATTERN}/i.match(message)
       return unless amount
@@ -1117,12 +1164,16 @@ module HouseholdFinance
     end
 
     def snapshot
-      @snapshot ||= SnapshotBuilder.new(
-        household,
-        annual_budget_manager: annual_budget_manager,
-        reference_date: snapshot_reference_date,
-        ensure_plan: ensure_plan
-      ).call
+      @snapshot ||= begin
+        built = SnapshotBuilder.new(
+          household,
+          annual_budget_manager: annual_budget_manager,
+          reference_date: snapshot_reference_date,
+          ensure_plan: ensure_plan
+        ).call
+        # Never render "readiness is ." when readiness cannot be computed yet.
+        built[:readiness_label].to_s.strip.present? ? built : built.merge(readiness_label: "Setup incomplete — finish your starting picture")
+      end
     end
 
     def setup_status

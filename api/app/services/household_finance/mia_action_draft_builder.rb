@@ -225,7 +225,7 @@ module HouseholdFinance
       category = find_active_category(resolved_category_phrase(match[:from]))
       return missing_category_result([ clean_category_phrase(match[:from]) ]) unless category
 
-      new_name = clean_new_category_name(match[:to])
+      new_name = verbatim_category_name(match[:to])
       return validation_result("Tell me the new category name before I draft the rename.") if new_name.blank?
       return validation_result("#{category.name} already has that name.") if normalized_label(category.name) == normalized_label(new_name)
       return validation_result("A category named #{new_name} already exists. Rename or archive the existing category first.") if household.budget_categories.where("LOWER(name) = ?", new_name.downcase).where.not(id: category.id).exists?
@@ -814,11 +814,20 @@ module HouseholdFinance
         .squish
     end
 
+    # A rename keeps the participant's words exactly ("Back to School"); only
+    # surrounding space, quotes and end punctuation are trimmed.
+    def verbatim_category_name(value)
+      value.to_s.squish.sub(/[.!?,;:]+\z/, "").gsub(/\A["“'‘]+|["”'’]+\z/, "").squish.truncate(80, omission: "…")
+    end
+
     def clean_new_category_name(value)
-      value.to_s
-        .gsub(/\b(?:my|our|the|a|an|to|as|at|with|per month|monthly|\/month)\b/i, " ")
-        .squish
+      # Only leading articles and trailing connectors go; interior words such as
+      # the "to" in "Back to School" belong to the name.
+      value.to_s.squish
+        .sub(/\A(?:(?:my|our|the|a|an|to|as|at|with)\s+)+/i, "")
         .sub(/[.!?,;:]+\z/, "")
+        .sub(/(?:\s+(?:with|at|per month|monthly|\/month))+\z/i, "")
+        .squish
         .truncate(80, omission: "…")
     end
 

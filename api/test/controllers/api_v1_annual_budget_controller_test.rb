@@ -1599,8 +1599,8 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       content = body.fetch("assistant_message").fetch("content")
       assert_equal Date.current.beginning_of_month.iso8601, body.fetch("spending_report").fetch("start_on")
       assert_includes content, "Yes —"
-      assert_includes content, "within budget"
-      assert_includes content, "$45 confirmed against $145.16 planned"
+      assert_includes content, "within the plan so far"
+      assert_includes content, "$45 confirmed against $145.16 planned so far"
     end
   end
 

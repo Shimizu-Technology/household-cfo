@@ -102,7 +102,7 @@ module HouseholdFinance
     # A name ends at punctuation, chat filler ("lol"), or the start of the next
     # clause ("and our main goal is…", "we make…"), so a run-on setup message
     # never becomes the household name. "Will and Grace" stays one name.
-    HOUSEHOLD_NAME_FILLER_SOURCE = "(?:lol|lmao|lmfao|haha+|hehe+|jk|pls|plz|please|thanks?|thank\\s+you|ty)"
+    HOUSEHOLD_NAME_FILLER_SOURCE = "(?:lol|lmao|lmfao|haha+|hehe+|jk|pls|plz|please|thanks?|thank\\s+you)"
     HOUSEHOLD_NAME_TOPIC_SOURCE = "(?:(?:main|primary|big|biggest|financial|household|top)\\s+)?(?:goals?|income|take[ -]?home|rent|bills?|fixed|flexible|budget|priority|focus)"
     HOUSEHOLD_NAME_CLAUSE_SOURCE = "(?:we|we['’]re|we['’]ll|i['’]m|cuz|because|since|(?:our|my)\\s+#{HOUSEHOLD_NAME_TOPIC_SOURCE})"
     HOUSEHOLD_NAME_STOP_SOURCE = "(?=\\s*[.;,!?]|\\s+#{HOUSEHOLD_NAME_FILLER_SOURCE}(?![[:alnum:]])|\\s+(?:and|but|so|plus)\\s+(?:i|also|then|(?:the\\s+)?#{HOUSEHOLD_NAME_TOPIC_SOURCE}|#{HOUSEHOLD_NAME_CLAUSE_SOURCE})(?![[:alnum:]])|\\s+#{HOUSEHOLD_NAME_CLAUSE_SOURCE}(?![[:alnum:]])|\\s*\\z)"
@@ -114,15 +114,18 @@ module HouseholdFinance
     NO_DEBT_EXCEPTION_PATTERN = /\b(?:except|besides|other\s+than|aside\s+from|but|only|loans?|notes?|mortgage|financ\w*|owe\s+\$?\d|balance|minimum|payment|\$\s*[1-9])/i.freeze
     NO_DEBT_QUESTION_PATTERN = /\b(?:how|what|when|why|can|could|should|would|will|is\s+it|are\s+we|do\s+we|does)\b/i.freeze
     DEBT_ZERO_PAIR_REPLY_PATTERN = /\A(?:(?:both|it['’]?s|they['’]?re|yes|yeah|yep|ok|okay)[\s,]+)*(?:(?:\$?\s*0(?:\.0{1,2})?|zero|none)\s*(?:and|&|,|\/)\s*(?:\$?\s*0(?:\.0{1,2})?|zero|none)|(?:both\s+)?(?:are\s+)?(?:\$?\s*0(?:\.0{1,2})?|zero)(?:\s+for\s+both)?|none|no\s+debts?|nothing)[\s.!]*\z/i.freeze
+    # A whole-message, present-tense no-debt statement. Any other word (a debt noun,
+    # an amount, "just the car", "were debt free") keeps it out of the shortcut.
+    CLEAN_NO_DEBT_PATTERN = /\A\s*(?:(?:ok(?:ay)?|so|yeah|yes|hi|hey|well|um|mia)[,!\s]+)*(?:(?:we|i)\s+(?:do\s+not|don['’]?t|dnt)\s+(?:have|got|owe)\s+(?:any\s+)?debts?|(?:we|i)\s+(?:have|got)\s+(?:no|zero)\s+debts?|no\s+debts?|(?:(?:we|i)(?:['’]re|['’]m|\s+are|\s+am)\s+)?(?:totally\s+|completely\s+)?debt[- ]free|(?:we|i)\s+(?:do\s+not|don['’]?t|dnt)\s+owe\s+(?:anything|anyone|nobody|any\s*thing|a\s+thing))(?:[,.\s]*(?:at\s+all|right\s+now|anymore|currently|for\s+now|thankfully|no\s+(?:credit\s+cards?|cards?|loans?)|nothing|none|haha|lol|mia|thanks?))*[\s.!]*\z/i.freeze
+    DEBT_ZERO_ONLY_PAIR_PATTERN = /\A(?:(?:both|it['’]?s|they['’]?re|yes|yeah|yep|ok|okay)[\s,]+)*(?:\$?\s*0(?:\.0{1,2})?|zero)\s*(?:and|&|,|\/)\s*\$?\s*0(?:\.0{1,2})?[\s.!]*\z|\A(?:(?:yes|yeah|yep|ok|okay)[\s,]+)*(?:both\s+)?(?:are\s+)?(?:\$?\s*0(?:\.0{1,2})?|zero)\s+for\s+both[\s.!]*\z|\A(?:(?:yes|yeah|yep|ok|okay)[\s,]+)*both\s+(?:are\s+)?(?:\$?\s*0(?:\.0{1,2})?|zero)[\s.!]*\z/i.freeze
     DEBT_FREE_AFFIRMATION_PATTERN = /\A(?:yes|yeah|yea|yep|yup|ok|okay|sure|correct|right|that['’]?s\s+right|please(?:\s+do)?|do\s+it|go\s+ahead)(?:[\s,!.]+(?:yes|please|do\s+it|go\s+ahead|save\s+it|thanks?|thank\s+you|mia))*[\s,!.]*\z/i.freeze
     FAMILY_LENDING_PERSON_SOURCE = "(?:family|relatives?|sister|brother|sibling|mom|mother|mama|nana|dad|father|papa|tata|parents?|cousin|auntie|aunty|aunt|uncle|niece|nephew|son|daughter|kids?|grandma|grandpa|grandparents?|in-laws?|friend|neighbou?r|co-?worker)s?"
     FAMILY_LENDING_PATTERN = /\b#{FAMILY_LENDING_PERSON_SOURCE}\b.{0,80}\b(?:borrow(?:s|ed|ing)?|lend(?:s|ing)?|lent|loan(?:s|ed|ing)?|pay\s+(?:me|us)\s+back)\b|\b(?:lend(?:ing)?|lent|loan(?:ing)?)\b.{0,40}\b#{FAMILY_LENDING_PERSON_SOURCE}\b/i.freeze
     SCENARIO_LABEL_STOPWORD_PATTERN = /\A(?:for|to|at|on|in|of|from|and|or|the|a|an|this|that|these|those|my|our|her|his|their|with|each|per|every|now|today|tomorrow|next|so|if|is|was|be|it|right|already|more|less|extra|total)\z/i.freeze
     MAX_TRANSACTION_REPORTS = 5
     HOUSEHOLD_NAME_MAX_WORDS = 8
-    SUMMABLE_SETUP_FIELDS = %i[fixed_expenses flexible_spend expected_sinking_fund unexpected_sinking_fund].freeze
-    MAX_SUMMED_SETUP_AMOUNTS = 12
-    HOUSEHOLD_NAME_SENTENCE_PATTERN = /(?<![[:alnum:]])(?:#{HOUSEHOLD_NAME_FILLER_SOURCE}|(?:and|but|so)\s+(?:our|my|we|i)|(?:our|my)\s+(?:main\s+|primary\s+)?goal|we\s+(?:make|bring|earn|want|wanna|need|have|pay|spend))(?![[:alnum:]])/i.freeze
+    HOUSEHOLD_NAME_SENTENCE_START_PATTERN = /\A(?:we|i|it|its|it['’]s|that|this|they|my\s+name)\s+(?:is|are|was|were|am|will|would|gonna|going|have|had|just|call|named)\b|\A(?:we|i)['’]?(?:re|m|ll|ve)\b/i.freeze
+    HOUSEHOLD_NAME_SENTENCE_PATTERN = /(?<![[:alnum:]])(?:#{HOUSEHOLD_NAME_FILLER_SOURCE}|(?:and|but|so)\s+(?:we|i)|(?:and|but|so)\s+(?:our|my)\s+(?:main\s+|primary\s+|big\s+)?(?:goals?|income|rent|bills?)|(?:our|my)\s+(?:main\s+|primary\s+)?goal|we\s+(?:make|bring|earn|want|wanna|need|have|pay|spend))(?![[:alnum:]])/i.freeze
     HOUSEHOLD_NAME_CLARIFICATION = "What household name should I use? Send only the name, such as “Cruz Ohana.” Nothing changed.".freeze
     DETERMINISTIC_PRIMARY_GOAL_PATTERN = /\b(?:our\s+)?(?:(?:main|primary|financial|household)\s+)?goal\s+(?:is|:)\s+(.+?)(?=[.;]|\s*,\s*(?:and\s+)?(?:our\s+household|we\s+bring\s+home|fixed\s+(?:expenses|essentials|bills)|flexible\s+(?:spend|spending))\b|\z)/i.freeze
     DETERMINISTIC_RUNWAY_PATTERN = /\b(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[-\s]+months?(?:\s+of)?\s+(?:emergency\s+(?:fund|savings)|runway)\b/i.freeze
@@ -285,10 +288,9 @@ module HouseholdFinance
       return unless debt_free_summary_needed?
       return if normalized_user_message.match?(HYPOTHETICAL_PATTERN)
 
-      direct = no_debt_statement?(user_message) && !user_message.include?("?") &&
-        !user_message.match?(NO_DEBT_EXCEPTION_PATTERN) && !user_message.match?(NO_DEBT_QUESTION_PATTERN)
-      zero_reply = user_message.match?(DEBT_ZERO_PAIR_REPLY_PATTERN) && debt_summary_question_pending?
-      affirmed = user_message.match?(DEBT_FREE_AFFIRMATION_PATTERN) && debt_free_offer_pending? &&
+      direct = user_message.squish.match?(CLEAN_NO_DEBT_PATTERN) && !user_message.include?("?")
+      zero_reply = user_message.squish.match?(DEBT_ZERO_ONLY_PAIR_PATTERN) && debt_balance_and_minimum_asked?
+      affirmed = user_message.match?(DEBT_FREE_AFFIRMATION_PATTERN) && debt_free_offer_pending? && !debt_balance_and_minimum_question? &&
         recent_participant_texts.first(3).any? { |text| no_debt_statement?(text) }
       return unless direct || zero_reply || affirmed
 
@@ -313,10 +315,14 @@ module HouseholdFinance
       text.to_s.squish.match?(NO_DEBT_STATEMENT_PATTERN)
     end
 
-    def debt_summary_question_pending?
-      thread = context.dig(:conversation, :active_thread).to_h.deep_symbolize_keys
-      thread_pending = thread[:status].to_s == "needs_clarification" && thread.dig(:action, :type).to_s == "update_debt_tracking"
-      thread_pending || latest_assistant_text.match?(/\btotal\s+(?:debt\s+)?balance\b.{0,40}\b(?:total\s+)?monthly\s+minimum\b/i) || debt_free_offer_pending?
+    # Mia's immediately previous message asked for both the balance and the minimum
+    # (or offered the $0 pair), so a "0 and 0" reply answers both parts.
+    def debt_balance_and_minimum_asked?
+      debt_balance_and_minimum_question? || debt_free_offer_pending?
+    end
+
+    def debt_balance_and_minimum_question?
+      latest_assistant_text.match?(/\btotal\s+(?:debt\s+)?balance\b.{0,40}\b(?:total\s+)?monthly\s+minimum\b/i)
     end
 
     def debt_free_offer_pending?
@@ -551,8 +557,15 @@ module HouseholdFinance
       return if field == "household_name" && user_message.include?("$")
       return user_message unless field == "household_name"
 
-      name = cleaned_household_name(user_message)
-      name if name.present? && household_name_shape?(name)
+      name = cleaned_household_name(household_name_from_reply(user_message))
+      name if name.present? && household_name_shape?(name) && !name.match?(HOUSEHOLD_NAME_SENTENCE_START_PATTERN)
+    end
+
+    # "its gonna be the cruz family i guess" answers with the name "the cruz
+    # family". Anything still shaped like a sentence is never saved as the name.
+    def household_name_from_reply(text)
+      value = text.to_s.squish.sub(/\A(?:(?:ok(?:ay)?|so|well|um|hmm+)[,\s]+)*(?:(?:it['’]?s|its|it\s+is|we\s+are|we['’]?re|this\s+is|that['’]?s)\s+(?:gonna\s+be\s+|going\s+to\s+be\s+|called\s+)?|it\s+(?:will|would)\s+be\s+|(?:gonna|going\s+to)\s+be\s+)/i, "")
+      value.sub(/[\s,]+(?:i\s+guess|i\s+think|maybe|or\s+something|for\s+now)[\s.!]*\z/i, "")
     end
 
     def guided_setup_non_answer?
@@ -1062,6 +1075,7 @@ module HouseholdFinance
     # from that expense's own words. Nothing here confirms or records actuals.
     def normalize_transaction_report_plan(plan, entries)
       raise ArgumentError, "Too many expenses in one message" if entries.length > MAX_TRANSACTION_REPORTS
+      raise ArgumentError, "One purchase described in parts" if one_purchase_in_parts?(raw_user_message)
 
       cursor = 0
       actions = entries.map do |raw_entry|
@@ -1077,12 +1091,36 @@ module HouseholdFinance
         raise ArgumentError, "Incomplete expense" unless action_complete?(action)
         raise ArgumentError, "Future expense" if Date.iso8601(action[:occurred_on]) > Date.current
         raise ArgumentError, "Not an expense" if TransactionDraftBuilder.non_expense_movement?(exact_source)
+        if TransactionDraftBuilder.non_expense_movement?(raw_user_message) &&
+            !TransactionDraftBuilder.mixed_spend_amount?(raw_user_message, action[:amount])
+          raise ArgumentError, "Amount belongs to a non-expense movement"
+        end
+        raise ArgumentError, "Merchant is not in this expense's own words" unless merchant_in_source?(action[:merchant], exact_source)
         raise ArgumentError, "Unverified expense reference" unless action_references_valid?(action)
         raise ArgumentError, "Unverified expense amount" unless money_cents_from_participant_text(exact_source).include?(cents_or_nil(action[:amount]))
 
         { source_text: exact_source, source_start: start, source_end: finish, depends_on: [], action: action }
       end
       { title: bounded(plan[:title], 160).presence || "Reported expenses", kind: "transaction_reports", actions: actions }
+    end
+
+    def merchant_in_source?(merchant, source)
+      squash = ->(text) { text.to_s.unicode_normalize(:nfkc).downcase.gsub(/[^[:alnum:]]/, "") }
+      needle = squash.call(merchant)
+      needle.present? && squash.call(source).include?(needle)
+    end
+
+    # "Spent $50 at Costco, $30 was groceries and $20 was diapers" is one $50
+    # purchase. When one written amount equals the sum of two or more others, the
+    # message is not a list of separate purchases, so ask instead of drafting.
+    def one_purchase_in_parts?(text)
+      amounts = distinct_money_occurrences(text).map { |occurrence| occurrence.fetch(:amount_cents) }.select(&:positive?)
+      return false if amounts.length < 3 || amounts.length > 8
+
+      amounts.each_with_index.any? do |total, index|
+        others = amounts.each_with_index.reject { |_cents, other| other == index }.map(&:first)
+        (2..[ others.length, 4 ].min).any? { |size| others.combination(size).any? { |parts| parts.sum == total } }
+      end
     end
 
     def raw_source_span(source_text, cursor)
@@ -1813,9 +1851,7 @@ module HouseholdFinance
           cents = cents_or_nil(value)
           cents && (
             allowed.include?(cents) || prior_setup_value_matches?(prior_action, key, cents) ||
-              (cents.zero? && participant_zero_explicitly_stated_for?(key, history_scope: history_scope, source_text: source_text)) ||
-              (key.in?(SUMMABLE_SETUP_FIELDS) && participant_amounts_sum_to?(cents, source_text: source_text,
-                excluding: proposed_money.except(key).values))
+              (cents.zero? && participant_zero_explicitly_stated_for?(key, history_scope: history_scope, source_text: source_text))
           )
         end
       end
@@ -1895,9 +1931,6 @@ module HouseholdFinance
         next if allowed.include?(cents) || prior_setup_value_matches?(prior_action, key, cents)
         next if cents.zero? && participant_zero_explicitly_stated_for?(key, history_scope: history_scope)
 
-        other_values = updates.except(key).filter_map { |other_key, other| cents_or_nil(other) if MiaActionDraftHouseholdCommands::SETUP_MONEY_KEYS.include?(other_key) }
-        next if key.in?(SUMMABLE_SETUP_FIELDS) && participant_amounts_sum_to?(cents, excluding: other_values)
-
         followups << key
       end
       return [ action, [] ] if followups.empty?
@@ -1907,18 +1940,6 @@ module HouseholdFinance
       return [ action, [] ] if remaining.empty? && (followups - [ :household_name ]).any?
 
       [ action.merge(setup_updates: remaining), followups ]
-    end
-
-    def participant_amounts_sum_to?(target_cents, excluding: [], source_text: nil)
-      return false unless target_cents.positive?
-
-      amounts = distinct_money_occurrences(source_text || user_message).map { |occurrence| occurrence.fetch(:amount_cents) }
-      amounts = amounts.select(&:positive?).reject { |cents| excluding.include?(cents) || cents >= target_cents }
-      return false if amounts.length < 2 || amounts.length > MAX_SUMMED_SETUP_AMOUNTS
-
-      (2..[ amounts.length, 6 ].min).any? do |size|
-        amounts.combination(size).any? { |combination| combination.sum == target_cents }
-      end
     end
 
     def distinct_money_occurrences(text)
@@ -1940,7 +1961,10 @@ module HouseholdFinance
 
       money_fields = fields - [ :household_name ]
       labels = money_fields.map { |field| MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(field).downcase }.to_sentence
-      parts = [ "#{ready_line}I could not match your #{labels} to a number you wrote, so I did not guess. What #{money_fields.one? ? 'amount' : 'amounts'} should I use?" ]
+      written = distinct_money_occurrences(user_message).map { |occurrence| occurrence.fetch(:amount_cents) }.select(&:positive?).uniq.first(8)
+      listed = written.map { |cents| ActiveSupport::NumberHelper.number_to_currency(cents / 100.0, precision: (cents % 100).zero? ? 0 : 2) }
+      mentioned = listed.length >= 2 ? " You mentioned #{listed.to_sentence}. Which of these should count for #{labels}, or what is the monthly total?" : " What #{money_fields.one? ? 'amount' : 'amounts'} should I use?"
+      parts = [ "#{ready_line}I could not match your #{labels} to a single number you wrote, so I did not add anything up or guess.#{mentioned}" ]
       parts << "What household name should I use? Send only the name, such as “Cruz Ohana.”" if fields.include?(:household_name)
       parts << "Nothing changed yet."
       parts.join(" ")

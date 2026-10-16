@@ -75,7 +75,7 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
   end
 
   # F5
-  test "a run-on first setup message drafts every field when a provider total is the sum of written amounts" do
+  test "a provider total that is a sum of written amounts is never accepted, and the written numbers are listed" do
     result = resolve(QA_SETUP_PARAGRAPH, transport: provider(
       intent: "household_action",
       action: action(type: "update_household_setup", setup_updates: setup(
@@ -83,10 +83,28 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
       ))
     ))
 
-    assert result.actionable?, result.to_h.inspect
-    assert_equal "2320", result.action.dig(:setup_updates, :fixed_expenses)
+    refute result.actionable?, result.to_h.inspect
+    assert result.clarification?
     assert_equal "4800", result.action.dig(:setup_updates, :primary_income)
     assert_equal "900", result.action.dig(:setup_updates, :flexible_spend)
+    assert_nil result.action.dig(:setup_updates, :fixed_expenses)
+    assert_includes result.clarification, "$1,650"
+    assert_includes result.clarification, "$280"
+    assert_includes result.clarification, "$390"
+    assert_includes result.clarification, "monthly total"
+  end
+
+  test "no subset sum of written numbers passes as a setup total" do
+    # rent+power+car, car+power, income+rent, savings-like subsets, swapped fixed/flexible
+    { fixed_expenses: %w[2320 670 6450 2050], flexible_spend: %w[2320 1930] }.each do |field, values|
+      values.each do |value|
+        result = resolve(QA_SETUP_PARAGRAPH, transport: provider(
+          intent: "household_action",
+          action: action(type: "update_household_setup", setup_updates: setup(field => value))
+        ))
+        refute result.actionable?, "#{field} #{value}: #{result.to_h.inspect}"
+      end
+    end
   end
 
   test "an untraceable setup total keeps verified fields and asks only about that field" do
@@ -183,6 +201,104 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     assert_nil resolve("we dont have any debt", context: debt_context(active_debts: [ { id: 4, label: "Visa", debt_type: "credit_card" } ]))
     assert_nil resolve("we dont have any debt", context: debt_context(minimum_known: true))
     assert_nil resolve("0 and 0", context: debt_context), "zero pair without a pending debt question"
+  end
+
+  test "no-debt shortcut needs a clean whole-message present-tense statement" do
+    [
+      "I don't have any debt, my husband owes 3000 on his truck",
+      "we don't have any debt just the credit card",
+      "we don't have any debt right now, just the car",
+      "we were debt free before covid",
+      "we dont have any debt but the card is 500"
+    ].each do |message|
+      assert_nil resolve(message, context: debt_context), message
+    end
+    [ "no debt", "we're debt free", "we don't owe anything", "we dont have any debt right now", "I don't have any debt" ].each do |message|
+      assert resolve(message, context: debt_context)&.actionable?, message
+    end
+  end
+
+  test "bare zero and yes need Mia's immediately previous question to match" do
+    both = debt_context(recent: [ { role: "assistant", content: "What are the approved total balance and total monthly minimum? Say unknown for either one you have not confirmed." } ])
+    assert_nil resolve("0", context: both), "a bare 0 answers only one of two questions"
+    assert_nil resolve("yes", context: both)
+    offer_only = debt_context(recent: [ { role: "user", content: "we don't have any debt" },
+      { role: "assistant", content: "Do you want me to save a confirmed no-debt summary, meaning $0 debt balance and $0 monthly minimums?" } ])
+    assert resolve("yes", context: offer_only)&.actionable?
+    two_part = debt_context(recent: [ { role: "user", content: "we don't have any debt" },
+      { role: "assistant", content: "I can save a no-debt summary with $0 debt balance and $0 monthly minimums. What are the approved total balance and total monthly minimum?" } ])
+    assert_nil resolve("yes", context: two_part)
+    assert_nil resolve("0 and 0", context: debt_context(recent: [ { role: "assistant", content: "How is the budget looking?" } ]))
+  end
+
+  # F9
+  test "multiple purchases must keep each merchant in its own span" do
+    travel_to Date.new(2026, 10, 16) do
+      message = "$12 at Payless and $30 at Shell"
+      swapped = resolve(message, transport: provider(intent: "action_plan", action: action(type: "none"), write_plan: {
+        title: "Expenses", actions: [ expense("$12 at Payless", "Shell", "12"), expense("$30 at Shell", "Payless", "30") ]
+      }))
+      refute swapped.transaction_report_plan?
+      good = resolve(message, transport: provider(intent: "action_plan", action: action(type: "none"), write_plan: {
+        title: "Expenses", actions: [ expense("$12 at Payless", "Payless", "12"), expense("$30 at Shell", "Shell", "30") ]
+      }))
+      assert good.transaction_report_plan?, good.to_h.inspect
+    end
+  end
+
+  test "savings moves and money received never become expense drafts beside a purchase" do
+    travel_to Date.new(2026, 10, 16) do
+      message = "moved 200 to my savings and paid 30 at KFC"
+      plan = resolve(message, transport: provider(intent: "action_plan", action: action(type: "none"), write_plan: {
+        title: "Expenses", actions: [ expense("moved 200 to my savings", "Savings", "200"), expense("paid 30 at KFC", "KFC", "30") ]
+      }))
+      refute plan.transaction_report_plan?
+      kfc = resolve(message, transport: provider(intent: "transaction_report", action: action(type: "create_transaction_draft", merchant: "KFC", amount: "30", occurred_on: "2026-10-16")))
+      assert kfc.actionable?, kfc.to_h.inspect
+      assert_equal "30", kfc.action.fetch(:amount)
+      wrong = resolve(message, transport: provider(intent: "transaction_report", action: action(type: "create_transaction_draft", merchant: "KFC", amount: "200", occurred_on: "2026-10-16")))
+      refute wrong.actionable?
+
+      refund = resolve("got $40 back from Ross", transport: provider(intent: "transaction_report", action: action(type: "create_transaction_draft", merchant: "Ross", amount: "40", occurred_on: "2026-10-16")))
+      refute refund.actionable?
+      assert HouseholdFinance::TransactionDraftBuilder.non_expense_movement?("got $40 back from Ross")
+      mixed = resolve("spent $12 at Payless and got $40 back from Ross", transport: provider(intent: "action_plan", action: action(type: "none"), write_plan: {
+        title: "Expenses", actions: [ expense("spent $12 at Payless", "Payless", "12"), expense("got $40 back from Ross", "Ross", "40") ]
+      }))
+      refute mixed.transaction_report_plan?
+    end
+  end
+
+  test "one purchase split into parts is not several purchases" do
+    travel_to Date.new(2026, 10, 16) do
+      message = "spent $50 at Costco, $30 was groceries and $20 was diapers"
+      result = resolve(message, transport: provider(intent: "action_plan", action: action(type: "none"), write_plan: {
+        title: "Expenses", actions: [ expense("$30 was groceries", "Costco", "30"), expense("$20 was diapers", "Costco", "20") ]
+      }))
+      refute result.transaction_report_plan?
+      with_total = resolve(message, transport: provider(intent: "action_plan", action: action(type: "none"), write_plan: {
+        title: "Expenses", actions: [ expense("spent $50 at Costco", "Costco", "50"), expense("$30 was groceries", "Costco", "30") ]
+      }))
+      refute with_total.transaction_report_plan?
+    end
+  end
+
+  # F6
+  test "guided name replies keep real names and never save a sentence" do
+    {
+      "Ty and Leilani" => "Ty and Leilani",
+      "Mama and my babies" => "Mama and My Babies",
+      "Santos and Cruz family" => "Santos and Cruz family",
+      "Ohana Lee" => "Ohana Lee",
+      "The Lujans" => "The Lujans",
+      "we are the cruz family" => "The Cruz Family",
+      "its gonna be the cruz family i guess" => "The Cruz Family"
+    }.each do |reply, expected|
+      result = resolve(reply, context: setup_zero_context("household_name"))
+      assert result&.actionable?, "#{reply}: #{result.to_h.inspect}"
+      name = result.action.dig(:setup_updates, :household_name)
+      assert_equal expected.downcase, name.downcase, reply
+    end
   end
 
   # F10

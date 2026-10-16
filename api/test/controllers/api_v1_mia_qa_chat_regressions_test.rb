@@ -173,6 +173,17 @@ class ApiV1MiaQaChatRegressionsTest < ActionDispatch::IntegrationTest
     assert_equal "ordinary", household.household_memories.order(:id).last.sensitivity
   end
 
+  test "remember only triggers for a whole-message memory command" do
+    user, household = participant
+    before = household.household_memories.count
+    post_message(user, "ok remember that car repair in september? how much was it")
+    post_message(user, "so remember we spent $40 at KFC yesterday")
+    assert_equal before, household.household_memories.count
+    refute_includes reply.to_s, "I will remember"
+    post_message(user, "ok remember that payday is the 15th and 30th")
+    assert_equal before + 1, household.household_memories.count
+  end
+
   private
 
   def participant

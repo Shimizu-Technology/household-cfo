@@ -55,11 +55,12 @@ module HouseholdFinance
       pending_line = "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}; I am not counting those as actuals until you confirm them."
       if over_categories.empty?
         return [
-          "No active category is over plan for #{report.fetch(:period_label)}, based on confirmed transactions.",
-          "Confirmed actuals are #{money(totals.fetch(:actual))} against #{money(totals.fetch(:planned))} planned.",
+          "No active category is #{over_word} for #{report.fetch(:period_label)}, based on confirmed transactions.",
+          "Confirmed actuals are #{money(totals.fetch(:actual))} against #{planned_phrase(totals.fetch(:planned))}.",
+          pace_note,
           pending_line,
           "Next CFO move: review pending drafts before treating the remaining plan as safe-to-spend."
-        ].join("\n\n")
+        ].compact.join("\n\n")
       end
 
       over_line = over_categories.map do |category|
@@ -67,10 +68,11 @@ module HouseholdFinance
         "#{category.fetch(:name)} over by #{money(over_by)}"
       end.to_sentence
       [
-        "These categories are over plan for #{report.fetch(:period_label)}, based on confirmed transactions: #{over_line}.",
+        "These categories are #{over_word} for #{report.fetch(:period_label)}, based on confirmed transactions: #{over_line}.",
+        pace_note,
         pending_line,
         "Next CFO move: identify what was one-time versus repeat pattern before cutting essentials."
-      ].join("\n\n")
+      ].compact.join("\n\n")
     end
 
     def budget_status_answer(totals, top_line)
@@ -87,18 +89,18 @@ module HouseholdFinance
       provisional = bank_needs_review + non_plaid_pending
       projected_remaining = planned - actual - provisional
       status_line = if remaining.negative?
-        "No — based on confirmed transactions for #{report.fetch(:period_label)}, you are #{money(remaining.abs)} over the confirmed budget: #{money(actual)} actual against #{money(planned)} planned."
+        "No — based on confirmed transactions for #{report.fetch(:period_label)}, you are #{money(remaining.abs)} #{prorated? ? "over the plan so far" : "over the confirmed budget"}: #{money(actual)} actual against #{planned_phrase(planned)}."
       elsif provisional.positive? && projected_remaining.negative?
-        "Almost — confirmed spending for #{report.fetch(:period_label)} is within budget, but posted bank activity and other drafts awaiting review would put you #{money(projected_remaining.abs)} over if they are all valid."
+        "Almost — confirmed spending for #{report.fetch(:period_label)} is within #{prorated? ? "the plan so far" : "budget"}, but posted bank activity and other drafts awaiting review would put you #{money(projected_remaining.abs)} over if they are all valid."
       else
-        "Yes — based on confirmed transactions for #{report.fetch(:period_label)}, you are within budget: #{money(actual)} confirmed against #{money(planned)} planned."
+        "Yes — based on confirmed transactions for #{report.fetch(:period_label)}, you are within #{prorated? ? "the plan so far" : "budget"}: #{money(actual)} confirmed against #{planned_phrase(planned)}."
       end
 
       pending_line = provisional.positive? ? "Provisional outflows total #{money(provisional)}: #{money(bank_needs_review)} is posted bank activity needing review and #{money(non_plaid_pending)} comes from other drafts. Bank-pending charges remain separate." : "No posted outflows or other drafts are waiting for household review in this period."
-      remaining_line = remaining.negative? ? "Confirmed actuals are over by #{money(remaining.abs)}. Top actual categories: #{top_line}." : "You have #{money(remaining)} left on confirmed actuals. Top actual categories: #{top_line}."
+      remaining_line = remaining.negative? ? "Confirmed actuals are over by #{money(remaining.abs)}#{prorated? ? " so far" : ""}. Top actual categories: #{top_line}." : "You have #{money(remaining)} left#{prorated? ? " of the plan so far" : " on confirmed actuals"}. Top actual categories: #{top_line}."
       next_move = remaining.negative? ? "Your next CFO move is to name what was one-time versus a repeat pattern before cutting essentials." : "Keep logging before the small purchases turn into a mystery, then make the next approval on purpose."
 
-      [ status_line, remaining_line, pending_line, next_move ].join("\n\n")
+      [ status_line, remaining_line, pace_note, pending_line, next_move ].compact.join("\n\n")
     end
 
     def bank_merchant_line(bank)
@@ -128,21 +130,21 @@ module HouseholdFinance
 
       remaining = totals.fetch(:remaining).to_f
       return "You are #{money(remaining)} under the planned amount for this period so far." if remaining.positive?
-      return "You are exactly at the planned amount for this period." if remaining.zero?
+      return "You are exactly at the planned amount for this period#{prorated? ? " so far" : ""}." if remaining.zero?
 
-      "You are #{money(remaining.abs)} over the planned amount for this period. Review what was structural versus one-off before cutting essentials."
+      "You are #{money(remaining.abs)} over the #{prorated? ? "plan so far (prorated #{through_label})" : "planned amount for this period"}. Review what was structural versus one-off before cutting essentials."
     end
 
     def spending_comparison_line(totals)
       observed = money(totals.fetch(:bank_observed, 0))
       actual = money(totals.fetch(:actual))
       unless bank_activity_present?(totals)
-        return "For #{report.fetch(:period_label)}, confirmed spending is #{actual} against #{money(totals.fetch(:planned))} planned." if plan_available?
+        return "For #{report.fetch(:period_label)}, confirmed spending is #{actual} against #{planned_phrase(totals.fetch(:planned))}." if plan_available?
 
         return "For #{report.fetch(:period_label)}, confirmed spending is #{actual}. No approved historical plan is available for this period, so no planned comparison is shown."
       end
       if plan_available?
-        return "For #{report.fetch(:period_label)}, synced bank activity shows #{observed} in posted outflows; based on confirmed transactions, confirmed spending is #{actual} against #{money(totals.fetch(:planned))} planned."
+        return "For #{report.fetch(:period_label)}, synced bank activity shows #{observed} in posted outflows; based on confirmed transactions, confirmed spending is #{actual} against #{planned_phrase(totals.fetch(:planned))}."
       end
 
       "For #{report.fetch(:period_label)}, synced bank activity shows #{observed} in posted outflows and confirmed spending is #{actual}. No approved historical plan is available for this period, so no planned comparison is shown."
@@ -175,9 +177,9 @@ module HouseholdFinance
         comparison = if !plan_available?
           ""
         elsif actual > planned
-          " against #{money(planned)} planned, #{money(actual - planned)} over plan"
+          " against #{planned_phrase(planned)}, #{money(actual - planned)} #{over_word}"
         else
-          " against #{money(planned)} planned, #{money(planned - actual)} under plan"
+          " against #{planned_phrase(planned)}, #{money(planned - actual)} #{prorated? ? "under the plan so far" : "under plan"}"
         end
         pending = category.fetch(:pending).to_f.positive? ? " Pending drafts there total #{money(category.fetch(:pending))} and are not counted until you confirm them." : ""
         "#{category.fetch(:name)} has #{money(actual)} in confirmed spending#{comparison}.#{pending}"
@@ -196,18 +198,20 @@ module HouseholdFinance
         .max_by(&:length)
       return unless merchant
 
+      truncated = transactions.length >= SpendingReport::MAX_TRANSACTIONS
+      scope = truncated ? "In the most recent #{SpendingReport::MAX_TRANSACTIONS} transactions of #{report.fetch(:period_label)}" : "For #{report.fetch(:period_label)}"
       matches = transactions.select { |transaction| normalized(transaction[:merchant]) == normalized(merchant) }
       pending = drafts.select { |draft| normalized(draft[:merchant]) == normalized(merchant) }
       total = matches.sum { |transaction| transaction[:amount].to_f }
       count = matches.length
       dates = matches.first(3).map { |transaction| transaction_label(transaction) }.to_sentence
       lead = if count.positive?
-        "For #{report.fetch(:period_label)}, confirmed spending at #{merchant} is #{money(total)} across #{count} #{'transaction'.pluralize(count)}: #{dates}."
+        "#{scope}, confirmed spending at #{merchant} is #{money(total)} across #{count} #{'transaction'.pluralize(count)}: #{dates}."
       else
-        "For #{report.fetch(:period_label)}, there is no confirmed spending at #{merchant}."
+        "#{scope}, there is no confirmed spending at #{merchant}."
       end
       pending_line = pending.any? ? " Pending drafts at #{merchant} total #{money(pending.sum { |draft| draft[:amount].to_f })} and are not counted until you confirm them." : ""
-      share = totals_actual.positive? && count.positive? ? " That is #{(total / totals_actual * 100).round}% of the #{money(totals_actual)} confirmed for the period." : ""
+      share = !truncated && totals_actual.positive? && count.positive? ? " That is #{(total / totals_actual * 100).round}% of the #{money(totals_actual)} confirmed for the period." : ""
       "#{lead}#{share}#{pending_line}"
     end
 
@@ -233,6 +237,36 @@ module HouseholdFinance
 
     def normalized(value)
       value.to_s.downcase.delete("'’").gsub(/[^a-z0-9]+/, " ").squish
+    end
+
+    # The report's plan is prorated to the days covered. A part-month range
+    # (like October on the 16th) must read as pace, never as a finished month.
+    def prorated?
+      start_on = Date.iso8601(report[:start_on].to_s)
+      end_on = Date.iso8601(report[:end_on].to_s)
+      whole_month = start_on == start_on.beginning_of_month && end_on == start_on.end_of_month
+      whole_year = start_on == start_on.beginning_of_year && end_on == start_on.end_of_year
+      !(whole_month || whole_year)
+    rescue ArgumentError, TypeError
+      false
+    end
+
+    def through_label
+      "through #{Date.iso8601(report[:end_on].to_s).strftime('%b %-d')}"
+    end
+
+    def planned_phrase(planned)
+      prorated? ? "#{money(planned)} planned so far (the plan prorated #{through_label})" : "#{money(planned)} planned"
+    end
+
+    def over_word
+      prorated? ? "over the plan so far" : "over plan"
+    end
+
+    def pace_note
+      return unless prorated? && plan_available?
+
+      "This compares spending so far with the plan prorated #{through_label}, not the full-month plan."
     end
 
     def plan_available?

@@ -3,6 +3,9 @@ module Api
     class MiaMessagesController < BaseController
       # "also remember…" and "ok mia, remember…" are the same request as "remember…".
       MIA_MEMORY_COMMAND_PATTERN = /\A(?:(?:also|and|and\s+also|plus|oh|ok(?:ay)?|so|btw|hey(?:\s+mia)?|mia)[,!:\s]+)*(?:please[,\s]+|pls[,\s]+)?(?:also\s+)?remember(?: that| this)?[,:]?\s+(.+)\z/i.freeze
+      # A question, or a report of money already spent, is never a memory command
+      # even when it contains the word "remember".
+      MIA_MEMORY_EXCLUSION_PATTERN = /\?|\A(?:how|what|when|where|which|who|why|did|do|does|is|are|was|were|can|could)\b|\b(?:spent|paid|bought|purchased|charged|got|gave|sent|put)\b[^.!]{0,40}\$?\d/i.freeze
       # Health details, including named conditions and medicines, always wait for
       # explicit confirmation as sensitive memory.
       MIA_SENSITIVE_MEMORY_PATTERN = /\b(?:health|medical|medic(?:ine|ines|ation|ations)|meds|prescriptions?|pharmacy|insulin|diabet(?:es|ic)|cancer|chemo(?:therapy)?|dialysis|kidneys?|heart\s+(?:attack|disease|condition|failure|problems?)|strokes?|blood\s+pressure|hypertension|asthma|copd|dementia|alzheimer['’]?s?|parkinson['’]?s?|hiv|hepatitis|seizures?|epilep(?:sy|tic)|surgery|surgeries|hospital(?:ized|ised|ization|isation|s)?|doctors?|clinic|therap(?:y|ies|ist|ists)|counsel(?:ing|ling|or|ors)|psychiatr\w*|mental\s+health|depress(?:ed|ion)|anxiety|bipolar|schizophreni\w*|ptsd|adhd|autism|autistic|illness(?:es)?|chronic(?:ally)?|diagnos(?:e|ed|es|ing|is|ises|tic|tics)?|disabil(?:ity|ities|ed)|pregnan(?:t|cy|cies)|fertil(?:e|ity|ization|isation|ized|ised)?|religions?|politics?|political|sexual|gender|pronouns?|race|ethnic|ethnicity|trauma|abuse|addiction|rehab|sobriety|alcoholi(?:c|sm))\b/.freeze
@@ -572,6 +575,7 @@ module Api
         return unless match
 
         value = match[1].to_s.squish
+        return if value.match?(MIA_MEMORY_EXCLUSION_PATTERN)
         return { type: :invalid } if value.blank? || value.length > HouseholdMemory::MAX_DISPLAY_LENGTH
         return { type: :unsafe } if HouseholdFinance::MiaCoachAnswerer.unsafe_memory_instruction?(value)
 
