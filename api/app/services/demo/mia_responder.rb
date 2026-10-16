@@ -20,18 +20,27 @@ module Demo
     PERCENT_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*(?:%|percent\b)/i.freeze
     RUNWAY_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s+months?\s+of\s+runway\b/i.freeze
     READINESS_CLAIM_PATTERN = /\b(?:your|the|household(?: cfo method)?)\s+(?:baseline|readiness)(?:\s+status)?\s+(?:is|looks|reads|shows)\s+(?:currently\s+)?(?:["“])?(red|yellow|green)\b/i.freeze
+    # Each approved amount may be named the way people say it ("$2,750 in
+    # checking and savings", "you owe $3,200"), but only beside a label for
+    # that same metric: an approved number next to another metric's label is
+    # still rejected.
     METRIC_LABELS = {
-      "monthly_income" => /\b(?:monthly|approved)?\s*income\b/i,
-      "planned_monthly_outflow" => /\b(?:planned\s+monthly\s+outflow|total\s+outflow|money\s+out)\b/i,
-      "baseline_surplus" => /\bbaseline\s+surplus\b/i,
+      "monthly_income" => /\b(?:monthly|approved)?\s*income\b|\btake[- ]home(?:\s+pay)?\b|\bbring(?:s|ing)?\s+home\b/i,
+      "planned_monthly_outflow" => /\b(?:planned\s+monthly\s+outflow|(?:total\s+|monthly\s+)?outflow|money\s+out|planned\s+(?:monthly\s+)?(?:spending|expenses|costs)|monthly\s+(?:plan|expenses|costs|bills|obligations))\b/i,
+      "baseline_surplus" => /\b(?:baseline\s+|monthly\s+)?surplus\b(?!\s+rate)|\bleft\s*over\b/i,
       "safe_to_spend" => /\bsafe-to-spend\b/i,
-      "total_debt_entered" => /\btotal\s+debt\b/i,
-      "liquid_assets" => /\bliquid\s+assets?\b/i
+      "total_debt_entered" => /\b(?:total\s+debt|debt\s+(?:total|balance)|total\s+(?:you\s+|we\s+)?owed?)\b|\b(?:you|we|i)\s+(?:still\s+)?owe\b/i,
+      "liquid_assets" => /\bliquid\s+(?:assets?|savings|cash|accounts?|money|funds)\b|\bcash\s+on\s+hand\b|\b(?:checking\s+and\s+savings|savings\s+and\s+checking)\b/i
+    }.freeze
+    # Debt summaries keep totals here instead of per-debt records.
+    DEBT_SUMMARY_LABELS = {
+      "canonical_total_balance" => METRIC_LABELS.fetch("total_debt_entered"),
+      "canonical_monthly_minimum" => /\b(?:(?:total\s+|monthly\s+)?minimum(?:\s+payments?)?|minimums)\b/i
     }.freeze
     PERCENT_METRIC_LABELS = {
       "monthly_surplus_rate_percent" => /\b(?:monthly\s+)?surplus\s+rate\b/i
     }.freeze
-    PARTICIPANT_SCENARIO_LABEL_PATTERN = /\b(?:scenario|assumption|input|costs?|prices?|quoted|amount|percentage|rate|you\s+(?:gave|provided|entered|mentioned|asked\s+about))\b/i.freeze
+    PARTICIPANT_SCENARIO_LABEL_PATTERN = /\b(?:scenario|assumption|input|costs?|prices?|quoted|amount|percentage|rate|refund(?:ed|s)?|returned|extra|additional|goal|target|guarantee(?:d)?|borrow|lend|you\s+(?:gave|provided|entered|mentioned|asked\s+about|said|got|received|reported|told\s+me))\b/i.freeze
     UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN = /\b(?:you|we)\s+(?:can|could|should|may)\s+(?:comfortably\s+)?afford\b|\b(?:safe|okay|ok|fine|clear|approved)\s+(?:for\s+you\s+)?to\s+(?:spend|buy|book|purchase)\b|\b(?:trip|purchase|expense|it|that)\s+(?:works|fits|is\s+affordable|looks\s+affordable)\b|\bwithin\s+(?:your|the)\s+(?:budget|safe-to-spend)\b|\byou(?:['’]re|\s+are)\s+(?:clear|good)\s+to\s+(?:spend|buy|book)\b/i.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(can|should|could|may) i\b.*\b(buy|spend|purchase|afford|get|book|order)\b/,
@@ -79,12 +88,13 @@ module Demo
 
     def call(message, history: [], context: nil, draft_capable: false, conversation_resolution: nil)
       @response_source = "deterministic_fallback"
+      @fallback_reason = nil
       @concrete_model_identifier = nil
       @provider_request_id = nil
       @supplied_content_context = []
       clean_message = message.to_s.strip
       prompt_context = context.presence || default_context
-      return fallback_response("What are we trying to decide?", context: prompt_context) if clean_message.empty?
+      return @persona.fallback_response(:low_signal_greeting) if clean_message.empty?
       if crisis_message?(clean_message)
         @response_source = "deterministic_safety"
         return crisis_response
@@ -94,22 +104,33 @@ module Demo
         @response_source = "verified_deterministic"
         return grounded_response
       end
-      if @api_key.to_s.strip.present?
-        response = HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder") do
-          openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
-        end
-        if response.present? && !ungrounded_generic_financial_claim?(response, context: prompt_context, user_message: clean_message)
-          @supplied_content_context = @approved_content if @response_source == "live_model"
-          return response
-        end
+      return fallback_response(clean_message, context: prompt_context, reason: :no_model) if @api_key.to_s.strip.blank?
 
-        Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=unverified_financial_claim") if response.present?
-        return fallback_response(clean_message, context: prompt_context)
+      response = HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder") do
+        openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
+      end
+      # No reply at all means the provider failed or had no capacity; a reply
+      # that fails the checks below means the model answered but could not be
+      # verified. The participant hears a different, honest fallback for each.
+      return fallback_response(clean_message, context: prompt_context, reason: @fallback_reason || :provider_unavailable) if response.blank?
+
+      rejection = generic_claim_rejection(response, context: prompt_context, user_message: clean_message)
+      unless rejection
+        @supplied_content_context = @approved_content if @response_source == "live_model"
+        return response
       end
 
-      fallback_response(clean_message, context: prompt_context)
-    rescue StandardError
-      fallback_response(clean_message, context: context.presence || default_context)
+      Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=unverified_financial_claim check=#{rejection}")
+      fallback_response(clean_message, context: prompt_context, reason: :reply_rejected)
+    rescue StandardError => e
+      Rails.logger.info("[Demo::MiaResponder] reply unavailable error=#{e.class}")
+      fallback_response(clean_message.to_s, context: context.presence || default_context, reason: :provider_unavailable)
+    end
+
+    # Why the last call returned a scripted reply: :provider_unavailable,
+    # :reply_rejected, or :no_model. Nil when the reply was not a fallback.
+    def fallback_reason
+      @fallback_reason if @response_source == "deterministic_fallback"
     end
 
     private
@@ -157,15 +178,15 @@ module Demo
         http.request(request)
       end
 
-      return fallback_response(message, context: context) unless response.is_a?(Net::HTTPSuccess)
+      return provider_unavailable("http_#{response.code}") unless response.is_a?(Net::HTTPSuccess)
 
       parsed = JSON.parse(response.body)
       concrete_model = parsed["model"].to_s.squish
       concrete_model_valid = concrete_model.present? && concrete_model.length <= 200
-      return fallback_response(message, context: context) if @strict_privacy && !concrete_model_valid
+      return provider_unavailable("missing_model_identifier") if @strict_privacy && !concrete_model_valid
 
       content = parsed.dig("choices", 0, "message", "content").presence
-      return fallback_response(message, context: context) unless content
+      return provider_unavailable("blank_content") unless content
 
       sanitized = sanitize_assistant_content(
         content,
@@ -176,15 +197,26 @@ module Demo
       )
       unless ::Mia::ResponseShapePolicy.valid?(sanitized, persona: @persona)
         Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=persona_response_shape")
-        return fallback_response(message, context: context)
+        return reply_rejected
       end
-      return fallback_response(message, context: context) if sanitized.blank?
+      return reply_rejected if sanitized.blank?
 
       @concrete_model_identifier = concrete_model if concrete_model_valid
       request_id = parsed["id"].to_s.squish
       @provider_request_id = request_id if request_id.present? && request_id.length <= 200
       @response_source = "live_model"
       sanitized
+    end
+
+    def provider_unavailable(detail)
+      Rails.logger.info("[Demo::MiaResponder] provider unavailable reason=#{detail}")
+      @fallback_reason = :provider_unavailable
+      nil
+    end
+
+    def reply_rejected
+      @fallback_reason = :reply_rejected
+      nil
     end
 
     def approved_content_messages
@@ -300,16 +332,21 @@ module Demo
     end
 
     def ungrounded_generic_financial_claim?(content, context:, user_message: nil)
+      generic_claim_rejection(content, context: context, user_message: user_message).present?
+    end
+
+    # Which check a model reply failed, for the log; nil when it passed.
+    def generic_claim_rejection(content, context:, user_message: nil)
       payload = parsed_context(context)
-      return true if unsupported_scenario_conclusion?(content)
-      return true if unsupported_debt_detail_claim?(content, payload: payload)
-      return true unless financial_values_grounded?(content, payload: payload, user_message: user_message)
+      return "scenario_conclusion" if unsupported_scenario_conclusion?(content)
+      return "debt_detail" if unsupported_debt_detail_claim?(content, payload: payload)
+      return "unverified_amount" unless financial_values_grounded?(content, payload: payload, user_message: user_message)
 
       claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
-      return false if claimed_readiness.empty?
+      return if claimed_readiness.empty?
 
       approved_readiness = payload.dig("metrics", "readiness").to_s[/\b(red|yellow|green)\b/i, 1].to_s.downcase
-      approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
+      "readiness_mismatch" if approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
     end
 
     def unsupported_scenario_conclusion?(content)
@@ -347,13 +384,43 @@ module Demo
       mentions = currency_mentions(content)
       return true if mentions.empty?
 
-      metric_mentions = approved_metric_mentions(content, metrics: metrics) + approved_saved_record_mentions(content, payload: payload)
-      participant_values = currency_values(user_message)
-      mentions.all? do |mention|
-        nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
-        (participant_values.include?(mention.fetch(:value)) && participant_scenario_labeled?(content, mention)) ||
-          (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
+      metric_mentions = approved_metric_mentions(content, metrics: metrics) +
+        approved_debt_summary_mentions(content, payload: payload) +
+        approved_saved_record_mentions(content, payload: payload)
+      participant_values = participant_amount_values(user_message)
+      statuses = mentions.map { |mention| nearest_label_status(metric_mentions, mention) }
+      labeled_values = mentions.zip(statuses).filter_map { |mention, status| mention.fetch(:value) if status == :match }
+      mentions.zip(statuses).all? do |mention, status|
+        status == :match ||
+          (participant_values.include?(mention.fetch(:value)) && participant_scenario_labeled?(content, mention)) ||
+          # "...a $955 surplus. Decide where the $955 goes first." A repeat of an
+          # amount already labeled in this reply, with no other label beside it.
+          (status == :unlabeled && labeled_values.include?(mention.fetch(:value)))
       end
+    end
+
+    # :match when the closest label carries the same approved value, :mismatch
+    # when it names a different value, :unlabeled when no label is close. Labels
+    # that tie for closest (one word anchoring a record field and a summary
+    # total) count together, so overlapping labels cannot reject a correct amount.
+    def nearest_label_status(labels, mention)
+      closest = labels.map { |label| range_distance(label, mention) }.min
+      return :unlabeled if closest.nil? || closest > 40
+
+      matched = labels.any? { |label| range_distance(label, mention) == closest && label.fetch(:value) == mention.fetch(:value) }
+      matched ? :match : :mismatch
+    end
+
+    # Amounts the participant wrote in this message, with or without "$"
+    # ("pay an extra 100 a month"). They are still only accepted when the reply
+    # frames them as the participant's own figure.
+    def participant_amount_values(text)
+      bare = text.to_s.scan(/(?<![\w$.,])(#{HouseholdFinance::Money::CHAT_NUMBER_SOURCE}(?![\d,])#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?)(?![\w%])/).flatten.filter_map do |amount|
+        HouseholdFinance::Money.chat_cents(amount)
+      rescue ArgumentError
+        nil
+      end
+      (currency_values(text) + bare).uniq
     end
 
     def grounded_percent_mentions?(content, metrics:, user_message: nil)
@@ -363,9 +430,8 @@ module Demo
       metric_mentions = approved_percent_metric_mentions(content, metrics: metrics)
       participant_values = percent_values(user_message)
       mentions.all? do |mention|
-        nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
         (participant_values.include?(mention.fetch(:value)) && participant_scenario_labeled?(content, mention)) ||
-          (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
+          nearest_label_status(metric_mentions, mention) == :match
       end
     end
 
@@ -389,6 +455,18 @@ module Demo
       end
     end
 
+    def approved_debt_summary_mentions(content, payload:)
+      DEBT_SUMMARY_LABELS.flat_map do |key, label_pattern|
+        approved = currency_values(payload.dig("debts", key).to_s).first
+        next [] unless approved
+
+        content.to_s.to_enum(:scan, label_pattern).map do
+          match = Regexp.last_match
+          { start: match.begin(0), finish: match.end(0), value: approved }
+        end
+      end
+    end
+
     def approved_saved_record_mentions(content, payload:)
       records = []
       Array(payload.dig("financial_accounts", "records")).each do |account|
@@ -396,6 +474,12 @@ module Demo
       end
       Array(payload.dig("debts", "records")).each do |debt|
         records << { label: debt["label"], fields: { "balance" => debt["balance"], "minimum" => debt["minimum_payment"] } }
+      end
+      Array(payload.dig("annual_budget", "recent_transactions")).each do |transaction|
+        records << { label: transaction["merchant"], fields: { "amount" => transaction["amount"] } }
+      end
+      Array(payload.dig("tracked_goals", "records")).each do |goal|
+        records << { label: goal["label"], fields: { "target" => goal["target_amount"], "saved" => goal["current_progress"] } }
       end
       Array(payload.dig("annual_budget", "selected_month_budget_rows")).each do |category|
         records << {
@@ -545,14 +629,33 @@ module Demo
       @persona.fallback_response(:low_signal_greeting)
     end
 
-    def fallback_response(message, context:)
+    # Never quotes the participant's message back: a long or emotional message
+    # would otherwise be echoed into Mia's reply word for word.
+    def fallback_response(message, context:, reason:)
       @response_source = "deterministic_fallback"
+      @fallback_reason = reason
       return crisis_response if crisis_message?(message)
+      return HouseholdFinance::ConversationFollowupResolver::ACKNOWLEDGMENT_ANSWER if HouseholdFinance::ConversationFollowupResolver.acknowledgment?(message)
       return low_signal_response(message) if low_signal_message?(message)
-      return discretionary_spending_response if screenshot_spending_question?(message)
-      return spending_check_response if spending_decision_question?(message)
 
-      "#{@persona.uncertainty_line} I’d start by protecting the household baseline first. For \"#{message}\", check the annual plan, emergency runway, and whether this move creates more optionality than stress. #{contextual_next_step(context)}"
+      hopeless = ::Mia::CrisisBoundary.hopeless?(message)
+      purchase_question = !hopeless && (screenshot_spending_question?(message) || spending_decision_question?(message))
+      # The persona's purchase lines answer a purchase question on their own.
+      # When the provider failed, say so first instead of sounding normal.
+      if purchase_question && reason != :provider_unavailable
+        return discretionary_spending_response if screenshot_spending_question?(message)
+
+        return spending_check_response
+      end
+
+      ::Mia::FallbackReply.new(
+        reason: reason,
+        message: message,
+        context: context,
+        persona: @persona,
+        hopeless: hopeless,
+        purchase_question: purchase_question
+      ).call
     end
 
     def crisis_message?(message)
@@ -610,13 +713,6 @@ module Demo
 
     def spending_check_response
       @persona.fallback_response(:spending_check)
-    end
-
-    def contextual_next_step(context)
-      zero_income_context = context.to_s.include?("monthly income is $0") || context.to_s.include?('"monthly_income":"$0"')
-      return @persona.fallback_response(:zero_income_next_step) if zero_income_context
-
-      @persona.fallback_response(:default_next_step)
     end
   end
 end

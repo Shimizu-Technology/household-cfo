@@ -289,7 +289,7 @@ module HouseholdFinance
 
       opening = if MoneyMovementText.savings_deposit_report?(message)
         deposit_cents = MoneyMovementText.savings_deposit_cents(message)
-        "Nice work putting #{deposit_cents ? money(deposit_cents) : 'money'} into savings; that part is savings, not spending."
+        "Putting #{deposit_cents ? money(deposit_cents) : 'money'} into savings counts as saving, not spending."
       elsif MoneyMovementText.investment_purchase?(message)
         "Buying crypto or stocks is not everyday spending, so I did not count that part as an expense, and I cannot give licensed investment advice."
       else
@@ -307,13 +307,13 @@ module HouseholdFinance
       return nil if normalized_message.match?(ESSENTIAL_SKIP_PATTERN) || normalized_message.match?(SAVINGS_DEPOSIT_STRAIN_PATTERN)
 
       amount_cents = MoneyMovementText.savings_deposit_cents(message)
-      opening = amount_cents ? "Nice work putting #{money(amount_cents)} into savings!" : "Nice work putting money into savings!"
+      opening = "Putting #{amount_cents ? money(amount_cents) : 'money'} into savings counts as saving, not spending, so I did not add it as an expense or count it against your budget."
       where_to_log = if user && SavingsEnrollment.exists?(household: household, user: user, status: "active")
         "To count it toward your 90-day savings challenge, open Home and review it as a contribution; it counts once you approve it."
       else
         "If you track that account here, you can update its saved balance in My Money when you are ready."
       end
-      "#{opening} That is savings, not spending, so I did not add it as an expense or count it against your budget. #{where_to_log} Next CFO move: keep each deposit to an amount that still leaves food, housing, utilities, and required payments covered."
+      "#{opening} #{where_to_log} Next CFO move: keep each deposit to an amount that still leaves food, housing, utilities, and required payments covered."
     end
 
     def investment_boundary_answer

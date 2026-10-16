@@ -453,7 +453,7 @@ cases:
     route: controller
     prompt: Paid $50 to Bank of Guam savings for the challenge
     expected_phrases:
-      - Nice work putting $50 into savings!
+      - Putting $50 into savings counts as saving, not spending
       - not spending, so I did not add it as an expense
     forbidden_phrases:
       - drafted this for review
@@ -472,7 +472,7 @@ cases:
     route: controller
     prompt: Put $40 in my savings
     expected_phrases:
-      - Nice work putting $40 into savings!
+      - Putting $40 into savings counts as saving, not spending
       - did not add it as an expense
     forbidden_phrases:
       - the purchase is $40
@@ -574,7 +574,7 @@ cases:
     route: controller
     prompt: Put $100 in the savings category every month
     forbidden_phrases:
-      - Nice work putting
+      - counts as saving, not spending
 
   - id: deposit_instead_of_bill_gets_bill_first
     route: controller
@@ -582,6 +582,7 @@ cases:
     expected_phrases:
       - Start with the bill that protects the household baseline first
     forbidden_phrases:
+      - counts as saving, not spending
       - Nice work
 
   - id: kids_skipping_lunch_without_money_signal_is_not_food_insecurity
@@ -612,7 +613,7 @@ cases:
     route: controller
     prompt: I put $40 in savings and paid my $50 visa bill
     expected_phrases:
-      - Nice work putting $40 into savings!
+      - Putting $40 into savings counts as saving, not spending
     forbidden_phrases:
       - purchase
       - drafted this for review

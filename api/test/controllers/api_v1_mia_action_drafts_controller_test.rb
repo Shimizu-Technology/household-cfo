@@ -1420,7 +1420,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
     manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 400)
     cases = [
-      [ "Paid $50 to Bank of Guam savings for the challenge", "transaction_report", "Nice work putting $50 into savings!" ],
+      [ "Paid $50 to Bank of Guam savings for the challenge", "transaction_report", "Putting $50 into savings counts as saving, not spending" ],
       [ "I spent $100 on crypto", "transaction_report", "not everyday spending, so I did not add it as an expense" ],
       [ "We ran out of food and payday is Friday", "spending_report", "your program team or a local food pantry" ],
       [ "I spent my last $20 at Payless and we have nothing to eat until payday", "transaction_report", "your program team or a local food pantry" ]

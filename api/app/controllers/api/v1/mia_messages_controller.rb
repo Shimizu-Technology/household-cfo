@@ -8,6 +8,8 @@ module Api
       ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE = "(?:(?:and|also|then|and\\s+then)\\s*[,;:]?\\s*)?(?:please\\s+)?(?:(?:(?:can|could|would|will)\\s+you(?:\\s+please)?|i\\s+(?:want|need)(?:\\s+you)?\\s+to|i(?:'d|\\s+would)\\s+like\\s+to|help\\s+me)\\s+)?".freeze
       ATTACHMENT_INFORMATIONAL_FRAME_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:update\s+me\b|tell\s+me\b|explain\b|increase\s+(?:my|our)\s+understanding\b)/i.freeze
       ATTACHMENT_NAMED_AMOUNT_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:set|change|update|increase|decrease|lower|raise)\s+[^?!.;,\r\n]{1,60}?\s+(?:to|at|by)\s+\$?\d[\d,]*(?:\.\d{1,2})?(?:\s*(?:dollars?|monthly|per\s+month))?\s*[?!.;]*\z/i.freeze
+      MIA_PERSONALIZATION_CONTROL_PATTERN = /\A(?:please\s+)?(?:pause|stop|turn off|disable|resume|restart|turn on|unpause)\s+(?:my\s+|the\s+|your\s+)?(?:personali[sz]ation|memor(?:y|ies)|remembering(?:\s+things)?)(?:\s+(?:for now|please|for a while))?[\s.!]*\z/i.freeze
+      MIA_FORGET_MEMORY_PATTERN = /\A(?:please\s+)?(?:forget|delete|erase)\s+(?:the\s+memory\b|(?:that|what i said about)\s+(?:my|our|we|i|i['’]m|im|the|his|her|their|he|she)\b)/i.freeze
 
       rescue_from SavingsChallenge::AccessPolicy::Unavailable do |error|
         render json: { errors: [ error.message ], code: "savings_challenge_unavailable" }, status: :forbidden
@@ -91,6 +93,12 @@ module Api
             message_request: message_request,
             retire_prior_document_evidence: document_evidence_topic_present?(session)
           )
+        end
+
+        # A plain thank-you needs no model call (QA saw 20-30 second waits that
+        # ended in a canned reply). The active topic is left as it was.
+        if attached_imports.empty? && HouseholdFinance::ConversationFollowupResolver.gratitude?(content)
+          return render_acknowledgment_response(session, content, message_request: message_request)
         end
 
         if attached_imports.empty? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
@@ -562,6 +570,10 @@ module Api
       def mia_memory_command(content)
         normalized = content.to_s.squish
         return { type: :list } if normalized.match?(/\A(?:what|which) (?:things? )?(?:does mia|do you) remember(?: about me| about us)?\??\z/i)
+        # Pausing and forgetting are panel controls; chat points there instead
+        # of guessing.
+        return { type: :personalization_help, resume: normalized.match?(/\A(?:please\s+)?(?:resume|restart|turn on|unpause)\b/i) } if normalized.match?(MIA_PERSONALIZATION_CONTROL_PATTERN)
+        return { type: :forget_help } if normalized.match?(MIA_FORGET_MEMORY_PATTERN)
 
         match = normalized.match(/\A(?:please )?remember(?: that| this)?[,:]?\s+(.+)\z/i)
         return unless match
@@ -584,6 +596,12 @@ module Api
         when :unsafe
           assistant_content = "I can’t save an instruction that bypasses review or automatically approves or applies changes. Nothing was approved or applied, and no memory was saved."
           user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
+        when :personalization_help
+          assistant_content = mia_personalization_help_answer(resume: command.fetch(:resume))
+          user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
+        when :forget_help
+          assistant_content = "I can’t forget a saved memory from chat. Open My Profile → What Mia remembers and choose Forget on that item; I stop using it right away. Your approved financial records stay the same either way."
+          user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
         when :create
           user_message, assistant_message, memory = persist_mia_memory_command(session, content, command.fetch(:value), message_request)
         end
@@ -598,6 +616,21 @@ module Api
           memory: memory&.as_api_json(viewer: current_user)
         }
         retire_document_evidence_state(session) if retire_prior_document_evidence
+        complete_message_request(message_request, response_payload)
+        record_mia_operation("mia.request.completed", assistant_message: assistant_message)
+        render json: response_payload, status: :created
+      end
+
+      def render_acknowledgment_response(session, content, message_request:)
+        user_message, assistant_message = persist_chat_messages(session, content, [], HouseholdFinance::ConversationFollowupResolver::ACKNOWLEDGMENT_ANSWER)
+        response_payload = {
+          user_message: serialize_chat_message(user_message, author: "You"),
+          assistant_message: serialize_chat_message(assistant_message),
+          transaction_draft: nil,
+          mia_action_draft: nil,
+          budget: nil,
+          spending_report: nil
+        }
         complete_message_request(message_request, response_payload)
         record_mia_operation("mia.request.completed", assistant_message: assistant_message)
         render json: response_payload, status: :created
@@ -657,6 +690,18 @@ module Api
 
         lines = memories.map.with_index { |memory, index| "#{index + 1}. #{memory.display_value} (#{memory.category.humanize.downcase}, only me)" }
         "Here is what I actively remember for personalization:\n#{lines.join("\n")}\nThese are coaching context, not financial truth. You can edit or forget them under My Profile."
+      end
+
+      def mia_personalization_help_answer(resume:)
+        paused = current_household.household_memberships.find_by!(user_id: current_user.id).mia_personalization_paused?
+        if resume
+          return "Personalization is already on, so I use the memories you confirmed. You can review or pause them anytime under My Profile → What Mia remembers." unless paused
+
+          return "I can’t resume personalization from chat. Open My Profile → What Mia remembers and choose Resume personalization. Your approved financial records work the same either way."
+        end
+        return "Personalization is already paused, so I am not using your saved memories in replies. You can resume it anytime under My Profile → What Mia remembers." if paused
+
+        "I can’t pause personalization from chat. Open My Profile → What Mia remembers and choose Pause personalization; I stop using saved memories until you resume. Your approved financial records keep working normally."
       end
 
       def mia_memory_category(value)

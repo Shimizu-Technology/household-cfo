@@ -4,7 +4,13 @@ module HouseholdFinance
 
     FOLLOW_UP_PATTERN = /\b(?:what if|does that change|what about|how about|and if|then what|should i|should we|can i|can we|it|they|them|that|this|those|same thing|from earlier|another|also|same place|same merchant|there|tip|plus|add that)\b/i.freeze
     RECALL_PATTERN = /\b(?:remind me|what were we(?: just)? talking about|what did we(?: just)? talk about|what were we(?: just)? doing|what did we(?: just)? do|what was the plan|pick up where we left off|continue where we left off|from earlier|earlier plan)\b/i.freeze
-    ACKNOWLEDGMENT_PATTERN = /\A(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it)(?:[\s,!.]+(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it|for that|for this|chelu|mia))*[\s,!.]*\z/i.freeze
+    # Thanks in English, Chamorro ("si Yu'os ma'åse", however it is spelled) or
+    # Hawaiian, alone or with "Mia", "for that" and similar.
+    GRATITUDE_SOURCE = "(?:thanks?|thank\\s+(?:you|u)|thx|ty|tysm|appreciate (?:it|you|that)|si\\s+yu['’`]?o?s\\s+ma['’`]?[aå]se['’`]?|yu['’`]?o?s\\s+ma['’`]?[aå]se['’`]?|mahalo)".freeze
+    ACKNOWLEDGMENT_WORD_SOURCE = "(?:for sure|sounds good|got it|okay|ok|#{GRATITUDE_SOURCE})".freeze
+    ACKNOWLEDGMENT_PATTERN = /\A#{ACKNOWLEDGMENT_WORD_SOURCE}(?:[\s,!.]+(?:#{ACKNOWLEDGMENT_WORD_SOURCE}|so much|a lot|for that|for this|for everything|for the help|chelu|mia))*[\s,!.]*\z/i.freeze
+    GRATITUDE_PATTERN = /\b#{GRATITUDE_SOURCE}(?![\w'’])/i.freeze
+    ACKNOWLEDGMENT_ANSWER = "You got it — when you are ready, send me the next amount, due date, transaction, or decision and I’ll keep the coaching grounded in approved household numbers.".freeze
     CONFIRMATION_PATTERN = /\A(?:yes|yeah|yep|yup|please|ok|okay|sure|for sure|go ahead)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|go ahead|yes|yeah|ok|okay|sure))*[\s,!.]*\z|\A(?:do that|do it|draft that|make that change|please do that|please do it)[\s,!.]*\z/i.freeze
     MONEY_PATTERN = /\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
     CONDITIONAL_MONTHLY_INCOME_AMOUNT_PATTERN = /\b(?:if|given(?:\s+that)?|assuming|suppose|supposing|let['’]?s\s+say)\b.{0,120}\b(?:(?:our|my|the)\s+)?(?:monthly\s+income|income\s+(?:per|each)\s+month|take(?:\s|-)?home(?:\s+pay)?|bring\s+home)\b(?:\s+(?:is|was|were|equals?|of|became|becomes))?\s*(?:about|around|approximately|roughly)?\s*\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?!\d|,\d)#{Money::CHAT_THOUSANDS_SOURCE}?)/i.freeze
@@ -23,6 +29,16 @@ module HouseholdFinance
     def initialize(message, conversation_context: nil)
       @message = message.to_s.squish
       @conversation_context = (conversation_context || {}).deep_stringify_keys
+    end
+
+    def self.acknowledgment?(message)
+      message.to_s.squish.match?(ACKNOWLEDGMENT_PATTERN)
+    end
+
+    # A pure thank-you ("thanks mia si yu'os ma'ase"), not a bare "ok" that may
+    # be confirming a proposal.
+    def self.gratitude?(message)
+      acknowledgment?(message) && message.to_s.match?(GRATITUDE_PATTERN)
     end
 
     def self.complete_conditional_income_question?(message)
@@ -134,9 +150,7 @@ module HouseholdFinance
     end
 
     def acknowledgment_result
-      answer = "You got it — when you are ready, send me the next amount, due date, transaction, or decision and I’ll keep the coaching grounded in approved household numbers."
-
-      Result.new(message: message, direct_answer: answer, follow_up?: false)
+      Result.new(message: message, direct_answer: ACKNOWLEDGMENT_ANSWER, follow_up?: false)
     end
 
     def useful_context?
@@ -148,7 +162,7 @@ module HouseholdFinance
     end
 
     def acknowledgment?
-      message.match?(ACKNOWLEDGMENT_PATTERN)
+      self.class.acknowledgment?(message)
     end
 
     def confirmation?

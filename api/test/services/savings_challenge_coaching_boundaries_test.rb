@@ -106,14 +106,14 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
       assert_includes answer("I bought lunch yesterday"), "amount, where and date"
 
       household_answer = HouseholdFinance::MiaCoachAnswerer.new(@savings_household, "Paid $50 to Bank of Guam savings for the challenge", user: @savings_user).call
-      assert_includes household_answer, "Nice work putting $50 into savings!"
+      assert_includes household_answer, "Putting $50 into savings counts as saving, not spending"
       assert_includes household_answer, "open Home and review it as a contribution"
 
       # Enrollment belongs to the participant, not to everyone in the household.
       partner = User.create!(clerk_id: "clerk_partner_#{SecureRandom.hex(6)}", email: "partner-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
       [ partner, nil ].each do |other|
         other_answer = HouseholdFinance::MiaCoachAnswerer.new(@savings_household, "Put $40 in my savings", user: other).call
-        assert_includes other_answer, "Nice work putting $40 into savings!"
+        assert_includes other_answer, "Putting $40 into savings counts as saving, not spending"
         refute_includes other_answer, "open Home"
       end
     end
