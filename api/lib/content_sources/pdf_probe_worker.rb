@@ -35,10 +35,12 @@ begin
     # raising, so ask PDF::Reader, which needs the empty user password to
     # work. Owner-password-only PDFs open fine and are not rejected; any other
     # PDF::Reader complaint is left to the regular parse path.
+    # Only a wrong-password failure means the file is locked; an encryption
+    # handler PDF::Reader lacks ("Unsupported encryption style") is not.
     begin
       PDF::Reader.new(path).page_count
-    rescue PDF::Reader::EncryptedPDFError
-      raise
+    rescue PDF::Reader::EncryptedPDFError => error
+      raise if error.message.match?(/password/i)
     rescue StandardError
       nil
     end

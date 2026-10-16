@@ -37,6 +37,9 @@ module FinancialDocuments
     # rate limits and 5xx), per request, so one hiccup on one statement batch
     # does not fail the whole statement.
     PROVIDER_ATTEMPTS = 3
+    # A read timeout may still be billed, so it is retried only once.
+    READ_TIMEOUT_RETRIES = 1
+    MAX_RETRY_AFTER_SECONDS = 20
     RETRYABLE_STATUS_CODES = [ 408, 409, 425, 429, 500, 502, 503, 504, 520, 522, 524, 529 ].freeze
     # A statement batch sees only its own pages; warnings about the pages it
     # was not given contradict the merged statement and are dropped.
@@ -342,29 +345,32 @@ module FinancialDocuments
     end
 
     # Each batch names its account independently, so one statement account
-    # can arrive under several keys (for example "Premier Checking" on page 1
-    # and "XXXX-XX-5590 continued" later). Join keys that share the printed
-    # masked number; when the statement shows a single account number and no
-    # batch reports more than one account, unnumbered batch headers join it.
+    # can arrive under several keys (for example "Premier Checking" on pages
+    # 1-2 and "XXXX-XX-5590 continued" later). Join keys only when they come
+    # from different batches, print the same masked number and report the
+    # same known account basis. Two keys from one batch, an unknown basis or
+    # a missing number always stay separate accounts for the reviewer.
     def canonical_account_keys(batch_accounts)
-      all = batch_accounts.flatten
-      identity = ->(account) { account.dig(:evidence, :masked_identifier).to_s.gsub(/\D/, "").last(4).presence&.then { |digits| digits.length == 4 ? digits : nil } }
-      basis = ->(account) { account[:account_basis].to_s.presence_in(%w[asset liability]) }
-      mapping = {}
-      all.group_by { |account| identity.call(account) }.each do |digits, accounts|
-        next if digits.nil?
-        next if accounts.filter_map { |account| basis.call(account) }.uniq.many?
+      candidates = batch_accounts.each_with_index.flat_map do |accounts, batch|
+        accounts.filter_map do |account|
+          digits = account.dig(:evidence, :masked_identifier).to_s.gsub(/\D/, "").last(4)
+          basis = account[:account_basis].to_s
+          next unless digits.length == 4 && basis.in?(%w[asset liability])
 
-        canonical = accounts.first[:source_key]
-        accounts.each { |account| mapping[account[:source_key]] = canonical }
+          { batch: batch, key: account[:source_key], identity: [ digits, basis ] }
+        end
       end
-      identities = all.filter_map { |account| identity.call(account) }.uniq
-      if identities.one? && batch_accounts.all? { |accounts| accounts.map { |account| account[:source_key] }.uniq.length <= 1 }
-        canonical = mapping.values.first
-        known_basis = all.filter_map { |account| basis.call(account) }.uniq
-        all.each { |account| mapping[account[:source_key]] ||= canonical } if canonical && known_basis.length <= 1
+      mapping = {}
+      candidates.group_by { |candidate| candidate[:identity] }.each_value do |group|
+        keys_by_batch = group.group_by { |candidate| candidate[:batch] }.transform_values { |members| members.pluck(:key).uniq }
+        next if keys_by_batch.length < 2 || keys_by_batch.values.any?(&:many?)
+        # A key that also appears under another identity is ambiguous.
+        keys = keys_by_batch.values.flatten.uniq
+        next if keys.any? { |key| candidates.any? { |candidate| candidate[:key] == key && candidate[:identity] != group.first[:identity] } }
+
+        keys.drop(1).each { |key| mapping[key] = keys.first }
       end
-      mapping.reject { |key, canonical| key == canonical }
+      mapping
     end
 
     def merged_confidence(batch_data)
@@ -525,20 +531,36 @@ module FinancialDocuments
 
     def perform_openrouter_request_with_retry(payload)
       response = nil
+      read_timeouts = 0
       PROVIDER_ATTEMPTS.times do |index|
         if index.positive?
           Rails.logger.warn("[FinancialDocuments::Extractor] retrying provider request (attempt #{index + 1} of #{PROVIDER_ATTEMPTS}) after #{response.metadata[:error_detail]}")
-          provider_retry_pause(index)
+          provider_retry_pause(response.metadata[:retry_after_seconds] || index * 2)
           progress!
         end
         response = perform_openrouter_request(payload)
         return response if response.success? || !response.metadata[:retryable]
+        if response.metadata[:read_timeout]
+          read_timeouts += 1
+          return response if read_timeouts > READ_TIMEOUT_RETRIES
+        end
       end
       response
     end
 
-    def provider_retry_pause(retry_number)
-      sleep(retry_number * 2)
+    def provider_retry_pause(seconds)
+      sleep(seconds)
+    end
+
+    # Retry-After as delta seconds or an HTTP date, bounded so a long value
+    # fails the attempt instead of holding the worker.
+    def retry_after_seconds(value)
+      return if value.blank?
+
+      seconds = value.to_s.strip.match?(/\A\d+\z/) ? value.to_i : (Time.httpdate(value.to_s) - Time.now).ceil
+      seconds.clamp(0, MAX_RETRY_AFTER_SECONDS)
+    rescue ArgumentError
+      nil
     end
 
     def perform_openrouter_request(payload)
@@ -557,7 +579,7 @@ module FinancialDocuments
       unless response.is_a?(Net::HTTPSuccess)
         status_code = response.code.to_i
         return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { status_code: status_code, retryable: RETRYABLE_STATUS_CODES.include?(status_code),
-          error_detail: "OpenRouter extraction failed with HTTP #{status_code}" })
+          retry_after_seconds: retry_after_seconds(response["Retry-After"]), error_detail: "OpenRouter extraction failed with HTTP #{status_code}" }.compact)
       end
 
       json = JSON.parse(response.body)
@@ -574,7 +596,7 @@ module FinancialDocuments
       failure(TEMPORARY_FAILURE_MESSAGE, metadata: { retryable: true, error_detail: "OpenRouter returned invalid JSON" })
     rescue StandardError => e
       Rails.logger.warn("[FinancialDocuments::Extractor] provider_request_failed_class=#{e.class}")
-      failure(TEMPORARY_FAILURE_MESSAGE, metadata: { retryable: true, error_detail: "Provider request failed: #{e.class}" })
+      failure(TEMPORARY_FAILURE_MESSAGE, metadata: { retryable: true, read_timeout: e.is_a?(Net::ReadTimeout) || nil, error_detail: "Provider request failed: #{e.class}" }.compact)
     end
 
     def parse_json_content(content)

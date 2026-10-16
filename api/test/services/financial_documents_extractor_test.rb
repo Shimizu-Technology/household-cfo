@@ -1,4 +1,5 @@
 require "test_helper"
+require "open3"
 require "tempfile"
 require "zip"
 
@@ -619,6 +620,34 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     end
   end
 
+  # PDF::Reader raises EncryptedPDFError("Unsupported encryption style")
+  # for handlers it lacks; only a wrong-password failure means locked.
+  test "the PDF probe reports a password lock but not an unsupported encryption handler" do
+    pdf = Tempfile.new([ "probe", ".pdf" ])
+    pdf.binmode
+    pdf.write(blank_pdf_bytes(2))
+    pdf.close
+    { "Unsupported encryption style" => { "ok" => true, "page_count" => 2 }, "Invalid password ()" => { "ok" => false, "code" => "pdf_encrypted" } }.each do |message, expected|
+      stub = Tempfile.new([ "pdf_reader_stub", ".rb" ])
+      stub.write(<<~RUBY)
+        require "pdf/reader"
+        class PDF::Reader
+          def self.new(*) = raise(PDF::Reader::EncryptedPDFError, #{message.inspect})
+        end
+      RUBY
+      stub.close
+      includes = FinancialDocuments::SourceSafety.pdf_probe_load_paths.flat_map { |path| [ "-I", path ] }
+      output, status = Open3.capture2(RbConfig.ruby, *includes, "-r", stub.path, Rails.root.join(FinancialDocuments::SourceSafety::PDF_PROBE_SCRIPT).to_s, pdf.path, "structure")
+
+      assert status.success?, message
+      assert_equal expected, JSON.parse(output), message
+    ensure
+      stub&.close!
+    end
+  ensure
+    pdf&.close!
+  end
+
   test "provider failures show plain temporary copy and keep the technical cause for admins" do
     { 400 => 1, 402 => 1, 503 => FinancialDocuments::Extractor::PROVIDER_ATTEMPTS }.each do |status, expected_calls|
       calls = 0
@@ -655,6 +684,28 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
       assert result.success?, result.error
       assert_equal 2, calls
     end
+  end
+
+  test "a rate limit waits for its bounded Retry-After and a read timeout is retried only once" do
+    { "7" => 7, "3600" => FinancialDocuments::Extractor::MAX_RETRY_AFTER_SECONDS }.each do |header, expected_pause|
+      pauses = []
+      extractor = provider_extractor(pauses)
+      limited = http_error(429, "Retry-After" => header)
+      with_net_http_start(->(*_args, **_options, &_block) { limited }) do
+        refute extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png").success?
+      end
+      assert_equal [ expected_pause ] * (FinancialDocuments::Extractor::PROVIDER_ATTEMPTS - 1), pauses
+    end
+
+    calls = 0
+    extractor = provider_extractor
+    with_net_http_start(->(*_args, **_options, &_block) { calls += 1; raise Net::ReadTimeout }) do
+      result = extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png")
+
+      refute result.success?
+      assert_equal FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, result.error
+    end
+    assert_equal 1 + FinancialDocuments::Extractor::READ_TIMEOUT_RETRIES, calls
   end
 
   # Upload QA E_long_jul2026.pdf: ECONNRESET on pages 7-8 failed all ten
@@ -720,7 +771,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
       printed_debit_cents: 753_585, printed_credit_cents: 820_000, header_evidence: "Beginning balance $3,520.10; Ending balance $4,184.25" }
     continued = { account_key: "XXXX-XX-5590 continued", account_basis: "asset", label: "Premier Checking", masked_identifier: "XXXX-XX-5590",
       header_evidence: "Marianas Community Bank · Premier Checking · XXXX-XX-5590 · continued" }
-    batches = [ [ first, 1 ], [ continued, 3 ], [ continued.merge(masked_identifier: nil, account_key: "checking"), 5 ] ].map do |account, page|
+    batches = [ [ first, 1 ], [ continued, 3 ], [ continued, 5 ] ].map do |account, page|
       accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: [ account ],
         events: [ { account_key: account[:account_key], row_kind: "posted", event_type: "purchase", signed_amount_cents: -1_211, amount_column_cents: 1_211,
           posted_on: "2026-07-16", locator: { page: page, row: 1 }, merchant: "McDonalds Tamuning" } ] },
@@ -745,15 +796,26 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
 
   test "statement batches keep genuinely different accounts apart" do
     extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
-    batch = lambda do |key, masked, basis, page|
-      { source_accounting: FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
-        accounts: [ { account_key: key, account_basis: basis, masked_identifier: masked } ],
-        events: [ { account_key: key, row_kind: "posted", event_type: "purchase", signed_amount_cents: -100, amount_column_cents: 100, posted_on: "2026-07-02", locator: { page: page, row: 1 }, merchant: "Synthetic" } ] }) }
+    account = ->(key, masked, basis) { { account_key: key, account_basis: basis, masked_identifier: masked } }
+    batch = lambda do |page, *accounts|
+      { source_accounting: FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: accounts,
+        events: accounts.each_with_index.map { |item, row| { account_key: item[:account_key], row_kind: "posted", event_type: "purchase", signed_amount_cents: -100, amount_column_cents: 100, posted_on: "2026-07-02", locator: { page: page, row: row + 1 }, merchant: "Synthetic" } } }) }
     end
+    accounts_for = ->(*batches) { extractor.send(:merge_source_accounting, batches, page_count: 2 * batches.length).fetch(:accounts) }
 
-    merged = extractor.send(:merge_source_accounting, [ batch.call("checking", "XXXX1111", "asset", 1), batch.call("savings", "XXXX2222", "asset", 3), batch.call("card", "XXXX1111", "liability", 5) ], page_count: 6)
-
-    assert_equal 3, merged.fetch(:accounts).length
+    # Checking and savings that share last four digits in one batch.
+    assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset"), account.call("savings", "XXXX1234", "asset"))).length
+    # The same pair split across batches cannot be told apart either.
+    assert_equal 3, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset"), account.call("savings", "XXXX1234", "asset")),
+      batch.call(3, account.call("checking-continued", "XXXX1234", "asset"))).length
+    # A card with the same digits but an unknown basis.
+    assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset")), batch.call(3, account.call("card", "XXXX1234", "unknown"))).length
+    # Same digits, different known basis.
+    assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset")), batch.call(3, account.call("card", "XXXX1234", "liability"))).length
+    # A numbered checking on pages 1-2 and an unnumbered savings on pages 3-4.
+    assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset")), batch.call(3, account.call("savings", nil, "asset"))).length
+    # Different numbers.
+    assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1111", "asset")), batch.call(3, account.call("savings", "XXXX2222", "asset"))).length
   end
 
   private
@@ -765,15 +827,16 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
       filename: "notes.csv", content_type: "text/csv", byte_size: 4, s3_key: "household-cfo/test/notes-#{SecureRandom.hex(4)}.csv")
   end
 
-  def provider_extractor
+  def provider_extractor(pauses = [])
     FinancialDocuments::Extractor.new(api_key: "test-key").tap do |extractor|
-      extractor.define_singleton_method(:provider_retry_pause) { |_retry_number| nil }
+      extractor.define_singleton_method(:provider_retry_pause) { |seconds| pauses << seconds }
       extractor.define_singleton_method(:user_content) { |*_args, **_options| [ { type: "text", text: "Synthetic" } ] }
     end
   end
 
-  def http_error(status)
+  def http_error(status, headers = {})
     Net::HTTPResponse::CODE_TO_OBJ.fetch(status.to_s).new("1.1", status.to_s, "Error").tap do |response|
+      headers.each { |name, value| response[name] = value }
       response.instance_variable_set(:@read, true)
       response.body = JSON.generate(error: { message: "Synthetic provider error" })
     end
@@ -797,13 +860,13 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
   end
 
   # Minimal AES-256 (V5/R6) protected PDF with a non-empty user password.
-  def encrypted_pdf_bytes
+  def encrypted_pdf_bytes(filter: "Standard")
     hex = ->(bytes) { "<#{'ab' * bytes}>" }
     objects = [
       "<< /Type /Catalog /Pages 2 0 R >>",
       "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
       "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
-      "<< /Filter /Standard /V 5 /R 6 /Length 256 /P -1028 /O #{hex.call(48)} /U #{hex.call(48)} /OE #{hex.call(32)} /UE #{hex.call(32)} /Perms #{hex.call(16)} /CF << /StdCF << /CFM /AESV3 /AuthEvent /DocOpen /Length 32 >> >> /StmF /StdCF /StrF /StdCF >>"
+      "<< /Filter /#{filter} /V 5 /R 6 /Length 256 /P -1028 /O #{hex.call(48)} /U #{hex.call(48)} /OE #{hex.call(32)} /UE #{hex.call(32)} /Perms #{hex.call(16)} /CF << /StdCF << /CFM /AESV3 /AuthEvent /DocOpen /Length 32 >> >> /StmF /StdCF /StrF /StdCF >>"
     ]
     body = +"%PDF-1.7\n"
     offsets = objects.each_with_index.map do |object, index|

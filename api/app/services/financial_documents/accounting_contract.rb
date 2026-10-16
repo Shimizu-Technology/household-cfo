@@ -10,10 +10,23 @@ module FinancialDocuments
     MAX_EVENTS = 2_000
     CENT_LIMIT = 99_999_999_999
     EXTRACTION_LIMITATIONS = %w[legacy_expense_only_contract signed_account_movement_unknown conflicting_debit_credit amount_missing_or_invalid transaction_direction_unclear merchant_missing].freeze
-    # Free-text row notes are usually explanations ("This is a utility bill
-    # payment."), which belong with the evidence and must not hold a row back.
-    # Only a note saying the reader could not actually see a value does.
-    UNREADABLE_VALUE_NOTE = /\b(?:unreadable|illegible|not legible|cut off|cropped|obscured|smudged|(?:cannot|can't|could not|couldn't) (?:be )?read|partially (?:visible|hidden|legible|cropped)|inferred from (?:the )?(?:running )?balance|(?:amount|date) (?:is |was )?(?:inferred|estimated|guessed|unclear|uncertain)|please verify)\b/i
+    # Free-text row notes that only describe the row ("This is a utility
+    # bill payment.") stay with the evidence and must not hold a row back.
+    # Any note that doubts what was read -- amount, date, merchant, digits,
+    # image quality -- keeps the row unresolved, so a guess never becomes a
+    # spending draft. Err toward holding: an unmatched doubt costs one review.
+    UNCERTAIN_VALUE_NOTE = /
+      \b(?:blurr?y|blurred|skewed|illegible|unreadable|unclear|uncertain|unsure|ambiguous|approx(?:imate(?:ly)?|\.)?|estimat\w*|guess\w*|faded|smudged|obscured|garbled|low[- ]contrast|pixelated)\b
+      | \b(?:unable|hard|difficult|impossible)\s+to\s+(?:read|see|make\s+out)\b
+      | \b(?:cannot|can't|can\s+not|could\s+not|couldn't)\s+(?:be\s+)?(?:read|see|seen|make\s+out)\b
+      | \bnot\s+(?:fully\s+|clearly\s+|completely\s+|entirely\s+)?(?:visible|legible|readable|clear|shown\s+in\s+full)\b
+      | \bpartially\s+(?:visible|hidden|legible|cropped|obscured|cut)\b
+      | \bcut[\s-]?off\b | \bcropped\b | \btruncated\b
+      | \binferred\s+from\s+(?:the\s+)?(?:running\s+)?balance\b | \b(?:amount|date|total|merchant)\s+(?:is\s+|was\s+)?inferred\b
+      | \b(?:please\s+)?(?:verify|double[- ]check)\b | \bplease\s+check\b
+      | \bmay\s+be\s+\$?\d[\d,.]*\s+or\s+\$?\d | \bor\s+possibly\b
+      | \b(?:last\s+|first\s+|some\s+|missing\s+)?digits?\b
+    /ix
 
     def self.normalize(payload, coverage: {})
       new(payload, coverage: coverage).call
@@ -163,8 +176,8 @@ module FinancialDocuments
       Array(values).filter_map do |value|
         if EXTRACTION_LIMITATIONS.include?(value.to_s)
           value.to_s
-        elsif value.to_s.match?(UNREADABLE_VALUE_NOTE)
-          "extractor_reported_unreadable_value"
+        elsif value.to_s.match?(UNCERTAIN_VALUE_NOTE)
+          "extractor_reported_uncertain_value"
         end
       end.uniq
     end

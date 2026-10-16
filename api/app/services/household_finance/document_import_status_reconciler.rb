@@ -31,7 +31,7 @@ module HouseholdFinance
     # value, or a document with nothing to review, finishes as
     # nothing_applied so it never reaches Mia as an approved source.
     def reconciled_status
-      any_saved = resolved_items? || resolved_transaction_drafts?
+      any_saved = document_import.approved_values?
       any_ignored = ignored_items? || ignored_transaction_drafts?
       # Expense confirmation is not approval of all source rows or coverage.
       return any_saved ? "partially_applied" : "needs_review" if document_import.metadata.to_h["source_accounting_review_pending"] == true
@@ -58,14 +58,6 @@ module HouseholdFinance
 
     def pending_transaction_drafts?
       document_import.transaction_drafts.pending.exists?
-    end
-
-    def resolved_items?
-      document_import.items.where.not(applied_at: nil).exists?
-    end
-
-    def resolved_transaction_drafts?
-      document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
     end
 
     def ignored_items?

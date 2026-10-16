@@ -225,7 +225,10 @@ module Api
             next
           end
 
-          if @document_import.applied? || @document_import.partially_applied? || @document_import.items.where.not(applied_at: nil).exists? || @document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
+          # Re-extracting an import with any approved value (including
+          # source-review actuals on a nothing_applied import) would
+          # duplicate it.
+          if @document_import.applied? || @document_import.partially_applied? || @document_import.approved_values?
             reprocess_error = "Applied document imports cannot be reprocessed; upload a new copy to extract updated values."
             next
           end
@@ -389,8 +392,7 @@ module Api
       end
 
       def import_has_resolved_values?(document_import)
-        document_import.items.where.not(applied_at: nil).exists? ||
-          document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
+        document_import.approved_values?
       end
 
       def valid_upload_param?(file)

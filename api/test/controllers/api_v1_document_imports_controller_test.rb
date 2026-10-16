@@ -1543,6 +1543,31 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "applied", document_import.reload.status
   end
 
+  # Review of #197 (M2): an import marked nothing_applied whose row was
+  # later approved through source review must not be re-extracted, or the
+  # new extraction would duplicate the approved actual.
+  test "reprocess rejects a nothing_applied import that has an actual approved through source review" do
+    document_import = create_import!(status: "nothing_applied", document_kind: "statement", s3_key: "household-cfo/test/reviewed-source.pdf")
+    groceries = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    actual = @household.household_transactions.create!(budget_period: period, source_import: document_import, occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless", total_amount_cents: 6_612, source_type: "statement", status: "confirmed")
+    actual.transaction_splits.create!(budget_category: groceries, amount_cents: 6_612)
+
+    with_s3_stubs(configured?: true) do
+      assert_no_enqueued_jobs only: FinancialDocumentExtractionJob do
+        post "/api/v1/document_imports/#{document_import.id}/reprocess", headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/cannot be reprocessed/i, JSON.parse(response.body).fetch("errors").join)
+    assert_equal "nothing_applied", document_import.reload.status
+    assert document_import.approved_values?
+    HouseholdFinance::DocumentImportStatusReconciler.new(document_import).call
+    assert_equal "applied", document_import.reload.status
+  end
+
   test "document transaction draft update and confirm creates split actuals with source lineage" do
     document_import = create_import!(status: "needs_review", document_kind: "receipt")
     dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
