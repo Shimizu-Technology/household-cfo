@@ -1286,6 +1286,14 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     assert_equal "June spending was $425.", narrate("In June, Dining Out was at $45 of $310. Next CFO move: review June.", packet, "How did I do in June?")
   end
 
+  test "an amount written before a category belongs to that category" do
+    packet = { kind: "coaching", fallback_response: "Groceries and Dining Out are within plan.", write_state: "no_write", annual_plan_summary: JULY_PLAN }
+    reply = "So far this month you have $98 on Groceries and $45 on Dining Out. Next CFO move: keep the baseline protected."
+
+    assert_equal reply, narrate(reply, packet, "How am I doing?")
+    assert_equal "Groceries and Dining Out are within plan.", narrate(reply.sub("$45 on Dining Out", "$98 on Dining Out"), packet, "How am I doing?")
+  end
+
   test "a negative remaining figure is accepted with its sign and rejected without it" do
     packet = { kind: "budget_question", fallback_response: "Dining Out is over plan.", write_state: "no_write", annual_plan_summary: { top_categories: [ { name: "Dining Out", planned: 80, actual: 92, remaining: -12 } ] } }
 

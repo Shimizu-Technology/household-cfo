@@ -434,11 +434,20 @@ module HouseholdFinance
         end
       end.sort_by { |mention| mention.fetch(:starts_at) }
 
+      carried = []
       mentions.each_with_index.any? do |mention, index|
         boundary = mentions[index + 1]&.fetch(:starts_at) || content.length
         clause = content[mention.fetch(:ends_at)...boundary].to_s.split(/[;\n]|\.(?=\s|\z)/, 2).first.to_s
+        leading = carried
+        carried = []
+        # "$98 on groceries and $45 on dining out": an amount right before the next
+        # category name belongs to that category, so it is checked there instead.
+        if mentions[index + 1] && (tail = clause[LEADING_AMOUNT_FOR_NEXT_CATEGORY_PATTERN])
+          carried = signed_currency_cents_from_text(tail)
+          clause = clause.delete_suffix(tail)
+        end
         relevant_clause = clause.first(100)
-        amounts = signed_currency_cents_from_text(relevant_clause)
+        amounts = (leading + signed_currency_cents_from_text(relevant_clause)).uniq
         next false if amounts.empty?
 
         candidates = category_fact_sources.filter_map { |source| source[mention.fetch(:key)] }
@@ -450,6 +459,8 @@ module HouseholdFinance
         end
       end
     end
+
+    LEADING_AMOUNT_FOR_NEXT_CATEGORY_PATTERN = /[-−]?\$\s*[\d,]+(?:\.\d{1,2})?\s+(?:on|for|in|toward|towards|to)\s+(?:the\s+|your\s+|my\s+)?\z/i
 
     def incorrect_category_metric?(clause, category)
       clause.to_enum(:scan, MONEY_AMOUNT_PATTERN).any? do
