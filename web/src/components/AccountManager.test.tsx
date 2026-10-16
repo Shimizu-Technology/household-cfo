@@ -169,7 +169,7 @@ describe('AccountManager', () => {
       onFocusRequestHandled={handled}
     />)
 
-    const restore = await screen.findByRole('button', { name: 'Restore' })
+    const restore = await screen.findByRole('button', { name: /^Restore / })
     await waitFor(() => expect(document.activeElement).toBe(restore))
     expect(restore.closest('details')?.open).toBe(true)
     expect(handled).toHaveBeenCalledOnce()
@@ -248,9 +248,9 @@ describe('AccountManager', () => {
     const view = render(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
     await user.click(screen.getByRole('button', { name: decision === 'accept_observed' ? 'Accept bank balance' : 'Keep saved' }))
     await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Edit / })))
     view.rerender(<AccountManager accounts={[reconciled]} portfolio={portfolio} onChanged={onChanged} />)
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Edit / }))
     expect(apiMocks.reconcilePlaidAccount).toHaveBeenCalledWith(1, decision, expect.any(String))
   })
 
@@ -266,7 +266,7 @@ describe('AccountManager', () => {
     screen.getByRole('textbox', { name: 'Previous field' }).focus()
     fireEvent.click(screen.getByRole('button', { name: decision === 'accept_observed' ? 'Accept bank balance' : 'Keep saved' }))
     await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Edit / })))
     expect(apiMocks.reconcilePlaidAccount).toHaveBeenCalledWith(1, decision, expect.any(String))
   })
 
@@ -322,8 +322,8 @@ describe('AccountManager', () => {
     apiMocks.archiveAccount.mockResolvedValue(archived)
     const onChanged = vi.fn().mockResolvedValue(undefined)
     const view = render(<><input aria-label="Household note" /><AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} /></>)
-    await user.click(screen.getByRole('button', { name: 'Archive' }))
-    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await user.click(screen.getByRole('button', { name: /^Archive / }))
+    await user.click(screen.getByRole('button', { name: /^Confirm archive / }))
     await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
     await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
     const note = screen.getByRole('textbox', { name: 'Household note' })
@@ -347,14 +347,14 @@ describe('AccountManager', () => {
     const onChanged = vi.fn().mockResolvedValue(undefined)
     const view = render(<AccountManager accounts={[first, second]} portfolio={{ ...portfolio, active_count: 2 }} onChanged={onChanged} />)
     await user.click(view.container.querySelector<HTMLButtonElement>('[data-account-id="1"] [data-account-action="archive"]')!)
-    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await user.click(screen.getByRole('button', { name: /^Confirm archive / }))
     await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
     await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
 
     // Starting another confirmation remembers a new trigger, but must not change
     // the earlier pending action's permission to move focus.
     await user.click(view.container.querySelector<HTMLButtonElement>('[data-account-id="2"] [data-account-action="archive"]')!)
-    const secondConfirmation = screen.getByRole('button', { name: 'Confirm archive' })
+    const secondConfirmation = screen.getByRole('button', { name: /^Confirm archive / })
     expect(document.activeElement).toBe(secondConfirmation)
     view.rerender(<AccountManager accounts={[firstArchived, second]} portfolio={{ ...portfolio, active_count: 1, archived_count: 1 }} onChanged={onChanged} />)
     await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
@@ -379,24 +379,24 @@ describe('AccountManager', () => {
     const onChanged = vi.fn().mockResolvedValue(undefined)
     const view = render(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
 
-    await user.click(screen.getByRole('button', { name: 'Archive' }))
-    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
+    await user.click(screen.getByRole('button', { name: /^Archive / }))
+    await user.click(screen.getByRole('button', { name: /^Confirm archive / }))
     await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
     // The refresh Promise can resolve before React commits its parent update.
     // Let the original one-shot focus frame run against the previous account DOM.
     await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
-    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Restore / })).toBeNull()
 
     view.rerender(<AccountManager accounts={[archived]} portfolio={{ ...portfolio, active_count: 0, archived_count: 1 }} onChanged={onChanged} />)
-    const restore = await screen.findByRole('button', { name: 'Restore' })
+    const restore = await screen.findByRole('button', { name: /^Restore / })
     await waitFor(() => expect(document.activeElement).toBe(restore))
     expect(restore.closest('details')?.open).toBe(true)
     await user.click(restore)
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2))
     await act(async () => { await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())) })
-    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Edit / })).toBeNull()
     view.rerender(<AccountManager accounts={[original]} portfolio={portfolio} onChanged={onChanged} />)
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Edit / })))
     expect(apiMocks.archiveAccount).toHaveBeenCalledOnce()
     expect(apiMocks.restoreAccount).toHaveBeenCalledOnce()
   })
@@ -426,19 +426,19 @@ describe('AccountManager', () => {
     }
 
     render(<StatefulManager />)
-    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    await user.click(screen.getByRole('button', { name: /^Edit / }))
     const name = screen.getByLabelText('Account name')
     await user.clear(name)
     await user.type(name, 'Main checking')
     await user.click(screen.getByRole('button', { name: 'Save account' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBe(document.activeElement))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Edit / })).toBe(document.activeElement))
 
-    await user.click(screen.getByRole('button', { name: 'Archive' }))
-    await user.click(screen.getByRole('button', { name: 'Confirm archive' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Restore' })).toBe(document.activeElement))
+    await user.click(screen.getByRole('button', { name: /^Archive / }))
+    await user.click(screen.getByRole('button', { name: /^Confirm archive / }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Restore / })).toBe(document.activeElement))
 
-    await user.click(screen.getByRole('button', { name: 'Restore' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBe(document.activeElement))
+    await user.click(screen.getByRole('button', { name: /^Restore / }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Edit / })).toBe(document.activeElement))
   })
 
   it('reports participant edits, known zero, pending writes, and cancellation to navigation', async () => {
@@ -447,7 +447,7 @@ describe('AccountManager', () => {
     let complete!: (record: AccountRecord) => void
     apiMocks.updateAccount.mockReturnValueOnce(new Promise<AccountRecord>(resolve => { complete = resolve }))
     render(<AccountManager accounts={[account()]} portfolio={portfolio} onChanged={vi.fn().mockResolvedValue(undefined)} onUnsavedChangesChange={dirty} />)
-    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    await user.click(screen.getByRole('button', { name: /^Edit / }))
     expect(dirty).toHaveBeenLastCalledWith(false)
     await user.type(screen.getByLabelText(/Approved balance/), '0')
     expect(dirty).toHaveBeenLastCalledWith(true)
@@ -456,7 +456,7 @@ describe('AccountManager', () => {
     expect(dirty).toHaveBeenLastCalledWith(true)
     await act(async () => { complete(account({ balance: 0 })); await Promise.resolve() })
     await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(false))
-    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    await user.click(screen.getByRole('button', { name: /^Edit / }))
     await user.type(screen.getByLabelText('Account name'), ' changed')
     expect(dirty).toHaveBeenLastCalledWith(true)
     await user.click(screen.getByRole('button', { name: 'Cancel' }))

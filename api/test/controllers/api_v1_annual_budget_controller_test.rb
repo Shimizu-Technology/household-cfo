@@ -762,6 +762,39 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "Starbucks" ], report.fetch("pending_drafts").map { |draft| draft.fetch("merchant") }
   end
 
+  test "spending report links confirmed rows and ignored drafts to their reopenable review" do
+    user = create_user(email: "spending-report-reopen-links@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 200)
+    confirmed = create_pending_draft(household, category, merchant: "Manual Diner", amount_cents: 2_500)
+    ignored = create_pending_draft(household, category, merchant: "Ignored Cafe", amount_cents: 1_200)
+    post "/api/v1/transaction_drafts/#{confirmed.id}/confirm", headers: auth_headers(user), as: :json
+    assert_response :success
+    post "/api/v1/transaction_drafts/#{ignored.id}/ignore", headers: auth_headers(user), as: :json
+    assert_response :success
+    report_path = "/api/v1/spending_report?start_on=#{Date.current.beginning_of_month.iso8601}&end_on=#{Date.current.end_of_month.iso8601}"
+
+    get report_path, headers: auth_headers(user)
+    report = JSON.parse(response.body).fetch("spending_report")
+    assert_equal 25, report.fetch("totals").fetch("actual")
+    assert_equal [ confirmed.id ], report.fetch("transactions").map { |transaction| transaction.fetch("transaction_draft_id") }
+    ignored_row = report.fetch("ignored_drafts").sole
+    assert_equal [ ignored.id, "Ignored Cafe", 12.0, "manual_ui" ], ignored_row.values_at("id", "merchant", "amount", "source_type")
+
+    post "/api/v1/transaction_drafts/#{confirmed.id}/reopen", headers: auth_headers(user), as: :json
+    assert_response :success
+    post "/api/v1/transaction_drafts/#{ignored.id}/reopen", headers: auth_headers(user), as: :json
+    assert_response :success
+    assert_equal %w[pending pending], [ confirmed.reload.status, ignored.reload.status ]
+
+    get report_path, headers: auth_headers(user)
+    report = JSON.parse(response.body).fetch("spending_report")
+    assert_equal 0, report.fetch("totals").fetch("actual")
+    assert_equal 37, report.fetch("totals").fetch("pending")
+    assert_empty report.fetch("transactions")
+    assert_empty report.fetch("ignored_drafts")
+  end
+
   test "spending report prorates planned amounts for partial date ranges" do
     user = create_user(email: "spending-report-partial-plan@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

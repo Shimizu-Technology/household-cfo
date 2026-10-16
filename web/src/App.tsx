@@ -38,6 +38,8 @@ import { FinancialRestartDialog } from './components/FinancialRestartDialog'
 import { SetupHelpDialog } from './components/SetupHelpDialog'
 import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
+import { IgnoredTransactionList, ReviewedTransactionsPanel, TransactionReopenButton } from './components/ReviewedTransactions'
+import { bulkConfirmPhraseMismatchMessage, transactionCategoryWarningCopy, transactionItemName, transactionReopenConfirmMessage, transactionReviewStackTitle } from './lib/transactionReview'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
 import { GoalManager, type GoalFocusRequest } from './components/GoalManager'
 import { PilotFeedbackDialog } from './components/PilotFeedbackDialog'
@@ -2623,7 +2625,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const entered = window.prompt(
         `This will post ${ids.length} transactions totaling ${currency.format(total)} to actuals. This is all-or-nothing. Review possible matches first, then type ${phrase} to continue.`,
       )
-      if (entered?.trim() !== phrase) return
+      if (entered === null) return
+      const mismatch = bulkConfirmPhraseMismatchMessage(ids.length, entered)
+      if (mismatch) {
+        setBudgetError(mismatch)
+        setDocumentsError(mismatch)
+        setMiaError(mismatch)
+        return
+      }
     } else if (!window.confirm(`Ignore ${ids.length} pending transaction reviews totaling ${currency.format(total)}? Actuals will not change.`)) {
       return
     }
@@ -2691,7 +2700,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
-    const confirmed = window.confirm('Reopen this draft for correction? If it created an actual transaction, that actual will be removed from month-to-date totals and the draft will return to pending review.')
+    const confirmed = window.confirm(transactionReopenConfirmMessage(draft))
     if (!confirmed) return
 
     if (!beginBudgetAction(`reopen-draft:${draft.id}`)) return
@@ -3231,7 +3240,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setError(null)
       setWorkspaceLoadAttempt(attempt => attempt + 1)
     }}>
-      {error && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={selectedCohortId} onChoose={chooseParticipantProgram} />}
+      {error && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={selectedCohortId} onChoose={chooseParticipantProgram} hideWhenEmpty />}
       <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} />
     </WorkspaceOpening>
   }
@@ -3640,6 +3649,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
                   />
                 )}
+                {!budgetYearLoading && budgetError && <p className="setup-error" role="alert">{budgetError}</p>}
+                <ReviewedTransactionsPanel report={spendingReport} action={chatDraftAction} disabled={budgetYearLoading} onReopen={handleReopenTransactionDraft} />
               </article>
               <PlaidConnections
                 householdId={data.workspace.household_id}
@@ -6454,7 +6465,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
         {activeDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}>
           <div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)}</span></div>
           <div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div>
-          <div className="debt-row-actions"><button type="button" data-debt-action="edit" className="secondary-button" disabled={saving} onClick={() => beginEdit(debt)}>Edit</button><button type="button" data-debt-action="archive" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button>{archiveId === debt.id && <button type="button" className="secondary-button" disabled={saving} aria-label={`Cancel archiving ${debt.label}`} onClick={() => setArchiveId(null)}>Cancel</button>}</div>
+          <div className="debt-row-actions"><button type="button" data-debt-action="edit" className="secondary-button" aria-label={`Edit ${debt.label}`} disabled={saving} onClick={() => beginEdit(debt)}>Edit</button><button type="button" data-debt-action="archive" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} aria-label={`${archiveId === debt.id ? 'Confirm archive' : 'Archive'} ${debt.label}`} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button>{archiveId === debt.id && <button type="button" className="secondary-button" disabled={saving} aria-label={`Cancel archiving ${debt.label}`} onClick={() => setArchiveId(null)}>Cancel</button>}</div>
         </div>)}
       </div></>}
 
@@ -6470,7 +6481,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
         <div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelEdit}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === 'new' ? 'Add debt' : 'Save debt'}</button></div>
       </form>}
 
-      {archivedDebts.length > 0 && <details className="debt-archive"><summary>Archived debts ({archivedDebts.length})</summary><p>Archived records keep their history and do not affect planning totals.</p><div className="debt-list">{archivedDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}><div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · Archived {debt.archived_at ? new Date(debt.archived_at).toLocaleDateString() : ''}</span></div><div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div><div className="debt-row-actions"><button type="button" data-debt-action="restore" className="secondary-button" disabled={saving} onClick={() => void restoreRecord(debt)}>Restore</button></div></div>)}</div></details>}
+      {archivedDebts.length > 0 && <details className="debt-archive"><summary>Archived debts ({archivedDebts.length})</summary><p>Archived records keep their history and do not affect planning totals.</p><div className="debt-list">{archivedDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}><div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · Archived {debt.archived_at ? new Date(debt.archived_at).toLocaleDateString() : ''}</span></div><div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div><div className="debt-row-actions"><button type="button" data-debt-action="restore" className="secondary-button" aria-label={`Restore ${debt.label}`} disabled={saving} onClick={() => void restoreRecord(debt)}>Restore</button></div></div>)}</div></details>}
       {error && editingId === null && <p className="setup-error" role="alert">{error}</p>}
       <p className="debt-privacy-note">{brand.product_name} uses the selected tracking mode for planning. It does not move money, contact lenders, or make payments.</p>
     </article>
@@ -6838,7 +6849,7 @@ function miaActionItemFinePrint(item: MiaActionItem) {
   return `Applies to ${changes.length} month${changes.length === 1 ? '' : 's'}.`
 }
 
-function ManualTransactionCapture({
+export function ManualTransactionCapture({
   categories,
   busy,
   locked = busy,
@@ -6855,7 +6866,16 @@ function ManualTransactionCapture({
   const [amount, setAmount] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
+  const toggleRef = useRef<HTMLButtonElement | null>(null)
   const activeCategories = categories.filter((category) => category.active)
+
+  function closeOnEscape(event: KeyboardEvent<HTMLFormElement>) {
+    if (event.key !== 'Escape' || locked) return
+    event.preventDefault()
+    setOpen(false)
+    setFormError(null)
+    toggleRef.current?.focus()
+  }
 
   function reset() {
     setOccurredOn(guamTodayIso())
@@ -6890,12 +6910,12 @@ function ManualTransactionCapture({
           <h3 id="manual-transaction-heading">Add a transaction</h3>
           <p>Create a review card now. Your budget actuals stay unchanged until you confirm it.</p>
         </div>
-        <button type="button" className="secondary-button" aria-expanded={open} onClick={() => { setOpen((current) => !current); setFormError(null) }}>
+        <button ref={toggleRef} type="button" className="secondary-button" aria-expanded={open} onClick={() => { setOpen((current) => !current); setFormError(null) }}>
           {open ? 'Close' : 'Add transaction'}
         </button>
       </div>
       {open && (
-        <form className="manual-transaction-form" onSubmit={(event) => void submit(event)}>
+        <form className="manual-transaction-form" onSubmit={(event) => void submit(event)} onKeyDown={closeOnEscape}>
           <label><span>Date</span><input type="date" required max={guamTodayIso()} value={occurredOn} onChange={(event) => setOccurredOn(event.currentTarget.value)} /></label>
           <label><span>Merchant</span><input required maxLength={120} autoComplete="organization" placeholder="Pay-Less" value={merchant} onChange={(event) => setMerchant(event.currentTarget.value)} /></label>
           <label><span>Amount</span><input type="number" required min="0.01" step="0.01" inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.currentTarget.value)} /></label>
@@ -6911,7 +6931,7 @@ function ManualTransactionCapture({
   )
 }
 
-function TransactionDraftReviewStack({
+export function TransactionDraftReviewStack({
   drafts,
   isRealWorkspace,
   action,
@@ -6930,7 +6950,7 @@ function TransactionDraftReviewStack({
   onBulkConfirm,
   onBulkIgnore,
   eyebrow = 'Review before applying',
-  title = 'Mia drafted transactions for your approval',
+  title,
   description,
 }: {
   drafts: TransactionDraft[]
@@ -6955,9 +6975,7 @@ function TransactionDraftReviewStack({
   description?: string
 }) {
   const { assistantName } = useBrand()
-  const resolvedTitle = title === 'Mia drafted transactions for your approval'
-    ? `${assistantName} drafted transactions for your approval`
-    : title
+  const resolvedTitle = title ?? transactionReviewStackTitle(drafts, assistantName)
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(compact ? 5 : 10)
@@ -7196,9 +7214,8 @@ function TransactionDraftReviewCard({
   const splitsNeedingCategory = (draft.splits ?? []).filter(transactionDraftSplitNeedsCategory)
   const needsCategoryReview = splitsNeedingCategory.length > 0
   const categoryWarningId = `transaction-draft-${draft.id}-category-warning`
-  const categoryWarningCopy = draft.financial_document_import_id
-    ? `${assistantName} kept the receipt or document detail but did not guess. Choose where each item belongs before it changes your actuals.`
-    : `${assistantName} could not confidently match this purchase. Choose where it belongs before it changes your actuals.`
+  const categoryWarningCopy = transactionCategoryWarningCopy(draft, assistantName)
+  const itemName = transactionItemName(draft)
   const firstMissingSplitIndex = splits.findIndex((split) => !split.budget_category_id || placeholderCategoryName(split.category_name))
   const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending || Boolean(action)
   const impactDraft = editing ? {
@@ -7330,7 +7347,7 @@ function TransactionDraftReviewCard({
               <strong>{splitsNeedingCategory.length} split{splitsNeedingCategory.length === 1 ? '' : 's'} need{splitsNeedingCategory.length === 1 ? 's' : ''} a category</strong>
               <p>{categoryWarningCopy}</p>
             </div>
-            {!editing && onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled} onClick={() => {
+            {!editing && onUpdate && <button type="button" className="secondary-button" aria-label={`Review categories for ${itemName}`} disabled={actionsDisabled} onClick={() => {
               beginEditing()
               window.requestAnimationFrame(() => window.requestAnimationFrame(() => firstMissingCategoryRef.current?.focus()))
             }}>Review categories</button>}
@@ -7345,7 +7362,7 @@ function TransactionDraftReviewCard({
               <div key={match.id}>
                 <span>Possible duplicate: {match.transaction.merchant} · {formatShortDate(match.transaction.occurred_on)} · {currency.format(match.transaction.amount)}</span>
                 {onMatch && (
-                  <button type="button" className="secondary-button" disabled={actionsDisabled || action === `match-draft:${draft.id}`} onClick={() => onMatch(draft, match.id)}>
+                  <button type="button" className="secondary-button" aria-label={`${action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'} ${itemName} to ${match.transaction.merchant}`} disabled={actionsDisabled || action === `match-draft:${draft.id}`} onClick={() => onMatch(draft, match.id)}>
                     {action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'}
                   </button>
                 )}
@@ -7411,18 +7428,18 @@ function TransactionDraftReviewCard({
       {isPending ? (
         <div className="transaction-draft-actions">
           {needsCategoryReview && <span className="transaction-draft-disabled-reason">Choose a category before confirming this as a budget actual.</span>}
-          {onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Edit'}</button>}
-          <button type="button" aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+          {onUpdate && <button type="button" className="secondary-button" aria-label={`${editing ? 'Close edit' : 'Edit'} ${itemName}`} disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Edit'}</button>}
+          <button type="button" aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
           </button>
-          <button type="button" className="secondary-button" disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
+          <button type="button" className="secondary-button" aria-label={`${action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'} ${itemName}`} disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
             {action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'}
           </button>
         </div>
       ) : (
         <div className="transaction-draft-actions terminal">
           <span>{transactionDraftTerminalCopy(draft.status)}</span>
-          <button type="button" className="secondary-button" disabled={reopenDisabled || reopening} onClick={() => onReopen(draft)}>
+          <button type="button" className="secondary-button" aria-label={`${reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)} ${itemName}`} disabled={reopenDisabled || reopening} onClick={() => onReopen(draft)}>
             {reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)}
           </button>
         </div>
@@ -7577,18 +7594,20 @@ function extractedCategoryLabel(split: TransactionDraftSplit) {
   return split.category_name?.trim() || null
 }
 
-function CurrentMonthActivityPanel({
+export function CurrentMonthActivityPanel({
   plan,
   currentMonthIndex,
   spendingReport,
   loading,
   error,
+  reopen,
 }: {
   plan: AnnualBudgetPlan
   currentMonthIndex: number
   spendingReport: SpendingReport | null
   loading: boolean
   error: string | null
+  reopen?: LedgerReopenControls
 }) {
   const month = plan.months[currentMonthIndex]
   const visibleSpendingReport = spendingReport?.start_on === month?.starts_on && spendingReport?.end_on === month?.ends_on
@@ -7615,12 +7634,15 @@ function CurrentMonthActivityPanel({
         title="Every category, ordered by pressure"
         eyebrow={`${month?.label ?? 'Selected month'} category view`}
       />
-      {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} />}
+      {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} reopen={reopen} />}
+      {visibleSpendingReport && reopen && <IgnoredTransactionList drafts={visibleSpendingReport.ignored_drafts ?? []} {...reopen} />}
     </section>
   )
 }
 
-function SpendingReportLedger({ report }: { report: SpendingReport }) {
+type LedgerReopenControls = { action: string | null; disabled: boolean; onReopen: (draft: TransactionDraft) => void }
+
+function SpendingReportLedger({ report, reopen }: { report: SpendingReport; reopen?: LedgerReopenControls }) {
   return (
     <div className="spending-report-ledger">
       <div className="spending-report-summary">
@@ -7634,6 +7656,7 @@ function SpendingReportLedger({ report }: { report: SpendingReport }) {
         transactions={report.transactions}
         emptyMessage="No confirmed transactions for this period yet."
         pageSize={8}
+        reopen={reopen}
       />
     </div>
   )
@@ -7644,11 +7667,13 @@ function TransactionLedger({
   transactions,
   emptyMessage,
   pageSize = 8,
+  reopen,
 }: {
   title: string
   transactions: RecentTransaction[]
   emptyMessage: string
   pageSize?: number
+  reopen?: LedgerReopenControls
 }) {
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
@@ -7725,11 +7750,12 @@ function TransactionLedger({
       ) : visibleTransactions.length === 0 ? (
         <p className="empty-ledger-copy">No confirmed transactions match those filters.</p>
       ) : visibleTransactions.map((transaction) => (
-        <div className="recent-transaction-row" key={transaction.id}>
+        <div className={`recent-transaction-row${reopen ? ' has-row-action' : ''}`} key={transaction.id}>
           <span>{formatShortDate(transaction.occurred_on)}</span>
           <strong>{transaction.merchant}</strong>
           <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
           <b>{currency.format(transaction.amount)}</b>
+          {reopen && (transaction.transaction_draft_id ? <TransactionReopenButton transaction={transaction} {...reopen} /> : <span aria-hidden="true" />)}
         </div>
       ))}
       {filteredTransactions.length > pageSize && (
@@ -7759,7 +7785,7 @@ function sortTransactions(left: RecentTransaction, right: RecentTransaction, sor
   }
 }
 
-function CategoryEditCell({
+export function CategoryEditCell({
   row,
   draft,
   hasPendingDrafts,
@@ -7793,6 +7819,7 @@ function CategoryEditCell({
         type="button"
         data-budget-category-action="archive"
         className="archive-category-button"
+        aria-label={`${action === `archive-category:${row.id}` ? 'Archiving' : 'Archive'} ${row.name}`}
         disabled={hasPendingDrafts || action === `archive-category:${row.id}`}
         title={hasPendingDrafts ? 'This category has pending drafts. Confirm, correct, or ignore those drafts before archiving.' : 'Archive this category'}
         onClick={onArchive}
@@ -9235,6 +9262,7 @@ function AnnualBudgetPlanner({
           spendingReport={spendingReport}
           loading={spendingReportLoading}
           error={spendingReportError}
+          reopen={isRealWorkspace ? { action, disabled: isEditingBudget, onReopen: onReopenDraft } : undefined}
         />
       </details>
     </article>

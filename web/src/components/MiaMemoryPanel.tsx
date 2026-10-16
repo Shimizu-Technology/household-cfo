@@ -215,10 +215,10 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
               {memory.context_paused_by_restart && <p>This earlier note is kept privately. Edit and save it when you want Mia to use it in your new starting picture.</p>}
             </div>
             <div className="mia-memory-item-actions">
-              {memory.status === 'pending_confirmation' && memory.confirmation_fingerprint && <button type="button" disabled={controlsUnavailable || paused || Boolean(busy)} onClick={() => void act(`confirm-${memory.id}`, () => confirmHouseholdMemory(memory.id, memory.confirmation_fingerprint!), `Memory confirmed. ${assistantName} can use it now.`)}>Confirm</button>}
-              {memory.status === 'pending_confirmation' && <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => void act(`reject-${memory.id}`, () => rejectHouseholdMemory(memory.id), `Memory rejected. ${assistantName} will not use it.`)}>Reject</button>}
-              <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy) || paused} onClick={() => beginEdit(memory)}>Edit</button>
-              <button type="button" className="danger-button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => { if (window.confirm(`Forget this memory? ${assistantName} will stop using it immediately.`)) void act(`forget-${memory.id}`, () => forgetHouseholdMemory(memory.id), 'Memory forgotten.') }}>Forget</button>
+              {memory.status === 'pending_confirmation' && memory.confirmation_fingerprint && <button type="button" disabled={controlsUnavailable || paused || Boolean(busy)} aria-label={`Confirm memory: ${memoryItemName(memory)}`} onClick={() => void act(`confirm-${memory.id}`, () => confirmHouseholdMemory(memory.id, memory.confirmation_fingerprint!), `Memory confirmed. ${assistantName} can use it now.`)}>Confirm</button>}
+              {memory.status === 'pending_confirmation' && <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy)} aria-label={`Reject memory: ${memoryItemName(memory)}`} onClick={() => void act(`reject-${memory.id}`, () => rejectHouseholdMemory(memory.id), `Memory rejected. ${assistantName} will not use it.`)}>Reject</button>}
+              <button type="button" className="secondary-button" aria-label={`Edit memory: ${memoryItemName(memory)}`} disabled={controlsUnavailable || Boolean(busy) || paused} onClick={() => beginEdit(memory)}>Edit</button>
+              <button type="button" className="danger-button" aria-label={`Forget memory: ${memoryItemName(memory)}`} disabled={controlsUnavailable || Boolean(busy)} onClick={() => { if (window.confirm(`Forget this memory? ${assistantName} will stop using it immediately.`)) void act(`forget-${memory.id}`, () => forgetHouseholdMemory(memory.id), 'Memory forgotten.') }}>Forget</button>
             </div>
           </section>
         ))}
@@ -226,4 +226,10 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
       <p className="mia-memory-policy"><strong>Privacy:</strong> This list is private to you. Other household participants and coaches cannot see it. Clearing chat does not erase these choices; use Forget here when you want {assistantName} to stop using one.</p>
     </article>
   )
+}
+
+/** Short, screen-reader-friendly name for one memory row's buttons. */
+function memoryItemName(memory: { display_value: string }) {
+  const value = memory.display_value.trim().replace(/\s+/g, ' ')
+  return value.length > 60 ? `${value.slice(0, 59)}…` : value
 }

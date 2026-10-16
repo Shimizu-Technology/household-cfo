@@ -524,6 +524,20 @@ export type RecentTransaction = {
   amount: number
   source_type: string
   categories: string[]
+  /** Review that confirmed this row; reopening it removes the row from actuals. */
+  transaction_draft_id?: number | null
+}
+
+export type IgnoredTransactionDraft = {
+  id: number
+  occurred_on: string
+  merchant: string
+  amount: number
+  amount_cents?: number
+  status: string
+  source_type?: string
+  category_id: number | null
+  category_name: string | null
 }
 
 export type SpendingReportCategory = {
@@ -566,6 +580,7 @@ export type SpendingReport = {
     category_id: number | null
     category_name: string | null
   }>
+  ignored_drafts?: IgnoredTransactionDraft[]
 }
 
 export type MiaActionItem = {

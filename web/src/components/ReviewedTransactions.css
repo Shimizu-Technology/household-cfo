@@ -1,0 +1,69 @@
+.reviewed-transactions-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(31, 36, 33, 0.08);
+}
+
+.reviewed-transactions-panel h4 {
+  margin: 0;
+}
+
+.reviewed-transaction-note {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.reviewed-transaction-group {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.reviewed-transaction-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reviewed-transaction-row,
+.recent-transaction-row.has-row-action {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1.2fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(31, 36, 33, 0.08);
+}
+
+.reviewed-transaction-row span {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.reviewed-transaction-row strong,
+.recent-transaction-row.has-row-action strong {
+  overflow-wrap: anywhere;
+}
+
+.reviewed-transaction-action {
+  min-height: 40px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .reviewed-transaction-row,
+  .recent-transaction-row.has-row-action {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .reviewed-transaction-action {
+    justify-self: start;
+    min-height: 44px;
+    margin-top: 6px;
+  }
+}

@@ -1,6 +1,7 @@
 module HouseholdFinance
   class SpendingReport
     MAX_TRANSACTIONS = 100
+    MAX_IGNORED_DRAFTS = 25
     MAX_RANGE_DAYS = 400
     YEAR_RANGE = 2000..2100
 
@@ -41,7 +42,8 @@ module HouseholdFinance
         ),
         categories: rows.map { |row| category_payload(row) } + uncategorized_pending_payload,
         transactions: transactions_payload,
-        pending_drafts: pending_drafts_payload
+        pending_drafts: pending_drafts_payload,
+        ignored_drafts: ignored_drafts_payload
       }
     end
 
@@ -221,7 +223,7 @@ module HouseholdFinance
     end
 
     def transactions_payload
-      household.household_transactions
+      transactions = household.household_transactions
         .includes(transaction_splits: :budget_category)
         .joins(transaction_splits: :budget_category)
         .where(budget_categories: { household_id: household.id, financial_generation: household.financial_generation })
@@ -229,14 +231,49 @@ module HouseholdFinance
         .distinct
         .order(occurred_on: :desc, created_at: :desc)
         .limit(MAX_TRANSACTIONS)
-        .map do |transaction|
+        .to_a
+      reopenable_draft_ids = reopenable_draft_ids_for(transactions)
+
+      transactions.map do |transaction|
+        {
+          id: transaction.id,
+          occurred_on: transaction.occurred_on.iso8601,
+          merchant: transaction.merchant,
+          amount: Money.dollars(transaction.total_amount_cents),
+          source_type: transaction.source_type,
+          categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name },
+          transaction_draft_id: reopenable_draft_ids[transaction.id]
+        }
+      end
+    end
+
+    # The review that confirmed a row is what the participant reopens to take it back out of actuals.
+    def reopenable_draft_ids_for(transactions)
+      return {} if transactions.empty?
+
+      household.transaction_drafts
+        .where(confirmed_transaction_id: transactions.map(&:id), status: %w[confirmed corrected])
+        .order(:id)
+        .pluck(:confirmed_transaction_id, :id)
+        .to_h
+    end
+
+    def ignored_drafts_payload
+      household.transaction_drafts.where(status: "ignored", financial_source_event_id: nil, occurred_on: start_on..end_on)
+        .includes(:budget_category)
+        .recent_first
+        .limit(MAX_IGNORED_DRAFTS)
+        .map do |draft|
           {
-            id: transaction.id,
-            occurred_on: transaction.occurred_on.iso8601,
-            merchant: transaction.merchant,
-            amount: Money.dollars(transaction.total_amount_cents),
-            source_type: transaction.source_type,
-            categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name }
+            id: draft.id,
+            occurred_on: draft.occurred_on.iso8601,
+            merchant: draft.merchant,
+            amount: Money.dollars(draft.total_amount_cents),
+            amount_cents: draft.total_amount_cents,
+            status: draft.status,
+            source_type: draft.source_type,
+            category_id: draft.budget_category_id,
+            category_name: draft.budget_category&.name
           }
         end
     end
