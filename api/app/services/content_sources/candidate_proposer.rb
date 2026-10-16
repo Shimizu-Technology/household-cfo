@@ -133,6 +133,7 @@ module ContentSources
         open_timeout: OPEN_TIMEOUT_SECONDS,
         read_timeout: READ_TIMEOUT_SECONDS
       ) { |http| http.request(request) }
+      ProviderOutageAlert.check(response, service: "content_source_proposals")
       raise Error, "proposal_unavailable" unless response.is_a?(Net::HTTPSuccess)
 
       json = JSON.parse(response.body)

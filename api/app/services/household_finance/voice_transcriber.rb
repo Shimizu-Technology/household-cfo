@@ -33,6 +33,7 @@ module HouseholdFinance
       return failure("Audio file is missing.") unless file&.respond_to?(:tempfile)
 
       response = request_transcription
+      ProviderOutageAlert.check(response, service: "voice_transcription")
       return failure("Voice transcription failed. Please try again.") unless response.is_a?(Net::HTTPSuccess)
 
       transcript = JSON.parse(response.body).fetch("text", "").to_s.squish

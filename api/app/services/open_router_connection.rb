@@ -15,7 +15,9 @@ module OpenRouterConnection
     attempts = 0
     begin
       attempts += 1
-      Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: read_timeout, open_timeout: open_timeout, &block)
+      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: read_timeout, open_timeout: open_timeout, &block)
+      ProviderOutageAlert.check(response, service: "mia_chat")
+      response
     rescue Net::OpenTimeout
       retry if attempts < OPEN_ATTEMPTS
       raise

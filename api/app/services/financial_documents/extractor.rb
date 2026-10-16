@@ -481,6 +481,7 @@ module FinancialDocuments
         http.request(request)
       end
 
+      ProviderOutageAlert.check(response, service: "document_extraction")
       unless response.is_a?(Net::HTTPSuccess)
         return failure("OpenRouter extraction failed with HTTP #{response.code}", metadata: { status_code: response.code.to_i })
       end
