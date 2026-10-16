@@ -153,7 +153,7 @@ module HouseholdFinance
 
     def pending_sums
       @pending_sums ||= begin
-        scope = household.transaction_drafts.pending.where(occurred_on: start_on..end_on)
+        scope = household.transaction_drafts.pending.excluding_non_spending_plaid.where(occurred_on: start_on..end_on)
         split_sums = TransactionDraftSplit.joins(:transaction_draft)
           .merge(scope)
           .group(:budget_category_id)
@@ -245,7 +245,7 @@ module HouseholdFinance
     end
 
     def pending_drafts_payload
-      household.transaction_drafts.pending.includes(:budget_category)
+      household.transaction_drafts.pending.excluding_non_spending_plaid.includes(:budget_category)
         .where(occurred_on: start_on..end_on)
         .recent_first
         .limit(MAX_TRANSACTIONS)

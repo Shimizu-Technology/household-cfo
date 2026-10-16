@@ -63,12 +63,11 @@ module Api
           joined = scope.left_joins(:transaction_draft)
           case view
           when "needs_review"
-            joined.where(pending: false).where("amount_cents > 0").where(<<~SQL.squish)
-              plaid_transactions.removed_at IS NOT NULL OR
-              (plaid_transactions.drafted_source_fingerprint IS NOT NULL AND plaid_transactions.source_fingerprint <> plaid_transactions.drafted_source_fingerprint) OR
-              (plaid_transactions.review_status = 'unreviewed' AND #{PlaidTransaction.counted_as_spending_sql}) OR
-              transaction_drafts.status = 'pending'
-            SQL
+            base = joined.where(pending: false).where("amount_cents > 0")
+            base.where.not(plaid_transactions: { removed_at: nil })
+              .or(base.where("plaid_transactions.drafted_source_fingerprint IS NOT NULL AND plaid_transactions.source_fingerprint <> plaid_transactions.drafted_source_fingerprint"))
+              .or(base.where(plaid_transactions: { review_status: "unreviewed" }).merge(PlaidTransaction.counted_as_spending))
+              .or(base.where(transaction_drafts: { status: "pending" }))
           when "confirmed"
             joined.where(removed_at: nil, transaction_drafts: { status: %w[confirmed corrected matched] })
           when "excluded"

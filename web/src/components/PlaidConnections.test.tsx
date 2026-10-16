@@ -73,7 +73,7 @@ test('bank card payments are shown as not counted as spending and cannot be prep
   await screen.findByText('CREDIT CARD 3333 PAYMENT')
   expect(screen.getByText('Not counted as spending')).toBeTruthy()
   expect(screen.getByText('Card / debt payment · No spending is recorded for this row.')).toBeTruthy()
-  expect(screen.getByText(/\$25\.00 in transfers and payments not counted/)).toBeTruthy()
+  expect(screen.getByText(/\$25\.00 in activity not counted as spending/)).toBeTruthy()
   expect(screen.queryByRole('checkbox', { name: 'Select CREDIT CARD 3333 PAYMENT' })).toBeNull()
 })
 test('a Link token reply after reset cannot launch SDK or save a session in the new context', async () => {

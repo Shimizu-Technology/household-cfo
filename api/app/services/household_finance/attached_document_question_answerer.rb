@@ -460,7 +460,7 @@ module HouseholdFinance
       @complete_pending_plan_by_period ||= {}
       return @complete_pending_plan_by_period[period] if @complete_pending_plan_by_period.key?(period)
 
-      scope = household.transaction_drafts.pending.where(occurred_on: period..period.end_of_month)
+      scope = household.transaction_drafts.pending.excluding_non_spending_plaid.where(occurred_on: period..period.end_of_month)
       if scope.limit(max_pending_plan_fit_drafts + 1).count > max_pending_plan_fit_drafts
         return @complete_pending_plan_by_period[period] = nil
       end

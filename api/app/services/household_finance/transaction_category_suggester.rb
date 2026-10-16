@@ -138,11 +138,9 @@ module HouseholdFinance
     end
 
     def transport_category(categories)
-      category_named(categories, TRANSPORT_CATEGORY_NAMES) ||
-        categories.find do |category|
-          name = normalized(category.name)
-          name.match?(/\bcars?\b/) && !name.match?(NON_TRIP_VEHICLE_NAMES)
-        end
+      trip_categories = categories.reject { |category| normalized(category.name).match?(NON_TRIP_VEHICLE_NAMES) }
+      category_named(trip_categories, TRANSPORT_CATEGORY_NAMES) ||
+        trip_categories.find { |category| normalized(category.name).match?(/\bcars?\b/) }
     end
 
     def category_named(categories, pattern)

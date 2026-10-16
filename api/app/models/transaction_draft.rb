@@ -21,6 +21,17 @@ class TransactionDraft < ApplicationRecord
   validate :associations_belong_to_household
 
   scope :pending, -> { where(status: "pending") }
+  # Plaid drafts staged by older syncs for transfers and card/loan payments.
+  # ReviewQueueHydrator releases them on the next sync; until then reads hide
+  # the untouched ones (no category or match chosen) so they are not counted
+  # as pending spending.
+  scope :excluding_non_spending_plaid, -> {
+    where.not(
+      id: PlaidTransaction.not_counted_as_spending.where.not(transaction_draft_id: nil)
+        .joins(:transaction_draft).where(transaction_drafts: { budget_category_id: nil, matched_transaction_id: nil })
+        .select(:transaction_draft_id)
+    )
+  }
   scope :recent_first, -> { order(occurred_on: :desc, created_at: :desc, id: :desc) }
 
   def pending?
