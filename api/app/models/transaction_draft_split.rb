@@ -1,4 +1,7 @@
 class TransactionDraftSplit < ApplicationRecord
+  include BoundedCents
+  bounded_cents :amount_cents
+
   belongs_to :transaction_draft
   belongs_to :budget_category, optional: true
 

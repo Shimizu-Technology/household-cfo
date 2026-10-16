@@ -16,6 +16,8 @@ describe('participantErrorMessage', () => {
     expect(participantErrorMessage(api('Your financial picture changed. Reload before saving or sending again. Nothing changed.', 409, 'financial_generation_stale'), 'fallback'))
       .toBe('Something changed since this page loaded. Refresh and try again.')
     expect(participantErrorMessage(api('Too many requests', 429, 'rate_limited'), 'fallback')).toMatch(/going a little fast/)
+    expect(participantErrorMessage(api('This budget changed in another tab or on another device. Nothing changed.', 409, 'changed_elsewhere'), 'fallback'))
+      .toBe('This budget changed in another tab or on another device. Refresh to see the latest numbers, then make your change again.')
   })
 
   it('never shows server faults or raw status text', () => {

@@ -40,8 +40,8 @@ module HouseholdFinance
 
         def signed_cents(value)
           text = value.to_s.strip
-          raise ArgumentError, "Balance must be a number with no more than two decimal places" unless text.match?(/\A-?\d{1,9}(?:\.\d{1,2})?\z/)
-          (BigDecimal(text) * 100).round.to_i
+          raise ArgumentError, "Balance must be a number with no more than two decimal places" unless text.match?(/\A-?\d+(?:\.\d{1,2})?\z/)
+          Money.ensure_within_limit!((BigDecimal(text) * 100).round.to_i, label: "Balance")
         end
 
         def parsed_date(value)

@@ -249,6 +249,44 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert household.household_operation_executions.exists?(operation_key: "budget.allocation.set")
   end
 
+  test "profile text edits save when a multi-category group has a one-month override" do
+    user = create_user(email: "profile-goal-override@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 400)
+    dining = manager.create_category!(name: "Dining out", stack_key: "discretionary", monthly_amount: 120)
+    october = dining.budget_allocations.joins(:budget_period)
+      .find_by!(budget_periods: { starts_on: Date.new(Date.current.year, 10, 1) })
+    manager.update_allocation!(october, 200)
+
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { household_name: "Override Household", primary_goal: "Pay down the card" } },
+      headers: auth_headers(user).merge("Idempotency-Key" => "profile-goal-with-override"),
+      as: :json
+
+    assert_response :success
+    assert_equal "Pay down the card", household.reload.primary_goal
+    assert_equal 20_000, october.reload.planned_amount_cents
+  end
+
+  test "changing a group total split across categories explains where to edit it" do
+    user = create_user(email: "profile-multi-category@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 400)
+    manager.create_category!(name: "Dining out", stack_key: "discretionary", monthly_amount: 120)
+
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 900 } },
+      headers: auth_headers(user).merge("Idempotency-Key" => "profile-multi-category-change"),
+      as: :json
+
+    assert_response :unprocessable_entity
+    message = response.parsed_body.fetch("errors").join
+    assert_includes message, "Flexible spending is split across 2 budget categories"
+    assert_includes message, "Budget"
+  end
+
   test "manual setup keeps max-length child idempotency keys unique and conflict-safe" do
     user = create_user(email: "typed-manual-max-key@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

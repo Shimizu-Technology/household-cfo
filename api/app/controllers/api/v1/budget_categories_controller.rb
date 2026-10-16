@@ -96,7 +96,7 @@ module Api
       end
 
       def update_category_params
-        params.require(:category).permit(:name, :stack_key, :monthly_amount)
+        params.require(:category).permit(:name, :stack_key, :monthly_amount, :expected_name, :expected_stack_key)
       end
 
       def render_category_response(category, status: :ok)

@@ -1,5 +1,10 @@
 module HouseholdFinance
   module Money
+    # One household-sized ceiling for every participant money input. It keeps
+    # values well inside the 32-bit cents columns ($21,474,836.47) and gives one
+    # plain-language rule instead of a database error.
+    MAX_AMOUNT_CENTS = 999_999_999
+    MAX_AMOUNT_TEXT = "$9,999,999.99".freeze
     DOCUMENT_AMOUNT_PATTERN = /\A\$?(?:\d{1,9}|\d{1,3}(?:,\d{3}){1,2})(?:\.\d{1,2})?\z/.freeze
     # Participant chat amounts. Build chat regexes from these sources so "$5k",
     # "$1.5K" and "$3 thousand" read as thousands everywhere, never as $5. The
@@ -44,12 +49,31 @@ module HouseholdFinance
       0
     end
 
-    def cents!(value, message: "Amount must be a number")
+    def cents!(value, message: "Amount must be a number", label: nil)
       text = value.to_s.strip
       raise ArgumentError, message if text.blank?
-      raise ArgumentError, message unless text.match?(/\A\d{1,9}(?:\.\d{1,2})?\z/)
+      raise ArgumentError, message unless text.match?(/\A\d+(?:\.\d+)?\z/)
 
-      cents(value)
+      whole, fraction = text.split(".", 2)
+      ensure_within_limit!(BigDecimal(whole) * 100, label: label || amount_label(message)) if whole.length > 9
+      raise ArgumentError, message if fraction.to_s.length > 2
+
+      ensure_within_limit!(cents(value), label: label || amount_label(message))
+    end
+
+    def ensure_within_limit!(cents, label: "Amount")
+      return cents if cents.to_i.abs <= MAX_AMOUNT_CENTS
+
+      raise ArgumentError, too_large_message(label)
+    end
+
+    def too_large_message(label = "Amount")
+      "#{label.presence || 'Amount'} must be #{MAX_AMOUNT_TEXT} or less."
+    end
+
+    # "Fixed essentials must be a number ..." -> "Fixed essentials"
+    def amount_label(message)
+      message.to_s[/\A(.+?) (?:must|is|cannot|can't)\b/, 1] || "Amount"
     end
 
     def document_cents(value, negative_as_magnitude: false, allow_negative: false)

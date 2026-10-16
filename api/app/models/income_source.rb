@@ -1,4 +1,7 @@
 class IncomeSource < ApplicationRecord
+  include BoundedCents
+  bounded_cents :amount_cents
+
   include CurrentFinancialPicture
   CADENCES = %w[weekly biweekly semi_monthly monthly annual one_time].freeze
   SOURCE_TYPES = %w[job business rental passive bonus other].freeze

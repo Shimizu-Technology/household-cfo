@@ -62,6 +62,7 @@ import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/f
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import { guamTodayIso } from './lib/householdDate'
+import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceSetupForm'
 import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
 import { documentNeedsReview, latestAppliedImport, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
@@ -286,6 +287,8 @@ type MiaRetryAttachment = {
 type BudgetAllocationChange = {
   allocation_id: number
   planned_amount: string
+  // The planned amount this tab loaded, so a save from a stale tab is rejected.
+  expected_planned_amount: number
   category_id: number
   stack_key: BudgetStackKey
 }
@@ -294,6 +297,8 @@ type BudgetCategoryChange = {
   id: number
   name: string
   stack_key: BudgetStackKey
+  expected_name: string
+  expected_stack_key: BudgetStackKey
 }
 
 type BudgetEditChanges = {
@@ -433,6 +438,43 @@ function workspaceSetupDraftWithProposal(current: WorkspaceSetupDraft, payload: 
   return next
 }
 
+const profileExcludedSetupKeys = new Set<keyof WorkspaceSetupValues>(['primary_income', 'business_income', 'credit_card_debt', 'debt_payment'])
+
+// The setup fields a save may send: the five first-session fields, or every
+// editable profile field once setup is complete (income and debt have their own editors).
+function submittableWorkspaceSetupValues(draft: WorkspaceSetupDraft, setupComplete: boolean): Partial<WorkspaceSetupValues> {
+  return Object.fromEntries(Object.entries(workspaceSetupValuesFromDraft(draft)).filter(([key]) => (
+    setupComplete ? !profileExcludedSetupKeys.has(key as keyof WorkspaceSetupValues) : firstSessionSetupKeys.has(key as keyof WorkspaceSetupValues)
+  ))) as Partial<WorkspaceSetupValues>
+}
+
+function workspaceSetupBaseline(values: WorkspaceSetupValues, status?: WorkspaceSetupStatus): WorkspaceSetupValues {
+  return workspaceSetupValuesFromDraft(workspaceSetupDraftFromValues(values, status))
+}
+
+const setupMoneyFieldLabels: Partial<Record<WorkspaceSetupMoneyKey, string>> = {
+  primary_income: 'Primary monthly income',
+  fixed_expenses: 'Fixed essentials',
+  flexible_spend: 'Flexible spending',
+  expected_sinking_fund: 'Expected sinking fund',
+  unexpected_sinking_fund: 'Unexpected sinking fund',
+  emergency_fund: 'Emergency fund',
+  other_assets: 'Other assets',
+}
+
+// Plain-language checks that replace the browser's validation bubbles. Blank
+// money is allowed and saves as $0 (or unknown for optional balances).
+function workspaceSetupDraftProblem(draft: WorkspaceSetupDraft, fields: Iterable<string>, firstSession: boolean): { field: string; message: string } | null {
+  for (const field of fields) {
+    if (field === 'household_name' && !draft.household_name.trim()) return { field, message: 'Enter a household name, such as the Cruz Household.' }
+    if (field === 'primary_goal' && firstSession && !draft.primary_goal.trim()) return { field, message: 'Enter a primary goal, even a short one like "Build a calm monthly plan."' }
+    const label = setupMoneyFieldLabels[field as WorkspaceSetupMoneyKey]
+    const problem = label ? moneyInputProblem(label, draft[field as WorkspaceSetupMoneyKey]) : null
+    if (problem) return { field, message: problem }
+  }
+  return null
+}
+
 function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSetupValues {
   const values = { ...draft } as unknown as WorkspaceSetupValues
   const moneyValues = values as unknown as Record<WorkspaceSetupMoneyKey, number | null>
@@ -477,6 +519,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   useEffect(() => { workspaceMounted.current = true; return () => { workspaceMounted.current = false } }, [])
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupDraft | null>(null)
   const [isProfileEditing, setIsProfileEditing] = useState(false)
+  // What the profile form showed when editing began; only fields that differ are saved.
+  const [profileEditBaseline, setProfileEditBaseline] = useState<WorkspaceSetupValues | null>(null)
   const profileEditingRef = useRef(isProfileEditing)
   profileEditingRef.current = isProfileEditing
   const [moneyTopic, setMoneyTopic] = useState<MoneyTopic>('income')
@@ -734,6 +778,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [savingsEnrollmentScope])
   const assistantName = data?.profile.coach.name.trim() || 'your assistant'
   const isFirstSessionSetup = Boolean(isRealWorkspace && data?.workspace.experience_mode !== 'savings_challenge' && !data?.workspace?.setup_complete)
+  const hasUnsavedProfileChanges = Boolean(
+    isProfileEditing && !isFirstSessionSetup && data?.workspace?.setup_complete && setupDraft && profileEditBaseline
+    && Object.keys(changedWorkspaceSetupValues(submittableWorkspaceSetupValues(setupDraft, true), profileEditBaseline)).length > 0,
+  )
   const canResumePlaidOAuthReturn = Boolean(
     hasPendingPlaidOAuthReturn()
     && data?.workspace?.setup_complete
@@ -1061,7 +1109,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [canLoadWorkspace, auth.currentUser?.id, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId, onProgramVerified, onProgramUnavailable, participantActorId, setData])
 
   useEffect(() => {
-    if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending && !hasUnsavedMoneyChanges) return
+    if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending && !hasUnsavedMoneyChanges && !hasUnsavedProfileChanges) return
 
     const preventUnsavedNavigation = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -1069,7 +1117,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
     window.addEventListener('beforeunload', preventUnsavedNavigation)
     return () => window.removeEventListener('beforeunload', preventUnsavedNavigation)
-  }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges])
+  }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedProfileChanges])
 
   useEffect(() => {
     if (!workspaceLoadKey) return
@@ -1759,7 +1807,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const origin = document.activeElement
     const sequence = ++profileFocusSequenceRef.current
     setSetupDraft((current) => current ? workspaceSetupDraftWithProposal(current, payload) : current)
-    setIsProfileEditing(true)
+    beginProfileEditing()
     // Wait for the route and editable fields to commit, without a delayed smooth
     // scroll that can move a navigation target during the next pointer gesture.
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -1799,7 +1847,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     manualSetupFocusOriginRef.current = document.activeElement
     setManualSetupFocusRequest((current) => current + 1)
     setFirstSessionUploadOpen(false)
-    setIsProfileEditing(true)
+    beginProfileEditing()
   }
 
   function startChatFirstSession() {
@@ -2344,7 +2392,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     let appliedChanges = 0
     try {
       for (const change of changes.categories) {
-        const input = { name: change.name, stack_key: change.stack_key }
+        const input = { name: change.name, stack_key: change.stack_key, expected_name: change.expected_name, expected_stack_key: change.expected_stack_key }
         const signature = `update-category:${selectedBudgetYear}:${change.id}:${JSON.stringify(input)}`
         latestBudget = await updateBudgetCategory(change.id, input, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
         budgetOperationKeysRef.current.complete(signature)
@@ -2352,8 +2400,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       }
       for (const change of changes.allocations) {
         const amount = change.planned_amount || 0
-        const signature = budgetAllocationOperationSignature(selectedBudgetYear, change.allocation_id, amount)
-        latestBudget = await updateBudgetAllocation(change.allocation_id, amount, budgetOperationKeysRef.current.keyFor(signature))
+        const signature = budgetAllocationOperationSignature(selectedBudgetYear, change.allocation_id, amount, change.expected_planned_amount)
+        latestBudget = await updateBudgetAllocation(change.allocation_id, amount, budgetOperationKeysRef.current.keyFor(signature), change.expected_planned_amount)
         budgetOperationKeysRef.current.complete(signature)
         appliedChanges += 1
       }
@@ -3044,11 +3092,22 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     setSetupSaving(true)
     setSetupError(null)
     try {
-      const setupValues = workspaceSetupValuesFromDraft(setupDraft)
-      const excludedSetupKeys = ['primary_income', 'business_income', 'credit_card_debt', 'debt_payment']
-      const submittedSetupValues = Object.fromEntries(Object.entries(setupValues).filter(([key]) => (
-        wasSetupComplete ? !excludedSetupKeys.includes(key) : firstSessionSetupKeys.has(key as keyof WorkspaceSetupValues)
-      )))
+      const allSetupValues = submittableWorkspaceSetupValues(setupDraft, wasSetupComplete)
+      // A profile edit sends only what the person changed. Re-sending untouched
+      // totals would ask the API to flatten detailed monthly category amounts.
+      const submittedSetupValues = wasSetupComplete && profileEditBaseline
+        ? changedWorkspaceSetupValues(allSetupValues, profileEditBaseline)
+        : allSetupValues
+      const problem = workspaceSetupDraftProblem(setupDraft, Object.keys(submittedSetupValues), !wasSetupComplete)
+      if (problem) {
+        setSetupError(problem.message)
+        setupFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${problem.field}"]`)?.focus()
+        return
+      }
+      if (wasSetupComplete && Object.keys(submittedSetupValues).length === 0) {
+        setIsProfileEditing(false)
+        return
+      }
       const idempotencyKey = setupSaveIdempotencyKeyRef.current ?? clientSideId('workspace-setup')
       setupSaveIdempotencyKeyRef.current = idempotencyKey
       const payload = await saveWorkspaceSetup(submittedSetupValues, idempotencyKey)
@@ -3150,6 +3209,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     })
   }
 
+  function beginProfileEditing() {
+    if (!profileEditingRef.current) {
+      const workspace = data?.workspace
+      setProfileEditBaseline(workspace?.setup_values ? workspaceSetupBaseline(workspace.setup_values, workspace.setup_status) : null)
+    }
+    setIsProfileEditing(true)
+  }
+
   function cancelProfileEditing() {
     setSetupError(null)
     setSetupDraft(data?.workspace?.setup_values ? workspaceSetupDraftFromValues(data.workspace.setup_values, data.workspace.setup_status) : setupDraft)
@@ -3192,7 +3259,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
 
     const fieldName = setupFocusFieldForSection(sectionLabel)
-    setIsProfileEditing(true)
+    beginProfileEditing()
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const field = setupFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${fieldName}"]`)
@@ -3819,7 +3886,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               editing={isProfileEditing || isFirstSessionSetup}
               saving={setupSaving}
               error={setupError}
-              onBeginEdit={() => setIsProfileEditing(true)}
+              onBeginEdit={beginProfileEditing}
               onCancel={cancelProfileEditing}
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
@@ -6117,17 +6184,17 @@ function WorkspaceSetupForm({
 }) {
   const { assistantName } = useBrand()
   return (
-    <form ref={formRef} className={`panel setup-form${firstSession ? ' first-session-setup-form' : ''}`} onSubmit={onSubmit}>
+    // noValidate: the save handler explains problems in plain words instead of
+    // browser bubbles, and blank money fields save as $0.
+    <form ref={formRef} noValidate className={`panel setup-form${firstSession ? ' first-session-setup-form' : ''}`} onSubmit={onSubmit}>
       <div className="row-between setup-form-heading">
         <div>
           <p className="eyebrow">{firstSession ? 'Five quick fields' : 'Household profile'}</p>
           <h3>{firstSession ? 'Start with what you know today.' : editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
           <p>{firstSession ? 'Use your best monthly estimates. Enter 0 when an amount does not apply, and you can refine everything later.' : editing ? `Save when the changes are intentional. ${assistantName} will use the updated context after you confirm.` : `Review first. Click Edit profile before changing the numbers ${assistantName} uses as context.`}</p>
         </div>
-        <div className="setup-form-actions">
-          {firstSession ? (
-            <button type="submit" disabled={saving}>{saving ? 'Saving' : `Save and talk to ${assistantName}`}</button>
-          ) : editing ? (
+        {!firstSession && <div className="setup-form-actions">
+          {editing ? (
             <>
               <button type="button" className="secondary-button" disabled={saving} onClick={onCancel}>Cancel</button>
               <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save numbers'}</button>
@@ -6135,12 +6202,12 @@ function WorkspaceSetupForm({
           ) : (
             <button type="button" onClick={onBeginEdit}>Edit profile</button>
           )}
-        </div>
+        </div>}
       </div>
 
       <fieldset className="setup-fieldset">
         <legend>Essential first-session information</legend>
-        <p>Use your best monthly estimate. Saving these five fields is enough to begin; details below can wait.</p>
+        <p>Use your best monthly estimate. Saving these five fields is enough to begin; details below can wait. A blank amount saves as $0, and cents are fine.</p>
         <div className="setup-field-grid">
           <label className="setup-field text-wide" title={`The household name ${assistantName} should use in this workspace.`}>
             <span>Household name</span>
@@ -6152,9 +6219,9 @@ function WorkspaceSetupForm({
             <textarea name="primary_goal" rows={3} value={values.primary_goal} required={firstSession} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
             <small>Write the goal, worry, or decision {assistantName} should coach around.</small>
           </label>
-          <MoneyInput disabled={!editing || !firstSession} required={firstSession} name="primary_income" label={firstSession ? 'Primary monthly income' : 'Job income total (calculated)'} value={values.primary_income} help={firstSession ? 'Regular take-home income from jobs or steady paychecks, after taxes if possible.' : 'Edit individual income sources below. The total updates automatically without redistributing money across hidden records.'} onChange={(value) => onChange('primary_income', value)} />
-          <MoneyInput disabled={!editing} required={firstSession} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
-          <MoneyInput disabled={!editing} required={firstSession} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
+          <MoneyInput disabled={!editing || !firstSession} name="primary_income" label={firstSession ? 'Primary monthly income' : 'Job income total (calculated)'} value={values.primary_income} help={firstSession ? 'Regular take-home income from jobs or steady paychecks, after taxes if possible.' : 'Edit individual income sources below. The total updates automatically without redistributing money across hidden records.'} onChange={(value) => onChange('primary_income', value)} />
+          <MoneyInput disabled={!editing} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
+          <MoneyInput disabled={!editing} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
         </div>
       </fieldset>
 
@@ -6176,17 +6243,21 @@ function WorkspaceSetupForm({
       </details>}
 
       {error && <p className="setup-error" role="alert">{error}</p>}
+      {/* After the fields, so keyboard and screen-reader order reach Save last. */}
+      {firstSession && <div className="setup-form-actions setup-form-actions-end">
+        <button type="submit" disabled={saving}>{saving ? 'Saving' : `Save and talk to ${assistantName}`}</button>
+      </div>}
     </form>
   )
 }
 
-function MoneyInput({ disabled = false, required = false, name, label, value, help, onChange }: { disabled?: boolean; required?: boolean; name: keyof WorkspaceSetupValues; label: string; value: string; help: string; onChange: (value: string) => void }) {
+function MoneyInput({ disabled = false, name, label, value, help, onChange }: { disabled?: boolean; name: keyof WorkspaceSetupValues; label: string; value: string; help: string; onChange: (value: string) => void }) {
   return (
     <label className="setup-field" title={help}>
       <span>{label}</span>
       <span className="money-input-shell">
         <span aria-hidden="true">$</span>
-        <input name={name} type="number" inputMode="decimal" min="0" step="1" placeholder="0" value={disabled && value === '' ? '0' : value} required={required} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+        <input name={name} type="number" inputMode="decimal" min="0" step="any" placeholder="0" value={disabled && value === '' ? '0' : value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
       </span>
       <small>{help}</small>
     </label>
@@ -6509,6 +6580,7 @@ function budgetAllocationChanges(rows: BudgetCategoryRow[], allocationDrafts: Re
     return [{
       allocation_id: month.allocation_id,
       planned_amount: draftedValue || '0',
+      expected_planned_amount: month.planned,
       category_id: row.id,
       stack_key: row.stack_key,
     }]
@@ -6523,7 +6595,7 @@ function budgetCategoryChanges(rows: BudgetCategoryRow[], categoryDrafts: Record
     const name = draftedValue.name.trim()
     if (!name || (name === row.name && draftedValue.stack_key === row.stack_key)) return []
 
-    return [{ id: row.id, name, stack_key: draftedValue.stack_key }]
+    return [{ id: row.id, name, stack_key: draftedValue.stack_key, expected_name: row.name, expected_stack_key: row.stack_key }]
   })
 }
 

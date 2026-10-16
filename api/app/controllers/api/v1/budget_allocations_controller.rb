@@ -7,14 +7,18 @@ module Api
       def update
         allocation = current_household_allocation_scope.find(params[:id])
         manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: allocation.budget_period.budget_year.year)
+        input = {
+          allocation_id: allocation.id,
+          category_id: allocation.budget_category_id,
+          year: allocation.budget_period.budget_year.year,
+          planned_amount: allocation_params[:planned_amount]
+        }
+        # The amount this tab last saw; a mismatch means another tab or device
+        # changed the month first, so this save is rejected instead of winning.
+        input[:expected_planned_amount] = allocation_params[:expected_planned_amount] if allocation_params[:expected_planned_amount].present?
         result = HouseholdFinance::Operations::Runner.new(current_household, user: current_user).run(
           operation_key: "budget.allocation.set",
-          input: {
-            allocation_id: allocation.id,
-            category_id: allocation.budget_category_id,
-            year: allocation.budget_period.budget_year.year,
-            planned_amount: allocation_params[:planned_amount]
-          },
+          input: input,
           idempotency_key: request_idempotency_key
         )
         allocation = result.subject || allocation.reload
@@ -42,7 +46,7 @@ module Api
       end
 
       def allocation_params
-        params.require(:allocation).permit(:planned_amount)
+        params.require(:allocation).permit(:planned_amount, :expected_planned_amount)
       end
 
       def serialize_allocation(allocation)

@@ -1,4 +1,7 @@
 class TransactionDraft < ApplicationRecord
+  include BoundedCents
+  bounded_cents :total_amount_cents
+
   include CurrentFinancialPicture
   STATUSES = %w[pending confirmed corrected ignored matched].freeze
   SOURCE_TYPES = HouseholdTransaction::SOURCE_TYPES

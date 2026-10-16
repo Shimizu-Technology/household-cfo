@@ -11,13 +11,15 @@ module HouseholdFinance
           raw_changes = if input[:changes].present?
             Array(input[:changes])
           else
-            [ { allocation_id: input.fetch(:allocation_id), planned_amount: input.fetch(:planned_amount) } ]
+            [ { allocation_id: input.fetch(:allocation_id), planned_amount: input.fetch(:planned_amount), expected_planned_amount: input[:expected_planned_amount] } ]
           end
           changes = raw_changes.map do |change|
             value = change.to_h.deep_symbolize_keys
             cents = value.key?(:after_cents) ? Integer(value.fetch(:after_cents)) : Money.cents!(value.fetch(:planned_amount), message: "Planned amount must be a number")
             raise ArgumentError, "Planned amount must be zero or more" if cents.negative?
-            { allocation_id: Integer(value.fetch(:allocation_id)), after_cents: cents }
+            change = { allocation_id: Integer(value.fetch(:allocation_id)), after_cents: cents }
+            expected = value.key?(:expected_before_cents) ? Integer(value.fetch(:expected_before_cents)) : expected_cents(value[:expected_planned_amount])
+            expected.nil? ? change : change.merge(expected_before_cents: expected)
           end.sort_by { |change| change.fetch(:allocation_id) }
           raise ArgumentError, "Budget allocation changes are required" if changes.empty? || changes.map { |change| change[:allocation_id] }.uniq.length != changes.length
 
@@ -52,8 +54,21 @@ module HouseholdFinance
           }
         end
 
-        def validate_execution!(category, _input, prepared:, source:)
+        def validate_execution!(category, input, prepared:, source:)
           raise StaleOperation, stale_message if source == "mia" && !category.active?
+
+          expected = input.fetch(:changes).select { |change| change.key?(:expected_before_cents) }
+          return if expected.empty?
+
+          current = scoped_allocations.where(id: expected.map { |change| change.fetch(:allocation_id) }).pluck(:id, :planned_amount_cents).to_h
+          changed = expected.any? { |change| current[change.fetch(:allocation_id)] != change.fetch(:expected_before_cents) }
+          raise ConcurrentEdit, CONCURRENT_EDIT_MESSAGE if changed
+        end
+
+        def expected_cents(value)
+          return nil if value.nil? || value.to_s.strip.empty?
+
+          Money.cents!(value, message: "Expected planned amount must be a number")
         end
 
         def predicted_after(before, input)

@@ -165,7 +165,8 @@ module HouseholdFinance
         return if allocation_totals.keys.sort == (1..12).to_a && allocation_totals.values.all? { |total| total == cents } && current_cents == cents
       end
       if categories.many?
-        raise ArgumentError, "#{setup_label(field)} is tracked by multiple budget categories. Edit the specific categories so detailed planned dollars do not change silently"
+        raise ArgumentError, "#{setup_label(field)} is split across #{categories.length} budget categories, so it can't be changed as one total here. " \
+          "Change those categories in Budget > Edit monthly plan so no detailed amounts change silently."
       end
       if categories.empty?
         specs << {

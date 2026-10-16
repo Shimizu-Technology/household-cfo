@@ -82,6 +82,7 @@ import {
   uploadDocumentImport,
   uploadAdminContentSource,
   updateBudgetAllocation,
+  updateBudgetCategory,
   updateIncomeScheduleEntry,
   updateIncomeSource,
   archiveIncomeSource,
@@ -451,6 +452,21 @@ describe('budget operation idempotency contract', () => {
       category: { name: 'Dining', stack_key: 'discretionary', monthly_amount: 250, month_numbers: [1, 2, 3] },
     })
     expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'allocation-attempt' })
+  })
+
+  it('sends the amount this tab loaded so a stale second tab cannot silently overwrite', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ budget: { total_monthly_outflow: 190 } }))
+      .mockResolvedValueOnce(jsonResponse({ budget: { total_monthly_outflow: 190 } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await updateBudgetAllocation(44, 190, 'allocation-attempt', 175)
+    await updateBudgetCategory(9, { name: 'Restaurants', stack_key: 'discretionary', expected_name: 'Dining out', expected_stack_key: 'discretionary' }, 2026, 'category-attempt')
+
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ allocation: { planned_amount: 190, expected_planned_amount: 175 } })
+    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toEqual({
+      category: { name: 'Restaurants', stack_key: 'discretionary', expected_name: 'Dining out', expected_stack_key: 'discretionary' },
+    })
   })
 })
 

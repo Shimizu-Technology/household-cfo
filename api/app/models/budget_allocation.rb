@@ -1,4 +1,7 @@
 class BudgetAllocation < ApplicationRecord
+  include BoundedCents
+  bounded_cents :planned_amount_cents
+
   SOURCES = %w[manual setup imported mia_suggested].freeze
 
   belongs_to :budget_period

@@ -1,4 +1,7 @@
 class Goal < ApplicationRecord
+  include BoundedCents
+  bounded_cents :current_amount_cents, :target_amount_cents
+
   include CurrentFinancialPicture
   GOAL_TYPES = %w[runway debt_payoff business_income purchase transition savings education business travel home retirement other].freeze
   TRACKED_GOAL_TYPES = (GOAL_TYPES - %w[runway transition]).freeze

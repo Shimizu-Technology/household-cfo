@@ -4329,7 +4329,9 @@ export async function createBudgetCategory(values: { name: string; stack_key: Bu
   return payload.budget
 }
 
-export async function updateBudgetCategory(id: number, values: { name: string; stack_key: BudgetStackKey }, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+// expected_* are the values this tab last saw; the API rejects the save with a
+// "changed_elsewhere" 409 when another tab or device changed them first.
+export async function updateBudgetCategory(id: number, values: { name: string; stack_key: BudgetStackKey; expected_name?: string; expected_stack_key?: BudgetStackKey }, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
   const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}${yearQuery(year)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
@@ -4350,11 +4352,14 @@ export async function restoreBudgetCategory(id: number, year: number | undefined
   return payload.budget
 }
 
-export async function updateBudgetAllocation(id: number, plannedAmount: number | string, idempotencyKey: string): Promise<BudgetData> {
+export async function updateBudgetAllocation(id: number, plannedAmount: number | string, idempotencyKey: string, expectedPlannedAmount?: number): Promise<BudgetData> {
+  const allocation = expectedPlannedAmount === undefined
+    ? { planned_amount: plannedAmount }
+    : { planned_amount: plannedAmount, expected_planned_amount: expectedPlannedAmount }
   const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_allocations/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ allocation: { planned_amount: plannedAmount } }),
+    body: JSON.stringify({ allocation }),
   })
   return payload.budget
 }
