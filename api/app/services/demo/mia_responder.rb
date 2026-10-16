@@ -79,12 +79,13 @@ module Demo
 
     def call(message, history: [], context: nil, draft_capable: false, conversation_resolution: nil)
       @response_source = "deterministic_fallback"
+      @fallback_reason = nil
       @concrete_model_identifier = nil
       @provider_request_id = nil
       @supplied_content_context = []
       clean_message = message.to_s.strip
       prompt_context = context.presence || default_context
-      return fallback_response("What are we trying to decide?", context: prompt_context) if clean_message.empty?
+      return @persona.fallback_response(:low_signal_greeting) if clean_message.empty?
       if crisis_message?(clean_message)
         @response_source = "deterministic_safety"
         return crisis_response
@@ -94,22 +95,33 @@ module Demo
         @response_source = "verified_deterministic"
         return grounded_response
       end
-      if @api_key.to_s.strip.present?
-        response = HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder") do
-          openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
-        end
-        if response.present? && !ungrounded_generic_financial_claim?(response, context: prompt_context, user_message: clean_message)
-          @supplied_content_context = @approved_content if @response_source == "live_model"
-          return response
-        end
+      return fallback_response(clean_message, context: prompt_context, reason: :no_model) if @api_key.to_s.strip.blank?
 
-        Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=unverified_financial_claim") if response.present?
-        return fallback_response(clean_message, context: prompt_context)
+      response = HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder") do
+        openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
+      end
+      # No reply at all means the provider failed or had no capacity; a reply
+      # that fails the checks below means the model answered but could not be
+      # verified. The participant hears a different, honest fallback for each.
+      return fallback_response(clean_message, context: prompt_context, reason: @fallback_reason || :provider_unavailable) if response.blank?
+
+      rejection = generic_claim_rejection(response, context: prompt_context, user_message: clean_message)
+      unless rejection
+        @supplied_content_context = @approved_content if @response_source == "live_model"
+        return response
       end
 
-      fallback_response(clean_message, context: prompt_context)
-    rescue StandardError
-      fallback_response(clean_message, context: context.presence || default_context)
+      Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=unverified_financial_claim check=#{rejection}")
+      fallback_response(clean_message, context: prompt_context, reason: :reply_rejected)
+    rescue StandardError => e
+      Rails.logger.info("[Demo::MiaResponder] reply unavailable error=#{e.class}")
+      fallback_response(clean_message.to_s, context: context.presence || default_context, reason: :provider_unavailable)
+    end
+
+    # Why the last call returned a scripted reply: :provider_unavailable,
+    # :reply_rejected, or :no_model. Nil when the reply was not a fallback.
+    def fallback_reason
+      @fallback_reason if @response_source == "deterministic_fallback"
     end
 
     private
@@ -157,15 +169,15 @@ module Demo
         http.request(request)
       end
 
-      return fallback_response(message, context: context) unless response.is_a?(Net::HTTPSuccess)
+      return provider_unavailable("http_#{response.code}") unless response.is_a?(Net::HTTPSuccess)
 
       parsed = JSON.parse(response.body)
       concrete_model = parsed["model"].to_s.squish
       concrete_model_valid = concrete_model.present? && concrete_model.length <= 200
-      return fallback_response(message, context: context) if @strict_privacy && !concrete_model_valid
+      return provider_unavailable("missing_model_identifier") if @strict_privacy && !concrete_model_valid
 
       content = parsed.dig("choices", 0, "message", "content").presence
-      return fallback_response(message, context: context) unless content
+      return provider_unavailable("blank_content") unless content
 
       sanitized = sanitize_assistant_content(
         content,
@@ -176,15 +188,26 @@ module Demo
       )
       unless ::Mia::ResponseShapePolicy.valid?(sanitized, persona: @persona)
         Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=persona_response_shape")
-        return fallback_response(message, context: context)
+        return reply_rejected
       end
-      return fallback_response(message, context: context) if sanitized.blank?
+      return reply_rejected if sanitized.blank?
 
       @concrete_model_identifier = concrete_model if concrete_model_valid
       request_id = parsed["id"].to_s.squish
       @provider_request_id = request_id if request_id.present? && request_id.length <= 200
       @response_source = "live_model"
       sanitized
+    end
+
+    def provider_unavailable(detail)
+      Rails.logger.info("[Demo::MiaResponder] provider unavailable reason=#{detail}")
+      @fallback_reason = :provider_unavailable
+      nil
+    end
+
+    def reply_rejected
+      @fallback_reason = :reply_rejected
+      nil
     end
 
     def approved_content_messages
@@ -300,16 +323,21 @@ module Demo
     end
 
     def ungrounded_generic_financial_claim?(content, context:, user_message: nil)
+      generic_claim_rejection(content, context: context, user_message: user_message).present?
+    end
+
+    # Which check a model reply failed, for the log; nil when it passed.
+    def generic_claim_rejection(content, context:, user_message: nil)
       payload = parsed_context(context)
-      return true if unsupported_scenario_conclusion?(content)
-      return true if unsupported_debt_detail_claim?(content, payload: payload)
-      return true unless financial_values_grounded?(content, payload: payload, user_message: user_message)
+      return "scenario_conclusion" if unsupported_scenario_conclusion?(content)
+      return "debt_detail" if unsupported_debt_detail_claim?(content, payload: payload)
+      return "unverified_amount" unless financial_values_grounded?(content, payload: payload, user_message: user_message)
 
       claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
-      return false if claimed_readiness.empty?
+      return if claimed_readiness.empty?
 
       approved_readiness = payload.dig("metrics", "readiness").to_s[/\b(red|yellow|green)\b/i, 1].to_s.downcase
-      approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
+      "readiness_mismatch" if approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
     end
 
     def unsupported_scenario_conclusion?(content)
@@ -545,14 +573,33 @@ module Demo
       @persona.fallback_response(:low_signal_greeting)
     end
 
-    def fallback_response(message, context:)
+    # Never quotes the participant's message back: a long or emotional message
+    # would otherwise be echoed into Mia's reply word for word.
+    def fallback_response(message, context:, reason:)
       @response_source = "deterministic_fallback"
+      @fallback_reason = reason
       return crisis_response if crisis_message?(message)
+      return HouseholdFinance::ConversationFollowupResolver::ACKNOWLEDGMENT_ANSWER if HouseholdFinance::ConversationFollowupResolver.acknowledgment?(message)
       return low_signal_response(message) if low_signal_message?(message)
-      return discretionary_spending_response if screenshot_spending_question?(message)
-      return spending_check_response if spending_decision_question?(message)
 
-      "#{@persona.uncertainty_line} I’d start by protecting the household baseline first. For \"#{message}\", check the annual plan, emergency runway, and whether this move creates more optionality than stress. #{contextual_next_step(context)}"
+      hopeless = ::Mia::CrisisBoundary.hopeless?(message)
+      purchase_question = !hopeless && (screenshot_spending_question?(message) || spending_decision_question?(message))
+      # The persona's purchase lines answer a purchase question on their own.
+      # When the provider failed, say so first instead of sounding normal.
+      if purchase_question && reason != :provider_unavailable
+        return discretionary_spending_response if screenshot_spending_question?(message)
+
+        return spending_check_response
+      end
+
+      ::Mia::FallbackReply.new(
+        reason: reason,
+        message: message,
+        context: context,
+        persona: @persona,
+        hopeless: hopeless,
+        purchase_question: purchase_question
+      ).call
     end
 
     def crisis_message?(message)
@@ -610,13 +657,6 @@ module Demo
 
     def spending_check_response
       @persona.fallback_response(:spending_check)
-    end
-
-    def contextual_next_step(context)
-      zero_income_context = context.to_s.include?("monthly income is $0") || context.to_s.include?('"monthly_income":"$0"')
-      return @persona.fallback_response(:zero_income_next_step) if zero_income_context
-
-      @persona.fallback_response(:default_next_step)
     end
   end
 end

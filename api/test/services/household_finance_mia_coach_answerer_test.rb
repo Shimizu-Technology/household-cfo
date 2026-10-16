@@ -912,7 +912,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       }.each do |prompt, amount|
         answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
 
-        assert_includes answer, "Nice work putting #{amount} into savings!", prompt
+        assert_includes answer, "Putting #{amount} into savings counts as saving, not spending", prompt
         assert_includes answer, "not spending, so I did not add it as an expense", prompt
         assert_includes answer, "Next CFO move:", prompt
         refute_match(/purchase is|need or a want|cannot give a readiness|act like your banker/i, answer, prompt)
@@ -1107,7 +1107,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     end
 
     [
-      [ "Bought groceries for $30 and put $50 in savings", "Nice work putting $50 into savings; that part is savings, not spending." ],
+      [ "Bought groceries for $30 and put $50 in savings", "Putting $50 into savings counts as saving, not spending." ],
       [ "Bought groceries for $30 and bought $100 of bitcoin", "Buying crypto or stocks is not everyday spending" ]
     ].each do |prompt, opening|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
@@ -1122,7 +1122,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
 
     [ "I put $50 in savings and $30 for gas", "I put $30 for gas and $50 in savings" ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
-      assert_includes answer, "Nice work putting $50 into savings; that part is savings, not spending.", prompt
+      assert_includes answer, "Putting $50 into savings counts as saving, not spending.", prompt
       assert_includes answer, "I also see a $30 purchase in your message, and I have not added it yet", prompt
       assert_nil HouseholdFinance::MiaCoachAnswerer.new(household, prompt).support_answer, prompt
     end
@@ -1143,7 +1143,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     [ "I put $40 in savings and paid my $50 visa bill", "I paid my $50 visa bill and put $40 in savings" ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
 
-      assert_includes answer, "Nice work putting $40 into savings!", prompt
+      assert_includes answer, "Putting $40 into savings counts as saving, not spending", prompt
       refute_match(/purchase|draft it/i, answer, prompt)
     end
   end
@@ -1161,10 +1161,10 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       "I sent $200 to my mom's savings",
       "Sent $100 to her savings"
     ].each do |prompt|
-      refute_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s, "Nice work putting", prompt
+      refute_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s, "into savings counts as saving", prompt
     end
     [ "Set aside $20 for the challenge", "Put $30 in my kids' savings" ].each do |prompt|
-      assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call, "Nice work putting", prompt
+      assert_includes HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call, "into savings counts as saving", prompt
     end
   end
 
@@ -1174,7 +1174,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     [ "I put $40 in my savings instead of paying the power bill", "Put $60 in savings and skipped the water bill" ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
 
-      refute_includes answer, "Nice work", prompt
+      refute_includes answer, "counts as saving", prompt
       assert_includes answer, "Start with the bill that protects the household baseline first", prompt
     end
   end

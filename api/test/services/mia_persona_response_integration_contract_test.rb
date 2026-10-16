@@ -243,7 +243,8 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
 
     refute_equal "Only one sentence.", result
     assert_includes result, @runtime.uncertainty_line
-    assert_includes result, "protects the household baseline"
+    assert_includes result, "I’ll answer from your saved records"
+    assert ::Mia::ResponseShapePolicy.valid?(result, persona: @runtime), "the fallback itself fits the persona's 3-5 sentence shape"
   end
 
   private

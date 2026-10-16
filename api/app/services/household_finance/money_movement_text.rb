@@ -70,7 +70,9 @@ module HouseholdFinance
       /\b(?:snap|ebt|food\s+stamps|wic)\b[^.!?]{0,20}\b(?:ran\s+out|run\s+out|is\s+out|is\s+gone|ran\s+low|is\s+low)\b/i
     ].freeze
     HARDSHIP_FOOD_PATTERNS = [
-      Regexp.new("(?=.*\\b(?:out|low)\\s+(?:of|on)\\s+(?:food|groceries)\\b)(?=.*#{MONEY_REASON_SOURCE})", Regexp::IGNORECASE),
+      # Anchored: unanchored, both lookaheads rescan the rest of the text from
+      # every position, which times out on a long (7,000 character) message.
+      Regexp.new("\\A(?=.*\\b(?:out|low)\\s+(?:of|on)\\s+(?:food|groceries)\\b)(?=.*#{MONEY_REASON_SOURCE})", Regexp::IGNORECASE),
       Regexp.new("(?:can['’]?t|cant|cannot|can\\s+not|could(?:n['’]?t|\\s+not))\\s+afford\\s+(?:any\\s+|enough\\s+|our\\s+|my\\s+|the\\s+)?(?:food|groceries|grocery|grocerys|meals?|to\\s+(?:eat|feed|buy\\s+(?:food|groceries)))\\b", Regexp::IGNORECASE),
       Regexp.new("\\bno\\s+(?:more\\s+)?(?:money|cash)\\s+(?:left\\s+)?(?:for|to\\s+buy)\\s+(?:any\\s+)?#{FOOD_SOURCE}\\b", Regexp::IGNORECASE),
       Regexp.new("\\bnot\\s+enough\\s+(?:money\\s+)?(?:for|to\\s+buy)\\s+(?:any\\s+)?#{FOOD_SOURCE}\\b|\\bnot\\s+enough\\s+food\\b", Regexp::IGNORECASE),
