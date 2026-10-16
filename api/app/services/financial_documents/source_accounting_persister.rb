@@ -57,12 +57,13 @@ module FinancialDocuments
         {
           financial_source_event_id: event.id,
           occurred_on: event.posted_on.iso8601,
-          merchant: evidence[:merchant].presence || "Source transaction",
+          merchant: evidence[:merchant].presence || evidence[:raw_description].presence || "Source transaction",
           total_amount_cents: event.expense_amount_cents,
           total_amount: HouseholdFinance::Money.dollars(event.expense_amount_cents),
           category_name: evidence[:category_name], stack_key: evidence[:stack_key],
           raw_description: evidence[:raw_description], evidence: evidence[:evidence],
-          external_id: event.row_identity, confidence: confidence, splits: splits
+          external_id: event.row_identity, confidence: confidence, splits: splits,
+          warnings: Array(evidence[:extraction_limitations])
         }
       end
     end

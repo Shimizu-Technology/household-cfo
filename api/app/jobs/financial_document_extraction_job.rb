@@ -199,9 +199,13 @@ class FinancialDocumentExtractionJob < ApplicationJob
         processed_at: Time.current,
         metadata: extraction_failure_metadata(document_import.metadata)
       )
+      # Participants see the plain-language error; the attempt keeps the
+      # technical cause (provider status, exception class) for admins.
+      detail = metadata_value(metadata.is_a?(Hash) ? metadata : {}, :error_detail, "error_detail").presence
+      Rails.logger.warn("[FinancialDocumentExtractionJob] import #{document_import.id} extraction failed: #{detail}") if detail
       attempt&.update!(
         status: "failed",
-        error: error.to_s.truncate(1000, omission: "…"),
+        error: [ detail, error.to_s ].compact.join(" | ").truncate(1000, omission: "…"),
         completed_at: Time.current,
         metadata: sanitized_attempt_metadata(metadata)
       )

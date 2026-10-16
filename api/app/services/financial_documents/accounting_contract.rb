@@ -10,6 +10,10 @@ module FinancialDocuments
     MAX_EVENTS = 2_000
     CENT_LIMIT = 99_999_999_999
     EXTRACTION_LIMITATIONS = %w[legacy_expense_only_contract signed_account_movement_unknown conflicting_debit_credit amount_missing_or_invalid transaction_direction_unclear merchant_missing].freeze
+    # Free-text row notes are usually explanations ("This is a utility bill
+    # payment."), which belong with the evidence and must not hold a row back.
+    # Only a note saying the reader could not actually see a value does.
+    UNREADABLE_VALUE_NOTE = /\b(?:unreadable|illegible|not legible|cut off|cropped|obscured|smudged|(?:cannot|can't|could not|couldn't) (?:be )?read|partially (?:visible|hidden|legible|cropped)|inferred from (?:the )?(?:running )?balance|(?:amount|date) (?:is |was )?(?:inferred|estimated|guessed|unclear|uncertain)|please verify)\b/i
 
     def self.normalize(payload, coverage: {})
       new(payload, coverage: coverage).call
@@ -90,7 +94,7 @@ module FinancialDocuments
 
     def normalize_event(raw, position)
       account = normalize_account({ account_key: raw[:account_key] })
-      limitations = limitation_codes(raw[:limitations])
+      limitations = row_limitation_codes(raw[:limitations])
       kind = raw[:row_kind].to_s.in?(FinancialSourceEvent::KINDS) ? raw[:row_kind].to_s : "unresolved"
       limitations << "row_kind_missing_or_invalid" unless raw[:row_kind].to_s.in?(FinancialSourceEvent::KINDS)
       type = raw[:event_type].to_s.in?(FinancialSourceEvent::TYPES) ? raw[:event_type].to_s : "unknown"
@@ -109,7 +113,7 @@ module FinancialDocuments
         limitations << "signed_amount_missing_or_invalid" if amount.nil? || amount.zero?
         limitations << "posted_date_missing_or_invalid" unless posted_on
         limitations << "event_classification_unknown" if type == "unknown"
-        limitations << "merchant_missing" if type.in?(%w[purchase fee]) && raw[:merchant].to_s.blank?
+        limitations << "merchant_missing" if type.in?(%w[purchase fee]) && raw[:merchant].to_s.blank? && raw[:raw_description].to_s.blank?
         limitations << "posted_date_outside_statement_period" if posted_on && account[:period_start_on] && account[:period_end_on] && !posted_on.between?(account[:period_start_on], account[:period_end_on])
         limitations << "source_row_locator_missing" unless locator[:row].to_i.positive?
         if coverage[:expected_page_count]
@@ -152,6 +156,17 @@ module FinancialDocuments
 
     def limitation_codes(values)
       Array(values).map { |value| EXTRACTION_LIMITATIONS.include?(value.to_s) ? value.to_s : "extractor_reported_limitation" }.uniq
+    end
+
+    # Notes stay in evidence[:extraction_limitations] for the reviewer.
+    def row_limitation_codes(values)
+      Array(values).filter_map do |value|
+        if EXTRACTION_LIMITATIONS.include?(value.to_s)
+          value.to_s
+        elsif value.to_s.match?(UNREADABLE_VALUE_NOTE)
+          "extractor_reported_unreadable_value"
+        end
+      end.uniq
     end
 
     def source_fields(raw, keys)

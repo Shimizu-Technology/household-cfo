@@ -15,7 +15,9 @@ module HouseholdFinance
         else
           status = reconciled_status
           applied_at = status.in?(%w[applied partially_applied]) ? (document_import.applied_at || Time.current) : nil
-          document_import.update!(status: status, applied_at: applied_at)
+          attributes = { status: status, applied_at: applied_at }
+          attributes[:applied_by_user] = nil if applied_at.nil?
+          document_import.update!(attributes)
           document_import
         end
       end
@@ -25,14 +27,19 @@ module HouseholdFinance
 
     attr_reader :document_import
 
+    # Only values the participant approved count as applied. Ignoring every
+    # value, or a document with nothing to review, finishes as
+    # nothing_applied so it never reaches Mia as an approved source.
     def reconciled_status
-      any_resolved = resolved_items? || ignored_items? || resolved_transaction_drafts? || ignored_transaction_drafts?
+      any_saved = resolved_items? || resolved_transaction_drafts?
+      any_ignored = ignored_items? || ignored_transaction_drafts?
       # Expense confirmation is not approval of all source rows or coverage.
-      return any_resolved ? "partially_applied" : "needs_review" if document_import.metadata.to_h["source_accounting_review_pending"] == true
-      return any_resolved ? "partially_applied" : "needs_review" if actionable_items?
-      return any_resolved ? "partially_applied" : "needs_review" if pending_transaction_drafts?
-      return "applied" if any_resolved
-      return "applied" if completed_without_reviewable_transactions?
+      return any_saved ? "partially_applied" : "needs_review" if document_import.metadata.to_h["source_accounting_review_pending"] == true
+      return any_saved ? "partially_applied" : "needs_review" if actionable_items?
+      return any_saved ? "partially_applied" : "needs_review" if pending_transaction_drafts?
+      return "applied" if any_saved
+      return "nothing_applied" if any_ignored
+      return "nothing_applied" if completed_without_reviewable_transactions?
 
       "needs_review"
     end

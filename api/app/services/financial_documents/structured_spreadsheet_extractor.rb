@@ -72,6 +72,7 @@ module FinancialDocuments
 
     def call
       summary = SpreadsheetSummarizer.new(file_path: file_path, filename: filename).call
+      warnings << SpreadsheetSummarizer.uncalculated_formula_warning(summary[:uncalculated_formula_cells]) if summary[:uncalculated_formula_cells].to_i.positive?
       if summary[:sheet_limit_exceeded]
         return failure("This workbook has more than #{SpreadsheetSummarizer::MAX_SHEETS} worksheets and could not be inspected completely. Remove empty sheets or split it into smaller workbooks so every value can be reviewed.")
       end

@@ -458,7 +458,54 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     assert_equal 1, upload_count
-    assert_includes JSON.parse(response.body).fetch("errors").join, "exact file is already uploaded"
+    assert_equal [ %("budget.csv" is already uploaded and still waiting for review. Remove this attachment, or finish or delete the existing upload before adding it again.) ], JSON.parse(response.body).fetch("errors")
+  end
+
+  # Upload QA (U-10): the same CSV was rejected as a second "spreadsheet" but
+  # accepted as "other" under a new name, opening a second review queue.
+  test "create rejects the same bytes uploaded again under another document type and names the file" do
+    upload_count = 0
+    with_s3_stubs(configured?: true, upload: ->(key, _io, content_type:) { upload_count += 1; content_type && key }) do
+      post "/api/v1/document_imports", params: { file: uploaded_csv, document_kind: "spreadsheet" }, headers: auth_headers(@user)
+      assert_response :created
+
+      renamed = uploaded_csv
+      renamed.instance_variable_set(:@original_filename, "N_bank_export_copy.csv")
+      assert_no_difference("FinancialDocumentImport.count") do
+        post "/api/v1/document_imports", params: { file: renamed, document_kind: "other" }, headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal 1, upload_count
+    error = JSON.parse(response.body).fetch("errors").sole
+    assert_includes error, %("N_bank_export_copy.csv" is already uploaded (as "budget.csv"))
+  end
+
+  test "direct upload completion rejects a duplicate of another document type and names the attachment" do
+    checksum = "d" * 64
+    create_import!(document_kind: "statement", status: "needs_review", filename: "june-statement.csv", checksum_sha256: checksum)
+    deleted_keys = []
+    with_s3_stubs(
+      configured?: true,
+      presigned_upload: ->(_key, content_type:, **) { { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 } },
+      object_metadata: ->(_key) { { byte_size: 32, content_type: "text/csv", checksum_sha256: Base64.strict_encode64([ checksum ].pack("H*")), etag: "etag-dup", server_side_encryption: "AES256" } },
+      download_to_io!: ->(_key, io) { io.write("Date,Amount\n2026-10-01,-12.00\n"); true },
+      delete: ->(key) { deleted_keys << key; true }
+    ) do
+      post "/api/v1/document_imports/presign",
+        params: { filename: "lunch-receipt.csv", content_type: "text/csv", byte_size: 32, checksum_sha256: checksum, document_kind: "receipt", upload_origin: "mia" },
+        headers: auth_headers(@user), as: :json
+      token = JSON.parse(response.body).fetch("upload_token")
+
+      assert_no_difference("FinancialDocumentImport.count") do
+        post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user), as: :json
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors").sole, %("lunch-receipt.csv" is already uploaded (as "june-statement.csv"))
+    assert_equal 1, deleted_keys.length
   end
 
   test "create enqueues Mia chat attachment extraction immediately" do

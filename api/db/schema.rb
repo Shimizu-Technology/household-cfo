@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_15_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_16_120000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -2079,7 +2079,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_120000) do
     t.index ["uploaded_by_user_id"], name: "index_financial_document_imports_on_uploaded_by_user_id"
     t.check_constraint "byte_size >= 0", name: "financial_document_imports_byte_size_non_negative"
     t.check_constraint "document_kind::text = ANY (ARRAY['spreadsheet'::character varying, 'statement'::character varying, 'pay_stub'::character varying, 'receipt'::character varying, 'other'::character varying]::text[])", name: "financial_document_imports_document_kind_valid"
-    t.check_constraint "status::text = ANY (ARRAY['uploaded'::character varying, 'processing'::character varying, 'needs_review'::character varying, 'applied'::character varying, 'partially_applied'::character varying, 'failed'::character varying, 'source_deleted'::character varying]::text[])", name: "financial_document_imports_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['uploaded'::character varying, 'processing'::character varying, 'needs_review'::character varying, 'applied'::character varying, 'partially_applied'::character varying, 'nothing_applied'::character varying, 'failed'::character varying, 'source_deleted'::character varying]::text[])", name: "financial_document_imports_status_valid"
   end
 
   create_table "financial_document_source_cleanups", force: :cascade do |t|

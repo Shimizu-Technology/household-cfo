@@ -10,7 +10,7 @@ require "uri"
 module FinancialDocuments
   class Extractor
     OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-    PROMPT_VERSION = "financial_document_extraction_v6"
+    PROMPT_VERSION = "financial_document_extraction_v7"
     SCHEMA_VERSION = "financial_document_json_object_v3"
     MAX_ITEMS = 60
     MAX_WARNINGS = 12
@@ -27,6 +27,20 @@ module FinancialDocuments
     MAX_DATA_URL_SOURCE_BYTES = UploadLimits::INLINE_SOURCE_MAX_BYTES
     PDF_ENCRYPTED_MESSAGE = "This PDF is password-protected. Download an unlocked copy from the bank or export the transactions as CSV, then upload it again."
     PDF_UNPARSEABLE_MESSAGE = "We couldn't open this PDF. Download a fresh copy from your bank, or export the transactions as CSV or take a screenshot, then upload it again."
+    # Participant copy for any provider or service problem. The technical
+    # cause (status code, provider message) goes to the attempt record and
+    # logs through metadata[:error_detail], never to the participant.
+    TEMPORARY_FAILURE_MESSAGE = "We couldn't read this file right now. This is usually temporary. Your file is saved and nothing changed, so try Reprocess in a few minutes."
+    UNREADABLE_RESULT_MESSAGE = "We couldn't turn this file into reviewable results. Your file is saved and nothing changed. Try Reprocess, or upload a clearer copy, a CSV export or a screenshot."
+    OUTPUT_LIMIT_MESSAGE = "This document has more rows than Mia can read in one pass. Split it into smaller date ranges so every transaction can be reviewed."
+    # Bounded automatic retry for transient provider failures (network errors,
+    # rate limits and 5xx), per request, so one hiccup on one statement batch
+    # does not fail the whole statement.
+    PROVIDER_ATTEMPTS = 3
+    RETRYABLE_STATUS_CODES = [ 408, 409, 425, 429, 500, 502, 503, 504, 520, 522, 524, 529 ].freeze
+    # A statement batch sees only its own pages; warnings about the pages it
+    # was not given contradict the merged statement and are dropped.
+    BATCH_SCOPE_WARNING = /\b(?:only )?pages? \d+\s*(?:-|–|to|and)\s*\d+ (?:of \d+ )?(?:were|was|are|is) (?:provided|included|shown|supplied)|\bthese (?:two |\d+ )?pages\b|\bthis (?:page )?batch\b|\bthe rest of the (?:month|statement|period) is not covered\b/i
 
     Result = Data.define(:success, :data, :error, :metadata) do
       def success?
@@ -46,7 +60,7 @@ module FinancialDocuments
       @progress = progress
       progress!
       return failure("Document source is no longer available") unless document_import.source_available?
-      return failure("AWS S3 storage is not configured") unless S3Service.configured?
+      return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { error_detail: "AWS S3 storage is not configured" }) unless S3Service.configured?
 
       with_source_tempfile(document_import) do |tempfile|
         progress!
@@ -59,7 +73,7 @@ module FinancialDocuments
         native = native_statement_result(document_import, tempfile.path)
         return Result.new(success: true, data: native.data, error: nil, metadata: native.metadata) if native&.success?
 
-        return failure("OpenRouter API key is not configured") if api_key.blank?
+        return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { error_detail: "OpenRouter API key is not configured" }) if api_key.blank?
 
         batched_pdf = batched_pdf_result(document_import, tempfile.path)
         return batched_pdf if batched_pdf
@@ -72,9 +86,11 @@ module FinancialDocuments
     rescue SourceSafety::Unreadable => e
       Rails.logger.warn("[FinancialDocuments::Extractor] unreadable source for import #{document_import&.id}: #{e.reason}")
       failure(unreadable_source_message(e))
+    rescue SpreadsheetSummarizer::Unreadable => e
+      failure(e.message)
     rescue StandardError => e
       Rails.logger.warn("[FinancialDocuments::Extractor] extraction failed for import #{document_import&.id}: #{e.class}")
-      failure("Document extraction could not finish. Try reprocessing the document.")
+      failure(UNREADABLE_RESULT_MESSAGE, metadata: { error_detail: "#{e.class} during extraction" })
     end
 
     private
@@ -94,7 +110,7 @@ module FinancialDocuments
 
       max_bytes = UploadLimits.max_bytes(filename: document_import.filename, content_type: document_import.content_type)
       downloaded = SourceSafety.download(document_import.s3_key, tempfile, max_bytes: max_bytes)
-      return failure("Could not download document source") unless downloaded
+      return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { error_detail: "Could not download document source" }) unless downloaded
 
       tempfile.flush
       tempfile.close
@@ -170,7 +186,10 @@ module FinancialDocuments
           chunk.path,
           batch_label: "pages #{first_page}-#{last_page} of #{page_count}"
         )
-        return failure("Could not finish the complete statement. Pages #{first_page}-#{last_page} failed: #{result.error}", metadata: result.metadata) unless result.success?
+        unless result.success?
+          return failure("Pages #{first_page}-#{last_page} of this statement didn't finish. #{result.error}",
+            metadata: result.metadata.merge(error_detail: "pages #{first_page}-#{last_page} of #{page_count}: #{result.metadata[:error_detail] || result.error}"))
+        end
 
         progress!
         batch_data << result.data
@@ -201,22 +220,22 @@ module FinancialDocuments
     def extract_openrouter_document(document_import, file_path, batch_label: nil)
       payload = build_payload(document_import, file_path, batch_label: batch_label)
       progress!
-      response = perform_openrouter_request(payload)
+      response = perform_openrouter_request_with_retry(payload)
       progress!
       return response unless response.success?
       if response.metadata[:finish_reason].to_s == "length"
-        return failure(
-          "OpenRouter reached its output limit before extraction finished. Split the statement into smaller date ranges so every transaction can be reviewed.",
-          metadata: response.metadata
-        )
+        return failure(OUTPUT_LIMIT_MESSAGE, metadata: response.metadata.merge(error_detail: "OpenRouter reached its output limit (finish_reason=length)"))
       end
 
       parsed = parse_json_content(response.data.fetch(:content))
-      return parsed unless parsed.success?
+      return failure(parsed.error, metadata: response.metadata.merge(parsed.metadata)) unless parsed.success?
       row_limit_error = extraction_row_limit_error(parsed.data)
       return failure(row_limit_error, metadata: response.metadata) if row_limit_error
 
       normalized = normalize_extraction(parsed.data, document_import, coverage: source_page_coverage(document_import, file_path, batch_label))
+      if @uncalculated_formula_cells.to_i.positive?
+        normalized[:warnings] = [ SpreadsheetSummarizer.uncalculated_formula_warning(@uncalculated_formula_cells), *normalized[:warnings] ].first(MAX_WARNINGS)
+      end
       Result.new(success: true, data: normalized, error: nil, metadata: response.metadata)
     end
 
@@ -233,8 +252,10 @@ module FinancialDocuments
       if items.length > MAX_ITEMS
         return failure("This document contains more than #{MAX_ITEMS} budget/profile values. Split it into smaller files so every value can be reviewed without silently truncating the results.")
       end
-      warnings = batch_data.flat_map { |data| Array(data[:warnings]) }
-      warnings.unshift("Processed all #{page_count} PDF pages in #{batch_data.length} extraction batches.")
+      # Each batch only sees its own pages, so its "only pages 3-4 were
+      # provided" style warnings contradict the merged, complete statement.
+      warnings = batch_data.flat_map { |data| Array(data[:warnings]) }.reject { |warning| batch_scope_warning?(warning) }
+      warnings.unshift("Mia read all #{page_count} pages of this statement.")
       dates = transactions.filter_map { |draft| parsed_date(draft[:occurred_on]) }
 
       Result.new(
@@ -286,10 +307,16 @@ module FinancialDocuments
       # Remove only the generated disclosure placeholder. Explicit header
       # evidence remains useful even for a legacy contract with no rows.
       placeholder = AccountingContract.legacy([]).fetch(:accounts).sole
-      account_headers = sources.flat_map do |source|
+      batch_accounts = sources.map do |source|
         source[:accounts].reject do |account|
           source[:contract_version] == AccountingContract::LEGACY_VERSION && source[:events].empty? && account == placeholder
         end
+      end
+      canonical_keys = canonical_account_keys(batch_accounts)
+      account_headers = batch_accounts.flatten.map { |account| account.merge(source_key: canonical_keys.fetch(account[:source_key], account[:source_key])) }
+      events.each do |event|
+        event[:source_key] = canonical_keys.fetch(event[:source_key], event[:source_key])
+        Array(event[:funding_components]).each { |part| part[:source_key] = canonical_keys.fetch(part[:source_key], part[:source_key]) }
       end
       accounts = account_headers.group_by { |account| account[:source_key] }.map do |_key, variants|
         merged = variants.first.deep_dup
@@ -314,6 +341,32 @@ module FinancialDocuments
         coverage: { expected_page_count: page_count, processed_pages: (1..page_count).to_a, represented_row_count: events.length, reported_row_count: nil } }
     end
 
+    # Each batch names its account independently, so one statement account
+    # can arrive under several keys (for example "Premier Checking" on page 1
+    # and "XXXX-XX-5590 continued" later). Join keys that share the printed
+    # masked number; when the statement shows a single account number and no
+    # batch reports more than one account, unnumbered batch headers join it.
+    def canonical_account_keys(batch_accounts)
+      all = batch_accounts.flatten
+      identity = ->(account) { account.dig(:evidence, :masked_identifier).to_s.gsub(/\D/, "").last(4).presence&.then { |digits| digits.length == 4 ? digits : nil } }
+      basis = ->(account) { account[:account_basis].to_s.presence_in(%w[asset liability]) }
+      mapping = {}
+      all.group_by { |account| identity.call(account) }.each do |digits, accounts|
+        next if digits.nil?
+        next if accounts.filter_map { |account| basis.call(account) }.uniq.many?
+
+        canonical = accounts.first[:source_key]
+        accounts.each { |account| mapping[account[:source_key]] = canonical }
+      end
+      identities = all.filter_map { |account| identity.call(account) }.uniq
+      if identities.one? && batch_accounts.all? { |accounts| accounts.map { |account| account[:source_key] }.uniq.length <= 1 }
+        canonical = mapping.values.first
+        known_basis = all.filter_map { |account| basis.call(account) }.uniq
+        all.each { |account| mapping[account[:source_key]] ||= canonical } if canonical && known_basis.length <= 1
+      end
+      mapping.reject { |key, canonical| key == canonical }
+    end
+
     def merged_confidence(batch_data)
       levels = batch_data.filter_map { |data| data[:confidence] }
       return "low" if levels.include?("low")
@@ -334,14 +387,15 @@ module FinancialDocuments
     end
 
     def terminal_structured_spreadsheet_error?(result)
-      result && !result.success? && result.error.to_s.match?(/more than \d+ (?:transaction |budget\/profile )?(?:rows|worksheets|columns)|could not be inspected completely/i)
+      result && !result.success? && (result.error == SpreadsheetSummarizer::UNCALCULATED_MESSAGE ||
+        result.error.to_s.match?(/more than \d+ (?:transaction |budget\/profile )?(?:rows|worksheets|columns)|could not be inspected completely/i))
     end
 
     def inline_payload_size_error(document_import, file_path)
       return unless document_import.image? || document_import.pdf?
       return if File.size(file_path) <= max_data_url_source_bytes
 
-      "Document source is too large for AI extraction via OpenRouter data upload (max #{max_data_url_source_megabytes} MB for PDFs/images). Compress or split the file and upload again."
+      "This file is too large for Mia to read (up to #{max_data_url_source_megabytes} MB for PDFs and images). Split it into smaller files or date ranges, or compress it, then upload again."
     end
 
     def max_data_url_source_bytes
@@ -397,7 +451,7 @@ module FinancialDocuments
         For receipts/photos, leave source_accounting null and create one transaction_draft and split it when line items clearly belong in different categories, for example groceries plus cigarettes. Categorize each split from its own line items; never apply the merchant's usual category to every split merely because the merchant is a grocery store or market.
         For statements and transaction screenshots, leave transaction_drafts empty and put EVERY visible transaction-table row in source_accounting, including credits, refunds, transfers, debt payments, rejected/unreadable rows, and non-posted informational rows. Never silently omit a row. Do not mistake a running balance, statement total, or summary amount for a posted event.
         source_accounting is an object with contract_version: #{AccountingContract::VERSION}, reported_row_count (only an independently printed count, otherwise null), accounts and events. Accounts include account_key (a stable masked account identifier, never a full number), account_basis (asset for holdings; liability for amount owed; unknown if unclear), label, masked_identifier, printed statement period_start_on/period_end_on, opening_balance_cents, closing_balance_cents, printed_debit_cents, printed_credit_cents, printed_row_count and header_evidence. Unknown values are null. Keep printed header periods/totals separate from dates observed in rows.
-        Each source event includes account_key, row_kind (posted, informational or unresolved), event_type (purchase, fee, refund, income, transfer, debt_payment, cash_withdrawal, interest, adjustment or unknown), signed_amount_cents, amount_column_cents, posted_on, authorized_on, locator {page, row}, merchant, raw_description, evidence and limitations. Amounts are INTEGER cents: positive economic inflow, negative economic outflow for both asset and liability accounts. Liability charges are negative, payments/refunds positive; the balance owed reconciles as opening minus signed net movement. Use the printed transaction amount column, not an amount embedded in a fee's explanation, a running balance or a summary. Returned-unpaid principal and period fee summaries are informational, not new spending; keep the actual posted fee as a separate row with its actual date.
+        Each source event includes account_key, row_kind (posted, informational or unresolved), event_type (purchase, fee, refund, income, transfer, debt_payment, cash_withdrawal, interest, adjustment or unknown), signed_amount_cents, amount_column_cents, posted_on, authorized_on, locator {page, row}, merchant, raw_description, evidence and limitations. Amounts are INTEGER cents: positive economic inflow, negative economic outflow for both asset and liability accounts. Liability charges are negative, payments/refunds positive; the balance owed reconciles as opening minus signed net movement. Use the printed transaction amount column, not an amount embedded in a fee's explanation, a running balance or a summary. Returned-unpaid principal and period fee summaries are informational, not new spending; keep the actual posted fee as a separate row with its actual date. Put explanations (for example "utility bill payment" or "transfer to own savings") in evidence; use limitations only when a value on the row could not actually be read. Bills, rent and fees are purchase or fee rows; moves between the participant's own accounts are transfer; card or loan payments are debt_payment.
         For a split-funded wallet purchase, signed_amount_cents is ONLY the wallet-account leg. Include purchase_total_cents and funding_components [{account_key, amount_cents}] for every funding leg, with each amount positive, summing to the purchase total. The component matching this account_key must equal its account leg. A bank funding leg is a transfer, not another purchase. Never substitute the bank-funded amount for the wallet-funded amount. Do not merge identical date/merchant/amount purchases from distinct source rows.
         For bank statements, use the posted date in the transaction table's Date column as occurred_on. Keep a different authorization date in raw_description or evidence instead of replacing the posted date.
         If transaction rows omit the year, infer it from the statement date, statement period, or page header and apply statement-boundary year rollover consistently. Ignore copyright years, footer years, browser chrome, reference numbers, and unrelated dates. Never guess an older year solely because the row shows only month and day; use participant upload context and the server reference date only to resolve a genuinely recent-statement reference such as "past month."
@@ -409,7 +463,7 @@ module FinancialDocuments
         Map accounts to one of: #{Account::ACCOUNT_TYPES.join(', ')}.
         Map debts to one of: #{Debt::DEBT_TYPES.join(', ')}.
         Current active budget categories for transaction splits: #{budget_category_context(document_import)}.
-        #{batch_label.present? ? "This file is #{batch_label}. Use ORIGINAL document page numbers in each locator, extract all rows from these pages only, and do not repeat transactions from another page or invent missing pages." : "Extract every visible row in the supplied file with its exact source locator."}
+        #{batch_label.present? ? "This file is #{batch_label}. The server reads the other pages separately and merges them. Use ORIGINAL document page numbers in each locator, extract all rows from these pages only, and do not repeat transactions from another page or invent missing pages. Use the masked account number printed on the statement (for example its last four digits) as account_key so rows from every page join the same account, and do not warn that other pages are missing." : "Extract every visible row in the supplied file with its exact source locator."}
       PROMPT
 
       content = [ { type: "text", text: instruction } ]
@@ -420,6 +474,7 @@ module FinancialDocuments
         content << { type: "file", file: { filename: document_import.filename, file_data: data_url(file_path, "application/pdf") } }
       elsif document_import.spreadsheet?
         summary = SpreadsheetSummarizer.new(file_path: file_path, filename: document_import.filename).call
+        @uncalculated_formula_cells = summary.delete(:uncalculated_formula_cells).to_i
         summary.fetch(:sheets, []).each do |sheet|
           sheet.fetch(:rows, []).each { |row| row.except!(:cell_types, :cell_formats) }
         end
@@ -468,6 +523,24 @@ module FinancialDocuments
       PROMPT
     end
 
+    def perform_openrouter_request_with_retry(payload)
+      response = nil
+      PROVIDER_ATTEMPTS.times do |index|
+        if index.positive?
+          Rails.logger.warn("[FinancialDocuments::Extractor] retrying provider request (attempt #{index + 1} of #{PROVIDER_ATTEMPTS}) after #{response.metadata[:error_detail]}")
+          provider_retry_pause(index)
+          progress!
+        end
+        response = perform_openrouter_request(payload)
+        return response if response.success? || !response.metadata[:retryable]
+      end
+      response
+    end
+
+    def provider_retry_pause(retry_number)
+      sleep(retry_number * 2)
+    end
+
     def perform_openrouter_request(payload)
       uri = URI(OPENROUTER_URL)
       request = Net::HTTP::Post.new(uri)
@@ -482,12 +555,14 @@ module FinancialDocuments
       end
 
       unless response.is_a?(Net::HTTPSuccess)
-        return failure("OpenRouter extraction failed with HTTP #{response.code}", metadata: { status_code: response.code.to_i })
+        status_code = response.code.to_i
+        return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { status_code: status_code, retryable: RETRYABLE_STATUS_CODES.include?(status_code),
+          error_detail: "OpenRouter extraction failed with HTTP #{status_code}" })
       end
 
       json = JSON.parse(response.body)
       content = json.dig("choices", 0, "message", "content")
-      return failure("OpenRouter returned no extraction content") if content.blank?
+      return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { retryable: true, error_detail: "OpenRouter returned no extraction content" }) if content.blank?
 
       metadata = {
         usage: json["usage"],
@@ -496,17 +571,21 @@ module FinancialDocuments
       }.compact
       Result.new(success: true, data: { content: content }, error: nil, metadata: metadata)
     rescue JSON::ParserError
-      failure("OpenRouter returned invalid JSON")
+      failure(TEMPORARY_FAILURE_MESSAGE, metadata: { retryable: true, error_detail: "OpenRouter returned invalid JSON" })
     rescue StandardError => e
       Rails.logger.warn("[FinancialDocuments::Extractor] provider_request_failed_class=#{e.class}")
-      failure("Private document extraction service is unavailable. Try reprocessing the document.")
+      failure(TEMPORARY_FAILURE_MESSAGE, metadata: { retryable: true, error_detail: "Provider request failed: #{e.class}" })
     end
 
     def parse_json_content(content)
       clean = content.to_s.strip.gsub(/\A```json\s*/i, "").gsub(/\s*```\z/, "")
       Result.new(success: true, data: JSON.parse(clean), error: nil, metadata: {})
     rescue JSON::ParserError
-      failure("Could not parse extracted document data")
+      failure(UNREADABLE_RESULT_MESSAGE, metadata: { error_detail: "Could not parse extracted document data" })
+    end
+
+    def batch_scope_warning?(warning)
+      warning.to_s.match?(BATCH_SCOPE_WARNING)
     end
 
     def normalize_extraction(data, document_import, coverage: {})

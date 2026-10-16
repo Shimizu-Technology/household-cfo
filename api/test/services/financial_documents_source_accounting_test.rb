@@ -277,6 +277,55 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
     refute_includes FinancialDocumentImport.pending_review, @import
   end
 
+  # Rows as the extractor returned them during upload QA (statements A, B, D
+  # and the skewed phone photo F): explanatory notes in `limitations` used to
+  # demote every one of these rows to unresolved with no expense draft.
+  test "explanatory extractor notes keep bills fees and rent reviewable while transfers stay non-spending" do
+    rows = [
+      event(-20_311, row: 1, merchant: "GPA Electric", raw_description: "GPA ELECTRIC BILLPAY", limitations: [ "This is a utility bill payment." ]),
+      event(-7_000, row: 2, merchant: "IT&E Wireless", raw_description: "IT&E WIRELESS AUTOPAY", limitations: [ "This is a recurring-looking phone bill autopay." ]),
+      event(-250, type: "fee", row: 3, merchant: nil, raw_description: "NON-NETWORK ATM FEE"),
+      event(-95_000, row: 4, merchant: nil, raw_description: "RENT CHECK 1043", limitations: [ "Payee not shown; rent is inferred from the description." ]),
+      event(-6_417, row: 5, merchant: "PAYLESS SUPERMARKETS", raw_description: "PAYLESS SUPERMARKETS Oct 14, 2026 -$64.17", limitations: [ "The image is skewed and blurry." ]),
+      event(-20_000, type: "transfer", row: 6, merchant: nil, raw_description: "TRANSFER TO SAVINGS XXXX4410", limitations: [ "This is a transfer to the participant's own savings account, not spending." ]),
+      event(-30_000, type: "debt_payment", row: 7, merchant: "MCB Visa", raw_description: "PAYMENT TO MCB VISA XXXX9012", limitations: [ "Credit card payment to account XXXX9012; card balance and APR not shown" ]),
+      event(25_000, type: "income", row: 8, merchant: nil, raw_description: "MOBILE CHECK DEPOSIT", limitations: [ "The check source is not identified." ])
+    ]
+    result = persist(normalized(rows))
+
+    assert_equal %w[posted] * 8, result[:events].map(&:row_kind)
+    assert result[:events].all? { |row| row.limitations.empty? }
+    assert_equal [ 20_311, 7_000, 250, 95_000, 6_417 ], result[:transaction_drafts].pluck(:total_amount_cents)
+    assert_equal [ "GPA Electric", "IT&E Wireless", "NON-NETWORK ATM FEE", "RENT CHECK 1043", "PAYLESS SUPERMARKETS" ], result[:transaction_drafts].pluck(:merchant)
+    # The reader's note stays visible on the draft and in the row evidence.
+    assert_equal [ "This is a utility bill payment." ], result[:transaction_drafts].first[:warnings]
+    assert_equal [ "This is a utility bill payment." ], result[:events].first.financial_source_evidence.payload["extraction_limitations"]
+    transfer, card_payment = result[:events].values_at(5, 6)
+    assert_nil transfer.expense_amount_cents
+    assert_nil card_payment.expense_amount_cents
+    refute transfer.expense_projection_eligible?
+    refute card_payment.expense_projection_eligible?
+
+    staged = HouseholdFinance::DocumentTransactionDraftPersister.new(@import, result[:transaction_drafts]).call
+    assert_equal 5, staged[:created_count]
+    assert_equal 0, @household.household_transactions.count
+  end
+
+  test "a note reporting an unreadable or inferred value still holds the row for clarification" do
+    rows = [
+      event(-7_999, row: 1, merchant: "IT&E Internet", limitations: [ "Row is partially cropped. Amount inferred from the balance change. Please verify." ]),
+      event(-4_100, row: 2, merchant: "Shell", limitations: [ "The amount is illegible." ]),
+      event(-500, type: "fee", row: 3, merchant: nil, raw_description: nil)
+    ]
+    accounting = normalized(rows)
+
+    assert_equal %w[unresolved unresolved unresolved], accounting[:events].pluck(:row_kind)
+    assert_includes accounting[:events].first[:limitations], "extractor_reported_unreadable_value"
+    assert_includes accounting[:events].second[:limitations], "extractor_reported_unreadable_value"
+    assert_includes accounting[:events].third[:limitations], "merchant_missing"
+    assert_empty persist(accounting)[:transaction_drafts]
+  end
+
   private
 
   def source_operation(klass, input)

@@ -2621,7 +2621,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (resolution === 'confirm') {
       const phrase = `CONFIRM ${ids.length}`
       const entered = window.prompt(
-        `This will post ${ids.length} transactions totaling ${currency.format(total)} to actuals. This is all-or-nothing. Review possible matches first, then type ${phrase} to continue.`,
+        `This will post ${ids.length} transaction${ids.length === 1 ? '' : 's'} totaling ${currency.format(total)} to actuals. This is all-or-nothing. Review possible matches first, then type ${phrase} to continue.`,
       )
       if (entered?.trim() !== phrase) return
     } else if (!window.confirm(`Ignore ${ids.length} pending transaction reviews totaling ${currency.format(total)}? Actuals will not change.`)) {
@@ -4887,6 +4887,7 @@ function DocumentImportHistory({
               <option value="uploaded">Uploaded</option>
               <option value="applied">Applied</option>
               <option value="partially_applied">Partially applied</option>
+              <option value="nothing_applied">Nothing saved</option>
               <option value="failed">Failed</option>
               <option value="source_deleted">Source deleted</option>
             </select>
@@ -5413,7 +5414,7 @@ function DocumentImportItemEditor({
           type="button"
           className="document-ignore-button"
           disabled={selectionDisabled || editing}
-          onClick={() => onUpdate({ ignored: !item.ignored, selected: item.ignored })}
+          onClick={() => onUpdate({ ignored: !item.ignored, selected: false })}
         >
           {item.ignored ? 'Restore' : 'Ignore'}
         </button>
@@ -5821,6 +5822,7 @@ function hasPayStubSignal(name: string) {
 }
 
 function importStatusLabel(status: FinancialDocumentImport['status']) {
+  if (status === 'nothing_applied') return 'Nothing saved'
   return titleize(status)
 }
 
@@ -6037,6 +6039,7 @@ function statusExplainer(documentImport: FinancialDocumentImport) {
   if (documentImport.status === 'source_deleted') return 'The private source file has been deleted. Existing extracted metadata remains for audit context.'
   if (documentImport.status === 'applied') return 'All selected values from this document were approved and applied to the household workspace.'
   if (documentImport.status === 'partially_applied') return 'Some values were applied. Unapplied values remain available for review.'
+  if (documentImport.status === 'nothing_applied') return 'Review is finished and nothing from this document was saved. Your household numbers did not change.'
 
   return 'Review each draft value before applying it to your official household numbers.'
 }
@@ -7085,7 +7088,7 @@ function TransactionDraftReviewStack({
           </button>
           {filteredDraftsNeedingCategory.length > 0 && (
             <p className="transaction-draft-bulk-warning" role="status">
-              {filteredDraftsNeedingCategory.length} review{filteredDraftsNeedingCategory.length === 1 ? '' : 's'} need categorizing before bulk confirmation.
+              {filteredDraftsNeedingCategory.length} {filteredDraftsNeedingCategory.length === 1 ? 'review needs' : 'reviews need'} categorizing before bulk confirmation.
             </p>
           )}
         </div>

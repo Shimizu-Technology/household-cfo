@@ -22,6 +22,17 @@ describe('bounded source accounting review', () => {
     expect(screen.getByText(/0 processed \/ unknown expected/)).toBeTruthy()
   })
 
+  it('titles a row without a merchant by its statement description and shows the reader note', async () => {
+    const data = sourceReviewFixture()
+    data.events[1].evidence = { raw_description: 'MOBILE CHECK DEPOSIT', extraction_limitations: ['The check source is not identified.'] }
+    fetchReview.mockResolvedValueOnce(data)
+    mount()
+    expect(await screen.findByText('MOBILE CHECK DEPOSIT')).toBeTruthy()
+    expect(screen.queryByText('Source row 2')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /^Inspect statement line 2\b/ }))
+    expect(screen.getByText('Reader note: The check source is not identified.')).toBeTruthy()
+  })
+
   it('shows server-wide coverage independently of the bounded row page and filter', async () => {
     mount()
     await screen.findByText(/137 statement lines/)

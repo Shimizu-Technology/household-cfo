@@ -31,6 +31,17 @@ begin
   case mode
   when "structure"
     page_count = CombinePDF.load(path).pages.count
+    # CombinePDF loads AES-256 (and other) password-protected files without
+    # raising, so ask PDF::Reader, which needs the empty user password to
+    # work. Owner-password-only PDFs open fine and are not rejected; any other
+    # PDF::Reader complaint is left to the regular parse path.
+    begin
+      PDF::Reader.new(path).page_count
+    rescue PDF::Reader::EncryptedPDFError
+      raise
+    rescue StandardError
+      nil
+    end
     STDOUT.write(JSON.generate(ok: true, page_count: page_count))
   when "text"
     reader = PDF::Reader.new(path)
