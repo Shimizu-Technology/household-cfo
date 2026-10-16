@@ -191,7 +191,7 @@ module HouseholdFinance
       category = structured_category(active: true)
       return missing_category_result([ command[:category_name].presence || "that category" ]) unless category
 
-      new_name = clean_new_category_name(command[:new_name])
+      new_name = verbatim_category_name(command[:new_name])
       return validation_result("Tell me the new category name before I draft the rename.") if new_name.blank?
       return validation_result("#{category.name} already has that name.") if normalized_label(category.name) == normalized_label(new_name)
       return validation_result("A category named #{new_name} already exists. Rename or archive the existing category first.") if household.budget_categories.where("LOWER(name) = ?", new_name.downcase).where.not(id: category.id).exists?

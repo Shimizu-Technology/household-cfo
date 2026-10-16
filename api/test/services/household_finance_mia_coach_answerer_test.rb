@@ -1267,6 +1267,44 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     refute_match(/the purchase is|need or a want/i, HouseholdFinance::MiaCoachAnswerer.new(household, "Saved $30 with coupons", conversation_messages: unrelated).call.to_s)
   end
 
+  test "budget alone does not disable car repair guidance" do
+    household = create_yellow_household
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "we got hit with a $900 car repair and its not in the budget, what do we do?").call
+    assert_includes answer, "A car repair can be a real baseline need"
+    category = HouseholdFinance::MiaCoachAnswerer.new(household, "should i raise the car repair category").call
+    refute_includes category.to_s, "A car repair can be a real baseline need"
+  end
+
+  test "savings timeline questions never state figures the participant did not write" do
+    household = create_yellow_household
+    [
+      "we have 3 kids, how long to save 1000 at 50 a week",
+      "if i save 150 every 2 weeks how long till i have a 3 month cushion",
+      "starting on the 15th how long until we save 500 if we put away 25 every payday",
+      "what if i put an extra 200 toward savings, how long until i have a cushion",
+      "if I save $200 a month how long until I save $2,400"
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
+      refute_includes answer, "need or a want", prompt
+      written = prompt.scan(/\d[\d,]*/).map { |n| n.delete(",") }
+      shown = answer.scan(/\$\s*(\d[\d,]*(?:\.\d+)?)/).flatten.map { |n| n.delete(",") }
+      assert_empty shown - written, "#{prompt}: #{answer}"
+      refute_match(/about \d+ months?/, answer, prompt)
+    end
+    vague = HouseholdFinance::MiaCoachAnswerer.new(household, "what if i put an extra 200 toward savings, how long until i have a cushion").call
+    assert_includes vague, "each paycheck"
+    assert_includes vague, "Nothing changed"
+  end
+
+  test "readiness is never rendered blank" do
+    household = create_yellow_household
+    household.accounts.destroy_all
+    [ "we have an extra 200 this month, where should it go first", "can we afford a $60 pair of shoes for the kids school", "i got a $400 bonus, should it go to savings or debt" ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call.to_s
+      refute_match(/readiness is\s*[.,]/, answer, prompt)
+    end
+  end
+
   private
 
   def create_yellow_household

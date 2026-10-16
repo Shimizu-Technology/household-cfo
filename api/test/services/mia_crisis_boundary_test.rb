@@ -29,7 +29,9 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       "i dont see the point anymore",
       "I don't want to wake up, it's Monday lol",
       "i wish i wasnt here, prices in guam are crazy",
-      "Should I give up because I feel hopeless?"
+      "Should I give up because I feel hopeless?",
+      "ugh we're so behind on everything, i feel like such a failure and hopeless honestly",
+      "i feel like such a failure"
     ].each do |message|
       assert Mia::CrisisBoundary.hopeless?(message), message
       assert_not Mia::CrisisBoundary.matches?(message), "#{message} should keep money help, not the crisis response"

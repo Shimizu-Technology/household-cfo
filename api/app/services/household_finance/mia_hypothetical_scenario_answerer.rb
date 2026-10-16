@@ -53,7 +53,15 @@ module HouseholdFinance
     def purchase_answer
       safe = snapshot.fetch(:safe_to_spend_cents)
       gap = [ amount_cents - safe, 0 ].max
-      "Scenario only#{timing_phrase} — #{label} at #{money(amount_cents)} is not saved, approved, or recorded as spending. The approved safe-to-spend guardrail is #{money(safe)}, so this scenario is #{money(gap)} above that guardrail. This does not prove an account can fund it; name the funding account and budget category before making the CFO call."
+      "Scenario only#{timing_phrase} — #{subject_phrase} is not saved, approved, or recorded as spending. The approved safe-to-spend guardrail is #{money(safe)}, so this scenario is #{money(gap)} above that guardrail. This does not prove an account can fund it; name the funding account and budget category before making the CFO call."
+    end
+
+    # "a $300 purchase" reads better than "Purchase scenario at $300" when the
+    # participant did not name the item.
+    def subject_phrase
+      return "a #{money(amount_cents)} purchase" if label == TITLES.fetch(scenario_type)
+
+      "#{label} at #{money(amount_cents)}"
     end
 
     def one_time_income_answer

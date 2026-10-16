@@ -161,6 +161,8 @@ module HouseholdFinance
     end
 
     def lead_for(basis, count)
+      return single_lead_for(basis) if count == 1
+
       case basis
       when "saved_household"
         "Here are all #{count} answers from your saved household data."
@@ -171,7 +173,20 @@ module HouseholdFinance
       end
     end
 
+    def single_lead_for(basis)
+      case basis
+      when "saved_household"
+        "Here is the answer from your saved household data."
+      when "scenario_only"
+        "Here is that scenario. This value is unapproved and was not saved."
+      else
+        "Here is the answer. Saved household facts and unapproved scenario values are labeled separately."
+      end
+    end
+
     def canonical_text(lead, sections)
+      return [ lead, "#{sections.first.fetch(:title)}\n#{sections.first.fetch(:body)}" ].join("\n\n") if sections.one?
+
       ([ lead ] + sections.map.with_index { |section, index| "#{index + 1}. #{section.fetch(:title)}\n#{section.fetch(:body)}" }).join("\n\n")
     end
 

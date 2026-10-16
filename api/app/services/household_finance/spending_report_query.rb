@@ -80,6 +80,10 @@ module HouseholdFinance
 
       year = year_near(month_name) || today.year
       start = Date.new(year, month_number, 1)
+      # The current month ends today, exactly like "this month", so "October" and
+      # "this month" never report two different under-plan numbers.
+      return build_range(start, today) if start == today.beginning_of_month
+
       build_range(start, start.end_of_month)
     end
 

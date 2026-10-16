@@ -266,6 +266,14 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_includes result.response, "working in 2026"
   end
 
+  test "rename keeps every word of the new name" do
+    structured = build_command(type: "rename_category", category_id: @groceries.id, category_name: "Groceries", new_name: "Back to School", year: 2026)
+    assert_equal "Back to School", structured.proposal.items.first.payload.fetch(:name)
+    prompt = "rename the Groceries category to Back to School"
+    text = HouseholdFinance::MiaActionDraftBuilder.new(@household, prompt, user: @user, annual_budget_manager: @manager, selected_month: 7, raw_input: prompt).call
+    assert_equal "Back to School", text.proposal.items.first.payload.fetch(:name)
+  end
+
   test "builds structured category create rename and reclassify proposals" do
     create_result = build_command(
       type: "create_category",

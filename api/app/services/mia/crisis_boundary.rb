@@ -58,7 +58,9 @@ module Mia
       /\btired of (?:everything|living|it all|life|trying)#{CLAUSE_END}/i,
       /\b(?:want to|wanna)\s+disappear#{CLAUSE_END}/i,
       /\b(?:what['’]?s (?:even )?the|whats (?:even )?the|what is (?:even )?the|there['’]?s no|theres no|is there any)\s+point(?:\s+(?:in anything|in trying|in any of this|in living|of anything|of any of this))?#{POINT_END}/i,
-      /\b(?:i\s+)?(?:feel|am|i['’]m|im)\s+(?:like\s+)?(?:such\s+)?a burden\b/i
+      /\b(?:i\s+)?(?:feel|am|i['’]m|im)\s+(?:like\s+)?(?:such\s+)?a burden\b/i,
+      /\b(?:feel(?:ing)?|am|i['’]m|im)\s+(?:like\s+)?(?:such\s+a|a\s+(?:total|complete))\s+failure\b/i,
+      /\b(?:failure|worthless|useless|stuck|behind|lost|broken)(?:\s+(?:and|&)|,)\s+(?:so\s+|just\s+|completely\s+)?hopeless(?!\s+(?:with|at)\b)/i
     ].freeze
     # "I give up." Kept separate so an advice question ("Should I give up?") can be
     # set aside without hiding other hopeless words in the same sentence.
