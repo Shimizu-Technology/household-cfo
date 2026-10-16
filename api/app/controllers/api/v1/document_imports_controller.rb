@@ -450,7 +450,7 @@ module Api
 
       def direct_upload_file_format_valid?(metadata)
         extension = File.extname(metadata.fetch(:filename)).downcase
-        Tempfile.create([ "direct-document-upload", extension ]) do |file|
+        Tempfile.create([ "direct-document-upload", extension ], binmode: true) do |file|
           S3Service.download_to_io!(metadata.fetch(:s3_key), file)
           file.rewind
           detected_type = Marcel::MimeType.for(Pathname(file.path), name: metadata.fetch(:filename))

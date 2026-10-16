@@ -37,7 +37,7 @@ module Mia
       verify_chain!
       validate_phrase_payload!
 
-      Tempfile.create([ "approved-source-phrase", File.extname(source.filename) ]) do |file|
+      Tempfile.create([ "approved-source-phrase", File.extname(source.filename) ], binmode: true) do |file|
         file.binmode
         S3Service.download_to_io!(source.s3_key, file)
         file.flush
