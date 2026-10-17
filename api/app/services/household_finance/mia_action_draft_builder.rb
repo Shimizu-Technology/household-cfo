@@ -222,6 +222,8 @@ module HouseholdFinance
       match = rename_split(action_text)
       return unless match
 
+      return validation_result("More than one category has a name like #{match[:from].squish}. Tell me the exact spelling, or rename it from the Budget tab.") if match[:ambiguous]
+
       category = match[:category] || find_active_category(resolved_category_phrase(match[:from]))
       return missing_category_result([ clean_category_phrase(match[:from]) ]) unless category
 
@@ -265,8 +267,15 @@ module HouseholdFinance
       end
       active = household.budget_categories.active.to_a
       exact = candidates.filter_map do |candidate|
-        category = active.find { |entry| normalized_label(entry.name) == normalized_label(candidate[:from].sub(/\s+category\z/i, "")) }
-        candidate.merge(category: category) if category
+        from = candidate[:from].sub(/\s+category\z/i, "").squish
+        # Punctuation-exact spelling wins; names that differ only by punctuation
+        # ("Kids' Activities" / "Kids Activities") are never guessed between.
+        strict = active.select { |entry| entry.name.squish.casecmp?(from) }
+        loose = active.select { |entry| normalized_label(entry.name) == normalized_label(from) }
+        if strict.one? then candidate.merge(category: strict.first)
+        elsif strict.empty? && loose.one? then candidate.merge(category: loose.first)
+        elsif strict.empty? && loose.many? then candidate.merge(ambiguous: true)
+        end
       end.first
       # A later separator only counts on a full old-name match, so "Travel to Dining Out"
       # never silently targets "Dining Out".

@@ -2779,6 +2779,28 @@ test('only one money change can run at a time from Ask Mia', async ({ page }) =>
   expect(cancelRequests).toBe(0)
 })
 
+test('a stale card for another year still shows out of date when that year budget cannot reload', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const otherYear = workspace.dashboard.action_center.current_year + 1
+  const draftsOf = (flags: Record<string, unknown>) => ({
+    ...workspace,
+    budget: { ...workspace.budget, annual_plan: { ...workspace.budget.annual_plan, pending_mia_action_drafts: workspace.budget.annual_plan.pending_mia_action_drafts.map((draft: { id: number }) => (draft.id === 71 ? { ...draft, year: otherYear, ...flags } : draft)) } },
+  })
+  let rejected = false
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: draftsOf(rejected ? { stale: true } : {}) }))
+  await page.route('http://api.test/api/v1/budget**', (route) => route.fulfill({ status: 500, json: { error: 'down' } }))
+  await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', (route) => {
+    rejected = true
+    return route.fulfill({ status: 422, json: { code: 'stale_review', errors: ['Budget changed since Mia drafted this. Ask Mia to draft a fresh edit.'] } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
+  await card.getByRole('button', { name: 'Apply reviewed change' }).click()
+  await expect(card.getByText('Out of date')).toBeVisible({ timeout: 15_000 })
+  await expect(card.getByRole('button', { name: 'Apply reviewed change' })).toHaveCount(0)
+  await expect(page.getByText(/couldn’t refresh \d{4}’s budget/)).toHaveCount(1, { timeout: 15_000 })
+})
+
 for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
   test(`Ask Mia lands on the newest reply even when review cards follow the conversation at ${viewport.width}x${viewport.height}`, async ({ page }) => {
     const workspace = realWorkspaceData(true)

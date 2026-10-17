@@ -162,7 +162,14 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       assert_includes system_text, "Do not repeat an earlier safety or 988 reference on a later unrelated money question", message
       assert_includes system_text, "including short follow-ups to an earlier crisis turn", message
       assert_includes system_text, "call or text 988", message
-      assert_equal message, captured.fetch("messages").last.fetch("content")
+      sent = captured.fetch("messages")
+      assert_equal message, sent.last.fetch("content")
+      contents = sent.pluck("content")
+      crisis_at = contents.index("i wanna kms fr")
+      reply_at = contents.index(Mia::CrisisBoundary.response)
+      assert crisis_at && reply_at, "both earlier crisis turns reach the provider"
+      assert_operator crisis_at, :<, reply_at
+      assert_operator reply_at, :<, sent.length - 1
     end
   end
 

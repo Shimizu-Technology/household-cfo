@@ -2670,14 +2670,32 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         const isCurrent = captureWorkspaceReloadGuard()
         void (async () => {
           const payload = await fetchAppData(true)
+          if (!isCurrent()) return
+          // Commit the refreshed workspace on its own so the card shows "Out of
+          // date" even if the other-year budget below cannot be fetched.
+          setData(payload)
+          replaceMiaHistory(payload.mia)
           // The workspace holds the current year; a card for another year needs
           // that year's budget refreshed too, or it would render from the cache.
-          const otherYear = draft.year !== payload.dashboard.action_center.current_year ? await fetchBudget(draft.year) : null
+          if (draft.year === payload.dashboard.action_center.current_year) return
+          let plan: Awaited<ReturnType<typeof fetchBudget>> | null = null
+          for (let attempt = 0; attempt < 2 && !plan; attempt += 1) {
+            try { plan = await fetchBudget(draft.year) } catch { /* retried once, then reported */ }
+          }
           if (!isCurrent()) return
-          setData(payload)
-          if (otherYear?.annual_plan?.year === draft.year) setData(current => current ? { ...current, budget: otherYear } : current)
-          replaceMiaHistory(payload.mia)
-        })().catch(() => undefined)
+          if (plan?.annual_plan?.year === draft.year) {
+            const refreshed = plan
+            setData(current => current ? { ...current, budget: refreshed } : current)
+          } else {
+            const notice = `This review is out of date, but we couldn’t refresh ${draft.year}’s budget. Reload the page before applying anything.`
+            setBudgetError(notice)
+            setMiaError(notice)
+          }
+        })().catch(() => {
+          const notice = 'This review is out of date, but we couldn’t refresh your workspace. Reload the page before applying anything.'
+          setBudgetError(notice)
+          setMiaError(notice)
+        })
       }
     } finally {
       endBudgetAction()

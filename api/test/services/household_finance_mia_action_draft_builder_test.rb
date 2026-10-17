@@ -308,6 +308,23 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_equal "Dining Out", @household.budget_categories.active.find_by(name: "Dining Out").name
   end
 
+  test "rename never guesses between categories that differ only by punctuation" do
+    apostrophe = @manager.create_category!(name: "Kids' Activities", stack_key: "discretionary", monthly_amount: 10)
+    plain = @manager.create_category!(name: "Kids Activities", stack_key: "discretionary", monthly_amount: 10)
+    build = lambda do |prompt|
+      HouseholdFinance::MiaActionDraftBuilder.new(@household, prompt, user: @user, annual_budget_manager: @manager, selected_month: 7, raw_input: prompt).call
+    end
+
+    exact = build.call("rename the Kids Activities category to Camps")
+    assert_equal plain.id, exact.proposal.items.first.payload.fetch(:category_id)
+    exact = build.call("rename the Kids' Activities category to Camps")
+    assert_equal apostrophe.id, exact.proposal.items.first.payload.fetch(:category_id)
+
+    ambiguous = build.call("rename the kids activities! category to Camps")
+    assert_nil ambiguous.proposal
+    assert_includes ambiguous.response, "More than one category"
+  end
+
   test "builds structured category create rename and reclassify proposals" do
     create_result = build_command(
       type: "create_category",

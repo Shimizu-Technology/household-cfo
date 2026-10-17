@@ -87,3 +87,32 @@ it('shows the review shortcut only while the review queue is below the fold', as
     spy.mockRestore()
   }
 })
+
+it('re-measures the review shortcut when the chat card is resized, without any scroll', async () => {
+  const resize: { run: (() => void) | null } = { run: null }
+  const originalObserver = globalThis.ResizeObserver
+  globalThis.ResizeObserver = class { constructor(callback: () => void) { resize.run = callback } observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver
+  let queueTop = 900
+  const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const top = this.classList.contains('chat-review-queue') ? queueTop : 0
+    const bottom = this.classList.contains('chat-card') ? 500 : top + 100
+    return { top, bottom, left: 0, right: 300, width: 300, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }
+  })
+  try {
+    render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} showScrollButton reviewCount={2} reviewContent={<p>Transactions to review</p>} />)
+    expect(await screen.findByRole('button', { name: /waiting for your review/ })).toBeTruthy()
+
+    queueTop = 300 // a viewport resize moved the queue into view; no scroll event fires
+    resize.run?.()
+    await waitFor(() => expect(screen.queryByRole('button', { name: /waiting for your review/ })).toBeNull())
+    expect(document.querySelector('.chat-card-wrap')?.classList.contains('has-review-shortcut')).toBe(false)
+
+    queueTop = 900
+    resize.run?.()
+    expect(await screen.findByRole('button', { name: /waiting for your review/ })).toBeTruthy()
+    expect(document.querySelector('.chat-card-wrap')?.classList.contains('has-review-shortcut')).toBe(true)
+  } finally {
+    spy.mockRestore()
+    globalThis.ResizeObserver = originalObserver
+  }
+})
