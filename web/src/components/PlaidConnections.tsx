@@ -605,7 +605,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
                 <span>I authorize {brand.organization_name} to retrieve read-only balances and transactions through Plaid and use limited transaction summaries to answer my {assistantName} questions. I can disconnect at any time.</span>
               </label>
               <a href={brand.footer.privacy_url ?? '/privacy.html'} target="_blank" rel="noreferrer">Privacy and bank-data notice</a>
-              <button type="button" className="primary-button" disabled={!consent || Boolean(busy)} onClick={() => void connect()}>Connect a bank</button>
+              <button type="button" className="secondary-button" disabled={!consent || Boolean(busy)} onClick={() => void connect()}>Connect a bank</button>
             </div>
 
             <div className="plaid-items">

@@ -60,6 +60,7 @@ import {
   transactionDraftBudgetImpacts,
   type TransactionDraftBudgetImpact,
 } from './lib/budgetPosition'
+import { firstSetupHasUnsavedChanges } from './lib/firstSetupDraft'
 import { addMoney, formatMoneyOrUnknown, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
 import { changedDebtMoneyInputs, changedInterestRateInput } from './lib/documentItemUpdate'
 import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/financialUploadValidation'
@@ -69,7 +70,7 @@ import { guamTodayIso } from './lib/householdDate'
 import { changedElsewhereMessage, latestAllocation, latestCategory } from './lib/budgetConflict'
 import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceSetupForm'
 import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
-import { documentNeedsReview, latestAppliedImport, transactionReviewCoverage } from './lib/documentReview'
+import { documentNeedsReview, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
   captureApiOperation,
@@ -527,6 +528,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   useEffect(() => { workspaceMounted.current = true; return () => { workspaceMounted.current = false } }, [])
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupDraft | null>(null)
   const [isProfileEditing, setIsProfileEditing] = useState(false)
+  const [budgetNotice, setBudgetNotice] = useState<string | null>(null)
+  const [bulkConfirmRequest, setBulkConfirmRequest] = useState<{ drafts: TransactionDraft[]; total: number } | null>(null)
   // What the profile form showed when editing began; only fields that differ are saved.
   const [profileEditBaseline, setProfileEditBaseline] = useState<WorkspaceSetupValues | null>(null)
   const profileEditingRef = useRef(isProfileEditing)
@@ -577,6 +580,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetActionRef.current) return false
     budgetActionRef.current = name
     setBudgetAction(name)
+    setBudgetNotice(null)
     return true
   }
   const endBudgetAction = () => {
@@ -792,6 +796,23 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     isProfileEditing && !isFirstSessionSetup && data?.workspace?.setup_complete && setupDraft && profileEditBaseline
     && Object.keys(changedWorkspaceSetupValues(submittableWorkspaceSetupValues(setupDraft, true), profileEditBaseline)).length > 0,
   )
+  const hasUnsavedFirstSetupChanges = Boolean(
+    isFirstSessionSetup && setupDraft && data?.workspace?.setup_values
+    && firstSetupHasUnsavedChanges(setupDraft, workspaceSetupDraftFromValues(data.workspace.setup_values, data.workspace.setup_status)),
+  )
+  const profileMonthPlan = (() => {
+    const plan = data?.budget?.annual_plan
+    if (!isRealWorkspace || !plan || isFirstSessionSetup) return null
+    const today = guamTodayIso()
+    if (plan.year !== Number(today.slice(0, 4))) return null
+    const monthIndex = monthIndexFromIsoDate(today)
+    const groupTotal = (stack: BudgetStackKey) => sumMoney(plan.rows.filter((row) => row.active && row.stack_key === stack).map((row) => row.months[monthIndex]?.planned ?? 0))
+    return {
+      label: new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(plan.year, monthIndex, 1))),
+      fixed: groupTotal('non_discretionary'),
+      flexible: groupTotal('discretionary'),
+    }
+  })()
   const canResumePlaidOAuthReturn = Boolean(
     hasPendingPlaidOAuthReturn()
     && data?.workspace?.setup_complete
@@ -1119,7 +1140,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [canLoadWorkspace, auth.currentUser?.id, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId, onProgramVerified, onProgramUnavailable, participantActorId, setData])
 
   useEffect(() => {
-    if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending && !hasUnsavedMoneyChanges && !hasUnsavedProfileChanges) return
+    if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending && !hasUnsavedMoneyChanges && !hasUnsavedProfileChanges && !hasUnsavedFirstSetupChanges) return
 
     const preventUnsavedNavigation = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -1127,7 +1148,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
     window.addEventListener('beforeunload', preventUnsavedNavigation)
     return () => window.removeEventListener('beforeunload', preventUnsavedNavigation)
-  }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedProfileChanges])
+  }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedProfileChanges, hasUnsavedFirstSetupChanges])
 
   useEffect(() => {
     if (!workspaceLoadKey) return
@@ -2173,6 +2194,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     if (!beginBudgetAction('create-category')) return
     setBudgetError(null)
+    setBudgetNotice(null)
     const input = {
       name: newBudgetCategory.name,
       stack_key: newBudgetCategory.stack_key,
@@ -2187,6 +2209,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       refreshSpendingReportForBudget(budget)
       await refreshCurrentHomeAfterSharedChange(budget)
       setNewBudgetCategory(blankBudgetCategoryDraft())
+      setBudgetNotice(`Added the category "${input.name.trim()}". It now appears in your plan below.`)
+      setRouteAnnouncement(`Added the category ${input.name.trim()}.`)
       captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
     } catch (caught) {
       setBudgetError(participantErrorMessage(caught, 'Budget category could not be created.'))
@@ -2713,7 +2737,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
   }
 
-  async function handleBulkTransactionDrafts(drafts: TransactionDraft[], resolution: 'confirm' | 'ignore') {
+  async function handleBulkTransactionDrafts(drafts: TransactionDraft[], resolution: 'confirm' | 'ignore', confirmed = false) {
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
@@ -2721,20 +2745,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (pendingDrafts.length === 0) return
     const ids = pendingDrafts.map((draft) => draft.id)
     const total = sumMoney(pendingDrafts.map((draft) => exactMoneyNumber(draft.amount, draft.amount_cents)))
-    if (resolution === 'confirm') {
-      const phrase = `CONFIRM ${ids.length}`
-      const entered = window.prompt(
-        `This will post ${ids.length} transaction${ids.length === 1 ? '' : 's'} totaling ${currency.format(total)} to actuals. This is all-or-nothing. Review possible matches first, then type ${phrase} to continue.`,
-      )
-      if (entered === null) return
-      const mismatch = bulkConfirmPhraseMismatchMessage(ids.length, entered)
-      if (mismatch) {
-        setBudgetError(mismatch)
-        setDocumentsError(mismatch)
-        setMiaError(mismatch)
-        return
-      }
-    } else if (!window.confirm(`Ignore ${ids.length} pending transaction reviews totaling ${currency.format(total)}? Actuals will not change.`)) {
+    if (resolution === 'confirm' && !confirmed) {
+      // Typed confirmation happens in an in-app dialog (BulkConfirmDialog); it re-enters below.
+      setBulkConfirmRequest({ drafts: pendingDrafts, total })
+      return
+    } else if (resolution === 'ignore' && !window.confirm(`Ignore ${ids.length} pending transaction reviews totaling ${currency.format(total)}? Actuals will not change.`)) {
       return
     }
 
@@ -3468,6 +3483,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onReviewMiaActions={() => switchSection('Ask Mia')}
               pendingImportCount={pendingImportsCount}
               onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
+              onOpenDebt={isRealWorkspace ? () => handleProfileSectionEdit('debt') : undefined}
             />
           )}
         </>
@@ -3958,6 +3974,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
               firstSession={isFirstSessionSetup}
+              monthPlan={profileMonthPlan}
             />
           )}
 
@@ -4162,6 +4179,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               isRealWorkspace={Boolean(isRealWorkspace)}
               action={budgetContextAction}
               error={budgetError}
+              notice={budgetNotice}
               selectedMonthIndex={selectedBudgetMonthIndex}
               spendingReport={spendingReport}
               spendingReportLoading={spendingReportLoading}
@@ -4315,6 +4333,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
       {activeSection !== 'Ask Mia' && <BrandFooter />}
 
+      {bulkConfirmRequest && (
+        <BulkConfirmDialog
+          count={bulkConfirmRequest.drafts.length}
+          total={bulkConfirmRequest.total}
+          onCancel={() => setBulkConfirmRequest(null)}
+          onConfirm={() => {
+            const drafts = bulkConfirmRequest.drafts
+            setBulkConfirmRequest(null)
+            void handleBulkTransactionDrafts(drafts, 'confirm', true)
+          }}
+        />
+      )}
+
       {confirmClearChat && (
         <ClearChatConfirmDialog
           isClearing={miaClearing}
@@ -4461,6 +4492,55 @@ function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMi
             </div>
           )}
         </div>
+      </section>
+    </div>
+  )
+}
+
+export function BulkConfirmDialog({ count, total, onCancel, onConfirm }: { count: number; total: number; onCancel: () => void; onConfirm: () => void }) {
+  const dialogRef = usePilotDialog(onCancel)
+  const [typed, setTyped] = useState('')
+  const [problem, setProblem] = useState<string | null>(null)
+  const phrase = `CONFIRM ${count}`
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const mismatch = bulkConfirmPhraseMismatchMessage(count, typed)
+    if (mismatch) {
+      setProblem(mismatch)
+      return
+    }
+    onConfirm()
+  }
+
+  return (
+    <div className="clear-chat-overlay" role="presentation">
+      <button type="button" className="clear-chat-backdrop" aria-label="Cancel and go back" onClick={onCancel} />
+      <section ref={dialogRef} className="clear-chat-dialog bulk-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-confirm-title" aria-describedby="bulk-confirm-copy" tabIndex={-1}>
+        <form onSubmit={submit} noValidate>
+          <p className="eyebrow">Review before posting</p>
+          <h3 id="bulk-confirm-title">Confirm {count} transaction{count === 1 ? '' : 's'}?</h3>
+          <p id="bulk-confirm-copy">
+            This posts {count} transaction{count === 1 ? '' : 's'} totaling {currency.format(total)} to your actuals. It is all or nothing, so check possible matches first. To continue, type <strong>{phrase}</strong>.
+          </p>
+          <label className="bulk-confirm-field">
+            <span>Type {phrase}</span>
+            <input
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              value={typed}
+              aria-invalid={problem ? true : undefined}
+              aria-describedby={problem ? 'bulk-confirm-error' : undefined}
+              onChange={(event) => { setTyped(event.currentTarget.value); setProblem(null) }}
+            />
+          </label>
+          {problem && <p id="bulk-confirm-error" className="setup-error" role="alert">{problem}</p>}
+          <div className="clear-chat-dialog-actions">
+            <button type="button" className="secondary" onClick={onCancel}>Go back</button>
+            <button type="submit" className="danger">Confirm {count}</button>
+          </div>
+        </form>
       </section>
     </div>
   )
@@ -5491,7 +5571,7 @@ type EditableDocumentItemDraft = {
   evidence: string
 }
 
-function DocumentImportItemEditor({
+export function DocumentImportItemEditor({
   documentImport,
   item,
   saving,
@@ -5512,6 +5592,7 @@ function DocumentImportItemEditor({
   const moneyFields = documentItemMoneyFields(draft.target_type)
   const fieldsDisabled = saving || !editing
   const targetDisabled = saving || !editing || applied || !canEditDraft
+  const needsPayFrequency = itemNeedsPayFrequency(item)
 
   function updateDraft(values: Partial<EditableDocumentItemDraft>) {
     setDraft((current) => ({ ...current, ...values }))
@@ -5538,11 +5619,11 @@ function DocumentImportItemEditor({
         <label className="document-check">
           <input
             type="checkbox"
-            checked={item.selected && !item.ignored}
-            disabled={selectionDisabled || editing}
+            checked={item.selected && !item.ignored && !needsPayFrequency}
+            disabled={selectionDisabled || editing || needsPayFrequency}
             onChange={(event) => onUpdate({ selected: event.target.checked, ignored: false })}
           />
-          <span>{item.applied_at ? 'Applied' : 'Apply'}</span>
+          <span>{item.applied_at ? 'Applied' : needsPayFrequency ? 'Choose how often first' : 'Apply'}</span>
         </label>
         <button
           type="button"
@@ -5601,6 +5682,7 @@ function DocumentImportItemEditor({
           <label className="document-field">
             <span>Cadence</span>
             <select value={draft.cadence} disabled={fieldsDisabled} onChange={(event) => updateDraft({ cadence: event.currentTarget.value })}>
+              {draft.cadence === '' && <option value="">Choose how often</option>}
               {cadenceOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
@@ -5646,6 +5728,7 @@ function DocumentImportItemEditor({
       </div>
 
       {item.evidence && <p className="document-evidence">{item.evidence}</p>}
+      {needsPayFrequency && <p className="document-evidence applied-note" role="note">This file does not say how often you are paid. Click Edit value, choose how often, then Save before you apply it, so your income is not guessed.</p>}
       {applied && canCorrectApplied && (
         <p className="document-evidence applied-note">
           Click Correct value before changing saved household numbers. Nothing updates until you press Save.
@@ -6034,7 +6117,8 @@ function editableDocumentItemDraft(item: DocumentImportItem): EditableDocumentIt
     balance: moneyDraftValue(item.balance),
     payment: moneyDraftValue(item.payment),
     interest_rate_percent: item.interest_rate_percent === null ? '' : String(item.interest_rate_percent),
-    cadence: item.cadence ?? 'monthly',
+    // Income with no stated pay frequency stays unset so the participant chooses; monthly would understate biweekly pay.
+    cadence: item.cadence ?? (item.target_type === 'income_source' ? '' : 'monthly'),
     source_type: item.source_type ?? 'other',
     stack_key: item.stack_key ?? 'discretionary',
     account_type: item.account_type ?? 'other',
@@ -6097,12 +6181,6 @@ function documentItemSignature(item: DocumentImportItem) {
     item.ignored,
     item.applied_at,
   ].join('|')
-}
-
-function selectedApplyItemIds(documentImport: FinancialDocumentImport) {
-  return documentImport.items
-    .filter((item) => item.selected && !item.ignored && !item.applied_at)
-    .map((item) => item.id)
 }
 
 function importTimestamp(documentImport: FinancialDocumentImport) {
@@ -6229,13 +6307,14 @@ function messageLengthBucket(length: number) {
   return '750_plus'
 }
 
-function WorkspaceSetupForm({
+export function WorkspaceSetupForm({
   formRef,
   values,
   editing,
   saving,
   error,
   firstSession,
+  monthPlan,
   onBeginEdit,
   onCancel,
   onChange,
@@ -6247,6 +6326,7 @@ function WorkspaceSetupForm({
   saving: boolean
   error: string | null
   firstSession: boolean
+  monthPlan?: { label: string; fixed: number; flexible: number } | null
   onBeginEdit: () => void
   onCancel: () => void
   onChange: (key: keyof WorkspaceSetupValues, value: string) => void
@@ -6274,6 +6354,18 @@ function WorkspaceSetupForm({
           )}
         </div>}
       </div>
+
+      {!firstSession && monthPlan && (() => {
+        const differs = (field: string, planned: number) => values[field as keyof WorkspaceSetupValues] !== '' && Math.abs(Number(values[field as keyof WorkspaceSetupValues]) - planned) >= 0.005
+        const fixedDiffers = differs('fixed_expenses', monthPlan.fixed)
+        const flexibleDiffers = differs('flexible_spend', monthPlan.flexible)
+        return (
+          <p className="setup-base-note" role="note">
+            These are your base monthly amounts, the usual month. Budget can plan a different amount for a single month.
+            {(fixedDiffers || flexibleDiffers) && ` Your ${monthPlan.label} plan in Budget: ${[fixedDiffers ? `Fixed essentials ${currency.format(monthPlan.fixed)}` : null, flexibleDiffers ? `Flexible spending ${currency.format(monthPlan.flexible)}` : null].filter(Boolean).join(', ')}.`}
+          </p>
+        )
+      })()}
 
       <fieldset className="setup-fieldset">
         <legend>Essential first-session information</legend>
@@ -6997,11 +7089,12 @@ export function ManualTransactionCapture({
   const [amount, setAmount] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
+  const [added, setAdded] = useState<string | null>(null)
   const toggleRef = useRef<HTMLButtonElement | null>(null)
   const activeCategories = categories.filter((category) => category.active)
 
-  function closeOnEscape(event: KeyboardEvent<HTMLFormElement>) {
-    if (event.key !== 'Escape' || locked) return
+  function closeOnEscape(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== 'Escape' || locked || !open) return
     event.preventDefault()
     setOpen(false)
     setFormError(null)
@@ -7020,33 +7113,38 @@ export function ManualTransactionCapture({
     event.preventDefault()
     setFormError(null)
     try {
+      const addedMerchant = merchant.trim()
+      const addedAmount = Number(amount)
       await onCreate({
         occurred_on: occurredOn,
-        merchant: merchant.trim(),
+        merchant: addedMerchant,
         amount,
         budget_category_id: categoryId ? Number(categoryId) : null,
       })
       reset()
       setOpen(false)
+      setAdded(`Added ${addedMerchant}${Number.isFinite(addedAmount) ? ` for ${currency.format(addedAmount)}` : ''} to your review. Your actuals stay unchanged until you confirm it.`)
+      toggleRef.current?.focus()
     } catch (caught) {
       setFormError(participantErrorMessage(caught, 'Transaction review could not be created.'))
     }
   }
 
   return (
-    <section className="manual-transaction-capture" aria-labelledby="manual-transaction-heading">
+    <section className="manual-transaction-capture" aria-labelledby="manual-transaction-heading" onKeyDown={closeOnEscape}>
       <div className="manual-transaction-heading">
         <div>
           <p className="eyebrow">Quick capture</p>
           <h3 id="manual-transaction-heading">Add a transaction</h3>
           <p>Create a review card now. Your budget actuals stay unchanged until you confirm it.</p>
         </div>
-        <button ref={toggleRef} type="button" className="secondary-button" aria-expanded={open} onClick={() => { setOpen((current) => !current); setFormError(null) }}>
+        <button ref={toggleRef} type="button" className="secondary-button" aria-expanded={open} onClick={() => { setOpen((current) => !current); setFormError(null); setAdded(null) }}>
           {open ? 'Close' : 'Add transaction'}
         </button>
       </div>
+      {added && !open && <p className="document-alert success" role="status">{added}</p>}
       {open && (
-        <form className="manual-transaction-form" onSubmit={(event) => void submit(event)} onKeyDown={closeOnEscape}>
+        <form className="manual-transaction-form" onSubmit={(event) => void submit(event)}>
           <label><span>Date</span><input type="date" required max={guamTodayIso()} value={occurredOn} onChange={(event) => setOccurredOn(event.currentTarget.value)} /></label>
           <label><span>Merchant</span><input required maxLength={120} autoComplete="organization" placeholder="Pay-Less" value={merchant} onChange={(event) => setMerchant(event.currentTarget.value)} /></label>
           <label><span>Amount</span><input type="number" required min="0.01" step="0.01" inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.currentTarget.value)} /></label>
@@ -8786,6 +8884,7 @@ function AnnualBudgetPlanner({
   isRealWorkspace,
   action,
   error,
+  notice,
   selectedMonthIndex,
   spendingReport,
   spendingReportLoading,
@@ -8820,6 +8919,7 @@ function AnnualBudgetPlanner({
   isRealWorkspace: boolean
   action: string | null
   error: string | null
+  notice?: string | null
   selectedMonthIndex: number
   spendingReport: SpendingReport | null
   spendingReportLoading: boolean
@@ -9137,6 +9237,7 @@ function AnnualBudgetPlanner({
 
           {hasUnsavedIncomeChanges && <p className="annual-edit-hint" role="status">Save or cancel your income draft before switching tools or report periods.</p>}
           {error && <p className="setup-error" role="alert">{error}</p>}
+          {notice && !error && <p className="document-alert success" role="status">{notice}</p>}
 
           {manualTool === 'category' && (
             <div className="budget-manual-tool">

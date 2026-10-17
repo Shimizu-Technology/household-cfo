@@ -60,6 +60,23 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "income with a blank or unknown cadence stays unset while expenses keep monthly" do
+    file = Tempfile.new([ "budget", ".csv" ])
+    file.write("type,label,amount,cadence,category\nincome_source,Paycheck,1500,,job\nincome_source,Side gig,300,sometimes,business\nincome_source,Rent income,900,biweekly,rental\nexpense_item,Groceries,400,,discretionary\n")
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "budget.csv").call
+
+    assert result.success?, result.error
+    by_label = result.data.fetch(:items).index_by { |item| item.fetch(:label) }
+    assert_nil by_label.fetch("Paycheck").fetch(:cadence)
+    assert_nil by_label.fetch("Side gig").fetch(:cadence)
+    assert_equal "biweekly", by_label.fetch("Rent income").fetch(:cadence)
+    assert_equal "monthly", by_label.fetch("Groceries").fetch(:cadence)
+  ensure
+    file&.close!
+  end
+
   test "skips non-finite spreadsheet amounts without failing whole extraction" do
     file = Tempfile.new([ "budget", ".csv" ])
     file.write("type,label,amount,cadence,category,notes\nexpense_item,Broken formula,NaN,monthly,discretionary,Ignore\nexpense_item,Dining out,420,monthly,discretionary,Valid\n")

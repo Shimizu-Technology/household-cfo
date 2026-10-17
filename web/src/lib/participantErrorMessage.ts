@@ -1,4 +1,4 @@
-import { FINANCIAL_UPLOAD_SIZE_GUIDANCE } from './financialUploadValidation'
+import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, FINANCIAL_UPLOAD_SPLIT_GUIDANCE } from './financialUploadValidation'
 
 // Structural match for the API client's ApiRequestError, so this helper has no
 // runtime dependency on the API module (and works where tests mock it).
@@ -22,7 +22,7 @@ const STATUS_MESSAGES: Record<number, string> = {
   403: 'Your account doesn’t have access to this. Contact your program team if that seems wrong.',
   404: 'We couldn’t find that anymore. Refresh to see the latest.',
   409: 'This changed since you opened it. Refresh to see the latest, then try again.',
-  413: `That file is too large. ${FINANCIAL_UPLOAD_SIZE_GUIDANCE}`,
+  413: `That file is too large. ${FINANCIAL_UPLOAD_SIZE_GUIDANCE}. ${FINANCIAL_UPLOAD_SPLIT_GUIDANCE}`,
   429: 'You’re going a little fast. Give it a minute and try again.',
 }
 

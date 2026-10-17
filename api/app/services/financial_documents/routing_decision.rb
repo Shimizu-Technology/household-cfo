@@ -37,6 +37,11 @@ module FinancialDocuments
     def call
       declared_kind = valid_kind(document_import.metadata.to_h["declared_document_kind"]) || valid_kind(document_import.document_kind) || "other"
       context_kind = kind_from_context(document_import.metadata.to_h["upload_context"])
+      # A message that describes one attachment must not re-route another. A
+      # spreadsheet or CSV is judged by its own content, so message words that
+      # point at a different kind (for example "lunch receipt" beside a bank CSV)
+      # are ignored for it.
+      context_kind = nil if context_kind.present? && structured_file? && detected_kind.present? && detected_kind != "other" && context_kind != detected_kind
       explicit_selection = document_import.metadata.to_h["document_kind_explicit"] == true || document_import.metadata.to_h["upload_origin"] == "profile"
       participant_kind = context_kind || (declared_kind if explicit_selection)
       participant_signal_conflict = context_kind.present? && explicit_selection && context_kind != declared_kind
@@ -74,9 +79,18 @@ module FinancialDocuments
       kind if kind.in?(FinancialDocumentImport::DOCUMENT_KINDS)
     end
 
+    def structured_file?
+      extension = File.extname(document_import.filename.to_s).downcase
+      extension.in?(%w[.csv .xls .xlsx]) ||
+        document_import.content_type.to_s.in?(%w[text/csv application/csv text/comma-separated-values application/vnd.ms-excel application/vnd.openxmlformats-officedocument.spreadsheetml.sheet])
+    end
+
+    # Only a message that points at exactly one kind can speak for an attachment;
+    # naming several kinds at once ("pay stub and receipt") says nothing about which file is which.
     def kind_from_context(value)
       context = value.to_s.unicode_normalize(:nfkc).squish.first(500)
-      CONTEXT_PATTERNS.find { |_kind, pattern| context.match?(pattern) }&.first
+      kinds = CONTEXT_PATTERNS.select { |_kind, pattern| context.match?(pattern) }.keys
+      kinds.first if kinds.one?
     end
   end
 end

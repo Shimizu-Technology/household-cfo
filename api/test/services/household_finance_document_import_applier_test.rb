@@ -23,6 +23,34 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     )
   end
 
+  test "income waiting for a pay frequency does not block applying the rest of the import" do
+    income = @document_import.items.create!(target_type: "income_source", label: "Payroll deposit", amount_cents: 1_500_00, cadence: nil, source_type: "job", confidence: "medium")
+    account = @document_import.items.create!(target_type: "account", label: "Checking", balance_cents: 2_250_00, account_type: "checking", confidence: "high")
+    debt = @document_import.items.create!(target_type: "debt", label: "Visa", balance_cents: 4_820_00, payment_cents: 150_00, debt_type: "credit_card", confidence: "medium")
+
+    assert_not income.selected?, "income without a frequency is never pre-selected"
+    [ account, debt ].each { |item| item.update!(selected: true) }
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.join
+    assert_equal 2, result.applied_count
+    assert_nil @household.income_sources.find_by(label: "Payroll deposit")
+    assert account.reload.applied_at.present?
+    assert_nil income.reload.applied_at
+  end
+
+  test "income with no pay frequency is not applied until one is chosen" do
+    @document_import.items.create!(target_type: "income_source", label: "Payroll deposit", amount_cents: 1_500_00, cadence: nil, source_type: "job", confidence: "medium")
+    @document_import.items.last.update_columns(selected: true)
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert_not result.success?
+    assert_match(/Choose how often you are paid/, result.errors.join)
+    assert_nil @household.income_sources.find_by(label: "Payroll deposit")
+  end
+
   test "applies selected extracted values to household records with lineage" do
     income = @document_import.items.create!(
       target_type: "income_source",

@@ -455,6 +455,7 @@ export type DashboardData = {
   coach_read: {
     title: string
     body: string
+    action?: 'open_debt'
   }
   readiness_path: {
     available?: boolean
@@ -467,7 +468,7 @@ export type DashboardData = {
     green: ReadinessMilestone
   }
   accounts: Array<{ name: string; type: string; balance: number }>
-  alerts: Array<{ tone: string; title: string; body: string }>
+  alerts: Array<{ tone: string; title: string; body: string; action?: 'open_debt' }>
   next_steps: string[]
 }
 

@@ -327,7 +327,7 @@ module FinancialDocuments
         negative_as_magnitude: accounting_negative_as_magnitude?(type),
         allow_negative: type == "account" && account_type(category, label).in?(Account::SIGNED_BALANCE_TYPES)
       )
-      cadence = normalized_cadence(cell(values, header_map, "cadence"))
+      cadence = normalized_cadence(cell(values, header_map, "cadence"), type)
       notes = clean_text(cell(values, header_map, "notes"), max_length: 1000)
       payment_cents = payment_cents_for(cell(values, header_map, "payment"), notes)
       apr_index = header_map["apr"]
@@ -412,10 +412,13 @@ module FinancialDocuments
       value.to_s.unicode_normalize(:nfkc).downcase.gsub(/[^a-z0-9]+/, "_").gsub(/\A_|_\z/, "")
     end
 
-    def normalized_cadence(value)
+    def normalized_cadence(value, type = nil)
       token = normalized_token(value)
       token = "one_time" if token.in?(%w[one once oneoff one_off current balance])
-      token.in?(IncomeSource::CADENCES) ? token : "monthly"
+      return token if token.in?(IncomeSource::CADENCES)
+
+      # Income with a blank or unrecognized pay frequency stays unset for the participant to choose.
+      type == "income_source" ? nil : "monthly"
     end
 
     def income_source_type(category, label)
