@@ -104,6 +104,42 @@ class ApiV1ChallengeCohortsControllerTest < ActionDispatch::IntegrationTest
     assert CohortMembership.exists?(cohort: group, user: manual, role: "coach")
   end
 
+  test "an admin's explicit coach assignment replaces the owner-managed mark and survives demotion" do
+    admin = User.create!(clerk_id: SecureRandom.uuid, email: "explicit-admin-#{SecureRandom.hex(4)}@example.com", role: "admin", invitation_status: "accepted")
+    mel = User.create!(clerk_id: SecureRandom.uuid, email: "explicit-mel-#{SecureRandom.hex(4)}@example.com", role: "coach", invitation_status: "accepted")
+    keeper = User.create!(clerk_id: SecureRandom.uuid, email: "explicit-keeper-#{SecureRandom.hex(4)}@example.com", role: "coach", invitation_status: "accepted")
+    workspace = CoachWorkspace.create!(name: "Explicit", slug: "explicit-#{SecureRandom.hex(4)}", created_by_user: admin)
+    group = Cohort.create!(name: "Explicit group", status: "enrolling", created_by_user: admin, coach_workspace: workspace)
+    collaborators = CoachWorkspaces::Collaborators.new(workspace: workspace, actor: admin)
+    collaborators.add(email: keeper.email, role: "owner")
+    collaborators.add(email: mel.email, role: "owner")
+    assert CohortMembership.find_by!(cohort: group, user: mel).owner_managed?
+
+    patch "/api/v1/admin/users/#{mel.id}", params: { user: { role: "coach", cohort_ids: [ group.id ] } },
+      headers: auth(admin).merge("X-Coach-Workspace-Id" => workspace.id.to_s), as: :json
+    assert_response :success
+    assert_not CohortMembership.find_by!(cohort: group, user: mel).owner_managed?
+
+    current = workspace.coach_workspace_memberships.find_by!(user: mel)
+    collaborators.change(id: current.id, role: "viewer", expected_role: "owner")
+    assert CohortMembership.exists?(cohort: group, user: mel, role: "coach")
+  end
+
+  test "owner cohort access re-checks ownership and tolerates duplicates" do
+    admin = User.create!(clerk_id: SecureRandom.uuid, email: "race-admin-#{SecureRandom.hex(4)}@example.com", role: "admin", invitation_status: "accepted")
+    mel = User.create!(clerk_id: SecureRandom.uuid, email: "race-mel-#{SecureRandom.hex(4)}@example.com", role: "coach", invitation_status: "accepted")
+    workspace = CoachWorkspace.create!(name: "Race", slug: "race-#{SecureRandom.hex(4)}", created_by_user: admin)
+    group = Cohort.create!(name: "Race group", status: "enrolling", created_by_user: admin, coach_workspace: workspace)
+    workspace.coach_workspace_memberships.create!(user: mel, role: "viewer")
+
+    CoachWorkspaces::OwnerCohortAccess.ensure_coach!(group, mel)
+    assert_not CohortMembership.exists?(cohort: group, user: mel), "a user who is no longer an owner gets no row"
+
+    workspace.coach_workspace_memberships.find_by!(user: mel).update!(role: "owner")
+    2.times { CoachWorkspaces::OwnerCohortAccess.ensure_coach!(group, mel) }
+    assert_equal 1, CohortMembership.where(cohort: group, user: mel).count
+  end
+
   test "a person who may not seal reports gets 403 before any validation error" do
     admin = User.create!(clerk_id: SecureRandom.uuid, email: "seal-denied-#{SecureRandom.hex(4)}@example.com", role: "admin", invitation_status: "accepted")
     [ { checkpoint_day: 30, accepted: true, department: "one person" }, { checkpoint_day: 7 }, {} ].each do |input|

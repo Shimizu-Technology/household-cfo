@@ -23,19 +23,45 @@ module CoachWorkspaces
 
     # Undo only the rows granted by ownership; manually assigned coach rows stay.
     def revoke!(workspace, user)
-      CohortMembership.joins(:cohort)
-        .where(user_id: user.id, owner_managed: true, cohorts: { coach_workspace_id: workspace.id })
-        .find_each(&:destroy!)
+      CohortMembership.transaction do
+        lock!(workspace.id, user.id)
+        CohortMembership.joins(:cohort)
+          .where(user_id: user.id, owner_managed: true, cohorts: { coach_workspace_id: workspace.id })
+          .find_each(&:destroy!)
+      end
     end
 
     def owner_coaches(workspace)
       workspace.coach_workspace_memberships.where(role: "owner").includes(:user).map(&:user).select(&:coach?)
     end
 
+    # Takes the same per-(workspace, user) advisory lock the membership
+    # reconciliation uses, then re-checks that the user still owns the program,
+    # so a concurrent demotion can never leave an owner-managed row behind.
     def ensure_coach!(cohort, user)
-      return if CohortMembership.exists?(cohort_id: cohort.id, user_id: user.id)
+      workspace_id = cohort.coach_workspace_id
+      CohortMembership.transaction do
+        lock!(workspace_id, user.id)
+        next unless CoachWorkspaceMembership.exists?(coach_workspace_id: workspace_id, user_id: user.id, role: "owner")
+        next if CohortMembership.exists?(cohort_id: cohort.id, user_id: user.id)
 
-      CohortMembership.create!(cohort: cohort, user: user, role: "coach", owner_managed: true)
+        CohortMembership.create!(cohort: cohort, user: user, role: "coach", owner_managed: true)
+      end
+    rescue ActiveRecord::RecordNotUnique
+      nil
+    rescue ActiveRecord::RecordInvalid => e
+      raise unless e.record.errors.of_kind?(:user_id, :taken)
+    end
+
+    def lock!(workspace_id, user_id)
+      CohortMembership.connection.exec_query(
+        "SELECT pg_advisory_xact_lock($1, $2)",
+        "Owner cohort access lock",
+        [
+          ActiveRecord::Relation::QueryAttribute.new("coach_workspace_id", workspace_id, ActiveRecord::Type::Integer.new),
+          ActiveRecord::Relation::QueryAttribute.new("user_id", user_id, ActiveRecord::Type::Integer.new)
+        ]
+      )
     end
   end
 end

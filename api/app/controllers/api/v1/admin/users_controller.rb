@@ -514,7 +514,9 @@ module Api
           user.cohort_memberships.where.not(cohort_id: cohort_ids).destroy_all
           cohort_ids.each do |cohort_id|
             membership = user.cohort_memberships.find_or_initialize_by(cohort_id: cohort_id)
-            membership.update!(role: role)
+            # An explicit admin assignment is deliberate: it must outlive any
+            # later loss of program ownership, so it is never owner_managed.
+            membership.update!(role: role, owner_managed: false)
           end
         end
 
@@ -532,7 +534,9 @@ module Api
         def add_cohort_memberships(user, cohort_ids, role:)
           cohort_ids.each do |cohort_id|
             membership = user.cohort_memberships.find_or_initialize_by(cohort_id: cohort_id)
-            membership.update!(role: role)
+            # An explicit admin assignment is deliberate: it must outlive any
+            # later loss of program ownership, so it is never owner_managed.
+            membership.update!(role: role, owner_managed: false)
           end
         end
 
