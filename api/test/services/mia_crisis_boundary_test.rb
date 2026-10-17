@@ -157,4 +157,30 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
     assert_not Mia::CrisisBoundary.plan_followup?("i have a plan", nil)
     assert_not Mia::CrisisBoundary.plan_followup?("I have a plan for my budget", "i want to die")
   end
+  test "death wishes and texting forms are crisis phrasing" do
+    [ "i'd be better off dead", "id be better off dead", "i’d be better off dead.", "i dont wanna be alive", "i don't want to be alive", "i don't want to be here anymore",
+      "I don't wanna be alive", "i feel like dying", "i'm thinking of ending things", "thinking about ending it all", "wanna unalive",
+      "i want to unalive", "kys", "KYS", "kys lol", "i wish i was dead" ].each do |message|
+      assert Mia::CrisisBoundary.matches?(message), message
+    end
+  end
+
+  test "softer despair gets the gentle check, not the crisis reply" do
+    [ "i dont want to be here", "i dont wanna be here.", "i wish i could just not exist",
+      "i wish i could disappear", "whats the point of anything", "nothing matters anymore", "nothing matters" ].each do |message|
+      assert Mia::CrisisBoundary.hopeless?(message), message
+      assert_not Mia::CrisisBoundary.matches?(message), message
+    end
+  end
+
+  test "money talk with the same words is left alone" do
+    # Borderline, decided: "I don't want to be here when the bill comes lol" names
+    # a situation, so it does not match; the hopeless phrase must end its clause.
+    [ "I don't want to be here when the bill comes lol", "this budget is killing me", "I'm dying to try that restaurant", "skys the limit",
+      "I don't want to be here at the store all day", "the point of the challenge is saving", "the kys tool", "what is the point of the sinking fund",
+      "I feel like dying of embarrassment", "thinking about ending it with my landlord" ].each do |message|
+      assert_not Mia::CrisisBoundary.matches?(message), message
+      assert_not Mia::CrisisBoundary.hopeless?(message), message
+    end
+  end
 end

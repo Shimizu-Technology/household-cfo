@@ -33,6 +33,14 @@ module Mia
       /\b(?:can['’]?t|cant|cannot|can not)\s+do life(?:\s+any\s?more)?#{PHRASE_END}/i,
       /\b(?:nobody|no one|noone)\s+would\s+(?:even\s+)?(?:miss|notice|care if)\s+(?:me|i (?:was|were) gone)\b/i,
       /\b(?:want|wanna|wish i could)\s+(?:to\s+)?(?:go to\s+)?sleep and (?:never|not) wake up\b/i,
+      # Death wishes and texting forms.
+      /\bi(?:['’]?d| would)\s+be\s+better\s+off\s+dead\b|\bi\s+am\s+better\s+off\s+dead\b/i,
+      /\b(?:don['’]?t|dont|do not)\s+wanna\s+(?:be alive|live|keep living)(?!\s*any\s?more\s*,)/i,
+      /\bi\s+(?:feel|felt)\s+like\s+dying#{PHRASE_END}/i,
+      /\b(?:thinking|thought)\s+(?:of|about)\s+ending\s+(?:things|it all|it|everything)#{PHRASE_END}/i,
+      /\b(?:wanna|want to|going to|gonna|need to)\s+unaliv(?:e|ing)\b/i,
+      # "kys" only as a whole message or sentence, never inside other words.
+      /(?:\A\s*|[.!?]\s+)kys#{PHRASE_END}/i,
       # Stating that they are not safe, or that they have a plan to die.
       /\b(?:i\s*am|i['’]?m|im)\s+not\s+safe(?:\s+(?:right now|tonight|today|here|at home|with myself))?#{PHRASE_END}/i,
       /\bi\s+(?:have|got|made)\s+a\s+plan\s+(?:to|for)\s+(?:end(?:ing)?\s+(?:it|my life|things)|die|dying|kill(?:ing)?|hurt(?:ing)?\s+myself|harm(?:ing)?\s+myself|suicide)\b/i
@@ -49,6 +57,12 @@ module Mia
       /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+be (?:here|alive) any\s?more\s*,/i,
       /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+wake up(?:\s+(?:tomorrow|again|anymore))?\s*,/i,
       /\bi\s+wish\s+i\s+(?:wasn['’]?t|wasnt|weren['’]?t|was not|were not)\s+(?:here|alive|born)\s*,/i,
+      # "here" must end the clause, so "don't want to be here when the bill comes"
+      # or "...at the store all day" stays money talk.
+      /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+be here(?:\s+any\s?more)?#{CLAUSE_END}/i,
+      /\bi\s+wish\s+i\s+could\s+(?:just\s+)?(?:not exist|disappear|vanish)#{CLAUSE_END}/i,
+      /\b(?:what['’]?s|whats|what is) the point of (?:anything|everything|it all)#{POINT_END}/i,
+      /\bnothing (?:even )?matters(?:\s+any\s?more)?#{CLAUSE_END}/i,
       /\bwant (?:it|this|everything) to (?:be over|end)#{CLAUSE_END}/i,
       /\b(?:don['’]?t|dont|do not) see (?:the|any) point(?:\s+any\s?more)?#{CLAUSE_END}/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+(?:do|take|handle|deal with)\s+(?:this|it|any of this)\s+(?:any\s?more|no more|any longer|much longer)(?=\s*(?:[.!?,;…:]|\z|\b(?:lol|tbh|honestly|man|bro)\b))/i,
