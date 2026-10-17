@@ -680,6 +680,8 @@ export type MiaActionDraft = {
   canceled_item_count?: number
   remaining_item_count?: number
   suggested_selected_item_ids?: number[]
+  stale?: boolean
+  stale_message?: string | null
   items: MiaActionItem[]
 }
 

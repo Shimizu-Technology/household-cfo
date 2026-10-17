@@ -1,6 +1,6 @@
 module HouseholdFinance
   class MiaActionDraftApplier
-    Result = Struct.new(:success?, :draft, :application, :errors, :replayed?, :conflict?, keyword_init: true)
+    Result = Struct.new(:success?, :draft, :application, :errors, :replayed?, :conflict?, :stale?, keyword_init: true)
     StaleDraftError = Class.new(StandardError)
     INCOMPLETE_DRAFT_MESSAGE = "Mia’s review card is incomplete. Ask Mia to draft a fresh edit. Nothing changed."
 
@@ -65,21 +65,41 @@ module HouseholdFinance
 
       Result.new(success?: true, draft: draft.reload, application: application.reload, errors: [], replayed?: false)
     rescue ActiveRecord::RecordNotUnique
-      Result.new(success?: false, draft: draft, application: nil, errors: [ stale_category_name_message ])
+      message = stale_category_name_message
+      mark_stale!(message)
+      Result.new(success?: false, draft: draft, application: nil, errors: [ message ], stale?: true)
     rescue ActiveRecord::RecordInvalid => e
       Result.new(success?: false, draft: draft, application: nil, errors: e.record.errors.full_messages)
     rescue KeyError
       Result.new(success?: false, draft: draft, application: nil, errors: [ INCOMPLETE_DRAFT_MESSAGE ])
     rescue Operations::Runner::IdempotencyConflict => e
       Result.new(success?: false, draft: draft, application: nil, errors: [ e.message ], conflict?: true)
-    rescue ArgumentError, ActiveRecord::RecordNotFound, StaleDraftError,
-      Operations::Base::StaleOperation => e
+    rescue StaleDraftError, Operations::Base::StaleOperation => e
+      mark_stale!(e.message)
+      Result.new(success?: false, draft: draft, application: nil, errors: [ e.message ], stale?: true)
+    rescue ArgumentError, ActiveRecord::RecordNotFound => e
       Result.new(success?: false, draft: draft, application: nil, errors: [ e.message ])
     end
 
     private
 
     attr_reader :draft, :household, :user
+
+    # The apply rolled back, so nothing changed. Remember that the saved numbers
+    # moved on, so the card can say it is out of date instead of staying an
+    # active "pending" card with old before-values.
+    def mark_stale!(message)
+      return unless draft.reviewable?
+
+      MiaActionDraft.where(id: draft.id, status: %w[pending partially_applied]).update_all([
+        "metadata = COALESCE(metadata, '{}'::jsonb) || ?::jsonb, updated_at = ?",
+        { "stale_at" => Time.current.iso8601, "stale_message" => message.to_s.truncate(300) }.to_json,
+        Time.current
+      ])
+      draft.reload
+    rescue StandardError => e
+      Rails.logger.warn("Mia action draft was not marked out of date draft_id=#{draft&.id}: #{e.class}: #{e.message}")
+    end
 
     def normalized_application_key(value)
       key = value.to_s.strip.presence || "legacy-mia-action:#{draft.id}:#{user.id}"

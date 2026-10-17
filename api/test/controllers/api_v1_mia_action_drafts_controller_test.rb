@@ -1151,6 +1151,50 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     refute_includes planned_amounts_for(category), 80_000
   end
 
+  test "a rejected stale Mia card is flagged out of date once and still changes nothing" do
+    user = create_user(email: "mia-action-stale-flag@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+
+    post "/api/v1/mia/messages", params: { message: "Set Groceries budget to $800 per month" }, headers: auth_headers(user), as: :json
+    assert_response :created
+    draft = JSON.parse(response.body).fetch("mia_action_draft")
+    refute draft.fetch("stale")
+    category.budget_allocations.order(:id).first.update!(planned_amount_cents: 550_00)
+
+    post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply", headers: auth_headers(user), as: :json
+
+    assert_response :unprocessable_entity
+    body = JSON.parse(response.body)
+    assert_equal "stale_review", body.fetch("code")
+    assert_equal [ "Budget changed since Mia drafted this. Ask Mia to draft a fresh edit." ], body.fetch("errors")
+    stored = MiaActionDraft.find(draft.fetch("id"))
+    assert_equal "pending", stored.status
+    assert stored.metadata["stale_at"].present?
+    refute_includes planned_amounts_for(category), 80_000
+
+    get "/api/v1/workspace", headers: auth_headers(user), as: :json
+    card = JSON.parse(response.body).dig("budget", "annual_plan", "pending_mia_action_drafts").find { |entry| entry.fetch("id") == stored.id }
+    assert card.fetch("stale")
+    assert_equal "Budget changed since Mia drafted this. Ask Mia to draft a fresh edit.", card.fetch("stale_message")
+  end
+
+  test "canceling a card that is not reviewable is not reported as out of date" do
+    user = create_user(email: "mia-action-not-stale@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+    post "/api/v1/mia/messages", params: { message: "Set Groceries budget to $800 per month" }, headers: auth_headers(user), as: :json
+    draft_id = JSON.parse(response.body).fetch("mia_action_draft").fetch("id")
+    post "/api/v1/mia_action_drafts/#{draft_id}/cancel", headers: auth_headers(user), as: :json
+    assert_response :success
+
+    post "/api/v1/mia_action_drafts/#{draft_id}/apply", headers: auth_headers(user), as: :json
+
+    assert_response :unprocessable_entity
+    assert_nil JSON.parse(response.body)["code"]
+    assert_nil MiaActionDraft.find(draft_id).metadata["stale_at"]
+  end
+
   test "mia can draft and apply category rename and reclassification" do
     user = create_user(email: "mia-action-category-edits@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

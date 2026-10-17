@@ -71,4 +71,13 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
 
     assert policy.cultural_language_allowed?
   end
+
+  test "wording rules for just, simply and par live in the prompt, so real names pass through unchanged" do
+    policy = Mia::LanguagePolicy.new(user_message: "What did we spend?")
+    [
+      "Just Desserts was $18 and Simply Orange was $4.",
+      "Par 3 Golf is in Discretionary. Just pay the minimum.",
+      "Simply Gum is $4.\nYou are on par, ok."
+    ].each { |text| assert_equal text.gsub("\n", " "), policy.sanitize(text) }
+  end
 end
