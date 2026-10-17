@@ -79,6 +79,19 @@ describe('bounded source accounting review', () => {
     await waitFor(() => expect((screen.getByLabelText('Selected-row review note') as HTMLInputElement).value).toBe('Keep this note'))
   })
 
+  it('keeps the note and shows the error when a refresh of the same page fails', async () => {
+    setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
+    fetchReview.mockReset()
+    fetchReview.mockResolvedValueOnce(participantReviewFixture())
+    const view = mount()
+    fireEvent.click((await screen.findAllByLabelText(/Select statement line \d+ for explicit batch review/))[0])
+    fireEvent.change(screen.getByLabelText('Selected-row review note'), { target: { value: 'Keep this note' } })
+    fetchReview.mockRejectedValueOnce(new Error('offline'))
+    view.rerender(<StatementSourceReview importId={1203} revisionId={88} refreshKey="second" renderExpenseDraft={() => null} />)
+    expect((await screen.findByRole('alert')).textContent).toContain('offline')
+    expect((screen.getByLabelText('Selected-row review note') as HTMLInputElement).value).toBe('Keep this note')
+  })
+
   it('fails closed on revision mismatch and retries without showing stale rows', async () => {
     const wrong = sourceReviewFixture(); wrong.revision.id = 99
     fetchReview.mockResolvedValueOnce(wrong)

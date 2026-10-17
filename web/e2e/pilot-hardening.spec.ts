@@ -9852,7 +9852,8 @@ test('BOG UI participant split purchase links bank funding then explicitly appro
   await review.getByLabel('Link review note', { exact: true }).fill('Compared wallet purchase and actual bank funding row.'); await review.getByRole('checkbox', { name: /I checked every selected source/ }).check()
   await review.getByRole('button', { name: 'Approve reviewed link', exact: true }).click()
   await expect(review).toContainText('purchase funding · version 1 · Current')
-  await review.getByText('Review spending effect separately', { exact: true }).click()
+  // The reload keeps the panel the participant already opened (it no longer collapses), so do not toggle it closed.
+  await expect(review.getByLabel('Spending review note', { exact: true })).toBeVisible()
   await review.getByLabel('Spending review note', { exact: true }).fill('Approve one full purchase with reviewed funding.'); await review.getByRole('checkbox', { name: /I approve this exact spending effect/ }).check()
   await review.getByRole('button', { name: 'Approve spending creation', exact: true }).click()
   await expect(review).toContainText('Existing spending: $1,000.00.')
