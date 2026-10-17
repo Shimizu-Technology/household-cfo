@@ -13,6 +13,9 @@ module SavingsChallenge
     LOAN_PAYMENT_OR_BORROWING = /\b(?:loan|car|truck|student)\s+payments?\b|\bpay(?:ing)?\s+(?:off|down)\b|\bborrow(?:ing|ed)?\s+from\s+(?:my\s+)?(?:savings|challenge|account)\b/i
     BORROWING_FROM_SAVINGS = /\bborrow(?:ing|ed)?\s+from\s+(?:my\s+)?(?:savings|challenge)\b/i
     LOAN_REQUEST = /\b(?:loan|lend)\s+me\b/i
+    # An explicit question about a bank lending decision wins even when the
+    # message also mentions paying down debt.
+    BANK_LOAN_DECISION = /\b(?:loan|mortgage|credit)\s+(?:application|approval|decision)s?\b|\b(?:approve|qualify)\b.{0,30}\b(?:loan|mortgage)\b/i
     LOAN_CONTEXT = /\b(?:bank|challenge|application|apply|applying|mortgage|eligib\w*|qualif\w*|approv\w*|credit (?:score|report)|lender|lending)\b/i
     CARD_RANKING_QUESTION = /\b(?:which|what)\s+(?:credit\s+)?(?:cards?|debts?)\b.{0,40}\b(?:first|next|most|pay)\b|\b(?:avalanche|snowball)\b|\bpay\b.{0,30}\b(?:cards?|debts?)\b.{0,20}\bfirst\b/i
     EXTRA_PAYMENT_QUESTION = /\bhow much extra\b|\bextra (?:payment|amount)\b/i
@@ -37,7 +40,7 @@ module SavingsChallenge
       return privacy_answer if @message.match?(/\b(?:employer|sponsor|bank of guam|bog)\b.{0,100}\b(?:see|share|send|give|feelings?|balances?|statements?|transactions?)\b|\bwho\b.{0,40}\b(?:sees?|access|read)\b/i)
       return food_insecurity_answer if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
       return guarantee_answer if @message.match?(/\b(?:guarantee|guaranteed|eligibility|eligible for|approve (?:my|a) loan|bank endorsement)\b/i)
-      return deterministic(loan_answer) if @message.match?(LOAN_TOPIC) && @message.match?(LOAN_EFFECT) && @message.match?(LOAN_CONTEXT) && !@message.match?(LOAN_REQUEST) && !@message.match?(LOAN_PAYMENT_OR_BORROWING) && !@message.match?(CARD_BALANCE_QUESTION)
+      return deterministic(loan_answer) if loan_decision_question?
       return protected_baseline_answer if @message.match?(PROTECTED_BASELINE)
       return "The recommended goal is $500 in new money you actually set aside over 90 days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
       private_context do
@@ -60,6 +63,14 @@ module SavingsChallenge
     end
 
     private
+
+    def loan_decision_question?
+      return false if @message.match?(LOAN_REQUEST)
+      return true if @message.match?(BANK_LOAN_DECISION) && @message.match?(LOAN_EFFECT)
+
+      @message.match?(LOAN_TOPIC) && @message.match?(LOAN_EFFECT) && @message.match?(LOAN_CONTEXT) &&
+        !@message.match?(LOAN_PAYMENT_OR_BORROWING) && !@message.match?(CARD_BALANCE_QUESTION)
+    end
 
     def deterministic(text)
       @deterministic = true

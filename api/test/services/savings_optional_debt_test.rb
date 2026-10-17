@@ -240,7 +240,9 @@ class SavingsOptionalDebtTest < ActiveSupport::TestCase
   test "loan questions get a plain no-promise answer and one challenge step" do
     with_savings_runtime do
       savings_enroll
-      [ "Will this challenge help my loan application at the bank?", "does saving here improve my chances for a mortgage" ].each do |message|
+      [ "Will this challenge help my loan application at the bank?", "does saving here improve my chances for a mortgage",
+        "Will this challenge help my bank loan application if I pay down my debt?",
+        "if I pay off my card will it help my loan approval" ].each do |message|
         coach = coach(message)
         answer = coach.call
         assert coach.deterministic?
