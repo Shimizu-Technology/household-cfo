@@ -139,4 +139,22 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
     assert scripted.start_with?(Mia::CrisisBoundary::WELLBEING_OPENING)
     assert_equal 1, scripted.scan("988").length
   end
+  test "explicit safety and plan statements are crisis phrasing" do
+    [ "i am not safe", "im not safe", "I'm not safe right now", "i'm not safe tonight.", "i have a plan to kill myself",
+      "I have a plan to end it", "i have a plan to end my life", "i'm going to end it tonight" ].each do |message|
+      assert Mia::CrisisBoundary.matches?(message), message
+    end
+    [ "I have a plan for my budget", "my plan is to save $20", "I have a plan to pay off the card", "I'm not safe to drive on bald tires, need money for tires",
+      "is it safe to keep cash at home", "I have a plan" ].each do |message|
+      assert_not Mia::CrisisBoundary.matches?(message), message
+    end
+  end
+
+  test "a bare plan statement is crisis only right after distress" do
+    assert Mia::CrisisBoundary.plan_followup?("i have a plan", "i want to die")
+    assert Mia::CrisisBoundary.plan_followup?("Yes, I have a plan.", "i dont see the point anymore")
+    assert_not Mia::CrisisBoundary.plan_followup?("i have a plan", "how much is left in groceries")
+    assert_not Mia::CrisisBoundary.plan_followup?("i have a plan", nil)
+    assert_not Mia::CrisisBoundary.plan_followup?("I have a plan for my budget", "i want to die")
+  end
 end

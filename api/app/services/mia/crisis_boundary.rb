@@ -32,7 +32,10 @@ module Mia
       /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+exist(?:\s+any\s?more)?#{PHRASE_END}/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+do life(?:\s+any\s?more)?#{PHRASE_END}/i,
       /\b(?:nobody|no one|noone)\s+would\s+(?:even\s+)?(?:miss|notice|care if)\s+(?:me|i (?:was|were) gone)\b/i,
-      /\b(?:want|wanna|wish i could)\s+(?:to\s+)?(?:go to\s+)?sleep and (?:never|not) wake up\b/i
+      /\b(?:want|wanna|wish i could)\s+(?:to\s+)?(?:go to\s+)?sleep and (?:never|not) wake up\b/i,
+      # Stating that they are not safe, or that they have a plan to die.
+      /\b(?:i\s*am|i['’]?m|im)\s+not\s+safe(?:\s+(?:right now|tonight|today|here|at home|with myself))?#{PHRASE_END}/i,
+      /\bi\s+(?:have|got|made)\s+a\s+plan\s+(?:to|for)\s+(?:end(?:ing)?\s+(?:it|my life|things)|die|dying|kill(?:ing)?|hurt(?:ing)?\s+myself|harm(?:ing)?\s+myself|suicide)\b/i
     ].freeze
     # Hopeless language that is not a stated plan to self-harm. Mia keeps helping
     # with the money question but always adds a gentle safety check. Each phrase
@@ -73,6 +76,16 @@ module Mia
     def self.matches?(message)
       normalized = message.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").squish
       PATTERNS.any? { |pattern| normalized.match?(pattern) }
+    end
+
+    # "I have a plan" alone is ambiguous ("I have a plan for my budget"), so it
+    # counts only when the previous user turn was already crisis or hopeless.
+    BARE_PLAN_PATTERN = /\A\s*(?:yes[,.!]?\s+|yeah[,.!]?\s+)?i\s+(?:do\s+)?(?:have|got)\s+a\s+plan\s*[.!]*\s*\z/i
+
+    def self.plan_followup?(message, previous_user_message)
+      return false unless message.to_s.unicode_normalize(:nfkc).match?(BARE_PLAN_PATTERN)
+
+      matches?(previous_user_message) || hopeless?(previous_user_message)
     end
 
     def self.hopeless?(message)

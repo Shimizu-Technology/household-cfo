@@ -71,6 +71,31 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
   end
 
+  test "a closed or paused challenge still checks on hopeless language and keeps the crisis reply" do
+    [ false, true ].each_with_index do |paused, index|
+      @savings_cohort.update_columns(savings_challenge_release_hold: paused, status: paused ? "active" : "draft")
+      post "/api/v1/mia/messages", params: { message: "i dont see the point anymore", request_id: "closed-hopeless-#{index}" }, headers: auth, as: :json
+      assert_response :created
+      content = response.parsed_body.dig("assistant_message", "content")
+      assert_includes content, "isn't open yet", content
+      assert_equal 1, content.scan("988").length, content
+      post "/api/v1/mia/messages", params: { message: "i am not safe", request_id: "closed-crisis-#{index}" }, headers: auth, as: :json
+      assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
+    end
+  end
+
+  test "a bare plan statement after distress gets the crisis reply but a budget plan does not" do
+    post "/api/v1/mia/messages", params: { message: "i cant do this anymore", request_id: "plan-1" }, headers: auth, as: :json
+    post "/api/v1/mia/messages", params: { message: "i have a plan", request_id: "plan-2" }, headers: auth, as: :json
+    assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
+  end
+
+  test "a bare plan statement without prior distress is not a crisis" do
+    post "/api/v1/mia/messages", params: { message: "i have a plan", request_id: "plan-3" }, headers: auth, as: :json
+    assert_response :created
+    assert_not_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
+  end
+
   test "debt free and optional feelings need no setup while hold blocks ordinary chat" do
     [ [ "I do not have credit cards", "without credit cards or debt" ], [ "I feel guilty", "leave feelings blank" ], [ "I bought lunch yesterday", "amount, where and date" ] ].each_with_index do |(message, expected), index|
       post "/api/v1/mia/messages", params: { message: message, request_id: "savings-topic-#{index}" }, headers: auth, as: :json

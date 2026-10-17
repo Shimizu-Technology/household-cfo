@@ -407,7 +407,18 @@ module Api
         return @crisis_message if defined?(@crisis_message)
 
         content = params[:message].to_s.strip
-        @crisis_message = content.present? && content.length <= ChatMessage::MAX_CONTENT_LENGTH && ::Mia::CrisisBoundary.matches?(content)
+        @crisis_message = content.present? && content.length <= ChatMessage::MAX_CONTENT_LENGTH &&
+          (::Mia::CrisisBoundary.matches?(content) || crisis_plan_followup?(content))
+      end
+
+      # A bare "I have a plan" right after distress is a safety statement.
+      def crisis_plan_followup?(content)
+        return false unless content.match?(::Mia::CrisisBoundary::BARE_PLAN_PATTERN)
+
+        previous = current_chat_session.chat_messages.where(role: "user").order(:id).last&.content
+        ::Mia::CrisisBoundary.plan_followup?(content, previous)
+      rescue SavingsChallenge::AccessPolicy::Unavailable, ActiveRecord::ActiveRecordError
+        false
       end
 
       def household_plan_continuation?(session, content)
@@ -556,7 +567,7 @@ module Api
       def render_challenge_not_open_response(content)
         render json: {
           user_message: { id: nil, role: "user", author: "You", content: content, attachments: [], presentation: {}, citations: [] },
-          assistant_message: { id: nil, role: "assistant", author: "Mia", content: CHALLENGE_NOT_OPEN_REPLY, attachments: [], presentation: {}, citations: [] },
+          assistant_message: { id: nil, role: "assistant", author: "Mia", content: with_wellbeing_check(content, CHALLENGE_NOT_OPEN_REPLY), attachments: [], presentation: {}, citations: [] },
           mia_action_draft: nil, transaction_draft: nil, budget: nil, spending_report: nil,
           conversation_persisted: false
         }, status: :created

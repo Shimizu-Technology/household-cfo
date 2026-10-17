@@ -268,4 +268,18 @@ class SavingsOptionalDebtTest < ActiveSupport::TestCase
       assert_includes ::Mia::CrisisBoundary.with_wellbeing_check(answer), "988"
     end
   end
+  test "payment reports, request phrasing and loan requests do not trigger the card or loan answers" do
+    with_savings_runtime do
+      savings_enroll
+      debt_approve(debt_stage(debt_terms(label: "Visa")))
+      [ "I put $40 toward my card balance", "paid down my card, I still owe about $200", "I paid my card first thing, $40",
+        "can you loan me $20 to help with my savings", "can you lend me money for my savings" ].each do |message|
+        coach = coach(message)
+        answer = coach.call
+        assert_not_includes answer, "Your approved card", message
+        assert_not_includes answer, "cannot rank your cards", message
+        assert_not_includes answer, "personal savings practice", message
+      end
+    end
+  end
 end
