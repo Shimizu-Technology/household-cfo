@@ -23,7 +23,10 @@ class CreateCohortChallengeAccessEvents < ActiveRecord::Migration[8.1]
       t.datetime :occurred_at, null: false
       t.timestamps
     end
-    execute "CREATE TRIGGER cohort_challenge_access_events_immutable BEFORE UPDATE OR DELETE ON cohort_challenge_access_events FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable()"
+    # drop_table removes the trigger on rollback, so only the up direction is needed.
+    reversible do |dir|
+      dir.up { execute "CREATE TRIGGER cohort_challenge_access_events_immutable BEFORE UPDATE OR DELETE ON cohort_challenge_access_events FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable()" }
+    end
     add_index :cohort_challenge_access_events, %i[cohort_id request_key], unique: true, name: "idx_challenge_access_events_request"
     add_index :cohort_challenge_access_events, %i[cohort_id occurred_at id], name: "idx_challenge_access_events_history"
     add_check_constraint :cohort_challenge_access_events, "action IN ('open', 'pause')", name: "challenge_access_events_action_valid"
