@@ -17,6 +17,9 @@ module HouseholdFinance
       spending: /\b(?:spending|budget|planned amounts?|categor(?:y|ies)|expense stacks?)\b/i
     }.freeze
     READ_PREFIX = /\A(?:please\s+)?(?:list\b|show\b|tell me\b|what\b|which\b|where (?:does|is)\b|how much\b)/i.freeze
+    # "how much do we owe on the credit card" has no "my/our" but is still a read
+    # of the saved debt records.
+    OWE_QUESTION = /\Ahow much\b[^?.!]{0,30}\b(?:do|does|did)\s+(?:we|i)\s+(?:still\s+)?owe\b/i.freeze
     MUTATION = /\b(?:set|change|update|adjust|make|increase|decrease|lower|raise|reduce|move|transfer|shift|create|add|edit|rename|reclassify|recategorize|archive|restore|schedule|end|stop|delete|remove|link|unlink|reconcile|apply|cancel)\b/i.freeze
     OTHER_SCOPE = /\b(?:statements?|uploads?|uploaded|documents?|receipts?|challenge|cohort|bog|90[ -]day|reserved|set aside|withdrawals?|refunds?|baseline|transactions?|purchases?|afford|should|recommend|prioriti[sz]e|hypothetical|scenario|if|could|would|might)\b/i.freeze
 
@@ -28,7 +31,7 @@ module HouseholdFinance
     def call
       text = @message.sub(/(?:[.!]\s*|\s+)(?:please\s+)?(?:do not|don't|without)\s+(?:change|update|edit|save|apply)(?:\s+anything|\s+any(?:\s+records)?|\s+records|\s+it)?[.!]?\z/i, "")
       return unless text.match?(READ_PREFIX)
-      return unless text.match?(/\b(?:my|our|saved|household)\b/i)
+      return unless text.match?(/\b(?:my|our|saved|household)\b/i) || text.match?(OWE_QUESTION)
       return if text.match?(MUTATION) || text.match?(OTHER_SCOPE)
       return if text.match?(/\b(?:saved|savings)\s+progress\b|\bsavings\s+(?:goal|target)\b/i)
       topics = TOPICS.filter_map { |topic, pattern| topic if text.match?(pattern) }
@@ -249,6 +252,16 @@ module HouseholdFinance
 
     def answer_debts
       profile = @household.household_profile
+      if profile&.debt_tracking_mode == "summary" && @read_text.to_s.match?(OWE_QUESTION)
+        balance = known_money(profile.debt_summary_balance_known?, profile.debt_summary_balance_cents)
+        minimum = known_money(profile.debt_summary_minimum_payment_known?, profile.debt_summary_minimum_payment_cents)
+        answer = if profile.debt_summary_balance_known?
+          "Your saved debt total is #{balance}, with a monthly minimum of #{minimum}. That is the saved total across your debts, not a per-card figure, so I can’t say what is owed on one credit card. If you want a balance for each card, add them under My Money, Debt."
+        else
+          "I don’t have a saved debt total yet, so I can’t say what you owe. Add your balances under My Money, Debt and I’ll answer from them."
+        end
+        return result(:debts, answer, tracking_mode: "summary")
+      end
       if profile&.debt_tracking_mode == "summary"
         answer = "Your household plan uses summary debt tracking: balance #{known_money(profile.debt_summary_balance_known?, profile.debt_summary_balance_cents)}, monthly minimum #{known_money(profile.debt_summary_minimum_payment_known?, profile.debt_summary_minimum_payment_cents)}. Individual records are preserved but excluded from that total. This is separate from the challenge's optional card-term review and does not establish complete debt coverage."
         return result(:debts, answer, tracking_mode: "summary")

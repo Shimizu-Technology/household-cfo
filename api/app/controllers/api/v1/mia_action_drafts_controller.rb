@@ -16,7 +16,9 @@ module Api
           selected_item_ids: params[:item_ids]
         )
         unless result.success?
-          return render json: { errors: result.errors }, status: result.conflict? ? :conflict : :unprocessable_entity
+          body = { errors: result.errors }
+          body[:code] = "stale_review" if result.stale?
+          return render json: body, status: result.conflict? ? :conflict : :unprocessable_entity
         end
 
         unless result.replayed?

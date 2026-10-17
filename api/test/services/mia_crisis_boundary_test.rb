@@ -201,4 +201,16 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       assert_not Mia::CrisisBoundary.matches?(message), message
     end
   end
+
+  test "the model's 988 sentence is never stripped from a reply after a prior crisis message" do
+    history = [ { role: "user", content: "i wanna kms fr" }, { role: "assistant", content: Mia::CrisisBoundary.response } ]
+    reply = "That sounds heavy. Please call or text 988 right now. Your power bill can wait."
+    responder = Demo::MiaResponder.new(api_key: "test-key")
+    [
+      "i dont want to be here", "i'd be better off dead", "i have a plan", "i am not safe", "kys lol",
+      "I'm not okay", "yes i still feel that way", "power bill due tomorrow"
+    ].each do |message|
+      assert_includes responder.send(:sanitize_assistant_content, reply, user_message: message, history: history), "988", message
+    end
+  end
 end

@@ -20,6 +20,8 @@ module HouseholdFinance
         applied_at: draft.applied_at&.iso8601,
         canceled_at: draft.canceled_at&.iso8601,
         impact: draft.metadata.to_h["impact"],
+        stale: stale?,
+        stale_message: stale? ? draft.metadata.to_h["stale_message"].to_s.presence : nil,
         setup_coverage_after_apply: setup_coverage_after_apply,
         applied_item_count: draft.mia_action_items.count { |item| item.applied_at.present? },
         canceled_item_count: draft.mia_action_items.count { |item| item.canceled_at.present? },
@@ -31,6 +33,12 @@ module HouseholdFinance
     private
 
     attr_reader :draft
+
+    # Set when an apply was rejected because the saved numbers moved on. Only
+    # a reviewable card can be out of date; applied or canceled ones are closed.
+    def stale?
+      draft.reviewable? && draft.metadata.to_h["stale_at"].present?
+    end
 
     def action_items
       draft.mia_action_items.map do |item|

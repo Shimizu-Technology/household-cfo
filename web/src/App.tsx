@@ -222,6 +222,18 @@ type PendingSectionNavigation = {
   section: string
 }
 
+// Where the chat card should rest: the top of Mia's newest reply, or the bottom
+// while she is still thinking or the participant spoke last.
+function miaChatAnchorTop(chatCard: HTMLElement) {
+  const rows = chatCard.querySelectorAll<HTMLElement>('.message-row')
+  const lastRow = rows[rows.length - 1]
+  if (lastRow && lastRow.classList.contains('assistant') && !lastRow.classList.contains('typing-row')) {
+    const offset = lastRow.getBoundingClientRect().top - chatCard.getBoundingClientRect().top + chatCard.scrollTop
+    return Math.max(0, offset - 12)
+  }
+  return chatCard.scrollHeight
+}
+
 function sectionHash(section: string) {
   return `#${encodeURIComponent(section)}`
 }
@@ -1363,27 +1375,88 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => window.removeEventListener('keydown', handleEscape)
   }, [previewAttachment, previewImport])
 
+  // Whether the participant has scrolled away from the newest reply, derived from
+  // the card's real scroll position (so scrollbar drags, Page Up and programmatic
+  // scrolls count too). It lives in a ref so a background refresh or an
+  // older-history page cannot pull them back; sending a message or opening Ask
+  // Mia resets it.
+  const chatScrolledAwayRef = useRef(false)
+  // Our own anchoring scrolls must not read as the participant scrolling away.
+  const miaProgrammaticScrollUntilRef = useRef(0)
+
   const updateChatScrollAffordance = useCallback(() => {
     const chatCard = chatCardRef.current
     if (!chatCard) return
 
     const distanceFromBottom = chatCard.scrollHeight - chatCard.scrollTop - chatCard.clientHeight
     setShowChatScrollButton(distanceFromBottom > 72)
+    if (performance.now() >= miaProgrammaticScrollUntilRef.current) {
+      const nearAnchor = Math.abs(chatCard.scrollTop - miaChatAnchorTop(chatCard)) <= 80
+      chatScrolledAwayRef.current = !(distanceFromBottom <= 80 || nearAnchor)
+    }
   }, [])
 
-  const scrollMiaChatToBottom = useCallback(() => {
+  // Land on the top of Mia's newest reply, not the bottom of the card: pending
+  // review cards render after the conversation and would otherwise push the
+  // reply out of view. While Mia is still thinking (or the last message is the
+  // participant's) stay at the bottom, where the typing dots are.
+  const anchorMiaChat = useCallback((behavior: ScrollBehavior) => {
     const chatCard = chatCardRef.current
     if (!chatCard) return
 
-    chatCard.scrollTo({ top: chatCard.scrollHeight, behavior: 'smooth' })
-    setShowChatScrollButton(false)
+    miaProgrammaticScrollUntilRef.current = performance.now() + (behavior === 'smooth' ? 900 : 150)
+    chatCard.scrollTo({ top: miaChatAnchorTop(chatCard), behavior })
   }, [])
+
+  const scrollMiaChatToBottom = useCallback(() => {
+    anchorMiaChat('smooth')
+    setShowChatScrollButton(false)
+  }, [anchorMiaChat])
+
+  const newestMessage = currentMessages[currentMessages.length - 1]
+  const newestMessageKey = newestMessage ? String(newestMessage.id ?? newestMessage.client_id ?? `${newestMessage.role}-${currentMessages.length}`) : ''
+
+  useEffect(() => {
+    if (activeSection === 'Ask Mia') chatScrolledAwayRef.current = false
+  }, [activeSection])
+
+  useEffect(() => {
+    if (miaLoading) chatScrolledAwayRef.current = false
+  }, [miaLoading])
 
   useEffect(() => {
     if (activeSection !== 'Ask Mia') return
+    const chatCard = chatCardRef.current
+    if (!chatCard) return
 
-    scrollMiaChatToBottom()
-  }, [activeSection, currentMessages.length, miaLoading, scrollMiaChatToBottom])
+    // Images, fonts and review cards keep changing the layout for a moment, so
+    // re-anchor whenever it shifts until the participant scrolls themselves.
+    let settled = false
+    const away = () => { chatScrolledAwayRef.current = true }
+    const reanchor = () => { if (!settled && !chatScrolledAwayRef.current) anchorMiaChat('auto') }
+    chatCard.addEventListener('wheel', away, { passive: true })
+    chatCard.addEventListener('touchmove', away, { passive: true })
+    chatCard.addEventListener('keydown', away)
+    const frame = requestAnimationFrame(() => {
+      if (chatScrolledAwayRef.current) return
+      anchorMiaChat('auto')
+      setShowChatScrollButton(false)
+    })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(reanchor)
+    observer?.observe(chatCard)
+    Array.from(chatCard.children).forEach((child) => observer?.observe(child))
+    chatCard.addEventListener('load', reanchor, true)
+    const settle = window.setTimeout(() => { settled = true }, 2500)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(settle)
+      observer?.disconnect()
+      chatCard.removeEventListener('wheel', away)
+      chatCard.removeEventListener('touchmove', away)
+      chatCard.removeEventListener('keydown', away)
+      chatCard.removeEventListener('load', reanchor, true)
+    }
+  }, [activeSection, newestMessageKey, miaLoading, anchorMiaChat])
 
   const stopVoiceStream = useCallback(() => {
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
@@ -2110,6 +2183,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   async function handleLoadEarlierMessages() {
+    // Reading older history: keep the restored position, never re-anchor.
+    chatScrolledAwayRef.current = true
     const chatCard = chatCardRef.current
     const previousHeight = chatCard?.scrollHeight ?? 0
     const previousTop = chatCard?.scrollTop ?? 0
@@ -2588,6 +2663,40 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const message = participantErrorMessage(caught, `${assistantName} action draft could not be applied.`)
       setBudgetError(message)
       setMiaError(message)
+      // The server marks a card out of date when the saved numbers moved on.
+      // Reload so the card shows that instead of staying a live pending card.
+      if (caught instanceof ApiRequestError && caught.code === 'stale_review') {
+        budgetOperationKeysRef.current.complete(signature)
+        const isCurrent = captureWorkspaceReloadGuard()
+        void (async () => {
+          const payload = await fetchAppData(true)
+          if (!isCurrent()) return
+          // Commit the refreshed workspace on its own so the card shows "Out of
+          // date" even if the other-year budget below cannot be fetched.
+          setData(payload)
+          replaceMiaHistory(payload.mia)
+          // The workspace holds the current year; a card for another year needs
+          // that year's budget refreshed too, or it would render from the cache.
+          if (draft.year === payload.dashboard.action_center.current_year) return
+          let plan: Awaited<ReturnType<typeof fetchBudget>> | null = null
+          for (let attempt = 0; attempt < 2 && !plan; attempt += 1) {
+            try { plan = await fetchBudget(draft.year) } catch { /* retried once, then reported */ }
+          }
+          if (!isCurrent()) return
+          if (plan?.annual_plan?.year === draft.year) {
+            const refreshed = plan
+            setData(current => current ? { ...current, budget: refreshed } : current)
+          } else {
+            const notice = `This review is out of date, but we couldn’t refresh ${draft.year}’s budget. Reload the page before applying anything.`
+            setBudgetError(notice)
+            setMiaError(notice)
+          }
+        })().catch(() => {
+          const notice = 'This review is out of date, but we couldn’t refresh your workspace. Reload the page before applying anything.'
+          setBudgetError(notice)
+          setMiaError(notice)
+        })
+      }
     } finally {
       endBudgetAction()
     }
@@ -3603,6 +3712,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   onOpenImport={handleOpenDocumentSource}
                   onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
                   onReviewImportId={openDocumentReview}
+                  reviewCount={pendingMiaActionDrafts.length + pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
                   reviewContent={<>
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && miaSavingsNote?.scope===challengeIntakeScope && <MiaSavingsReview intake={miaSavingsNote.intake} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
                     {pendingMiaActionDrafts.length > 0 && (
@@ -3614,6 +3724,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                         onApply={handleApplyMiaActionDraft}
                         onCancel={handleCancelMiaActionDraft}
                         onEditManually={openManualControls}
+                        onAskFresh={(draft) => prepareMiaUpdate(`Please draft a fresh version of this change: ${draft.title}`)}
                       />
                     )}
 
@@ -3639,8 +3750,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   </>}
                 />
 
-              {!budgetYearLoading && budgetError && <p className="chat-error" role="alert">{budgetError}</p>}
-              {miaError && <p className="chat-error" role="alert">{miaError}</p>}
+              {(() => { const shownBudgetError = !budgetYearLoading && budgetError ? budgetError : null; return <>{shownBudgetError && <p className="chat-error" role="alert">{shownBudgetError}</p>}{miaError && miaError !== shownBudgetError && <p className="chat-error" role="alert">{miaError}</p>}</> })()}
               {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
               {voiceNotice && <p className={`voice-status${voiceRecording ? ' is-recording' : ''}`} role="status">{voiceNotice}</p>}
 
@@ -6761,7 +6871,7 @@ function budgetCategoryChanges(rows: BudgetCategoryRow[], categoryDrafts: Record
   })
 }
 
-function MiaActionDraftReviewStack({
+export function MiaActionDraftReviewStack({
   drafts,
   isRealWorkspace,
   action,
@@ -6771,6 +6881,7 @@ function MiaActionDraftReviewStack({
   onApply,
   onCancel,
   onEditManually,
+  onAskFresh,
 }: {
   drafts: MiaActionDraft[]
   isRealWorkspace: boolean
@@ -6781,6 +6892,7 @@ function MiaActionDraftReviewStack({
   onApply: (draft: MiaActionDraft, itemIds?: number[]) => void
   onCancel: (draft: MiaActionDraft) => void
   onEditManually?: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
+  onAskFresh?: (draft: MiaActionDraft) => void
 }) {
   const { assistantName } = useBrand()
   return (
@@ -6801,6 +6913,7 @@ function MiaActionDraftReviewStack({
           onApply={onApply}
           onCancel={onCancel}
           onEditManually={onEditManually}
+          onAskFresh={onAskFresh}
         />
       ))}
     </div>
@@ -6815,6 +6928,7 @@ function MiaActionDraftReviewCard({
   onApply,
   onCancel,
   onEditManually,
+  onAskFresh,
 }: {
   draft: MiaActionDraft
   isRealWorkspace: boolean
@@ -6823,9 +6937,14 @@ function MiaActionDraftReviewCard({
   onApply: (draft: MiaActionDraft, itemIds?: number[]) => void
   onCancel: (draft: MiaActionDraft) => void
   onEditManually?: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
+  onAskFresh?: (draft: MiaActionDraft) => void
 }) {
-  const { brand } = useBrand()
+  const { brand, assistantName } = useBrand()
   const isPending = draft.status === 'pending' || draft.status === 'partially_applied'
+  // The saved numbers moved on after Mia drafted this: it can no longer be applied.
+  const isStale = isPending && Boolean(draft.stale)
+  // An out-of-date plan still lists the steps that were already applied.
+  const visibleItems = isStale ? draft.items.filter((item) => item.applied_at) : draft.items
   // Any in-flight money change or Mia reply locks every draft control, not just this card's.
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || Boolean(action)
   const remainingItems = draft.items.filter((item) => !item.applied_at && !item.canceled_at)
@@ -6891,18 +7010,23 @@ function MiaActionDraftReviewCard({
     : `Apply ${selectedIds.size} selected`
 
   return (
-    <article className="mia-action-draft-card">
+    <article className={`mia-action-draft-card${isStale ? ' is-stale' : ''}`}>
       <div className="mia-action-draft-main">
         <div className="transaction-draft-title-row">
           <strong>{draft.title}</strong>
           <div className="mia-action-draft-labels">
             <span className="document-status">{miaActionDraftTypeLabel(draft.draft_type)}</span>
-            <span className={`document-status ${draft.status === 'pending' || draft.status === 'partially_applied' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{titleize(draft.status)}</span>
+            <span className={`document-status ${isStale ? 'red' : draft.status === 'pending' || draft.status === 'partially_applied' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{isStale ? 'Out of date' : titleize(draft.status)}</span>
           </div>
         </div>
+        {isStale && (
+          <p className="mia-action-stale-note" role="status">
+            Your numbers changed after {assistantName} drafted this, so it can’t be applied. {draft.status === 'partially_applied' ? 'This apply changed nothing, and the steps you already applied stay in effect.' : 'Nothing was changed.'}
+          </p>
+        )}
         <p>{draft.summary}</p>
-        {draft.scope_note && <p className="mia-action-scope-note">{draft.scope_note}</p>}
-        {draft.rationale && <p>{draft.rationale}</p>}
+        {draft.scope_note && !isStale && <p className="mia-action-scope-note">{draft.scope_note}</p>}
+        {draft.rationale && !isStale && <p>{draft.rationale}</p>}
         {draft.draft_type === 'action_plan' && (
           <div className="mia-action-plan-toolbar">
             <span><strong>{remainingItems.length}</strong> reviewed {remainingItems.length === 1 ? 'change remains' : 'changes remain'} in this ordered plan.</span>
@@ -6916,8 +7040,8 @@ function MiaActionDraftReviewCard({
             )}
           </div>
         )}
-        <div className={`mia-action-item-list${draft.draft_type === 'action_plan' ? ' ordered-plan' : ''}`}>
-          {draft.items.map((item, itemIndex) => {
+        {visibleItems.length > 0 && <div className={`mia-action-item-list${draft.draft_type === 'action_plan' ? ' ordered-plan' : ''}`}>
+          {visibleItems.map((item, itemIndex) => {
             const reviewFields = miaActionItemReviewFields(item)
 
             return (
@@ -6940,7 +7064,7 @@ function MiaActionDraftReviewCard({
                 )}
                 {item.source_text && <small className="mia-action-source">From your message: “{item.source_text}”</small>}
                 {item.description && <span>{item.description}</span>}
-                {reviewFields.length > 0 && (
+                {reviewFields.length > 0 && !isStale && (
                   <dl className="mia-action-before-after" aria-label={`Before and after for ${item.label}`}>
                     {reviewFields.map((field) => (
                       <div key={field.label}>
@@ -6959,8 +7083,8 @@ function MiaActionDraftReviewCard({
               </div>
             )
           })}
-        </div>
-        {setupCoverage && (
+        </div>}
+        {setupCoverage && !isStale && (
           <section className={`mia-setup-coverage${setupCoverage.complete ? ' is-complete' : ''}`} aria-label="Starting picture coverage after applying this review">
             <div>
               <strong>{setupCoverage.complete ? 'Starting picture complete after approval' : `${setupCoverage.completed_count} of ${setupCoverage.required_count} essentials after approval`}</strong>
@@ -6971,13 +7095,24 @@ function MiaActionDraftReviewCard({
             )}
           </section>
         )}
-        {draft.impact && <MiaActionImpact impact={draft.impact} />}
-        {draft.draft_type === 'action_plan' && isChoosingChanges && (
+        {draft.impact && !isStale && <MiaActionImpact impact={draft.impact} />}
+        {draft.draft_type === 'action_plan' && isChoosingChanges && !isStale && (
           <small className="mia-action-selection-note">Selected changes are saved together, all or nothing. Required earlier steps are selected automatically; removing one also removes changes that depend on it.</small>
         )}
-        <small className="mia-action-safety-copy">You stay in control. {brand.product_name} checks the draft against your latest saved data when you apply it, keeps an audit record, and leaves actual spending untouched.</small>
+        {!isStale && <small className="mia-action-safety-copy">You stay in control. {brand.product_name} checks the draft against your latest saved data when you apply it, keeps an audit record, and leaves actual spending untouched.</small>}
       </div>
-      {isPending ? (
+      {isStale ? (
+        <div className="mia-action-draft-actions">
+          {onAskFresh && (
+            <button type="button" disabled={actionsDisabled} onClick={() => onAskFresh(draft)}>
+              Ask {assistantName} for a fresh draft
+            </button>
+          )}
+          <button type="button" className="secondary-button" disabled={actionsDisabled || action === `cancel-mia-action:${draft.id}`} onClick={() => onCancel(draft)}>
+            {action === `cancel-mia-action:${draft.id}` ? 'Dismissing' : 'Dismiss this draft'}
+          </button>
+        </div>
+      ) : isPending ? (
         <div className="mia-action-draft-actions">
           <button type="button" disabled={actionsDisabled || action === `apply-mia-action:${draft.id}` || (draft.draft_type === 'action_plan' && selectedIds.size === 0)} onClick={() => onApply(draft, draft.draft_type === 'action_plan' && isChoosingChanges ? [...selectedIds] : undefined)}>
             {action === `apply-mia-action:${draft.id}` ? 'Applying' : draft.draft_type === 'action_plan' ? planApplyLabel : applyLabel}

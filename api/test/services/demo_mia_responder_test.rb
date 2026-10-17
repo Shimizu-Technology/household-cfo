@@ -160,6 +160,37 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_equal "gen-test-123", responder.provider_request_id
   end
 
+  test "the provider request carries the 988 rule for unrelated and crisis follow-ups" do
+    history = [ { role: "user", content: "i wanna kms fr" }, { role: "assistant", content: Mia::CrisisBoundary.response } ]
+    [ "power bill due tomorrow, which bucket?", "yes i still feel that way" ].each do |message|
+      captured = nil
+      response = Net::HTTPOK.new("1.1", "200", "OK")
+      response.instance_variable_set(:@read, true)
+      response.body = JSON.generate(id: "gen-988", model: "anthropic/claude-sonnet-5.5", choices: [ { message: { content: "Review the exact facts, then choose one next step." } } ])
+      start = lambda do |*_args, **_options, &block|
+        http = Object.new
+        http.define_singleton_method(:request) { |request| captured = JSON.parse(request.body); response }
+        block.call(http)
+      end
+      responder = Demo::MiaResponder.new(api_key: "test-key")
+
+      with_net_http_start(start) { responder.send(:openrouter_response, message, history, context: { metrics: {} }.to_json) }
+
+      system_text = captured.fetch("messages").select { |entry| entry["role"] == "system" }.pluck("content").join(" ")
+      assert_includes system_text, "Do not repeat an earlier safety or 988 reference on a later unrelated money question", message
+      assert_includes system_text, "including short follow-ups to an earlier crisis turn", message
+      assert_includes system_text, "call or text 988", message
+      sent = captured.fetch("messages")
+      assert_equal message, sent.last.fetch("content")
+      contents = sent.pluck("content")
+      crisis_at = contents.index("i wanna kms fr")
+      reply_at = contents.index(Mia::CrisisBoundary.response)
+      assert crisis_at && reply_at, "both earlier crisis turns reach the provider"
+      assert_operator crisis_at, :<, reply_at
+      assert_operator reply_at, :<, sent.length - 1
+    end
+  end
+
   test "strict privacy rejects a live response that does not identify the concrete model" do
     response = Net::HTTPOK.new("1.1", "200", "OK")
     response.instance_variable_set(:@read, true)
