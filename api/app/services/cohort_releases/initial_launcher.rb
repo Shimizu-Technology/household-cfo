@@ -32,6 +32,7 @@ module CohortReleases
         blockers << "The sealed release failed its integrity or runtime compatibility checks." unless integrity.fetch(:valid) && integrity.fetch(:runtime_compatible)
         blockers << "The published settings changed. Seal their new release before launching." unless SemanticParity.new(candidate: candidate, release: release).equivalent?
       end
+      experience = CohortExperience::Schema.mode_payload(release&.experience_snapshot.to_h.fetch("config", {}))
       members = cohort.cohort_memberships.where(role: "participant").order(:id).pluck(:id, :user_id, :created_at)
       digest = Contract.digest(
         "schema" => "cohort_initial_launch_preview_v1", "cohort_id" => cohort.id,
@@ -51,7 +52,8 @@ module CohortReleases
         release: release && { id: release.id, release_number: release.release_number },
         can_launch: !!authorized && blockers.empty?, blockers: blockers.uniq,
         preview_digest: digest,
-        message: "Launching makes this sealed brand, assistant, and tools the default for every participant in this cohort. Later changes use a controlled rollout."
+        participant_experience: experience,
+        message: "Launching makes this sealed brand, assistant, and tools the default for every participant in this cohort. Participants will get the #{experience[:label]} experience. Later changes use a controlled rollout."
       }
     end
 

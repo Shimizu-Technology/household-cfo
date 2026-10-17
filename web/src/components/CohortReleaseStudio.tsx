@@ -372,6 +372,7 @@ export function CohortReleaseStudio({
           brandLabel={confirmation.kind === 'restore'
             ? brandEvidenceLabel(confirmation.release?.brand_mode ?? '', confirmation.release?.brand_version_id ?? null)
             : brandEvidenceLabel(studio.candidate?.brand_mode ?? '', studio.candidate?.brand_version_id ?? null)}
+          experienceLabel={confirmation.kind === 'seal' ? studio.candidate?.participant_experience?.label ?? null : null}
           pending={pendingAction === confirmation.kind}
           error={actionError}
           onCancel={closeConfirmation}
@@ -386,6 +387,7 @@ function ReleaseConfirmationDialog({
   confirmation,
   cohortName,
   brandLabel,
+  experienceLabel,
   pending,
   error,
   onCancel,
@@ -394,6 +396,7 @@ function ReleaseConfirmationDialog({
   confirmation: Confirmation
   cohortName: string
   brandLabel: string | number
+  experienceLabel: string | null
   pending: boolean
   error: string | null
   onCancel: () => void
@@ -444,6 +447,7 @@ function ReleaseConfirmationDialog({
         <dl className="cohort-rollout-confirmation-summary">
           <div><dt>Cohort</dt><dd>{cohortName}</dd></div>
           <div><dt>{restoring ? 'Historical brand' : 'Brand version'}</dt><dd>{brandLabel}</dd></div>
+          {experienceLabel && <div><dt>Participant experience</dt><dd>{experienceLabel}</dd></div>}
         </dl>
         {restoring && <p className="cohort-release-modal-note">A restore preserves the selected historical bundle as a new record. Existing history remains unchanged.</p>}
         {error && <p className="coach-studio-alert is-error" role="alert">{error}</p>}

@@ -9,9 +9,26 @@ module SavingsChallenge
     def self.runtime_for(user:, membership:)
       runtime = Mia::ParticipantRuntimeResolver.new(user: user, cohort_membership: membership).call
       return unless runtime.membership&.id == membership.id && runtime.cohort_id == membership.cohort_id &&
-        runtime.release&.tool_registry_version.to_i >= 3 && runtime.capabilities[:experience_mode] == "savings_challenge"
+        runtime_supports_challenge?(runtime.release, runtime.capabilities)
 
       runtime
+    end
+
+    # The one definition of "this sealed runtime is a savings challenge": a v3+
+    # tool registry and the savings experience mode. Admin launch readiness
+    # reuses it so the control can never open what participants would refuse.
+    def self.runtime_supports_challenge?(release, capabilities)
+      release&.tool_registry_version.to_i >= 3 && capabilities[:experience_mode] == "savings_challenge"
+    end
+
+    # Same check without a participant, for the cohort's active sealed release.
+    def self.release_supports_challenge?(release)
+      return false unless release && CohortReleases::RuntimeIntegrityCache.valid_runtime?(release)
+
+      capabilities = CohortExperience::EffectiveCapabilitiesResolver.for_release(release: release, cohort_membership: nil)
+      runtime_supports_challenge?(release, capabilities)
+    rescue StandardError
+      false
     end
 
     def initialize(household:, user:, cohort:, enrollment: nil, lock: false)
