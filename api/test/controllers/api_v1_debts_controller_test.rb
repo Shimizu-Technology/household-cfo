@@ -114,23 +114,44 @@ class ApiV1DebtsControllerTest < ActionDispatch::IntegrationTest
     assert portfolio.fetch("minimum_payment_known")
   end
 
-  test "participant can save large debt amounts within the documented money range" do
+  test "participant can save large debt amounts up to the shared money limit" do
     user = create_user(email: "debt-large-amount@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
 
     post "/api/v1/debts",
-      params: { debt: { label: "Mortgage", debt_type: "mortgage", balance: 50_000_000, minimum_payment: 25_000 } },
+      params: { debt: { label: "Mortgage", debt_type: "mortgage", balance: 9_999_999.99, minimum_payment: 25_000 } },
       headers: auth_headers(user, idempotency_key: "large-debt"), as: :json
 
     assert_response :created
-    assert_equal 5_000_000_000, household.debts.find_by!(label: "Mortgage").balance_cents
+    assert_equal HouseholdFinance::Money::MAX_AMOUNT_CENTS, household.debts.find_by!(label: "Mortgage").balance_cents
 
     patch "/api/v1/debts/tracking",
-      params: { debt_tracking: { mode: "summary", summary_balance: 60_000_000, summary_minimum_payment: 30_000 } },
+      params: { debt_tracking: { mode: "summary", summary_balance: 9_000_000, summary_minimum_payment: 30_000 } },
       headers: auth_headers(user, idempotency_key: "large-summary"), as: :json
 
     assert_response :success
-    assert_equal 6_000_000_000, household.household_profile.reload.debt_summary_balance_cents
+    assert_equal 900_000_000, household.household_profile.reload.debt_summary_balance_cents
+  end
+
+  test "debt amounts above the shared money limit are rejected with a plain message" do
+    user = create_user(email: "debt-over-limit@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+
+    post "/api/v1/debts",
+      params: { debt: { label: "Mortgage", debt_type: "mortgage", balance: 50_000_000, minimum_payment: 25_000 } },
+      headers: auth_headers(user, idempotency_key: "over-limit-debt"), as: :json
+
+    assert_response :unprocessable_content
+    assert_includes response.body, HouseholdFinance::Money::MAX_AMOUNT_TEXT
+    assert_nil household.debts.find_by(label: "Mortgage")
+
+    patch "/api/v1/debts/tracking",
+      params: { debt_tracking: { mode: "summary", summary_balance: 60_000_000, summary_minimum_payment: 30_000 } },
+      headers: auth_headers(user, idempotency_key: "over-limit-summary"), as: :json
+
+    assert_response :unprocessable_content
+    assert_includes response.body, HouseholdFinance::Money::MAX_AMOUNT_TEXT
+    assert_equal 0, household.household_profile.reload.debt_summary_balance_cents
   end
 
   private

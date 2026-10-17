@@ -256,6 +256,10 @@ module Api
       end
 
       def render_operation_error(error)
+        if error.is_a?(HouseholdFinance::Operations::Base::ConcurrentEdit)
+          return render json: { errors: [ error.message ], code: "changed_elsewhere" }, status: :conflict
+        end
+
         status = error.is_a?(HouseholdFinance::Operations::Runner::IdempotencyConflict) ? :conflict : :unprocessable_entity
         render json: { errors: [ error.message ] }, status: status
       end

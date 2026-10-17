@@ -1,4 +1,7 @@
 class TransactionSplit < ApplicationRecord
+  include BoundedCents
+  bounded_cents :amount_cents
+
   belongs_to :household_transaction
   belongs_to :budget_category
 

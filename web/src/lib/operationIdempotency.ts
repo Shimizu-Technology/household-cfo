@@ -14,8 +14,9 @@ export function createOperationIdempotencyKey() {
   return `operation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
-export function budgetAllocationOperationSignature(year: number, allocationId: number, amount: number | string) {
-  return `set-allocation:${year}:${allocationId}:${String(amount)}`
+export function budgetAllocationOperationSignature(year: number, allocationId: number, amount: number | string, expectedAmount?: number) {
+  const base = `set-allocation:${year}:${allocationId}:${String(amount)}`
+  return expectedAmount === undefined ? base : `${base}:from:${expectedAmount}`
 }
 
 export class OperationIdempotencyKeys {

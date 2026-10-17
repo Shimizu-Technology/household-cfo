@@ -26,6 +26,7 @@ describe('OperationIdempotencyKeys', () => {
     expect(budgetAllocationOperationSignature(2026, 44, 325))
       .not.toBe(budgetAllocationOperationSignature(2027, 44, 325))
     expect(budgetAllocationOperationSignature(2026, 44, 325)).toBe('set-allocation:2026:44:325')
+    expect(budgetAllocationOperationSignature(2026, 44, 325, 300)).not.toBe(budgetAllocationOperationSignature(2026, 44, 325, 310))
   })
 
   it('falls back to random bytes when randomUUID unexpectedly returns blank', () => {

@@ -1,4 +1,7 @@
 class IncomeScheduleEntry < ApplicationRecord
+  include BoundedCents
+  bounded_cents :amount_cents
+
   ENTRY_TYPES = %w[recurring_change one_time].freeze
 
   belongs_to :income_source

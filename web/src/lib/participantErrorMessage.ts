@@ -9,6 +9,7 @@ function isApiError(caught: unknown): caught is ApiErrorLike {
 
 const CODE_MESSAGES: Record<string, string> = {
   financial_generation_stale: 'Something changed since this page loaded. Refresh and try again.',
+  changed_elsewhere: 'This budget changed in another tab or on another device. Refresh to see the latest numbers, then make your change again.',
   savings_review_conflict: 'This record changed since you opened it. Refresh to see the latest, then try again.',
   rate_limited: 'You’re going a little fast. Give it a minute and try again.',
   savings_challenge_unavailable: 'This part of your program isn’t available right now. Contact your program team if that seems wrong.',

@@ -238,6 +238,28 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "an over-limit debit with a valid credit is left unresolved instead of using the credit" do
+    file = Tempfile.new([ "over-limit-debit", ".csv" ])
+    file.write(<<~CSV)
+      date,description,debit,credit,balance
+      2026-08-01,Huge debit,"25,000,000.00",10.00,4990.00
+      2026-08-03,Valid groceries,30.00,,4960.00
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "over-limit-debit.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    assert_equal [ "Valid groceries" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
+    assert_includes result.data.fetch(:warnings).join, "above $9,999,999.99"
+    huge = result.data[:source_accounting][:events].find { |event| event[:evidence][:merchant] == "Huge debit" }
+    assert huge, "the over-limit row should stay in the source events as unresolved"
+    assert_equal "unresolved", huge[:row_kind]
+    assert_nil huge[:signed_amount_cents]
+  ensure
+    file&.close!
+  end
+
   test "uses explicit transaction direction before treating signed amounts as expenses" do
     file = Tempfile.new([ "directed-statement", ".csv" ])
     file.write(<<~CSV)

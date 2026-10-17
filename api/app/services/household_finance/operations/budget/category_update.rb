@@ -14,7 +14,16 @@ module HouseholdFinance
             name: name.nil? ? nil : name.to_s.squish.truncate(80, omission: "…"),
             stack_key: input[:stack_key].presence,
             year: input.fetch(:year).to_i
-          }
+          }.merge(input.slice(:expected_name, :expected_stack_key).compact_blank.transform_values { |value| value.to_s.squish })
+        end
+
+        def validate_execution!(category, input, prepared:, source:)
+          super
+          return unless input.key?(:expected_name) || input.key?(:expected_stack_key)
+
+          name_changed = input.key?(:expected_name) && input.fetch(:expected_name) != category.name
+          stack_changed = input.key?(:expected_stack_key) && input.fetch(:expected_stack_key) != category.stack_key
+          raise ConcurrentEdit, CONCURRENT_EDIT_MESSAGE if name_changed || stack_changed || !category.active?
         end
 
         def subject_for(input, lock:)

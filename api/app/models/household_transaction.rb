@@ -1,4 +1,7 @@
 class HouseholdTransaction < ApplicationRecord
+  include BoundedCents
+  bounded_cents :total_amount_cents
+
   include CurrentFinancialPicture
   STATUSES = %w[confirmed reconciled ignored].freeze
   SOURCE_TYPES = %w[manual_chat manual_ui receipt screenshot statement import plaid].freeze

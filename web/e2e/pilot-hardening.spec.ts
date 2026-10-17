@@ -4595,6 +4595,102 @@ test('clearing a saved optional asset submits null so the balance becomes unknow
   expect(setupRequest.postDataJSON().workspace.emergency_fund).toBeNull()
 })
 
+test('profile save sends only the fields the participant changed and guards unsaved edits', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 200, json: realWorkspaceData(true) })
+    return route.fallback()
+  })
+  const unloadBlocked = () => page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await page.getByRole('button', { name: 'Edit profile' }).click()
+  expect(await unloadBlocked()).toBe(false)
+  await page.getByLabel('Primary goal').fill('Pay down the card first.')
+  expect(await unloadBlocked()).toBe(true)
+
+  // Untouched group totals (which may be split across categories with
+  // one-month overrides) must not be re-sent, or the save would be blocked.
+  const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
+  await page.getByRole('button', { name: 'Save numbers' }).click()
+  const setupRequest = await setupRequestPromise
+  expect(setupRequest.postDataJSON().workspace).toEqual({ primary_goal: 'Pay down the card first.' })
+  await expect(page.getByRole('button', { name: 'Edit profile' })).toBeVisible()
+  expect(await unloadBlocked()).toBe(false)
+})
+
+test('first-run setup saves blank money as $0, accepts cents, and explains problems in plain words', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(false) }))
+  let setupRequests = 0
+  page.on('request', (request) => { if (request.url().endsWith('/api/v1/workspace/setup')) setupRequests += 1 })
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await page.getByRole('button', { name: 'Test a private upload' }).click()
+  await page.getByRole('button', { name: 'Return to starting numbers' }).click()
+  const form = page.locator('.first-session-setup-form')
+  await page.getByLabel('Household name').fill('Cents Household')
+  await page.getByLabel('Primary goal').fill('Keep a calm plan.')
+  const income = page.getByLabel('Primary monthly income')
+  await income.fill('1234.567')
+  await form.getByRole('button', { name: 'Save and talk to Mia' }).click()
+  await expect(form.getByRole('alert')).toHaveText('Primary monthly income: use no more than two decimal places (cents), like 1250.50.')
+  await expect(income).toBeFocused()
+  expect(setupRequests).toBe(0)
+
+  await income.fill('1234.56')
+  // Save follows the last field in keyboard order.
+  await page.getByLabel('Flexible spending').focus()
+  await page.keyboard.press('Tab')
+  await expect(form.getByRole('button', { name: 'Save and talk to Mia' })).toBeFocused()
+  const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
+  await page.keyboard.press('Enter')
+  const setupRequest = await setupRequestPromise
+  expect(setupRequest.postDataJSON().workspace).toEqual({
+    household_name: 'Cents Household',
+    primary_goal: 'Keep a calm plan.',
+    primary_income: 1234.56,
+    fixed_expenses: 0,
+    flexible_spend: 0,
+  })
+})
+
+test('a budget edit from a stale tab refreshes the baseline, keeps typing, and the next save applies', async ({ page }) => {
+  const bodies: Array<{ planned_amount?: unknown; expected_planned_amount?: unknown }> = []
+  let latest: ReturnType<typeof realWorkspaceData>['budget'] | null = null
+  await page.route('http://api.test/api/v1/budget?**', (route) => route.fulfill({ json: latest }))
+  await page.route('http://api.test/api/v1/budget_allocations/*', (route) => {
+    bodies.push(route.request().postDataJSON().allocation)
+    if (bodies.length === 1) {
+      latest = structuredClone(realWorkspaceData(true).budget)
+      latest.annual_plan.rows.find((row: { name: string }) => row.name === 'Dining out')!.months[0].planned = 700
+      return route.fulfill({
+        status: 409,
+        json: { errors: ['This budget changed in another tab or on another device. Refresh to see the latest numbers, then make your change again. Nothing changed.'], code: 'changed_elsewhere' },
+      })
+    }
+    return route.fulfill({ json: { budget: latest } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'Budget')
+  await page.getByRole('button', { name: 'Manage manually' }).click()
+  await page.getByRole('button', { name: 'Edit monthly plan' }).click()
+  await selectBudgetEditMonth(page, 0)
+  await page.getByLabel('Dining out planned for Jan').fill('650')
+  await page.getByRole('button', { name: 'Save 1 change' }).click()
+
+  const manager = page.locator('.budget-manual-manager')
+  await expect(manager.getByRole('alert')).toContainText('Dining out changed in another tab — the latest is $700.00; your value $650.00 is kept, save again to apply.')
+  expect(bodies[0]).toEqual({ planned_amount: '650', expected_planned_amount: 450 })
+  await expect(page.getByLabel('Dining out planned for Jan')).toHaveValue('650')
+
+  await page.getByRole('button', { name: 'Save 1 change' }).click()
+  await expect.poll(() => bodies.length).toBe(2)
+  expect(bodies[1]).toEqual({ planned_amount: '650', expected_planned_amount: 700 })
+})
+
 test('Mia explains when starting numbers have not been approved yet', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 

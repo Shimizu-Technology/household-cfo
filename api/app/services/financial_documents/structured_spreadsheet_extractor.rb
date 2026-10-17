@@ -210,6 +210,9 @@ module FinancialDocuments
     def signed_row_amount(values, map)
       debit = money_cents(cell(values, map, "debit"), negative_as_magnitude: true).to_i
       credit = money_cents(cell(values, map, "credit"), negative_as_magnitude: true).to_i
+      # An over-limit column is not zero: do not fall through to the other column.
+      return [ nil, [ "amount_over_limit" ] ] if %w[debit credit].any? { |column| HouseholdFinance::Money.document_amount_over_limit?(cell(values, map, column)) }
+
       explicit = normalized_token(cell(values, map, "direction") || cell(values, map, "type"))
       direction = transaction_direction(values, map)
       return [ nil, [ "conflicting_debit_credit" ] ] if debit.positive? && (credit.positive? || direction == :credit)
@@ -542,6 +545,10 @@ module FinancialDocuments
     end
 
     def money_cents(value, negative_as_magnitude: false, allow_negative: false)
+      if HouseholdFinance::Money.document_amount_over_limit?(value)
+        over_limit_warning = "Left out a row with an amount above #{HouseholdFinance::Money::MAX_AMOUNT_TEXT}. Check the file, or add that amount by hand."
+        warnings << over_limit_warning unless warnings.include?(over_limit_warning)
+      end
       HouseholdFinance::Money.document_cents(value, negative_as_magnitude: negative_as_magnitude, allow_negative: allow_negative)
     end
 

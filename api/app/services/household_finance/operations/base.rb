@@ -2,7 +2,11 @@ module HouseholdFinance
   module Operations
     class Base
       StaleOperation = Class.new(ArgumentError)
+      # A manual edit whose "before" value no longer matches what is saved, e.g.
+      # the same month was changed from another tab. Last write must not win.
+      ConcurrentEdit = Class.new(StaleOperation)
       STALE_MESSAGE = "Budget changed since Mia drafted this. Ask Mia to draft a fresh edit."
+      CONCURRENT_EDIT_MESSAGE = "This budget changed in another tab or on another device. Refresh to see the latest numbers, then make your change again. Nothing changed."
       attr_accessor :release_membership
 
       def initialize(household)

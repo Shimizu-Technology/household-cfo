@@ -1,4 +1,7 @@
 class FinancialDocumentImportItem < ApplicationRecord
+  include BoundedCents
+  bounded_cents :amount_cents, :balance_cents, :payment_cents
+
   TARGET_TYPES = %w[income_source expense_item account debt goal profile_note].freeze
   CONFIDENCE_LEVELS = %w[high medium low].freeze
 

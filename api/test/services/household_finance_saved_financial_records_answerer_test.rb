@@ -320,7 +320,10 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
 
   test "long valid spending rows fit persistence by complete category blocks while full pending total remains" do
     manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
-    categories = 20.times.map { |index| manager.create_category!(name: "Category #{index.to_s.rjust(2, '0')} #{'c' * 68}", stack_key: "sinking_unexpected", monthly_amount: "21474836.47") }
+    categories = 20.times.map { |index| manager.create_category!(name: "Category #{index.to_s.rjust(2, '0')} #{'c' * 68}", stack_key: "sinking_unexpected", monthly_amount: "9999999.99") }
+    # Legacy rows can still hold int4-max cents; the household limit only guards new input.
+    BudgetAllocation.where(budget_category_id: categories.map(&:id)).update_all(planned_amount_cents: 2_147_483_647)
+    @household.expense_items.where(amount_cents: 999_999_999).update_all(amount_cents: 2_147_483_647)
     year = @household.budget_years.find_by!(year: 2026)
     june = year.budget_periods.find_by!(starts_on: "2026-06-01")
     october = year.budget_periods.find_by!(starts_on: "2026-10-01")

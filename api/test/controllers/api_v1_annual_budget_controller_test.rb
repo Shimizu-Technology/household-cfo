@@ -185,6 +185,65 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 325, refreshed_row.fetch("months").first.fetch("planned")
   end
 
+  test "a manual allocation save from a stale tab is rejected instead of overwriting" do
+    user = create_user(email: "annual-two-tabs@example.com")
+    HouseholdFinance::WorkspaceResolver.new(user).household
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Dining out", stack_key: "discretionary", monthly_amount: 175 } },
+      headers: auth_headers(user),
+      as: :json
+    row = response.parsed_body.dig("budget", "annual_plan", "rows").find { |candidate| candidate.fetch("name") == "Dining out" }
+    allocation_id = row.fetch("months").last.fetch("allocation_id")
+
+    patch "/api/v1/budget_allocations/#{allocation_id}",
+      params: { allocation: { planned_amount: 180, expected_planned_amount: 175 } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :success
+
+    patch "/api/v1/budget_allocations/#{allocation_id}",
+      params: { allocation: { planned_amount: 190, expected_planned_amount: 175 } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :conflict
+    assert_equal "changed_elsewhere", response.parsed_body.fetch("code")
+    assert_includes response.parsed_body.fetch("errors").join, "changed in another tab"
+    assert_equal 18_000, BudgetAllocation.find(allocation_id).planned_amount_cents
+
+    patch "/api/v1/budget_allocations/#{allocation_id}",
+      params: { allocation: { planned_amount: 190, expected_planned_amount: 180 } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :success
+    assert_equal 19_000, BudgetAllocation.find(allocation_id).planned_amount_cents
+  end
+
+  test "a category rename from a stale tab is rejected instead of overwriting" do
+    user = create_user(email: "annual-two-tabs-category@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Dining out", stack_key: "discretionary", monthly_amount: 175 } },
+      headers: auth_headers(user),
+      as: :json
+    category = household.budget_categories.find_by!(name: "Dining out")
+
+    patch "/api/v1/budget_categories/#{category.id}",
+      params: { category: { name: "Restaurants", stack_key: "discretionary", expected_name: "Dining out", expected_stack_key: "discretionary" } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :success
+
+    patch "/api/v1/budget_categories/#{category.id}",
+      params: { category: { name: "Eating out", stack_key: "discretionary", expected_name: "Dining out", expected_stack_key: "discretionary" } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :conflict
+    assert_equal "changed_elsewhere", response.parsed_body.fetch("code")
+    assert_equal "Restaurants", category.reload.name
+  end
+
   test "participant can create a category for only selected months" do
     user = create_user(email: "annual-scoped-category@example.com")
     HouseholdFinance::WorkspaceResolver.new(user).household

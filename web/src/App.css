@@ -2561,6 +2561,21 @@ h3 {
   font-weight: var(--weight-bold);
 }
 
+.setup-form-actions-end {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.setup-form-actions-end button {
+  min-height: 44px;
+  padding: 12px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--emerald);
+  color: var(--brand-on-primary);
+  font-weight: var(--weight-bold);
+}
+
 .setup-form-heading .secondary-button {
   border: 1px solid var(--line);
   background: white;

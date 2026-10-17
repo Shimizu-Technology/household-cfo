@@ -1,4 +1,7 @@
 class ExpenseItem < ApplicationRecord
+  include BoundedCents
+  bounded_cents :amount_cents
+
   include CurrentFinancialPicture
   CADENCES = IncomeSource::CADENCES
   STACK_KEYS = %w[non_discretionary discretionary sinking_expected sinking_unexpected].freeze
