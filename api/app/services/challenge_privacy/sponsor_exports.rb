@@ -19,7 +19,7 @@ module ChallengePrivacy
     def approve(checkpoint_day:, resolved_cutoff_on:, policy_version: POLICY_VERSION)
       raise ArgumentError, "Use only fixed Day 30, 60 or 90 exports" unless [ 30, 60, 90 ].include?(checkpoint_day) && policy_version == POLICY_VERSION
       cutoff = Date.iso8601(resolved_cutoff_on.to_s)
-      raise ArgumentError, "A scheduled cutoff cannot be in the future" if cutoff > Date.current
+      raise ArgumentError, "Day #{checkpoint_day} ends on #{cutoff.iso8601}. You can seal this report from that date on." if cutoff > Date.current
       ApplicationRecord.transaction do
         lock_scope!
         identity = { cohort: @cohort, checkpoint_day: checkpoint_day, policy_version: policy_version }

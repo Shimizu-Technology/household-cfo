@@ -77,6 +77,31 @@ class ApiV1SavingsDailyControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "a first purchase needs no budget category and files under one plain default" do
+    with_daily_operations do
+      savings_enroll
+      assert_empty @savings_household.budget_categories
+      stage = lambda do |extra = {}|
+        savings_run("daily.purchase.stage", { amount_cents: 1_800, merchant: "Corner Cafe", purchased_on: @savings_enrollment.local_today.iso8601,
+          link_kind: "manual_new", expected_version_id: nil, expected_head_lock_version: 0 }.merge(extra)).subject
+      end
+      first = stage.call
+      category = @savings_household.budget_categories.sole
+      assert_equal "Everyday spending", category.name
+      assert_equal [ { "budget_category_id" => category.id, "amount_cents" => 1_800 } ], first.splits
+      stage.call
+      assert_equal 1, @savings_household.budget_categories.count
+      approved = daily_approve(first).subject
+      assert_equal 1_800, approved.amount_cents
+      purchase = first.savings_daily_purchase.reload
+      assert_raises(ArgumentError) do
+        savings_run("daily.purchase.stage", { amount_cents: 1_900, merchant: "Corner Cafe", purchased_on: @savings_enrollment.local_today.iso8601,
+          link_kind: "manual_new", purchase_id: purchase.id, expected_version_id: purchase.current_version_id,
+          expected_head_lock_version: purchase.lock_version, reason: "Fix the amount" })
+      end
+    end
+  end
+
   test "held challenge denies ordinary reads while self erasure and tombstone-only recovery remain available" do
     with_daily_operations do
       savings_enroll

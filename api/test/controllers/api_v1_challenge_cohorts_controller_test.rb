@@ -151,6 +151,27 @@ class ApiV1ChallengeCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
   end
 
+  test "the Day 30 report can be sealed from its cutoff day on (Guam time), not the day before" do
+    starts = @savings_cohort.starts_on
+    cutoff = starts + 29
+    seal = -> { post path("sponsor_exports"), params: { checkpoint_day: 30, accepted: true }, headers: auth(@savings_owner), as: :json }
+    # 00:30 Guam on the cutoff day is still the previous day in UTC.
+    travel_to Time.find_zone!("Pacific/Guam").local(cutoff.year, cutoff.month, cutoff.day - 1, 23, 59)
+    get path("sponsor_exports"), headers: auth(@savings_owner)
+    assert_equal false, response.parsed_body.fetch("scheduled_checkpoints").first.fetch("sealable")
+    seal.call
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").first, "ends on #{cutoff.iso8601}"
+    assert_empty ChallengeSponsorExport.all
+    travel_to Time.find_zone!("Pacific/Guam").local(cutoff.year, cutoff.month, cutoff.day, 0, 30)
+    assert_operator Time.now.utc.to_date, :<, cutoff
+    get path("sponsor_exports"), headers: auth(@savings_owner)
+    assert_equal cutoff.iso8601, response.parsed_body.fetch("today_on")
+    assert_equal true, response.parsed_body.fetch("scheduled_checkpoints").first.fetch("sealable")
+    seal.call
+    assert_response :success
+  end
+
   test "fixed report explicit approval is repeatable suppressed and rejects filters and consent changes" do
     travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 30, 12)
     input = { checkpoint_day: 30, accepted: true }

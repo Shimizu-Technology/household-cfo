@@ -135,7 +135,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, render
             </li>
           })}
         </ol>
-        {data.participant_review && <StatementBatchReview key={`${batchSelected.join(',')}:${batchSelected.map((id) => data.participant_review?.rows[id]?.pending?.digest ?? data.participant_review?.rows[id]?.approved?.digest ?? 'new').join(',')}`} events={data.events} selected={batchSelected} context={data.participant_review} mutate={mutation.mutate} disabled={mutation.busy} onRunning={(running) => { batchRunning.current = running; if (!running && refreshAfterBatch.current) { refreshAfterBatch.current = false; setAttempt((value) => value + 1) } }} />}
+        {data.participant_review && <StatementBatchReview key={batchSelected.join(',')} events={data.events} selected={batchSelected} context={data.participant_review} mutate={mutation.mutate} disabled={mutation.busy} onRunning={(running) => { batchRunning.current = running; if (!running && refreshAfterBatch.current) { refreshAfterBatch.current = false; setAttempt((value) => value + 1) } }} />}
         {data.participant_review && <StatementCoverageReview key={data.participant_review.coverage.content_digest} context={data.participant_review} mutate={mutation.mutate} disabled={mutation.busy} />}
         {data.pagination.total_pages > 1 && <nav className="source-review-pagination" aria-label="Statement row pagination"><span>Page {page} of {data.pagination.total_pages}</span><div><button type="button" disabled={mutation.busy || !data.pagination.has_previous} onClick={() => navigate(page - 1)}>Previous rows</button><button type="button" disabled={mutation.busy || !data.pagination.has_next} onClick={() => navigate(page + 1)}>Next rows</button></div></nav>}
       </>}

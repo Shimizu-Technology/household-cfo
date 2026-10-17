@@ -13,6 +13,12 @@ function view(key = 'first') { return <SavingsChallengeHome key={key} onAskMia={
 beforeEach(() => { vi.clearAllMocks(); fetchChallenge.mockResolvedValue(savingsFixture()); fetchPage.mockResolvedValue({ records: [], next_cursor: null }) })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 describe('participant savings Home', () => {
+  it('lists the privacy entry under Optional support, named like the account menu', async () => {
+    render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} privacyAccess={<button type="button">Privacy &amp; reminders</button>} />)
+    const nav = await screen.findByRole('navigation', { name: 'Optional challenge support' })
+    expect(within(nav).getByRole('button', { name: 'Privacy & reminders' })).toBeTruthy()
+  })
+
   it('does not invent zero or accepted target and requires explicit known-zero acceptance', async () => {
     render(view()); await screen.findAllByText('Not yet reported')
     expect(screen.getByText('Not yet approved')).toBeTruthy()

@@ -4,6 +4,9 @@ import type { PrivacyScope } from '../lib/challengePrivacy'
 import { ChallengePrivacyDialog } from './ChallengePrivacyDialog'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
 
+// One name for this entry everywhere (menu, Home, dialog title, Mia's text).
+export const PRIVACY_LABEL = 'Privacy & reminders'
+
 // Resolve self-only control metadata independently of financial workspace
 // loading, so paused programs and withdrawn enrollments keep their exits.
 export function ParticipantPrivacyAccess({
@@ -62,7 +65,7 @@ function PrivacyAccess({ userId, householdId }: { userId: number; householdId?: 
   return (
     <div className="participant-private-access">
       <button type="button" disabled={busy} onClick={() => void open()}>
-        {busy ? 'Opening private controls…' : 'Privacy & help'}
+        {busy ? 'Opening private controls…' : PRIVACY_LABEL}
       </button>
       {error && <p role="alert">{error}</p>}
       {scope && <ChallengePrivacyDialog actorScope={scope} participant onClose={() => setScope(null)} />}

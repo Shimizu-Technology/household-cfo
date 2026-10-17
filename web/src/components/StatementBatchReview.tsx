@@ -52,6 +52,11 @@ export function StatementBatchReview({ events, selected, context, mutate, disabl
     return item.identity && pending && pending.facts.source_account_identity_version_id === item.identity.id &&
       pending.recognized_account?.current !== false && (pending.facts.disposition !== 'match' || pending.matched_target?.current === true)
   })
+  const stageHint = stageReady && !(checked && reason.trim())
+    ? !checked ? 'tick the confirmation above first.' : 'add a short review note first.'
+    : null
+  const approveHint = approveReady && !checked ? 'tick the confirmation above to confirm what you checked.' : !approveReady && !proposed.every((item) => item.row?.pending)
+    ? 'save the proposals first; approval works on saved proposals.' : !approveReady ? 'a saved proposal no longer matches the current account. Review that row individually.' : null
   async function run(action: 'stage' | 'approve') {
     if (!lifecycle.current.mounted || disabled || !checked || !(action === 'stage' ? stageReady : approveReady)) return
     const confirmedContext = reviewContext
@@ -78,7 +83,9 @@ export function StatementBatchReview({ events, selected, context, mutate, disabl
       }
       if (!lifecycle.current.mounted || lifecycle.current.generation !== generation) return
       setConfirmation(null)
-      setStatus(`${completed} of ${rows.length} ${action === 'stage' ? 'proposals saved for review' : 'saved proposals approved'}.`)
+      setStatus(action === 'stage'
+        ? `${completed} of ${rows.length} proposals saved for review. Your row selection is kept. Check the saved proposals above and tick the confirmation again to approve them.`
+        : `${completed} of ${rows.length} saved proposals approved.`)
     } finally { onRunning(false) }
   }
   if (!rows.length) return null
@@ -113,9 +120,11 @@ export function StatementBatchReview({ events, selected, context, mutate, disabl
       <label>Selected-row review note<input maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
       <label className="source-review-check"><input type="checkbox" checked={checked} onChange={(event) => setConfirmation(event.target.checked ? reviewContext : null)} />I checked every displayed account, classification, date, signed amount, complete purchase and spending effect for these selected rows.</label>
       <div className="source-review-pagination">
-        <button type="button" disabled={!checked || !reason.trim() || !stageReady} onClick={() => { void run('stage') }}>Save selected row proposals</button>
-        <button type="button" className="source-review-primary" disabled={!checked || !approveReady} onClick={() => { void run('approve') }}>Approve selected saved proposals</button>
+        <button type="button" disabled={!checked || !reason.trim() || !stageReady} aria-describedby={stageHint ? 'batch-stage-hint' : undefined} onClick={() => { void run('stage') }}>Save selected row proposals</button>
+        <button type="button" className="source-review-primary" disabled={!checked || !approveReady} aria-describedby={approveHint ? 'batch-approve-hint' : undefined} onClick={() => { void run('approve') }}>Approve selected saved proposals</button>
       </div>
+      {stageHint && <p id="batch-stage-hint" className="source-row-review-status">Save proposals: {stageHint}</p>}
+      {approveHint && <p id="batch-approve-hint" className="source-row-review-status">Approve: {approveHint}</p>}
       {!stageReady && !approveReady && <p>Use individual review to resolve missing facts, account identity or mixed pending states before a batch action.</p>}
     </fieldset></form>{status && <p role="status">{status}</p>}
   </section>

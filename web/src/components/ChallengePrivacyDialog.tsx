@@ -137,7 +137,7 @@ function PrivacySession({ actorScope, participant, initialEnrollmentId, document
   const blocked = Boolean(pending && !(pending.state === 'unknown' && !pending.input && pending.identity.enrollmentId === enrollmentId))
   const allowedAction = pending ? pending.state === 'unknown' && !pending.input ? pending.identity.action : null : undefined
   return <dialog ref={dialog} className="challenge-privacy-dialog" aria-labelledby="privacy-title" onKeyDown={containFocus} onCancel={(event) => { event.preventDefault(); onClose() }}>
-    <header><div><p className="privacy-eyebrow">Your controls</p><h2 id="privacy-title">Privacy, help & reminders</h2></div><button type="button" className="privacy-close" aria-label="Close privacy controls" onClick={onClose}>×</button></header>
+    <header><div><p className="privacy-eyebrow">Your controls</p><h2 id="privacy-title">Privacy &amp; reminders</h2></div><button type="button" className="privacy-close" aria-label="Close privacy controls" onClick={onClose}>×</button></header>
     <div className="privacy-scroll">
       <p className="privacy-intro">Statements, chat and feelings are private by default. You choose each sharing purpose separately. Feelings stay private.</p>
       {denied ? <p role="alert">These controls are available only to the participant who owns this enrollment. Sign in to your participant account.</p> : <>

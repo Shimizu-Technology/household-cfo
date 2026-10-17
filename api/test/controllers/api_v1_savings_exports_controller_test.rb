@@ -48,10 +48,27 @@ class ApiV1SavingsExportsControllerTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
     get path, params: { include_reflections: "false" }, headers: auth(@savings_owner)
     assert_response :forbidden
-    @savings_cohort.update!(savings_challenge_release_hold: true)
+    @savings_cohort.update!(savings_challenge_enabled: false, savings_challenge_release_hold: false)
     get path, params: { include_reflections: "false" }, headers: auth(@savings_user)
     assert_response :forbidden
     assert_not response.body.match?(/12000|Hopeful|entry_versions/)
+  end
+
+  test "a paused challenge still lets the participant download only their own record" do
+    @savings_cohort.update!(savings_challenge_release_hold: true)
+    assert_equal "paused", SavingsChallenge::ProgramMode.state(@savings_cohort)
+    get path, params: { include_reflections: "false" }, headers: auth(@savings_user)
+    assert_response :success
+    assert_equal 10_000, response.parsed_body.dig("projection", "reported_cents")
+    get "/api/v1/workspace", headers: auth(@savings_user).merge("X-Cohort-Id" => @savings_cohort.id.to_s)
+    workspace = response.parsed_body.fetch("workspace", response.parsed_body)
+    assert_equal "paused", workspace.fetch("challenge_state")
+    assert_equal true, workspace.fetch("challenge_joined")
+    get path, params: { include_reflections: "false" }, headers: auth(@savings_owner)
+    assert_response :forbidden
+    @savings_user.update_columns(invitation_status: "revoked")
+    get path, params: { include_reflections: "false" }, headers: auth(@savings_user)
+    assert_response :forbidden
   end
 
   test "private export includes only approved optional debt heads and immutable terms history" do

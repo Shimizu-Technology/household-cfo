@@ -132,3 +132,20 @@ describe('StatementBatchReview current account identity', () => {
   })
 
 })
+
+describe('StatementBatchReview disabled buttons say why', () => {
+  it('explains what to do before the confirmation is ticked and keeps the note after saving', async () => {
+    const { context, event } = fixture()
+    const { mutate } = mount(corrected(context), event)
+    expect(screen.getByText(/Save proposals: tick the confirmation above first/)).toBeTruthy()
+    expect(screen.getByText(/Approve: save the proposals first/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Save selected row proposals' }) as HTMLButtonElement).getAttribute('aria-describedby')).toBe('batch-stage-hint')
+    confirm()
+    expect(screen.queryByText(/Save proposals:/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Save selected row proposals' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalled())
+    expect((await screen.findByRole('status')).textContent).toContain('Your row selection is kept')
+    expect((screen.getByLabelText('Selected-row review note') as HTMLInputElement).value).toBe('Checked exact synthetic row.')
+    expect(screen.getByText(/Save proposals: tick the confirmation above first/)).toBeTruthy()
+  })
+})

@@ -49,10 +49,17 @@ class ApiV1ChallengeProgramModeTest < ActionDispatch::IntegrationTest
     body = response.parsed_body.fetch("workspace", response.parsed_body)
     assert_equal "savings_challenge", body.fetch("experience_mode")
     assert_equal false, body.fetch("challenge_open")
+    assert_equal "not_open", body.fetch("challenge_state")
+    @savings_cohort.update!(savings_challenge_enabled: true, savings_challenge_release_hold: true)
+    get "/api/v1/workspace", headers: auth(@savings_cohort)
+    assert_equal "paused", response.parsed_body.fetch("workspace", response.parsed_body).fetch("challenge_state")
+    assert_equal false, response.parsed_body.fetch("workspace", response.parsed_body).fetch("challenge_joined")
+    not_open!
     get "/api/v1/workspace", headers: auth(@ordinary)
     body = response.parsed_body.fetch("workspace", response.parsed_body)
     assert_equal "household_cfo", body.fetch("experience_mode")
     assert_equal true, body.fetch("challenge_open")
+    assert_equal "open", body.fetch("challenge_state")
   end
 
   [ true, false ].each do |open|

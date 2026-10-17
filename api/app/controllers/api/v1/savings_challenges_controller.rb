@@ -88,7 +88,7 @@ module Api
       end
 
       def plan_drafts
-        page!(enrollment!.savings_plan_drafts)
+        page!(SavingsPlanDraft.visible_for(enrollment!))
       end
 
       def zero_attestations
@@ -146,7 +146,7 @@ module Api
           projection: SavingsChallenge::Projection.new(enrollment).call,
           calendar: SavingsChallenge::ParticipantSerializer.calendar(enrollment),
           pending_entry_count: SavingsEntryDraft.joins(:savings_entry).where(savings_entries: { savings_enrollment_id: enrollment.id }, status: "pending").count,
-          pending_plan_count: enrollment.savings_plan_drafts.where(status: "pending").count
+          pending_plan_count: SavingsPlanDraft.current_pending_id(enrollment) ? 1 : 0
         }
       end
 

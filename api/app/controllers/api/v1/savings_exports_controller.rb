@@ -19,7 +19,7 @@ module Api
           current_household.lock!
           membership = current_cohort_membership || raise(SavingsChallenge::AccessPolicy::Unavailable, "Select your available challenge")
           enrollment = SavingsEnrollment.find_by!(household: current_household, user: current_user, cohort_id: membership.cohort_id)
-          SavingsChallenge::Daily::ReadPolicy.call!(enrollment, user: current_user)
+          SavingsChallenge::Daily::ReadPolicy.export!(enrollment, user: current_user)
           SavingsChallenge::PersonalExport.new(enrollment, include_reflections: params[:include_reflections] == "true").call
         end
         render json: result

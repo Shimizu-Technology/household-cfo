@@ -22,6 +22,7 @@ module HouseholdFinance
 
         def mutate!(draft, input, prepared:)
           raise StaleOperation, stale_message unless draft.status == "pending"
+          raise StaleOperation, stale_message if SavingsPlanDraft.superseded?(draft, @enrollment)
           check_version!(draft.lock_version, input[:expected_draft_lock_version])
           check_version!(@enrollment.current_accepted_plan_version_id, input[:expected_plan_version_id])
           check_version!(draft.base_plan_version_id, input[:expected_plan_version_id])

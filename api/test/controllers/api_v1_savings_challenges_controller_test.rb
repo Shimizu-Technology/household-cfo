@@ -32,6 +32,29 @@ class ApiV1SavingsChallengesControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "a second target plan draft supersedes the first and nothing stale stays pending after approval" do
+    with_savings_runtime do
+      savings_enroll
+      2.times do |index|
+        post "#{path}/plan_drafts", params: { target_cents: 40_000 + index, expected_plan_version_id: nil }, headers: headers(key: "plan-#{index}"), as: :json
+        assert_response :success
+      end
+      second = response.parsed_body["record"]
+      assert_equal 1, response.parsed_body.dig("challenge", "pending_plan_count")
+      assert_equal 2, SavingsPlanDraft.where(status: "pending").count
+      get "#{path}/plan_drafts", headers: headers
+      assert_equal [ second["id"] ], response.parsed_body.fetch("records").pluck("id")
+      old = SavingsPlanDraft.where(status: "pending").where.not(id: second["id"]).sole
+      post "#{path}/plan_drafts/#{old.id}/approve", params: { accepted: true, expected_draft_lock_version: old.lock_version, expected_plan_version_id: nil }, headers: headers, as: :json
+      assert_response :conflict
+      approve_plan(second)
+      get path, headers: headers
+      assert_equal 0, response.parsed_body.dig("challenge", "pending_plan_count").to_i
+      get "#{path}/plan_drafts", headers: headers
+      assert_equal %w[approved], response.parsed_body.fetch("records").pluck("status")
+    end
+  end
+
   test "plan and actual reservation approvals return private exact cents and corrections leave prior progress until approved" do
     with_savings_runtime do
       savings_enroll
