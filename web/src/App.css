@@ -10519,3 +10519,12 @@ body:has(.app.is-chat-page) { overflow: hidden; }
   color: #7a2a2a;
   font-weight: var(--weight-bold, 600);
 }
+
+/* Reserve a band for the "to review" shortcut so it never covers the reply. */
+.chat-card-wrap.has-review-shortcut {
+  padding-bottom: 56px;
+}
+
+.chat-card-wrap.has-review-shortcut .chat-scroll-bottom-button.has-review {
+  bottom: 8px;
+}

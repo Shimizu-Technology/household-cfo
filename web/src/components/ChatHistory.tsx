@@ -66,15 +66,16 @@ export function ChatHistory({
     const card = chatCardRef.current
     if (!queue || !card) { setQueueBelowFold(false); return }
     const below = queue.getBoundingClientRect().top > card.getBoundingClientRect().bottom - 40
-    setQueueBelowFold(below && !shortcutWouldCoverControl(card))
+    setQueueBelowFold(below)
   }, [chatCardRef])
   useEffect(() => {
     const frame = requestAnimationFrame(measureQueue)
     return () => cancelAnimationFrame(frame)
   }, [measureQueue, messages.length, reviewCount, miaLoading, totalMessageCount])
 
+  const showReviewShortcut = showScrollButton && totalMessageCount > 0 && reviewCount > 0 && queueBelowFold
   return (
-    <div className="chat-card-wrap">
+    <div className={`chat-card-wrap${showReviewShortcut ? ' has-review-shortcut' : ''}`}>
       <article className="chat-card" ref={chatCardRef} aria-label={`${assistantName} conversation history`} aria-live="polite" aria-busy={miaLoading || historyLoading} onScroll={() => { onScroll(); measureQueue() }}>
         {totalMessageCount === 0 && !miaLoading && (
           <div className="empty-chat-state">
@@ -163,18 +164,6 @@ export function ChatHistory({
       )}
     </div>
   )
-}
-
-// The floating shortcut sits at the card's bottom-right corner. If a button or
-// link is under that spot, hide it rather than cover the control.
-function shortcutWouldCoverControl(card: HTMLElement) {
-  if (typeof document.elementsFromPoint !== 'function') return false
-  const box = card.getBoundingClientRect()
-  const right = box.right - 18
-  const bottom = box.bottom - 16
-  const points: Array<[number, number]> = []
-  for (const x of [right - 150, right - 75, right - 4]) for (const y of [bottom - 38, bottom - 20, bottom - 4]) points.push([x, y])
-  return points.some(([x, y]) => document.elementsFromPoint(x, y).some((element) => card.contains(element) && element.matches('button, a, input, select, textarea, summary, [role="button"]') && !element.classList.contains('chat-scroll-bottom-button')))
 }
 
 function MessageAttachmentList({

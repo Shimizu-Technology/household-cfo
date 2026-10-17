@@ -2797,17 +2797,20 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 
       return Boolean(latest?.textContent?.includes('October dining out') && box && box.top >= area.top - 2 && box.top < area.top + 40 && area.bottom - box.top >= 60)
     }), { timeout: 15_000 }).toBe(true)
     if (process.env.HCFO_SHOTS) await page.screenshot({ path: `${process.env.HCFO_SHOTS}/f13-${viewport.width}x${viewport.height}.png` })
-    // The jump shortcut never sits on top of a control.
-    const covered = await page.evaluate(() => {
+    // The jump shortcut never sits on the reply or on any control.
+    const overlap = await page.evaluate(() => {
       const shortcut = document.querySelector('.chat-scroll-bottom-button')
-      if (!shortcut) return false
+      if (!shortcut) return { shortcut: false, overlaps: false }
       const box = shortcut.getBoundingClientRect()
-      return [...document.querySelectorAll('.chat-card button, .chat-card a, .chat-card summary')].some((control) => {
-        const other = control.getBoundingClientRect()
-        return other.width > 0 && !(other.right <= box.left || other.left >= box.right || other.bottom <= box.top || other.top >= box.bottom)
-      })
+      const replies = [...document.querySelectorAll('.chat-card .message-row.assistant:not(.typing-row)')]
+      const reply = replies[replies.length - 1]?.querySelector('.message')?.getBoundingClientRect()
+      const area = document.querySelector('.chat-card')!.getBoundingClientRect()
+      // Only the part of an element that is visible inside the scrolling card counts.
+      const hits = (other: DOMRect) => { const bottom = Math.min(other.bottom, area.bottom); return other.width > 0 && bottom > other.top && !(other.right <= box.left || other.left >= box.right || bottom <= box.top || other.top >= box.bottom) }
+      const controls = [...document.querySelectorAll('.chat-card button, .chat-card a, .chat-card summary')].some((control) => hits(control.getBoundingClientRect()))
+      return { shortcut: true, overlaps: controls || Boolean(reply && hits(reply)) }
     })
-    expect(covered).toBe(false)
+    expect(overlap.overlaps).toBe(false)
     // Review cards are still reachable below the reply.
     await page.locator('.chat-review-queue').scrollIntoViewIfNeeded()
     await expect(page.locator('.chat-review-queue').getByRole('button', { name: 'Apply reviewed change' }).first()).toBeVisible()
