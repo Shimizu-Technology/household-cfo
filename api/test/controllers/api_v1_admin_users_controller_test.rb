@@ -616,6 +616,8 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal false, body.fetch("invitation_sent")
     assert_equal 1, User.where("LOWER(email) = ?", "dup.invite@example.com").count
     assert_equal original_time, user.reload.invited_at
+    assert_equal [ cohort.name ], body.fetch("assigned_cohort_names")
+    assert_equal [ cohort.id ], user.cohorts.pluck(:id)
   end
 
   test "new invites store the email in lower case" do

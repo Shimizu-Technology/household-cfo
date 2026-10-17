@@ -312,7 +312,7 @@ module Api
 
           unless was_revoked
             skipped = { sent: false, status: "skipped", error: nil }
-            return render json: invite_response_payload(user.reload, skipped, created: false, reactivated: false).merge(already_invited: true), status: :ok
+            return render json: invite_response_payload(user.reload, skipped, created: false, reactivated: false).merge(already_invited: true, assigned_cohort_names: Cohort.where(id: cohort_ids).order(:id).pluck(:name)), status: :ok
           end
 
           invitation_result = send_invitation_email(user, requested: invitation_email_requested?(attributes))

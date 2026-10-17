@@ -27,7 +27,7 @@ module CoachWorkspaces
         raise Invalid, "Enter a valid collaborator email address."
       end
 
-      with_authorized_workspace(subject_ids: -> { User.where("LOWER(email) = ?", normalized_email).pluck(:id) }) do |users|
+      result = with_authorized_workspace(subject_ids: -> { User.where("LOWER(email) = ?", normalized_email).pluck(:id) }) do |users|
         user = users.values.find { |account| account.email.to_s.downcase == normalized_email }
         raise Invalid, "This account cannot be added as a collaborator. Ask a platform administrator for help." if user && (!user.staff? || user.revoked?)
         new_user = user.nil?
@@ -46,22 +46,30 @@ module CoachWorkspaces
         record_event!(user, "added", after_role: role)
         { member: serialize(membership), user: user, new_user: new_user, added: true }
       end
+      # Outside the workspace transaction: cohort memberships take their own
+      # advisory locks, and holding membership locks first would invert that order.
+      OwnerCohortAccess.for_owner!(workspace, result[:user]) if role == "owner" && result[:added]
+      result
     rescue ActiveRecord::RecordNotUnique
       raise Conflict, "This account changed while it was being added. Refresh and try again."
     end
 
     def change(id:, role:, expected_role:)
       validate_role!(role)
-      with_authorized_workspace(subject_ids: -> { [ workspace.coach_workspace_memberships.find(id).user_id ] }) do |users|
+      promoted = nil
+      serialized = with_authorized_workspace(subject_ids: -> { [ workspace.coach_workspace_memberships.find(id).user_id ] }) do |users|
         membership = workspace.coach_workspace_memberships.lock.find(id)
         membership.user = users.fetch(membership.user_id)
         validate_current_role!(membership, expected_role)
         protect_access!(membership, next_role: role)
         before_role = membership.role
+        promoted = membership.user if role == "owner" && before_role != "owner"
         membership.update!(role: role, cohort_managed: false)
         record_event!(membership.user, "role_changed", before_role: before_role, after_role: role) if before_role != role
         serialize(membership)
       end
+      OwnerCohortAccess.for_owner!(workspace, promoted) if promoted
+      serialized
     end
 
     def remove(id:, expected_role:)

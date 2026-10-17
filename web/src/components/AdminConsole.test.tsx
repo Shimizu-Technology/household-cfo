@@ -151,10 +151,22 @@ describe('staff operation hierarchy', () => {
     const form = screen.getByRole('button', { name: 'Create invite' }).closest('form')!
     fireEvent.change(within(form).getByLabelText(/Email/), { target: { value: pending.email } })
     fireEvent.submit(form)
-    const notice = await screen.findByText(/is already invited/)
-    expect(notice.textContent).toContain('nothing was sent again')
+    const notice = await screen.findByText(/was already invited/)
+    expect(notice.textContent).toContain('Nothing was sent again')
     expect(notice.textContent).toContain('Resend email')
     expect(notice.textContent).not.toContain('was updated')
+  })
+  it('says which group an already invited email was added to', async () => {
+    const pending = { ...people[15], invitation_status: 'pending' } as AdminUser
+    mocks.createAdminUser.mockResolvedValue({ user: pending, created: false, reactivated: false, already_invited: true, assigned_cohort_names: ['Synthetic cohort'], invitation_sent: false, invitation_status: 'skipped' })
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findAllByText('Participant 00')
+    const form = screen.getByRole('button', { name: 'Create invite' }).closest('form')!
+    fireEvent.change(within(form).getByLabelText(/Email/), { target: { value: pending.email } })
+    fireEvent.submit(form)
+    const notice = await screen.findByText(/was already invited/)
+    expect(notice.textContent).toContain('Added to Synthetic cohort. No new email sent.')
+    expect(notice.textContent).toContain('Resend email')
   })
   it('prevents a concurrent invite from superseding a participant save and its refresh', async () => {
     render(<AdminConsole currentUser={actor} />)

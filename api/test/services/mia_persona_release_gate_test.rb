@@ -284,6 +284,26 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
     assert approval.integrity_valid?
   end
 
+  test "a platform admin without a membership may self review only while no other accepted owner or reviewer exists" do
+    admin = persona_user(role: "admin")
+    mel = persona_user
+    workspace = CoachWorkspace.create!(name: "Admin made", slug: "admin-made-#{SecureRandom.hex(4)}", created_by_user: admin)
+    pending_owner = User.create!(email: "pending-mel@example.com", clerk_id: "pending_#{SecureRandom.hex(4)}", role: "coach", invitation_status: "pending")
+    workspace.coach_workspace_memberships.create!(user: pending_owner, role: "owner")
+    persona = create_persona(creator: admin, workspace: workspace)
+    run = Mia::PersonaRelease::Runner.new(persona: persona, actor: admin).call!
+
+    assert workspace.self_review_authority?(admin)
+    assert approve(run, admin).self_review?
+
+    workspace.coach_workspace_memberships.create!(user: mel, role: "owner")
+    refute workspace.self_review_authority?(admin)
+    refute workspace.self_review_authority?(mel) && workspace.coach_workspace_memberships.where(role: "owner").count == 1
+    run2 = Mia::PersonaRelease::Runner.new(persona: persona, actor: admin).call!
+    error = assert_raises(Mia::PersonaRelease::RunApprover::Error) { approve(run2, admin) }
+    assert_equal "A different workspace owner or reviewer must complete this review", error.message
+  end
+
   test "tampering any stored result or approval makes release evidence fail closed" do
     owner = persona_user
     persona = create_persona(creator: owner)

@@ -310,9 +310,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
         cohort_id: cohortId || undefined,
         send_invitation_email: inviteDraft.send_invitation_email ?? true,
       })
-      setNotice(response.already_invited
-        ? `${response.user.email} is already ${response.user.invitation_status === 'accepted' ? 'signed up' : 'invited'}, so nothing was sent again.${response.user.invitation_status === 'pending' ? ' Use Resend email on their row if they need another email.' : ''}`
-        : `${response.user.email} ${inviteActionNotice(response)}${cohortId ? ' and assigned to the selected cohort' : ' as an admin'}. ${inviteDeliveryNotice(response)}`)
+      setNotice(response.already_invited ? alreadyInvitedNotice(response) : `${response.user.email} ${inviteActionNotice(response)}${cohortId ? ' and assigned to the selected cohort' : ' as an admin'}. ${inviteDeliveryNotice(response)}`)
       setInviteDraft({ email: '', role: 'participant', cohort_id: selectedCohortId ? String(selectedCohortId) : '', send_invitation_email: true })
       await loadAdminData()
     } catch (caught) {
@@ -1003,6 +1001,15 @@ function pilotSetupLabel(status: AdminUser['workspace']['setup_status']) {
   if (status === 'complete') return 'Setup complete'
   if (status === 'started') return 'Setup started'
   return 'Setup not started'
+}
+
+function alreadyInvitedNotice(response: AdminUserMutationResponse) {
+  const status = response.user.invitation_status === 'accepted' ? 'already signed up' : 'already invited'
+  const cohorts = response.assigned_cohort_names ?? []
+  const added = cohorts.length > 0 ? ` Added to ${cohorts.join(', ')}.` : ''
+  const sent = cohorts.length > 0 ? ' No new email sent.' : ' Nothing was sent again.'
+  const resend = response.user.invitation_status === 'pending' ? ' Use Resend email on their row if they need another email.' : ''
+  return `${response.user.email} was ${status}.${added}${sent}${resend}`
 }
 
 function inviteActionNotice(response: AdminUserMutationResponse) {

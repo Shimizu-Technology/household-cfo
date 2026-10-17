@@ -4,6 +4,7 @@ module Api
     # participant financial workspace for the staff actor.
     class ChallengeCohortsController < BaseController
       wrap_parameters false
+      STAFF_DENIED = "Only this group's coaches can see this. Ask a platform admin to add you as a coach of this group."
       before_action :authenticate_user!
       before_action :disable_caching!
       before_action :reject_filters!
@@ -14,7 +15,8 @@ module Api
         render json: { errors: [ "Challenge record not found" ] }, status: :not_found
       end
       rescue_from ChallengePrivacy::Access::Denied do |error|
-        render json: { errors: [ error.message ] }, status: :forbidden
+        message = error.message == ChallengePrivacy::Access::UNAVAILABLE ? STAFF_DENIED : error.message
+        render json: { errors: [ message ] }, status: :forbidden
       end
 
       def participants

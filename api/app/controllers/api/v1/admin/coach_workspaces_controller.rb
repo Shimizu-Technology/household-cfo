@@ -43,6 +43,7 @@ module Api
             )
             owner, invited_owner = resolve_owner!
             record.coach_workspace_memberships.create!(user: owner, role: "owner")
+            CoachWorkspaces::OwnerCohortAccess.for_owner!(record, owner)
             record.create_coach_profile!(profile_attributes(attributes).merge(last_edited_by_user: current_user))
             Branding::Provisioner.ensure_for!(workspace: record, actor: current_user)
             @created = [ record, invited_owner ]
@@ -154,7 +155,7 @@ module Api
         end
 
         def settings_params
-          params.require(:coach_workspace).permit(:name, :revision, :owner_email, coach_profile: %i[display_name title bio])
+          params.require(:coach_workspace).permit(:name, :revision, coach_profile: %i[display_name title bio])
         end
 
         def profile_attributes(attributes)

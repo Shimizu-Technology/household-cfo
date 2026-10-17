@@ -203,6 +203,27 @@ class ApiV1AdminCoachWorkspacesControllerTest < ActionDispatch::IntegrationTest
     assert_response :conflict
   end
 
+  test "owner_email is ignored on update" do
+    admin = user("admin")
+    coach = user("coach")
+    post "/api/v1/admin/coach_workspaces", params: settings("Keep owner"), headers: headers(admin), as: :json
+    record = CoachWorkspace.find(response.parsed_body.dig("coach_workspace", "id"))
+    payload = with_owner(settings("Keep owner", revision: record.lock_version), coach.email)
+    patch endpoint(record), params: payload, headers: headers(admin), as: :json
+    assert_response :success
+    assert_nil record.reload.membership_for(coach)
+  end
+
+  test "a platform admin who owns no program defaults to an existing one instead of provisioning" do
+    owner = user("coach")
+    existing = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    admin = user("admin")
+    assert_no_difference "CoachWorkspace.count" do
+      assert_equal existing, CoachWorkspaces::Resolver.new(user: admin).call
+    end
+    assert_nil existing.membership_for(admin)
+  end
+
   private
 
   def with_owner(payload, email)

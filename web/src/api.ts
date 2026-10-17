@@ -2154,6 +2154,7 @@ export type AdminUserMutationResponse = {
   invitation_status?: AdminInviteEmailStatus
   invitation_error?: string | null
   already_invited?: boolean
+  assigned_cohort_names?: string[]
 }
 
 export type AdminUserInput = {

@@ -1,6 +1,7 @@
 module ChallengePrivacy
   class Access
     Denied = Class.new(ArgumentError)
+    UNAVAILABLE = "This shared challenge record is unavailable"
     def self.participant!(household, actor, enrollment, active: false)
       actor = User.lock.find_by(id: actor&.id)
       membership = household.household_memberships.lock.find_by(user_id: actor&.id)
@@ -22,7 +23,7 @@ module ChallengePrivacy
       program = cohort.created_by_user_id == actor&.id || cohort.cohort_memberships.lock.exists?(user_id: actor&.id, role: %w[coach admin])
       allowed = actor&.staff? && !actor.revoked? && member && program
       allowed &&= member.role.in?(%w[owner reviewer]) if export
-      raise Denied, "This shared challenge record is unavailable" unless allowed
+      raise Denied, UNAVAILABLE unless allowed
       actor
     end
 
@@ -30,7 +31,7 @@ module ChallengePrivacy
       participant!(enrollment.household, enrollment.user, enrollment)
       member = enrollment.cohort.cohort_memberships.lock.find_by(user_id: enrollment.user_id, role: "participant")
       unless member && member.id == enrollment.accepted_cohort_membership_id && member.created_at == enrollment.membership_started_at
-        raise Denied, "This shared challenge record is unavailable"
+        raise Denied, UNAVAILABLE
       end
     end
   end

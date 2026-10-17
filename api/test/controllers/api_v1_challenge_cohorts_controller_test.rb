@@ -39,6 +39,38 @@ class ApiV1ChallengeCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
   end
 
+  test "admin creating a program for a named coach and a group gives that coach the roster but not the admin" do
+    admin = User.create!(clerk_id: SecureRandom.uuid, email: "owner-admin-#{SecureRandom.hex(4)}@example.com", role: "admin", invitation_status: "accepted")
+    mel = User.create!(clerk_id: SecureRandom.uuid, email: "mel-#{SecureRandom.hex(4)}@example.com", role: "coach", invitation_status: "accepted")
+    post "/api/v1/admin/coach_workspaces", params: { coach_workspace: { name: "Mel program", owner_email: mel.email,
+      coach_profile: { display_name: "Mel", title: "Coach", bio: "" } } }, headers: auth(admin), as: :json
+    assert_response :created
+    workspace_id = response.parsed_body.dig("coach_workspace", "id")
+    post "/api/v1/admin/cohorts", params: { cohort: { name: "Mel group", status: "enrolling" } },
+      headers: auth(admin).merge("X-Coach-Workspace-Id" => workspace_id.to_s), as: :json
+    assert_response :created
+    cohort_id = response.parsed_body.dig("cohort", "id")
+    assert_equal "coach", CohortMembership.find_by!(cohort_id: cohort_id, user: mel).role
+    assert_nil CohortMembership.find_by(cohort_id: cohort_id, user: admin)
+
+    get "/api/v1/challenge_cohorts/#{cohort_id}/participants", headers: auth(mel)
+    assert_response :success
+    get "/api/v1/challenge_cohorts/#{cohort_id}/participants", headers: auth(admin)
+    assert_response :forbidden
+    assert_includes response.parsed_body.fetch("errors").first, "Ask a platform admin to add you as a coach"
+  end
+
+  test "an owner named after groups exist is added to existing groups but not archived ones" do
+    admin = User.create!(clerk_id: SecureRandom.uuid, email: "late-admin-#{SecureRandom.hex(4)}@example.com", role: "admin", invitation_status: "accepted")
+    mel = User.create!(clerk_id: SecureRandom.uuid, email: "late-mel-#{SecureRandom.hex(4)}@example.com", role: "coach", invitation_status: "accepted")
+    workspace = CoachWorkspace.create!(name: "Late owner", slug: "late-#{SecureRandom.hex(4)}", created_by_user: admin)
+    live = Cohort.create!(name: "Live", status: "enrolling", created_by_user: admin, coach_workspace: workspace)
+    archived = Cohort.create!(name: "Old", status: "archived", created_by_user: admin, coach_workspace: workspace)
+    CoachWorkspaces::Collaborators.new(workspace: workspace, actor: admin).add(email: mel.email, role: "owner")
+    assert CohortMembership.exists?(cohort: live, user: mel, role: "coach")
+    assert_not CohortMembership.exists?(cohort: archived, user: mel)
+  end
+
   test "a person who may not seal reports gets 403 before any validation error" do
     admin = User.create!(clerk_id: SecureRandom.uuid, email: "seal-denied-#{SecureRandom.hex(4)}@example.com", role: "admin", invitation_status: "accepted")
     [ { checkpoint_day: 30, accepted: true, department: "one person" }, { checkpoint_day: 7 }, {} ].each do |input|
