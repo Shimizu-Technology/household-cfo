@@ -42,7 +42,8 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     @savings_cohort.update!(savings_challenge_release_hold: true)
     assert_no_difference "ChatMessage.count" do
       post "/api/v1/mia/messages", params: { message: "How is my savings?", request_id: "held-chat" }, headers: auth, as: :json
-      assert_response :forbidden
+      assert_response :created
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "isn't open yet"
     end
   end
 

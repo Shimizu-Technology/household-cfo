@@ -73,6 +73,8 @@ export type PublicBrandResponse = {
 export type WorkspaceData = {
   financial_generation?: number
   experience_mode?: 'household_cfo' | 'savings_challenge'
+  // Savings programs only: false while the challenge is not open yet or is paused.
+  challenge_open?: boolean
   mode: 'demo' | 'real'
   household_id: number | null
   setup_complete: boolean
@@ -865,6 +867,8 @@ export type MiaMessage = {
   financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
   id?: number
   client_id?: string
+  // Shown from this browser only: the server did not save this reply.
+  local_only?: boolean
   role: 'assistant' | 'user'
   author: string
   content: string
@@ -3876,6 +3880,8 @@ export type MiaMessageResponse = {
   mia_action_draft?: MiaActionDraft | null
   budget?: BudgetData | null
   spending_report?: SpendingReport | null
+  // false when the server answered without saving the conversation (closed challenge, crisis guidance).
+  conversation_persisted?: boolean
 }
 
 export type FinancialRestartReview = {

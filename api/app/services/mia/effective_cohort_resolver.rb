@@ -17,7 +17,7 @@ module Mia
       membership = if requested_cohort_id
         requested_membership
       else
-        membership_for_status("active") || membership_for_status("enrolling") || latest_membership
+        joined_challenge_membership || membership_for_status("active") || membership_for_status("enrolling") || latest_membership
       end
       return membership if membership || coach_workspace.nil? || user.staff?
 
@@ -49,6 +49,20 @@ module Mia
       memberships
         .joins(:cohort)
         .where(cohorts: { status: status })
+        .order(Arel.sql("cohorts.starts_on DESC NULLS LAST, cohorts.id DESC, cohort_memberships.id DESC"))
+        .first
+    end
+
+    # A participant who has joined (accepted) a live savings challenge stays in it
+    # by default, even after being added to another active program. The program
+    # picker (X-Cohort-Id) still switches freely. Withdrawn or completed
+    # enrollments, and challenges whose cohort is no longer enrolling/active, do
+    # not pin the default.
+    def joined_challenge_membership
+      memberships
+        .joins(:cohort)
+        .where(cohorts: { status: %w[enrolling active] })
+        .where(id: SavingsEnrollment.where(user_id: user.id, status: "active").select(:accepted_cohort_membership_id))
         .order(Arel.sql("cohorts.starts_on DESC NULLS LAST, cohorts.id DESC, cohort_memberships.id DESC"))
         .first
     end

@@ -1,6 +1,7 @@
 import type { ParticipantPrograms } from '../participantProgramsApi'
-// Only a program ID is stored. Every restored choice must still pass server authorization.
-const PREFIX = 'household-cfo:participant-program:v1:'
+// Only a program ID is stored, and only when the participant chose it. Every restored choice must still pass server authorization.
+// v2: v1 also held server defaults that were auto-stored, which can pin a participant away from a challenge they joined later.
+const PREFIX = 'household-cfo:participant-program:v2:'
 function key(identity: string, actorId: number) { return `${PREFIX}${encodeURIComponent(identity)}:${actorId}` }
 export function readParticipantProgram(identity: string | null | undefined, actorId: number | undefined): number | undefined {
   if (!identity || !actorId) return undefined

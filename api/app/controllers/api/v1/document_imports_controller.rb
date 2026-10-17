@@ -13,6 +13,7 @@ module Api
       participant_rate_limit to: 20, within: 10.minutes, name: "upload-complete", only: :complete
       participant_rate_limit to: 10, within: 10.minutes, name: "reprocess", only: :reprocess
       before_action :require_writable_household!, only: %i[create presign complete destroy reprocess apply destroy_source]
+      before_action :require_open_challenge_for_uploads!, only: %i[create presign complete]
       before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_content source_preview source_review destroy_source]
       before_action :prevent_source_caching, only: %i[source_url source_content source_preview source_review]
 
@@ -369,6 +370,15 @@ module Api
       end
 
       private
+
+      # Uploads are household-level, but a challenge that is not open must not start private
+      # document processing while Mia and Home say nothing is being recorded.
+      def require_open_challenge_for_uploads!
+        return unless savings_program_selected?
+        return if SavingsChallenge::ProgramMode.open?(current_cohort_membership.cohort)
+
+        render json: { errors: [ "Your savings challenge isn't open yet, so files can't be added for it right now. Nothing was uploaded." ] }, status: :forbidden
+      end
 
       def prevent_source_caching
         response.headers["Cache-Control"] = "private, no-store, max-age=0"

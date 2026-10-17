@@ -62,6 +62,29 @@ Prefer forward fixes or an explicitly compatible previously sealed runtime. Neve
 
 Chat migration `20261004320000` is irreversible. It attributes only messages proven to belong to a matching sealed savings release, version 3 or later; ordinary CFO programs retain legacy nil-cohort history. It does not copy legacy summaries or ambiguous evidence into a program. Never bypass scope guards or restore an older runtime that silently reads a global session. E16 records a local native upgrade and independent program clear; it is not a production rollback rehearsal.
 
+## Challenge sealed but not open (or paused)
+
+A cohort sealed in savings mode is a savings challenge for the participant's screens, Mia, chat history and review drafts whether or not it is open. "Open" is separate: `savings_challenge_enabled`, no release hold and an enrolling, active or completed cohort. While it is not open, or paused:
+
+- Home shows "Your savings challenge opens soon"; Today, Join and Export are hidden. Mia says the challenge is not open yet and creates no message, session or draft (that reply is not saved). Earlier challenge chat appears empty and returns when the challenge reopens; nothing is deleted.
+- `SetupHelp::Access`, `CohortReleases::OperationAccess` and `FinancialRestart::Flow` still test the raw enabled flag, so household-level setup help and operations remain available while a challenge is not open. They touch household data only, never challenge data.
+- `TransactionDraft` has no program attribution. A pending household transaction draft made in an ordinary program can appear in the challenge's Ask Mia for the same household. Scoping them is a follow-up that needs a schema change.
+- The default program for a participant with no explicit choice prefers a joined (accepted, live) challenge, then active, enrolling and latest programs. The browser stores a program only when the participant picks one in the Program menu (storage key `household-cfo:participant-program:v2:`; older v1 values are ignored).
+
+Read-only check for legacy history. Migration `20261004320000` already ran, so chat from a cohort that was sealed but never enabled stayed in the ordinary (nil-cohort) session. This lists it without changing anything; do not move data without a reviewed plan.
+
+```ruby
+# bin/rails runner in a maintenance shell. Read-only.
+savings = CohortRelease.where("experience_snapshot->'config'->>'experience_mode' = 'savings_challenge'").where("tool_registry_version >= 3").distinct.pluck(:cohort_id)
+CohortMembership.where(cohort_id: savings, role: "participant").includes(:cohort).find_each do |m|
+  legacy = ChatMessage.joins(:chat_session).where(chat_sessions: { user_id: m.user_id, cohort_id: nil }).where("chat_messages.created_at >= ?", m.created_at)
+  attributed = legacy.where(cohort_id: m.cohort_id).count
+  puts({ cohort_id: m.cohort_id, user_id: m.user_id, enabled: m.cohort.savings_challenge_enabled, legacy_messages_since_membership: legacy.count, legacy_messages_attributed_to_cohort: attributed }.to_json) if legacy.exists?
+end
+```
+
+A non-zero count means the participant talked to Mia in the ordinary program after being added to the challenge cohort; the messages are not shown in the challenge and are not lost.
+
 ## Uncertain participant actions
 
 Use the existing original `Idempotency-Key` and the same actor/household/cohort/enrollment/action to query the feature's `request_status` endpoint. The savings, daily, source review, baseline, privacy, evidence and optional-debt adapters have separate status routes (`api/config/routes.rb:10`). Do not invent a new key or approve a second contribution because a response was lost.
