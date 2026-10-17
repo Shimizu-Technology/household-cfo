@@ -518,7 +518,7 @@ module HouseholdFinance
 
       unless snapshot.fetch(:debt_minimums_known)
         return [
-          { tone: "yellow", title: "Debt minimums needed", body: "Add every required monthly minimum, or confirm a $0 household summary, before using readiness or cash-flow guidance." },
+          { tone: "yellow", title: "Debt minimums needed", body: "Add every required monthly minimum in My Money, under Debt, or confirm a $0 household summary, before using readiness or cash-flow guidance.", action: "open_debt" },
           { tone: debt_tone, title: "Debt focus", body: debt_body }
         ]
       end
@@ -635,7 +635,8 @@ module HouseholdFinance
       unless snapshot.fetch(:debt_minimums_known)
         return {
           title: "Finish the debt minimums before making a cash-flow call.",
-          body: "At least one monthly debt minimum is unknown. Add it under My Profile, or use a confirmed $0 household summary, before relying on readiness, baseline surplus, or safe-to-spend."
+          body: "At least one monthly debt minimum is unknown. Add it in My Money, under Debt, or use a confirmed $0 household summary, before relying on readiness, baseline surplus, or safe-to-spend.",
+          action: "open_debt"
         }
       end
 
@@ -958,13 +959,21 @@ module HouseholdFinance
       debt_entered = debt_balance_known && snapshot.fetch(:total_debt_cents).positive?
       baseline_positive = snapshot.fetch(:baseline_surplus_cents).positive?
       runway_met = snapshot.fetch(:runway_months) >= target_runway_months
-      extra_debt_ready = debt_entered && baseline_positive && safe.positive? && snapshot.fetch(:readiness_tone) != "red"
+      apr_unknown = debt_entered && debts.any? { |debt| debt.active? && debt.balance_known? && debt.balance_cents.to_i.positive? && debt.interest_rate_percent.nil? }
+      extra_debt_ready = debt_entered && !apr_unknown && baseline_positive && safe.positive? && snapshot.fetch(:readiness_tone) != "red"
+      wants_open = snapshot.fetch(:readiness_tone) == "green" && safe.positive?
       [
         {
           item: "Non-essential purchase",
           amount: safe,
-          recommendation: safe.positive? ? "Pause" : "Wait",
-          reason: safe.positive? ? "Only approve wants that fit inside true surplus after bills, sinking funds, and debt minimums." : "Baseline is not ready for wants yet. Protect essentials first."
+          recommendation: wants_open ? "Optional" : (safe.positive? ? "Pause" : "Wait"),
+          reason: if wants_open
+            "You have room for wants. Keep them inside this amount so bills, sinking funds, and debt minimums stay covered."
+                  elsif safe.positive?
+            "Only approve wants that fit inside true surplus after bills, sinking funds, and debt minimums."
+                  else
+            "Baseline is not ready for wants yet. Protect essentials first."
+                  end
         },
         {
           item: "Extra debt payment",
@@ -972,6 +981,8 @@ module HouseholdFinance
           recommendation: extra_debt_ready ? "Approve" : "Wait",
           reason: if !debt_balance_known
             "Enter every debt balance before Mia prioritizes an extra payment. Partial totals are not used for payoff decisions."
+                  elsif apr_unknown
+            "Add the interest rate (APR) on each debt before Mia suggests an extra payment. Until then, pay the minimums and nothing is recommended."
                   elsif debt_entered
             "Debt payoff helps breathing room, but only after fixed bills and runway are protected."
                   else

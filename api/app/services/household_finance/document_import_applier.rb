@@ -90,6 +90,9 @@ module HouseholdFinance
 
     def apply_income_source(item)
       source_type = item.source_type.presence_in(IncomeSource::SOURCE_TYPES) || "other"
+      unless item.cadence.to_s.in?(IncomeSource::CADENCES)
+        raise ArgumentError, "Choose how often you are paid for #{item.label.to_s.squish.presence || 'this income'} before applying it. The document does not say."
+      end
       record = find_label_record_or_initialize(household.income_sources, item.label, source_type: source_type)
       record.update!(amount_cents: item.amount_cents.to_i, cadence: cadence_for(item), active: item.amount_cents.to_i.positive?)
       record

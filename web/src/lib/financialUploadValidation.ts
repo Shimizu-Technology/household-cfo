@@ -2,6 +2,7 @@ export const IMAGE_AND_PDF_MAX_BYTES = 12 * 1024 * 1024
 export const DATA_AND_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024
 
 export const FINANCIAL_UPLOAD_SIZE_GUIDANCE = 'Images and PDFs up to 12 MB · CSV, Excel, and Word up to 20 MB'
+export const FINANCIAL_UPLOAD_SPLIT_GUIDANCE = 'Split it into smaller parts, such as one statement month or a few pages at a time, or upload a CSV export instead.'
 
 type UploadFile = Pick<File, 'name' | 'size' | 'type'>
 
@@ -56,10 +57,11 @@ export function validateFinancialUpload(file: UploadFile): UploadValidationResul
 
   if (file.size > maxBytes) {
     const limit = imageOrPdf ? 'Images and PDFs can be up to 12 MB.' : 'CSV, Excel, and Word files can be up to 20 MB.'
+    const advice = imageOrPdf ? FINANCIAL_UPLOAD_SPLIT_GUIDANCE : 'Split it into smaller files, or export only the months you need.'
     return {
       valid: false,
       reason: 'too_large',
-      message: `${filename} is too large. ${limit}`,
+      message: `${filename} is too large. ${limit} ${advice}`,
       maxBytes,
     }
   }

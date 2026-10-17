@@ -23,6 +23,16 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     )
   end
 
+  test "income with no pay frequency is not applied until one is chosen" do
+    @document_import.items.create!(target_type: "income_source", label: "Payroll deposit", amount_cents: 1_500_00, cadence: nil, source_type: "job", confidence: "medium", selected: true)
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert_not result.success?
+    assert_match(/Choose how often you are paid/, result.errors.join)
+    assert_nil @household.income_sources.find_by(label: "Payroll deposit")
+  end
+
   test "applies selected extracted values to household records with lineage" do
     income = @document_import.items.create!(
       target_type: "income_source",

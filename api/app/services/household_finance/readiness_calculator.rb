@@ -43,7 +43,13 @@ module HouseholdFinance
     def runway_months
       return 0.0 unless total_outflow_cents.positive?
 
-      (protected_liquid_cents / total_outflow_cents.to_f).round(1)
+      exact = protected_liquid_cents / total_outflow_cents.to_f
+      rounded = exact.round(1)
+      # Never round up across a Yellow or Green line the household has not met,
+      # so "3.0 months" cannot sit beside a Red that needs 3 months.
+      crossed_unmet_line = (rounded >= yellow_runway_months && protected_liquid_cents < yellow_runway_target_cents) ||
+        (rounded >= target_runway_months && protected_liquid_cents < green_runway_target_cents)
+      crossed_unmet_line ? (exact * 10).floor / 10.0 : rounded
     end
 
     def readiness_tone

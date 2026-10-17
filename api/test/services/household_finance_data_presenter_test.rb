@@ -345,6 +345,24 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert debt.minimum_payment_known?
   end
 
+  test "unknown debt minimums point to My Money Debt with an action, not My Profile" do
+    household, user = create_household
+    household.update!(primary_goal: "Pay down debt", confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s))
+    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 500_000, cadence: "monthly")
+    household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 200_000, cadence: "monthly")
+    household.expense_items.create!(label: "Flexible spending", stack_key: "discretionary", amount_cents: 0, cadence: "monthly")
+    household.household_profile.update!(debt_tracking_mode: "individual")
+    household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 0, minimum_payment_known: false)
+
+    dashboard = HouseholdFinance::DataPresenter.new(household, user: user).app_data.fetch(:dashboard)
+    alert = dashboard.fetch(:alerts).find { |entry| entry.fetch(:title) == "Debt minimums needed" }
+
+    assert_equal "open_debt", alert.fetch(:action)
+    assert_equal "open_debt", dashboard.fetch(:coach_read).fetch(:action)
+    assert_no_match(/My Profile/, alert.fetch(:body) + dashboard.fetch(:coach_read).fetch(:body))
+    assert_match(/My Money/, dashboard.fetch(:coach_read).fetch(:body))
+  end
+
   test "deficit household does not show a negative non-essential purchase amount" do
     household, user = create_household
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 200_000, cadence: "monthly")
@@ -366,7 +384,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 690_000, cadence: "monthly")
     household.expense_items.create!(label: "Flexible spending", stack_key: "discretionary", amount_cents: 0, cadence: "monthly")
     household.household_profile.update!(debt_tracking_mode: "individual")
-    household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 10_000)
+    household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 10_000, interest_rate_percent: 24.99)
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 4_200_000)
 
     payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
@@ -375,6 +393,28 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal 40, payload.dig(:dashboard, :summary, :next_safe_to_spend_amount)
     assert_equal 40, decision.fetch(:amount)
     assert_equal "Approve", decision.fetch(:recommendation)
+    # Green: wants are within room, not something to pause.
+    assert_equal "Optional", decision_map(payload).fetch("Non-essential purchase").fetch(:recommendation)
+  end
+
+  test "an unknown debt APR never recommends an extra payment" do
+    household, user = create_household
+    household.update!(
+      primary_goal: "Pay down debt without destabilizing the monthly plan",
+      confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
+    )
+    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 710_000, cadence: "monthly")
+    household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 690_000, cadence: "monthly")
+    household.expense_items.create!(label: "Flexible spending", stack_key: "discretionary", amount_cents: 0, cadence: "monthly")
+    household.household_profile.update!(debt_tracking_mode: "individual")
+    household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 10_000)
+    household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 4_200_000)
+
+    decision = decision_map(HouseholdFinance::DataPresenter.new(household, user: user).app_data).fetch("Extra debt payment")
+
+    assert_equal "Wait", decision.fetch(:recommendation)
+    assert_equal 0, decision.fetch(:amount)
+    assert_match(/interest rate \(APR\)/, decision.fetch(:reason))
   end
 
   test "surplus capacity metrics are named and calculated as scenarios instead of savings contributions" do

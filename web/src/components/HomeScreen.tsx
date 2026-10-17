@@ -27,9 +27,10 @@ type HomeScreenProps = {
   onReviewMiaActions: () => void
   pendingImportCount: number
   onReviewImports: () => void
+  onOpenDebt?: () => void
 }
 
-export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports }: HomeScreenProps) {
+export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt }: HomeScreenProps) {
   const { brand, assistantName } = useBrand()
   const actionCenter = dashboard.action_center
   const currentPlan = budget.annual_plan?.year === actionCenter.current_year ? budget.annual_plan : null
@@ -92,7 +93,8 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           <p className="eyebrow">One next move</p>
           <h3>{dashboard.coach_read.title}</h3>
           <p>{dashboard.coach_read.body}</p>
-          <button type="button" onClick={onAskMia}>Tell {assistantName} what changed</button>
+          {dashboard.coach_read.action === 'open_debt' && onOpenDebt && <button type="button" onClick={onOpenDebt}>Open My Money &gt; Debt</button>}
+          <button type="button" className={dashboard.coach_read.action === 'open_debt' && onOpenDebt ? 'secondary-button' : undefined} onClick={onAskMia}>Tell {assistantName} what changed</button>
         </article>
         <div className="card-list">
           {dashboard.alerts.map((alert) => (
@@ -100,6 +102,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
               <span>{statusCopy[alert.tone] ?? 'note'}</span>
               <h3>{alert.title}</h3>
               <p>{alert.body}</p>
+              {alert.action === 'open_debt' && onOpenDebt && <button type="button" className="secondary-button" onClick={onOpenDebt}>Add debt minimums</button>}
             </article>
           ))}
         </div>
