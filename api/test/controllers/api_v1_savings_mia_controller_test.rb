@@ -1,8 +1,10 @@
 require "test_helper"
 require_relative "../support/savings_challenge_test_support"
+require_relative "../support/savings_debt_test_support"
 
 class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   include SavingsChallengeTestSupport
+  include SavingsDebtTestSupport
   setup do
     setup_savings_context
     travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 15, 12)
@@ -31,6 +33,97 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     post "/api/v1/mia/messages", params: { message: "How much savings progress do I have?", request_id: "savings-progress" }, headers: auth, as: :json
     assert_response :created
     assert_equal count, ChatMessage.count
+  end
+
+  test "card, loan and hard-day questions get final answers without calling the model" do
+    ENV["OPENROUTER_API_KEY"] = "fictional-key"
+    with_savings_runtime { debt_approve(debt_stage(debt_terms(label: "Visa", balance_cents: 30_000))) }
+    HouseholdFinance::MiaNarrator.class_eval { alias_method :__orig_openrouter, :openrouter_response; define_method(:openrouter_response) { $model_calls_in_test = $model_calls_in_test.to_i + 1; nil } }
+    $model_calls_in_test = 0
+    begin
+      asks = [ "How much do I owe on my card according to what I approved?", "which card first and how much extra should I pay?",
+        "Will this challenge help my loan application at the bank?", "i dont see the point anymore" ]
+      answers = asks.each_with_index.map do |message, index|
+        post "/api/v1/mia/messages", params: { message: message, request_id: "final-#{index}" }, headers: auth, as: :json
+        assert_response :created
+        response.parsed_body.dig("assistant_message", "content")
+      end
+      assert_includes answers[0], "Visa, $300.00"
+      assert_includes answers[0], "not a live balance"
+      assert_includes answers[1], "cannot rank your cards or suggest an extra amount"
+      assert_includes answers[2], "does not affect, and does not promise anything about, a loan decision"
+      answers.each { |answer| refute_includes answer, "Start with one purchase" }
+      hard = answers[3]
+      assert_equal 1, hard.scan("988").length, hard
+      assert_includes hard, "That sounds really heavy"
+      assert_includes hard, "you can skip today"
+      refute_includes hard, "stop the money coaching"
+      assert_operator hard.index("you can skip today"), :<, hard.index("988")
+      assert_equal 0, $model_calls_in_test
+    ensure
+      HouseholdFinance::MiaNarrator.class_eval { alias_method :openrouter_response, :__orig_openrouter }
+    end
+  end
+
+  test "crisis phrasing in the challenge keeps the deterministic crisis reply" do
+    post "/api/v1/mia/messages", params: { message: "kms", request_id: "crisis-kms" }, headers: auth, as: :json
+    assert_response :created
+    assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
+  end
+
+  test "a closed or paused challenge still checks on hopeless language and keeps the crisis reply" do
+    [ false, true ].each_with_index do |paused, index|
+      @savings_cohort.update_columns(savings_challenge_release_hold: paused, status: paused ? "active" : "draft")
+      post "/api/v1/mia/messages", params: { message: "i dont see the point anymore", request_id: "closed-hopeless-#{index}" }, headers: auth, as: :json
+      assert_response :created
+      content = response.parsed_body.dig("assistant_message", "content")
+      assert_includes content, "isn't open yet", content
+      assert_equal 1, content.scan("988").length, content
+      post "/api/v1/mia/messages", params: { message: "i am not safe", request_id: "closed-crisis-#{index}" }, headers: auth, as: :json
+      assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
+    end
+  end
+
+  test "a bare plan statement after distress gets the crisis reply but a budget plan does not" do
+    post "/api/v1/mia/messages", params: { message: "i cant do this anymore", request_id: "plan-1" }, headers: auth, as: :json
+    post "/api/v1/mia/messages", params: { message: "i have a plan", request_id: "plan-2" }, headers: auth, as: :json
+    assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
+  end
+
+  test "a bare plan statement without prior distress is not a crisis" do
+    post "/api/v1/mia/messages", params: { message: "i have a plan", request_id: "plan-3" }, headers: auth, as: :json
+    assert_response :created
+    assert_not_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
+  end
+
+  test "a bare plan statement while the challenge is closed gets the safety line, and plain text does not" do
+    @savings_cohort.update_columns(status: "draft")
+    post "/api/v1/mia/messages", params: { message: "i have a plan", request_id: "closed-plan" }, headers: auth, as: :json
+    content = response.parsed_body.dig("assistant_message", "content")
+    assert_includes content, "isn't open yet"
+    assert_equal 1, content.scan("988").length, content
+    post "/api/v1/mia/messages", params: { message: "i have a plan for my budget", request_id: "closed-budget" }, headers: auth, as: :json
+    assert_not_includes response.parsed_body.dig("assistant_message", "content"), "988"
+  end
+
+  test "hopeless language with food or essentials keeps food-first guidance and the 988 line without the model" do
+    ENV["OPENROUTER_API_KEY"] = "fictional-key"
+    HouseholdFinance::MiaNarrator.class_eval { alias_method :__orig_openrouter2, :openrouter_response; define_method(:openrouter_response) { $model_calls_in_test2 = $model_calls_in_test2.to_i + 1; nil } }
+    $model_calls_in_test2 = 0
+    begin
+      post "/api/v1/mia/messages", params: { message: "We have no food this week and I give up", request_id: "food-hopeless" }, headers: auth, as: :json
+      assert_response :created
+      content = response.parsed_body.dig("assistant_message", "content")
+      assert_includes content, "Food comes first"
+      assert_equal 1, content.scan("988").length, content
+      post "/api/v1/mia/messages", params: { message: "i give up, i cannot afford rent", request_id: "rent-hopeless" }, headers: auth, as: :json
+      content = response.parsed_body.dig("assistant_message", "content")
+      assert_includes content, "Protect food, housing"
+      assert_equal 1, content.scan("988").length, content
+      assert_equal 0, $model_calls_in_test2
+    ensure
+      HouseholdFinance::MiaNarrator.class_eval { alias_method :openrouter_response, :__orig_openrouter2 }
+    end
   end
 
   test "debt free and optional feelings need no setup while hold blocks ordinary chat" do

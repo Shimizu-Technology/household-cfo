@@ -407,7 +407,18 @@ module Api
         return @crisis_message if defined?(@crisis_message)
 
         content = params[:message].to_s.strip
-        @crisis_message = content.present? && content.length <= ChatMessage::MAX_CONTENT_LENGTH && ::Mia::CrisisBoundary.matches?(content)
+        @crisis_message = content.present? && content.length <= ChatMessage::MAX_CONTENT_LENGTH &&
+          (::Mia::CrisisBoundary.matches?(content) || crisis_plan_followup?(content))
+      end
+
+      # A bare "I have a plan" right after distress is a safety statement.
+      def crisis_plan_followup?(content)
+        return false unless content.match?(::Mia::CrisisBoundary::BARE_PLAN_PATTERN)
+
+        previous = chat_session_scope.find&.chat_messages&.where(role: "user")&.order(:id)&.last&.content
+        ::Mia::CrisisBoundary.plan_followup?(content, previous)
+      rescue SavingsChallenge::AccessPolicy::Unavailable, ActiveRecord::ActiveRecordError
+        false
       end
 
       def household_plan_continuation?(session, content)
@@ -512,15 +523,18 @@ module Api
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session, persona_version_id: current_persona.version_id,
           cohort_id: current_participant_runtime.cohort_id, cohort_release_id: current_participant_runtime.release_id).call
         history = intent_transcript_without_memory_commands(transcript_for_current_persona(transcript)).map { |message| message.slice(:role, :content) }
-        reference = SavingsChallenge::CoachAnswerer.new(household: current_household, user: current_user,
-          enrollment: enrollment, message: content, attachments: attached_imports).call
+        coach_answerer = SavingsChallenge::CoachAnswerer.new(household: current_household, user: current_user,
+          enrollment: enrollment, message: content, attachments: attached_imports)
+        reference = coach_answerer.call
         @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
         narrator = SavingsChallenge::Narrator.new(user_message: content,
           answer_packet: { kind: "savings_challenge", basis: "participant-approved savings ledger and explicitly scoped baseline",
-            write_state: "no_write", fallback_response: reference, guardrails: [ "90_day_total_not_monthly", "approved_new_money_reserved_only", "partial_coverage_is_not_full_household", "feelings_optional_private" ] },
+            write_state: "no_write", fallback_response: reference, guardrails: [ "90_day_total_not_monthly", "approved_new_money_reserved_only", "partial_coverage_is_not_full_household", "feelings_optional_private" ],
+            verified_facts: coach_answerer.answer_facts }.compact,
           history: history, persona: current_persona, approved_content: @approved_coach_content)
-        answer = narrator.call
-        @used_coach_content = narrator.supplied_content_context
+        # Fact-grounded and hard-day answers are final; the model must not rewrite them.
+        answer = coach_answerer.deterministic? ? reference : narrator.call
+        @used_coach_content = coach_answerer.deterministic? ? [] : narrator.supplied_content_context
         ApplicationRecord.transaction do
           current_household.lock!
           require_savings_chat_access!
@@ -551,9 +565,13 @@ module Api
       CHALLENGE_NOT_OPEN_REPLY = "Your savings challenge isn't open yet, so I can't count or save anything toward it right now. Nothing was recorded or changed. Home will show your challenge as soon as it opens, and I'll be ready to help then.".freeze
 
       def render_challenge_not_open_response(content)
+        reply = with_wellbeing_check(content, CHALLENGE_NOT_OPEN_REPLY)
+        # A bare "I have a plan" has no saved previous turn to read here, so it
+        # gets the safety line without being treated as a full crisis.
+        reply = ::Mia::CrisisBoundary.with_wellbeing_check(CHALLENGE_NOT_OPEN_REPLY) if content.match?(::Mia::CrisisBoundary::BARE_PLAN_PATTERN)
         render json: {
           user_message: { id: nil, role: "user", author: "You", content: content, attachments: [], presentation: {}, citations: [] },
-          assistant_message: { id: nil, role: "assistant", author: "Mia", content: CHALLENGE_NOT_OPEN_REPLY, attachments: [], presentation: {}, citations: [] },
+          assistant_message: { id: nil, role: "assistant", author: "Mia", content: reply, attachments: [], presentation: {}, citations: [] },
           mia_action_draft: nil, transaction_draft: nil, budget: nil, spending_report: nil,
           conversation_persisted: false
         }, status: :created

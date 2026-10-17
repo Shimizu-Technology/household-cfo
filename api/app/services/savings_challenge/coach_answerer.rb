@@ -6,16 +6,53 @@ module SavingsChallenge
       @household, @user, @enrollment, @message, @attachments = household, user, enrollment, message.to_s, attachments
     end
 
+    LOAN_TOPIC = /\b(?:loans?|mortgage|lending|lender|credit score|credit report|borrow(?:ing)?)\b/i
+    LOAN_EFFECT = /\b(?:help|helps|helping|affect|affects|improve|improves|boost|impact|qualify|qualifies|approve|approved|approval|looks? good|eligib\w*|application|apply|applying|chances?)\b/i
+    CARD_BALANCE_QUESTION = /\b(?:how much|what(?:['’]s| is| do)|do i(?: still)? owe)\b.{0,60}\b(?:owe|balance)\b.{0,80}\b(?:cards?|debts?)\b|\b(?:how much|what(?:['’]s| is| do)|do i(?: still)? owe)\b.{0,60}\b(?:cards?|debts?)\b.{0,60}\b(?:owe|balance)\b|\bhow much\b.{0,30}\bi (?:still )?owe\b.{0,40}\b(?:cards?|debts?)\b/i
+    PAYMENT_REPORT = /\b(?:paid|put|sent|payment|toward|towards)\b.{0,60}\$\s*\d|\$\s*\d.{0,60}\b(?:paid|payment|toward|towards)\b/i
+    LOAN_PAYMENT_OR_BORROWING = /\b(?:loan|car|truck|student)\s+payments?\b|\bpay(?:ing)?\s+(?:off|down)\b|\bborrow(?:ing|ed)?\s+from\s+(?:my\s+)?(?:savings|challenge|account)\b/i
+    BORROWING_FROM_SAVINGS = /\bborrow(?:ing|ed)?\s+from\s+(?:my\s+)?(?:savings|challenge)\b/i
+    LOAN_REQUEST = /\b(?:loan|lend)\s+me\b/i
+    # An explicit question about a bank lending decision wins even when the
+    # message also mentions paying down debt.
+    BANK_LOAN_DECISION = /\b(?:loan|mortgage|credit)\s+(?:application|approval|decision)s?\b|\b(?:approve|qualify)\b.{0,30}\b(?:loan|mortgage)\b/i
+    LOAN_CONTEXT = /\b(?:bank|challenge|application|apply|applying|mortgage|eligib\w*|qualif\w*|approv\w*|credit (?:score|report)|lender|lending)\b/i
+    CARD_RANKING_QUESTION = /\b(?:which|what)\s+(?:credit\s+)?(?:cards?|debts?)\b.{0,40}\b(?:first|next|most|pay)\b|\b(?:avalanche|snowball)\b|\bpay\b.{0,30}\b(?:cards?|debts?)\b.{0,20}\bfirst\b/i
+    EXTRA_PAYMENT_QUESTION = /\bhow much extra\b|\bextra (?:payment|amount)\b/i
+    CARD_OR_DEBT_WORD = /\b(?:cards?|debts?)\b/i
+    PROTECTED_BASELINE = /\b(?:can.t afford|cannot afford|not enough|shortfall|behind on|skip (?:buying |eating |paying (?:for )?)?(?:food|meals|groceries|rent|medicine|medication|minimum)|go without (?:food|meals|groceries|medicine|medication)|stop paying|cut (?:food|meals|medicine|medication))\b|\b(?:income|pay|salary)\b.{0,100}\b(?:essentials?|rent|bills?)\b|\b(?:essentials?|rent|bills?)\b.{0,100}\b(?:income|pay|salary)\b/i
+    HOPELESS_STEP = "One small step, only if it feels okay: you can skip today, and a day you skip just stays unknown, not a miss. A smaller target is fine too, and nothing in this challenge is an obligation."
+
+    # Verified facts the narrator may quote (approved optional card records only).
+    attr_reader :answer_facts
+
+    # True when the answer is final and should not be rewritten by the model.
+    def deterministic? = @deterministic == true
+
     def call
       return HouseholdFinance::MiaCoachAnswerer.prompt_injection_boundary if HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+      if ::Mia::CrisisBoundary.hopeless?(@message)
+        # Food and essentials come first; the wellbeing check is still added when the reply is saved.
+        return deterministic(food_insecurity_answer) if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
+        return deterministic(protected_baseline_answer) if @message.match?(PROTECTED_BASELINE)
+        return deterministic(hopeless_answer)
+      end
       return privacy_answer if @message.match?(/\b(?:employer|sponsor|bank of guam|bog)\b.{0,100}\b(?:see|share|send|give|feelings?|balances?|statements?|transactions?)\b|\bwho\b.{0,40}\b(?:sees?|access|read)\b/i)
       return food_insecurity_answer if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
       return guarantee_answer if @message.match?(/\b(?:guarantee|guaranteed|eligibility|eligible for|approve (?:my|a) loan|bank endorsement)\b/i)
-      return protected_baseline_answer if @message.match?(/\b(?:can.t afford|cannot afford|not enough|shortfall|behind on|skip (?:buying |eating |paying (?:for )?)?(?:food|meals|groceries|rent|medicine|medication|minimum)|go without (?:food|meals|groceries|medicine|medication)|stop paying|cut (?:food|meals|medicine|medication))\b|\b(?:income|pay|salary)\b.{0,100}\b(?:essentials?|rent|bills?)\b|\b(?:essentials?|rent|bills?)\b.{0,100}\b(?:income|pay|salary)\b/i)
+      return deterministic(loan_answer) if loan_decision_question?
+      return protected_baseline_answer if @message.match?(PROTECTED_BASELINE)
       return "The recommended goal is $500 in new money you actually set aside over 90 days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
       private_context do
         return attachment_answer if @attachments.any?
-        return debt_answer if @message.match?(/\b(?:credit cards?|debts?|interest|apr|payoff|minimum payment)\b/i)
+        return deterministic(card_balance_answer) if @message.match?(CARD_BALANCE_QUESTION) && !@message.match?(PAYMENT_REPORT)
+        return savings_answer if @message.match?(BORROWING_FROM_SAVINGS)
+        if (@message.match?(CARD_RANKING_QUESTION) || (@message.match?(EXTRA_PAYMENT_QUESTION) && @message.match?(CARD_OR_DEBT_WORD))) && !@message.match?(PAYMENT_REPORT)
+          ranking = card_ranking_answer
+          return deterministic(ranking) if ranking
+          return debt_answer
+        end
+        return debt_answer if @message.match?(/\b(?:credit cards?|debts?|interest|apr|payoff|minimum payment|(?:loan|car|truck|student) payments?)\b/i)
         return feeling_answer if @message.match?(/\b(?:feel|feeling|ashamed|embarrassed|guilty|overwhelmed|anxious)\b/i)
         return investment_answer if HouseholdFinance::MoneyMovementText.investment_purchase_report?(@message)
         return savings_answer if HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
@@ -26,6 +63,19 @@ module SavingsChallenge
     end
 
     private
+
+    def loan_decision_question?
+      return false if @message.match?(LOAN_REQUEST)
+      return true if @message.match?(BANK_LOAN_DECISION) && @message.match?(LOAN_EFFECT)
+
+      @message.match?(LOAN_TOPIC) && @message.match?(LOAN_EFFECT) && @message.match?(LOAN_CONTEXT) &&
+        !@message.match?(LOAN_PAYMENT_OR_BORROWING) && !@message.match?(CARD_BALANCE_QUESTION)
+    end
+
+    def deterministic(text)
+      @deterministic = true
+      text
+    end
 
     def private_context
       ApplicationRecord.transaction do
@@ -66,12 +116,67 @@ module SavingsChallenge
       "Your upload is available for statement review. Extraction proposes rows; it does not approve spending or saved money. Open Statements to review the account, period, rows, transfers and any missing information, then review your spending baseline. You can keep using Today while that review is incomplete.#{reviewed[:approved_version] ? ' Your previously approved baseline stays in place until you approve a revision.' : ''}"
     end
 
+    def hopeless_answer
+      "#{::Mia::FallbackReply::HOPELESS_OPENING} #{HOPELESS_STEP}"
+    end
+
+    def loan_answer
+      "The challenge is personal savings practice. It does not affect, and does not promise anything about, a loan decision at the bank, and I cannot speak for the bank's lending or tell you how they would see it. What it can do is help you build a saving habit you can see for yourself, at a pace that works for you. One small step: do today's short check-in, or tell me what feels like a comfortable savings amount. Which would you like?"
+    end
+
+    # Current approved optional cards (never drafts), nil when the tool is unavailable.
+    def approved_cards
+      comparison = Debt::Reader.new(@enrollment, user: @user).call
+      comparison.fetch(:cards).reject { |row| row[:terms]["status"].in?(%w[archived paid_off]) || row[:terms]["balance_cents"] == 0 }
+    rescue AccessPolicy::Unavailable
+      nil
+    end
+
+    def card_balance_answer
+      return card_tool_unavailable unless @enrollment
+      cards = approved_cards
+      return card_tool_unavailable if cards.nil?
+      return "You have not approved any optional card with a balance yet, so I do not have a balance to share. From Home, open Optional card & debt review if you want to add one; it is optional and does not need a budget or bank link. Nothing is assumed in the meantime." if cards.empty?
+
+      @answer_facts = { approved_optional_debt: cards.map { |row| { label: row[:label], balance_cents: row[:terms]["balance_cents"] } } }
+      lines = cards.map { |row| card_balance_line(row) }
+      unknown = cards.flat_map { |row| unknown_fields(row[:terms]) }.uniq
+      unknown_note = unknown.any? ? " I do not have the #{unknown.to_sentence(last_word_connector: ' and ')} for #{cards.one? ? 'it' : 'every card'}, so #{unknown.one? ? 'that stays' : 'those stay'} unknown, not zero." : ""
+      "#{cards.one? ? 'Your approved card' : 'Your approved cards'}: #{lines.join('; ')}.#{unknown_note} This is what you approved, not a live balance from the bank, so check your card statement for today's number. Would you like to update or add any card terms?"
+    end
+
+    def card_balance_line(row)
+      terms = row[:terms]
+      stale = row[:source_stale] ? " (its source changed since you approved it, so review it)" : ""
+      amount = terms["balance_cents"].nil? ? "balance not entered" : "#{money(terms['balance_cents'])} as of #{terms['as_of_on']}"
+      "#{row[:label]}, #{amount}#{stale}"
+    end
+
+    def unknown_fields(terms)
+      [ ("interest rate (APR)" if terms["apr_bps"].nil?), ("minimum payment" if terms["minimum_payment_cents"].nil?), ("due date" if terms["due_on"].nil?) ].compact
+    end
+
+    def card_ranking_answer
+      return nil unless @enrollment
+      cards = approved_cards
+      return nil if cards.blank?
+      return nil unless cards.any? { |row| row[:terms]["apr_bps"].nil? || row[:terms]["minimum_payment_cents"].nil? }
+
+      @answer_facts = { approved_optional_debt: cards.map { |row| { label: row[:label], balance_cents: row[:terms]["balance_cents"] } } }
+      "I cannot rank your cards or suggest an extra amount yet, because I do not have the interest rate (APR) and minimum payment for #{cards.one? ? 'your approved card' : 'each approved card'}, and I would not guess them. If you want, add those from Optional card & debt review on Home and I can compare them with you. Either way, I will not set a payoff date, and what you pay on a card stays separate from the money you set aside for the challenge. Would you like to add those terms?"
+    end
+
+    def card_tool_unavailable
+      "Optional card review is not available for you right now, so I do not have a card balance to share. You can continue the savings challenge without cards or a full budget."
+    end
+
     def debt_answer
       if @message.match?(/\b(?:no (?:debts?|credit cards?)|(?:don.t|do not) have(?: a| any)? (?:debts?|credit cards?)|debt.free|without(?: a| any)? (?:debts?|credit cards?))\b/i)
         "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. Only approved new money you set aside, minus withdrawals, counts toward the challenge."
       else
         comparison = Debt::Reader.new(@enrollment, user: @user).call
         cards = comparison.fetch(:cards).index_by { |row| row[:card_id] }
+        @answer_facts = { approved_optional_debt: comparison.fetch(:cards).reject { |row| row[:terms]["status"] == "archived" }.map { |row| { label: row[:label], balance_cents: row[:terms]["balance_cents"] } } }
         balance_order = comparison.fetch(:snowball_order).map { |id| cards.fetch(id).fetch(:label) }
         rate_order = comparison.fetch(:avalanche_order).map { |id| cards.fetch(id).fetch(:label) }
         reviewed = if cards.empty?
