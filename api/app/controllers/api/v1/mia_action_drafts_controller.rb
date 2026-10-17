@@ -61,7 +61,7 @@ module Api
 
       def set_draft
         @draft = current_household.mia_action_drafts.includes(:mia_action_items).find(params[:id])
-        ::Mia::ActionDraftScope.authorize!(@draft, user: current_user, membership: current_cohort_membership)
+        ::Mia::ActionDraftScope.authorize!(@draft, user: current_user, membership: current_cohort_membership, runtime: current_participant_runtime)
       rescue ActiveRecord::RecordNotFound
         render json: { errors: [ "Mia action draft not found" ] }, status: :not_found
       rescue ::Mia::ActionDraftScope::Mismatch => error

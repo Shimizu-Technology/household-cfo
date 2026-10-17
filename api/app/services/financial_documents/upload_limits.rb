@@ -21,7 +21,7 @@ module FinancialDocuments
       limit = max_bytes(filename: filename, content_type: content_type)
       return if byte_size.to_i <= limit
 
-      "Uploaded file is too large (max #{limit / 1.megabyte} MB for this file type)"
+      "Uploaded file is too large (max #{limit / 1.megabyte} MB for this file type). Split it into smaller parts, such as one statement month or a few pages at a time, or upload a CSV export instead."
     end
   end
 end

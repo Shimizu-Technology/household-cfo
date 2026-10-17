@@ -25,7 +25,7 @@ describe('financial upload validation', () => {
     expect(validateFinancialUpload(uploadFile('receipt.png', 'image/png', IMAGE_AND_PDF_MAX_BYTES + 1))).toEqual({
       valid: false,
       reason: 'too_large',
-      message: 'receipt.png is too large. Images and PDFs can be up to 12 MB.',
+      message: 'receipt.png is too large. Images and PDFs can be up to 12 MB. Split it into smaller parts, such as one statement month or a few pages at a time, or upload a CSV export instead.',
       maxBytes: IMAGE_AND_PDF_MAX_BYTES,
     })
   })
@@ -45,7 +45,7 @@ describe('financial upload validation', () => {
     expect(validateFinancialUpload(uploadFile('budget.xlsx', '', DATA_AND_DOCUMENT_MAX_BYTES + 1))).toEqual({
       valid: false,
       reason: 'too_large',
-      message: 'budget.xlsx is too large. CSV, Excel, and Word files can be up to 20 MB.',
+      message: 'budget.xlsx is too large. CSV, Excel, and Word files can be up to 20 MB. Split it into smaller files, or export only the months you need.',
       maxBytes: DATA_AND_DOCUMENT_MAX_BYTES,
     })
   })

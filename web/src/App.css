@@ -10370,9 +10370,9 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 .app .pilot-support-bar > span { min-width: 0; line-height: 1.35; }
 .app .pilot-support-bar > div { width: auto; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; gap: 4px; }
 @media (max-width: 620px) {
-  .shell-actions .participant-program-switch { width: 84px; }
+  .shell-actions .participant-program-switch { width: max-content; min-width: 96px; }
   .participant-program-switch .program-name { display: none; }
-  .shell-actions .participant-program-switch > summary { padding-left: 6px; font-size: var(--text-xs); }
+  .shell-actions .participant-program-switch > summary { padding-left: 8px; padding-right: 26px; font-size: var(--text-xs); text-overflow: clip; }
   .participant-program-switch > .participant-program-picker { right: -50px; }
   .app .pilot-support-bar { padding: 5px 6px 5px 10px; }
   .app .pilot-support-bar > span { font-size: var(--text-xs); gap: 6px; line-height: 1.25; }
@@ -10531,4 +10531,52 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 
 .chat-card-wrap.has-review-shortcut .chat-scroll-bottom-button.has-review {
   bottom: 8px;
+}
+
+.setup-base-note {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.bulk-confirm-dialog form { margin: 0; }
+
+.bulk-confirm-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+}
+
+.bulk-confirm-field input {
+  min-height: 44px;
+  box-sizing: border-box;
+  width: 100%;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+}
+
+.bulk-confirm-dialog .setup-error { margin-top: 10px; }
+
+.bulk-confirm-dialog #bulk-confirm-copy {
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.62;
+}
+
+.bulk-confirm-field input {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: white;
+  color: var(--ink);
+}
+
+.bulk-confirm-field input[aria-invalid="true"] {
+  border-color: #a14b3d;
 }

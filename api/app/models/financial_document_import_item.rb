@@ -27,6 +27,9 @@ class FinancialDocumentImportItem < ApplicationRecord
   validate :applied_record_belongs_to_import_household
   validate :negative_balance_is_valid_for_account_type
 
+  # Income with no stated pay frequency waits for the participant instead of being pre-selected.
+  before_validation :wait_for_pay_frequency, on: :create
+
   scope :apply_candidates, -> { where(selected: true, ignored: false, applied_at: nil) }
 
   def applied?
@@ -34,6 +37,10 @@ class FinancialDocumentImportItem < ApplicationRecord
   end
 
   private
+
+  def wait_for_pay_frequency
+    self.selected = false if target_type == "income_source" && cadence.blank?
+  end
 
   def selected_and_ignored_are_mutually_exclusive
     errors.add(:base, "Extracted value cannot be both selected and ignored") if selected? && ignored?

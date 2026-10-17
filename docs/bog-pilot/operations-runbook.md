@@ -38,7 +38,19 @@ Inspect the target head's CI/reviewer requirements again; these commands do not 
 
 The current participant guard checks `savings_challenge_enabled`, `savings_challenge_release_hold`, current role/membership and the sealed savings release on every new financial operation/read (`api/app/services/savings_challenge/access_policy.rb:22`). Existing prepared-operation replay also reauthorizes. Hold denies new financial activity; self-only privacy revocation, reminder disable/dismissal and reflection erasure are deliberately available without granting financial reads.
 
-At this snapshot the ordinary admin cohort update does not permit the savings hold field (`api/app/controllers/api/v1/admin/cohorts_controller.rb:94`). Do not invent an unaudited public endpoint. If an authorized incident requires a hold, Leon can use a reviewed maintenance transaction against the verified cohort only; record its operator/reason externally as sanitized operational metadata. Example, after explicit environment/database and cohort verification:
+### Open or pause the challenge (normal path)
+
+Platform administrators (Leon) open and pause the challenge from Admin > Cohorts > select the cohort > "Challenge status". Program owners and coaches can see the status (Not set up / Ready to open / Open / Paused) and the 30-place capacity but cannot change it; this is deliberate because technical operations belong to the platform administrator.
+
+- "Open the challenge to participants" sets `savings_challenge_enabled` true and `savings_challenge_release_hold` false. It is refused with a plain reason unless the cohort's launched release is the Savings Challenge experience (tool registry v3 or later, checked with the same predicate `SavingsChallenge::AccessPolicy` uses) and the cohort is Enrolling or Active.
+- "Pause the challenge" sets the hold. It is always allowed (any cohort status, any release state).
+- Every change needs a short reason and is recorded in `cohort_challenge_access_events` (who, when, from/to state, reason, release id, idempotency key). The record is append-only. Replaying the same `Idempotency-Key` is safe; reusing it for a different change is a conflict. The cohort row is locked for the change.
+- Pause is a no-op success (no audit event) unless the challenge is open. Readiness is checked against the cohort's active release; a participant pinned to an older release by a rollout is judged by that release at runtime and could still be refused, so keep rollouts complete before opening.
+- Experience choice: in Coach Studio > Participant tools pick "90-day Savings Challenge", save, preview, publish, then seal and launch a release (the seal and launch confirmations name the experience). Launching does not open the challenge; opening is a separate audited step.
+
+### Break-glass fallback (console)
+
+Use this only if the admin control is unavailable during an incident. Do not invent an unaudited public endpoint. After explicit environment/database and cohort verification, a reviewed maintenance transaction against the verified cohort only; record its operator/reason externally as sanitized operational metadata, and add the matching reason to the cohort's notes afterwards:
 
 ```sh
 RAILS_ENV=production DATABASE_URL="$BOG_VERIFIED_DATABASE_URL" bin/rails runner 'cohort = Cohort.find(Integer(ENV.fetch("BOG_COHORT_ID"))); cohort.with_lock { cohort.update!(savings_challenge_release_hold: true) }; puts "Challenge hold applied"'
@@ -49,6 +61,29 @@ This example is a maintenance option, not launch approval. Do not set the hold f
 Prefer forward fixes or an explicitly compatible previously sealed runtime. Never modify sealed bytes, remove operation-version validation, bypass compatibility caches, drop savings/source tables, delete approved versions or mutate approved progress to accomplish rollback. Keep pending work and approved financial history. Recheck the selected release and old/current contracts after rollback, and document changes to access separately from money. The frozen contract regressions are `api/test/services/cohort_release_contract_versions_test.rb:11` and `:109`; they are not a production rollback rehearsal.
 
 Chat migration `20261004320000` is irreversible. It attributes only messages proven to belong to a matching sealed savings release, version 3 or later; ordinary CFO programs retain legacy nil-cohort history. It does not copy legacy summaries or ambiguous evidence into a program. Never bypass scope guards or restore an older runtime that silently reads a global session. E16 records a local native upgrade and independent program clear; it is not a production rollback rehearsal.
+
+## Challenge sealed but not open (or paused)
+
+A cohort sealed in savings mode is a savings challenge for the participant's screens, Mia, chat history and review drafts whether or not it is open. "Open" is separate: `savings_challenge_enabled`, no release hold and an enrolling, active or completed cohort. While it is not open, or paused:
+
+- Home shows "Your savings challenge opens soon"; Today, Join and Export are hidden. Mia says the challenge is not open yet and creates no message, session or draft (that reply is not saved). Earlier challenge chat appears empty and returns when the challenge reopens; nothing is deleted.
+- `SetupHelp::Access`, `CohortReleases::OperationAccess` and `FinancialRestart::Flow` still test the raw enabled flag, so household-level setup help and operations remain available while a challenge is not open. They touch household data only, never challenge data.
+- `TransactionDraft` has no program attribution. A pending household transaction draft made in an ordinary program can appear in the challenge's Ask Mia for the same household. Scoping them is a follow-up that needs a schema change.
+- The default program for a participant with no explicit choice prefers a joined (accepted, live) challenge, then active, enrolling and latest programs. The browser stores a program only when the participant picks one in the Program menu (storage key `household-cfo:participant-program:v2:`; older v1 values are ignored).
+
+Read-only check for legacy history. Migration `20261004320000` already ran, so chat from a cohort that was sealed but never enabled stayed in the ordinary (nil-cohort) session. This lists it without changing anything; do not move data without a reviewed plan.
+
+```ruby
+# bin/rails runner in a maintenance shell. Read-only.
+savings = CohortRelease.where("experience_snapshot->'config'->>'experience_mode' = 'savings_challenge'").where("tool_registry_version >= 3").distinct.pluck(:cohort_id)
+CohortMembership.where(cohort_id: savings, role: "participant").includes(:cohort).find_each do |m|
+  legacy = ChatMessage.joins(:chat_session).where(chat_sessions: { user_id: m.user_id, cohort_id: nil }).where("chat_messages.created_at >= ?", m.created_at)
+  attributed = legacy.where(cohort_id: m.cohort_id).count
+  puts({ cohort_id: m.cohort_id, user_id: m.user_id, enabled: m.cohort.savings_challenge_enabled, legacy_messages_since_membership: legacy.count, legacy_messages_attributed_to_cohort: attributed }.to_json) if legacy.exists?
+end
+```
+
+A non-zero count means the participant talked to Mia in the ordinary program after being added to the challenge cohort; the messages are not shown in the challenge and are not lost.
 
 ## Uncertain participant actions
 

@@ -14,7 +14,7 @@ it('removes denied and malformed selections and tolerates unavailable storage', 
   storeParticipantProgram('clerk-a', 1, 42)
   storeParticipantProgram('clerk-a', 1, undefined)
   expect(readParticipantProgram('clerk-a', 1)).toBeUndefined()
-  localStorage.setItem('household-cfo:participant-program:v1:clerk-a:1', '2.5')
+  localStorage.setItem('household-cfo:participant-program:v2:clerk-a:1', '2.5')
   expect(readParticipantProgram('clerk-a', 1)).toBeUndefined()
   expect(localStorage.length).toBe(0)
   vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('Blocked') })
@@ -29,4 +29,9 @@ it('clears only an explicitly unavailable membership, never an unverified actor 
   expect(verifiedParticipantProgram({ ...programs, selection_unavailable: true, current_cohort_id: null, current_program: null }, 1, 42)).toBe(false)
   expect(() => verifiedParticipantProgram(programs, 2, 42)).toThrow('different account')
   expect(() => verifiedParticipantProgram(programs, 1, 43)).toThrow('could not be verified')
+})
+
+it('ignores v1 values, which may have been auto-stored server defaults', () => {
+  localStorage.setItem('household-cfo:participant-program:v1:clerk-a:1', '42')
+  expect(readParticipantProgram('clerk-a', 1)).toBeUndefined()
 })

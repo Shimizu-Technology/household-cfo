@@ -3,7 +3,8 @@ module HouseholdFinance
     UNRESOLVED_COHORT = Object.new.freeze
 
     def initialize(household, user: nil, annual_plan: nil, persona: nil, cohort_membership: UNRESOLVED_COHORT,
-      experience_capabilities: nil, brand: nil, ensure_plan: true)
+      experience_capabilities: nil, brand: nil, ensure_plan: true, runtime: nil)
+      @runtime = runtime
       @household = household
       @user = user
       ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
@@ -43,6 +44,7 @@ module HouseholdFinance
       {
         mode: "real",
         experience_mode: participant_experience_mode,
+        challenge_open: challenge_open?,
         household_id: household.id,
         financial_generation: household.financial_generation,
         setup_complete: status.complete?,
@@ -61,7 +63,19 @@ module HouseholdFinance
       }
     end
 
+    # Savings-mode programs only: whether the challenge is open for activity.
+    # Ordinary programs always report true so nothing waits on it.
+    def challenge_open?
+      return true unless participant_experience_mode == "savings_challenge"
+
+      SavingsChallenge::ProgramMode.open?(@cohort_membership&.cohort)
+    end
+
     def participant_experience_mode
+      @participant_experience_mode ||= compute_participant_experience_mode
+    end
+
+    def compute_participant_experience_mode
       return "household_cfo" unless user && cohort_membership && experience_capabilities[:experience_mode] == "savings_challenge"
 
       SavingsChallenge::AccessPolicy.new(household: household, user: user, cohort: cohort_membership.cohort).call!
@@ -351,7 +365,7 @@ module HouseholdFinance
     def scoped_annual_plan
       plan = annual_plan.deep_dup
       plan[:pending_mia_action_drafts] = ::Mia::ActionDraftScope.reviews(household: household,
-        user: user, membership: cohort_membership, year: plan.fetch(:year), limit: 10)
+        user: user, membership: cohort_membership, year: plan.fetch(:year), limit: 10, runtime: @runtime)
       plan
     end
 
@@ -428,7 +442,7 @@ module HouseholdFinance
     def chat_session
       return nil unless user
 
-      ::Mia::ChatSessionScope.new(household: household, user: user, membership: @cohort_membership).find
+      ::Mia::ChatSessionScope.new(household: household, user: user, membership: @cohort_membership, runtime: @runtime).find_for_display
     end
 
     def members
@@ -518,7 +532,7 @@ module HouseholdFinance
 
       unless snapshot.fetch(:debt_minimums_known)
         return [
-          { tone: "yellow", title: "Debt minimums needed", body: "Add every required monthly minimum, or confirm a $0 household summary, before using readiness or cash-flow guidance." },
+          { tone: "yellow", title: "Debt minimums needed", body: "Add every required monthly minimum in My Money, under Debt, or confirm a $0 household summary, before using readiness or cash-flow guidance.", action: "open_debt" },
           { tone: debt_tone, title: "Debt focus", body: debt_body }
         ]
       end
@@ -612,7 +626,7 @@ module HouseholdFinance
       current_year_range = Date.new(current_year, 1, 1)..Date.new(current_year, 12, 31)
       transaction_reviews = household.transaction_drafts.pending.excluding_non_spending_plaid.where(occurred_on: current_year_range).count
       action_reviews = ::Mia::ActionDraftScope.records(household.mia_action_drafts.reviewable.for_budget_year(current_year),
-        user: user, membership: cohort_membership).count
+        user: user, membership: cohort_membership, runtime: @runtime).count
 
       {
         transaction_review_count: transaction_reviews,
@@ -635,7 +649,8 @@ module HouseholdFinance
       unless snapshot.fetch(:debt_minimums_known)
         return {
           title: "Finish the debt minimums before making a cash-flow call.",
-          body: "At least one monthly debt minimum is unknown. Add it under My Profile, or use a confirmed $0 household summary, before relying on readiness, baseline surplus, or safe-to-spend."
+          body: "At least one monthly debt minimum is unknown. Add it in My Money, under Debt, or use a confirmed $0 household summary, before relying on readiness, baseline surplus, or safe-to-spend.",
+          action: "open_debt"
         }
       end
 
@@ -958,13 +973,21 @@ module HouseholdFinance
       debt_entered = debt_balance_known && snapshot.fetch(:total_debt_cents).positive?
       baseline_positive = snapshot.fetch(:baseline_surplus_cents).positive?
       runway_met = snapshot.fetch(:runway_months) >= target_runway_months
-      extra_debt_ready = debt_entered && baseline_positive && safe.positive? && snapshot.fetch(:readiness_tone) != "red"
+      apr_unknown = debt_entered && debts.any? { |debt| debt.active? && debt.balance_known? && debt.balance_cents.to_i.positive? && debt.interest_rate_percent.nil? }
+      extra_debt_ready = debt_entered && !apr_unknown && baseline_positive && safe.positive? && snapshot.fetch(:readiness_tone) != "red"
+      wants_open = snapshot.fetch(:readiness_tone) == "green" && safe.positive?
       [
         {
           item: "Non-essential purchase",
           amount: safe,
-          recommendation: safe.positive? ? "Pause" : "Wait",
-          reason: safe.positive? ? "Only approve wants that fit inside true surplus after bills, sinking funds, and debt minimums." : "Baseline is not ready for wants yet. Protect essentials first."
+          recommendation: wants_open ? "Optional" : (safe.positive? ? "Pause" : "Wait"),
+          reason: if wants_open
+            "You have room for wants. Keep them inside this amount so bills, sinking funds, and debt minimums stay covered."
+                  elsif safe.positive?
+            "Only approve wants that fit inside true surplus after bills, sinking funds, and debt minimums."
+                  else
+            "Baseline is not ready for wants yet. Protect essentials first."
+                  end
         },
         {
           item: "Extra debt payment",
@@ -972,6 +995,8 @@ module HouseholdFinance
           recommendation: extra_debt_ready ? "Approve" : "Wait",
           reason: if !debt_balance_known
             "Enter every debt balance before Mia prioritizes an extra payment. Partial totals are not used for payoff decisions."
+                  elsif apr_unknown
+            "Add the interest rate (APR) on each debt before Mia suggests an extra payment. Until then, pay the minimums and nothing is recommended."
                   elsif debt_entered
             "Debt payoff helps breathing room, but only after fixed bills and runway are protected."
                   else

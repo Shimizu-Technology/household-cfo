@@ -115,6 +115,7 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
         <h4 ref={reviewHeadingRef} tabIndex={-1}>Review first cohort launch</h4>
         <p><strong>{state.cohort.name} · Release {state.release?.release_number}</strong></p>
         <p>{state.message}</p>
+        {state.participant_experience?.mode === 'savings_challenge' && <p>Launching does not open the challenge. Participants see it only after an administrator opens it from Admin &gt; Cohorts.</p>}
         <p>{state.cohort.participant_count} current {state.cohort.participant_count === 1 ? 'participant' : 'participants'} will use this release. New participants will use it too.</p>
         <div className="initial-launch-actions">
           <Button disabled={mutationLifecycle.pending || !state.can_launch} onClick={() => void launch()}>{mutationLifecycle.pending ? 'Launching…' : 'Launch cohort now'}</Button>

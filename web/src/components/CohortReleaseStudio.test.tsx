@@ -33,6 +33,7 @@ const studioFixture: CohortReleaseStudioData = {
     brand_snapshot_digest: 'brand-v9',
     registry_digest: 'registry-v3',
     registry_version: 3,
+    participant_experience: null,
     expected_latest_release_id: 44,
     seal_needed: true,
     ready: true,

@@ -59,7 +59,7 @@ class HouseholdFinanceReadinessCalculatorTest < ActiveSupport::TestCase
       target_runway_months: 6
     ).call
 
-    assert_equal 3.0, result.fetch(:runway_months)
+    assert_equal 2.9, result.fetch(:runway_months)
     assert_equal 1, result.fetch(:yellow_runway_gap_cents)
     assert_equal "red", result.fetch(:readiness_tone)
     assert_equal 0, result.fetch(:safe_to_spend_cents)

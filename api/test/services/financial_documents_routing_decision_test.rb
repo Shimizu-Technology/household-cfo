@@ -103,4 +103,44 @@ class FinancialDocumentsRoutingDecisionTest < ActiveSupport::TestCase
     assert_equal "participant_selection", result.source
     assert_not result.conflict
   end
+
+  test "message words about another attachment do not re-route a bank CSV" do
+    @document_import.filename = "checking.csv"
+    @document_import.content_type = "text/csv"
+    @document_import.metadata = {
+      "upload_origin" => "mia",
+      "upload_context" => "Here is my bank export and the lunch receipt from today.",
+      "declared_document_kind" => "spreadsheet"
+    }
+
+    result = FinancialDocuments::RoutingDecision.new(@document_import, detected_kind: "spreadsheet").call
+
+    assert_equal "spreadsheet", result.resolved_kind
+    assert_nil result.context_kind
+    assert_not result.conflict
+  end
+
+  test "a CSV is not re-routed to receipt by a message that only mentions a receipt" do
+    @document_import.filename = "export.csv"
+    @document_import.content_type = "text/csv"
+    @document_import.metadata = { "upload_origin" => "mia", "upload_context" => "also a lunch receipt", "declared_document_kind" => "receipt" }
+
+    result = FinancialDocuments::RoutingDecision.new(@document_import, detected_kind: "spreadsheet").call
+
+    assert_equal "spreadsheet", result.resolved_kind
+    assert_equal "mia_detection", result.source
+  end
+
+  test "a message naming several kinds does not decide any one file" do
+    @document_import.metadata = {
+      "upload_origin" => "mia",
+      "upload_context" => "My pay stub and a receipt",
+      "declared_document_kind" => "receipt"
+    }
+
+    result = FinancialDocuments::RoutingDecision.new(@document_import, detected_kind: "pay_stub").call
+
+    assert_equal "pay_stub", result.resolved_kind
+    assert_equal "mia_detection", result.source
+  end
 end

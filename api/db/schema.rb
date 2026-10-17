@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_16_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_17_120000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -1408,6 +1408,36 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_120000) do
     t.index "lower((slug)::text)", name: "index_coach_workspaces_on_lower_slug", unique: true
     t.index ["created_by_user_id", "creation_request_key"], name: "idx_coach_workspaces_creation_request", unique: true, where: "(creation_request_key IS NOT NULL)"
     t.index ["created_by_user_id"], name: "index_coach_workspaces_on_created_by_user_id"
+  end
+
+  create_table "cohort_challenge_access_events", force: :cascade do |t|
+    t.string "action", null: false
+    t.string "actor_role_snapshot", null: false
+    t.bigint "actor_user_id", null: false
+    t.bigint "coach_workspace_id", null: false
+    t.bigint "cohort_id", null: false
+    t.bigint "cohort_release_id"
+    t.datetime "created_at", null: false
+    t.boolean "enabled_after", null: false
+    t.boolean "enabled_before", null: false
+    t.string "from_state", null: false
+    t.boolean "hold_after", null: false
+    t.boolean "hold_before", null: false
+    t.datetime "occurred_at", null: false
+    t.string "reason", null: false
+    t.string "request_fingerprint", null: false
+    t.string "request_key", null: false
+    t.string "to_state", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id"], name: "index_cohort_challenge_access_events_on_actor_user_id"
+    t.index ["coach_workspace_id"], name: "index_cohort_challenge_access_events_on_coach_workspace_id"
+    t.index ["cohort_id", "occurred_at", "id"], name: "idx_challenge_access_events_history"
+    t.index ["cohort_id", "request_key"], name: "idx_challenge_access_events_request", unique: true
+    t.index ["cohort_id"], name: "index_cohort_challenge_access_events_on_cohort_id"
+    t.index ["cohort_release_id"], name: "index_cohort_challenge_access_events_on_cohort_release_id"
+    t.check_constraint "action::text = ANY (ARRAY['open'::character varying, 'pause'::character varying]::text[])", name: "challenge_access_events_action_valid"
+    t.check_constraint "char_length(btrim(reason::text)) >= 5 AND char_length(btrim(reason::text)) <= 500", name: "challenge_access_events_reason_valid"
+    t.check_constraint "request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 255", name: "challenge_access_events_request_valid"
   end
 
   create_table "cohort_experience_configurations", force: :cascade do |t|
@@ -4009,6 +4039,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_120000) do
   add_foreign_key "coach_workspace_memberships", "coach_workspaces", on_delete: :cascade
   add_foreign_key "coach_workspace_memberships", "users", on_delete: :cascade
   add_foreign_key "coach_workspaces", "users", column: "created_by_user_id", on_delete: :cascade
+  add_foreign_key "cohort_challenge_access_events", "coach_workspaces"
+  add_foreign_key "cohort_challenge_access_events", "cohort_releases"
+  add_foreign_key "cohort_challenge_access_events", "cohorts"
+  add_foreign_key "cohort_challenge_access_events", "users", column: "actor_user_id"
   add_foreign_key "cohort_experience_configurations", "coach_workspaces"
   add_foreign_key "cohort_experience_configurations", "cohort_experience_versions", column: "current_published_version_id"
   add_foreign_key "cohort_experience_configurations", "cohorts"
@@ -4441,6 +4475,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_120000) do
   SQL
   execute <<~SQL
     CREATE TRIGGER challenge_sponsor_exports_immutable BEFORE DELETE OR UPDATE ON public.challenge_sponsor_exports FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER cohort_challenge_access_events_immutable BEFORE DELETE OR UPDATE ON public.cohort_challenge_access_events FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
   SQL
   execute <<~SQL
     CREATE TRIGGER financial_baseline_versions_immutable BEFORE DELETE OR UPDATE ON public.financial_baseline_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();

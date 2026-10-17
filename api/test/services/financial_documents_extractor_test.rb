@@ -412,6 +412,21 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     file&.close!
   end
 
+  test "income without a shown pay frequency stays unset instead of assuming monthly" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    base = { "target_type" => "income_source", "label" => "Payroll deposit", "amount" => 1_500, "source_type" => "job", "confidence" => "medium" }
+
+    missing = extractor.send(:normalize_item, base.merge("cadence" => nil, "evidence" => "Deposits of $1,500 appear."))
+    stated_monthly_but_not_shown = extractor.send(:normalize_item, base.merge("cadence" => "monthly", "evidence" => "Pay frequency is not shown."))
+    shown = extractor.send(:normalize_item, base.merge("cadence" => "biweekly", "evidence" => "Paid every other Friday."))
+    expense = extractor.send(:normalize_item, { "target_type" => "expense_item", "label" => "Rent", "amount" => 900, "cadence" => nil })
+
+    assert_nil missing.fetch(:cadence)
+    assert_nil stated_monthly_but_not_shown.fetch(:cadence)
+    assert_equal "biweekly", shown.fetch(:cadence)
+    assert_equal "monthly", expense.fetch(:cadence)
+  end
+
   test "normalizes LLM item metadata to bounded allowlisted keys" do
     item = FinancialDocuments::Extractor.new(api_key: "test-key").send(
       :normalize_item,

@@ -13,6 +13,7 @@ import type {
   CohortExperienceConfiguration,
   CohortExperienceDraft,
   CohortExperiencePreview,
+  ExperienceMode,
 } from '../api'
 import { Button } from './Button'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
@@ -30,6 +31,34 @@ const optionalModules = [
   ['cfo_filter', 'CFO Filter', 'Pressure-test a purchase before money moves.'],
   ['optionality', 'Optionality', 'Compare choices against stability and runway.'],
 ] as const
+
+const experienceModes: Array<{ mode: ExperienceMode; title: string; description: string; detail: string }> = [
+  {
+    mode: 'household_cfo',
+    title: 'Household CFO',
+    description: 'The everyday coaching experience: plan, review, ask Mia, and grow.',
+    detail: 'Home, Review, Ask Mia, Budget, My Profile and Wealth, plus any optional tools you turn on.',
+  },
+  {
+    mode: 'savings_challenge',
+    title: '90-day Savings Challenge',
+    description: 'A guided challenge: join, set a comfortable target, and record money set aside.',
+    detail: 'Participants land on Savings with Today check-ins, Ask Mia and Statements. Review becomes Transactions.',
+  },
+]
+
+function experienceModeOf(draft: { experience_mode?: ExperienceMode }): ExperienceMode {
+  return draft.experience_mode === 'savings_challenge' ? 'savings_challenge' : 'household_cfo'
+}
+
+// Mirrors the labels ParticipantTabs shows participants in each mode.
+function navigationLabel(section: string, savingsChallenge: boolean) {
+  if (savingsChallenge && section === 'Home') return 'Savings'
+  if (savingsChallenge && section === 'Review') return 'Transactions'
+  return section
+}
+
+const coreModuleIds = ['home', 'review', 'ask_mia', 'budget', 'profile', 'wealth']
 
 type PendingAction = 'load' | 'save' | 'preview' | 'publish' | 'rollback' | null
 
@@ -125,6 +154,18 @@ export function CohortExperienceStudio({
     prepareCohortSelection(value)
   }
 
+  function chooseMode(mode: ExperienceMode) {
+    setDraft((current) => {
+      if (!current || experienceModeOf(current) === mode) return current
+      // The challenge ships a focused toolset; the ordinary experience keeps schema 1 with no mode.
+      return mode === 'savings_challenge'
+        ? { schema_version: 3, experience_mode: 'savings_challenge', optional_modules: { cfo_filter: false, optionality: false } }
+        : { schema_version: 1, optional_modules: current.optional_modules }
+    })
+    setPreview(null)
+    setNotice(null)
+  }
+
   function toggleModule(key: 'cfo_filter' | 'optionality') {
     setDraft((current) => current ? {
       ...current,
@@ -193,7 +234,8 @@ export function CohortExperienceStudio({
       setConfiguration(response.experience_configuration)
       setDraft(response.experience_configuration.draft)
       setPreview(null)
-      setNotice(`Participant tools version ${response.published_version.number} is published.`)
+      const experience = experienceModeOf(response.experience_configuration.draft) === 'savings_challenge' ? '90-day Savings Challenge' : 'Household CFO'
+      setNotice(`Participant tools version ${response.published_version.number} is published (${experience}). Seal and launch a release next; the challenge opens separately from Admin.`)
     } catch (caught) {
       if (mutationLifecycle.isCurrent(ticket)) {
         setPreview(null)
@@ -258,6 +300,20 @@ export function CohortExperienceStudio({
 
       {pendingAction === 'load' && !configuration ? <article className="panel" role="status">Loading participant tools…</article> : configuration && draft && (
         <>
+          <article className="panel experience-mode-picker">
+            <fieldset disabled={!configuration.permissions.edit || pendingAction !== null}>
+              <legend><span className="eyebrow">Experience</span><strong>What experience will participants get?</strong></legend>
+              <div className="experience-mode-options">
+                {experienceModes.map((option) => (
+                  <label key={option.mode} className={`experience-mode-option${experienceModeOf(draft) === option.mode ? ' is-selected' : ''}`}>
+                    <input type="radio" name="experience-mode" value={option.mode} checked={experienceModeOf(draft) === option.mode} onChange={() => chooseMode(option.mode)} />
+                    <span><strong>{option.title}</strong><small>{option.description}</small><small>{option.detail}</small></span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <NavigationSummary draft={draft} />
+          </article>
           <div className="experience-module-grid">
             <article className="panel experience-module-group">
               <header><div><p className="eyebrow">Always included</p><h3>Financial control and transparency</h3></div><span>Locked on</span></header>
@@ -269,7 +325,7 @@ export function CohortExperienceStudio({
               ))}
             </article>
 
-            <article className="panel experience-module-group">
+            {experienceModeOf(draft) === 'household_cfo' ? <article className="panel experience-module-group">
               <header><div><p className="eyebrow">Coach controlled</p><h3>Optional teaching tools</h3></div><span>{Object.values(draft.optional_modules).filter(Boolean).length} enabled</span></header>
               {optionalModules.map(([key, label, description]) => (
                 <label className="experience-module-row" key={key}>
@@ -285,7 +341,10 @@ export function CohortExperienceStudio({
                 </label>
               ))}
               {!configuration.permissions.edit && <p className="coach-read-only" role="note">{['completed', 'archived'].includes(configuration.cohort.status) ? 'Completed and archived cohorts are read-only.' : configuration.permissions.review ? 'Your workspace role can review the saved draft but cannot change these tools.' : 'Your workspace role can view these tools but cannot change or publish them.'}</p>}
-            </article>
+            </article> : <article className="panel experience-module-group">
+              <header><div><p className="eyebrow">Focused toolset</p><h3>Optional teaching tools are off</h3></div><span>Challenge</span></header>
+              <p>The Savings Challenge keeps participants on the challenge. CFO Filter and Optionality are not included.</p>
+            </article>}
           </div>
 
           <article className="panel experience-lifecycle">
@@ -299,7 +358,7 @@ export function CohortExperienceStudio({
               <Button onClick={() => void publishDraft()} disabled={!configuration.permissions.publish || !preview || dirty || pendingAction !== null || preview.digest !== configuration.preview?.digest}>{pendingAction === 'publish' ? 'Publishing' : 'Publish to cohort'}</Button>
             </div>
 
-            {preview && <ExperiencePreview preview={preview} />}
+            {preview && <ExperiencePreview preview={preview} savingsChallenge={experienceModeOf(draft) === 'savings_challenge'} />}
 
             <details className="coach-version-history">
               <summary>Version history ({configuration.versions.length})</summary>
@@ -321,13 +380,31 @@ export function CohortExperienceStudio({
   )
 }
 
-function ExperiencePreview({ preview }: { preview: CohortExperiencePreview }) {
+function navigationFor(enabledIds: string[], savingsChallenge: boolean) {
+  // Mirror ParticipantTabs exactly: the same primary destinations, and More only when needed.
+  const { primary, secondary } = partitionParticipantSections(participantSectionsForModules(enabledIds), savingsChallenge)
+  return { primary: primary.map((label) => navigationLabel(label, savingsChallenge)), secondary: secondary.map((label) => navigationLabel(label, savingsChallenge)) }
+}
+
+/** Live view of the tabs the current choice gives participants, before any preview round trip. */
+function NavigationSummary({ draft }: { draft: CohortExperienceDraft }) {
+  const savingsChallenge = experienceModeOf(draft) === 'savings_challenge'
+  const enabledIds = [...coreModuleIds, ...Object.entries(draft.optional_modules).filter(([, on]) => on).map(([id]) => id)]
+  const { primary, secondary } = navigationFor(enabledIds, savingsChallenge)
+  return (
+    <p className="experience-nav-summary" aria-label="Navigation participants will see">
+      <span>Participants will see:</span> {primary.map((label) => <b key={label}>{label}</b>)}{secondary.length > 0 && <b>More · {secondary.join(', ')}</b>}
+    </p>
+  )
+}
+
+function ExperiencePreview({ preview, savingsChallenge }: { preview: CohortExperiencePreview; savingsChallenge: boolean }) {
   const enabled = preview.modules.filter((item) => item.enabled)
   const disabled = preview.modules.filter((item) => !item.enabled)
-  // Mirror ParticipantTabs exactly: the same primary destinations, and More only when needed.
-  const { primary, secondary } = partitionParticipantSections(participantSectionsForModules(enabled.map((item) => item.id)))
+  const { primary, secondary } = navigationFor(enabled.map((item) => item.id), savingsChallenge)
   return (
     <section className="experience-preview" aria-label="Exact participant navigation preview">
+      <p className="experience-preview-mode"><strong>Experience:</strong> {savingsChallenge ? '90-day Savings Challenge' : 'Household CFO'}</p>
       <div className="experience-preview-device is-desktop">
         <span>Desktop</span>
         <nav aria-label="Desktop preview">{primary.map((label) => <b key={label}>{label}</b>)}{secondary.length > 0 && <b>More · {secondary.join(', ')}</b>}</nav>

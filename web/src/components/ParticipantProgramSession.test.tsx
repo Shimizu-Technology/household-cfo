@@ -23,11 +23,11 @@ function view(identity = 'clerk-a:1:participant', actorId = 1) {
     </section>}
   </ParticipantProgramSession>
 }
-it('keeps a default workspace and unsaved draft stable after persisting its verified program and rerendering', () => {
+it('keeps a default workspace and unsaved draft stable and never persists a server-picked default', () => {
   const ui = render(view())
   fireEvent.change(screen.getByLabelText('Unsaved budget draft'), { target: { value: '125.50' } })
   fireEvent.click(screen.getByRole('button', { name: 'Verify default' }))
-  expect(readParticipantProgram('clerk-a', 1)).toBe(42)
+  expect(readParticipantProgram('clerk-a', 1)).toBeUndefined()
   ui.rerender(view())
   expect(screen.getByText('Selected: default')).toBeTruthy()
   expect((screen.getByLabelText('Unsaved budget draft') as HTMLInputElement).value).toBe('125.50')
@@ -38,7 +38,7 @@ it('ignores external storage changes until a new session, while an explicit choi
   const storageRead = vi.spyOn(Storage.prototype, 'getItem')
   fireEvent.change(screen.getByLabelText('Unsaved budget draft'), { target: { value: '77.25' } })
   storeParticipantProgram('clerk-a', 1, 99)
-  window.dispatchEvent(new StorageEvent('storage', { key: 'household-cfo:participant-program:v1:clerk-a:1', newValue: '99' }))
+  window.dispatchEvent(new StorageEvent('storage', { key: 'household-cfo:participant-program:v2:clerk-a:1', newValue: '99' }))
   ui.rerender(view())
   expect(screen.getByText('Selected: 42')).toBeTruthy()
   expect((screen.getByLabelText('Unsaved budget draft') as HTMLInputElement).value).toBe('77.25')
@@ -73,4 +73,10 @@ it('restores a verified migrated user’s prior program choice without reading a
   fireEvent.click(screen.getByRole('button', { name: 'Confirm program' }))
   expect(readParticipantProgram('workos:user-a', 1)).toBe(42)
   ui.unmount()
+})
+
+it('persists a program only when the participant chooses it', () => {
+  render(view())
+  fireEvent.click(screen.getByRole('button', { name: 'Choose 43' }))
+  expect(readParticipantProgram('clerk-a', 1)).toBe(43)
 })
