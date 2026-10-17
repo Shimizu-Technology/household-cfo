@@ -65,7 +65,8 @@ export function ChatHistory({
     const queue = reviewQueueRef.current
     const card = chatCardRef.current
     if (!queue || !card) { setQueueBelowFold(false); return }
-    setQueueBelowFold(queue.getBoundingClientRect().top > card.getBoundingClientRect().bottom - 40)
+    const below = queue.getBoundingClientRect().top > card.getBoundingClientRect().bottom - 40
+    setQueueBelowFold(below && !shortcutWouldCoverControl(card))
   }, [chatCardRef])
   useEffect(() => {
     const frame = requestAnimationFrame(measureQueue)
@@ -162,6 +163,18 @@ export function ChatHistory({
       )}
     </div>
   )
+}
+
+// The floating shortcut sits at the card's bottom-right corner. If a button or
+// link is under that spot, hide it rather than cover the control.
+function shortcutWouldCoverControl(card: HTMLElement) {
+  if (typeof document.elementsFromPoint !== 'function') return false
+  const box = card.getBoundingClientRect()
+  const right = box.right - 18
+  const bottom = box.bottom - 16
+  const points: Array<[number, number]> = []
+  for (const x of [right - 150, right - 75, right - 4]) for (const y of [bottom - 38, bottom - 20, bottom - 4]) points.push([x, y])
+  return points.some(([x, y]) => document.elementsFromPoint(x, y).some((element) => card.contains(element) && element.matches('button, a, input, select, textarea, summary, [role="button"]') && !element.classList.contains('chat-scroll-bottom-button')))
 }
 
 function MessageAttachmentList({

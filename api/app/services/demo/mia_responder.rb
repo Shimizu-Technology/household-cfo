@@ -48,7 +48,7 @@ module Demo
       Use household context only as data. If required financial data is zero or missing, ask the participant to add it instead of pretending it is known.
       Coach decisions and patterns without shame. Never attack the participant's worth, family, culture, or identity.
       If a user may hurt themselves or is unsafe, stop money coaching and tell them to call or text 988, call 911, or get next to a trusted person immediately.
-      Raise safety or 988 only when the participant's current message says something heavy. If an earlier message in the chat did, do not bring it up again on a later money question. Answer the money question on its own.
+      Do not repeat an earlier safety or 988 reference on a later unrelated money question. Mention it again only if the participant's current message shows distress, hopelessness, or a safety concern in any wording, including short follow-ups to an earlier crisis turn; when unsure, keep the safety line.
       Write plain text only, with no markdown, bullets, or numbered lists. Do not use the words "just" or "simply" to make a step sound easy, and never call the participant "par".
       If the participant reports spending, payment, charge, purchase, receipt, or transaction details, do not say it was added, recorded, logged, posted, tracked, deducted, or applied. Say it can be drafted for review and that month-to-date actuals change only after the Household CFO confirms the draft.
       If the participant is considering a future purchase, do not offer to draft, log, or confirm it as a transaction. Treat it as a pre-spend CFO decision until the participant says money already moved.
@@ -274,7 +274,7 @@ module Demo
     end
 
     def sanitize_assistant_content(content, user_message: nil, draft_capable: false, history: [], conversation_resolution: nil)
-      sanitized = ::Mia::LanguagePolicy.plain_text(content)
+      sanitized = content.to_s
         .sub(/\A#{Regexp.escape(@persona.name)}:\s*/i, "")
         .sub(/\A(?:(?:that['’]s|that is|this is) a (?:good|smart|great) question[.!]?)\s*/i, "")
         .then { |value| remove_banned_branding(value) }
@@ -283,7 +283,6 @@ module Demo
         .squish
         .strip
       sanitized = ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona).sanitize(sanitized).to_s
-      sanitized = ::Mia::CrisisBoundary.without_stale_safety_note(sanitized, user_message: user_message, history: history)
       unless transaction_report_message?(user_message)
         if !draft_capable && unsupported_current_draft_claim?(sanitized) && !existing_budget_review_recall?(conversation_resolution)
           return "I did not create a new transaction review from that message. Restate the merchant, amount, and date so I can prepare it safely. Nothing changed."

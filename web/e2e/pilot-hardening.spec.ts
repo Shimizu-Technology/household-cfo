@@ -2779,22 +2779,40 @@ test('only one money change can run at a time from Ask Mia', async ({ page }) =>
   expect(cancelRequests).toBe(0)
 })
 
-test('Ask Mia lands on the newest reply even when review cards follow the conversation', async ({ page }) => {
-  const workspace = realWorkspaceData(true)
-  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
-  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
-  await expect(page.locator('.chat-review-queue')).toBeVisible({ timeout: 15_000 })
+for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+  test(`Ask Mia lands on the newest reply even when review cards follow the conversation at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    const workspace = realWorkspaceData(true)
+    const lastId = Math.max(...workspace.mia.messages.map((message: { id: number }) => message.id ?? 0))
+    workspace.mia.messages.push({ id: lastId + 1, role: 'assistant', author: 'Mia', content: 'Your October dining out is $91.95 in confirmed spending. Two drafts are still waiting for your review below. Confirm the ones that are right and actuals will update.', created_at: new Date().toISOString() })
+    await page.setViewportSize(viewport)
+    await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    await expect(page.locator('.chat-review-queue')).toBeVisible({ timeout: 15_000 })
 
-  await expect.poll(async () => page.locator('.chat-card').evaluate((card) => {
-    const replies = [...card.querySelectorAll('.message-row.assistant:not(.typing-row)')]
-    const latest = replies[replies.length - 1]?.getBoundingClientRect()
-    const area = card.getBoundingClientRect()
-    return Boolean(latest && latest.top >= area.top - 2 && latest.top < area.bottom - 40)
-  }), { timeout: 15_000 }).toBe(true)
-  // Review cards are still reachable below the reply.
-  await page.locator('.chat-review-queue').scrollIntoViewIfNeeded()
-  await expect(page.locator('.chat-review-queue').getByRole('button', { name: 'Apply reviewed change' }).first()).toBeVisible()
-})
+    await expect.poll(async () => page.locator('.chat-card').evaluate((card) => {
+      const replies = [...card.querySelectorAll('.message-row.assistant:not(.typing-row)')]
+      const latest = replies[replies.length - 1]
+      const box = latest?.getBoundingClientRect()
+      const area = card.getBoundingClientRect()
+      return Boolean(latest?.textContent?.includes('October dining out') && box && box.top >= area.top - 2 && box.top < area.top + 40 && area.bottom - box.top >= 60)
+    }), { timeout: 15_000 }).toBe(true)
+    if (process.env.HCFO_SHOTS) await page.screenshot({ path: `${process.env.HCFO_SHOTS}/f13-${viewport.width}x${viewport.height}.png` })
+    // The jump shortcut never sits on top of a control.
+    const covered = await page.evaluate(() => {
+      const shortcut = document.querySelector('.chat-scroll-bottom-button')
+      if (!shortcut) return false
+      const box = shortcut.getBoundingClientRect()
+      return [...document.querySelectorAll('.chat-card button, .chat-card a, .chat-card summary')].some((control) => {
+        const other = control.getBoundingClientRect()
+        return other.width > 0 && !(other.right <= box.left || other.left >= box.right || other.bottom <= box.top || other.top >= box.bottom)
+      })
+    })
+    expect(covered).toBe(false)
+    // Review cards are still reachable below the reply.
+    await page.locator('.chat-review-queue').scrollIntoViewIfNeeded()
+    await expect(page.locator('.chat-review-queue').getByRole('button', { name: 'Apply reviewed change' }).first()).toBeVisible()
+  })
+}
 
 test('a rejected stale Mia card shows once that it is out of date and offers a fresh draft', async ({ page }) => {
   const workspace = realWorkspaceData(true)

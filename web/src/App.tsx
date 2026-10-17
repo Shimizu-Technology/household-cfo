@@ -1348,7 +1348,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   // review cards render after the conversation and would otherwise push the
   // reply out of view. While Mia is still thinking (or the last message is the
   // participant's) stay at the bottom, where the typing dots are.
-  const scrollMiaChatToBottom = useCallback(() => {
+  const anchorMiaChat = useCallback((behavior: ScrollBehavior) => {
     const chatCard = chatCardRef.current
     if (!chatCard) return
 
@@ -1356,19 +1356,46 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const lastRow = rows[rows.length - 1]
     if (lastRow && lastRow.classList.contains('assistant') && !lastRow.classList.contains('typing-row')) {
       const offset = lastRow.getBoundingClientRect().top - chatCard.getBoundingClientRect().top + chatCard.scrollTop
-      chatCard.scrollTo({ top: Math.max(0, offset - 12), behavior: 'smooth' })
+      chatCard.scrollTo({ top: Math.max(0, offset - 12), behavior })
     } else {
-      chatCard.scrollTo({ top: chatCard.scrollHeight, behavior: 'smooth' })
+      chatCard.scrollTo({ top: chatCard.scrollHeight, behavior })
     }
-    setShowChatScrollButton(false)
   }, [])
+
+  const scrollMiaChatToBottom = useCallback(() => {
+    anchorMiaChat('smooth')
+    setShowChatScrollButton(false)
+  }, [anchorMiaChat])
 
   useEffect(() => {
     if (activeSection !== 'Ask Mia') return
+    const chatCard = chatCardRef.current
+    if (!chatCard) return
 
-    const frame = requestAnimationFrame(scrollMiaChatToBottom)
-    return () => cancelAnimationFrame(frame)
-  }, [activeSection, currentMessages.length, miaLoading, scrollMiaChatToBottom])
+    // Images, fonts and review cards keep changing the layout for a moment, so
+    // re-anchor whenever it shifts until the participant scrolls themselves.
+    let released = false
+    const release = () => { released = true }
+    const reanchor = () => { if (!released) anchorMiaChat('auto') }
+    chatCard.addEventListener('wheel', release, { passive: true })
+    chatCard.addEventListener('touchmove', release, { passive: true })
+    chatCard.addEventListener('keydown', release)
+    const frame = requestAnimationFrame(() => { anchorMiaChat('auto'); setShowChatScrollButton(false) })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(reanchor)
+    observer?.observe(chatCard)
+    Array.from(chatCard.children).forEach((child) => observer?.observe(child))
+    chatCard.addEventListener('load', reanchor, true)
+    const settle = window.setTimeout(release, 2500)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(settle)
+      observer?.disconnect()
+      chatCard.removeEventListener('wheel', release)
+      chatCard.removeEventListener('touchmove', release)
+      chatCard.removeEventListener('keydown', release)
+      chatCard.removeEventListener('load', reanchor, true)
+    }
+  }, [activeSection, currentMessages.length, miaLoading, anchorMiaChat])
 
   const stopVoiceStream = useCallback(() => {
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
@@ -3632,8 +3659,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   </>}
                 />
 
-              {!budgetYearLoading && budgetError && <p className="chat-error" role="alert">{budgetError}</p>}
-              {miaError && miaError !== budgetError && <p className="chat-error" role="alert">{miaError}</p>}
+              {(() => { const shownBudgetError = !budgetYearLoading && budgetError ? budgetError : null; return <>{shownBudgetError && <p className="chat-error" role="alert">{shownBudgetError}</p>}{miaError && miaError !== shownBudgetError && <p className="chat-error" role="alert">{miaError}</p>}</> })()}
               {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
               {voiceNotice && <p className={`voice-status${voiceRecording ? ' is-recording' : ''}`} role="status">{voiceNotice}</p>}
 
@@ -6750,6 +6776,8 @@ function MiaActionDraftReviewCard({
   const isPending = draft.status === 'pending' || draft.status === 'partially_applied'
   // The saved numbers moved on after Mia drafted this: it can no longer be applied.
   const isStale = isPending && Boolean(draft.stale)
+  // An out-of-date plan still lists the steps that were already applied.
+  const visibleItems = isStale ? draft.items.filter((item) => item.applied_at) : draft.items
   // Any in-flight money change or Mia reply locks every draft control, not just this card's.
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || Boolean(action)
   const remainingItems = draft.items.filter((item) => !item.applied_at && !item.canceled_at)
@@ -6845,8 +6873,8 @@ function MiaActionDraftReviewCard({
             )}
           </div>
         )}
-        {!isStale && <div className={`mia-action-item-list${draft.draft_type === 'action_plan' ? ' ordered-plan' : ''}`}>
-          {draft.items.map((item, itemIndex) => {
+        {visibleItems.length > 0 && <div className={`mia-action-item-list${draft.draft_type === 'action_plan' ? ' ordered-plan' : ''}`}>
+          {visibleItems.map((item, itemIndex) => {
             const reviewFields = miaActionItemReviewFields(item)
 
             return (

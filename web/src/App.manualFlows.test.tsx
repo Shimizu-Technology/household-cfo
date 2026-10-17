@@ -206,6 +206,20 @@ describe('out-of-date Mia review cards', () => {
     expect(onCancel).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }))
   })
 
+  it('keeps already applied steps visible on an out-of-date partially applied plan', () => {
+    const plan = miaDraft({
+      status: 'partially_applied', stale: true, draft_type: 'action_plan',
+      items: [
+        { id: 1, action_type: 'update_allocation', label: 'Raise Groceries', payload: {}, before_snapshot: {}, after_snapshot: {}, applied_at: '2026-10-16T00:00:00Z', canceled_at: null, status: 'applied' },
+        { id: 2, action_type: 'update_allocation', label: 'Lower Dining', payload: {}, before_snapshot: {}, after_snapshot: {}, applied_at: null, canceled_at: null, status: 'pending' },
+      ] as MiaActionDraft['items'],
+    })
+    render(<MiaActionDraftReviewStack {...props([plan])} />)
+    expect(screen.getByText('Raise Groceries')).toBeTruthy()
+    expect(screen.getByText('Applied')).toBeTruthy()
+    expect(screen.queryByText('Lower Dining')).toBeNull()
+  })
+
   it('does not treat an already applied card as out of date', () => {
     render(<MiaActionDraftReviewStack {...props([miaDraft({ status: 'applied', stale: true })])} />)
     expect(screen.queryByText('Out of date')).toBeNull()
