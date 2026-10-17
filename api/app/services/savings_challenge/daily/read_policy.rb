@@ -12,28 +12,15 @@ module SavingsChallenge
       # challenge is paused (release hold). Self-only: same owner/partner and
       # enrollment checks, no new financial activity and no other reads.
       def self.export!(enrollment, user:)
-        call!(enrollment, user: user)
-      rescue SavingsChallenge::AccessPolicy::Unavailable
-        raise unless paused_self_export_allowed?(enrollment, user)
-
-        true
-      end
-
-      # Same identity checks as AccessPolicy, minus the enabled/hold flags and the
-      # daily-operation gate, and only while the cohort is paused (enabled + hold).
-      def self.paused_self_export_allowed?(enrollment, user)
         current = SavingsEnrollment.find(enrollment.id)
         cohort = Cohort.find(current.cohort_id)
-        actor = User.find(user.id)
-        return false unless SavingsChallenge::ProgramMode.state(cohort) == "paused" && cohort.status.in?(%w[enrolling active completed])
-
-        role = current.household.household_memberships.find_by(user_id: actor.id)&.role
-        membership = cohort.cohort_memberships.find_by(user_id: actor.id, role: "participant")
-        actor.participant? && !actor.revoked? && role.in?(%w[owner partner]) && membership.present? &&
-          current.user_id == actor.id && current.status.in?(%w[active completed]) &&
-          current.accepted_cohort_membership_id == membership.id && current.membership_started_at == membership.created_at &&
-          current.accepted_cohort_release&.cohort_id == cohort.id &&
-          SavingsChallenge::AccessPolicy.runtime_allowed?(user: actor, membership: membership)
+        # The hold (and the daily-operation gate) is waived only for a paused cohort;
+        # AccessPolicy still runs every other check, under its own locks.
+        paused = SavingsChallenge::ProgramMode.state(cohort) == "paused"
+        SavingsChallenge::AccessPolicy.new(household: current.household, user: user, cohort: cohort, enrollment: current,
+          lock: true, allow_hold: paused).call!
+        CohortReleases::OperationAccess.require!(household: current.household, user: user, key: "savings.daily.check_in.save", cohort: cohort) unless paused
+        true
       end
 
       # Erasure is a self-only privacy operation. It grants neither program

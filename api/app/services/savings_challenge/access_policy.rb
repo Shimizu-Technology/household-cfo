@@ -31,8 +31,10 @@ module SavingsChallenge
       false
     end
 
-    def initialize(household:, user:, cohort:, enrollment: nil, lock: false)
-      @household, @user, @cohort, @enrollment, @lock = household, user, cohort, enrollment, lock
+    # allow_hold: a paused cohort (enabled AND on release hold) still passes. Used only for the
+    # participant's own record export; every other check, including the lock, is unchanged.
+    def initialize(household:, user:, cohort:, enrollment: nil, lock: false, allow_hold: false)
+      @household, @user, @cohort, @enrollment, @lock, @allow_hold = household, user, cohort, enrollment, lock, allow_hold
     end
 
     def call!
@@ -43,7 +45,7 @@ module SavingsChallenge
       scope = scope.lock if @lock
       membership = scope.find_by(user_id: @user.id, role: "participant")
       allowed = @user.participant? && writable && !@user.revoked? && membership && @cohort.savings_challenge_enabled &&
-        !@cohort.savings_challenge_release_hold && @cohort.status.in?(%w[enrolling active completed])
+        (@allow_hold || !@cohort.savings_challenge_release_hold) && @cohort.status.in?(%w[enrolling active completed])
       allowed &&= self.class.runtime_allowed?(user: @user, membership: membership)
       if @enrollment
         allowed &&= @enrollment.household_id == @household.id && @enrollment.user_id == @user.id &&

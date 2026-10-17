@@ -49,7 +49,7 @@ class ApiV1SavingsChallengesControllerTest < ActionDispatch::IntegrationTest
       assert_response :conflict
       approve_plan(second)
       get path, headers: headers
-      assert_equal 0, response.parsed_body.dig("challenge", "pending_plan_count").to_i
+      assert_equal 0, response.parsed_body.fetch("pending_plan_count")
       get "#{path}/plan_drafts", headers: headers
       assert_equal %w[approved], response.parsed_body.fetch("records").pluck("status")
     end
