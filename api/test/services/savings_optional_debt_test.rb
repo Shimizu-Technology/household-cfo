@@ -163,4 +163,109 @@ class SavingsOptionalDebtTest < ActiveSupport::TestCase
       assert_includes no_debt, "You can participate without credit cards or debt"
     end
   end
+  def coach(message)
+    SavingsChallenge::CoachAnswerer.new(household: @savings_household, user: @savings_user, enrollment: @savings_enrollment, message: message)
+  end
+
+  test "card balance question states the approved balance, unknown fields stay unknown, and pending drafts are ignored" do
+    with_savings_runtime do
+      savings_enroll
+      card = debt_approve(debt_stage(debt_terms(label: "Visa", balance_cents: 30_000))).savings_debt_card
+      debt_stage(debt_terms(label: "Visa", balance_cents: 99_900), card: card)
+      coach = coach("How much do I owe on my card according to what I approved?")
+      answer = coach.call
+      assert coach.deterministic?
+      assert_includes answer, "Visa, $300.00 as of 2026-11-01"
+      assert_includes answer, "interest rate (APR), minimum payment and due date"
+      assert_includes answer, "unknown, not zero"
+      assert_includes answer, "not a live balance"
+      refute_includes answer, "$999.00"
+      refute_includes answer, "$0.00"
+      refute_includes answer, "Start with one purchase"
+    end
+  end
+
+  test "card balance question without approved cards says so and an unknown balance is not shown as zero" do
+    with_savings_runtime do
+      savings_enroll
+      assert_includes coach("How much do I owe on my card?").call, "not approved any optional card"
+      debt_approve(debt_stage(debt_terms(label: "Mystery", balance_cents: nil)))
+      answer = coach("how much do I owe on my card").call
+      assert_includes answer, "Mystery, balance not entered"
+      refute_includes answer, "$0.00"
+    end
+  end
+
+  test "ranking question with unknown APR or minimum refuses to rank or suggest an extra amount" do
+    with_savings_runtime do
+      savings_enroll
+      debt_approve(debt_stage(debt_terms(label: "Visa", balance_cents: 30_000)))
+      coach = coach("which card first and how much extra should I pay?")
+      answer = coach.call
+      assert coach.deterministic?
+      assert_includes answer, "cannot rank your cards or suggest an extra amount"
+      assert_includes answer, "interest rate (APR) and minimum payment"
+      assert_includes answer, "will not set a payoff date"
+      refute_match(/avalanche|snowball/i, answer)
+      refute_includes answer, "Start with one purchase"
+    end
+  end
+
+  test "ranking question with complete terms still uses the qualified comparison and no extra amount" do
+    with_savings_runtime do
+      savings_enroll
+      debt_approve(debt_stage(debt_terms(label: "Visa", balance_cents: 30_000, apr_bps: 1999, minimum_payment_cents: 2500)))
+      coach = coach("which card first and how much extra should I pay?")
+      answer = coach.call
+      refute coach.deterministic?
+      assert_includes answer, "cannot recommend an extra-payment amount"
+      assert_equal [ { label: "Visa", balance_cents: 30_000 } ], coach.answer_facts[:approved_optional_debt]
+    end
+  end
+
+  test "narration quoting the approved balance passes the guardrail because the facts carry it" do
+    with_savings_runtime do
+      savings_enroll
+      debt_approve(debt_stage(debt_terms(label: "Visa", balance_cents: 30_000, apr_bps: 1999, minimum_payment_cents: 2500)))
+      debt_stage(debt_terms(label: "Visa", balance_cents: 77_700), card: SavingsDebtCard.last)
+      coach = coach("what should I know about my credit card?")
+      reference = coach.call
+      packet = { kind: "savings_challenge", write_state: "no_write", fallback_response: reference, verified_facts: coach.answer_facts }
+      narrator = SavingsChallenge::Narrator.new(user_message: "x", answer_packet: packet, api_key: "fictional-key")
+      assert_nil narrator.send(:narration_rejection_reason, "Your Visa is at $300.00 as you approved.")
+      assert_equal :invented_currency_amount, narrator.send(:narration_rejection_reason, "Your Visa is at $777.00.")
+    end
+  end
+
+  test "loan questions get a plain no-promise answer and one challenge step" do
+    with_savings_runtime do
+      savings_enroll
+      [ "Will this challenge help my loan application at the bank?", "does saving here improve my chances for a mortgage" ].each do |message|
+        coach = coach(message)
+        answer = coach.call
+        assert coach.deterministic?
+        assert_includes answer, "personal savings practice"
+        assert_includes answer, "does not affect, and does not promise anything about, a loan decision"
+        assert_includes answer, "cannot speak for the bank"
+        assert_includes answer, "One small step"
+        refute_includes answer, "Start with one purchase"
+      end
+      refute coach("I have a car loan payment due").deterministic?
+    end
+  end
+
+  test "hopeless language gets a deterministic gentle step with no coaching stop" do
+    with_savings_runtime do
+      savings_enroll
+      coach = coach("i dont see the point anymore")
+      answer = coach.call
+      assert coach.deterministic?
+      assert_includes answer, "That sounds really heavy"
+      assert_includes answer, "you can skip today"
+      assert_includes answer, "just stays unknown"
+      assert_includes answer, "smaller target"
+      refute_includes answer, "stop the money coaching"
+      assert_includes ::Mia::CrisisBoundary.with_wellbeing_check(answer), "988"
+    end
+  end
 end

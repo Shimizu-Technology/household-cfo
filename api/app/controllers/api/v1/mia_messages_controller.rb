@@ -512,15 +512,18 @@ module Api
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session, persona_version_id: current_persona.version_id,
           cohort_id: current_participant_runtime.cohort_id, cohort_release_id: current_participant_runtime.release_id).call
         history = intent_transcript_without_memory_commands(transcript_for_current_persona(transcript)).map { |message| message.slice(:role, :content) }
-        reference = SavingsChallenge::CoachAnswerer.new(household: current_household, user: current_user,
-          enrollment: enrollment, message: content, attachments: attached_imports).call
+        coach_answerer = SavingsChallenge::CoachAnswerer.new(household: current_household, user: current_user,
+          enrollment: enrollment, message: content, attachments: attached_imports)
+        reference = coach_answerer.call
         @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
         narrator = SavingsChallenge::Narrator.new(user_message: content,
           answer_packet: { kind: "savings_challenge", basis: "participant-approved savings ledger and explicitly scoped baseline",
-            write_state: "no_write", fallback_response: reference, guardrails: [ "90_day_total_not_monthly", "approved_new_money_reserved_only", "partial_coverage_is_not_full_household", "feelings_optional_private" ] },
+            write_state: "no_write", fallback_response: reference, guardrails: [ "90_day_total_not_monthly", "approved_new_money_reserved_only", "partial_coverage_is_not_full_household", "feelings_optional_private" ],
+            verified_facts: coach_answerer.answer_facts }.compact,
           history: history, persona: current_persona, approved_content: @approved_coach_content)
-        answer = narrator.call
-        @used_coach_content = narrator.supplied_content_context
+        # Fact-grounded and hard-day answers are final; the model must not rewrite them.
+        answer = coach_answerer.deterministic? ? reference : narrator.call
+        @used_coach_content = coach_answerer.deterministic? ? [] : narrator.supplied_content_context
         ApplicationRecord.transaction do
           current_household.lock!
           require_savings_chat_access!
