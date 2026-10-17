@@ -516,7 +516,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
   }
   const current = (signal: AbortSignal) => live.current && !signal.aborted
   const selectedCheckpoint = index?.scheduled_checkpoints.find((row) => row.day === day)
-  const sealBlockedReason = sealBlocker(selectedCheckpoint, day)
+  const sealBlockedReason = sealBlocker(selectedCheckpoint, day, index?.today_on)
   const sealReason = sealBlockedReason ?? (!accepted && !busy ? 'Tick the box above to confirm you reviewed the consent and suppression policy.' : null)
   return (
     <section className="coach-challenge-card">
@@ -690,11 +690,13 @@ const message = (failure: unknown) =>
 
 // The server refuses a checkpoint whose cutoff is after today. Say so up
 // front instead of leaving the seal button disabled with no explanation.
-function sealBlocker(checkpoint: { cutoff_on: string | null } | undefined, day: number) {
+function sealBlocker(checkpoint: { cutoff_on: string | null; sealable?: boolean } | undefined, day: number, serverToday?: string) {
   if (!checkpoint) return null
   if (!checkpoint.cutoff_on) return `Day ${day} cannot be sealed yet because the group's start date is not set.`
   // The API reckons dates in Guam time, so compare against Guam's today.
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Guam' }).format(new Date())
-  if (checkpoint.cutoff_on > today) return `Day ${day} ends on ${checkpoint.cutoff_on}, which has not happened yet. You can seal this report from that date on.`
+  // The server's own verdict wins over this browser's clock; the cutoff day itself can be sealed.
+  const today = serverToday ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Guam' }).format(new Date())
+  const blocked = checkpoint.sealable === undefined ? checkpoint.cutoff_on > today : !checkpoint.sealable
+  if (blocked) return `Day ${day} ends on ${checkpoint.cutoff_on}, which has not happened yet. You can seal this report from that date on.`
   return null
 }

@@ -29,6 +29,15 @@ module SavingsChallenge
         cohort.status.in?(OPEN_STATUSES)
     end
 
+    # "open", "paused" (switched on, then put on release hold) or "not_open"
+    # (never switched on, or the cohort is in a status that cannot run it).
+    def self.state(cohort)
+      return "open" if open?(cohort)
+      return "paused" if cohort.present? && cohort.savings_challenge_enabled == true && cohort.savings_challenge_release_hold
+
+      "not_open"
+    end
+
     # The cohort id that scopes chat and review drafts, or nil for an ordinary
     # program (which keeps the legacy nil-cohort history).
     def self.scope_cohort_id(user:, membership:, runtime: nil)

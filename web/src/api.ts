@@ -75,6 +75,10 @@ export type WorkspaceData = {
   experience_mode?: 'household_cfo' | 'savings_challenge'
   // Savings programs only: false while the challenge is not open yet or is paused.
   challenge_open?: boolean
+  // not_open: never opened (or cohort not live); paused: opened, then put on hold. Absent means open.
+  challenge_state?: 'open' | 'paused' | 'not_open'
+  // Already joined the challenge (no figures; just whether to reassure and offer their own record).
+  challenge_joined?: boolean
   mode: 'demo' | 'real'
   household_id: number | null
   setup_complete: boolean

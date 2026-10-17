@@ -9,8 +9,8 @@ module HouseholdFinance
           private
 
           def normalize(input)
-            input = normal_ids(input, required: %i[amount_cents merchant purchased_on splits link_kind expected_version_id],
-              optional: %i[disposition purchase_id expected_head_lock_version linked_transaction_id expected_canonical_digest reason])
+            input = normal_ids(input, required: %i[amount_cents merchant purchased_on link_kind expected_version_id],
+              optional: %i[splits disposition purchase_id expected_head_lock_version linked_transaction_id expected_canonical_digest reason])
             disposition = input.fetch(:disposition, "purchase")
             raise ArgumentError, "Choose purchase or an explicit manual void correction" unless disposition.in?(%w[purchase void])
             amount = SavingsChallenge::Inputs.integer!(input[:amount_cents], minimum: disposition == "void" ? 0 : 1, maximum: SavingsChallenge::Daily::Inputs::MAX_AMOUNT_CENTS)
@@ -25,12 +25,36 @@ module HouseholdFinance
             elsif linked || digest
               raise ArgumentError, "A new manual purchase cannot impersonate an existing source link"
             end
+            # A brand-new manual purchase needs no budget category: leaving the
+            # splits out files it under the household's "Everyday spending" default.
+            splits = if disposition == "void" then []
+            elsif input[:splits].nil? && input[:link_kind] == "manual_new" && !input[:purchase_id] then nil
+            else SavingsChallenge::Daily::Inputs.splits!(input[:splits], amount)
+            end
             input.merge(disposition: disposition, amount_cents: amount, merchant: SavingsChallenge::Daily::Inputs.text!(input[:merchant], limit: 120, required: true),
-              purchased_on: SavingsChallenge::Inputs.date!(input[:purchased_on]).iso8601, splits: disposition == "void" ? [] : SavingsChallenge::Daily::Inputs.splits!(input[:splits], amount),
+              purchased_on: SavingsChallenge::Inputs.date!(input[:purchased_on]).iso8601, splits: splits,
               purchase_id: SavingsChallenge::Inputs.id!(input[:purchase_id], nullable: true), linked_transaction_id: linked,
               expected_canonical_digest: digest, expected_version_id: SavingsChallenge::Inputs.id!(input[:expected_version_id], nullable: true),
               expected_head_lock_version: SavingsChallenge::Inputs.integer!(input.fetch(:expected_head_lock_version, 0), minimum: 0),
               reason: SavingsChallenge::Inputs.text!(input[:reason], required: input[:expected_version_id].present?))
+          end
+
+          DEFAULT_CATEGORY_NAME = "Everyday spending"
+
+          # The one plain category used when the participant does not pick one.
+          # An archived category the participant owns by that name is never revived
+          # (it keeps its own purpose and the participant chose to archive it): we
+          # file under a separate "Everyday spending (default)" instead.
+          def default_category
+            [ DEFAULT_CATEGORY_NAME, "#{DEFAULT_CATEGORY_NAME} (default)" ].each do |name|
+              existing = household.budget_categories.where("LOWER(name) = ?", name.downcase).first
+              return existing if existing&.active?
+              next if existing
+
+              return household.budget_categories.create!(name: name, stack_key: "discretionary", active: true,
+                sort_order: household.budget_categories.maximum(:sort_order).to_i + 1)
+            end
+            raise ArgumentError, "Choose a category for this purchase"
           end
 
           def subject_for(input, lock:)
@@ -57,12 +81,13 @@ module HouseholdFinance
             if input[:disposition] == "void" && (input[:merchant] != previous.merchant || date != previous.purchased_on)
               raise ArgumentError, "Void retains the original purchase identity and date"
             end
-            canonical.categories!(input[:splits].map(&:deep_stringify_keys))
+            splits = input[:splits] || [ { budget_category_id: default_category.id, amount_cents: input[:amount_cents] } ]
+            canonical.categories!(splits.map(&:deep_stringify_keys))
             digest = input[:expected_canonical_digest]
             digest ||= SavingsChallenge::Daily::CanonicalPurchase.digest(previous.household_transaction) if previous
             draft = SavingsDailyPurchaseDraft.create!(savings_enrollment: @enrollment, savings_daily_purchase: purchase,
               created_by_user: user, base_version_id: purchase.current_version_id, base_head_lock_version: purchase.lock_version,
-              disposition: input[:disposition], amount_cents: input[:amount_cents], merchant: input[:merchant], purchased_on: date, splits: input[:splits],
+              disposition: input[:disposition], amount_cents: input[:amount_cents], merchant: input[:merchant], purchased_on: date, splits: splits,
               link_kind: input[:link_kind], linked_transaction_id: input[:linked_transaction_id], canonical_digest: digest,
               previous_canonical_digest: previous && SavingsChallenge::Daily::CanonicalPurchase.digest(previous.household_transaction), reason: input[:reason])
             canonical.link!(input[:linked_transaction_id], expected_digest: digest, draft: draft, purchase: purchase) if input[:linked_transaction_id]

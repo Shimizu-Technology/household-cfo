@@ -24,7 +24,7 @@ describe('independent private control entry', () => {
   it('opens from self-only metadata without an active financial workspace', async () => {
     render(<ParticipantPrivacyAccess userId={7} participant />)
     expect(privacyApi.controls).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Privacy & help' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Privacy & reminders' }))
     expect(await screen.findByRole('dialog')).toHaveProperty('textContent', 'Private controls for 7:11')
     expect(privacyApi.controls).toHaveBeenCalledWith(null, expect.any(AbortSignal))
   })

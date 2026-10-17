@@ -45,6 +45,8 @@ module HouseholdFinance
         mode: "real",
         experience_mode: participant_experience_mode,
         challenge_open: challenge_open?,
+        challenge_state: challenge_state,
+        challenge_joined: challenge_joined?,
         household_id: household.id,
         financial_generation: household.financial_generation,
         setup_complete: status.complete?,
@@ -69,6 +71,21 @@ module HouseholdFinance
       return true unless participant_experience_mode == "savings_challenge"
 
       SavingsChallenge::ProgramMode.open?(@cohort_membership&.cohort)
+    end
+
+    # Has this participant already joined the challenge (so a paused one can
+    # reassure them and offer their own record)? Never exposes any figures.
+    def challenge_joined?
+      return false unless participant_experience_mode == "savings_challenge" && user && @cohort_membership
+
+      SavingsEnrollment.exists?(household_id: household.id, user_id: user.id, cohort_id: @cohort_membership.cohort_id, status: %w[active completed])
+    end
+
+    # open | paused | not_open. Ordinary programs are always open.
+    def challenge_state
+      return "open" unless participant_experience_mode == "savings_challenge"
+
+      SavingsChallenge::ProgramMode.state(@cohort_membership&.cohort)
     end
 
     def participant_experience_mode

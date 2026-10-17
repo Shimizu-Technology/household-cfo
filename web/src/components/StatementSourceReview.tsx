@@ -19,14 +19,17 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, render
   const [page, setPage] = useState(1)
   const [attempt, setAttempt] = useState(0)
   const [selectedRow, setSelectedRow] = useState<number | null>(null)
-  const [result, setResult] = useState<{ key: string; data?: SourceReview; error?: string } | null>(null)
+  const [result, setResult] = useState<{ key: string; view: string; data?: SourceReview; error?: string } | null>(null)
   const restoreFocus = useRef(false)
   const heading = useRef<HTMLHeadingElement>(null)
+  const viewKey = `${importId}:${revisionId}:${page}:${filter}`
   const requestKey = `${importId}:${revisionId}:${page}:${filter}:${attempt}:${refreshKey}`
   const mutation = useStatementReviewMutation({ importId, revisionId, scope: result?.data?.participant_review?.actor_scope, refresh: () => { restoreFocus.current = true; if (batchRunning.current) refreshAfterBatch.current = true; else setAttempt((value) => value + 1) } })
   const scoped = result?.data?.participant_review
   const actorReady = !scoped || Boolean(scoped.actor_scope && isStatementReviewActor(scoped.actor_scope))
-  const data = !mutation.accessDenied && actorReady && result?.key === requestKey ? result.data : undefined
+  // Stale-while-revalidate: a refetch of the SAME page/filter keeps the previous rows on screen, so the
+  // batch review (category, note, confirmation, status) is not unmounted while it reloads.
+  const data = !mutation.accessDenied && actorReady && (result?.key === requestKey || result?.view === viewKey) ? result.data : undefined
   const error = result?.key === requestKey ? result.error : undefined
   useEffect(() => {
     const controller = new AbortController()
@@ -34,12 +37,12 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, render
     fetchDocumentSourceReview(importId, revisionId, page, filter, controller.signal).then((payload) => {
       validateSourceReview(payload, importId, revisionId, page, filter)
       if (payload.participant_review && (!payload.participant_review.actor_scope || !Number.isSafeInteger(payload.participant_review.actor_scope.user_id) || !Number.isSafeInteger(payload.participant_review.actor_scope.household_id))) throw new Error('This statement review isn’t available right now. Refresh to continue.')
-      if (live) setResult({ key: requestKey, data: payload })
+      if (live) setResult({ key: requestKey, view: viewKey, data: payload })
     }).catch((failure: unknown) => {
-      if (live) setResult({ key: requestKey, error: participantErrorMessage(failure, 'Could not load statement rows.') })
+      if (live) setResult((previous) => ({ key: requestKey, view: viewKey, data: previous?.view === viewKey ? previous.data : undefined, error: participantErrorMessage(failure, 'Could not load statement rows.') }))
     })
     return () => { live = false; controller.abort() }
-  }, [importId, revisionId, page, filter, requestKey])
+  }, [importId, revisionId, page, filter, requestKey, viewKey])
 
   useEffect(() => {
     if (data && restoreFocus.current) { restoreFocus.current = false; const target = document.getElementById(`source-event-details-${selectedRow}`); (target ?? heading.current)?.focus() }
@@ -135,7 +138,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, render
             </li>
           })}
         </ol>
-        {data.participant_review && <StatementBatchReview key={`${batchSelected.join(',')}:${batchSelected.map((id) => data.participant_review?.rows[id]?.pending?.digest ?? data.participant_review?.rows[id]?.approved?.digest ?? 'new').join(',')}`} events={data.events} selected={batchSelected} context={data.participant_review} mutate={mutation.mutate} disabled={mutation.busy} onRunning={(running) => { batchRunning.current = running; if (!running && refreshAfterBatch.current) { refreshAfterBatch.current = false; setAttempt((value) => value + 1) } }} />}
+        {data.participant_review && <StatementBatchReview key={batchSelected.join(',')} events={data.events} selected={batchSelected} context={data.participant_review} mutate={mutation.mutate} disabled={mutation.busy} onRunning={(running) => { batchRunning.current = running; if (!running && refreshAfterBatch.current) { refreshAfterBatch.current = false; setAttempt((value) => value + 1) } }} />}
         {data.participant_review && <StatementCoverageReview key={data.participant_review.coverage.content_digest} context={data.participant_review} mutate={mutation.mutate} disabled={mutation.busy} />}
         {data.pagination.total_pages > 1 && <nav className="source-review-pagination" aria-label="Statement row pagination"><span>Page {page} of {data.pagination.total_pages}</span><div><button type="button" disabled={mutation.busy || !data.pagination.has_previous} onClick={() => navigate(page - 1)}>Previous rows</button><button type="button" disabled={mutation.busy || !data.pagination.has_next} onClick={() => navigate(page + 1)}>Next rows</button></div></nav>}
       </>}

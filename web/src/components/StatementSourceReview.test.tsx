@@ -2,8 +2,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fetchDocumentSourceReview, type TransactionDraft } from '../api'
-import { sourceReviewFixture } from '../../e2e/sourceReviewFixtures'
+import { participantReviewFixture, sourceReviewFixture } from '../../e2e/sourceReviewFixtures'
 import type { SourceReview } from '../lib/sourceReview'
+import { bindStatementReviewActor, setStatementReviewExpectedUser } from '../lib/statementReviewRecovery'
 import { StatementSourceReview } from './StatementSourceReview'
 vi.mock('../api', () => ({ fetchDocumentSourceReview: vi.fn() }))
 const fetchReview = vi.mocked(fetchDocumentSourceReview)
@@ -60,6 +61,37 @@ describe('bounded source accounting review', () => {
     await waitFor(() => expect(screen.queryByText('Fictional entry 1')).toBeNull())
     expect(screen.getAllByRole('listitem')).toHaveLength(7)
   })
+  it('keeps the same page on screen while a refresh of it reloads, so a batch review stays mounted', async () => {
+    setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
+    fetchReview.mockReset()
+    fetchReview.mockResolvedValue(participantReviewFixture())
+    const view = mount()
+    fireEvent.click((await screen.findAllByLabelText(/Select statement line \d+ for explicit batch review/))[0])
+    const note = screen.getByLabelText('Selected-row review note') as HTMLInputElement
+    fireEvent.change(note, { target: { value: 'Keep this note' } })
+    let finish!: (data: SourceReview) => void
+    fetchReview.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    view.rerender(<StatementSourceReview importId={1203} revisionId={88} refreshKey="second" renderExpenseDraft={() => null} />)
+    await waitFor(() => expect(fetchReview).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText(/Totals are unavailable/)).toBeNull()
+    expect((screen.getByLabelText('Selected-row review note') as HTMLInputElement).value).toBe('Keep this note')
+    finish(participantReviewFixture())
+    await waitFor(() => expect((screen.getByLabelText('Selected-row review note') as HTMLInputElement).value).toBe('Keep this note'))
+  })
+
+  it('keeps the note and shows the error when a refresh of the same page fails', async () => {
+    setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
+    fetchReview.mockReset()
+    fetchReview.mockResolvedValueOnce(participantReviewFixture())
+    const view = mount()
+    fireEvent.click((await screen.findAllByLabelText(/Select statement line \d+ for explicit batch review/))[0])
+    fireEvent.change(screen.getByLabelText('Selected-row review note'), { target: { value: 'Keep this note' } })
+    fetchReview.mockRejectedValueOnce(new Error('offline'))
+    view.rerender(<StatementSourceReview importId={1203} revisionId={88} refreshKey="second" renderExpenseDraft={() => null} />)
+    expect((await screen.findByRole('alert')).textContent).toContain('offline')
+    expect((screen.getByLabelText('Selected-row review note') as HTMLInputElement).value).toBe('Keep this note')
+  })
+
   it('fails closed on revision mismatch and retries without showing stale rows', async () => {
     const wrong = sourceReviewFixture(); wrong.revision.id = 99
     fetchReview.mockResolvedValueOnce(wrong)

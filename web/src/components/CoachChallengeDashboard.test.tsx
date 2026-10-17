@@ -176,10 +176,10 @@ describe('coach challenge permission boundaries', () => {
 })
 
 describe('sealing a checkpoint report explains why it is unavailable', () => {
-  async function openReports(cutoffOn: string | null) {
+  async function openReports(cutoffOn: string | null, server: { sealable?: boolean; today_on?: string } = {}) {
     vi.mocked(coachChallengeApi.exports).mockResolvedValue({
-      actor_scope: scope, cohort_id: 1, next_cursor: null, records: [],
-      scheduled_checkpoints: [{ day: 30, cutoff_on: cutoffOn }, { day: 60, cutoff_on: null }, { day: 90, cutoff_on: null }],
+      actor_scope: scope, cohort_id: 1, next_cursor: null, records: [], today_on: server.today_on,
+      scheduled_checkpoints: [{ day: 30, cutoff_on: cutoffOn, sealable: server.sealable }, { day: 60, cutoff_on: null }, { day: 90, cutoff_on: null }],
     })
     render(<CoachChallengeDashboard {...props} />)
     fireEvent.change(screen.getByLabelText('Challenge group'), { target: { value: '1' } })
@@ -194,6 +194,16 @@ describe('sealing a checkpoint report explains why it is unavailable', () => {
     const reason = document.getElementById(button.getAttribute('aria-describedby') ?? '')
     expect(reason?.textContent).toContain('2999-11-14')
     expect(reason?.textContent).toContain('has not happened yet')
+  })
+
+  it('trusts the server on the cutoff day itself, whatever this browser clock says', async () => {
+    const button = await openReports('2999-11-15', { sealable: true, today_on: '2999-11-15' })
+    expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent).toContain('Tick the box')
+  })
+
+  it('says the cutoff has not ended when the server says it cannot be sealed yet', async () => {
+    const button = await openReports('2000-01-30', { sealable: false, today_on: '2000-01-29' })
+    expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent).toContain('has not happened yet')
   })
 
   it('asks for the review confirmation once the cutoff has passed', async () => {

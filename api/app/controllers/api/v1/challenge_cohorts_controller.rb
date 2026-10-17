@@ -34,7 +34,8 @@ module Api
       def exports
         ChallengePrivacy::Access.staff!(cohort, current_user, export: true)
         rows = page(ChallengeSponsorExport.where(cohort: cohort))
-        render json: { **staff_scope, cohort_id: cohort.id, scheduled_checkpoints: [ 30, 60, 90 ].map { |day| { day: day, cutoff_on: cohort.starts_on && (cohort.starts_on + day - 1).iso8601 } },
+        render json: { **staff_scope, cohort_id: cohort.id, today_on: Date.current.iso8601,
+          scheduled_checkpoints: [ 30, 60, 90 ].map { |day| { day: day, cutoff_on: cohort.starts_on && (cohort.starts_on + day - 1).iso8601, sealable: cohort.starts_on.present? && cohort.starts_on + day - 1 <= Date.current } },
           records: rows.first(50).map { |record| record.attributes.slice("id", "checkpoint_day", "resolved_cutoff_on", "policy_version", "created_at") }, next_cursor: rows.length > 50 ? rows[49].id : nil }
       end
 

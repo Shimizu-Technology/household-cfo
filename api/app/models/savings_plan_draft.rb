@@ -9,6 +9,23 @@ class SavingsPlanDraft < ApplicationRecord
   validates :status, inclusion: { in: %w[pending approved] }
   validate :participant_boundary
 
+  # What the participant should see: every approved draft, plus ONE pending
+  # draft, the latest one built on the plan that is current right now. Older
+  # duplicates (a second "Review target plan" click) and drafts built on a plan
+  # that has since been replaced are superseded: kept for the record, but not
+  # listed, not counted and not approvable.
+  def self.current_pending_id(enrollment)
+    where(savings_enrollment_id: enrollment.id, status: "pending", base_plan_version_id: enrollment.current_accepted_plan_version_id).maximum(:id)
+  end
+
+  def self.visible_for(enrollment)
+    where(savings_enrollment_id: enrollment.id).where("status = 'approved' OR id = ?", current_pending_id(enrollment) || 0)
+  end
+
+  def self.superseded?(draft, enrollment)
+    draft.status == "pending" && draft.id != current_pending_id(enrollment)
+  end
+
   private
 
   def participant_boundary

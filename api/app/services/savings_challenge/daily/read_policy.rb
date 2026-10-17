@@ -8,6 +8,21 @@ module SavingsChallenge
           key: "savings.daily.check_in.save", cohort: current.cohort)
       end
 
+      # A participant may always download their OWN record, including while the
+      # challenge is paused (release hold). Self-only: same owner/partner and
+      # enrollment checks, no new financial activity and no other reads.
+      def self.export!(enrollment, user:)
+        current = SavingsEnrollment.find(enrollment.id)
+        cohort = Cohort.find(current.cohort_id)
+        # The hold (and the daily-operation gate) is waived only for a paused cohort;
+        # AccessPolicy still runs every other check, under its own locks.
+        paused = SavingsChallenge::ProgramMode.state(cohort) == "paused"
+        SavingsChallenge::AccessPolicy.new(household: current.household, user: user, cohort: cohort, enrollment: current,
+          lock: true, allow_hold: paused).call!
+        CohortReleases::OperationAccess.require!(household: current.household, user: user, key: "savings.daily.check_in.save", cohort: cohort) unless paused
+        true
+      end
+
       # Erasure is a self-only privacy operation. It grants neither program
       # reads nor new content while a program is held, withdrawn or unavailable.
       def self.erase!(enrollment, user:, lock: false)
