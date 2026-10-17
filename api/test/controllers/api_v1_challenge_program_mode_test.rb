@@ -97,6 +97,26 @@ class ApiV1ChallengeProgramModeTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "closed challenge still validates blank and oversized messages" do
+    not_open!
+    post "/api/v1/mia/messages", params: { message: "   ", request_id: "closed-blank" }, headers: auth(@savings_cohort), as: :json
+    assert_response :unprocessable_entity
+    post "/api/v1/mia/messages", params: { message: "a" * (ChatMessage::MAX_CONTENT_LENGTH + 1), request_id: "closed-long" }, headers: auth(@savings_cohort), as: :json
+    assert_response :unprocessable_entity
+    refute_includes response.body, "aaaa"
+  end
+
+  test "closed challenge refuses private document uploads" do
+    not_open!
+    file = Tempfile.new([ "budget", ".csv" ]); file.write("Category,Amount\nIncome,4000\n"); file.rewind
+    upload = Rack::Test::UploadedFile.new(file.path, "text/csv", original_filename: "budget.csv")
+    assert_no_difference "FinancialDocumentImport.count" do
+      post "/api/v1/document_imports", params: { file: upload, document_kind: "spreadsheet" }, headers: auth(@savings_cohort)
+      assert_response :forbidden
+      assert_includes response.parsed_body.fetch("errors").first, "isn't open yet"
+    end
+  end
+
   test "crisis guidance still answers while the challenge is not open" do
     not_open!
     post "/api/v1/mia/messages", params: { message: "I want to end it all.", request_id: "closed-crisis" }, headers: auth(@savings_cohort), as: :json

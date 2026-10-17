@@ -63,6 +63,9 @@ module Api
         # The screens already show the savings challenge, so Mia must not answer as
         # the ordinary household coach while it is not open (or is paused).
         if savings_program_selected? && !SavingsChallenge::ProgramMode.open?(current_cohort_membership.cohort)
+          return render json: { errors: [ "Message can't be blank" ] }, status: :unprocessable_entity if content.blank?
+          return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
+
           return render_challenge_not_open_response(content)
         end
 

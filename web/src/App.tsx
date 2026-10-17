@@ -23,6 +23,7 @@ import { ChallengeToday } from './components/ChallengeToday'
 import { setDailyExpectedUser } from './lib/dailyRecovery'
 import { BaselineReview } from './components/BaselineReview'
 import { setBaselineExpectedUser } from './lib/baselineRecovery'
+import { keepLocalOnly, markLocalOnly } from './lib/miaLocalReplies'
 import { ChallengeOpensSoon } from './components/ChallengeOpensSoon'
 import { SavingsChallengeHome } from './components/SavingsChallengeHome'
 import { ParticipantProgramPicker } from './components/ParticipantProgramPicker'
@@ -245,6 +246,8 @@ function sectionFromLocation() {
     return sections[0]
   }
 }
+
+const CHALLENGE_UPLOADS_CLOSED = "Your savings challenge isn't open yet, so files can't be added for it right now. Nothing was uploaded."
 
 function mergeLatestMiaMessages(current: MiaMessage[], latestPage: MiaMessage[]) {
   const firstLatestServerId = latestPage.find((message) => message.id)?.id
@@ -983,7 +986,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const mia = await fetchMiaMessages(true)
       setHistoricalMessageCount(mia.historical_message_count ?? 0)
       setMessagesStorageKey(chatStorageKey)
-      setMessages((current) => historyExpandedRef.current ? mergeLatestMiaMessages(current, mia.messages) : mia.messages)
+      setMessages((current) => keepLocalOnly(current, historyExpandedRef.current ? mergeLatestMiaMessages(current, mia.messages) : mia.messages, challengeNotOpen))
       if (!historyExpandedRef.current) {
         setOldestServerMessageId(mia.oldest_message_id)
         setOlderServerMessageCount(mia.older_message_count)
@@ -991,7 +994,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     } catch (caught) {
       if (!quiet) setMiaError(participantErrorMessage(caught, `${assistantName} chat could not be refreshed.`))
     }
-  }, [assistantName, chatStorageKey, isRealWorkspace, miaLoading])
+  }, [assistantName, challengeNotOpen, chatStorageKey, isRealWorkspace, miaLoading])
 
   const refreshSpendingReport = useCallback(async ({ startsOn = selectedBudgetMonthStartsOn, endsOn = selectedBudgetMonthEndsOn, quiet = true }: { startsOn?: string | null; endsOn?: string | null; quiet?: boolean } = {}) => {
     if (!isRealWorkspace || !startsOn || !endsOn) {
@@ -1896,6 +1899,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setMiaError('Sign in to a real workspace before attaching documents.')
       return
     }
+    if (attachmentsToSend.length > 0 && challengeNotOpen) {
+      // Nothing is uploaded or sent. The files stay attached so nothing is lost.
+      setMiaError(CHALLENGE_UPLOADS_CLOSED)
+      return
+    }
 
     const transportGuard = captureApiOperation()
     const assertOriginalWorkspace = () => {
@@ -2016,7 +2024,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setMessages((current) => {
         const rest = current.filter((message) => message.client_id !== optimisticMessageId)
         const present = new Set(rest.map((message) => message.id).filter(Boolean))
-        return [...rest, ...[userMessageWithPreviews, response.assistant_message].filter((message) => !message.id || !present.has(message.id))]
+        const pair = [userMessageWithPreviews, response.assistant_message].filter((message) => !message.id || !present.has(message.id))
+        return [...rest, ...(response.conversation_persisted === false && challengeNotOpen ? markLocalOnly(pair) : pair)]
       })
       if (response.setup_help?.available && activeSectionRef.current === 'Ask Mia') { setAssistPanel(null); setSetupHelpOpen(true) }
       if (auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && response.financial_restart?.available && activeSectionRef.current === 'Ask Mia') { setAssistPanel(null); setFinancialRestartOpen(true) }
@@ -2862,6 +2871,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   function handleMiaAttachmentChange(files: FileList | File[] | null) {
+    if (challengeNotOpen) { setMiaError(CHALLENGE_UPLOADS_CLOSED); return }
     addPendingMiaAttachments(Array.from(files ?? []))
   }
 
@@ -3646,8 +3656,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 <button
                   className="composer-attach"
                   type="button"
-                  disabled={!isRealWorkspace || Boolean(uploadingKind) || miaLoading || voiceRecording || voiceTranscribing}
-                  title={isRealWorkspace ? 'Attach a receipt, screenshot, statement, or budget file for review' : 'Sign in to a real workspace before uploading documents.'}
+                  disabled={!isRealWorkspace || challengeNotOpen || Boolean(uploadingKind) || miaLoading || voiceRecording || voiceTranscribing}
+                  title={challengeNotOpen ? CHALLENGE_UPLOADS_CLOSED : isRealWorkspace ? 'Attach a receipt, screenshot, statement, or budget file for review' : 'Sign in to a real workspace before uploading documents.'}
                   aria-label="Attach receipt, screenshot, statement, or budget file"
                   onClick={() => miaAttachmentInputRef.current?.click()}
                 >
@@ -3706,7 +3716,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               setupContent={isFirstSessionSetup ? <FirstSessionSetupProgress status={data.workspace.setup_status} onStartChat={() => { setAssistPanel(null); startChatFirstSession() }} onShareAll={() => { setAssistPanel(null); shareAllFirstSession() }} onManual={() => { setAssistPanel(null); startManualFirstSession() }} /> : undefined}
               pendingCount={pendingImportsCount} processingCount={processingImportsCount}
               latestSource={latestAppliedImport(documentImports) ? `Latest approved file: ${documentKindLabel(latestAppliedImport(documentImports)!.document_kind)} · ${importPeriodLabel(latestAppliedImport(documentImports)!)}.` : undefined}
-              realWorkspace={isRealWorkspace} uploading={Boolean(uploadingKind)} hasMessages={currentMessages.length > 0} busy={miaLoading || Boolean(budgetAction)}
+              realWorkspace={isRealWorkspace} uploading={Boolean(uploadingKind)} hasMessages={currentMessages.length > 0} busy={miaLoading || Boolean(budgetAction) || challengeNotOpen}
               onAttach={() => miaAttachmentInputRef.current?.click()} onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
               onGuide={() => setPilotGuideOpen(true)} onFeedback={() => setPilotFeedbackOpen(true)}
               onClearChat={() => { if (chatContextTriggerRef.current) handleClearMessagesRequest({ currentTarget: chatContextTriggerRef.current }) }}
