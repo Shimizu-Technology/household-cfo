@@ -77,7 +77,13 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       post "/api/v1/mia/messages", params: { message: "i dont see the point anymore", request_id: "closed-hopeless-#{index}" }, headers: auth, as: :json
       assert_response :created
       content = response.parsed_body.dig("assistant_message", "content")
-      assert_includes content, "isn't open yet", content
+      if paused
+        assert_includes content, "Your savings challenge is paused right now. Your record is safe and nothing is lost; you can continue when it resumes.", content
+        assert_not_includes content, "isn't open yet"
+      else
+        assert_includes content, "isn't open yet", content
+        assert_not_includes content, "paused"
+      end
       assert_equal 1, content.scan("988").length, content
       post "/api/v1/mia/messages", params: { message: "i am not safe", request_id: "closed-crisis-#{index}" }, headers: auth, as: :json
       assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
@@ -136,7 +142,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_no_difference "ChatMessage.count" do
       post "/api/v1/mia/messages", params: { message: "How is my savings?", request_id: "held-chat" }, headers: auth, as: :json
       assert_response :created
-      assert_includes response.parsed_body.dig("assistant_message", "content"), "isn't open yet"
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "paused right now"
     end
   end
 

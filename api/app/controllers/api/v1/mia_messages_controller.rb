@@ -66,7 +66,7 @@ module Api
           return render json: { errors: [ "Message can't be blank" ] }, status: :unprocessable_entity if content.blank?
           return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
 
-          return render_challenge_not_open_response(content)
+          return render_challenge_not_open_response(content, SavingsChallenge::ProgramMode.state(current_cohort_membership.cohort))
         end
 
         if attachment_limit_exceeded?
@@ -564,11 +564,14 @@ module Api
 
       CHALLENGE_NOT_OPEN_REPLY = "Your savings challenge isn't open yet, so I can't count or save anything toward it right now. Nothing was recorded or changed. Home will show your challenge as soon as it opens, and I'll be ready to help then.".freeze
 
-      def render_challenge_not_open_response(content)
-        reply = with_wellbeing_check(content, CHALLENGE_NOT_OPEN_REPLY)
+      CHALLENGE_PAUSED_REPLY = "Your savings challenge is paused right now. Your record is safe and nothing is lost; you can continue when it resumes. Nothing was recorded or changed.".freeze
+
+      def render_challenge_not_open_response(content, state = "not_open")
+        base = state == "paused" ? CHALLENGE_PAUSED_REPLY : CHALLENGE_NOT_OPEN_REPLY
+        reply = with_wellbeing_check(content, base)
         # A bare "I have a plan" has no saved previous turn to read here, so it
         # gets the safety line without being treated as a full crisis.
-        reply = ::Mia::CrisisBoundary.with_wellbeing_check(CHALLENGE_NOT_OPEN_REPLY) if content.match?(::Mia::CrisisBoundary::BARE_PLAN_PATTERN)
+        reply = ::Mia::CrisisBoundary.with_wellbeing_check(base) if content.match?(::Mia::CrisisBoundary::BARE_PLAN_PATTERN)
         render json: {
           user_message: { id: nil, role: "user", author: "You", content: content, attachments: [], presentation: {}, citations: [] },
           assistant_message: { id: nil, role: "assistant", author: "Mia", content: reply, attachments: [], presentation: {}, citations: [] },

@@ -74,7 +74,7 @@ class ApiV1MiaProgramScopeTest < ActionDispatch::IntegrationTest
       post_message(@first_cohort, "How much savings progress do I have?", "first-request")
       assert_response :created
       assert_equal false, response.parsed_body.fetch("conversation_persisted")
-      assert_includes response.parsed_body.dig("assistant_message", "content"), "isn't open yet"
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "paused right now"
       post_message(@first_cohort, "I want to end it all.", "crisis-held")
       assert_response :created
       assert_equal false, response.parsed_body.fetch("conversation_persisted")
