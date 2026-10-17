@@ -60,6 +60,12 @@ module Api
           return render_crisis_response(session, content, [], message_request: message_request)
         end
 
+        # The screens already show the savings challenge, so Mia must not answer as
+        # the ordinary household coach while it is not open (or is paused).
+        if savings_program_selected? && !SavingsChallenge::ProgramMode.open?(current_cohort_membership.cohort)
+          return render_challenge_not_open_response(content)
+        end
+
         if attachment_limit_exceeded?
           return render json: { errors: [ "Attach up to 5 uploads to one Mia message." ] }, status: :unprocessable_entity
         end
@@ -490,10 +496,6 @@ module Api
         end
       end
 
-      def savings_program_selected?
-        current_cohort_membership&.cohort&.savings_challenge_enabled == true
-      end
-
       def require_savings_chat_access!
         cohort = current_cohort_membership.cohort.reload
         enrollment = SavingsEnrollment.find_by(household: current_household, user: current_user, cohort: cohort)
@@ -540,6 +542,17 @@ module Api
         complete_message_request(message_request, payload)
         record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports)
         render json: payload, status: :created
+      end
+
+      CHALLENGE_NOT_OPEN_REPLY = "Your savings challenge isn't open yet, so I can't count or save anything toward it right now. Nothing was recorded or changed. Home will show your challenge as soon as it opens, and I'll be ready to help then.".freeze
+
+      def render_challenge_not_open_response(content)
+        render json: {
+          user_message: { id: nil, role: "user", author: "You", content: content, attachments: [], presentation: {}, citations: [] },
+          assistant_message: { id: nil, role: "assistant", author: "Mia", content: CHALLENGE_NOT_OPEN_REPLY, attachments: [], presentation: {}, citations: [] },
+          mia_action_draft: nil, transaction_draft: nil, budget: nil, spending_report: nil,
+          conversation_persisted: false
+        }, status: :created
       end
 
       def render_stateless_crisis_response(content)

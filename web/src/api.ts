@@ -73,6 +73,8 @@ export type PublicBrandResponse = {
 export type WorkspaceData = {
   financial_generation?: number
   experience_mode?: 'household_cfo' | 'savings_challenge'
+  // Savings programs only: false while the challenge is not open yet or is paused.
+  challenge_open?: boolean
   mode: 'demo' | 'real'
   household_id: number | null
   setup_complete: boolean

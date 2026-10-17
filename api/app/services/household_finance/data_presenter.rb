@@ -43,6 +43,7 @@ module HouseholdFinance
       {
         mode: "real",
         experience_mode: participant_experience_mode,
+        challenge_open: challenge_open?,
         household_id: household.id,
         financial_generation: household.financial_generation,
         setup_complete: status.complete?,
@@ -61,7 +62,19 @@ module HouseholdFinance
       }
     end
 
+    # Savings-mode programs only: whether the challenge is open for activity.
+    # Ordinary programs always report true so nothing waits on it.
+    def challenge_open?
+      return true unless participant_experience_mode == "savings_challenge"
+
+      SavingsChallenge::ProgramMode.open?(@cohort_membership&.cohort)
+    end
+
     def participant_experience_mode
+      @participant_experience_mode ||= compute_participant_experience_mode
+    end
+
+    def compute_participant_experience_mode
       return "household_cfo" unless user && cohort_membership && experience_capabilities[:experience_mode] == "savings_challenge"
 
       SavingsChallenge::AccessPolicy.new(household: household, user: user, cohort: cohort_membership.cohort).call!
@@ -428,7 +441,7 @@ module HouseholdFinance
     def chat_session
       return nil unless user
 
-      ::Mia::ChatSessionScope.new(household: household, user: user, membership: @cohort_membership).find
+      ::Mia::ChatSessionScope.new(household: household, user: user, membership: @cohort_membership).find_for_display
     end
 
     def members

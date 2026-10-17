@@ -91,7 +91,7 @@ module Api
         return true if names.include?(controller_name)
         return params[:picture] != "all" if controller_name == "mia_messages" && action_name == "destroy"
         return false unless controller_name == "mia_messages" && action_name == "create"
-        return true unless current_cohort_membership&.cohort&.savings_challenge_enabled == true
+        return true unless savings_program_selected?
         session = current_household.chat_sessions.find_by(user_id: current_user.id, cohort_id: current_cohort_membership&.cohort_id)
         income_reply = session && session.active_topic.to_h["record_scope"] == "household_plan" && ::Mia::IncomeSourceReply.matches?(params[:message], session: session)
         income_reply || ::Mia::HouseholdPlanRequest.classify(params[:message].to_s, household: current_household).in?(%i[household household_read])
@@ -105,6 +105,14 @@ module Api
 
       def current_cohort_membership
         current_participant_runtime.membership
+      end
+
+      # The selected program's experience is the savings challenge (whether or not
+      # it is open yet). Same rule the participant's screens use.
+      def savings_program_selected?
+        @savings_program_selected = SavingsChallenge::ProgramMode.savings?(user: current_user,
+          membership: current_cohort_membership, runtime: current_participant_runtime) unless defined?(@savings_program_selected)
+        @savings_program_selected
       end
 
       def current_persona
