@@ -23,7 +23,7 @@ import { ChallengeToday } from './components/ChallengeToday'
 import { setDailyExpectedUser } from './lib/dailyRecovery'
 import { BaselineReview } from './components/BaselineReview'
 import { setBaselineExpectedUser } from './lib/baselineRecovery'
-import { keepLocalOnly, markLocalOnly } from './lib/miaLocalReplies'
+import { keepLocalOnly, markLocalOnly, onlyLocalMessages } from './lib/miaLocalReplies'
 import { ChallengeOpensSoon } from './components/ChallengeOpensSoon'
 import { SavingsChallengeHome } from './components/SavingsChallengeHome'
 import { ParticipantProgramPicker } from './components/ParticipantProgramPicker'
@@ -2136,7 +2136,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     setMiaError(null)
     window.requestAnimationFrame(() => composerRef.current?.focus())
     try {
-      if (isRealWorkspace) await clearMiaMessages(true)
+      // A closed challenge refuses the server clear; unsaved replies exist only here.
+      if (isRealWorkspace && !(challengeNotOpen && onlyLocalMessages(currentMessages))) await clearMiaMessages(true)
       setMessages([])
       setOldestServerMessageId(null)
       setOlderServerMessageCount(0)
