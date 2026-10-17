@@ -45,7 +45,7 @@ module Mia
       # "kys" only as a whole message or sentence, never inside other words.
       /(?:\A\s*|[.!?]\s+)kys#{PHRASE_END}/i,
       # Stating that they are not safe, or that they have a plan to die.
-      /\b(?:i\s*am|i['’]?m|im)\s+not\s+saf(?:e)?(?:\s+(?:right now|tonight|today|here|at home|with myself))?#{PHRASE_END}/i,
+      /\b(?:i\s*am|i['’]?m|im)\s+not\s+saf(?:e)?(?:\s+(?:here|at home|with myself))?#{TIME_WORDS}#{PHRASE_END}/i,
       /\bi\s+(?:have|got|made)\s+a\s+plan\s+(?:to|for)\s+(?:(?:kill(?:ing)?|hurt(?:ing)?|harm(?:ing)?)\s+myself|end(?:ing)?\s+my\s+life|suicide\b|(?:end(?:ing)?\s+it(?:\s+all)?|die|dying)#{TIME_WORDS}#{PHRASE_END})/i
     ].freeze
     # Hopeless language that is not a stated plan to self-harm. Mia keeps helping

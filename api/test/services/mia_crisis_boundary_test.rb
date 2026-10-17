@@ -140,7 +140,7 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
     assert_equal 1, scripted.scan("988").length
   end
   test "explicit safety and plan statements are crisis phrasing" do
-    [ "i am not safe", "im not safe", "I'm not safe right now", "i'm not safe tonight.", "i have a plan to kill myself",
+    [ "i am not safe", "im not safe", "im not safe rn", "i am not safe at home tonight", "I'm not safe right now", "i'm not safe tonight.", "i have a plan to kill myself",
       "I have a plan to end it", "i have a plan to end my life", "i'm going to end it tonight" ].each do |message|
       assert Mia::CrisisBoundary.matches?(message), message
     end
