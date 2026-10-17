@@ -3,6 +3,7 @@ module Mia
     FIRST_PERSON_SELF_HARM_INTENT_SOURCE = "(?:i(?:['’]m|\\s+am)\\s+(?:going\\s+to|about\\s+to|planning\\s+to|thinking\\s+(?:about|of))|i\\s+(?:want|plan|intend)\\s+to)".freeze
     # The phrase must end its clause, so "done with life insurance" or "point of
     # living paycheck to paycheck" stays money talk.
+    TIME_WORDS = "(?:\\s+(?:today|tonight|tomorrow|rn|right now|soon|this weekend))?".freeze
     PHRASE_END = "(?=\\s*(?:[.!?,;…]|\\z|\\b(?:anyway|tbh|lol|honestly|fr|man)\\b))"
     # Stricter end: the sentence itself ends ("…wake up." not "…wake up, it's Monday").
     SENTENCE_END = "(?=\\s*(?:[.!?…]|\\z|\\b(?:tbh|honestly|fr)\\b))"
@@ -15,7 +16,8 @@ module Mia
       /\b#{FIRST_PERSON_SELF_HARM_INTENT_SOURCE}\s+(?:shoot(?:ing)?|hang(?:ing)?|drown(?:ing)?|stab(?:bing)?|poison(?:ing)?|suffocat(?:e|ing))\s+myself\b/i,
       /\b#{FIRST_PERSON_SELF_HARM_INTENT_SOURCE}\s+overdos(?:e|ing)\b/i,
       /\bi\s+wish\s+i\s+(?:were|was)\s+(?:dead|not alive)\b|\bi(?:['’]d|\s+would)\s+rather\s+be\s+dead\b/i,
-      /\b(?:don['’]?t|do not) want to (?:be alive|live(?: anymore)?|keep living)\b/i,
+      # "live" must end the clause: "don't wanna live paycheck to paycheck" is money talk.
+      /\b(?:don['’]?t|dont|dnt|do not)\s+(?:want to|wanna|wana)\s+(?:be alive|live|keep living)(?:\s*any\s?more)?#{PHRASE_END}/i,
       /\b(?:don['’]?t|do not) think I can (?:keep living|go on)\b/i,
       /\b(?:can['’]?t|cannot) go on(?:[.!?,;:]|\z|\s+(?:anymore|living|like this|with (?:my )?life|with this anymore)\b)/i,
       /\b(?:can['’]?t|cannot) go on\s+with\s+(?:this|the|my)?\s*(?:debt|bills?|money stress)\b.*\banymore\b/i,
@@ -34,16 +36,17 @@ module Mia
       /\b(?:nobody|no one|noone)\s+would\s+(?:even\s+)?(?:miss|notice|care if)\s+(?:me|i (?:was|were) gone)\b/i,
       /\b(?:want|wanna|wish i could)\s+(?:to\s+)?(?:go to\s+)?sleep and (?:never|not) wake up\b/i,
       # Death wishes and texting forms.
-      /\bi(?:['’]?d| would)\s+be\s+better\s+off\s+dead\b|\bi\s+am\s+better\s+off\s+dead\b/i,
-      /\b(?:don['’]?t|dont|do not)\s+wanna\s+(?:be alive|live|keep living)(?!\s*any\s?more\s*,)/i,
-      /\bi\s+(?:feel|felt)\s+like\s+dying#{PHRASE_END}/i,
-      /\b(?:thinking|thought)\s+(?:of|about)\s+ending\s+(?:things|it all|it|everything)#{PHRASE_END}/i,
-      /\b(?:wanna|want to|going to|gonna|need to)\s+unaliv(?:e|ing)\b/i,
+      /\bi(?:['’]?d| would)\s+be\s+better\s+off\s+dead\b|\b(?:i\s+am|i['’]?m|im)\s+better\s+off\s+dead\b/i,
+      /\bi\s+(?:feel|felt)\s+like\s+dying#{TIME_WORDS}#{PHRASE_END}/i,
+      /\b(?:thinking|thought)\s+(?:of|about)\s+ending\s+(?:things|it all|it|everything)#{TIME_WORDS}#{PHRASE_END}/i,
+      /\b(?:thinking|thought)\s+(?:of|about)\s+ending\s+(?:things\s+)?with\s+my\s+life\b/i,
+      /\bending it all#{TIME_WORDS}#{PHRASE_END}/i,
+      /\b(?:wanna|want to|going to|gonna|need to)\s+unaliv(?:e|ing)(?:\s+(?:myself|me)\b|#{TIME_WORDS}#{PHRASE_END})/i,
       # "kys" only as a whole message or sentence, never inside other words.
       /(?:\A\s*|[.!?]\s+)kys#{PHRASE_END}/i,
       # Stating that they are not safe, or that they have a plan to die.
-      /\b(?:i\s*am|i['’]?m|im)\s+not\s+safe(?:\s+(?:right now|tonight|today|here|at home|with myself))?#{PHRASE_END}/i,
-      /\bi\s+(?:have|got|made)\s+a\s+plan\s+(?:to|for)\s+(?:end(?:ing)?\s+(?:it|my life|things)|die|dying|kill(?:ing)?|hurt(?:ing)?\s+myself|harm(?:ing)?\s+myself|suicide)\b/i
+      /\b(?:i\s*am|i['’]?m|im)\s+not\s+saf(?:e)?(?:\s+(?:right now|tonight|today|here|at home|with myself))?#{PHRASE_END}/i,
+      /\bi\s+(?:have|got|made)\s+a\s+plan\s+(?:to|for)\s+(?:(?:kill(?:ing)?|hurt(?:ing)?|harm(?:ing)?)\s+myself|end(?:ing)?\s+my\s+life|suicide\b|(?:end(?:ing)?\s+it(?:\s+all)?|die|dying)#{TIME_WORDS}#{PHRASE_END})/i
     ].freeze
     # Hopeless language that is not a stated plan to self-harm. Mia keeps helping
     # with the money question but always adds a gentle safety check. Each phrase

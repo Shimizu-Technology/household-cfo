@@ -183,4 +183,22 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
       assert_not Mia::CrisisBoundary.hopeless?(message), message
     end
   end
+  test "review round: wider phrasings and typos are crisis" do
+    [ "I feel like dying today", "i feel like dying rn", "im better off dead", "i'm better off dead", "ending it all tonight",
+      "thinking about ending things with my life", "i have a plan to end it tonight", "i have a plan to die", "i have a plan to end my life",
+      "i got a plan to hurt myself", "i have a plan for suicide", "i dnt wanna be alive", "i dont wana live", "i am not saf",
+      "i dont want to live anymore", "i don't wanna live.", "i dont wanna live anymore, rent is too high", "wanna unalive", "i'm gonna unalive myself" ].each do |message|
+      assert Mia::CrisisBoundary.matches?(message), message
+    end
+  end
+
+  test "review round: money talk with kill, end, live and unalive is left alone" do
+    [ "I have a plan to kill my debt by December", "i have a plan to kill the debt", "i have a plan to end it with the gym",
+      "i have a plan to die down spending", "i got a plan for ending things with comcast", "i dont wanna live paycheck to paycheck",
+      "i dont wanna live with debt", "i dont wanna live in this apartment", "i dont wanna live here anymore, rent is too high",
+      "i don't want to live on ramen", "gonna unalive that card lol", "need to unalive the subscription", "thinking about ending things with comcast",
+      "I'm not safe to drive on these tires" ].each do |message|
+      assert_not Mia::CrisisBoundary.matches?(message), message
+    end
+  end
 end

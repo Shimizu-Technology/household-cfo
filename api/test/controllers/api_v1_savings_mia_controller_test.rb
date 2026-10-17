@@ -96,6 +96,16 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_not_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
   end
 
+  test "a bare plan statement while the challenge is closed gets the safety line, and plain text does not" do
+    @savings_cohort.update_columns(status: "draft")
+    post "/api/v1/mia/messages", params: { message: "i have a plan", request_id: "closed-plan" }, headers: auth, as: :json
+    content = response.parsed_body.dig("assistant_message", "content")
+    assert_includes content, "isn't open yet"
+    assert_equal 1, content.scan("988").length, content
+    post "/api/v1/mia/messages", params: { message: "i have a plan for my budget", request_id: "closed-budget" }, headers: auth, as: :json
+    assert_not_includes response.parsed_body.dig("assistant_message", "content"), "988"
+  end
+
   test "debt free and optional feelings need no setup while hold blocks ordinary chat" do
     [ [ "I do not have credit cards", "without credit cards or debt" ], [ "I feel guilty", "leave feelings blank" ], [ "I bought lunch yesterday", "amount, where and date" ] ].each_with_index do |(message, expected), index|
       post "/api/v1/mia/messages", params: { message: message, request_id: "savings-topic-#{index}" }, headers: auth, as: :json

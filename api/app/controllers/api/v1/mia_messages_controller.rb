@@ -415,7 +415,7 @@ module Api
       def crisis_plan_followup?(content)
         return false unless content.match?(::Mia::CrisisBoundary::BARE_PLAN_PATTERN)
 
-        previous = current_chat_session.chat_messages.where(role: "user").order(:id).last&.content
+        previous = chat_session_scope.find&.chat_messages&.where(role: "user")&.order(:id)&.last&.content
         ::Mia::CrisisBoundary.plan_followup?(content, previous)
       rescue SavingsChallenge::AccessPolicy::Unavailable, ActiveRecord::ActiveRecordError
         false
@@ -565,9 +565,13 @@ module Api
       CHALLENGE_NOT_OPEN_REPLY = "Your savings challenge isn't open yet, so I can't count or save anything toward it right now. Nothing was recorded or changed. Home will show your challenge as soon as it opens, and I'll be ready to help then.".freeze
 
       def render_challenge_not_open_response(content)
+        reply = with_wellbeing_check(content, CHALLENGE_NOT_OPEN_REPLY)
+        # A bare "I have a plan" has no saved previous turn to read here, so it
+        # gets the safety line without being treated as a full crisis.
+        reply = ::Mia::CrisisBoundary.with_wellbeing_check(CHALLENGE_NOT_OPEN_REPLY) if content.match?(::Mia::CrisisBoundary::BARE_PLAN_PATTERN)
         render json: {
           user_message: { id: nil, role: "user", author: "You", content: content, attachments: [], presentation: {}, citations: [] },
-          assistant_message: { id: nil, role: "assistant", author: "Mia", content: with_wellbeing_check(content, CHALLENGE_NOT_OPEN_REPLY), attachments: [], presentation: {}, citations: [] },
+          assistant_message: { id: nil, role: "assistant", author: "Mia", content: reply, attachments: [], presentation: {}, citations: [] },
           mia_action_draft: nil, transaction_draft: nil, budget: nil, spending_report: nil,
           conversation_persisted: false
         }, status: :created
