@@ -38,7 +38,19 @@ Inspect the target head's CI/reviewer requirements again; these commands do not 
 
 The current participant guard checks `savings_challenge_enabled`, `savings_challenge_release_hold`, current role/membership and the sealed savings release on every new financial operation/read (`api/app/services/savings_challenge/access_policy.rb:22`). Existing prepared-operation replay also reauthorizes. Hold denies new financial activity; self-only privacy revocation, reminder disable/dismissal and reflection erasure are deliberately available without granting financial reads.
 
-At this snapshot the ordinary admin cohort update does not permit the savings hold field (`api/app/controllers/api/v1/admin/cohorts_controller.rb:94`). Do not invent an unaudited public endpoint. If an authorized incident requires a hold, Leon can use a reviewed maintenance transaction against the verified cohort only; record its operator/reason externally as sanitized operational metadata. Example, after explicit environment/database and cohort verification:
+### Open or pause the challenge (normal path)
+
+Platform administrators (Leon) open and pause the challenge from Admin > Cohorts > select the cohort > "Challenge status". Program owners and coaches can see the status (Not set up / Ready to open / Open / Paused) and the 30-place capacity but cannot change it; this is deliberate because technical operations belong to the platform administrator.
+
+- "Open the challenge to participants" sets `savings_challenge_enabled` true and `savings_challenge_release_hold` false. It is refused with a plain reason unless the cohort's launched release is the Savings Challenge experience (tool registry v3 or later, checked with the same predicate `SavingsChallenge::AccessPolicy` uses) and the cohort is Enrolling or Active.
+- "Pause the challenge" sets the hold. It is always allowed (any cohort status, any release state).
+- Every change needs a short reason and is recorded in `cohort_challenge_access_events` (who, when, from/to state, reason, release id, idempotency key). The record is append-only. Replaying the same `Idempotency-Key` is safe; reusing it for a different change is a conflict. The cohort row is locked for the change.
+- Pause is a no-op success (no audit event) unless the challenge is open. Readiness is checked against the cohort's active release; a participant pinned to an older release by a rollout is judged by that release at runtime and could still be refused, so keep rollouts complete before opening.
+- Experience choice: in Coach Studio > Participant tools pick "90-day Savings Challenge", save, preview, publish, then seal and launch a release (the seal and launch confirmations name the experience). Launching does not open the challenge; opening is a separate audited step.
+
+### Break-glass fallback (console)
+
+Use this only if the admin control is unavailable during an incident. Do not invent an unaudited public endpoint. After explicit environment/database and cohort verification, a reviewed maintenance transaction against the verified cohort only; record its operator/reason externally as sanitized operational metadata, and add the matching reason to the cohort's notes afterwards:
 
 ```sh
 RAILS_ENV=production DATABASE_URL="$BOG_VERIFIED_DATABASE_URL" bin/rails runner 'cohort = Cohort.find(Integer(ENV.fetch("BOG_COHORT_ID"))); cohort.with_lock { cohort.update!(savings_challenge_release_hold: true) }; puts "Challenge hold applied"'

@@ -12,6 +12,8 @@ class ApiV1AdminCohortReleaseLaunchesControllerTest < ActionDispatch::Integratio
     membership = participant.cohort_memberships.create!(cohort: cohort, role: "participant")
     before = review(owner, cohort)
     assert before.fetch("can_launch")
+    assert_equal "household_cfo", before.dig("participant_experience", "mode")
+    assert_includes before.fetch("message"), "Household CFO experience"
     assert_equal 1, before.dig("cohort", "participant_count")
     assert_nil cohort.reload.active_cohort_release_id
     refute_includes response.body, participant.email
