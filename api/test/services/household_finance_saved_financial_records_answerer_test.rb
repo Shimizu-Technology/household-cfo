@@ -176,6 +176,22 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_nil answer("how much do we owe on the credit card if we pay 200 extra")
   end
 
+  test "individual-mode owe questions use the saved debt inventory" do
+    @household.household_profile.update!(debt_tracking_mode: "individual")
+    @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 125_000, balance_known: true, minimum_payment_cents: 5_000, minimum_payment_known: true)
+
+    response = answer("how much do we owe on the credit card")
+
+    assert_equal "debts", response.metadata[:topic]
+    assert_includes response.answer, "Visa (Credit card): balance $1,250.00"
+    refute_includes response.answer, "not a per-card figure"
+  end
+
+  test "owe wording without a recognized debt topic is not taken over" do
+    assert_nil answer("how much do I owe on a mortgage")
+    assert_nil answer("how much do we owe on the car loan")
+  end
+
   test "summary debt mode excludes preserved individual balances" do
     @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 450_000, debt_summary_balance_known: true, debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: false)
     @household.debts.create!(label: "Preserved Visa", debt_type: "credit_card", balance_cents: 999_999, minimum_payment_cents: 20_000)

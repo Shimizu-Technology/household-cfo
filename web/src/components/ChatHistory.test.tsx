@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createRef } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ChatHistory } from './ChatHistory'
@@ -65,4 +65,25 @@ it('keeps the plain latest-message shortcut when nothing waits for review', () =
   render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} showScrollButton />)
   expect(screen.getByRole('button', { name: 'Scroll to latest Mia message' })).toBeTruthy()
   expect(document.querySelector('.chat-review-queue')).toBeNull()
+})
+
+it('shows the review shortcut only while the review queue is below the fold', async () => {
+  let queueTop = 900
+  const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const top = this.classList.contains('chat-review-queue') ? queueTop : 0
+    const bottom = this.classList.contains('chat-card') ? 500 : top + 100
+    return { top, bottom, left: 0, right: 300, width: 300, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }
+  })
+  try {
+    render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} showScrollButton reviewCount={2} reviewContent={<p>Transactions to review</p>} />)
+    expect(await screen.findByRole('button', { name: 'Jump to 2 items waiting for your review' })).toBeTruthy()
+    expect(document.querySelector('.chat-card-wrap')?.classList.contains('has-review-shortcut')).toBe(true)
+
+    queueTop = 300
+    fireEvent.scroll(document.querySelector('.chat-card')!)
+    await waitFor(() => expect(screen.queryByRole('button', { name: /waiting for your review/ })).toBeNull())
+    expect(document.querySelector('.chat-card-wrap')?.classList.contains('has-review-shortcut')).toBe(false)
+  } finally {
+    spy.mockRestore()
+  }
 })

@@ -2798,9 +2798,13 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 
     }), { timeout: 15_000 }).toBe(true)
     if (process.env.HCFO_SHOTS) await page.screenshot({ path: `${process.env.HCFO_SHOTS}/f13-${viewport.width}x${viewport.height}.png` })
     // The jump shortcut never sits on the reply or on any control.
+    // The shortcut must show exactly while the review queue is below the fold.
+    const queueBelowFold = await page.evaluate(() => document.querySelector('.chat-review-queue')!.getBoundingClientRect().top > document.querySelector('.chat-card')!.getBoundingClientRect().bottom - 40)
+    if (queueBelowFold) await expect(page.locator('.chat-scroll-bottom-button')).toBeVisible()
+    else await expect(page.locator('.chat-scroll-bottom-button')).toHaveCount(0)
     const overlap = await page.evaluate(() => {
       const shortcut = document.querySelector('.chat-scroll-bottom-button')
-      if (!shortcut) return { shortcut: false, overlaps: false }
+      if (!shortcut) return { overlaps: false }
       const box = shortcut.getBoundingClientRect()
       const replies = [...document.querySelectorAll('.chat-card .message-row.assistant:not(.typing-row)')]
       const reply = replies[replies.length - 1]?.querySelector('.message')?.getBoundingClientRect()
@@ -2808,7 +2812,7 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 
       // Only the part of an element that is visible inside the scrolling card counts.
       const hits = (other: DOMRect) => { const bottom = Math.min(other.bottom, area.bottom); return other.width > 0 && bottom > other.top && !(other.right <= box.left || other.left >= box.right || bottom <= box.top || other.top >= box.bottom) }
       const controls = [...document.querySelectorAll('.chat-card button, .chat-card a, .chat-card summary')].some((control) => hits(control.getBoundingClientRect()))
-      return { shortcut: true, overlaps: controls || Boolean(reply && hits(reply)) }
+      return { overlaps: controls || Boolean(reply && hits(reply)) }
     })
     expect(overlap.overlaps).toBe(false)
     // Review cards are still reachable below the reply.
@@ -2816,6 +2820,33 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 
     await expect(page.locator('.chat-review-queue').getByRole('button', { name: 'Apply reviewed change' }).first()).toBeVisible()
   })
 }
+
+test('loading earlier Ask Mia messages keeps the reading position instead of jumping to the newest reply', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.mia.messages = workspace.mia.messages.slice(-24).map((message: Record<string, unknown>) => ({ ...message, attachments: [] }))
+  workspace.mia.older_message_count = 3
+  workspace.mia.oldest_message_id = workspace.mia.messages[0].id
+  workspace.mia.has_older_messages = true
+  const older = [1, 2, 3].map((n) => ({ id: 5000 + n, role: n % 2 ? 'user' : 'assistant', author: n % 2 ? 'You' : 'Mia', content: `Earlier page message ${n}`, created_at: new Date().toISOString() }))
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/mia/messages**', (route) => route.fulfill({ json: { messages: older, oldest_message_id: 5001, older_message_count: 0, has_older_messages: false } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.getByRole('button', { name: /Load earlier messages/ })).toBeVisible({ timeout: 15_000 })
+  await page.waitForTimeout(3000) // past the initial settling window
+  await page.locator('.chat-card').evaluate((card) => { card.scrollTop = 0 })
+  const marker = page.locator('.chat-card .message-row .message').nth(1)
+  const text = (await marker.innerText()).trim()
+  const offset = () => page.evaluate((needle) => {
+    const card = document.querySelector('.chat-card')!
+    const node = [...card.querySelectorAll('.message')].find((element) => (element as HTMLElement).innerText.trim() === needle)!
+    return node.getBoundingClientRect().top - card.getBoundingClientRect().top
+  }, text)
+  const before = await offset()
+  await page.getByRole('button', { name: /Load earlier messages/ }).click()
+  await expect(page.getByText('Earlier page message 1')).toHaveCount(1)
+  await page.waitForTimeout(1200)
+  expect(Math.abs((await offset()) - before)).toBeLessThanOrEqual(3)
+})
 
 test('a rejected stale Mia card shows once that it is out of date and offers a fresh draft', async ({ page }) => {
   const workspace = realWorkspaceData(true)

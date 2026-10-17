@@ -250,8 +250,8 @@ module HouseholdFinance
     end
 
     # "rename Back to School to Fall Fun": the old name can hold a "to" or "as"
-    # too, so take the first split whose left side is an existing category and
-    # fall back to the first split for the "category not found" reply.
+    # too, so take the split whose left side is exactly an existing category name
+    # and fall back to the first split (fuzzy match or "category not found").
     def rename_split(text)
       head = text.match(/\brename\s+(?:the\s+)?(?<rest>.+)\z/i)
       return unless head
@@ -268,7 +268,9 @@ module HouseholdFinance
         category = active.find { |entry| normalized_label(entry.name) == normalized_label(candidate[:from].sub(/\s+category\z/i, "")) }
         candidate.merge(category: category) if category
       end.first
-      exact || candidates.find { |candidate| find_active_category(resolved_category_phrase(candidate[:from])) } || candidates.first
+      # A later separator only counts on a full old-name match, so "Travel to Dining Out"
+      # never silently targets "Dining Out".
+      exact || candidates.first
     end
 
     def reclassify_category_proposal

@@ -1394,6 +1394,21 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     setShowChatScrollButton(false)
   }, [anchorMiaChat])
 
+  // Whether the participant has scrolled away from the newest reply. It lives
+  // outside the effect so a background refresh or older-history page cannot pull
+  // them back; sending a message or opening Ask Mia resets it.
+  const chatScrolledAwayRef = useRef(false)
+  const newestMessage = currentMessages[currentMessages.length - 1]
+  const newestMessageKey = newestMessage ? String(newestMessage.id ?? newestMessage.client_id ?? `${newestMessage.role}-${currentMessages.length}`) : ''
+
+  useEffect(() => {
+    if (activeSection === 'Ask Mia') chatScrolledAwayRef.current = false
+  }, [activeSection])
+
+  useEffect(() => {
+    if (miaLoading) chatScrolledAwayRef.current = false
+  }, [miaLoading])
+
   useEffect(() => {
     if (activeSection !== 'Ask Mia') return
     const chatCard = chatCardRef.current
@@ -1401,28 +1416,32 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     // Images, fonts and review cards keep changing the layout for a moment, so
     // re-anchor whenever it shifts until the participant scrolls themselves.
-    let released = false
-    const release = () => { released = true }
-    const reanchor = () => { if (!released) anchorMiaChat('auto') }
-    chatCard.addEventListener('wheel', release, { passive: true })
-    chatCard.addEventListener('touchmove', release, { passive: true })
-    chatCard.addEventListener('keydown', release)
-    const frame = requestAnimationFrame(() => { anchorMiaChat('auto'); setShowChatScrollButton(false) })
+    let settled = false
+    const away = () => { chatScrolledAwayRef.current = true }
+    const reanchor = () => { if (!settled && !chatScrolledAwayRef.current) anchorMiaChat('auto') }
+    chatCard.addEventListener('wheel', away, { passive: true })
+    chatCard.addEventListener('touchmove', away, { passive: true })
+    chatCard.addEventListener('keydown', away)
+    const frame = requestAnimationFrame(() => {
+      if (chatScrolledAwayRef.current) return
+      anchorMiaChat('auto')
+      setShowChatScrollButton(false)
+    })
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(reanchor)
     observer?.observe(chatCard)
     Array.from(chatCard.children).forEach((child) => observer?.observe(child))
     chatCard.addEventListener('load', reanchor, true)
-    const settle = window.setTimeout(release, 2500)
+    const settle = window.setTimeout(() => { settled = true }, 2500)
     return () => {
       cancelAnimationFrame(frame)
       window.clearTimeout(settle)
       observer?.disconnect()
-      chatCard.removeEventListener('wheel', release)
-      chatCard.removeEventListener('touchmove', release)
-      chatCard.removeEventListener('keydown', release)
+      chatCard.removeEventListener('wheel', away)
+      chatCard.removeEventListener('touchmove', away)
+      chatCard.removeEventListener('keydown', away)
       chatCard.removeEventListener('load', reanchor, true)
     }
-  }, [activeSection, currentMessages.length, miaLoading, anchorMiaChat])
+  }, [activeSection, newestMessageKey, miaLoading, anchorMiaChat])
 
   const stopVoiceStream = useCallback(() => {
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
@@ -2149,6 +2168,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   async function handleLoadEarlierMessages() {
+    // Reading older history: keep the restored position, never re-anchor.
+    chatScrolledAwayRef.current = true
     const chatCard = chatCardRef.current
     const previousHeight = chatCard?.scrollHeight ?? 0
     const previousTop = chatCard?.scrollTop ?? 0
@@ -2632,11 +2653,16 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       if (caught instanceof ApiRequestError && caught.code === 'stale_review') {
         budgetOperationKeysRef.current.complete(signature)
         const isCurrent = captureWorkspaceReloadGuard()
-        void fetchAppData(true).then((payload) => {
+        void (async () => {
+          const payload = await fetchAppData(true)
+          // The workspace holds the current year; a card for another year needs
+          // that year's budget refreshed too, or it would render from the cache.
+          const otherYear = draft.year !== payload.dashboard.action_center.current_year ? await fetchBudget(draft.year) : null
           if (!isCurrent()) return
           setData(payload)
+          if (otherYear?.annual_plan?.year === draft.year) setData(current => current ? { ...current, budget: otherYear } : current)
           replaceMiaHistory(payload.mia)
-        }).catch(() => undefined)
+        })().catch(() => undefined)
       }
     } finally {
       endBudgetAction()
@@ -6962,7 +6988,7 @@ function MiaActionDraftReviewCard({
         </div>
         {isStale && (
           <p className="mia-action-stale-note" role="status">
-            Your numbers changed after {assistantName} drafted this, so it can’t be applied. Nothing was changed.
+            Your numbers changed after {assistantName} drafted this, so it can’t be applied. {draft.status === 'partially_applied' ? 'This apply changed nothing, and the steps you already applied stay in effect.' : 'Nothing was changed.'}
           </p>
         )}
         <p>{draft.summary}</p>

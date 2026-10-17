@@ -72,6 +72,14 @@ export function ChatHistory({
     const frame = requestAnimationFrame(measureQueue)
     return () => cancelAnimationFrame(frame)
   }, [measureQueue, messages.length, reviewCount, miaLoading, totalMessageCount])
+  // A viewport or keyboard resize can move the queue below the fold without a scroll.
+  useEffect(() => {
+    const card = chatCardRef.current
+    if (!card || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => measureQueue())
+    observer.observe(card)
+    return () => observer.disconnect()
+  }, [chatCardRef, measureQueue])
 
   const showReviewShortcut = showScrollButton && totalMessageCount > 0 && reviewCount > 0 && queueBelowFold
   return (

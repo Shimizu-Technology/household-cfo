@@ -91,7 +91,7 @@ module HouseholdFinance
     def mark_stale!(message)
       return unless draft.reviewable?
 
-      MiaActionDraft.where(id: draft.id).update_all([
+      MiaActionDraft.where(id: draft.id, status: %w[pending partially_applied]).update_all([
         "metadata = COALESCE(metadata, '{}'::jsonb) || ?::jsonb, updated_at = ?",
         { "stale_at" => Time.current.iso8601, "stale_message" => message.to_s.truncate(300) }.to_json,
         Time.current

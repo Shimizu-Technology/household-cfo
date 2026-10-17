@@ -298,6 +298,16 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_equal "Fall Fun and Games", result.proposal.items.first.payload.fetch(:name)
   end
 
+  test "a later rename separator needs the full old name, never a substring match" do
+    assert_equal "Dining Out", @dining.name
+    prompt = "rename the Travel to Dining Out category to Trips"
+    result = HouseholdFinance::MiaActionDraftBuilder.new(@household, prompt, user: @user, annual_budget_manager: @manager, selected_month: 7, raw_input: prompt).call
+
+    assert_nil result.proposal
+    assert_includes result.response, "Travel"
+    assert_equal "Dining Out", @household.budget_categories.active.find_by(name: "Dining Out").name
+  end
+
   test "builds structured category create rename and reclassify proposals" do
     create_result = build_command(
       type: "create_category",
