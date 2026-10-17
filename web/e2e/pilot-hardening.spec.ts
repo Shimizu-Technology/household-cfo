@@ -9393,6 +9393,39 @@ test('BOG UI compact chat context names savings workspace without claiming savin
 })
 
 
+test('BOG UI closed challenge keeps the unsaved reply across polling and offers no uploads', async ({ page }) => {
+  const base = realWorkspaceData(true)
+  const workspace = { ...base, workspace: { ...base.workspace, experience_mode: 'savings_challenge', challenge_open: false } }
+  let sends = 0, uploads = 0
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    uploads += 1
+    return route.fulfill({ status: 403, json: { errors: ['closed'] } })
+  })
+  await page.route('http://api.test/api/v1/mia/messages**', (route) => {
+    if (route.request().method() === 'POST') {
+      sends += 1
+      return route.fulfill({ status: 201, json: {
+        user_message: { role: 'user', author: 'You', content: 'I set aside $50 today' },
+        assistant_message: { role: 'assistant', author: 'Mia', content: "Your savings challenge isn't open yet, so I can't count or save anything toward it right now." },
+        conversation_persisted: false,
+      } })
+    }
+    return route.fulfill({ json: { messages: [], oldest_message_id: null, older_message_count: 0, has_older_messages: false, historical_message_count: 0, picture: 'current', read_only: false, quick_prompts: [] } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.getByRole('button', { name: 'Attach receipt, screenshot, statement, or budget file' })).toBeDisabled()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('I set aside $50 today')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect(page.getByText("Your savings challenge isn't open yet", { exact: false }).first()).toBeVisible()
+  await page.waitForTimeout(6500)
+  await expect(page.getByText("Your savings challenge isn't open yet", { exact: false }).first()).toBeVisible()
+  expect(sends).toBe(1)
+  expect(uploads).toBe(0)
+})
+
+
 test('BOG UI normal chat adapts to a reduced phone viewport and preserves a keyboard draft', async ({ page }) => {
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')

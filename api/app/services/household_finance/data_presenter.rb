@@ -3,7 +3,8 @@ module HouseholdFinance
     UNRESOLVED_COHORT = Object.new.freeze
 
     def initialize(household, user: nil, annual_plan: nil, persona: nil, cohort_membership: UNRESOLVED_COHORT,
-      experience_capabilities: nil, brand: nil, ensure_plan: true)
+      experience_capabilities: nil, brand: nil, ensure_plan: true, runtime: nil)
+      @runtime = runtime
       @household = household
       @user = user
       ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
@@ -43,6 +44,7 @@ module HouseholdFinance
       {
         mode: "real",
         experience_mode: participant_experience_mode,
+        challenge_open: challenge_open?,
         household_id: household.id,
         financial_generation: household.financial_generation,
         setup_complete: status.complete?,
@@ -61,7 +63,19 @@ module HouseholdFinance
       }
     end
 
+    # Savings-mode programs only: whether the challenge is open for activity.
+    # Ordinary programs always report true so nothing waits on it.
+    def challenge_open?
+      return true unless participant_experience_mode == "savings_challenge"
+
+      SavingsChallenge::ProgramMode.open?(@cohort_membership&.cohort)
+    end
+
     def participant_experience_mode
+      @participant_experience_mode ||= compute_participant_experience_mode
+    end
+
+    def compute_participant_experience_mode
       return "household_cfo" unless user && cohort_membership && experience_capabilities[:experience_mode] == "savings_challenge"
 
       SavingsChallenge::AccessPolicy.new(household: household, user: user, cohort: cohort_membership.cohort).call!
@@ -351,7 +365,7 @@ module HouseholdFinance
     def scoped_annual_plan
       plan = annual_plan.deep_dup
       plan[:pending_mia_action_drafts] = ::Mia::ActionDraftScope.reviews(household: household,
-        user: user, membership: cohort_membership, year: plan.fetch(:year), limit: 10)
+        user: user, membership: cohort_membership, year: plan.fetch(:year), limit: 10, runtime: @runtime)
       plan
     end
 
@@ -428,7 +442,7 @@ module HouseholdFinance
     def chat_session
       return nil unless user
 
-      ::Mia::ChatSessionScope.new(household: household, user: user, membership: @cohort_membership).find
+      ::Mia::ChatSessionScope.new(household: household, user: user, membership: @cohort_membership, runtime: @runtime).find_for_display
     end
 
     def members
@@ -612,7 +626,7 @@ module HouseholdFinance
       current_year_range = Date.new(current_year, 1, 1)..Date.new(current_year, 12, 31)
       transaction_reviews = household.transaction_drafts.pending.excluding_non_spending_plaid.where(occurred_on: current_year_range).count
       action_reviews = ::Mia::ActionDraftScope.records(household.mia_action_drafts.reviewable.for_budget_year(current_year),
-        user: user, membership: cohort_membership).count
+        user: user, membership: cohort_membership, runtime: @runtime).count
 
       {
         transaction_review_count: transaction_reviews,

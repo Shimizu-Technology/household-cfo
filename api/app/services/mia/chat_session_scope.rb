@@ -13,6 +13,15 @@ module Mia
       relation.first
     end
 
+    # For showing history: a challenge that is not open yet (or is paused) has
+    # nothing to show, and reading it must not raise a raw error at the
+    # participant. Writes, replay and clearing still go through authorize!.
+    def find_for_display
+      return if cohort_id && !SavingsChallenge::ProgramMode.open?(@membership.cohort.reload)
+
+      find
+    end
+
     def find_or_create!
       @household.with_lock do
         authorize!
@@ -33,7 +42,7 @@ module Mia
     end
 
     def cohort_id
-      @membership&.cohort&.savings_challenge_enabled ? @membership.cohort_id : nil
+      @cohort_id ||= SavingsChallenge::ProgramMode.scope_cohort_id(user: @user, membership: @membership, runtime: @runtime)
     end
 
     private

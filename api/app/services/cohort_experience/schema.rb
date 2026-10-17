@@ -23,7 +23,23 @@ module CohortExperience
     }.freeze
     PILOT_SAVINGS_CONFIG = SAVINGS_CONFIG.merge("schema_version" => 3).freeze
 
+    MODE_LABELS = {
+      "household_cfo" => "Household CFO",
+      "savings_challenge" => "90-day Savings Challenge"
+    }.freeze
+
     module_function
+
+    # The experience participants get for a config. Schema 1 predates modes and is the ordinary household experience.
+    def mode_for(value)
+      input = value.respond_to?(:to_h) ? value.to_h.deep_stringify_keys : {}
+      input["experience_mode"].presence_in(EXPERIENCE_MODES) || "household_cfo"
+    end
+
+    def mode_payload(value)
+      mode = mode_for(value)
+      { mode: mode, label: MODE_LABELS.fetch(mode) }
+    end
 
     def normalize(value)
       input = value.respond_to?(:to_h) ? value.to_h.deep_stringify_keys : {}

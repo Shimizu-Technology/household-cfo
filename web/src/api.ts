@@ -73,6 +73,8 @@ export type PublicBrandResponse = {
 export type WorkspaceData = {
   financial_generation?: number
   experience_mode?: 'household_cfo' | 'savings_challenge'
+  // Savings programs only: false while the challenge is not open yet or is paused.
+  challenge_open?: boolean
   mode: 'demo' | 'real'
   household_id: number | null
   setup_complete: boolean
@@ -865,6 +867,8 @@ export type MiaMessage = {
   financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
   id?: number
   client_id?: string
+  // Shown from this browser only: the server did not save this reply.
+  local_only?: boolean
   role: 'assistant' | 'user'
   author: string
   content: string
@@ -1762,6 +1766,31 @@ export type CoachWorkspaceSummary = {
   } | null
 }
 
+export type SavingsChallengeAccessState = 'not_set_up' | 'ready' | 'open' | 'paused'
+
+export type SavingsChallengeAccess = {
+  state: SavingsChallengeAccessState
+  label: string
+  enabled: boolean
+  on_hold: boolean
+  capacity: number
+  participant_count: number
+  can_open: boolean
+  can_pause: boolean
+  can_change?: boolean
+  participants_can_join: boolean
+  blockers: string[]
+  recent_events: Array<{
+    id: number
+    action: 'open' | 'pause'
+    from_state: SavingsChallengeAccessState
+    to_state: SavingsChallengeAccessState
+    reason: string
+    occurred_at: string
+    actor_name: string
+  }>
+}
+
 export type AdminCohort = {
   id: number
   name: string
@@ -1773,6 +1802,7 @@ export type AdminCohort = {
   participant_count: number
   staff_count: number
   setup_complete_count: number
+  savings_challenge?: SavingsChallengeAccess
   operational_summary: {
     available: boolean
     period_days: number
@@ -1803,8 +1833,12 @@ export type AdminCohort = {
   }>
 }
 
+export type ExperienceMode = 'household_cfo' | 'savings_challenge'
+
+/** Schema 1 is the ordinary Household CFO experience; 3 carries the chosen experience_mode. */
 export type CohortExperienceDraft = {
-  schema_version: 1
+  schema_version: 1 | 2 | 3
+  experience_mode?: ExperienceMode
   optional_modules: {
     cfo_filter: boolean
     optionality: boolean
@@ -1851,12 +1885,15 @@ export type CohortReleaseReadinessCheck = {
   detail: string | null
 }
 
+export type ParticipantExperience = { mode: ExperienceMode; label: string }
+
 export type CohortReleaseCandidate = {
   manifest_schema: string
   bundle_digest: string
   assignment_id: number | null
   persona_version_id: number | null
   experience_version_id: number | null
+  participant_experience: ParticipantExperience | null
   brand_mode: string
   brand_version_id: number | null
   brand_snapshot_digest: string
@@ -3845,6 +3882,8 @@ export type MiaMessageResponse = {
   mia_action_draft?: MiaActionDraft | null
   budget?: BudgetData | null
   spending_report?: SpendingReport | null
+  // false when the server answered without saving the conversation (closed challenge, crisis guidance).
+  conversation_persisted?: boolean
 }
 
 export type FinancialRestartReview = {
@@ -3980,6 +4019,12 @@ function clientRequestId() {
   return `request-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
+function normalizeParticipantExperience(value: unknown): ParticipantExperience | null {
+  const record = releaseRecord(value)
+  const mode = record.mode === 'savings_challenge' ? 'savings_challenge' : record.mode === 'household_cfo' ? 'household_cfo' : null
+  return mode ? { mode, label: releaseString(record.label) || (mode === 'savings_challenge' ? '90-day Savings Challenge' : 'Household CFO') } : null
+}
+
 function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
   const root = releaseRecord(payload)
   const rawStudio = releaseRecord(root.cohort_release_studio ?? root.release_studio ?? root)
@@ -4021,6 +4066,7 @@ function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
       assignment_id: releaseNullableInteger(rawCandidate.assignment_id),
       persona_version_id: releaseNullableInteger(rawCandidate.persona_version_id ?? rawCandidate.coach_persona_version_id),
       experience_version_id: releaseNullableInteger(rawCandidate.experience_version_id ?? rawCandidate.cohort_experience_version_id),
+      participant_experience: normalizeParticipantExperience(rawCandidate.participant_experience),
       brand_mode: releaseString(rawCandidate.brand_mode),
       brand_version_id: releaseNullableInteger(rawCandidate.brand_version_id ?? rawCandidate.workspace_brand_version_id),
       brand_snapshot_digest: releaseString(rawCandidate.brand_snapshot_digest),
@@ -4912,6 +4958,7 @@ export type CohortInitialLaunch = {
   can_launch: boolean
   blockers: string[]
   preview_digest: string
+  participant_experience?: ParticipantExperience
   message: string
 }
 
@@ -5054,4 +5101,18 @@ export async function fetchHomeSavingsRequestStatus(action: import('./lib/homeSa
   if (!Number.isSafeInteger(result.cohort_id) || result.cohort_id < 1 || !Number.isSafeInteger(result.actor_scope?.user_id) || !Number.isSafeInteger(result.actor_scope?.household_id) || result.actor_scope.user_id < 1 || result.actor_scope.household_id < 1 || !['committed', 'unknown', 'in_flight'].includes(result.state) || (result.state === 'unknown' && result.can_retry !== true)) throw new Error('The savings request result cannot be verified. Check again before making changes.')
   if (result.state === 'committed') checkedSavingsChallenge(result.challenge)
   return result
+}
+
+/** Opens (needs the state the admin saw) or pauses the savings challenge. The caller keeps one requestId per attempt so a retry replays. */
+export async function changeSavingsChallengeAccess(
+  cohortId: number,
+  action: 'open' | 'pause',
+  values: { reason: string; expected_state?: SavingsChallengeAccessState },
+  requestId: string,
+): Promise<{ savings_challenge: SavingsChallengeAccess; replayed: boolean }> {
+  return fetchJson(`/api/v1/admin/cohorts/${cohortId}/challenge_access/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
+    body: JSON.stringify({ challenge_access: values }),
+  })
 }

@@ -30,12 +30,16 @@ function ProgramSession({ authIdentityId, legacyAuthIdentityId, actorId, partici
   const chooseProgram = useCallback((nextCohortId: number) => {
     if (!participant) return
     setActiveParticipantCohortId(nextCohortId)
+    storeParticipantProgram(authIdentityId, actorId, nextCohortId)
     setCohortId(nextCohortId)
     setNotice(null)
-  }, [participant])
-  const programVerified = useCallback((verifiedCohortId: number) => {
-    if (participant) storeParticipantProgram(authIdentityId, actorId, verifiedCohortId)
   }, [participant, authIdentityId, actorId])
+  const programVerified = useCallback((verifiedCohortId: number) => {
+    // Only a program the participant chose (or restored from their own earlier choice, including a
+    // migrated identity) is persisted. A server-picked default is never stored: it would pin the
+    // participant to it and defeat the server's default rule (e.g. a challenge joined later).
+    if (participant && verifiedCohortId === cohortId) storeParticipantProgram(authIdentityId, actorId, verifiedCohortId)
+  }, [participant, authIdentityId, actorId, cohortId])
   const programUnavailable = useCallback(() => {
     if (!participant) return
     storeParticipantProgram(authIdentityId, actorId, undefined)

@@ -217,6 +217,7 @@ module CohortReleases
         coach_persona_id: candidate.persona&.id,
         coach_persona_version_id: candidate.persona_version&.id,
         experience_mode: candidate.experience_snapshot.fetch("mode"),
+        participant_experience: CohortExperience::Schema.mode_payload(candidate.experience_snapshot.fetch("config", {})),
         cohort_experience_version_id: candidate.experience_version&.id,
         brand_mode: candidate.brand_snapshot.fetch("mode"),
         workspace_brand_version_id: candidate.brand_version&.id,

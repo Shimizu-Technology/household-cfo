@@ -17,6 +17,7 @@ class Cohort < ApplicationRecord
   has_many :cohort_rollouts, dependent: :restrict_with_exception, inverse_of: :cohort
   has_many :cohort_release_exposures, dependent: :restrict_with_exception
   has_many :cohort_release_activation_events, dependent: :restrict_with_exception
+  has_many :cohort_challenge_access_events, dependent: :restrict_with_exception
 
   validates :name, presence: true, length: { maximum: 120 }, uniqueness: { case_sensitive: false, scope: :coach_workspace_id }
   validates :status, inclusion: { in: STATUSES }

@@ -5,6 +5,7 @@ import { useAuthContext } from '../contexts/authContextValue'
 import { PilotFeedbackInbox } from './PilotFeedbackInbox'
 import { SetupSupportInbox } from './SetupSupportInbox'
 import { CreateCoachProgram } from './CoachProgramSettings'
+import { SavingsChallengeAccessPanel } from './SavingsChallengeAccessPanel'
 import './AdminConsole.css'
 
 type AdminUserDraft = {
@@ -581,6 +582,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
                 <span>{selectedCohort.staff_count} staff</span>
                 <span>{cohortDateRange(selectedCohort)}</span>
               </div>
+              <SavingsChallengeAccessPanel key={selectedCohort.id} cohort={selectedCohort} busy={adminMutationPending} onChanged={() => loadAdminData(selectedCohort.id, { cohort: true })} />
               <div className="admin-operations" aria-label="Privacy-safe cohort operations for the last seven days">
                 {selectedCohort.operational_summary.available ? (
                   <>

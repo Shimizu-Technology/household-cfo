@@ -47,6 +47,15 @@ describe('InitialCohortLaunch', () => {
     expect(screen.queryByRole('button', { name: 'Review first launch' })).toBeNull()
   })
 
+  it('names the experience participants will get and says launching does not open the challenge', async () => {
+    const user = userEvent.setup()
+    apiMocks.fetchCohortInitialLaunch.mockResolvedValue({ ...ready, participant_experience: { mode: 'savings_challenge', label: '90-day Savings Challenge' }, message: 'Participants will get the 90-day Savings Challenge experience.' })
+    render(<InitialCohortLaunch cohortId={12} mutationLifecycle={lifecycle()} onLaunch={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: 'Review first launch' }))
+    expect(screen.getByText(/90-day Savings Challenge experience/)).toBeTruthy()
+    expect(screen.getByText(/Launching does not open the challenge/)).toBeTruthy()
+  })
+
   it('shows concrete readiness blockers and keeps unauthorized users from launch controls', async () => {
     apiMocks.fetchCohortInitialLaunch.mockResolvedValue({ ...ready, can_launch: false, blockers: ['Seal a release before launching this cohort.'] })
     render(<InitialCohortLaunch cohortId={12} mutationLifecycle={lifecycle()} onLaunch={vi.fn()} />)
