@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AnnualBudgetPlan, BudgetCategoryRow, SpendingReport, TransactionDraft } from './api'
-import { CategoryEditCell, CurrentMonthActivityPanel, ManualTransactionCapture, TransactionDraftReviewStack } from './App'
+import type { AnnualBudgetPlan, BudgetCategoryRow, MiaActionDraft, SpendingReport, TransactionDraft } from './api'
+import { CategoryEditCell, CurrentMonthActivityPanel, ManualTransactionCapture, MiaActionDraftReviewStack, TransactionDraftReviewStack } from './App'
 
 afterEach(cleanup)
 
@@ -157,5 +157,71 @@ describe('budget table and quick capture', () => {
     fireEvent.keyDown(merchant, { key: 'Escape' })
     expect(screen.queryByRole('textbox', { name: 'Merchant' })).toBeNull()
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add transaction' }))
+  })
+})
+
+describe('out-of-date Mia review cards', () => {
+  const miaDraft = (overrides: Partial<MiaActionDraft> = {}): MiaActionDraft => ({
+    id: 7,
+    status: 'pending',
+    draft_type: 'budget_edit',
+    year: 2026,
+    title: 'Move planned dollars between categories',
+    summary: 'I drafted a budget move of $50 from Flexible spending to School Supplies for Oct 2026.',
+    rationale: null,
+    source_prompt: null,
+    created_at: null,
+    applied_at: null,
+    canceled_at: null,
+    items: [{
+      id: 1, action_type: 'update_allocation', label: 'Reduce Flexible spending by $50', description: 'Oct: $1,100 to $1,050',
+      payload: {}, before_snapshot: {}, after_snapshot: {}, applied_at: null, canceled_at: null, status: 'pending',
+      review_fields: [{ label: 'October plan', before: '$1,100', after: '$1,050' }],
+    }],
+    ...overrides,
+  } as MiaActionDraft)
+  const props = (drafts: MiaActionDraft[], extra: Record<string, unknown> = {}) => ({ drafts, isRealWorkspace: true, action: null, onApply: vi.fn(), onCancel: vi.fn(), ...extra })
+
+  it('keeps a current card applicable with its before and after values', () => {
+    render(<MiaActionDraftReviewStack {...props([miaDraft()])} />)
+    expect(screen.getByRole('button', { name: 'Apply reviewed change' })).toBeTruthy()
+    expect(screen.getByText('Pending')).toBeTruthy()
+    expect(screen.getByText('$1,100')).toBeTruthy()
+  })
+
+  it('closes a stale card: out of date, no Apply, no old before values, and a fresh-draft path', () => {
+    const onAskFresh = vi.fn()
+    const onCancel = vi.fn()
+    render(<MiaActionDraftReviewStack {...props([miaDraft({ stale: true, stale_message: 'Budget changed since Mia drafted this.' })], { onAskFresh, onCancel })} />)
+
+    expect(screen.getByText('Out of date')).toBeTruthy()
+    expect(screen.queryByText('Pending')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Apply reviewed change' })).toBeNull()
+    expect(screen.queryByText('$1,100')).toBeNull()
+    expect(screen.getByText(/can’t be applied\. Nothing was changed\./)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /for a fresh draft/ }))
+    expect(onAskFresh).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }))
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss this draft' }))
+    expect(onCancel).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }))
+  })
+
+  it('keeps already applied steps visible on an out-of-date partially applied plan', () => {
+    const plan = miaDraft({
+      status: 'partially_applied', stale: true, draft_type: 'action_plan',
+      items: [
+        { id: 1, action_type: 'update_allocation', label: 'Raise Groceries', payload: {}, before_snapshot: {}, after_snapshot: {}, applied_at: '2026-10-16T00:00:00Z', canceled_at: null, status: 'applied' },
+        { id: 2, action_type: 'update_allocation', label: 'Lower Dining', payload: {}, before_snapshot: {}, after_snapshot: {}, applied_at: null, canceled_at: null, status: 'pending' },
+      ] as MiaActionDraft['items'],
+    })
+    render(<MiaActionDraftReviewStack {...props([plan])} />)
+    expect(screen.getByText('Raise Groceries')).toBeTruthy()
+    expect(screen.getByText('Applied')).toBeTruthy()
+    expect(screen.queryByText('Lower Dining')).toBeNull()
+  })
+
+  it('does not treat an already applied card as out of date', () => {
+    render(<MiaActionDraftReviewStack {...props([miaDraft({ status: 'applied', stale: true })])} />)
+    expect(screen.queryByText('Out of date')).toBeNull()
   })
 })

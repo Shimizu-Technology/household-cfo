@@ -2779,6 +2779,181 @@ test('only one money change can run at a time from Ask Mia', async ({ page }) =>
   expect(cancelRequests).toBe(0)
 })
 
+test('a stale card for another year still shows out of date when that year budget cannot reload', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const otherYear = workspace.dashboard.action_center.current_year + 1
+  const draftsOf = (flags: Record<string, unknown>) => ({
+    ...workspace,
+    budget: { ...workspace.budget, annual_plan: { ...workspace.budget.annual_plan, pending_mia_action_drafts: workspace.budget.annual_plan.pending_mia_action_drafts.map((draft: { id: number }) => (draft.id === 71 ? { ...draft, year: otherYear, ...flags } : draft)) } },
+  })
+  let rejected = false
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: draftsOf(rejected ? { stale: true } : {}) }))
+  await page.route('http://api.test/api/v1/budget**', (route) => route.fulfill({ status: 500, json: { error: 'down' } }))
+  await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', (route) => {
+    rejected = true
+    return route.fulfill({ status: 422, json: { code: 'stale_review', errors: ['Budget changed since Mia drafted this. Ask Mia to draft a fresh edit.'] } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
+  await card.getByRole('button', { name: 'Apply reviewed change' }).click()
+  await expect(card.getByText('Out of date')).toBeVisible({ timeout: 15_000 })
+  await expect(card.getByRole('button', { name: 'Apply reviewed change' })).toHaveCount(0)
+  await expect(page.getByText(/couldn’t refresh \d{4}’s budget/)).toHaveCount(1, { timeout: 15_000 })
+})
+
+for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+  test(`Ask Mia lands on the newest reply even when review cards follow the conversation at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    const workspace = realWorkspaceData(true)
+    const lastId = Math.max(...workspace.mia.messages.map((message: { id: number }) => message.id ?? 0))
+    workspace.mia.messages.push({ id: lastId + 1, role: 'assistant', author: 'Mia', content: 'Your October dining out is $91.95 in confirmed spending. Two drafts are still waiting for your review below. Confirm the ones that are right and actuals will update.', created_at: new Date().toISOString() })
+    await page.setViewportSize(viewport)
+    await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    await expect(page.locator('.chat-review-queue')).toBeVisible({ timeout: 15_000 })
+
+    await expect.poll(async () => page.locator('.chat-card').evaluate((card) => {
+      const replies = [...card.querySelectorAll('.message-row.assistant:not(.typing-row)')]
+      const latest = replies[replies.length - 1]
+      const box = latest?.getBoundingClientRect()
+      const area = card.getBoundingClientRect()
+      return Boolean(latest?.textContent?.includes('October dining out') && box && box.top >= area.top - 2 && box.top < area.top + 40 && area.bottom - box.top >= 60)
+    }), { timeout: 15_000 }).toBe(true)
+    if (process.env.HCFO_SHOTS) await page.screenshot({ path: `${process.env.HCFO_SHOTS}/f13-${viewport.width}x${viewport.height}.png` })
+    // The jump shortcut never sits on the reply or on any control.
+    // The shortcut must show exactly while the review queue is below the fold.
+    const queueBelowFold = await page.evaluate(() => document.querySelector('.chat-review-queue')!.getBoundingClientRect().top > document.querySelector('.chat-card')!.getBoundingClientRect().bottom - 40)
+    if (queueBelowFold) await expect(page.locator('.chat-scroll-bottom-button')).toBeVisible()
+    else await expect(page.locator('.chat-scroll-bottom-button')).toHaveCount(0)
+    const overlap = await page.evaluate(() => {
+      const shortcut = document.querySelector('.chat-scroll-bottom-button')
+      if (!shortcut) return { overlaps: false }
+      const box = shortcut.getBoundingClientRect()
+      const replies = [...document.querySelectorAll('.chat-card .message-row.assistant:not(.typing-row)')]
+      const reply = replies[replies.length - 1]?.querySelector('.message')?.getBoundingClientRect()
+      const area = document.querySelector('.chat-card')!.getBoundingClientRect()
+      // Only the part of an element that is visible inside the scrolling card counts.
+      const hits = (other: DOMRect) => { const bottom = Math.min(other.bottom, area.bottom); return other.width > 0 && bottom > other.top && !(other.right <= box.left || other.left >= box.right || bottom <= box.top || other.top >= box.bottom) }
+      const controls = [...document.querySelectorAll('.chat-card button, .chat-card a, .chat-card summary')].some((control) => hits(control.getBoundingClientRect()))
+      return { overlaps: controls || Boolean(reply && hits(reply)) }
+    })
+    expect(overlap.overlaps).toBe(false)
+    // Review cards are still reachable below the reply.
+    await page.locator('.chat-review-queue').scrollIntoViewIfNeeded()
+    await expect(page.locator('.chat-review-queue').getByRole('button', { name: 'Apply reviewed change' }).first()).toBeVisible()
+  })
+}
+
+test('loading earlier Ask Mia messages keeps the reading position instead of jumping to the newest reply', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.mia.messages = workspace.mia.messages.slice(-24).map((message: Record<string, unknown>) => ({ ...message, attachments: [] }))
+  workspace.mia.older_message_count = 3
+  workspace.mia.oldest_message_id = workspace.mia.messages[0].id
+  workspace.mia.has_older_messages = true
+  const older = [1, 2, 3].map((n) => ({ id: 5000 + n, role: n % 2 ? 'user' : 'assistant', author: n % 2 ? 'You' : 'Mia', content: `Earlier page message ${n}`, created_at: new Date().toISOString() }))
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/mia/messages**', (route) => route.fulfill({ json: { messages: older, oldest_message_id: 5001, older_message_count: 0, has_older_messages: false } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.getByRole('button', { name: /Load earlier messages/ })).toBeVisible({ timeout: 15_000 })
+  await page.waitForTimeout(3000) // past the initial settling window
+  await page.locator('.chat-card').evaluate((card) => { card.scrollTop = 0 })
+  const marker = page.locator('.chat-card .message-row .message').nth(1)
+  const text = (await marker.innerText()).trim()
+  const offset = () => page.evaluate((needle) => {
+    const card = document.querySelector('.chat-card')!
+    const node = [...card.querySelectorAll('.message')].find((element) => (element as HTMLElement).innerText.trim() === needle)!
+    return node.getBoundingClientRect().top - card.getBoundingClientRect().top
+  }, text)
+  const before = await offset()
+  await page.getByRole('button', { name: /Load earlier messages/ }).click()
+  await expect(page.getByText('Earlier page message 1')).toHaveCount(1)
+  await page.waitForTimeout(1200)
+  expect(Math.abs((await offset()) - before)).toBeLessThanOrEqual(3)
+})
+
+async function scrolledAwayChatFixture(page: Page) {
+  const workspace = realWorkspaceData(true)
+  workspace.mia.messages = workspace.mia.messages.slice(-24).map((message: Record<string, unknown>) => ({ ...message, attachments: [] }))
+  workspace.mia.messages[workspace.mia.messages.length - 1].role = 'assistant'
+  workspace.mia.messages[workspace.mia.messages.length - 1].author = 'Mia'
+  const state = { extra: false, posts: 0 }
+  const arrival = { id: 9001, role: 'assistant', author: 'Mia', content: 'A newer reply arrived from the background refresh.', attachments: [], created_at: new Date().toISOString() }
+  const sent = { id: 9100, role: 'user', author: 'You', content: 'What is my safe to spend?', attachments: [], created_at: new Date().toISOString() }
+  const answer = { id: 9101, role: 'assistant', author: 'Mia', content: 'You have $400 safe to spend this month, based on your approved numbers.', attachments: [], created_at: new Date().toISOString() }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/mia/messages**', (route) => {
+    if (route.request().method() === 'POST') {
+      state.posts += 1
+      return route.fulfill({ status: 201, json: { user_message: sent, assistant_message: answer, transaction_draft: null, mia_action_draft: null, budget: null, spending_report: null } })
+    }
+    const messages = [...workspace.mia.messages, ...(state.extra ? [arrival] : [])]
+    return route.fulfill({ json: { ...workspace.mia, messages, oldest_message_id: messages[0].id } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.locator('.chat-card .message-row').last()).toBeVisible({ timeout: 15_000 })
+  await page.waitForTimeout(3000) // past the initial settling window
+  return state
+}
+
+test('a background refresh does not pull a reader who scrolled up (scrollbar drag) back to the newest reply', async ({ page }) => {
+  const state = await scrolledAwayChatFixture(page)
+  await page.locator('.chat-card').evaluate((card) => { card.scrollTop = Math.max(0, card.scrollTop - 600) })
+  await page.waitForTimeout(300)
+  const before = await page.locator('.chat-card').evaluate((card) => card.scrollTop)
+  expect(before).toBeGreaterThan(0)
+  state.extra = true
+  await expect(page.getByText('A newer reply arrived from the background refresh.')).toHaveCount(1, { timeout: 12_000 })
+  await page.waitForTimeout(1200)
+  const after = await page.locator('.chat-card').evaluate((card) => card.scrollTop)
+  expect(Math.abs(after - before)).toBeLessThanOrEqual(4)
+})
+
+test('sending a message always brings the reader back to the newest reply', async ({ page }) => {
+  const state = await scrolledAwayChatFixture(page)
+  await page.locator('.chat-card').evaluate((card) => { card.scrollTop = 0 })
+  await page.waitForTimeout(300)
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What is my safe to spend?')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect.poll(() => state.posts).toBe(1)
+  await expect(page.getByText('You have $400 safe to spend this month')).toBeVisible({ timeout: 10_000 })
+  await expect.poll(async () => page.locator('.chat-card').evaluate((card) => {
+    const replies = [...card.querySelectorAll('.message-row.assistant:not(.typing-row)')]
+    const box = replies[replies.length - 1]?.getBoundingClientRect()
+    const area = card.getBoundingClientRect()
+    return Boolean(box && box.top >= area.top - 2 && box.top < area.bottom - 40)
+  }), { timeout: 8_000 }).toBe(true)
+})
+
+test('a rejected stale Mia card shows once that it is out of date and offers a fresh draft', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const withDrafts = (flags: Record<string, unknown>) => ({
+    ...workspace,
+    budget: {
+      ...workspace.budget,
+      annual_plan: {
+        ...workspace.budget.annual_plan,
+        pending_mia_action_drafts: workspace.budget.annual_plan.pending_mia_action_drafts.map((draft: { id: number }) => (draft.id === 71 ? { ...draft, ...flags } : draft)),
+      },
+    },
+  })
+  let rejected = false
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: rejected ? withDrafts({ stale: true, stale_message: 'Budget changed since Mia drafted this. Ask Mia to draft a fresh edit.' }) : workspace }))
+  await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', async (route) => {
+    rejected = true
+    await route.fulfill({ status: 422, json: { code: 'stale_review', errors: ['Budget changed since Mia drafted this. Ask Mia to draft a fresh edit.'] } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
+  await budgetCard.getByRole('button', { name: 'Apply reviewed change' }).click()
+
+  await expect(budgetCard.getByText('Out of date')).toBeVisible()
+  await expect(budgetCard.getByRole('button', { name: 'Apply reviewed change' })).toHaveCount(0)
+  await expect(budgetCard.getByText('Pending', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Budget changed since Mia drafted this. Ask Mia to draft a fresh edit.')).toHaveCount(1)
+  await budgetCard.getByRole('button', { name: /for a fresh draft/ }).click()
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue(/draft a fresh version/i)
+})
+
 test('Mia review cards show missing before and after amounts as unknown, not $0', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   const drafts = workspace.budget.annual_plan.pending_mia_action_drafts.map((draft: typeof miaBudgetDraft) => draft.id === miaBudgetDraft.id
@@ -4365,6 +4540,35 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   await expect(page.getByRole('button', { name: 'Expand Ask Mia chat' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Expand Ask Mia chat' })).toBeFocused()
 })
+
+for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }, { width: 390, height: 844 }]) {
+  test(`Ask Mia header title, date and action buttons never intersect at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    await page.goto('/#Ask%20Mia')
+    await expect(page.locator('.chat-shell-header')).toBeVisible()
+    const result = await page.locator('.chat-shell-header').evaluate((header) => {
+      const rect = (element: Element) => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height } }
+      const text = [...header.querySelectorAll('.chat-shell-copy h3, .chat-period-context')].map((element) => ({ name: element.className || element.tagName, ...rect(element), scrollWidth: (element as HTMLElement).scrollWidth, clientWidth: (element as HTMLElement).clientWidth }))
+      const actions = [...header.querySelectorAll('.chat-actions button')].map(rect).filter((box) => box.width > 0)
+      const intersects = (a: { left: number; right: number; top: number; bottom: number }, b: typeof a) => a.left < b.right - 0.5 && a.right > b.left + 0.5 && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5
+      const headerBox = rect(header)
+      return {
+        overlaps: text.flatMap((box) => actions.filter((action) => intersects(box, action)).map(() => box.name)),
+        actionOverlaps: actions.some((a, i) => actions.some((b, j) => i < j && intersects(a, b))),
+        clipped: text.filter((box) => box.scrollWidth > box.clientWidth + 1).map((box) => box.name),
+        outside: actions.some((box) => box.left < headerBox.left - 1 || box.right > headerBox.right + 1),
+        pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        text, actions,
+      }
+    })
+    expect(result.overlaps, JSON.stringify(result)).toEqual([])
+    expect(result.actionOverlaps).toBe(false)
+    expect(result.clipped).toEqual([])
+    expect(result.outside).toBe(false)
+    expect(result.pageFits).toBe(true)
+    if (process.env.HCFO_SHOTS) await page.screenshot({ path: `${process.env.HCFO_SHOTS}/header-${viewport.width}x${viewport.height}.png` })
+  })
+}
 
 test('compact Ask Mia header keeps its title and controls separate at 320px', async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes('mobile'), 'mobile-only compact header assertion')
@@ -10789,7 +10993,7 @@ test('BOG UI compact savings chat preserves room for five files and the complete
   const titleFits = await page.locator('.chat-shell-header').evaluate(node => {
     const heading = node.querySelector('h3')!.getBoundingClientRect()
     const actions = node.querySelector('.chat-actions')!.getBoundingClientRect()
-    return heading.right <= actions.left
+    return heading.right <= actions.left || heading.bottom <= actions.top
   })
   expect(titleFits).toBe(true)
   await openChatContext(page)
