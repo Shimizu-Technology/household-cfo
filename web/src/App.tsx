@@ -222,6 +222,18 @@ type PendingSectionNavigation = {
   section: string
 }
 
+// Where the chat card should rest: the top of Mia's newest reply, or the bottom
+// while she is still thinking or the participant spoke last.
+function miaChatAnchorTop(chatCard: HTMLElement) {
+  const rows = chatCard.querySelectorAll<HTMLElement>('.message-row')
+  const lastRow = rows[rows.length - 1]
+  if (lastRow && lastRow.classList.contains('assistant') && !lastRow.classList.contains('typing-row')) {
+    const offset = lastRow.getBoundingClientRect().top - chatCard.getBoundingClientRect().top + chatCard.scrollTop
+    return Math.max(0, offset - 12)
+  }
+  return chatCard.scrollHeight
+}
+
 function sectionHash(section: string) {
   return `#${encodeURIComponent(section)}`
 }
@@ -1363,12 +1375,25 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => window.removeEventListener('keydown', handleEscape)
   }, [previewAttachment, previewImport])
 
+  // Whether the participant has scrolled away from the newest reply, derived from
+  // the card's real scroll position (so scrollbar drags, Page Up and programmatic
+  // scrolls count too). It lives in a ref so a background refresh or an
+  // older-history page cannot pull them back; sending a message or opening Ask
+  // Mia resets it.
+  const chatScrolledAwayRef = useRef(false)
+  // Our own anchoring scrolls must not read as the participant scrolling away.
+  const miaProgrammaticScrollUntilRef = useRef(0)
+
   const updateChatScrollAffordance = useCallback(() => {
     const chatCard = chatCardRef.current
     if (!chatCard) return
 
     const distanceFromBottom = chatCard.scrollHeight - chatCard.scrollTop - chatCard.clientHeight
     setShowChatScrollButton(distanceFromBottom > 72)
+    if (performance.now() >= miaProgrammaticScrollUntilRef.current) {
+      const nearAnchor = Math.abs(chatCard.scrollTop - miaChatAnchorTop(chatCard)) <= 80
+      chatScrolledAwayRef.current = !(distanceFromBottom <= 80 || nearAnchor)
+    }
   }, [])
 
   // Land on the top of Mia's newest reply, not the bottom of the card: pending
@@ -1379,14 +1404,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const chatCard = chatCardRef.current
     if (!chatCard) return
 
-    const rows = chatCard.querySelectorAll<HTMLElement>('.message-row')
-    const lastRow = rows[rows.length - 1]
-    if (lastRow && lastRow.classList.contains('assistant') && !lastRow.classList.contains('typing-row')) {
-      const offset = lastRow.getBoundingClientRect().top - chatCard.getBoundingClientRect().top + chatCard.scrollTop
-      chatCard.scrollTo({ top: Math.max(0, offset - 12), behavior })
-    } else {
-      chatCard.scrollTo({ top: chatCard.scrollHeight, behavior })
-    }
+    miaProgrammaticScrollUntilRef.current = performance.now() + (behavior === 'smooth' ? 900 : 150)
+    chatCard.scrollTo({ top: miaChatAnchorTop(chatCard), behavior })
   }, [])
 
   const scrollMiaChatToBottom = useCallback(() => {
@@ -1394,10 +1413,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     setShowChatScrollButton(false)
   }, [anchorMiaChat])
 
-  // Whether the participant has scrolled away from the newest reply. It lives
-  // outside the effect so a background refresh or older-history page cannot pull
-  // them back; sending a message or opening Ask Mia resets it.
-  const chatScrolledAwayRef = useRef(false)
   const newestMessage = currentMessages[currentMessages.length - 1]
   const newestMessageKey = newestMessage ? String(newestMessage.id ?? newestMessage.client_id ?? `${newestMessage.role}-${currentMessages.length}`) : ''
 

@@ -2848,6 +2848,59 @@ test('loading earlier Ask Mia messages keeps the reading position instead of jum
   expect(Math.abs((await offset()) - before)).toBeLessThanOrEqual(3)
 })
 
+async function scrolledAwayChatFixture(page: Page) {
+  const workspace = realWorkspaceData(true)
+  workspace.mia.messages = workspace.mia.messages.slice(-24).map((message: Record<string, unknown>) => ({ ...message, attachments: [] }))
+  workspace.mia.messages[workspace.mia.messages.length - 1].role = 'assistant'
+  workspace.mia.messages[workspace.mia.messages.length - 1].author = 'Mia'
+  const state = { extra: false, posts: 0 }
+  const arrival = { id: 9001, role: 'assistant', author: 'Mia', content: 'A newer reply arrived from the background refresh.', attachments: [], created_at: new Date().toISOString() }
+  const sent = { id: 9100, role: 'user', author: 'You', content: 'What is my safe to spend?', attachments: [], created_at: new Date().toISOString() }
+  const answer = { id: 9101, role: 'assistant', author: 'Mia', content: 'You have $400 safe to spend this month, based on your approved numbers.', attachments: [], created_at: new Date().toISOString() }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/mia/messages**', (route) => {
+    if (route.request().method() === 'POST') {
+      state.posts += 1
+      return route.fulfill({ status: 201, json: { user_message: sent, assistant_message: answer, transaction_draft: null, mia_action_draft: null, budget: null, spending_report: null } })
+    }
+    const messages = [...workspace.mia.messages, ...(state.extra ? [arrival] : [])]
+    return route.fulfill({ json: { ...workspace.mia, messages, oldest_message_id: messages[0].id } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.locator('.chat-card .message-row').last()).toBeVisible({ timeout: 15_000 })
+  await page.waitForTimeout(3000) // past the initial settling window
+  return state
+}
+
+test('a background refresh does not pull a reader who scrolled up (scrollbar drag) back to the newest reply', async ({ page }) => {
+  const state = await scrolledAwayChatFixture(page)
+  await page.locator('.chat-card').evaluate((card) => { card.scrollTop = Math.max(0, card.scrollTop - 600) })
+  await page.waitForTimeout(300)
+  const before = await page.locator('.chat-card').evaluate((card) => card.scrollTop)
+  expect(before).toBeGreaterThan(0)
+  state.extra = true
+  await expect(page.getByText('A newer reply arrived from the background refresh.')).toHaveCount(1, { timeout: 12_000 })
+  await page.waitForTimeout(1200)
+  const after = await page.locator('.chat-card').evaluate((card) => card.scrollTop)
+  expect(Math.abs(after - before)).toBeLessThanOrEqual(4)
+})
+
+test('sending a message always brings the reader back to the newest reply', async ({ page }) => {
+  const state = await scrolledAwayChatFixture(page)
+  await page.locator('.chat-card').evaluate((card) => { card.scrollTop = 0 })
+  await page.waitForTimeout(300)
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What is my safe to spend?')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect.poll(() => state.posts).toBe(1)
+  await expect(page.getByText('You have $400 safe to spend this month')).toBeVisible({ timeout: 10_000 })
+  await expect.poll(async () => page.locator('.chat-card').evaluate((card) => {
+    const replies = [...card.querySelectorAll('.message-row.assistant:not(.typing-row)')]
+    const box = replies[replies.length - 1]?.getBoundingClientRect()
+    const area = card.getBoundingClientRect()
+    return Boolean(box && box.top >= area.top - 2 && box.top < area.bottom - 40)
+  }), { timeout: 8_000 }).toBe(true)
+})
+
 test('a rejected stale Mia card shows once that it is out of date and offers a fresh draft', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   const withDrafts = (flags: Record<string, unknown>) => ({
