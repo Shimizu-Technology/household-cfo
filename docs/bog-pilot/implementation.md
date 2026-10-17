@@ -1,6 +1,8 @@
 # BOG pilot implementation
 
-Dated local snapshot: October 5, 2026, 08:10 Pacific/Guam (October 4, 22:10 UTC). The final release PR must identify its exact head and CI. The integration owner’s final evidence addendum supersedes pending engineering results below; human launch holds require explicit acceptance.
+Status update, October 18, 2026: the frontend and integration layers have now been exercised end to end in a local rehearsal on main 6068ee16 (fixes #207 and #208 merged afterward) and the changes are deployed. Human acceptance by Mel, real-phone checks and the launch holds are still pending; nothing here is accepted. See `readiness-evidence.md` E38 and `docs/current-state.md`.
+
+Original dated local snapshot: October 5, 2026, 08:10 Pacific/Guam (October 4, 22:10 UTC). The final release PR must identify its exact head and CI. The integration owner’s final evidence addendum supersedes pending engineering results below; human launch holds require explicit acceptance.
 
 The pilot serves 30 participants for 90 days, with a default $500 savings target. Participants can accept a smaller affordable target or postpone choosing one. Debt, credit cards, bank linking and a complete annual budget are optional. Mel provides coaching and Leon provides technical support.
 
@@ -19,13 +21,13 @@ Keep reported savings, evidence support, comparable spending change and optional
 | S01 | Existing debt/setup correctness, compact chat, current Home year, partial review visibility, durable source cleanup | Merged in PR146; integrated acceptance still required |
 | S02 | Frozen release contracts and a versioned savings experience | Merged in PR147; historical contracts remain immutable |
 | S03 | Typed source events, reconciliation, evidence links, authenticated revocable source viewing | Merged PR148 at 451c250; separate deployment evidence recorded, new integration acceptance still required |
-| S04 | Paginated statement review, account/period coverage, corrections and overlap resolution | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend/deployed/human acceptance pending |
-| S05 | Approved baseline versions and full-window patterns | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend/deployed/human acceptance pending |
-| S06 | Enrollment, accepted plan versions and reviewed savings ledger | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend/deployed/human acceptance pending |
-| S07 | Daily entries/reflections, no-spend and missed-day states, day30/60/90 checkpoints | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend/deployed/human acceptance pending |
-| S08 | Scoped coach sharing, support and privacy-preserving exports | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend/deployed/human acceptance pending |
-| S09 | Durable consented prompts, recovery and measured concurrency | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend/deployed/human acceptance pending |
-| S10 | Sealed coaching release, full rehearsal and launch gate | Acceptance and human launch hold; no invitation or outbound activation |
+| S04 | Paginated statement review, account/period coverage, corrections and overlap resolution | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend and integration exercised in local rehearsal 2026-10-17 @6068ee16 (+#207/#208); deployed; human acceptance pending |
+| S05 | Approved baseline versions and full-window patterns | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend and integration exercised in local rehearsal 2026-10-17 @6068ee16 (+#207/#208); deployed; human acceptance pending |
+| S06 | Enrollment, accepted plan versions and reviewed savings ledger | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend and integration exercised in local rehearsal 2026-10-17 @6068ee16 (+#207/#208); deployed; human acceptance pending |
+| S07 | Daily entries/reflections, no-spend and missed-day states, day30/60/90 checkpoints | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend and integration exercised in local rehearsal 2026-10-17 @6068ee16 (+#207/#208); deployed; human acceptance pending |
+| S08 | Scoped coach sharing, support and privacy-preserving exports | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend and integration exercised in local rehearsal 2026-10-17 @6068ee16 (+#207/#208); deployed; human acceptance pending |
+| S09 | Durable consented prompts, recovery and measured concurrency | Implemented; API PR149 merged at 88b2c0c with passing local/backend CI gates; frontend and integration exercised in local rehearsal 2026-10-17 @6068ee16 (+#207/#208); deployed; human acceptance pending |
+| S10 | Sealed coaching release, full rehearsal and launch gate | Local end-to-end rehearsal run (53 pass, 3 fail since fixed, 5 blocked); Mel's acceptance and human launch hold still pending; no invitation or outbound activation |
 
 The source cleanup outbox persists in the primary database before deleting an import. Storage or queue failure leaves durable retry work. Recovery runs every five minutes under the configured production Solid Queue scheduler. Cleanup preserves approved financial records. The integrated S03 source viewer checks authorization on every new application read and returns private bytes rather than a reusable storage bearer URL. Real deletion-failure/provider and deployed revocation acceptance remain open. Already downloaded copies cannot be recalled.
 
