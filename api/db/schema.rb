@@ -4477,6 +4477,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_17_120000) do
     CREATE TRIGGER challenge_sponsor_exports_immutable BEFORE DELETE OR UPDATE ON public.challenge_sponsor_exports FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
   SQL
   execute <<~SQL
+    CREATE TRIGGER cohort_challenge_access_events_immutable BEFORE DELETE OR UPDATE ON public.cohort_challenge_access_events FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
     CREATE TRIGGER financial_baseline_versions_immutable BEFORE DELETE OR UPDATE ON public.financial_baseline_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
   SQL
   execute <<~SQL

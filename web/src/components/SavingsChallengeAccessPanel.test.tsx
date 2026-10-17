@@ -47,6 +47,16 @@ describe('SavingsChallengeAccessPanel', () => {
     expect(screen.getByText(/The challenge is open/)).toBeTruthy()
   })
 
+  it('sends the state seen when the review began, even if a refresh changes it before confirming', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<SavingsChallengeAccessPanel cohort={cohortWith({})} busy={false} onChanged={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Open the challenge to participants' }))
+    rerender(<SavingsChallengeAccessPanel cohort={cohortWith({ state: 'open', label: 'Open', can_open: false, can_pause: true })} busy={false} onChanged={vi.fn()} />)
+    await user.type(screen.getByLabelText(/Reason/), 'Kickoff is today')
+    await user.click(screen.getByRole('button', { name: 'Open the challenge' }))
+    await waitFor(() => expect(apiMocks.changeSavingsChallengeAccess).toHaveBeenCalledWith(7, 'open', { reason: 'Kickoff is today', expected_state: 'ready' }, 'request-1'))
+  })
+
   it('pauses with a reason and without sending an expected state', async () => {
     const user = userEvent.setup()
     render(<SavingsChallengeAccessPanel cohort={cohortWith({ state: 'open', label: 'Open', can_open: false, can_pause: true, enabled: true, on_hold: false })} busy={false} onChanged={vi.fn()} />)

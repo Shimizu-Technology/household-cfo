@@ -43,6 +43,9 @@ class ApiV1AdminCohortChallengeAccessesControllerTest < ActionDispatch::Integrat
       assert_equal [ false, true, true, false ], [ event.enabled_before, event.hold_before, event.enabled_after, event.hold_after ]
       assert_equal @cohort.active_cohort_release_id, event.cohort_release_id
       refute event.update(reason: "Edited later")
+      assert_raises(ActiveRecord::StatementInvalid) { CohortChallengeAccessEvent.transaction(requires_new: true) { CohortChallengeAccessEvent.where(id: event.id).update_all(reason: "Edited later") } }
+      assert_raises(ActiveRecord::StatementInvalid) { CohortChallengeAccessEvent.transaction(requires_new: true) { CohortChallengeAccessEvent.where(id: event.id).delete_all } }
+      assert_equal "Pilot kickoff approved", event.reload.reason
     end
   end
 
@@ -69,6 +72,20 @@ class ApiV1AdminCohortChallengeAccessesControllerTest < ActionDispatch::Integrat
       post open_path, params: body("Resume the pilot", "paused"), headers: headers("open-b"), as: :json
       assert_response :created
       assert_equal %w[open pause open], @cohort.cohort_challenge_access_events.order(:id).pluck(:action)
+    end
+  end
+
+  test "pausing a cohort that is not open is a no-op success and records no event" do
+    with_savings_runtime do
+      post pause_path, params: body("Pause before opening"), headers: headers("pause-ready"), as: :json
+      assert_response :ok
+      assert_equal "ready", response.parsed_body.dig("savings_challenge", "state")
+      post open_path, params: body("Open for the pilot", "ready"), headers: headers("open-n"), as: :json
+      post pause_path, params: body("Pause for a fix"), headers: headers("pause-n1"), as: :json
+      post pause_path, params: body("Pause again"), headers: headers("pause-n2"), as: :json
+      assert_response :ok
+      assert_equal "paused", response.parsed_body.dig("savings_challenge", "state")
+      assert_equal %w[open pause], @cohort.cohort_challenge_access_events.order(:id).pluck(:action)
     end
   end
 

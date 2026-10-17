@@ -14,7 +14,7 @@ module SavingsChallenge
     class Refused < StandardError; end
     class Conflict < StandardError; end
 
-    Result = Data.define(:event, :replayed)
+    Result = Data.define(:event, :replayed) # event is nil for a no-op pause
     OPEN_STATUSES = %w[enrolling active].freeze
 
     def initialize(cohort:, actor: nil)
@@ -89,6 +89,13 @@ module SavingsChallenge
           raise Conflict, "The challenge changed since you opened this page. Reload and try again." unless expected_state.to_s == from_state
           raise Conflict, "The challenge is already open." if from_state == "open"
           raise Refused, blockers.to_sentence if blockers.any?
+        end
+
+        # Pausing something that is not open changes nothing, so it records nothing:
+        # it succeeds as a no-op (the hold is already on or the challenge never opened).
+        if action == "pause" && from_state != "open"
+          cohort.update!(savings_challenge_release_hold: true) unless cohort.savings_challenge_release_hold
+          return Result.new(event: nil, replayed: false)
         end
 
         before = { enabled: cohort.savings_challenge_enabled, hold: cohort.savings_challenge_release_hold }

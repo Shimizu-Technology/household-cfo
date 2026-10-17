@@ -45,7 +45,7 @@ module Api
         end
 
         def render_result(result)
-          render json: { savings_challenge: control.status, replayed: result.replayed }, status: result.replayed ? :ok : :created
+          render json: { savings_challenge: control.status, replayed: result.replayed }, status: result.replayed || result.event.nil? ? :ok : :created
         end
 
         def render_not_found

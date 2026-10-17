@@ -4,7 +4,7 @@ import type { AdminCohort, SavingsChallengeAccess } from '../api'
 import { Button } from './Button'
 import './SavingsChallengeAccessPanel.css'
 
-type Review = { action: 'open' | 'pause'; requestId: string }
+type Review = { action: 'open' | 'pause'; requestId: string; expectedState: SavingsChallengeAccess['state'] }
 
 const MIN_REASON = 5
 const MAX_REASON = 500
@@ -44,10 +44,11 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged }: {
   const canChange = Boolean(challenge.can_change)
 
   function begin(action: 'open' | 'pause') {
+    if (!challenge) return
     setError(null)
     setNotice(null)
     setReason('')
-    setReview({ action, requestId: createCohortReleaseRequestId() })
+    setReview({ action, requestId: createCohortReleaseRequestId(), expectedState: challenge.state })
   }
 
   function cancel() {
@@ -64,7 +65,7 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged }: {
     try {
       await changeSavingsChallengeAccess(cohort.id, review.action, {
         reason: trimmed,
-        ...(review.action === 'open' ? { expected_state: challenge.state } : {}),
+        ...(review.action === 'open' ? { expected_state: review.expectedState } : {}),
       }, review.requestId)
       setNotice(review.action === 'open'
         ? 'The challenge is open. Participants can now join.'

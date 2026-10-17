@@ -45,6 +45,7 @@ Platform administrators (Leon) open and pause the challenge from Admin > Cohorts
 - "Open the challenge to participants" sets `savings_challenge_enabled` true and `savings_challenge_release_hold` false. It is refused with a plain reason unless the cohort's launched release is the Savings Challenge experience (tool registry v3 or later, checked with the same predicate `SavingsChallenge::AccessPolicy` uses) and the cohort is Enrolling or Active.
 - "Pause the challenge" sets the hold. It is always allowed (any cohort status, any release state).
 - Every change needs a short reason and is recorded in `cohort_challenge_access_events` (who, when, from/to state, reason, release id, idempotency key). The record is append-only. Replaying the same `Idempotency-Key` is safe; reusing it for a different change is a conflict. The cohort row is locked for the change.
+- Pause is a no-op success (no audit event) unless the challenge is open. Readiness is checked against the cohort's active release; a participant pinned to an older release by a rollout is judged by that release at runtime and could still be refused, so keep rollouts complete before opening.
 - Experience choice: in Coach Studio > Participant tools pick "90-day Savings Challenge", save, preview, publish, then seal and launch a release (the seal and launch confirmations name the experience). Launching does not open the challenge; opening is a separate audited step.
 
 ### Break-glass fallback (console)
