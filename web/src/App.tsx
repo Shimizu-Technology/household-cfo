@@ -58,6 +58,7 @@ import {
   transactionDraftBudgetImpacts,
   type TransactionDraftBudgetImpact,
 } from './lib/budgetPosition'
+import { firstSetupHasUnsavedChanges } from './lib/firstSetupDraft'
 import { addMoney, formatMoneyOrUnknown, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
 import { changedDebtMoneyInputs, changedInterestRateInput } from './lib/documentItemUpdate'
 import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/financialUploadValidation'
@@ -67,7 +68,7 @@ import { guamTodayIso } from './lib/householdDate'
 import { changedElsewhereMessage, latestAllocation, latestCategory } from './lib/budgetConflict'
 import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceSetupForm'
 import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
-import { documentNeedsReview, latestAppliedImport, transactionReviewCoverage } from './lib/documentReview'
+import { documentNeedsReview, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
   captureApiOperation,
@@ -790,10 +791,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     && Object.keys(changedWorkspaceSetupValues(submittableWorkspaceSetupValues(setupDraft, true), profileEditBaseline)).length > 0,
   )
   const hasUnsavedFirstSetupChanges = Boolean(
-    isFirstSessionSetup && setupDraft && data?.workspace?.setup_values && (() => {
-      const saved = workspaceSetupDraftFromValues(data.workspace.setup_values, data.workspace.setup_status)
-      return (['household_name', 'primary_goal', 'primary_income', 'fixed_expenses', 'flexible_spend'] as const).some((key) => (setupDraft[key] ?? '') !== (saved[key] ?? ''))
-    })(),
+    isFirstSessionSetup && setupDraft && data?.workspace?.setup_values
+    && firstSetupHasUnsavedChanges(setupDraft, workspaceSetupDraftFromValues(data.workspace.setup_values, data.workspace.setup_status)),
   )
   const profileMonthPlan = (() => {
     const plan = data?.budget?.annual_plan
@@ -2199,7 +2198,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setNewBudgetCategory(blankBudgetCategoryDraft())
       setBudgetNotice(`Added the category "${input.name.trim()}". It now appears in your plan below.`)
       setRouteAnnouncement(`Added the category ${input.name.trim()}.`)
-      setBudgetNotice(`Added the category "${input.name.trim()}". It now appears in your plan below.`)
       captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
     } catch (caught) {
       setBudgetError(participantErrorMessage(caught, 'Budget category could not be created.'))
@@ -5578,7 +5576,7 @@ export function DocumentImportItemEditor({
   const moneyFields = documentItemMoneyFields(draft.target_type)
   const fieldsDisabled = saving || !editing
   const targetDisabled = saving || !editing || applied || !canEditDraft
-  const needsPayFrequency = !applied && item.target_type === 'income_source' && !item.cadence
+  const needsPayFrequency = itemNeedsPayFrequency(item)
 
   function updateDraft(values: Partial<EditableDocumentItemDraft>) {
     setDraft((current) => ({ ...current, ...values }))
@@ -5605,11 +5603,11 @@ export function DocumentImportItemEditor({
         <label className="document-check">
           <input
             type="checkbox"
-            checked={item.selected && !item.ignored}
+            checked={item.selected && !item.ignored && !needsPayFrequency}
             disabled={selectionDisabled || editing || needsPayFrequency}
             onChange={(event) => onUpdate({ selected: event.target.checked, ignored: false })}
           />
-          <span>{item.applied_at ? 'Applied' : 'Apply'}</span>
+          <span>{item.applied_at ? 'Applied' : needsPayFrequency ? 'Choose how often first' : 'Apply'}</span>
         </label>
         <button
           type="button"
@@ -6167,12 +6165,6 @@ function documentItemSignature(item: DocumentImportItem) {
     item.ignored,
     item.applied_at,
   ].join('|')
-}
-
-function selectedApplyItemIds(documentImport: FinancialDocumentImport) {
-  return documentImport.items
-    .filter((item) => item.selected && !item.ignored && !item.applied_at)
-    .map((item) => item.id)
 }
 
 function importTimestamp(documentImport: FinancialDocumentImport) {

@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BudgetCategoryRow, DashboardData, DocumentImportItem, FinancialDocumentImport } from './api'
 import { BulkConfirmDialog, DocumentImportItemEditor, ManualTransactionCapture, WorkspaceSetupForm } from './App'
+import { selectedApplyItemIds } from './lib/documentReview'
 import { HomeScreen } from './components/HomeScreen'
 
 afterEach(cleanup)
@@ -68,10 +70,10 @@ describe('profile base amounts', () => {
     household_name: 'Cruz', primary_goal: 'Save', primary_income: '3000', business_income: '0', fixed_expenses: '1020', flexible_spend: '500',
     expected_sinking_fund: '0', unexpected_sinking_fund: '0', emergency_fund: '0', other_assets: '0', target_runway_months: '3',
   }
-  const props = { values, editing: false, saving: false, error: null, firstSession: false, onBeginEdit: vi.fn(), onCancel: vi.fn(), onChange: vi.fn(), onSubmit: vi.fn() }
+  const props: ComponentProps<typeof WorkspaceSetupForm> = { values: values as never, editing: false, saving: false, error: null, firstSession: false, onBeginEdit: vi.fn(), onCancel: vi.fn(), onChange: vi.fn(), onSubmit: vi.fn() }
 
   it('says these are base amounts and names the month plan when it differs', () => {
-    render(<WorkspaceSetupForm {...(props as never)} monthPlan={{ label: 'October', fixed: 1100, flexible: 500 }} />)
+    render(<WorkspaceSetupForm {...props} monthPlan={{ label: 'October', fixed: 1100, flexible: 500 }} />)
     const note = screen.getByRole('note').textContent ?? ''
     expect(note).toContain('base monthly amounts')
     expect(note).toContain('Your October plan in Budget: Fixed essentials $1,100.')
@@ -79,7 +81,7 @@ describe('profile base amounts', () => {
   })
 
   it('keeps the first-run Save after every field', () => {
-    render(<WorkspaceSetupForm {...(props as never)} editing firstSession monthPlan={null} />)
+    render(<WorkspaceSetupForm {...props} editing firstSession monthPlan={null} />)
     const save = screen.getByRole('button', { name: /Save and talk to/ })
     const fields = Array.from(document.querySelectorAll('input, textarea'))
     expect(fields.length).toBeGreaterThan(0)
@@ -115,9 +117,19 @@ describe('imported income without a pay frequency', () => {
     evidence: 'Pay frequency is not shown.', selected: false, ignored: false, applied_at: null, applied_record_type: null, applied_record_id: null, metadata: {},
   } as DocumentImportItem
 
+  it('leaves it out of Apply selected so the rest of a mixed import still applies', () => {
+    const debt = { ...item, id: 6, target_type: 'debt', label: 'Visa', cadence: null, selected: true } as DocumentImportItem
+    const account = { ...item, id: 7, target_type: 'account', label: 'Checking', cadence: null, selected: true } as DocumentImportItem
+    const mixed = { ...documentImport, items: [{ ...item, selected: true }, debt, account] } as FinancialDocumentImport
+    expect(selectedApplyItemIds(mixed)).toEqual([6, 7])
+  })
+
   it('blocks apply, explains why, and does not assume monthly', async () => {
-    render(<DocumentImportItemEditor documentImport={documentImport} item={item} saving={false} onUpdate={vi.fn()} />)
-    expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true)
+    render(<DocumentImportItemEditor documentImport={documentImport} item={{ ...item, selected: true }} saving={false} onUpdate={vi.fn()} />)
+    const box = screen.getByRole('checkbox') as HTMLInputElement
+    expect(box.disabled).toBe(true)
+    expect(box.checked).toBe(false)
+    expect(screen.getByText('Choose how often first')).toBeTruthy()
     expect(screen.getByRole('note').textContent).toContain('does not say how often you are paid')
     fireEvent.click(screen.getByRole('button', { name: 'Edit value' }))
     const cadence = screen.getByLabelText('Cadence') as HTMLSelectElement

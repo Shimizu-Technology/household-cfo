@@ -1,4 +1,4 @@
-import type { FinancialDocumentImport } from '../api'
+import type { DocumentImportItem, FinancialDocumentImport } from '../api'
 
 export function documentNeedsReview(documentImport: FinancialDocumentImport): boolean {
   if (documentImport.context_paused_by_restart) return false
@@ -28,4 +28,16 @@ export function latestAppliedImport(imports: FinancialDocumentImport[]) {
 function timestamp(documentImport: FinancialDocumentImport) {
   const value = Date.parse(documentImport.applied_at ?? documentImport.processed_at ?? '')
   return Number.isNaN(value) ? 0 : value
+}
+
+/** Income with no stated pay frequency waits for the participant to choose one; it is never applied by guess. */
+export function itemNeedsPayFrequency(item: DocumentImportItem) {
+  return !item.applied_at && item.target_type === 'income_source' && !item.cadence
+}
+
+/** Items "Apply selected" sends: chosen, not ignored, not applied, and not waiting on a pay frequency. */
+export function selectedApplyItemIds(documentImport: FinancialDocumentImport) {
+  return documentImport.items
+    .filter((item) => item.selected && !item.ignored && !item.applied_at && !itemNeedsPayFrequency(item))
+    .map((item) => item.id)
 }
