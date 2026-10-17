@@ -4435,6 +4435,35 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   await expect(page.getByRole('button', { name: 'Expand Ask Mia chat' })).toBeFocused()
 })
 
+for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }, { width: 390, height: 844 }]) {
+  test(`Ask Mia header title, date and action buttons never intersect at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    await page.goto('/#Ask%20Mia')
+    await expect(page.locator('.chat-shell-header')).toBeVisible()
+    const result = await page.locator('.chat-shell-header').evaluate((header) => {
+      const rect = (element: Element) => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height } }
+      const text = [...header.querySelectorAll('.chat-shell-copy h3, .chat-period-context')].map((element) => ({ name: element.className || element.tagName, ...rect(element), scrollWidth: (element as HTMLElement).scrollWidth, clientWidth: (element as HTMLElement).clientWidth }))
+      const actions = [...header.querySelectorAll('.chat-actions button')].map(rect).filter((box) => box.width > 0)
+      const intersects = (a: { left: number; right: number; top: number; bottom: number }, b: typeof a) => a.left < b.right - 0.5 && a.right > b.left + 0.5 && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5
+      const headerBox = rect(header)
+      return {
+        overlaps: text.flatMap((box) => actions.filter((action) => intersects(box, action)).map(() => box.name)),
+        actionOverlaps: actions.some((a, i) => actions.some((b, j) => i < j && intersects(a, b))),
+        clipped: text.filter((box) => box.scrollWidth > box.clientWidth + 1).map((box) => box.name),
+        outside: actions.some((box) => box.left < headerBox.left - 1 || box.right > headerBox.right + 1),
+        pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        text, actions,
+      }
+    })
+    expect(result.overlaps, JSON.stringify(result)).toEqual([])
+    expect(result.actionOverlaps).toBe(false)
+    expect(result.clipped).toEqual([])
+    expect(result.outside).toBe(false)
+    expect(result.pageFits).toBe(true)
+    if (process.env.HCFO_SHOTS) await page.screenshot({ path: `${process.env.HCFO_SHOTS}/header-${viewport.width}x${viewport.height}.png` })
+  })
+}
+
 test('compact Ask Mia header keeps its title and controls separate at 320px', async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes('mobile'), 'mobile-only compact header assertion')
   await page.setViewportSize({ width: 320, height: 700 })
@@ -10825,7 +10854,7 @@ test('BOG UI compact savings chat preserves room for five files and the complete
   const titleFits = await page.locator('.chat-shell-header').evaluate(node => {
     const heading = node.querySelector('h3')!.getBoundingClientRect()
     const actions = node.querySelector('.chat-actions')!.getBoundingClientRect()
-    return heading.right <= actions.left
+    return heading.right <= actions.left || heading.bottom <= actions.top
   })
   expect(titleFits).toBe(true)
   await openChatContext(page)
