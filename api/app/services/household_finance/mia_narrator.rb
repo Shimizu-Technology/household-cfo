@@ -241,13 +241,14 @@ module HouseholdFinance
     end
 
     def sanitize_narration(content)
-      branded = content.to_s
+      branded = ::Mia::LanguagePolicy.plain_text(content)
         .sub(/\A#{Regexp.escape(persona.name)}:\s*/i, "")
         .sub(BANNED_OPENERS, "")
         .gsub(/#{Regexp.escape(persona.name)}, your household CFO\.?/i, "#{persona.name}, your coach assistant")
         .gsub(/Plan, don[’']t gamble\.?/i, "Protect the household baseline.")
 
-      ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: persona).sanitize(branded)
+      sanitized = ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: persona).sanitize(branded)
+      ::Mia::CrisisBoundary.without_stale_safety_note(sanitized, user_message: user_message, history: history).presence
     end
 
     def narration_rejection_reason(content)

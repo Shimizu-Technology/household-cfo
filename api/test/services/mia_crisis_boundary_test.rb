@@ -139,4 +139,25 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
     assert scripted.start_with?(Mia::CrisisBoundary::WELLBEING_OPENING)
     assert_equal 1, scripted.scan("988").length
   end
+
+  test "an earlier crisis message is not re-injected into a later unrelated money reply" do
+    history = [
+      { role: "user", content: "i wanna kms fr" },
+      { role: "assistant", content: Mia::CrisisBoundary.response }
+    ]
+    reply = "Your power bill is due tomorrow and $140 is set aside for it. Hopeless is a heavy place to be, and since you told me earlier that you wanted to die, I need to ask whether you are safe right now. If any of that feeling is still here, please call or text 988, call 911 if you are in danger, or go be next to someone you trust. Pay it from Fixed essentials."
+
+    cleaned = Mia::CrisisBoundary.without_stale_safety_note(reply, user_message: "power bill due tomorrow, which account should I pay from", history: history)
+
+    assert_equal "Your power bill is due tomorrow and $140 is set aside for it. Pay it from Fixed essentials.", cleaned
+    refute_match(/988|told me earlier/, cleaned)
+  end
+
+  test "the stale-note filter leaves current crisis, hopeless messages and ordinary history alone" do
+    history = [ { role: "user", content: "i wanna kms fr" } ]
+    note = "That sounds heavy. Please call or text 988 right now."
+    assert_equal note, Mia::CrisisBoundary.without_stale_safety_note(note, user_message: "i wanna kms", history: history)
+    assert_equal note, Mia::CrisisBoundary.without_stale_safety_note(note, user_message: "whats the point, we're never getting out of this debt. i feel hopeless", history: history)
+    assert_equal note, Mia::CrisisBoundary.without_stale_safety_note(note, user_message: "what is 988?", history: [ { role: "user", content: "how much is rent" } ])
+  end
 end

@@ -10486,3 +10486,36 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 }
 
 .money-setup-help { justify-self: start; grid-column: 1 / -1; min-height: 44px; }
+
+/* Review cards follow the conversation; keep them grouped and out of the way
+   of Mia's newest reply. */
+.chat-review-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.chat-review-queue:empty {
+  display: none;
+}
+
+.chat-scroll-bottom-button.has-review {
+  max-width: calc(100% - 36px);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.mia-action-draft-card.is-stale {
+  border-color: rgba(168, 58, 58, 0.35);
+  background: rgba(168, 58, 58, 0.04);
+}
+
+.mia-action-stale-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-md, 10px);
+  background: rgba(168, 58, 58, 0.09);
+  color: #7a2a2a;
+  font-weight: var(--weight-bold, 600);
+}

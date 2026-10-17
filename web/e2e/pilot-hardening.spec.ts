@@ -2779,6 +2779,54 @@ test('only one money change can run at a time from Ask Mia', async ({ page }) =>
   expect(cancelRequests).toBe(0)
 })
 
+test('Ask Mia lands on the newest reply even when review cards follow the conversation', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.locator('.chat-review-queue')).toBeVisible({ timeout: 15_000 })
+
+  await expect.poll(async () => page.locator('.chat-card').evaluate((card) => {
+    const replies = [...card.querySelectorAll('.message-row.assistant:not(.typing-row)')]
+    const latest = replies[replies.length - 1]?.getBoundingClientRect()
+    const area = card.getBoundingClientRect()
+    return Boolean(latest && latest.top >= area.top - 2 && latest.top < area.bottom - 40)
+  }), { timeout: 15_000 }).toBe(true)
+  // Review cards are still reachable below the reply.
+  await page.locator('.chat-review-queue').scrollIntoViewIfNeeded()
+  await expect(page.locator('.chat-review-queue').getByRole('button', { name: 'Apply reviewed change' }).first()).toBeVisible()
+})
+
+test('a rejected stale Mia card shows once that it is out of date and offers a fresh draft', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const withDrafts = (flags: Record<string, unknown>) => ({
+    ...workspace,
+    budget: {
+      ...workspace.budget,
+      annual_plan: {
+        ...workspace.budget.annual_plan,
+        pending_mia_action_drafts: workspace.budget.annual_plan.pending_mia_action_drafts.map((draft: { id: number }) => (draft.id === 71 ? { ...draft, ...flags } : draft)),
+      },
+    },
+  })
+  let rejected = false
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: rejected ? withDrafts({ stale: true, stale_message: 'Budget changed since Mia drafted this. Ask Mia to draft a fresh edit.' }) : workspace }))
+  await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', async (route) => {
+    rejected = true
+    await route.fulfill({ status: 422, json: { code: 'stale_review', errors: ['Budget changed since Mia drafted this. Ask Mia to draft a fresh edit.'] } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
+  await budgetCard.getByRole('button', { name: 'Apply reviewed change' }).click()
+
+  await expect(budgetCard.getByText('Out of date')).toBeVisible()
+  await expect(budgetCard.getByRole('button', { name: 'Apply reviewed change' })).toHaveCount(0)
+  await expect(budgetCard.getByText('Pending', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Budget changed since Mia drafted this. Ask Mia to draft a fresh edit.')).toHaveCount(1)
+  await budgetCard.getByRole('button', { name: /for a fresh draft/ }).click()
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue(/draft a fresh version/i)
+})
+
 test('Mia review cards show missing before and after amounts as unknown, not $0', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   const drafts = workspace.budget.annual_plan.pending_mia_action_drafts.map((draft: typeof miaBudgetDraft) => draft.id === miaBudgetDraft.id

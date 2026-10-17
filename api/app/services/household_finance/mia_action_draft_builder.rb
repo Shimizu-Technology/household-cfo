@@ -219,10 +219,10 @@ module HouseholdFinance
     end
 
     def rename_category_proposal
-      match = action_text.match(/\brename\s+(?:the\s+)?(?<from>.+?)\s+(?:category\s+)?(?:to|as)\s+(?<to>.+?)\s*\z/i)
+      match = rename_split(action_text)
       return unless match
 
-      category = find_active_category(resolved_category_phrase(match[:from]))
+      category = match[:category] || find_active_category(resolved_category_phrase(match[:from]))
       return missing_category_result([ clean_category_phrase(match[:from]) ]) unless category
 
       new_name = verbatim_category_name(match[:to])
@@ -247,6 +247,28 @@ module HouseholdFinance
         items: [ item ],
         metadata: { source: "mia_chat", parser: "rename_category" }
       )
+    end
+
+    # "rename Back to School to Fall Fun": the old name can hold a "to" or "as"
+    # too, so take the first split whose left side is an existing category and
+    # fall back to the first split for the "category not found" reply.
+    def rename_split(text)
+      head = text.match(/\brename\s+(?:the\s+)?(?<rest>.+)\z/i)
+      return unless head
+
+      rest = head[:rest]
+      splits = rest.to_enum(:scan, /\s+(?:category\s+)?(?:to|as)\s+/i).map { Regexp.last_match }
+      candidates = splits.filter_map do |separator|
+        from = rest[0...separator.begin(0)]
+        to = rest[separator.end(0)..].to_s.strip
+        { from: from, to: to } if from.present? && to.present?
+      end
+      active = household.budget_categories.active.to_a
+      exact = candidates.filter_map do |candidate|
+        category = active.find { |entry| normalized_label(entry.name) == normalized_label(candidate[:from].sub(/\s+category\z/i, "")) }
+        candidate.merge(category: category) if category
+      end.first
+      exact || candidates.find { |candidate| find_active_category(resolved_category_phrase(candidate[:from])) } || candidates.first
     end
 
     def reclassify_category_proposal

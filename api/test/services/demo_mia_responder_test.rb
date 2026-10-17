@@ -31,6 +31,26 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     end
   end
 
+  test "a model reply to a later money question drops a re-added safety note from an earlier crisis message" do
+    history = [
+      { role: "user", content: "i wanna kms fr" },
+      { role: "assistant", content: Mia::CrisisBoundary.response }
+    ]
+    reply = "Pay the power bill from Fixed essentials. Since you told me earlier that you wanted to die, I need to ask whether you are safe. If those feelings are present now, please call or text 988."
+    responder = Demo::MiaResponder.new(api_key: "test-key")
+
+    assert_equal "Pay the power bill from Fixed essentials.",
+      responder.send(:sanitize_assistant_content, reply, user_message: "power bill is due tomorrow, how should i pay it", history: history)
+  end
+
+  test "a heavy current message still keeps its safety note even with an earlier crisis in history" do
+    history = [ { role: "user", content: "i wanna kms fr" } ]
+    note = "That sounds really heavy. Please call or text 988 right now."
+    responder = Demo::MiaResponder.new(api_key: "test-key")
+
+    assert_includes responder.send(:sanitize_assistant_content, note, user_message: "whats the point, we're never getting out of this debt. i feel hopeless", history: history), "988"
+  end
+
   test "chat uses OpenRouter for ordinary messages when api key is configured" do
     responder = stubbed_model_responder("Real model response")
 

@@ -274,6 +274,30 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_equal "Back to School", text.proposal.items.first.payload.fetch(:name)
   end
 
+  test "rename keeps small words in multi-word names on both the text and model paths" do
+    [ "Back to School", "Gas and Fuel", "Kids' Activities", "Fun for the Family", "Pay as You Go" ].each do |new_name|
+      category = @manager.create_category!(name: "Temp #{SecureRandom.hex(3)}", stack_key: "discretionary", monthly_amount: 10)
+      prompt = "rename the #{category.name} category to #{new_name}"
+      text = HouseholdFinance::MiaActionDraftBuilder.new(@household, prompt, user: @user, annual_budget_manager: @manager, selected_month: 7, raw_input: prompt).call
+      assert_equal new_name, text.proposal.items.first.payload.fetch(:name), prompt
+      assert_equal "Rename #{category.name} to #{new_name}", text.proposal.items.first.label
+
+      structured = build_command(type: "rename_category", category_id: category.id, category_name: category.name, new_name: new_name, year: 2026)
+      assert_equal new_name, structured.proposal.items.first.payload.fetch(:name)
+      assert_includes structured.proposal.summary, new_name
+    end
+  end
+
+  test "rename works when the existing category name itself contains to or as" do
+    old = @manager.create_category!(name: "Back to School", stack_key: "discretionary", monthly_amount: 10)
+    prompt = "rename the Back to School category to Fall Fun and Games"
+    result = HouseholdFinance::MiaActionDraftBuilder.new(@household, prompt, user: @user, annual_budget_manager: @manager, selected_month: 7, raw_input: prompt).call
+
+    assert result.proposal, result.response
+    assert_equal old.id, result.proposal.items.first.payload.fetch(:category_id)
+    assert_equal "Fall Fun and Games", result.proposal.items.first.payload.fetch(:name)
+  end
+
   test "builds structured category create rename and reclassify proposals" do
     create_result = build_command(
       type: "create_category",

@@ -39,6 +39,44 @@ module Mia
     )\b/ix.freeze
     GENERIC_PRAISE_SENTENCE_PATTERN = /(?:\A|(?<=[.!?])\s+)(?:you(?:'re| are)\s+(?:doing\s+)?(?:great|amazing|awesome|incredible)|great\s+(?:job|work)|amazing\s+(?:job|work)|i(?:'m| am)\s+(?:so\s+)?proud\s+of\s+you|you(?:'ve| have)\s+got\s+this)[.!]?\s*/i.freeze
 
+    # "just" or "simply" that makes a step sound trivial. Kept narrow so
+    # "not just the minimum", "just now" and "just in case" are left alone.
+    MINIMIZING_VERBS = %w[
+      add send tell pay put move edit set use keep ask check try call open click tap type name enter say list do make
+      start pick choose cut skip save text let take go get give log review confirm apply share upload drop change
+      rename write reply answer
+    ].freeze
+    MINIMIZER_PATTERN = /(?<!not )(?<!only )\bjust\s+(?=(?:#{MINIMIZING_VERBS.join('|')})\b|["“‘']|(?:the|a|an|one)\s)/i.freeze
+    SIMPLY_PATTERN = /,?\s*\bsimply\s+/i.freeze
+    # "par" as a pal ("okay par,"), never "on par" or "below par".
+    PAR_ADDRESS_PATTERN = /,\s*par(?=\s*[.!?,;])|\b(?:hey|hi|okay|ok|yes|thanks|sure|right)\s+par\b[,!]?/i.freeze
+
+    # Chat replies are plain text: unwrap markdown emphasis, headings and list
+    # markers, keeping the words.
+    def self.plain_text(content)
+      lines = content.to_s.split(/\r?\n+/).map do |line|
+        stripped = line.sub(/\A\s{0,3}\#{1,6}\s+/, "")
+        had_marker = stripped.sub!(/\A\s*(?:[-*•+]|\d{1,2}[.)])\s+/, "")
+        stripped = stripped.strip
+        stripped = "#{stripped}." if had_marker && stripped.present? && !stripped.match?(/[.!?:]["”’')]*\z/)
+        stripped
+      end
+      lines.reject(&:blank?).join(" ")
+        .gsub(/\*\*(.+?)\*\*/, '\1')
+        .gsub(/(?<![[:alnum:]_])__(.+?)__(?![[:alnum:]_])/, '\1')
+        .gsub(/`([^`]+)`/, '\1')
+    end
+
+    def self.remove_minimizers(content)
+      content.to_s
+        .gsub(MINIMIZER_PATTERN, "")
+        .gsub(SIMPLY_PATTERN, " ")
+        .gsub(PAR_ADDRESS_PATTERN, "")
+        .gsub(/\s+([.!?,;:])/, "\\1")
+        .gsub(/[ \t]{2,}/, " ")
+        .strip
+    end
+
     def self.redact_unauthorized_phrase_artifacts(content, persona:)
       new(user_message: "", persona: persona).send(:redact_unauthorized_phrase_artifacts, content)
     end
@@ -50,6 +88,7 @@ module Mia
     end
 
     def sanitize(content)
+      content = self.class.remove_minimizers(content)
       return sanitize_custom_persona(content) if custom_persona?
 
       culture_allowed = cultural_language_allowed? && !cultural_language_recently_used?

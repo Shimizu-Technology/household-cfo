@@ -38,3 +38,31 @@ it('omits starting points when none are offered', () => {
   render(<ChatHistory {...baseProps} />)
   expect(screen.queryByRole('group', { name: 'Ways to start' })).toBeNull()
 })
+
+const twoMessages = [
+  { role: 'user' as const, author: 'You', content: 'spent 40 at shell' },
+  { role: 'assistant' as const, author: 'Mia', content: 'Here is what I found.' },
+]
+
+it('keeps pending review cards after the conversation in one group', () => {
+  render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} reviewCount={3} reviewContent={<p>Transactions to review</p>} />)
+  const queue = document.querySelector('.chat-review-queue')
+  expect(queue?.textContent).toBe('Transactions to review')
+  const rows = document.querySelectorAll('.chat-card > *')
+  expect(rows[rows.length - 1]).toBe(queue)
+})
+
+it('offers a jump to waiting reviews instead of hiding them behind the reply', async () => {
+  const scrollIntoView = vi.fn()
+  Element.prototype.scrollIntoView = scrollIntoView
+  render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} showScrollButton reviewCount={3} reviewContent={<p>Transactions to review</p>} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Jump to 3 items waiting for your review' }))
+  expect(scrollIntoView).toHaveBeenCalled()
+  expect(screen.queryByRole('button', { name: 'Scroll to latest Mia message' })).toBeNull()
+})
+
+it('keeps the plain latest-message shortcut when nothing waits for review', () => {
+  render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} showScrollButton />)
+  expect(screen.getByRole('button', { name: 'Scroll to latest Mia message' })).toBeTruthy()
+  expect(document.querySelector('.chat-review-queue')).toBeNull()
+})

@@ -184,6 +184,21 @@ class ApiV1MiaQaChatRegressionsTest < ActionDispatch::IntegrationTest
     assert_equal before + 1, household.household_memories.count
   end
 
+  # N5
+  test "how much do we owe on the credit card answers from the approved debt summary" do
+    user, household = participant
+    complete_setup(household)
+    household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 320_000, debt_summary_balance_known: true, debt_summary_minimum_payment_cents: 9_500, debt_summary_minimum_payment_known: true)
+
+    post_message(user, "how much do we owe on the credit card")
+
+    assert_response :created
+    assert_includes reply, "$3,200.00"
+    assert_includes reply, "$95.00"
+    assert_includes reply, "not a per-card figure"
+    refute_includes reply, "check the annual plan"
+  end
+
   private
 
   def participant

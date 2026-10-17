@@ -71,4 +71,24 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
 
     assert policy.cultural_language_allowed?
   end
+
+  test "removes just and simply used to minimize effort but keeps ordinary uses" do
+    policy = Mia::LanguagePolicy.new(user_message: "How do I fix the name?")
+    assert_equal "Edit it to \"Cruz Ohana\".", policy.sanitize("Edit it to just \"Cruz Ohana\".")
+    assert_equal "Send me the amount.", policy.sanitize("Just send me the amount.")
+    assert_equal "Pay the minimum first.", policy.sanitize("Simply pay the minimum first.")
+    assert_equal "That is not just the minimum, it is the full balance.", policy.sanitize("That is not just the minimum, it is the full balance.")
+    assert_equal "Rent was due just now.", policy.sanitize("Rent was due just now.")
+  end
+
+  test "never calls the participant par but leaves on par alone" do
+    policy = Mia::LanguagePolicy.new(user_message: "How are we doing?")
+    assert_equal "You are on track.", policy.sanitize("You are on track, par.")
+    assert_equal "Spending is on par with last month.", policy.sanitize("Spending is on par with last month.")
+  end
+
+  test "plain_text unwraps markdown and list markers" do
+    text = "**Here is the plan**\n- Pay rent\n- Save $50\n1. Review Friday"
+    assert_equal "Here is the plan Pay rent. Save $50. Review Friday.", Mia::LanguagePolicy.plain_text(text)
+  end
 end

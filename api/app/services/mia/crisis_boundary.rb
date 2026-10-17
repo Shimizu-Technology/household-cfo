@@ -104,5 +104,33 @@ module Mia
     def self.response
       RuntimePersona::FALLBACKS.fetch("crisis")
     end
+
+    # A reply mentions an earlier crisis message ("you told me earlier that you
+    # wanted to die").
+    EARLIER_CRISIS_REFERENCE = /\b(?:(?:you|u)\s+(?:told|said|mentioned|shared)(?:\s+(?:me|us))?\s+(?:earlier|before|previously|last\s+time)|earlier\s+you\s+(?:said|told|mentioned|shared)|you\s+(?:said|told\s+me|mentioned)\b[^.!?]{0,40}\b(?:earlier|before|previously))\b[^.!?]{0,120}\b(?:die|dying|dead|kill|suicid\w*|hurt(?:ing)?\s+yourself|self[-\s]?harm|end(?:ing)?\s+(?:it|your\s+life)|not\s+(?:be\s+)?here|gone|hopeless)\b/i
+
+    # Once a participant has said something heavy, later unrelated money turns
+    # must not keep carrying the safety note. The deterministic crisis reply and
+    # the gentle check for hopeless words in the CURRENT message are unchanged;
+    # this only removes a note the model re-added from older history.
+    def self.without_stale_safety_note(reply, user_message:, history: [])
+      text = reply.to_s
+      return text if matches?(user_message) || hopeless?(user_message)
+      return text unless prior_heavy_message?(history)
+
+      sentences = text.split(/(?<=[.!?])\s+/)
+      kept = sentences.reject { |sentence| includes_wellbeing_check?(sentence) || sentence.match?(EARLIER_CRISIS_REFERENCE) }
+      return text if kept.empty? || kept.length == sentences.length
+
+      kept.join(" ").squish
+    end
+
+    def self.prior_heavy_message?(history)
+      Array(history).any? do |message|
+        role = message[:role] || message["role"]
+        content = (message[:content] || message["content"]).to_s
+        role.to_s == "user" && (matches?(content) || hopeless?(content))
+      end
+    end
   end
 end

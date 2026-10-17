@@ -152,6 +152,30 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     end
   end
 
+  test "how much do we owe on the credit card answers from the saved debt summary and says it is not per card" do
+    @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 320_000, debt_summary_balance_known: true, debt_summary_minimum_payment_cents: 9_500, debt_summary_minimum_payment_known: true)
+    [ "how much do we owe on the credit card", "How much do we owe on the credit card again?", "how much do i still owe on my credit cards" ].each do |question|
+      response = answer(question)
+      assert response, question
+      assert_equal "debts", response.metadata[:topic]
+      assert_includes response.answer, "$3,200.00"
+      assert_includes response.answer, "$95.00"
+      assert_includes response.answer, "not a per-card figure"
+    end
+  end
+
+  test "owe question with an unknown saved debt total never invents a number" do
+    @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 0, debt_summary_balance_known: false)
+    response = answer("how much do we owe on the credit card")
+    assert_includes response.answer, "don’t have a saved debt total"
+    refute_includes response.answer, "$0"
+  end
+
+  test "owe wording without a debt topic or about hypotheticals is not taken over" do
+    assert_nil answer("how much do we owe the IRS if we file late")
+    assert_nil answer("how much do we owe on the credit card if we pay 200 extra")
+  end
+
   test "summary debt mode excludes preserved individual balances" do
     @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 450_000, debt_summary_balance_known: true, debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: false)
     @household.debts.create!(label: "Preserved Visa", debt_type: "credit_card", balance_cents: 999_999, minimum_payment_cents: 20_000)

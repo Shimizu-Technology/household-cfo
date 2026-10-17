@@ -169,6 +169,17 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
       result.action.slice(:type, :debt_tracking_mode, :amount, :minimum_payment))
   end
 
+  test "the exact QA no-debt message with a car-note aside drafts the summary without a model call" do
+    provider_called = false
+    result = resolve("we dont have any debt, no credit cards nothing. the car note is in the fixed essentials already", context: debt_context,
+      transport: ->(_) { provider_called = true; nil })
+
+    refute provider_called
+    assert result&.actionable?, result.to_h.inspect
+    assert_equal "0", result.action.fetch(:minimum_payment)
+    assert_nil resolve("we dont have any debt, no credit cards nothing. the car note is 390 a month and not in the fixed essentials", context: debt_context)
+  end
+
   test "zero pair and affirmation replies to Mia's debt question complete the summary" do
     asked = debt_context(recent: [
       { role: "user", content: "we dont have any debt, no credit cards nothing. the car note is in the fixed essentials already" },
