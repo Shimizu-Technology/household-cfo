@@ -51,6 +51,22 @@ class CoachWorkspace < ApplicationRecord
     association.scope.find_by(user_id: user.id)
   end
 
+  # Who may review their own work. A sole owner always could. A platform admin
+  # with no membership may too, but only while no other accepted owner or
+  # reviewer exists, so a named coach who has signed in takes over review.
+  def self_review_authority?(user)
+    return false unless user
+
+    membership = membership_for(user)
+    if membership&.role == "owner"
+      return coach_workspace_memberships.where(role: "owner").count == 1
+    end
+    return false unless user.admin? && membership.nil?
+
+    !coach_workspace_memberships.where(role: %w[owner reviewer]).where.not(user_id: user.id)
+      .joins(:user).merge(User.accepted_linked_identity).exists?
+  end
+
   def allows?(user, permission)
     return true if user&.admin?
 

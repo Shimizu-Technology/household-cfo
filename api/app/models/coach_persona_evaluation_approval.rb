@@ -72,9 +72,7 @@ class CoachPersonaEvaluationApproval < ApplicationRecord
     errors.add(:self_review, "must match the evaluation requester") unless self_review == expected_self_review
     return unless self_review
 
-    membership = workspace.membership_for(reviewed_by_user)
-    owners = workspace.coach_workspace_memberships.where(role: "owner").count
-    errors.add(:self_review, "is allowed only for the sole workspace owner") unless membership&.role == "owner" && owners == 1
+    errors.add(:self_review, "is allowed only for the sole workspace owner") unless workspace.self_review_authority?(reviewed_by_user)
   end
 
   def digest_matches_snapshot

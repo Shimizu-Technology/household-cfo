@@ -37,7 +37,10 @@ module CoachWorkspaces
           .find_by(coach_workspace_memberships: { user_id: user.id, role: "owner" })
         return owned if owned
 
-        return nil
+        # A platform admin who owns no program lands in an existing one (the
+        # most recently updated) instead of auto-provisioning a personal
+        # workspace. Only a platform with no programs at all provisions one.
+        return CoachWorkspace.includes(:coach_profile).order(updated_at: :desc, id: :desc).first
       end
 
       CoachWorkspace.joins(:coach_workspace_memberships)

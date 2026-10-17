@@ -23,6 +23,7 @@ module Api
         def create
           CoachWorkspaces::MutationAuthority.new(workspace: current_coach_workspace, actor: current_user, permissions: :manage_members).call do |actor|
             cohort = Cohort.create!(cohort_params.merge(created_by_user: actor, coach_workspace: current_coach_workspace))
+            CoachWorkspaces::OwnerCohortAccess.for_cohort!(cohort)
             render json: { cohort: serialize_cohort(cohort) }, status: :created
           end
         rescue ActiveRecord::RecordInvalid => e

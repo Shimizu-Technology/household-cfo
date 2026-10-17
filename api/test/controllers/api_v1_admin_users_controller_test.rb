@@ -597,6 +597,39 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal false, body.fetch("reactivated")
   end
 
+  test "inviting an already invited email, including case variants, says so and keeps invited_at" do
+    admin = create_user(email: "dup-invite-admin@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Dup Invite Pilot", status: "active", created_by_user: admin)
+    original_time = 3.days.ago.change(usec: 0)
+    user = User.create!(email: "dup.invite@example.com", clerk_id: "pending_dup", role: "participant", invitation_status: "pending",
+      invited_at: original_time, invited_by_user: admin)
+
+    assert_no_difference -> { user.invitation_email_attempts.count } do
+      post "/api/v1/admin/users",
+           params: { user: { email: " Dup.Invite@EXAMPLE.com ", role: "participant", cohort_id: cohort.id } },
+           headers: auth_headers(admin), as: :json
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal true, body.fetch("already_invited")
+    assert_equal false, body.fetch("invitation_sent")
+    assert_equal 1, User.where("LOWER(email) = ?", "dup.invite@example.com").count
+    assert_equal original_time, user.reload.invited_at
+    assert_equal [ cohort.name ], body.fetch("assigned_cohort_names")
+    assert_equal [ cohort.id ], user.cohorts.pluck(:id)
+  end
+
+  test "new invites store the email in lower case" do
+    admin = create_user(email: "case-invite-admin@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Case Invite Pilot", status: "active", created_by_user: admin)
+    post "/api/v1/admin/users",
+         params: { user: { email: "Mixed.Case@Example.com", role: "participant", cohort_id: cohort.id, send_invitation_email: false } },
+         headers: auth_headers(admin), as: :json
+    assert_response :created
+    assert_equal "mixed.case@example.com", User.order(:id).last.email
+  end
+
   test "admin create invite does not silently change an active user's role" do
     admin = create_user(email: "role-mismatch-admin@example.com", role: "admin")
     cohort = Cohort.create!(name: "Role Mismatch Pilot", status: "active", created_by_user: admin)

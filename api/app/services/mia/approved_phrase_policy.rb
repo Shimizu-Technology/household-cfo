@@ -44,8 +44,12 @@ module Mia
       return @self_review_allowed if defined?(@self_review_allowed)
 
       membership = workspace.membership_for(user)
-      @self_review_allowed = membership&.role == "owner" &&
-        !workspace.coach_workspace_memberships.where(role: %w[owner reviewer]).where.not(user_id: user.id).exists?
+      @self_review_allowed = if membership
+        membership.role == "owner" &&
+          !workspace.coach_workspace_memberships.where(role: %w[owner reviewer]).where.not(user_id: user.id).exists?
+      else
+        workspace.self_review_authority?(user)
+      end
     end
   end
 end

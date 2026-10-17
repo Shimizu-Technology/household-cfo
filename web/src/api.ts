@@ -2191,6 +2191,8 @@ export type AdminUserMutationResponse = {
   invitation_sent?: boolean
   invitation_status?: AdminInviteEmailStatus
   invitation_error?: string | null
+  already_invited?: boolean
+  assigned_cohort_names?: string[]
 }
 
 export type AdminUserInput = {
@@ -4833,6 +4835,8 @@ export type CoachWorkspaceSettings = CoachWorkspaceSummary & {
 export type CoachWorkspaceSettingsInput = {
   name: string
   revision?: number
+  /** Create only: the coach who will own the program (an existing or newly invited coach). */
+  owner_email?: string
   coach_profile: { display_name: string; title: string; bio: string }
 }
 export type WorkspaceBrandVersion = {
@@ -4864,12 +4868,13 @@ export async function fetchCoachWorkspaceSettings(id: number): Promise<CoachWork
   const result = await fetchJson<{ coach_workspace: CoachWorkspaceSettings }>(`/api/v1/admin/coach_workspaces/${id}`)
   return result.coach_workspace
 }
-export async function createCoachWorkspace(values: CoachWorkspaceSettingsInput, idempotencyKey: string): Promise<CoachWorkspaceSettings> {
-  const result = await fetchJson<{ coach_workspace: CoachWorkspaceSettings }>('/api/v1/admin/coach_workspaces', {
+export type CreatedCoachWorkspace = CoachWorkspaceSettings & { owner_invitation?: { email: string; delivery: { sent?: boolean; status?: string } } | null }
+export async function createCoachWorkspace(values: CoachWorkspaceSettingsInput, idempotencyKey: string): Promise<CreatedCoachWorkspace> {
+  const result = await fetchJson<{ coach_workspace: CoachWorkspaceSettings; owner_invitation?: CreatedCoachWorkspace['owner_invitation'] }>('/api/v1/admin/coach_workspaces', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify({ coach_workspace: values }),
   })
-  return result.coach_workspace
+  return { ...result.coach_workspace, owner_invitation: result.owner_invitation ?? null }
 }
 export async function updateCoachWorkspaceSettings(id: number, values: CoachWorkspaceSettingsInput): Promise<CoachWorkspaceSettings> {
   const result = await fetchJson<{ coach_workspace: CoachWorkspaceSettings }>(`/api/v1/admin/coach_workspaces/${id}`, {

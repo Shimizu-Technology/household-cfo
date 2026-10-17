@@ -163,7 +163,6 @@ module Mia
         active = !persona.archived?
         can_edit = active && workspace&.allows?(actor, :edit) == true
         can_review = active && workspace&.allows?(actor, :review) == true
-        membership = workspace&.membership_for(actor)
         {
           manage_cases: can_edit,
           run_evaluation: can_edit,
@@ -171,8 +170,7 @@ module Mia
           review_phrase_audiences: can_review,
           publish: active && publication_needed? && workspace&.allows?(actor, :publish) == true,
           publication_needed: publication_needed?,
-          sole_owner_self_review: membership&.role == "owner" &&
-            workspace.coach_workspace_memberships.where(role: "owner").count == 1
+          sole_owner_self_review: workspace&.self_review_authority?(actor) == true
         }
       end
 

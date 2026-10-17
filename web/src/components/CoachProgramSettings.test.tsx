@@ -94,6 +94,20 @@ describe('program settings', () => {
     expect((screen.getByLabelText('App name') as HTMLInputElement).value).not.toBe('Stale other workspace')
   })
 
+  it('names the coach owner when creating a program and reports an invitation', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.createCoachWorkspace).mockResolvedValue({ ...workspace, owner_invitation: { email: 'mel@example.test', delivery: { sent: true } } })
+    render(<CreateCoachProgram />)
+    await user.click(screen.getByRole('button', { name: 'Create program' }))
+    await user.type(screen.getByLabelText('Workspace name'), 'Island program')
+    await user.type(screen.getByLabelText('Coach display name'), 'Mrs. Mel')
+    expect(screen.getByText(/Double-check this email: the owner will see this program's participant roster/)).toBeTruthy()
+    await user.type(screen.getByLabelText(/Program owner email/), ' mel@example.test ')
+    await user.click(screen.getByRole('button', { name: 'Create program' }))
+    expect((await screen.findByRole('status')).textContent).toContain('mel@example.test was invited as its owner and emailed')
+    expect(vi.mocked(api.createCoachWorkspace).mock.calls[0][0]).toMatchObject({ owner_email: 'mel@example.test' })
+  })
+
   it('retries an uncertain program creation with the same key', async () => {
     const user = userEvent.setup()
     vi.mocked(api.createCoachWorkspace).mockRejectedValueOnce(new Error('Request timed out')).mockResolvedValueOnce(workspace)

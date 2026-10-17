@@ -377,9 +377,14 @@ module Demo
 
       metric_mentions = approved_metric_mentions(content, metrics: metrics) + approved_saved_record_mentions(content, payload: payload)
       participant_values = currency_values(user_message)
+      # Persona Studio previews carry no saved household facts, so the coach's
+      # sample question is the only source of amounts. Repeating an amount the
+      # question itself states is grounded there without a scenario label.
+      # Real participant context never sets preview_mode (the server builds it).
+      preview = payload["preview_mode"] == true
       mentions.all? do |mention|
         nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
-        (participant_values.include?(mention.fetch(:value)) && participant_scenario_labeled?(content, mention)) ||
+        (participant_values.include?(mention.fetch(:value)) && (preview || participant_scenario_labeled?(content, mention))) ||
           (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
       end
     end

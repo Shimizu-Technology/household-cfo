@@ -23,6 +23,7 @@ import type {
   AdminPersonaReleaseReadiness,
 } from '../api'
 import { Button } from './Button'
+import { DisabledReason } from './DisabledReason'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
 const TERMINAL_RUN_STATUSES = new Set(['passed', 'failed', 'error'])
@@ -408,6 +409,15 @@ export function PersonaReleasePanel({
   const currentPreview = displayedPreviewMatchesCandidate && displayedPreviewMatchesLatest
   const evidence = releaseEvidence(readiness, sealedPreview)
   const publishReady = Boolean(persona.has_unpublished_changes !== false && readiness?.permissions.publication_needed !== false && currentPreview && readiness?.ready && evidence && readiness.permissions.publish)
+  const ownerOnly = 'Only a program owner can do this. Ask the owner to publish.'
+  const previewReason = readiness && readiness.permissions.publish !== true ? ownerOnly.replace('publish', 'run the exact preview') : null
+  const publishReason = publicationCurrentFor(persona, readiness) ? null
+    : !readiness?.permissions.publish ? ownerOnly
+    : !readiness?.ready ? 'Run the checks above and clear anything they flag first.'
+    : !currentPreview ? 'Run the exact preview for this saved draft first.'
+    : !evidence ? 'Finish the release steps above first.'
+    : parentBusy || action !== null ? 'Another change is still saving.'
+    : null
   const publicationCurrent = persona.has_unpublished_changes === false || readiness?.permissions.publication_needed === false
   const releaseStatus = publicationCurrent ? 'Published' : publishReady ? 'Ready to publish' : 'Checks required'
   const builtInCases = cases.filter((evaluationCase) => evaluationCase.kind === 'system' && evaluationCase.active)
@@ -444,7 +454,7 @@ export function PersonaReleasePanel({
         <section className="persona-release-step" aria-labelledby="behavioral-preview-title">
           <header><div><span>1</span><div><h4 id="behavioral-preview-title">Preview one realistic answer</h4><p>Use fictional details. Participant household data is never loaded into this preview.</p></div></div><StepState complete={currentPreview} label={currentPreview ? 'Reviewed' : 'Required'} /></header>
           <label className="coach-sample-prompt"><span>Behavioral preview question</span><textarea rows={3} maxLength={2000} value={samplePrompt} onChange={(event) => onSamplePromptChange(event.target.value)} placeholder="Ask the kind of question a participant will bring." /><small>Your question is sent to the configured model. Do not paste participant names, messages, or financial information.</small></label>
-          <div className="persona-release-actions"><Button variant="secondary" onClick={onPreview} disabled={disabled || readiness?.permissions.publish !== true}>{previewPending ? 'Running preview…' : 'Run exact preview'}</Button></div>
+          <div className="persona-release-actions"><Button variant="secondary" onClick={onPreview} aria-describedby={previewReason ? 'preview-reason' : undefined} disabled={disabled || readiness?.permissions.publish !== true}>{previewPending ? 'Running preview…' : 'Run exact preview'}</Button><DisabledReason id="preview-reason">{previewReason}</DisabledReason></div>
           {readiness?.permissions.publish === false && <p className="coach-inline-note">A workspace owner or authorized publisher must run and save behavioral preview evidence.</p>}
           {preview && (!sealedPreview || preview.status !== 'ready') && <PreviewSummary preview={preview} current={currentPreview} />}
           {concurrentPreviewMismatch && <div className="persona-release-alert is-note" role="alert"><span>Another live preview was saved for this draft after the one shown below. Review the latest saved answer before publishing.</span>{latestPreviewEvidence && <Button size="compact" variant="secondary" onClick={() => setPreviewEvidenceOverride({ sourceDigest: previewEvidence?.digest ?? null, evidence: latestPreviewEvidence })}>Show latest saved preview</Button>}</div>}
@@ -490,7 +500,7 @@ export function PersonaReleasePanel({
           <header><div><span>5</span><div><h4 id="publish-title">Publish this assistant version</h4><p>Publishing records the approved candidate, evaluation, phrase reviews, and human decision as one version.</p></div></div><StepState complete={publishReady} label={publishReady ? 'Ready' : persona.has_unpublished_changes === false ? 'Published' : 'Blocked'} /></header>
           {readiness?.blockers.length ? <ul className="persona-release-blockers">{readiness.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul> : null}
           {persona.assignments.length > 0 && <p className="coach-inline-note">Publishing updates future participant messages in {persona.assignments.length} assigned cohort{persona.assignments.length === 1 ? '' : 's'}. You will confirm this impact before it changes.</p>}
-          <div className="persona-release-actions"><Button onClick={() => evidence && onPublish(evidence)} disabled={!publishReady || parentBusy || action !== null}>{publishPending ? 'Publishing…' : persona.published_version ? 'Publish next version' : 'Publish first version'}</Button></div>
+          <div className="persona-release-actions"><Button onClick={() => evidence && onPublish(evidence)} aria-describedby={publishReason ? 'publish-reason' : undefined} disabled={!publishReady || parentBusy || action !== null}>{publishPending ? 'Publishing…' : persona.published_version ? 'Publish next version' : 'Publish first version'}</Button><DisabledReason id="publish-reason">{publishReason}</DisabledReason></div>
           {persona.has_unpublished_changes === false && <p className="coach-inline-note">This saved revision is already published. Make and save a change before preparing another release.</p>}
           {readiness?.permissions.publication_needed !== false && !readiness?.permissions.publish && <p className="coach-inline-note">A workspace owner or authorized publisher must publish the approved version.</p>}
           {readiness?.candidate && <details className="persona-release-details"><summary>Release evidence</summary><dl className="persona-release-evidence"><div><dt>Draft revision</dt><dd>{readiness.candidate.draft_revision}</dd></div><div><dt>Candidate</dt><dd>{shortDigest(readiness.candidate.manifest_digest)}</dd></div><div><dt>Behavioral preview</dt><dd>{shortDigest(readiness.behavioral_preview_evidence?.digest)}</dd></div><div><dt>Evaluation</dt><dd>{shortDigest(readiness.evaluation_run?.run_digest)}</dd></div><div><dt>Approval</dt><dd>{shortDigest(readiness.approval?.approval_digest)}</dd></div></dl></details>}
@@ -699,4 +709,8 @@ function humanize(value: string) {
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds))
+}
+
+function publicationCurrentFor(persona: { has_unpublished_changes?: boolean }, readiness: { permissions: { publication_needed?: boolean } } | null | undefined) {
+  return persona.has_unpublished_changes === false || readiness?.permissions.publication_needed === false
 }

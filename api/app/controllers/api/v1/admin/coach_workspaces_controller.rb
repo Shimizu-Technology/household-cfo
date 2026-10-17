@@ -5,6 +5,7 @@ module Api
     module Admin
       class CoachWorkspacesController < BaseController
         class CreationConflict < StandardError; end
+        class OwnerInvalid < StandardError; end
 
         before_action :authenticate_user!
         before_action :require_staff!
@@ -13,6 +14,7 @@ module Api
         rescue_from ActiveRecord::RecordInvalid, with: :render_invalid
         rescue_from ActiveRecord::StaleObjectError, with: :render_conflict
         rescue_from CreationConflict, with: :render_creation_conflict
+        rescue_from OwnerInvalid, with: :render_owner_invalid
 
         def show
           render json: { coach_workspace: detail(workspace) }
@@ -23,8 +25,10 @@ module Api
           key = request_idempotency_key
           fingerprint = Digest::SHA256.hexdigest(JSON.generate([
             attributes[:name].to_s.squish,
-            profile_attributes(attributes).sort.to_h
+            profile_attributes(attributes).sort.to_h,
+            owner_email
           ]))
+          invited_owner = nil
           current_user.with_lock do
             validate_creation_authority!
             existing = replay_created(key, fingerprint)
@@ -37,11 +41,15 @@ module Api
               creation_request_key: key,
               creation_request_fingerprint: fingerprint
             )
-            record.coach_workspace_memberships.create!(user: current_user, role: "owner")
+            owner, invited_owner = resolve_owner!
+            record.coach_workspace_memberships.create!(user: owner, role: "owner")
+            CoachWorkspaces::OwnerCohortAccess.for_owner!(record, owner)
             record.create_coach_profile!(profile_attributes(attributes).merge(last_edited_by_user: current_user))
             Branding::Provisioner.ensure_for!(workspace: record, actor: current_user)
-            render json: { coach_workspace: detail(record) }, status: :created
+            @created = [ record, invited_owner ]
           end
+          record, invited_owner = @created
+          render json: { coach_workspace: detail(record), owner_invitation: owner_invitation(record, invited_owner) }, status: :created
         rescue ActiveRecord::RecordNotUnique
           current_user.with_lock do
             validate_creation_authority!
@@ -68,6 +76,52 @@ module Api
         end
 
         private
+
+        # The platform admin may name the coach who will own the program. Admins
+        # keep full authority through their platform role, so they do not need
+        # a membership of their own. With no owner named, the admin owns it.
+        def owner_email
+          params.dig(:coach_workspace, :owner_email).to_s.strip.downcase
+        end
+
+        def resolve_owner!
+          email = owner_email
+          return [ current_user, nil ] if email.blank? || email == current_user.email.to_s.downcase
+
+          unless email.length <= 254 && email.match?(URI::MailTo::EMAIL_REGEXP)
+            raise OwnerInvalid, "Enter a valid email address for the program owner."
+          end
+          user = User.where("LOWER(email) = ?", email).first
+          if user
+            if user.revoked?
+              raise OwnerInvalid, "That account's access was removed, so it cannot own a program. Restore the account first."
+            end
+            unless user.staff?
+              raise OwnerInvalid, "That email belongs to a participant account. Use the coach's own email, or leave it blank to own the program yourself."
+            end
+            [ user, nil ]
+          else
+            invited = User.create!(email: email, clerk_id: "pending_#{SecureRandom.uuid}", role: "coach",
+              invitation_status: "pending", invited_at: Time.current, invited_by_user: current_user)
+            [ invited, invited ]
+          end
+        end
+
+        def owner_invitation(record, invited)
+          return nil unless invited
+
+          collaborators = CoachWorkspaces::Collaborators.new(workspace: record, actor: current_user)
+          delivery = CoachWorkspaces::CollaboratorInviteEmail.send_invite(user: invited, workspace: record, role: "owner",
+            invited_by: current_user, sign_in_url: collaborators.sign_in_url, requested: true)
+          { email: invited.email, delivery: delivery }
+        rescue StandardError => e
+          Rails.logger.warn("[CoachWorkspaces] owner invitation email failed: #{e.class}")
+          { email: invited.email, delivery: { sent: false, status: "failed" } }
+        end
+
+        def render_owner_invalid(error)
+          render json: { error: error.message, code: "coach_workspace_owner_invalid" }, status: :unprocessable_entity
+        end
 
         def validate_creation_authority!
           raise ActiveRecord::RecordNotFound unless current_user.admin? && current_user.invitation_accepted? && !current_user.revoked?

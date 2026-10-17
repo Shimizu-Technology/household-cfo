@@ -52,6 +52,8 @@ module HouseholdFinance
           primary_goal: sanitized_text(household.primary_goal.presence || "not set yet", max_length: MAX_PRIMARY_GOAL_LENGTH)
         },
         setup: setup_status.as_json,
+        program: program_context,
+        unknown_values_rule: "A null value, or a metric that is unavailable, means the participant has not entered it yet. Say it is not entered or unknown. Never describe an unknown amount as $0, including safe-to-spend, income, spending, and balances.",
         metrics: {
           financial_guidance_available: guidance_available,
           monthly_income: income_known ? money(snapshot.fetch(:monthly_income_cents)) : nil,
@@ -86,6 +88,18 @@ module HouseholdFinance
         available_product_modules: available_product_modules,
         personalization_memory: personalization_memory,
         conversation_continuity: continuity
+      }
+    end
+
+    # The savings challenge pilot makes a full budget optional, so Mia should
+    # coach the challenge instead of pushing income and budget setup.
+    def program_context
+      return nil unless @experience_capabilities && @experience_capabilities[:experience_mode] == "savings_challenge"
+
+      {
+        experience_mode: "savings_challenge",
+        full_budget_optional: true,
+        coaching_note: "This participant is in a savings challenge. A full budget, income, and bank linking are optional. Do not ask them to add their monthly income or finish budget setup unless they ask. Suggest one small challenge step instead, such as setting aside a small amount or picking a smaller or later target."
       }
     end
 

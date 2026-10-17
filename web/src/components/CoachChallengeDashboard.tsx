@@ -10,6 +10,7 @@ import {
   type SharedRecordRef,
 } from '../lib/coachChallengeApi'
 import { savingsDollars } from '../lib/savingsChallenge'
+import { DisabledReason } from './DisabledReason'
 import './CoachChallengeDashboard.css'
 
 type Props = { userId: number; workspaceId: number; cohorts: Array<{ id: number; name: string }>; selectedCohortId?: number | null }
@@ -514,6 +515,9 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
     }
   }
   const current = (signal: AbortSignal) => live.current && !signal.aborted
+  const selectedCheckpoint = index?.scheduled_checkpoints.find((row) => row.day === day)
+  const sealBlockedReason = sealBlocker(selectedCheckpoint, day)
+  const sealReason = sealBlockedReason ?? (!accepted && !busy ? 'Tick the box above to confirm you reviewed the consent and suppression policy.' : null)
   return (
     <section className="coach-challenge-card">
       <h3>Fixed cohort checkpoint reports</h3>
@@ -568,7 +572,8 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
             BOG.
           </label>
           <button
-            disabled={busy || !accepted}
+            disabled={busy || !accepted || sealBlockedReason !== null}
+            aria-describedby={sealReason ? 'seal-reason' : undefined}
             onClick={() =>
               void request(async (signal) => {
                 const result = await coachChallengeApi.seal(cohortId, day, signal)
@@ -583,6 +588,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
           >
             Seal reviewed Day {day} report
           </button>
+          <DisabledReason id="seal-reason">{sealReason}</DisabledReason>
           {index.records.map((row) => (
             <button
               key={row.id}
@@ -681,3 +687,14 @@ const recordLabel = (type: string) =>
   })[type] ?? 'record'
 const message = (failure: unknown) =>
   failure instanceof Error ? failure.message : 'This permitted view is unavailable. Refresh your program permissions.'
+
+// The server refuses a checkpoint whose cutoff is after today. Say so up
+// front instead of leaving the seal button disabled with no explanation.
+function sealBlocker(checkpoint: { cutoff_on: string | null } | undefined, day: number) {
+  if (!checkpoint) return null
+  if (!checkpoint.cutoff_on) return `Day ${day} cannot be sealed yet because the group's start date is not set.`
+  // The API reckons dates in Guam time, so compare against Guam's today.
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Guam' }).format(new Date())
+  if (checkpoint.cutoff_on > today) return `Day ${day} ends on ${checkpoint.cutoff_on}, which has not happened yet. You can seal this report from that date on.`
+  return null
+}

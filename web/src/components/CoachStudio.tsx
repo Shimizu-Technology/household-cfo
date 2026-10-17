@@ -39,6 +39,7 @@ import {
   moveListItem,
   replaceListItem as replaceAt,
 } from '../lib/personaDraft'
+import { DisabledReason } from './DisabledReason'
 import { Button } from './Button'
 import { CoachProgramSettings } from './CoachProgramSettings'
 import { WorkspaceCollaborators } from './WorkspaceCollaborators'
@@ -749,6 +750,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         <div>
           <p className="eyebrow">Coach Studio</p>
           <h2 data-page-heading tabIndex={-1}>Your coaching workspace.</h2>
+          {currentUser.is_admin && <p className="coach-active-program">{activeWorkspaceId === null
+            ? 'Viewing all programs. Choose one below to work in it.'
+            : <>Working in <strong>{workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.name ?? 'the selected program'}</strong></>}</p>}
         </div>
         <div className="coach-workspace-heading-tools">
           <p>Start with participant check-ins and help. Program and assistant settings are available when you need them.</p>
@@ -1001,7 +1005,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                       <p className="coach-read-only" role="note">This assistant is read-only for your account or while archived. You can review its published history and assignments below.</p>
                     )}
 
-                    {mode !== 'setup' && <div className="coach-save-bar">
+                    {mode !== 'setup' && <div className={`coach-save-bar${dirty ? ' is-floating' : ''}`}>
                       <div>
                         <strong>{dirty ? 'Draft changes are local to this browser.' : 'Draft matches the latest server revision.'}</strong>
                         <small>{dirty ? 'Save before previewing so the exact revision is checked.' : `Draft revision ${selectedPersona.draft_revision ?? 'read-only'}`}</small>
@@ -1317,9 +1321,11 @@ function LifecyclePanel({ persona, dirty, pendingAction, onRestoreVersionToDraft
 
       <div className="coach-archive-row">
         {persona.status === 'archived'
-          ? <Button variant="secondary" disabled={!persona.permissions.restore || pendingAction !== null} onClick={onRestore}>{pendingAction === 'restore' ? 'Restoring' : 'Restore assistant'}</Button>
-          : <Button variant="danger" disabled={dirty || !persona.permissions.archive || pendingAction !== null} onClick={onArchive}>{pendingAction === 'archive' ? 'Archiving' : 'Archive assistant'}</Button>}
-        {!persona.permissions.archive && persona.permissions.edit && persona.status !== 'archived' && <small>Remove this assistant from every draft, enrolling, or active cohort before archiving.</small>}
+          ? <Button variant="secondary" aria-describedby={!persona.permissions.restore ? 'restore-reason' : undefined} disabled={!persona.permissions.restore || pendingAction !== null} onClick={onRestore}>{pendingAction === 'restore' ? 'Restoring' : 'Restore assistant'}</Button>
+          : <Button variant="danger" aria-describedby={dirty || !persona.permissions.archive ? 'archive-reason' : undefined} disabled={dirty || !persona.permissions.archive || pendingAction !== null} onClick={onArchive}>{pendingAction === 'archive' ? 'Archiving' : 'Archive assistant'}</Button>}
+        {persona.status === 'archived'
+          ? <DisabledReason id="restore-reason">{!persona.permissions.restore ? 'Your role cannot restore assistants. Ask a program owner.' : null}</DisabledReason>
+          : <DisabledReason id="archive-reason">{dirty ? 'Save or discard your draft changes first.' : !persona.permissions.archive ? (persona.permissions.edit ? 'Remove this assistant from every draft, enrolling, or active cohort before archiving.' : 'Your role cannot archive assistants. Ask a program owner.') : null}</DisabledReason>}
       </div>
     </article>
   )
@@ -1346,10 +1352,21 @@ function AssignmentPanel({ persona, cohorts, pending, dirty, onAssign, onRemove 
             const assignedHere = cohort.persona_assignment?.persona.id === persona.id
             return (
               <article key={cohort.id}>
-                <div><strong>{cohort.name}</strong><small>{titleize(cohort.status)} · {cohort.persona_assignment ? `${cohort.persona_assignment.persona.name} assigned` : 'Neutral product voice'}</small>{cohort.blocked_reason && <small>{cohort.blocked_reason}</small>}</div>
-                {assignedHere
-                  ? <Button size="compact" variant="ghost" disabled={dirty || pending || !cohort.assignable} onClick={() => onRemove(cohort)}>Remove</Button>
-                  : <Button size="compact" disabled={dirty || pending || !cohort.assignable || !persona.permissions.assign} onClick={() => onAssign(cohort)}>{cohort.persona_assignment ? 'Replace assignment' : 'Assign'}</Button>}
+                <div><strong>{cohort.name}</strong><small>{titleize(cohort.status)} · {cohort.persona_assignment ? `${cohort.persona_assignment.persona.name} assigned` : 'Neutral product voice'}</small></div>
+                {(() => {
+                  const reason = dirty ? 'Save or discard your draft changes first.'
+                    : !assignedHere && !persona.permissions.assign ? 'Your role cannot assign assistants. Ask a program owner.'
+                    : !cohort.assignable ? (cohort.blocked_reason ? null : 'This cohort cannot take an assistant change right now.')
+                    : null
+                  const reasonId = `assign-reason-${cohort.id}`
+                  const describedBy = reason || (!cohort.assignable && cohort.blocked_reason) ? reasonId : undefined
+                  return <div className="coach-assign-action">
+                    {assignedHere
+                      ? <Button size="compact" variant="ghost" aria-describedby={describedBy} disabled={dirty || pending || !cohort.assignable} onClick={() => onRemove(cohort)}>Remove</Button>
+                      : <Button size="compact" aria-describedby={describedBy} disabled={dirty || pending || !cohort.assignable || !persona.permissions.assign} onClick={() => onAssign(cohort)}>{cohort.persona_assignment ? 'Replace assignment' : 'Assign'}</Button>}
+                    <DisabledReason id={reasonId}>{reason ?? (!cohort.assignable ? cohort.blocked_reason : null)}</DisabledReason>
+                  </div>
+                })()}
               </article>
             )
           })}

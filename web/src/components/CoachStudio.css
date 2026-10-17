@@ -1745,9 +1745,7 @@
 }
 
 .coach-save-bar {
-  position: sticky;
-  bottom: 0.6rem;
-  z-index: 5;
+  position: static;
   margin-top: 1rem;
   padding: 0.8rem 1rem;
   border: 1px solid color-mix(in srgb, var(--mauve) 35%, var(--line));
@@ -1755,6 +1753,13 @@
   background: color-mix(in srgb, var(--paper) 92%, transparent);
   box-shadow: 0 0.5rem 1.4rem rgb(63 41 48 / 12%);
   backdrop-filter: blur(10px);
+}
+
+.coach-save-bar.is-floating {
+  /* Only float while there are unsaved changes, so an idle bar never covers the mode selector. */
+  position: sticky;
+  bottom: 0.6rem;
+  z-index: 5;
 }
 
 .coach-save-bar > div {
@@ -1910,7 +1915,8 @@
     display: inline-flex;
   }
 
-  .coach-save-bar {
+  .coach-save-bar,
+  .coach-save-bar.is-floating {
     position: static;
     box-shadow: none;
     backdrop-filter: none;
@@ -2790,3 +2796,16 @@
 .coach-access-disclosure > summary { min-height: 44px; padding: .75rem 1rem; cursor: pointer; font-weight: var(--weight-bold); }
 .coach-access-disclosure > section { padding: 1rem; }
 .coach-assistant-policy { color: var(--muted); font-size: var(--text-sm); }
+
+.disabled-reason {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted, #5f5a55);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.coach-active-program {
+  margin: 0.25rem 0 0;
+  color: var(--muted, #5f5a55);
+}

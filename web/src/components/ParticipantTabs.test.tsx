@@ -4,7 +4,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { ParticipantTabs } from './ParticipantTabs'
 import { useState } from 'react'
 import { usePilotDialog } from '../lib/usePilotDialog'
-vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: 'Mia', brand: { short_name: 'VERA', participant_role_term: 'Participant' } }) }))
+const brandState = vi.hoisted(() => ({ assistantName: 'Mia' }))
+vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: brandState.assistantName, brand: { short_name: 'VERA', participant_role_term: 'Participant' } }) }))
 afterEach(cleanup)
 it('keeps the challenge’s core tasks visible and finance tools secondary', () => {
   const change = vi.fn(); const today = vi.fn()
@@ -65,4 +66,16 @@ it('restores Today focus after a pointer activation that does not focus buttons 
   fireEvent.keyDown(document, { key: 'Escape' })
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(document.activeElement).toBe(today)
+})
+it('uses a short Mia label in the tab bar and keeps visible and accessible names aligned', () => {
+  brandState.assistantName = 'Mia for Mrs. Mel BOG (QA)'
+  try {
+    render(<ParticipantTabs savingsChallenge sections={['Home', 'Ask Mia', 'Statements']} activeSection="Home" onChange={vi.fn()} />)
+    const nav = screen.getByRole('navigation')
+    expect(within(nav).getByRole('link', { name: 'Ask Mia for Mrs. Mel BOG (QA)' }).querySelector('.tabs-label-short')?.textContent).toBe('Mia')
+    const statements = within(nav).getByRole('link', { name: 'Statements' })
+    expect(statements.querySelector('.tabs-label-short')?.textContent).toBe('Statements')
+  } finally {
+    brandState.assistantName = 'Mia'
+  }
 })

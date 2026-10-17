@@ -18,6 +18,24 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     refute responder.send(:ungrounded_generic_financial_claim?, "Choose a time that works best for your monthly budget review.", context: context)
   end
 
+  test "persona previews ground an amount the sample question states, but real participants still need a label" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    question = "I set aside $20 this week. Does that count?"
+    reply = "Yes, putting $20 aside is a real step, so keep going."
+    preview_context = JSON.generate(Mia::PersonaPreviewer::PREVIEW_CONTEXT)
+    real_context = JSON.generate(metrics: {}, debts: { records: [] }, pending_review: [])
+
+    refute responder.send(:ungrounded_generic_financial_claim?, reply, context: preview_context, user_message: question)
+    assert responder.send(:ungrounded_generic_financial_claim?, reply, context: real_context, user_message: question)
+  end
+
+  test "persona previews still reject amounts that are not in the sample question" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    preview_context = JSON.generate(Mia::PersonaPreviewer::PREVIEW_CONTEXT)
+
+    assert responder.send(:ungrounded_generic_financial_claim?, "That brings you to $95 saved.", context: preview_context, user_message: "I set aside $20 this week.")
+  end
+
   test "uses the deterministic local response when provider capacity is full" do
     with_mia_provider_capacity_rejected do |call_sites|
       responder = Demo::MiaResponder.new(api_key: "test-key")
