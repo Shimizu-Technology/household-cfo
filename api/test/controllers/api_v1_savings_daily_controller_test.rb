@@ -102,6 +102,21 @@ class ApiV1SavingsDailyControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "an archived user-owned Everyday spending category is never revived by the default" do
+    with_daily_operations do
+      savings_enroll
+      archived = @savings_household.budget_categories.create!(name: "Everyday spending", stack_key: "sinking_expected", active: false)
+      draft = savings_run("daily.purchase.stage", { amount_cents: 700, merchant: "Cafe", purchased_on: @savings_enrollment.local_today.iso8601,
+        link_kind: "manual_new", expected_version_id: nil, expected_head_lock_version: 0 }).subject
+      archived.reload
+      assert_not archived.active
+      assert_equal "sinking_expected", archived.stack_key
+      used = @savings_household.budget_categories.find(draft.splits.sole.fetch("budget_category_id"))
+      assert_equal "Everyday spending (default)", used.name
+      assert_equal "discretionary", used.stack_key
+    end
+  end
+
   test "held challenge denies ordinary reads while self erasure and tombstone-only recovery remain available" do
     with_daily_operations do
       savings_enroll

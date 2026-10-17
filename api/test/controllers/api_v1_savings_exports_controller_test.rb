@@ -71,6 +71,19 @@ class ApiV1SavingsExportsControllerTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
   end
 
+  test "the paused self-export still refuses an archived cohort and a mismatched membership" do
+    @savings_cohort.update!(savings_challenge_release_hold: true)
+    @savings_cohort.update!(status: "archived")
+    get path, params: { include_reflections: "false" }, headers: auth(@savings_user)
+    assert_response :forbidden
+    @savings_cohort.update!(status: "active")
+    get path, params: { include_reflections: "false" }, headers: auth(@savings_user)
+    assert_response :success
+    @savings_membership.update_columns(created_at: @savings_membership.created_at + 1.day)
+    get path, params: { include_reflections: "false" }, headers: auth(@savings_user)
+    assert_response :forbidden
+  end
+
   test "private export includes only approved optional debt heads and immutable terms history" do
     with_savings_runtime do
       first = debt_approve(debt_stage)

@@ -42,12 +42,19 @@ module HouseholdFinance
           DEFAULT_CATEGORY_NAME = "Everyday spending"
 
           # The one plain category used when the participant does not pick one.
+          # An archived category the participant owns by that name is never revived
+          # (it keeps its own purpose and the participant chose to archive it): we
+          # file under a separate "Everyday spending (default)" instead.
           def default_category
-            existing = household.budget_categories.where("LOWER(name) = ?", DEFAULT_CATEGORY_NAME.downcase).first
-            return existing.tap { |category| category.update!(active: true) unless category.active? } if existing
+            [ DEFAULT_CATEGORY_NAME, "#{DEFAULT_CATEGORY_NAME} (default)" ].each do |name|
+              existing = household.budget_categories.where("LOWER(name) = ?", name.downcase).first
+              return existing if existing&.active?
+              next if existing
 
-            household.budget_categories.create!(name: DEFAULT_CATEGORY_NAME, stack_key: "discretionary", active: true,
-              sort_order: household.budget_categories.maximum(:sort_order).to_i + 1)
+              return household.budget_categories.create!(name: name, stack_key: "discretionary", active: true,
+                sort_order: household.budget_categories.maximum(:sort_order).to_i + 1)
+            end
+            raise ArgumentError, "Choose a category for this purchase"
           end
 
           def subject_for(input, lock:)

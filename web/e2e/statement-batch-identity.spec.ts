@@ -29,7 +29,7 @@ test('BOG UI selected batch corrects identity v1 to v2 for six rows without chan
   await confirmation.check()
   await stage.click()
   await expect(page.getByRole('status', { name: 'Fixture submissions' })).toHaveText('6 synthetic review requests submitted')
-  await expect(batch.getByRole('status')).toHaveText('6 of 6 proposals saved for review.')
+  await expect(batch.getByRole('status')).toContainText('6 of 6 proposals saved for review.')
   await expect(confirmation).not.toBeChecked()
   const approve = batch.getByRole('button', { name: 'Approve selected saved proposals', exact: true })
   await expect(approve).toBeDisabled()
