@@ -211,6 +211,17 @@ class ApiV1AdminPilotFeedbackReportsControllerTest < ActionDispatch::Integration
 
     assert_response :not_found
     assert_includes response.media_type, "application/json"
+    assert_not_includes response.body, "SELECT"
+    assert_not_includes response.body, "WHERE"
+    assert_not_includes response.body, "pilot_feedback_reports"
+  end
+
+  test "base controller fallback never echoes record lookup details" do
+    get "/api/v1/admin/mia_personas/999999", headers: auth_headers(@admin)
+
+    assert_response :not_found
+    assert_not_includes response.body, "SELECT"
+    assert_not_includes response.body, "WHERE"
   end
 
   private

@@ -228,7 +228,7 @@ module Api
             recheck_roster_authority!(workspace_id: workspace_id)
             validate_locked_invitation!(role: role, cohort_ids: cohort_ids)
             user = User.create!(
-              email: attributes[:email],
+              email: normalized_email(attributes[:email]),
               first_name: bounded_text(attributes[:first_name], 80),
               last_name: bounded_text(attributes[:last_name], 80),
               role: role,
@@ -296,12 +296,12 @@ module Api
               workspace_guard_error = "Switch to All workspaces / Platform because this user is now shared across workspaces"
               raise ActiveRecord::Rollback
             end
-            user.assign_attributes(
-              role: role,
-              invitation_status: target_status,
-              invited_at: Time.current,
-              invited_by_user: current_user
-            )
+            # Only a reactivation starts a new invitation. Re-submitting an
+            # email that is already invited must not reset invited_at; the
+            # explicit "Resend invitation" action is the way to send again.
+            already_invited = !was_revoked
+            user.assign_attributes(role: role, invitation_status: target_status)
+            user.assign_attributes(invited_at: Time.current, invited_by_user: current_user) unless already_invited
             user.first_name = bounded_text(attributes[:first_name], 80) if attributes[:first_name].present?
             user.last_name = bounded_text(attributes[:last_name], 80) if attributes[:last_name].present?
             user.accepted_at ||= Time.current if target_status == "accepted"
@@ -309,6 +309,11 @@ module Api
             sync_cohort_memberships(user, target_cohort_ids, role: cohort_role_for(role))
           end
           return render_forbidden(workspace_guard_error) if workspace_guard_error
+
+          unless was_revoked
+            skipped = { sent: false, status: "skipped", error: nil }
+            return render json: invite_response_payload(user.reload, skipped, created: false, reactivated: false).merge(already_invited: true), status: :ok
+          end
 
           invitation_result = send_invitation_email(user, requested: invitation_email_requested?(attributes))
           render json: invite_response_payload(user.reload, invitation_result, created: false, reactivated: was_revoked), status: :ok

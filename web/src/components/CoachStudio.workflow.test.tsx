@@ -85,6 +85,20 @@ describe('coach daily operation and assistant workflow', () => {
     expect(mocks.fetchAdminPersona).not.toHaveBeenCalled()
     expect(screen.queryByText('Participant access task')).toBeNull()
   })
+  it('tells an editor why Assign is disabled and links the reason to the button', async () => {
+    const published = { ...persona, status: 'published', has_unpublished_changes: false, published_version: { id: 1, number: 1 }, permissions: { ...persona.permissions, assign: false } } as unknown as AdminPersonaDetail
+    mocks.fetchAdminPersonas.mockResolvedValue([published]); mocks.fetchAdminPersona.mockResolvedValue(published)
+    mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{ id: 41, name: 'BOG challenge group', status: 'enrolling', assignable: true, blocked_reason: null, persona_assignment: null }])
+    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
+    await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    await screen.findByLabelText('Assistant name')
+    fireEvent.click(screen.getByRole('button', { name: 'Assign' }))
+    const assign = (await screen.findByText('BOG challenge group')).closest('article')!.querySelector('button')!
+    expect(assign.textContent).toBe('Assign')
+    expect(assign).toHaveProperty('disabled', true)
+    expect(document.getElementById(assign.getAttribute('aria-describedby') ?? '')?.textContent).toContain('Ask a program owner')
+  })
   it('loads assistant details on first voice visit and reuses them after a clean tab transition', async () => {
     render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
     await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))

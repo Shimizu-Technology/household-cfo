@@ -28,7 +28,6 @@ const sectionDescriptions: Record<string, string> = {
 const compactLabels: Record<string, string> = {
   'My Profile': 'Profile',
   'My Money': 'Money',
-  Statements: 'Uploads',
 }
 
 const sectionIconPaths: Record<string, string> = {
@@ -64,6 +63,13 @@ function ArrowIcon() {
       <path d="m9 5 7 7-7 7" />
     </svg>
   )
+}
+
+// A long branded assistant name ("Mia for Mrs. Mel BOG") is cut off in the
+// narrow tab bar, so the compact label keeps only its first word.
+function shortAssistantName(name: string) {
+  const trimmed = name.trim()
+  return trimmed.length <= 10 ? trimmed : trimmed.split(/\s+/)[0] || trimmed
 }
 
 function sectionHref(section: string) {
@@ -169,7 +175,7 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
   const sectionLabel = (section: string, compact = false) => {
     if (savingsChallenge && section === 'Home') return 'Savings'
     if (savingsChallenge && section === 'Review') return 'Transactions'
-    if (section === 'Ask Mia') return compact ? assistantName : `Ask ${assistantName}`
+    if (section === 'Ask Mia') return compact ? shortAssistantName(assistantName) : `Ask ${assistantName}`
     return compact ? compactLabels[section] ?? section : section
   }
 

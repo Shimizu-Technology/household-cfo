@@ -4,6 +4,7 @@ import {
   sendWorkspaceCollaboratorEmail, ApiRequestError, type CollaboratorDelivery, type WorkspaceCollaborator,
   type WorkspaceCollaboratorRole, type WorkspaceCollaboratorsPayload,
 } from '../api'
+import { shareableSignInUrl } from '../lib/signInLink'
 import { Button } from './Button'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 import './WorkspaceCollaborators.css'
@@ -149,6 +150,7 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
     setAttempt((value) => value + 1)
   }
 
+  const signInUrl = shareableSignInUrl(data?.sign_in_url)
   const activeOwnerCount = data?.members.filter((member) => member.role === 'owner' && member.status === 'accepted').length ?? 0
   return <article className="panel workspace-collaborators" aria-busy={Boolean(pending) || loading}>
     <header><div><p className="eyebrow">Your team</p><h3>Give collaborators the access they need.</h3><p>Team access controls coaching configuration. It does not share participant financial records.</p></div></header>
@@ -164,7 +166,7 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
         <Button type="submit" disabled={Boolean(pending) || !email.trim()}>{pending === 'add' ? 'Saving access' : 'Add collaborator'}</Button>
       </form>
       <p className="workspace-collaborator-help">New coaches sign in with their invited email. Existing coaches keep their account and other programs. An invited owner must sign in before they can replace your last active owner.</p>
-      {data.sign_in_url && <p className="workspace-collaborator-help">Sign-in link to share: <a href={data.sign_in_url} target="_blank" rel="noreferrer">{data.sign_in_url}</a></p>}
+      {signInUrl && <p className="workspace-collaborator-help">Sign-in link to share: <a href={signInUrl} target="_blank" rel="noreferrer">{signInUrl}</a></p>}
       <div className="workspace-collaborator-list">{data.members.map((member) => {
         const protectedOwner = member.role === 'owner' && (member.is_self || (member.status === 'accepted' && activeOwnerCount <= 1))
         return <section className="workspace-collaborator" key={member.id} aria-label={`${member.email} team access`}>

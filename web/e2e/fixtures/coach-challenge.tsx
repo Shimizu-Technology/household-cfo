@@ -52,11 +52,11 @@ window.fetch = async (input, init) => {
       : response({
           actor_scope: { user_id: 10, coach_workspace_id: 20 },
           cohort_id: 1,
-          records: [{ id: 4, checkpoint_day: 30, resolved_cutoff_on: '2026-11-30' }],
+          records: [{ id: 4, checkpoint_day: 30, resolved_cutoff_on: '2026-01-30' }],
           scheduled_checkpoints: [
-            { day: 30, cutoff_on: '2026-11-30' },
-            { day: 60, cutoff_on: '2026-12-30' },
-            { day: 90, cutoff_on: '2027-01-29' },
+            { day: 30, cutoff_on: '2026-01-30' },
+            { day: 60, cutoff_on: '2026-03-01' },
+            { day: 90, cutoff_on: '2026-03-31' },
           ],
           next_cursor: null,
         })

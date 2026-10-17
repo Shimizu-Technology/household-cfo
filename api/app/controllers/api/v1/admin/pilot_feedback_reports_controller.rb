@@ -171,8 +171,8 @@ module Api
           render json: { errors: [ "This feedback report could not be updated right now. Please try again." ] }, status: :service_unavailable
         end
 
-        def render_not_found(error)
-          render json: { errors: [ error.message ] }, status: :not_found
+        def render_not_found(_error = nil)
+          render json: { errors: [ "Feedback report not found" ], code: "not_found" }, status: :not_found
         end
       end
     end

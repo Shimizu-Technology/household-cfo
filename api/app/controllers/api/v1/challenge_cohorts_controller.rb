@@ -37,6 +37,9 @@ module Api
       end
 
       def approve_export
+        # Permission first, so a person who may not seal reports never learns
+        # anything about the request shape from a validation error.
+        ChallengePrivacy::Access.staff!(cohort, current_user, export: true)
         input = request.request_parameters.to_h
         raise ArgumentError, "Review a fixed checkpoint without filters" unless input.keys.sort == %w[accepted checkpoint_day] && input["accepted"] == true
         day = SavingsChallenge::Inputs.integer!(input["checkpoint_day"], minimum: 30, maximum: 90)

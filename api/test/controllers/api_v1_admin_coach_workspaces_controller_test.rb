@@ -142,7 +142,73 @@ class ApiV1AdminCoachWorkspacesControllerTest < ActionDispatch::IntegrationTest
     controller&.send(:remove_method, :require_admin!)
   end
 
+  test "admin can name an existing coach as owner and keeps platform authority" do
+    admin = user("admin")
+    coach = user("coach")
+    post "/api/v1/admin/coach_workspaces", params: with_owner(settings("Mel program"), coach.email.upcase), headers: headers(admin), as: :json
+    assert_response :created
+    record = CoachWorkspace.find(response.parsed_body.dig("coach_workspace", "id"))
+    assert_equal "owner", record.membership_for(coach).role
+    assert_nil record.membership_for(admin)
+    assert_nil response.parsed_body["owner_invitation"]
+
+    get endpoint(record), headers: headers(admin)
+    assert_response :success
+    assert_equal true, response.parsed_body.dig("coach_workspace", "permissions", "manage")
+    get endpoint(record), headers: headers(coach)
+    assert_equal true, response.parsed_body.dig("coach_workspace", "permissions", "manage")
+  end
+
+  test "naming an unknown email invites a pending coach as owner" do
+    admin = user("admin")
+    assert_difference "User.count", 1 do
+      post "/api/v1/admin/coach_workspaces", params: with_owner(settings("Invite program"), " New.Coach@Example.test "), headers: headers(admin), as: :json
+    end
+    assert_response :created
+    invited = User.find_by!("LOWER(email) = ?", "new.coach@example.test")
+    assert_equal "coach", invited.role
+    assert_equal "pending", invited.invitation_status
+    record = CoachWorkspace.find(response.parsed_body.dig("coach_workspace", "id"))
+    assert_equal "owner", record.membership_for(invited).role
+    assert_equal "new.coach@example.test", response.parsed_body.dig("owner_invitation", "email")
+  end
+
+  test "owner that cannot own a program is a plain error and creates nothing" do
+    admin = user("admin")
+    participant = user("participant")
+    revoked = user("coach")
+    revoked.update!(invitation_status: "revoked")
+    [ participant.email, revoked.email, "not-an-email" ].each do |email|
+      assert_no_difference [ "CoachWorkspace.count", "User.count" ] do
+        post "/api/v1/admin/coach_workspaces", params: with_owner(settings("Bad owner"), email), headers: headers(admin), as: :json
+      end
+      assert_response :unprocessable_entity
+      assert_equal "coach_workspace_owner_invalid", response.parsed_body["code"]
+    end
+  end
+
+  test "owner email is part of the creation fingerprint" do
+    admin = user("admin")
+    coach = user("coach")
+    request_headers = headers(admin).merge("Idempotency-Key" => SecureRandom.uuid)
+    post "/api/v1/admin/coach_workspaces", params: with_owner(settings("Same"), coach.email), headers: request_headers, as: :json
+    assert_response :created
+    id = response.parsed_body.dig("coach_workspace", "id")
+    post "/api/v1/admin/coach_workspaces", params: with_owner(settings("Same"), coach.email.upcase), headers: request_headers, as: :json
+    assert_response :success
+    assert_equal id, response.parsed_body.dig("coach_workspace", "id")
+    post "/api/v1/admin/coach_workspaces", params: settings("Same"), headers: request_headers, as: :json
+    assert_response :conflict
+    post "/api/v1/admin/coach_workspaces", params: with_owner(settings("Same"), user("coach").email), headers: request_headers, as: :json
+    assert_response :conflict
+  end
+
   private
+
+  def with_owner(payload, email)
+    payload[:coach_workspace][:owner_email] = email
+    payload
+  end
 
   def user(role)
     User.create!(clerk_id: "settings-#{SecureRandom.uuid}", email: "#{SecureRandom.hex(6)}@example.test", role: role)

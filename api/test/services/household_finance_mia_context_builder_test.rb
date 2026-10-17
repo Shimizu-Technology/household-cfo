@@ -43,6 +43,28 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     assert_includes payload.dig("available_product_modules", "safety_note"), "enabled modules"
   end
 
+  test "unknown safe-to-spend stays null and the context says unknown is not zero" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "context-unknown@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Nothing entered")
+
+    payload = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household).call)
+
+    assert_nil payload.dig("metrics", "safe_to_spend")
+    assert_includes payload.fetch("unknown_values_rule"), "Never describe an unknown amount as $0"
+    assert_nil payload.fetch("program")
+  end
+
+  test "savings challenge context says a full budget is optional" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "context-challenge@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Challenge household")
+    capabilities = { experience_mode: "savings_challenge", modules: [ { id: "home", enabled: true } ] }
+
+    payload = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household, experience_capabilities: capabilities).call)
+
+    assert_equal true, payload.dig("program", "full_budget_optional")
+    assert_includes payload.dig("program", "coaching_note"), "Do not ask them to add their monthly income"
+  end
+
   test "serializes user-controlled household text as bounded untrusted JSON data" do
     user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",

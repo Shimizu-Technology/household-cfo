@@ -28,6 +28,7 @@ module Mia
     HOPELESS_OPENING = "That sounds really heavy, and you do not have to fix all of it tonight.".freeze
     HOPELESS_DEBT_STEP = "One next step for this week: keep the minimum payments current, and tell me which bill feels heaviest so we can look at it together.".freeze
     HOPELESS_STEP = "One next step for this week: tell me which bill feels heaviest, and we will look at it together.".freeze
+    HOPELESS_CHALLENGE_STEP = "One small step for this week: set aside any amount that feels doable, even a small one, or tell me what feels hardest about saving and we will look at it together. A smaller or later target is always okay.".freeze
     NEXT_MOVES = {
       readiness: "Ask me what is holding readiness back, and I’ll walk through runway and surplus with you.",
       debt: "Keep every minimum payment current, and ask me to compare payoff options when you are ready.",
@@ -76,6 +77,10 @@ module Mia
     # Minimum payments come up only when a positive debt balance is saved.
     def hopeless_reply
       owes = debt_owed?
+      # In the savings challenge a full budget is optional: skip the setup
+      # status and give a challenge-sized next step.
+      return [ HOPELESS_OPENING, owes ? debt_fact : nil, owes ? HOPELESS_DEBT_STEP : HOPELESS_CHALLENGE_STEP ].compact.join(" ") if challenge?
+
       [ HOPELESS_OPENING, owes ? debt_fact : general_fact, owes ? HOPELESS_DEBT_STEP : HOPELESS_STEP ].compact.join(" ")
     end
 
@@ -112,6 +117,10 @@ module Mia
       runway = runway_months
       sentence = meaning ? "Your readiness is #{color}: #{meaning}." : "Your readiness is #{color}."
       runway ? "#{sentence.delete_suffix('.')}, with #{runway} months of runway." : sentence
+    end
+
+    def challenge?
+      @payload.dig("program", "experience_mode") == "savings_challenge"
     end
 
     def debt_total

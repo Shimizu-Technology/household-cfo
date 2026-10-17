@@ -310,7 +310,9 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
         cohort_id: cohortId || undefined,
         send_invitation_email: inviteDraft.send_invitation_email ?? true,
       })
-      setNotice(`${response.user.email} ${inviteActionNotice(response)}${cohortId ? ' and assigned to the selected cohort' : ' as an admin'}. ${inviteDeliveryNotice(response)}`)
+      setNotice(response.already_invited
+        ? `${response.user.email} is already ${response.user.invitation_status === 'accepted' ? 'signed up' : 'invited'}, so nothing was sent again.${response.user.invitation_status === 'pending' ? ' Use Resend email on their row if they need another email.' : ''}`
+        : `${response.user.email} ${inviteActionNotice(response)}${cohortId ? ' and assigned to the selected cohort' : ' as an admin'}. ${inviteDeliveryNotice(response)}`)
       setInviteDraft({ email: '', role: 'participant', cohort_id: selectedCohortId ? String(selectedCohortId) : '', send_invitation_email: true })
       await loadAdminData()
     } catch (caught) {

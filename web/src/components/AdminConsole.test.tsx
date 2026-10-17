@@ -143,6 +143,19 @@ describe('staff operation hierarchy', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cohorts' }))
     expect(cohortName).toHaveProperty('value', 'Draft BOG cohort name')
   }, 15_000)
+  it('says an email is already invited instead of reporting an update', async () => {
+    const pending = { ...people[15], invitation_status: 'pending' } as AdminUser
+    mocks.createAdminUser.mockResolvedValue({ user: pending, created: false, reactivated: false, already_invited: true, invitation_sent: false, invitation_status: 'skipped' })
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findAllByText('Participant 00')
+    const form = screen.getByRole('button', { name: 'Create invite' }).closest('form')!
+    fireEvent.change(within(form).getByLabelText(/Email/), { target: { value: pending.email } })
+    fireEvent.submit(form)
+    const notice = await screen.findByText(/is already invited/)
+    expect(notice.textContent).toContain('nothing was sent again')
+    expect(notice.textContent).toContain('Resend email')
+    expect(notice.textContent).not.toContain('was updated')
+  })
   it('prevents a concurrent invite from superseding a participant save and its refresh', async () => {
     render(<AdminConsole currentUser={actor} />)
     await screen.findAllByText('Participant 00')

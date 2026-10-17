@@ -39,6 +39,17 @@ class ApiV1ChallengeCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
   end
 
+  test "a person who may not seal reports gets 403 before any validation error" do
+    admin = User.create!(clerk_id: SecureRandom.uuid, email: "seal-denied-#{SecureRandom.hex(4)}@example.com", role: "admin", invitation_status: "accepted")
+    [ { checkpoint_day: 30, accepted: true, department: "one person" }, { checkpoint_day: 7 }, {} ].each do |input|
+      post path("sponsor_exports"), params: input, headers: auth(admin), as: :json
+      assert_response :forbidden
+    end
+    CoachWorkspaceMembership.find_by!(user: @savings_owner).update!(role: "editor")
+    post path("sponsor_exports"), params: { checkpoint_day: 7 }, headers: auth(@savings_owner), as: :json
+    assert_response :forbidden
+  end
+
   test "fixed report explicit approval is repeatable suppressed and rejects filters and consent changes" do
     travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 30, 12)
     input = { checkpoint_day: 30, accepted: true }
