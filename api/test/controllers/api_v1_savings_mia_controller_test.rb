@@ -106,6 +106,26 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_not_includes response.parsed_body.dig("assistant_message", "content"), "988"
   end
 
+  test "hopeless language with food or essentials keeps food-first guidance and the 988 line without the model" do
+    ENV["OPENROUTER_API_KEY"] = "fictional-key"
+    HouseholdFinance::MiaNarrator.class_eval { alias_method :__orig_openrouter2, :openrouter_response; define_method(:openrouter_response) { $model_calls_in_test2 = $model_calls_in_test2.to_i + 1; nil } }
+    $model_calls_in_test2 = 0
+    begin
+      post "/api/v1/mia/messages", params: { message: "We have no food this week and I give up", request_id: "food-hopeless" }, headers: auth, as: :json
+      assert_response :created
+      content = response.parsed_body.dig("assistant_message", "content")
+      assert_includes content, "Food comes first"
+      assert_equal 1, content.scan("988").length, content
+      post "/api/v1/mia/messages", params: { message: "i give up, i cannot afford rent", request_id: "rent-hopeless" }, headers: auth, as: :json
+      content = response.parsed_body.dig("assistant_message", "content")
+      assert_includes content, "Protect food, housing"
+      assert_equal 1, content.scan("988").length, content
+      assert_equal 0, $model_calls_in_test2
+    ensure
+      HouseholdFinance::MiaNarrator.class_eval { alias_method :openrouter_response, :__orig_openrouter2 }
+    end
+  end
+
   test "debt free and optional feelings need no setup while hold blocks ordinary chat" do
     [ [ "I do not have credit cards", "without credit cards or debt" ], [ "I feel guilty", "leave feelings blank" ], [ "I bought lunch yesterday", "amount, where and date" ] ].each_with_index do |(message, expected), index|
       post "/api/v1/mia/messages", params: { message: message, request_id: "savings-topic-#{index}" }, headers: auth, as: :json

@@ -282,4 +282,38 @@ class SavingsOptionalDebtTest < ActiveSupport::TestCase
       end
     end
   end
+  test "loan payments, borrowing from savings and extra-savings questions are not loan or card-ranking questions" do
+    with_savings_runtime do
+      savings_enroll
+      debt_approve(debt_stage(debt_terms(label: "Visa")))
+      [ "Does my car loan payment count toward the challenge?", "Will borrowing from my savings affect the challenge?" ].each do |message|
+        answer = coach(message).call
+        assert_not_includes answer, "personal savings practice", message
+        assert_not_includes answer, "Start with one purchase", message
+      end
+      assert_includes coach("Will borrowing from my savings affect the challenge?").call, "progress is unknown"
+      extra = coach("How much extra should I save each week to reach my goal?")
+      answer = extra.call
+      assert_not extra.deterministic?
+      assert_not_includes answer, "cannot rank your cards"
+      assert_includes answer, "progress is unknown"
+    end
+  end
+
+  test "paid-off and zero-balance cards are left out of balance and ranking answers" do
+    with_savings_runtime do
+      savings_enroll
+      debt_approve(debt_stage(debt_terms(label: "Old card", balance_cents: 0, apr_bps: 2999, minimum_payment_cents: 0, status: "paid_off")))
+      debt_approve(debt_stage(debt_terms(label: "Zero card", balance_cents: 0)))
+      answer = coach("How much do I owe on my card?").call
+      assert_includes answer, "not approved any optional card with a balance"
+      assert_not_includes answer, "Old card"
+      assert_not_includes answer, "Zero card"
+      debt_approve(debt_stage(debt_terms(label: "Visa", balance_cents: 30_000)))
+      assert_not_includes coach("How much do I owe on my card?").call, "Old card"
+      ranking = coach("which card first and how much extra should I pay?").call
+      assert_includes ranking, "cannot rank your cards"
+      assert_includes coach("how much extra should I pay on my card").call, "cannot rank your cards"
+    end
+  end
 end
