@@ -4,8 +4,8 @@ module Mia
   class ActionDraftScope
     Mismatch = Class.new(ArgumentError)
 
-    def self.records(relation, user:, membership:)
-      selected = SavingsChallenge::ProgramMode.scope_cohort_id(user: user, membership: membership)
+    def self.records(relation, user:, membership:, runtime: nil)
+      selected = SavingsChallenge::ProgramMode.scope_cohort_id(user: user, membership: membership, runtime: runtime)
       joined = relation.left_outer_joins(source_chat_message: :chat_session)
       stored = "mia_action_drafts.metadata->'review_program_scope'"
       no_stored_scope = "NOT COALESCE(#{stored} ? 'cohort_id', FALSE)"
@@ -17,25 +17,25 @@ module Mia
       end
     end
 
-    def self.reviews(household:, user:, membership:, year:, limit:)
-      records(household.mia_action_drafts.reviewable.for_budget_year(year), user: user, membership: membership)
+    def self.reviews(household:, user:, membership:, year:, limit:, runtime: nil)
+      records(household.mia_action_drafts.reviewable.for_budget_year(year), user: user, membership: membership, runtime: runtime)
         .includes(:mia_action_items).recent_first.limit(limit)
         .map { |draft| HouseholdFinance::MiaActionDraftPresenter.new(draft).call }
     end
-    def self.visible?(draft, user:, membership:)
+    def self.visible?(draft, user:, membership:, runtime: nil)
       origin = draft.source_chat_message&.chat_session
       saved = draft.metadata.to_h["review_program_scope"].to_h
       origin_cohort_id = saved.key?("cohort_id") ? saved["cohort_id"] : origin&.cohort_id
       origin_user_id = saved.key?("user_id") ? saved["user_id"] : origin&.user_id
-      selected = SavingsChallenge::ProgramMode.scope_cohort_id(user: user, membership: membership)
+      selected = SavingsChallenge::ProgramMode.scope_cohort_id(user: user, membership: membership, runtime: runtime)
       origin_cohort_id == selected && (!selected || origin_user_id == user&.id)
     end
 
-    def self.authorize!(draft, user:, membership:)
-      unless visible?(draft, user: user, membership: membership)
+    def self.authorize!(draft, user:, membership:, runtime: nil)
+      unless visible?(draft, user: user, membership: membership, runtime: runtime)
         raise Mismatch, "Open the program where Mia prepared this review card. Nothing changed."
       end
-      return unless SavingsChallenge::ProgramMode.savings?(user: user, membership: membership)
+      return unless SavingsChallenge::ProgramMode.savings?(user: user, membership: membership, runtime: runtime)
 
       ChatSessionScope.new(household: draft.household, user: user, membership: membership).authorize!
     end

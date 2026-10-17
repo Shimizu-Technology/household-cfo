@@ -196,7 +196,8 @@ module Api
         conversation_context = HouseholdFinance::DocumentEvidenceContinuity.without_evidence(conversation_context) if retire_prior_document_evidence
         intent_plan = intent_plan.merge(pending_mia_action_drafts: ::Mia::ActionDraftScope.reviews(
           household: current_household, user: current_user, membership: current_cohort_membership,
-          year: intent_plan.fetch(:year), limit: HouseholdFinance::MiaIntentContextBuilder::MAX_PENDING_DRAFTS))
+          year: intent_plan.fetch(:year), limit: HouseholdFinance::MiaIntentContextBuilder::MAX_PENDING_DRAFTS,
+          runtime: current_participant_runtime))
         intent_context = HouseholdFinance::MiaIntentContextBuilder.new(
           current_household,
           annual_plan: intent_plan,
@@ -314,7 +315,7 @@ module Api
           assistant_presentation: assistant_presentation
         )
         mia_action_draft = action_result&.existing_draft || persist_mia_action_draft(action_result, user_message, assistant_message)
-        if mia_action_draft && !::Mia::ActionDraftScope.visible?(mia_action_draft, user: current_user, membership: current_cohort_membership)
+        if mia_action_draft && !::Mia::ActionDraftScope.visible?(mia_action_draft, user: current_user, membership: current_cohort_membership, runtime: current_participant_runtime)
           mia_action_draft = nil
           assistant_message.update!(content: with_wellbeing_check(content, "Open the program where Mia prepared that review card. Nothing changed."))
         end

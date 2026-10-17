@@ -285,7 +285,8 @@ module Api
           persona: current_persona,
           cohort_membership: current_cohort_membership,
           experience_capabilities: current_experience_capabilities,
-          brand: current_brand
+          brand: current_brand,
+          runtime: current_participant_runtime
         )
       end
     end
