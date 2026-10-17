@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_16_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_17_130000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -1472,6 +1472,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_120000) do
   create_table "cohort_memberships", force: :cascade do |t|
     t.bigint "cohort_id", null: false
     t.datetime "created_at", null: false
+    t.boolean "owner_managed", default: false, null: false
     t.string "role", default: "participant", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false

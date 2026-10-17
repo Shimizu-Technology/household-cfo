@@ -57,6 +57,7 @@ module CoachWorkspaces
     def change(id:, role:, expected_role:)
       validate_role!(role)
       promoted = nil
+      demoted = nil
       serialized = with_authorized_workspace(subject_ids: -> { [ workspace.coach_workspace_memberships.find(id).user_id ] }) do |users|
         membership = workspace.coach_workspace_memberships.lock.find(id)
         membership.user = users.fetch(membership.user_id)
@@ -64,11 +65,13 @@ module CoachWorkspaces
         protect_access!(membership, next_role: role)
         before_role = membership.role
         promoted = membership.user if role == "owner" && before_role != "owner"
+        demoted = membership.user if before_role == "owner" && role != "owner"
         membership.update!(role: role, cohort_managed: false)
         record_event!(membership.user, "role_changed", before_role: before_role, after_role: role) if before_role != role
         serialize(membership)
       end
       OwnerCohortAccess.for_owner!(workspace, promoted) if promoted
+      OwnerCohortAccess.revoke!(workspace, demoted) if demoted
       serialized
     end
 

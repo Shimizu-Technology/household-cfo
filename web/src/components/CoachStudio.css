@@ -2725,3 +2725,8 @@
   font-size: 0.8125rem;
   line-height: 1.35;
 }
+
+.coach-active-program {
+  margin: 0.25rem 0 0;
+  color: var(--muted, #5f5a55);
+}

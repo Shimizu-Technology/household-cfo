@@ -71,6 +71,39 @@ class ApiV1ChallengeCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_not CohortMembership.exists?(cohort: archived, user: mel)
   end
 
+  test "demoting an owner removes only the auto-granted coach rows, never manual ones" do
+    admin = User.create!(clerk_id: SecureRandom.uuid, email: "demote-admin-#{SecureRandom.hex(4)}@example.com", role: "admin", invitation_status: "accepted")
+    mel = User.create!(clerk_id: SecureRandom.uuid, email: "demote-mel-#{SecureRandom.hex(4)}@example.com", role: "coach", invitation_status: "accepted")
+    manual = User.create!(clerk_id: SecureRandom.uuid, email: "demote-manual-#{SecureRandom.hex(4)}@example.com", role: "coach", invitation_status: "accepted")
+    workspace = CoachWorkspace.create!(name: "Demote", slug: "demote-#{SecureRandom.hex(4)}", created_by_user: admin)
+    group = Cohort.create!(name: "Demote group", status: "enrolling", created_by_user: admin, coach_workspace: workspace)
+    collaborators = CoachWorkspaces::Collaborators.new(workspace: workspace, actor: admin)
+
+    keeper = User.create!(clerk_id: SecureRandom.uuid, email: "demote-keeper-#{SecureRandom.hex(4)}@example.com", role: "coach", invitation_status: "accepted")
+    collaborators.add(email: keeper.email, role: "owner")
+    collaborators.add(email: mel.email, role: "owner")
+    assert CohortMembership.find_by!(cohort: group, user: mel).owner_managed?
+    get "/api/v1/challenge_cohorts/#{group.id}/participants", headers: auth(mel)
+    assert_response :success
+
+    %w[editor viewer].each do |role|
+      current = workspace.coach_workspace_memberships.find_by!(user: mel)
+      collaborators.change(id: current.id, role: "owner", expected_role: current.role) unless current.role == "owner"
+      assert CohortMembership.exists?(cohort: group, user: mel)
+      collaborators.change(id: workspace.coach_workspace_memberships.find_by!(user: mel).id, role: role, expected_role: "owner")
+      assert_not CohortMembership.exists?(cohort: group, user: mel), role
+      get "/api/v1/challenge_cohorts/#{group.id}/participants", headers: auth(mel)
+      assert_response :forbidden
+    end
+
+    CohortMembership.create!(cohort: group, user: manual, role: "coach")
+    manual_member = workspace.coach_workspace_memberships.find_by!(user: manual)
+    collaborators.change(id: manual_member.id, role: "owner", expected_role: manual_member.role)
+    assert_not CohortMembership.find_by!(cohort: group, user: manual).owner_managed?
+    collaborators.change(id: manual_member.id, role: "viewer", expected_role: "owner")
+    assert CohortMembership.exists?(cohort: group, user: manual, role: "coach")
+  end
+
   test "a person who may not seal reports gets 403 before any validation error" do
     admin = User.create!(clerk_id: SecureRandom.uuid, email: "seal-denied-#{SecureRandom.hex(4)}@example.com", role: "admin", invitation_status: "accepted")
     [ { checkpoint_day: 30, accepted: true, department: "one person" }, { checkpoint_day: 7 }, {} ].each do |input|

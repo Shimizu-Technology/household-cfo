@@ -101,6 +101,7 @@ describe('program settings', () => {
     await user.click(screen.getByRole('button', { name: 'Create program' }))
     await user.type(screen.getByLabelText('Workspace name'), 'Island program')
     await user.type(screen.getByLabelText('Coach display name'), 'Mrs. Mel')
+    expect(screen.getByText(/Double-check this email: the owner will see this program's participant roster/)).toBeTruthy()
     await user.type(screen.getByLabelText(/Program owner email/), ' mel@example.test ')
     await user.click(screen.getByRole('button', { name: 'Create program' }))
     expect((await screen.findByRole('status')).textContent).toContain('mel@example.test was invited as its owner and emailed')

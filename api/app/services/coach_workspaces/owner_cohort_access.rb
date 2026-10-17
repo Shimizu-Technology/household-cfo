@@ -21,6 +21,13 @@ module CoachWorkspaces
       workspace.cohorts.where.not(status: "archived").find_each { |cohort| ensure_coach!(cohort, user) }
     end
 
+    # Undo only the rows granted by ownership; manually assigned coach rows stay.
+    def revoke!(workspace, user)
+      CohortMembership.joins(:cohort)
+        .where(user_id: user.id, owner_managed: true, cohorts: { coach_workspace_id: workspace.id })
+        .find_each(&:destroy!)
+    end
+
     def owner_coaches(workspace)
       workspace.coach_workspace_memberships.where(role: "owner").includes(:user).map(&:user).select(&:coach?)
     end
@@ -28,7 +35,7 @@ module CoachWorkspaces
     def ensure_coach!(cohort, user)
       return if CohortMembership.exists?(cohort_id: cohort.id, user_id: user.id)
 
-      CohortMembership.create!(cohort: cohort, user: user, role: "coach")
+      CohortMembership.create!(cohort: cohort, user: user, role: "coach", owner_managed: true)
     end
   end
 end

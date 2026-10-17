@@ -34,6 +34,10 @@ npm audit --audit-level=moderate
 
 Inspect the target head's CI/reviewer requirements again; these commands do not substitute for required checks. Use the supported repository Ruby/Node versions and an explicitly owned browser server. A mock browser pass is not deployed auth/provider proof.
 
+## Naming a program owner
+
+When a platform admin creates a program, the optional owner email makes that coach the program's Owner, and the owner is added as coach of each non-archived group in the program (and of groups created later). A coach who has not signed in yet gets these rows immediately, so double-check the email: the owner will see the program's participant roster once they sign in. Demoting or removing an owner removes only the group-coach rows granted by ownership; manually assigned coach rows stay. Platform admins never see the challenge roster through this path.
+
 ## Hold and rollback
 
 The current participant guard checks `savings_challenge_enabled`, `savings_challenge_release_hold`, current role/membership and the sealed savings release on every new financial operation/read (`api/app/services/savings_challenge/access_policy.rb:22`). Existing prepared-operation replay also reauthorizes. Hold denies new financial activity; self-only privacy revocation, reminder disable/dismissal and reflection erasure are deliberately available without granting financial reads.

@@ -750,6 +750,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         <div>
           <p className="eyebrow">Coach Studio</p>
           <h2 data-page-heading tabIndex={-1}>Your coaching workspace.</h2>
+          {currentUser.is_admin && <p className="coach-active-program" role="status">{activeWorkspaceId === null
+            ? 'Viewing all programs. Choose one below to work in it.'
+            : <>Working in <strong>{workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.name ?? 'the selected program'}</strong></>}</p>}
         </div>
         <div className="coach-workspace-heading-tools">
           <p>Start with participant check-ins and help. Program and assistant settings are available when you need them.</p>

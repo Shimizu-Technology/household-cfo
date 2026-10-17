@@ -294,10 +294,12 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
     run = Mia::PersonaRelease::Runner.new(persona: persona, actor: admin).call!
 
     assert workspace.self_review_authority?(admin)
+    assert_equal true, Mia::PersonaRelease::Readiness.new(persona: persona, actor: admin).call.fetch(:permissions).fetch(:sole_owner_self_review)
     assert approve(run, admin).self_review?
 
     workspace.coach_workspace_memberships.create!(user: mel, role: "owner")
     refute workspace.self_review_authority?(admin)
+    assert_equal false, Mia::PersonaRelease::Readiness.new(persona: persona, actor: admin).call.fetch(:permissions).fetch(:sole_owner_self_review)
     refute workspace.self_review_authority?(mel) && workspace.coach_workspace_memberships.where(role: "owner").count == 1
     run2 = Mia::PersonaRelease::Runner.new(persona: persona, actor: admin).call!
     error = assert_raises(Mia::PersonaRelease::RunApprover::Error) { approve(run2, admin) }
