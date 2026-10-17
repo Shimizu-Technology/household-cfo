@@ -1,7 +1,7 @@
 import { checkedSavingsChallenge } from './lib/savingsChallenge'
 import type { SavingsChallenge, SavingsEnrollment, SavingsPlanVersion, SavingsPlanDraft, SavingsEntry, SavingsEntryDraft, SavingsEntryVersion, SavingsPage, SavingsMutation, SavingsPlanInput, SavingsPlanApproval, SavingsEntryInput, SavingsEntryApproval } from './lib/savingsChallenge'
 import type { SourceReviewAction, TrackedSourceAccount, ReviewedRow } from './lib/participantSourceReview'
-import type { SourceReview, SourceReviewFilter } from './lib/sourceReview'
+import type { SourceEvent, SourceReview, SourceReviewFilter } from './lib/sourceReview'
 export type WorkspaceSetupValues = {
   household_name: string
   primary_goal: string
@@ -3517,6 +3517,10 @@ export type PlaidTransaction = {
   amount_cents: number
   pending: boolean
   direction: 'outflow' | 'inflow'
+  /** Same movement vocabulary as statement rows; only purchase, fee and interest count as spending. */
+  movement_type?: SourceEvent['event_type']
+  counts_as_spending?: boolean
+  review_note?: string | null
   primary_category: string | null
   detailed_category: string | null
   review_status: 'unreviewed' | 'drafted' | 'ignored'
@@ -3526,17 +3530,19 @@ export type PlaidTransaction = {
   confirmed_transaction_id: number | null
   confirmed_amount_cents: number | null
   category_names: string[]
-  trust_state: 'bank_observed' | 'needs_review' | 'confirmed' | 'excluded' | 'bank_pending' | 'money_in' | 'source_changed'
+  trust_state: 'bank_observed' | 'needs_review' | 'confirmed' | 'excluded' | 'bank_pending' | 'money_in' | 'source_changed' | 'not_spending'
   removed: boolean
   source_changed_after_draft: boolean
 }
 
-export type PlaidActivityView = 'all' | 'needs_review' | 'confirmed' | 'excluded' | 'pending' | 'inflow'
+export type PlaidActivityView = 'all' | 'needs_review' | 'confirmed' | 'excluded' | 'pending' | 'inflow' | 'not_spending'
 
 export type PlaidActivitySummary = {
   all_count: number
   posted_outflow_count: number
   posted_outflow_cents: number
+  not_counted_as_spending_count?: number
+  not_counted_as_spending_cents?: number
   pending_count: number
   pending_cents: number
   inflow_count: number

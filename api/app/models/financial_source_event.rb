@@ -1,6 +1,9 @@
 class FinancialSourceEvent < ApplicationRecord
   KINDS = %w[posted informational unresolved].freeze
   TYPES = %w[purchase fee refund income transfer debt_payment cash_withdrawal interest adjustment unknown].freeze
+  # Only these movement types are household spending; transfers, card/debt
+  # payments, income, refunds and cash withdrawals are not counted as spending.
+  EXPENSE_TYPES = %w[purchase fee interest].freeze
   belongs_to :household
   belongs_to :financial_extraction_revision
   belongs_to :financial_source_account
@@ -18,7 +21,7 @@ class FinancialSourceEvent < ApplicationRecord
   end
 
   def expense_projection_eligible?
-    row_kind == "posted" && event_type.in?(%w[purchase fee interest]) && posted_on.present? && signed_amount_cents.to_i.negative? && expense_amount_cents.to_i.positive? && limitations.empty?
+    row_kind == "posted" && event_type.in?(EXPENSE_TYPES) && posted_on.present? && signed_amount_cents.to_i.negative? && expense_amount_cents.to_i.positive? && limitations.empty?
   end
 
   private

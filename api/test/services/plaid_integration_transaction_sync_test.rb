@@ -39,6 +39,25 @@ class PlaidIntegrationTransactionSyncTest < ActiveSupport::TestCase
     refute @item.plaid_transactions.column_names.any? { |name| name.include?("payload") || name.include?("location") }
   end
 
+  test "syncs transfers and card payments into bank activity without queuing them as spending" do
+    card_payment = plaid_transaction("txn-card", 2_078.50, name: "AUTOMATIC PAYMENT - THANK", primary: "LOAN_PAYMENTS", detailed: "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
+    cd_deposit = plaid_transaction("txn-cd", 1_000, name: "CD DEPOSIT .INITIAL.", primary: "TRANSFER_OUT", detailed: "TRANSFER_OUT_ACCOUNT_TRANSFER")
+    fee = plaid_transaction("txn-fee", 25, name: "OVERDRAFT FEE", primary: "BANK_FEES", detailed: "BANK_FEES_OVERDRAFT_FEES")
+    account = bank_account_response(100)
+    fake = Object.new
+    fake.define_singleton_method(:accounts_get) { |_request| OpenStruct.new(accounts: [ account ]) }
+    fake.define_singleton_method(:transactions_sync) { |_request| OpenStruct.new(added: [ card_payment, cd_deposit, fee ], modified: [], removed: [], next_cursor: "cursor", has_more: false) }
+
+    with_client(fake) { PlaidIntegration::TransactionSync.new(@item).call }
+
+    drafts = @household.transaction_drafts.pending.where(source_type: "plaid")
+    assert_equal [ "OVERDRAFT FEE" ], drafts.pluck(:merchant)
+    movements = @item.plaid_transactions.where(plaid_transaction_id: %w[txn-card txn-cd]).to_a
+    assert_equal %w[unreviewed unreviewed], movements.map(&:review_status)
+    assert_equal %w[debt_payment transfer], movements.map(&:movement_type).sort
+    assert movements.none?(&:stageable?)
+  end
+
   test "keeps the cursor retryable and records a safe error when a transaction account is unavailable" do
     account = OpenStruct.new(
       account_id: "account-1", persistent_account_id: nil, name: "Checking", official_name: nil, mask: "4321", type: "depository", subtype: "checking",
@@ -156,10 +175,10 @@ class PlaidIntegrationTransactionSyncTest < ActiveSupport::TestCase
     singleton.define_method(:safely, original)
   end
 
-  def plaid_transaction(id, amount)
+  def plaid_transaction(id, amount, name: "Merchant", primary: "FOOD_AND_DRINK", detailed: "FOOD_AND_DRINK_GROCERIES")
     OpenStruct.new(
-      transaction_id: id, account_id: "account-1", pending_transaction_id: nil, name: "Merchant", merchant_name: "Merchant", date: Date.new(2026, 7, 10), authorized_date: nil,
-      amount: amount, pending: false, personal_finance_category: OpenStruct.new(primary: "FOOD_AND_DRINK", detailed: "FOOD_AND_DRINK_GROCERIES"), payment_channel: "in store", iso_currency_code: "USD"
+      transaction_id: id, account_id: "account-1", pending_transaction_id: nil, name: name, merchant_name: name, date: Date.new(2026, 7, 10), authorized_date: nil,
+      amount: amount, pending: false, personal_finance_category: OpenStruct.new(primary: primary, detailed: detailed), payment_channel: "in store", iso_currency_code: "USD"
     )
   end
 end

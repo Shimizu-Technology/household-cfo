@@ -1,6 +1,16 @@
 module PlaidIntegration
   class TransactionStager
     Result = Data.define(:drafts, :errors)
+    # Plaid detailed categories specific enough to suggest a household category.
+    # Broad ones (for example TRANSPORTATION_TAXIS_AND_RIDE_SHARES or
+    # GENERAL_MERCHANDISE_*) stay "Needs category" unless the household's own
+    # confirmed merchant history decides.
+    STRONG_CATEGORY_SIGNALS = %w[
+      FOOD_AND_DRINK_COFFEE FOOD_AND_DRINK_FAST_FOOD FOOD_AND_DRINK_GROCERIES FOOD_AND_DRINK_RESTAURANT
+      TRANSPORTATION_GAS GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT GENERAL_MERCHANDISE_TOBACCO_AND_VAPE
+      MEDICAL_DENTAL_CARE MEDICAL_EYE_CARE MEDICAL_NURSING_CARE MEDICAL_PHARMACIES_AND_SUPPLEMENTS MEDICAL_PRIMARY_CARE MEDICAL_OTHER_MEDICAL
+    ].freeze
+    STRONG_CATEGORY_PREFIXES = %w[RENT_AND_UTILITIES_].freeze
 
     def initialize(household:, user:, transaction_ids:, actor_type: "user")
       @household = household
@@ -35,7 +45,7 @@ module PlaidIntegration
       merchant = (transaction.merchant_name.presence || transaction.name).first(120)
       suggestion = HouseholdFinance::TransactionCategorySuggester.new(household).suggest(
         merchant: merchant,
-        text: [ transaction.primary_category, transaction.detailed_category ].compact.join(" "),
+        text: category_signal(transaction),
         confidence: BigDecimal("0.80")
       )
       category = suggestion.category
@@ -54,7 +64,8 @@ module PlaidIntegration
           category_match_status: suggestion.match_status,
           category_match_reason: suggestion.match_reason,
           plaid_primary_category: transaction.primary_category,
-          plaid_detailed_category: transaction.detailed_category
+          plaid_detailed_category: transaction.detailed_category,
+          review_note: transaction.review_note
         }
       )
       draft.transaction_draft_splits.create!(
@@ -69,6 +80,12 @@ module PlaidIntegration
       transaction.update!(transaction_draft: draft, review_status: "drafted", drafted_source_fingerprint: transaction.source_fingerprint)
       household.household_audit_events.create!(user: user, actor_type: actor_type, event_type: "plaid_transaction.drafted", auditable_type: "TransactionDraft", auditable_id: draft.id, occurred_at: Time.current, metadata: { plaid_transaction_record_id: transaction.id, automatic: actor_type == "system" })
       draft
+    end
+
+    def category_signal(transaction)
+      detailed = transaction.detailed_category.to_s.upcase
+      strong = detailed.in?(STRONG_CATEGORY_SIGNALS) || STRONG_CATEGORY_PREFIXES.any? { |prefix| detailed.start_with?(prefix) }
+      [ transaction.primary_category, transaction.detailed_category ].compact.join(" ") if strong
     end
   end
 end

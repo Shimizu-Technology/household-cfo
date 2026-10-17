@@ -165,7 +165,7 @@ module HouseholdFinance
     end
 
     def pending_transaction_reviews
-      household.transaction_drafts.pending
+      household.transaction_drafts.pending.excluding_non_spending_plaid
         .includes(:budget_category, transaction_draft_splits: :budget_category)
         .recent_first
         .limit(MAX_PENDING_DRAFTS)

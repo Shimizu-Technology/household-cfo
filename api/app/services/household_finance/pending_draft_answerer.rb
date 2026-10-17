@@ -43,7 +43,7 @@ module HouseholdFinance
     attr_reader :household, :message, :today
 
     def pending_drafts
-      @pending_drafts ||= household.transaction_drafts.pending.includes(:budget_category).where(occurred_on: today.beginning_of_year..today.end_of_year).recent_first.to_a
+      @pending_drafts ||= household.transaction_drafts.pending.excluding_non_spending_plaid.includes(:budget_category).where(occurred_on: today.beginning_of_year..today.end_of_year).recent_first.to_a
     end
 
     def money(cents)

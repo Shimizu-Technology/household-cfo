@@ -33,6 +33,7 @@ import { useBrand } from '../contexts/brandContextValue'
 import { BankActivityResumeDialog } from './BankActivityResumeDialog'
 import './PlaidConnections.css'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
+import { sourceTypeLabel } from '../lib/sourceReview'
 
 function hasFreshBankObservation(item: PlaidItem, account: PlaidAccount) {
   if (item.context_paused_by_restart) return false
@@ -120,6 +121,7 @@ const activityViews: Array<{ id: PlaidActivityView; label: string; count: (summa
   { id: 'excluded', label: 'Excluded', count: (summary) => summary.excluded_count },
   { id: 'pending', label: 'Bank pending', count: (summary) => summary.pending_count },
   { id: 'inflow', label: 'Money in', count: (summary) => summary.inflow_count },
+  { id: 'not_spending', label: 'Not spending', count: (summary) => summary.not_counted_as_spending_count ?? 0 },
 ]
 
 const trustLabels: Record<PlaidTransaction['trust_state'], string> = {
@@ -130,6 +132,7 @@ const trustLabels: Record<PlaidTransaction['trust_state'], string> = {
   bank_pending: 'Bank pending',
   money_in: 'Money in',
   source_changed: 'Source changed',
+  not_spending: 'Not counted as spending',
 }
 
 export function PlaidConnections({ userId, householdId, onDraftsCreated, variant = 'connections', refreshKey = '', reviewYear = new Date().getFullYear(), onOpenBudget }: Props) {
@@ -675,7 +678,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
           {activitySummary && (
             <>
               <div className="plaid-activity-summary" aria-label="Bank activity summary">
-                <article className="is-observed"><span>Bank-observed spending</span><strong>{money.format(activitySummary.posted_outflow_cents / 100)}</strong><small>{activitySummary.posted_outflow_count} posted outflows</small></article>
+                <article className="is-observed"><span>Bank-observed spending</span><strong>{money.format(activitySummary.posted_outflow_cents / 100)}</strong><small>{activitySummary.posted_outflow_count} posted outflows{activitySummary.not_counted_as_spending_count ? ` · ${money.format((activitySummary.not_counted_as_spending_cents ?? 0) / 100)} in activity not counted as spending` : ''}</small></article>
                 <article className="is-confirmed"><span>{picture === 'history' ? 'Previously confirmed' : 'Confirmed actuals'}</span><strong>{money.format(activitySummary.confirmed_cents / 100)}</strong><small>{activitySummary.confirmed_actual_count} approved ledger transactions</small></article>
                 <article className="is-review"><span>{picture === 'history' ? 'Previous review status' : 'Needs review'}</span><strong>{money.format(activitySummary.needs_review_cents / 100)}</strong><small>{activitySummary.needs_review_count} decisions waiting</small></article>
                 <article><span>{picture === 'history' ? 'Previous bank pending' : 'Bank pending'}</span><strong>{money.format(activitySummary.pending_cents / 100)}</strong><small>{activitySummary.pending_count} not posted yet</small></article>
@@ -732,6 +735,8 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
                     <strong>{transaction.merchant_name || transaction.name}</strong>
                     <small>{transaction.occurred_on} · {transaction.account_name}{transaction.account_mask ? ` ••${transaction.account_mask}` : ''}</small>
                     {transaction.category_names.length > 0 && <small>{transaction.category_names.join(' + ')}</small>}
+                    {transaction.trust_state === 'not_spending' && transaction.movement_type && <small>{sourceTypeLabel(transaction.movement_type)} · No spending is recorded for this row.</small>}
+                    {transaction.review_note && <small>{transaction.review_note}</small>}
                     {transaction.source_changed_after_draft && <small className="plaid-source-warning">Plaid changed this source after review. Reconcile it before relying on the actual.</small>}
                     {transaction.removed && <small className="plaid-source-warning">The institution removed this source transaction after it entered your household record.</small>}
                   </span>

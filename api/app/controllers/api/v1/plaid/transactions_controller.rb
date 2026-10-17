@@ -3,7 +3,7 @@ module Api
     module Plaid
       class TransactionsController < BaseController
         MAX_PAGE_SIZE = 100
-        ACTIVITY_VIEWS = %w[all needs_review confirmed excluded pending inflow].freeze
+        ACTIVITY_VIEWS = %w[all needs_review confirmed excluded pending inflow not_spending].freeze
 
         before_action :authenticate_user!
         before_action :require_writable_household!, only: %i[stage ignore]
@@ -63,16 +63,17 @@ module Api
           joined = scope.left_joins(:transaction_draft)
           case view
           when "needs_review"
-            joined.where(pending: false).where("amount_cents > 0").where(<<~SQL.squish)
-              plaid_transactions.removed_at IS NOT NULL OR
-              (plaid_transactions.drafted_source_fingerprint IS NOT NULL AND plaid_transactions.source_fingerprint <> plaid_transactions.drafted_source_fingerprint) OR
-              plaid_transactions.review_status = 'unreviewed' OR
-              transaction_drafts.status = 'pending'
-            SQL
+            base = joined.where(pending: false).where("amount_cents > 0")
+            base.where.not(plaid_transactions: { removed_at: nil })
+              .or(base.where("plaid_transactions.drafted_source_fingerprint IS NOT NULL AND plaid_transactions.source_fingerprint <> plaid_transactions.drafted_source_fingerprint"))
+              .or(base.where(plaid_transactions: { review_status: "unreviewed" }).merge(PlaidTransaction.counted_as_spending))
+              .or(base.where(transaction_drafts: { status: "pending" }))
           when "confirmed"
             joined.where(removed_at: nil, transaction_drafts: { status: %w[confirmed corrected matched] })
           when "excluded"
             joined.where("plaid_transactions.review_status = 'ignored' OR transaction_drafts.status = 'ignored'")
+          when "not_spending"
+            scope.visible.where(pending: false).where("amount_cents > 0").not_counted_as_spending
           when "pending"
             scope.where(pending: true, removed_at: nil)
           when "inflow"
@@ -99,7 +100,9 @@ module Api
         def activity_summary(account_id: nil, review_year: Date.current.year)
           current = scope_for_account(current_household.plaid_transactions.visible, account_id)
           account_activity = scope_for_account(activity_scope, account_id)
-          posted = current.where(pending: false).where("amount_cents > 0")
+          posted_outflows = current.where(pending: false).where("amount_cents > 0")
+          posted = posted_outflows.counted_as_spending
+          not_spending = posted_outflows.not_counted_as_spending
           pending = current.where(pending: true).where("amount_cents > 0")
           inflow = current.where("amount_cents < 0")
           needs_review = apply_activity_view(account_activity, "needs_review")
@@ -113,6 +116,8 @@ module Api
             all_count: account_activity.count,
             posted_outflow_count: posted.count,
             posted_outflow_cents: posted.sum(:amount_cents),
+            not_counted_as_spending_count: not_spending.count,
+            not_counted_as_spending_cents: not_spending.sum(:amount_cents),
             pending_count: pending.count,
             pending_cents: pending.sum(:amount_cents),
             inflow_count: inflow.count,
@@ -156,6 +161,9 @@ module Api
             amount_cents: transaction.amount_cents,
             pending: transaction.pending,
             direction: transaction.amount_cents.positive? ? "outflow" : "inflow",
+            movement_type: transaction.movement_type,
+            counts_as_spending: transaction.counts_as_spending?,
+            review_note: transaction.review_note,
             primary_category: transaction.primary_category,
             detailed_category: transaction.detailed_category,
             review_status: transaction.review_status,
@@ -183,6 +191,7 @@ module Api
           return "bank_pending" if transaction.pending?
           return "money_in" if transaction.amount_cents.negative?
           return "excluded" if transaction.review_status == "ignored" || draft&.status == "ignored"
+          return "not_spending" if draft.nil? && !transaction.counts_as_spending?
           return "needs_review" if transaction.review_status == "unreviewed" || draft&.status == "pending"
           return "confirmed" if draft&.status.in?(%w[confirmed corrected matched])
 

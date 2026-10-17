@@ -62,4 +62,31 @@ class HouseholdFinanceTransactionCategorySuggesterTest < ActiveSupport::TestCase
     refute strict.matched?
     assert_equal @groceries, manual_category
   end
+
+  test "a ride-share or fuel signal never lands in a non-trip vehicle category" do
+    insurance = @household.budget_categories.create!(name: "Car insurance", stack_key: "sinking_expected", sort_order: 3)
+    @household.budget_categories.create!(name: "Childcare", stack_key: "non_discretionary", sort_order: 4)
+    ride = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: "Uber", text: "TRANSPORTATION TRANSPORTATION_TAXIS_AND_RIDE_SHARES", confidence: BigDecimal("0.80"))
+
+    refute ride.matched?
+    assert_equal "no_strong_match", ride.match_reason
+
+    gas = @household.budget_categories.create!(name: "Gas & fuel", stack_key: "discretionary", sort_order: 5)
+    fuel = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: "Shell", text: "TRANSPORTATION TRANSPORTATION_GAS", confidence: BigDecimal("0.80"))
+
+    assert_equal gas, fuel.category
+    refute_equal insurance, fuel.category
+  end
+
+  test "a category with both a transport and a non-trip term is not used for fuel" do
+    mixed = @household.budget_categories.create!(name: "Transportation insurance", stack_key: "sinking_expected", sort_order: 6)
+    fuel = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: "Shell", text: "TRANSPORTATION TRANSPORTATION_GAS", confidence: BigDecimal("0.80"))
+
+    refute fuel.matched?
+    refute_equal mixed, fuel.category
+
+    gas = @household.budget_categories.create!(name: "Gas & fuel", stack_key: "discretionary", sort_order: 7)
+    fuel = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: "Shell", text: "TRANSPORTATION TRANSPORTATION_GAS", confidence: BigDecimal("0.80"))
+    assert_equal gas, fuel.category
+  end
 end

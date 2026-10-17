@@ -66,6 +66,16 @@ test('History uses its own server scope and cannot select or stage even malforme
   expect(screen.queryByRole('button', { name: /Prepare .* for review/ })).toBeNull()
   expect(api.stagePlaidTransactions).not.toHaveBeenCalled(); expect(api.ignorePlaidTransactions).not.toHaveBeenCalled()
 })
+test('bank card payments are shown as not counted as spending and cannot be prepared as expenses', async () => {
+  const payment: api.PlaidTransaction = { ...transaction, id: 23, name: 'CREDIT CARD 3333 PAYMENT', amount_cents: 2500, primary_category: 'LOAN_PAYMENTS', detailed_category: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT', stageable: false, movement_type: 'debt_payment', counts_as_spending: false, trust_state: 'not_spending' }
+  vi.mocked(api.fetchPlaidTransactions).mockResolvedValue({ ...page([payment]), summary: { ...summary, not_counted_as_spending_count: 1, not_counted_as_spending_cents: 2500 } })
+  render(<PlaidConnections userId="42" householdId={12} variant="activity" onDraftsCreated={vi.fn()} />)
+  await screen.findByText('CREDIT CARD 3333 PAYMENT')
+  expect(screen.getByText('Not counted as spending')).toBeTruthy()
+  expect(screen.getByText('Card / debt payment · No spending is recorded for this row.')).toBeTruthy()
+  expect(screen.getByText(/\$25\.00 in activity not counted as spending/)).toBeTruthy()
+  expect(screen.queryByRole('checkbox', { name: 'Select CREDIT CARD 3333 PAYMENT' })).toBeNull()
+})
 test('a Link token reply after reset cannot launch SDK or save a session in the new context', async () => {
   let resolve!: (value: { link_token: string; consent_policy_version: string }) => void
   vi.mocked(api.createPlaidLinkToken).mockImplementation(() => new Promise(done => { resolve = done }))

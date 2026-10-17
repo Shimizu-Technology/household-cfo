@@ -1982,7 +1982,7 @@ module Api
           text.match?(/\bwasn['’]?t\s+today\b.*\byesterday\b/i)
         return unless correction_like
 
-        pending = current_household.transaction_drafts.pending.recent_first.limit(2).to_a
+        pending = current_household.transaction_drafts.pending.excluding_non_spending_plaid.recent_first.limit(2).to_a
         return if pending.empty?
         if pending.many?
           return legacy_transaction_route_payload(
