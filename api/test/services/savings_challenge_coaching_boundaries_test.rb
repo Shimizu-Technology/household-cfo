@@ -136,7 +136,8 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
         "I usually put $50 in savings today", "I sent $200 to my mom's savings today", "I bought $50 of Apple stock today" ].each do |message|
         assert_nil intake.call(message), message
       end
-      assert_equal "purchase", intake.call("I spent $12 at Payless today").fetch(:kind)
+      assert_equal "daily_report", intake.call("I spent $12 at Payless today").fetch(:kind)
+      assert_equal "withdrawal", intake.call("I took $50 from savings today").fetch(:kind)
     end
   end
 

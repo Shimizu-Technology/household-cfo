@@ -25,6 +25,8 @@ module SavingsChallenge
           completed_at: version&.approved_at&.iso8601, approved_purchase_count: purchases.size,
           reported_spend_cents: known ? purchases.sum(&:amount_cents) : nil, canonical_links_changed: stale.positive?,
           no_spend_discrepancy: version&.spending_state == "no_spend" && purchases.any?,
+          # The participant reported this day: an approved purchase, or a saved spending or no-spend check-in.
+          checked_in: purchases.any? || version&.spending_state.in?(%w[spending no_spend]),
           all_account_completeness: "unknown" }
       end
     end

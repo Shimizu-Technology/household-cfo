@@ -523,8 +523,10 @@ module Api
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session, persona_version_id: current_persona.version_id,
           cohort_id: current_participant_runtime.cohort_id, cohort_release_id: current_participant_runtime.release_id).call
         history = intent_transcript_without_memory_commands(transcript_for_current_persona(transcript)).map { |message| message.slice(:role, :content) }
+        # Read before the household lock: the optional extractor may wait on the provider.
+        savings_intake = attached_imports.empty? ? SavingsChallenge::ChatIntake.new(enrollment, message: content).call : nil
         coach_answerer = SavingsChallenge::CoachAnswerer.new(household: current_household, user: current_user,
-          enrollment: enrollment, message: content, attachments: attached_imports)
+          enrollment: enrollment, message: content, attachments: attached_imports, daily_report: savings_intake)
         reference = coach_answerer.call
         @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
         narrator = SavingsChallenge::Narrator.new(user_message: content,
@@ -543,7 +545,7 @@ module Api
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
             assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil, transaction_draft: nil,
             budget: nil, spending_report: nil,
-            savings_intake: attached_imports.empty? ? SavingsChallenge::ChatIntake.new(enrollment, message: content).call : nil }
+            savings_intake: savings_intake }
           complete_message_request(message_request, payload)
           record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports)
           render json: payload, status: :created

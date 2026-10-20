@@ -2,8 +2,9 @@ module SavingsChallenge
   # Financial facts come from approved participant records. Uploads and proposed
   # spending reductions never become saved cash through a chat answer.
   class CoachAnswerer
-    def initialize(household:, user:, enrollment:, message:, attachments: [])
+    def initialize(household:, user:, enrollment:, message:, attachments: [], daily_report: nil)
       @household, @user, @enrollment, @message, @attachments = household, user, enrollment, message.to_s, attachments
+      @daily_report = daily_report if daily_report.is_a?(Hash) && daily_report[:kind] == "daily_report"
     end
 
     LOAN_TOPIC = /\b(?:loans?|mortgage|lending|lender|credit score|credit report|borrow(?:ing)?)\b/i
@@ -45,6 +46,7 @@ module SavingsChallenge
       return "The recommended goal is $500 in new money you actually set aside over 90 days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
       private_context do
         return attachment_answer if @attachments.any?
+        return deterministic(daily_report_answer) if @daily_report
         return deterministic(card_balance_answer) if @message.match?(CARD_BALANCE_QUESTION) && !@message.match?(PAYMENT_REPORT)
         return savings_answer if @message.match?(BORROWING_FROM_SAVINGS)
         if (@message.match?(CARD_RANKING_QUESTION) || (@message.match?(EXTRA_PAYMENT_QUESTION) && @message.match?(CARD_OR_DEBT_WORD))) && !@message.match?(PAYMENT_REPORT)
@@ -195,7 +197,23 @@ module SavingsChallenge
     end
 
     def daily_answer
-      "For a purchase, enter the amount, where and date in Today, then review it before approval. Feelings then and now are optional. If a receipt or statement shows the same purchase, link the reviewed record so it is counted once. Use an explicit no-spend check-in for a day with no purchases; an unanswered day remains unknown. Which day would you like to review?"
+      "Tell me the amount, where and date, like \"$12 at Kings yesterday\", and I'll put it on a card for you to check and save. How you felt is optional. If you spent nothing, say \"no spending today\"; a day you skip just stays unknown."
+    end
+
+    # The card below the reply lists exactly what was read. Nothing is saved
+    # until the participant taps Save, so this never claims a record changed.
+    def daily_report_answer
+      report = @daily_report
+      if report[:no_spend]
+        day = report[:local_on] == @enrollment.local_today.iso8601 ? "today" : "that day"
+        return "No spending #{day}. I've put it below — tap Save to record it. Nothing is saved until you do."
+      end
+      purchases = report[:purchases]
+      items = purchases.map { |row| row[:merchant].present? ? "#{money(row[:amount_cents])} at #{row[:merchant]}" : money(row[:amount_cents]) }
+      missing = purchases.count { |row| row[:merchant].blank? }
+      place = missing.zero? ? "" : " Add where you spent #{missing == 1 ? 'it' : 'each one'} on the card."
+      feelings = report[:feelings] ? " How you felt is on the card too; it stays private." : ""
+      "Got it: #{items.to_sentence}.#{place}#{feelings} I've put #{purchases.one? ? 'it' : 'these'} below — check #{purchases.one? ? 'it' : 'them'} and tap Save. Nothing is saved until you do."
     end
 
     def savings_answer
