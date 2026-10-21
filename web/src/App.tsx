@@ -5203,7 +5203,7 @@ function DocumentImportHistory({
   )
 }
 
-function DocumentReviewPanel({
+export function DocumentReviewPanel({
   documentImport,
   categories,
   annualPlan,
@@ -5253,14 +5253,14 @@ function DocumentReviewPanel({
   uploading: boolean
 }) {
   const { assistantName } = useBrand()
-  if (!documentImport) return <article className="document-review-panel empty-state"><h4>Select an upload to review</h4><p>Your uploads will appear here. Your numbers change only after you approve.</p></article>
+  if (!documentImport) return <article className="document-review-panel empty-state"><h4>Select an upload to review</h4><p>Your uploads will appear here.</p></article>
 
   if (!documentImport.details_included) {
     return (
       <article className="document-review-panel document-empty-state" aria-label={`Loading ${documentImportDisplayName(documentImport)}`}>
         <AttachmentIcon />
         <h4>Loading review details</h4>
-        <p>{assistantName} is opening the extracted values, transaction drafts, split lines, and matches for {documentImportDisplayName(documentImport)}.</p>
+        <p>{assistantName} is opening the accounts and purchases from {documentImportDisplayName(documentImport)}.</p>
       </article>
     )
   }
@@ -5295,22 +5295,19 @@ function DocumentReviewPanel({
     <article className="document-review-panel" aria-label={`Review ${documentImportDisplayName(documentImport)}`}>
       <div className="document-review-header">
         <div>
-          <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
           <h4>{documentImportDisplayName(documentImport)}</h4>
           <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
         </div>
         <div className="document-review-controls">
           <div className="document-review-actions">
-            <button type="button" onClick={(event) => { event.currentTarget.focus(); onOpenSource(documentImport) }} disabled={!documentImport.source_available || actionForImport('source-url')}>
+            <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onOpenSource(documentImport) }} disabled={!documentImport.source_available || actionForImport('source-url')}>
               {actionForImport('source-url') ? 'Opening' : 'Preview original'}
             </button>
+          </div>
+          <details className="document-file-options"><summary>File options</summary>
+          <div className="document-review-actions">
             {fullyApplied ? (
-              <>
-                <span className="document-action-hint">Upload a new copy to reprocess</span>
-                <button type="button" className="subtle" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
-                  {appliedDetailsOpen ? 'Hide saved values' : 'Edit saved values'}
-                </button>
-              </>
+              <span className="document-action-hint">Upload a new copy to reprocess</span>
             ) : (
               <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
                 {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
@@ -5324,10 +5321,11 @@ function DocumentReviewPanel({
             </button>
           </div>
           <p className="document-retention-help" id={retentionHelpId}>{retentionHelp}</p>
+          </details>
         </div>
       </div>
 
-      <div className="document-summary-box">
+      {(documentImport.extracted_summary || documentImport.extraction_error) && <div className="document-summary-box">
         <strong>{assistantName} read</strong>
         <p>{documentImport.extracted_summary || statusExplainer(documentImport)}</p>
         {(documentImport.metadata.extraction_page_count || documentImport.metadata.transaction_draft_count) && (
@@ -5338,9 +5336,9 @@ function DocumentReviewPanel({
           </div>
         )}
         {documentImport.extraction_error && <p className="document-error-copy">{documentImport.extraction_error}</p>}
-      </div>
+      </div>}
 
-      <DocumentRoutingSummary documentImport={documentImport} />
+      {documentImport.metadata.routing_requires_confirmation ? <DocumentRoutingSummary documentImport={documentImport} /> : documentImport.metadata.routing_source && <details className="document-reading-details"><summary>How this file was read</summary><DocumentRoutingSummary documentImport={documentImport} /></details>}
 
       {warnings.length > 0 && (
         <div className="document-warning-list" role="note" aria-label="Extraction warnings">
@@ -5351,7 +5349,7 @@ function DocumentReviewPanel({
       {processing && (
         <div className="document-processing-state" role="status">
           <span />
-          <p>{assistantName} is extracting draft values and transaction rows. This panel refreshes automatically.</p>
+          <p>{assistantName} is reading the accounts and purchases. This panel refreshes automatically.</p>
         </div>
       )}
 
@@ -5369,19 +5367,17 @@ function DocumentReviewPanel({
       )}
       {sourceMode === 'unsupported' && <p className="document-alert error" role="alert">This file was read by a newer version of the app. Refresh the page, or contact support if this keeps happening. Nothing has been marked reviewed.</p>}
       {fallbackDrafts.length > 0 && (
-        <section className="document-transaction-drafts" aria-label="Extracted transaction drafts">
-          <div className="document-item-group-heading">
-            <h5>{sourceMode === 'typed' ? 'Additional expense reviews' : 'Transaction drafts'}</h5>
-            <span>{sourceMode === 'typed' ? fallbackCoverage.total : coverage.total} {sourceMode === 'typed' ? 'loaded additional' : 'proposed'} row{(sourceMode === 'typed' ? fallbackCoverage.total : coverage.total) === 1 ? '' : 's'}</span>
-          </div>
+        <section className="document-transaction-drafts" aria-label="Purchases from this upload">
           {sourceMode === 'typed' && <p>Expenses that aren’t tied to a statement line stay here. Confirming one updates your spending; it doesn’t approve the statement.</p>}
-          <p className="document-review-coverage" role="status">{sourceMode === 'typed' ? `${fallbackCoverage.pending} loaded expense reviews remaining · ${fallbackCoverage.resolved} resolved. Statement source review remains separate.` : `${coverage.pending} transaction review${coverage.pending === 1 ? '' : 's'} remaining · ${coverage.resolved} resolved. ${coverage.pending > 0 ? 'This source still needs review; pending rows do not change actuals.' : 'All transaction rows have a review decision.'}`}</p>
+          <p className="document-review-coverage" role="status">{sourceMode === 'typed' ? `${fallbackCoverage.pending} loaded expense reviews remaining · ${fallbackCoverage.resolved} resolved. Statement line review remains separate.` : `${coverage.pending} transaction review${coverage.pending === 1 ? '' : 's'} remaining · ${coverage.resolved} resolved.`}</p>
           <TransactionDraftReviewStack
             drafts={fallbackDrafts}
             selectionEnabled={sourceMode !== 'typed'}
             isRealWorkspace
             action={draftAction}
             compact
+            title={sourceMode === 'typed' ? 'Additional purchases to review' : 'Purchases to review'}
+            description=""
             categories={categories}
             plan={annualPlan}
             onUpdate={onUpdateDraft}
@@ -5405,7 +5401,7 @@ function DocumentReviewPanel({
             <section className="document-item-group" key={targetType}>
               <div className="document-item-group-heading">
                 <h5>{targetTypeLabel(targetType)}</h5>
-                <span>{items.length} draft value{items.length === 1 ? '' : 's'}</span>
+                <span>{items.length} value{items.length === 1 ? '' : 's'} to review</span>
               </div>
               <div className="document-item-list">
                 {items.map((item) => (
@@ -5423,10 +5419,10 @@ function DocumentReviewPanel({
         </div>
       )}
 
-      <div className={`document-apply-bar ${fullyApplied ? 'applied' : ''}`}>
+      {documentImport.items.length > 0 && (!fullyApplied || appliedDetailsOpen) && <div className={`document-apply-bar ${fullyApplied ? 'applied' : ''}`}>
         <div>
           <strong>{fullyApplied ? 'Saved household numbers' : `${selectedCount} selected`}</strong>
-          <span>{fullyApplied ? (appliedDetailsOpen ? `Correcting a saved value updates ${assistantName} and the dashboard immediately.` : 'This source is already applied. Expand only when you need to correct source-backed details.') : reviewable ? 'Approve only values you recognize.' : 'This import is not currently reviewable.'}</span>
+          <span>{fullyApplied ? `Saving a correction updates your household numbers immediately.` : reviewable ? 'Approve only values you recognize.' : 'This upload is not ready for review.'}</span>
         </div>
         {fullyApplied ? (
           <button type="button" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
@@ -5437,7 +5433,7 @@ function DocumentReviewPanel({
             {actionForImport('apply') ? 'Applying' : 'Apply selected'}
           </button>
         )}
-      </div>
+      </div>}
     </article>
   )
 }
@@ -5475,7 +5471,7 @@ function documentReviewResult(documentImport: FinancialDocumentImport) {
   if (values > 0) return `${values} household value${values === 1 ? '' : 's'}`
   if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Checking file contents'
   if (documentImport.transaction_drafts.length > 0 || documentImport.items.length > 0) return 'Review complete'
-  return 'No draft values found'
+  return 'No values found'
 }
 
 function documentReviewDestination(documentImport: FinancialDocumentImport, resolvedKind: DocumentImportKind) {
@@ -5509,10 +5505,10 @@ function routingResultExplanation(documentImport: FinancialDocumentImport, resol
 
 function routingConflictExplanation(metadata: FinancialDocumentImport['metadata'], resolvedKind: DocumentImportKind, assistantName: string) {
   if (metadata.routing_conflict_reason === 'participant_signals') {
-    return `Your message described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but the selected type was ${documentKindLabel(metadata.declared_document_kind ?? 'other').toLowerCase()}. ${assistantName} used your message; verify the draft before approving anything.`
+    return `Your message described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but the selected type was ${documentKindLabel(metadata.declared_document_kind ?? 'other').toLowerCase()}. ${assistantName} used your message; check the values before approving anything.`
   }
 
-  return `You described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but ${assistantName} detected ${documentKindLabel(metadata.routing_detected_kind ?? 'other').toLowerCase()}. Your description was preserved; verify the draft before approving anything.`
+  return `You described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but ${assistantName} detected ${documentKindLabel(metadata.routing_detected_kind ?? 'other').toLowerCase()}. Your description was preserved; check the values before approving anything.`
 }
 
 function routingDestinationLabel(destination: FinancialDocumentImport['metadata']['routing_destination'], kind: DocumentImportKind) {
@@ -5546,7 +5542,7 @@ function AppliedImportSummary({ documentImport, onEdit }: { documentImport: Fina
       <div className="document-applied-summary-copy">
         <span className="document-status green">Applied household budget</span>
         <h5>{appliedItems.length} saved value{appliedItems.length === 1 ? '' : 's'} already feed {assistantName}</h5>
-        <p>The detailed correction cards are tucked away so the profile stays scannable. Open them only when a source-backed number needs a correction.</p>
+        <p>These values are saved. Open them to make a correction.</p>
       </div>
       <div className="document-applied-summary-grid" aria-label="Applied import value groups">
         {groupSummary.map((group) => (
@@ -5691,7 +5687,7 @@ export function DocumentImportItemEditor({
         ))}
         {(draft.target_type === 'income_source' || draft.target_type === 'expense_item') && (
           <label className="document-field">
-            <span>How often you're paid</span>
+            <span>{draft.target_type === 'income_source' ? "How often you're paid" : 'How often'}</span>
             <select value={draft.cadence} disabled={fieldsDisabled} onChange={(event) => updateDraft({ cadence: event.currentTarget.value })}>
               {draft.cadence === '' && <option value="">Choose how often</option>}
               {cadenceOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
@@ -5745,7 +5741,7 @@ export function DocumentImportItemEditor({
           Click Correct value before changing saved household numbers. Nothing updates until you press Save.
         </p>
       )}
-      {!applied && canEditDraft && <p className="document-evidence applied-note">Draft fields are locked until you click Edit value, then Save.</p>}
+      {!applied && canEditDraft && <p className="document-evidence applied-note">Click Edit value to make a correction, then Save.</p>}
     </article>
   )
 }
@@ -6257,14 +6253,14 @@ function replaceImportTransactionDraft(imports: FinancialDocumentImport[], draft
 }
 
 function statusExplainer(documentImport: FinancialDocumentImport) {
-  if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Extraction is in progress. Draft values will appear here when your assistant finishes reading the source.'
-  if (documentImport.status === 'failed') return 'Your assistant could not extract reliable draft values from this upload. You can delete it or reprocess if the source is still available.'
-  if (documentImport.status === 'source_deleted') return 'The private source file has been deleted. Existing extracted metadata remains for audit context.'
+  if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Your assistant is reading this file. The accounts and purchases will appear here when it finishes.'
+  if (documentImport.status === 'failed') return 'Your assistant could not read reliable values from this upload. Try reading it again from File options, or upload a clearer copy.'
+  if (documentImport.status === 'source_deleted') return 'The original file has been removed. This upload history and its results remain.'
   if (documentImport.status === 'applied') return 'All selected values from this document were approved and applied to the household workspace.'
   if (documentImport.status === 'partially_applied') return 'Some values were applied. Unapplied values remain available for review.'
   if (documentImport.status === 'nothing_applied') return 'Review is finished and nothing from this document was saved. Your household numbers did not change.'
 
-  return 'Review each draft value before applying it to your official household numbers.'
+  return 'Check the values before saving them to your household numbers.'
 }
 
 function setupFocusFieldForSection(sectionLabel: string): keyof WorkspaceSetupValues {
@@ -7319,7 +7315,7 @@ export function TransactionDraftReviewStack({
       <div className="transaction-draft-stack-heading">
         <div>
           <h4 ref={reviewStatusRef} tabIndex={-1} role={drafts.length === 0 ? 'status' : undefined}>{drafts.length === 0 ? 'All caught up' : resolvedTitle}</h4>
-          {(compact || description) && <p>{description ?? 'Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.'}</p>}
+          {(description || (compact && description !== '')) && <p>{description ?? 'Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.'}</p>}
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
         <strong>{queueMeta?.total_count ?? drafts.length} review{(queueMeta?.total_count ?? drafts.length) === 1 ? '' : 's'}</strong>

@@ -40,3 +40,9 @@
   .income-source-form-actions, .income-schedule-form-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
   .income-source-form-actions button, .income-schedule-form-actions button { width: 100%; min-height: 44px; white-space: normal; }
 }
+.document-file-options, .document-reading-details { margin-top: 12px; }
+.document-file-options > summary, .document-reading-details > summary { cursor: pointer; padding: 10px 0; }
+.document-file-options[open] .document-review-actions { margin-top: 12px; }
+.document-review-header > .document-review-controls { flex: 0 1 auto; }
+.document-review-panel .document-review-actions > .secondary-button { border: 1px solid var(--line); background: transparent; color: var(--brand); box-shadow: none; }
+.document-review-panel .document-review-actions button, .document-review-panel .document-apply-bar button { min-height: 44px; }

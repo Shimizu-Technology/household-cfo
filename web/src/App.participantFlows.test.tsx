@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { AnnualIncomePlanner, IncomeSourceManager, ManualTransactionCapture, TransactionDraftReviewStack, WorkspaceSetupForm } from './App'
-import type { AnnualBudgetPlan, TransactionDraft } from './api'
+import { AnnualIncomePlanner, DocumentReviewPanel, IncomeSourceManager, ManualTransactionCapture, TransactionDraftReviewStack, WorkspaceSetupForm } from './App'
+import type { AnnualBudgetPlan, FinancialDocumentImport, TransactionDraft } from './api'
+import type { ComponentProps } from 'react'
 
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 const draft = (id: number): TransactionDraft => ({ id, merchant: `Market ${id}`, amount: 12.34, amount_cents: 1234, occurred_on: '2026-10-21', status: 'pending', category_id: 1, category_name: 'Groceries', splits: [], matches: [] })
@@ -46,7 +47,7 @@ it('keeps unknown money blank and removes financial fields in the personal edito
   view.rerender(<WorkspaceSetupForm {...form} firstSession={false} personalOnly />)
   expect(screen.getByLabelText(/^Household name/)).toBeTruthy()
   expect(screen.queryAllByRole('spinbutton')).toHaveLength(0)
-  expect(view.container.textContent).toContain('Your household name and the goal Mia helps you work toward.')
+  expect(view.container.textContent).toContain('Your household name and the goal your assistant helps you work toward.')
 })
 
 it('opens the income form only on request and uses a plain pay-frequency label', () => {
@@ -76,4 +77,52 @@ it('schedules future pay without treating a future source as archived or admitti
   fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '150.03' } })
   fireEvent.click(screen.getByRole('button', { name: 'Schedule income change' }))
   expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ income_source_id: 6, amount: '150.03', effective_on: '2026-12-01' }), undefined)
+})
+
+const reviewPanelProps = (documentImport: FinancialDocumentImport): ComponentProps<typeof DocumentReviewPanel> => ({
+  documentImport, categories: [], itemSavingIds: new Set(), action: null, draftAction: null, appliedDetailsOpen: false, uploading: false,
+  onAppliedDetailsOpenChange: vi.fn(), onUpdateItem: vi.fn(), onUpdateDraft: vi.fn(), onMatchDraft: vi.fn(), onConfirmDraft: vi.fn(),
+  onIgnoreDraft: vi.fn(), onReopenDraft: vi.fn(), onBulkConfirmDrafts: vi.fn(), onBulkIgnoreDrafts: vi.fn(), onApply: vi.fn(),
+  onReprocess: vi.fn(), onDeleteSource: vi.fn(), onDeleteImport: vi.fn(), onOpenSource: vi.fn(), onUpload: vi.fn(),
+})
+const statement = (values: Partial<FinancialDocumentImport> = {}) => ({
+  id: 1, document_kind: 'statement', status: 'needs_review', filename: 'October.csv', content_type: 'text/csv', byte_size: 140,
+  source_available: true, details_included: true, metadata: {}, items: [], transaction_drafts: [draft(1)],
+  ...values,
+} as FinancialDocumentImport)
+
+it('keeps statement review ahead of file options and omits an empty Apply action', () => {
+  const source = statement()
+  const actions = reviewPanelProps(source)
+  const view = render(<DocumentReviewPanel {...actions} />)
+  expect(screen.getByRole('button', { name: /^Confirm Market 1/ })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Apply selected' })).toBeNull()
+  expect(view.container.querySelector('.document-review-header .document-status')).toBeNull()
+  expect(view.container.querySelector('.document-summary-box')).toBeNull()
+  const options = view.container.querySelector<HTMLDetailsElement>('.document-file-options')!
+  expect(options.open).toBe(false)
+  fireEvent.click(screen.getByText('File options'))
+  expect(options.open).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Remove original file' }))
+  expect(actions.onDeleteSource).toHaveBeenCalledWith(source)
+  expect(actions.onDeleteImport).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Delete upload & record' }))
+  expect(actions.onDeleteImport).toHaveBeenCalledWith(source)
+  expect(actions.onConfirmDraft).not.toHaveBeenCalled()
+})
+
+it('keeps approval explicit when a statement includes a selected account value', () => {
+  const source = statement({ transaction_drafts: [], items: [{ id: 5, target_type: 'account', label: 'Checking', amount: null, balance: 350.67, balance_cents: 35067, payment: null, interest_rate_percent: null, cadence: 'monthly', source_type: null, account_type: 'checking', debt_type: null, stack_key: null, selected: true, ignored: false, applied_at: null, metadata: {} } as FinancialDocumentImport['items'][number]] })
+  const actions = reviewPanelProps(source)
+  const view = render(<DocumentReviewPanel {...actions} />)
+  expect(actions.onApply).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Apply selected' }).hasAttribute('disabled')).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Apply selected' }))
+  expect(actions.onApply).toHaveBeenCalledWith(source)
+  expect(actions.onDeleteImport).not.toHaveBeenCalled()
+  const applied = { ...source, status: 'applied' as const, applied_at: '2026-10-22T00:00:00Z', items: source.items.map(item => ({ ...item, applied_at: '2026-10-22T00:00:00Z' })) }
+  view.rerender(<DocumentReviewPanel {...actions} documentImport={applied} />)
+  expect(screen.getAllByRole('button', { name: 'Edit saved values' })).toHaveLength(1)
+  fireEvent.click(screen.getByText('File options'))
+  expect(screen.getByRole('button', { name: 'Delete upload & record' }).hasAttribute('disabled')).toBe(true)
 })
