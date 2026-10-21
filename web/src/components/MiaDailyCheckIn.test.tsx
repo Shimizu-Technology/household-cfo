@@ -121,6 +121,7 @@ describe('Mia daily report card', () => {
     const noSpend: DailyReportIntake = { ...report, purchases: [], no_spend: true }
     const first = renderCard(noSpend)
     expect(within(first.card).getByText('No spending today')).toBeTruthy()
+    expect(first.card.textContent).not.toMatch(/feel/i)
     await waitFor(() => expect(fetchDailyContext).toHaveBeenCalled())
     fireEvent.click(within(first.card).getByRole('button', { name: 'Save to today' }))
     await within(first.card).findByText('Saved to today')

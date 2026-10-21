@@ -235,7 +235,7 @@ export function MiaDailyReportCard({ report, scope, cohortId, onSaved, onEditInT
       {noSpendBlocked && !saved && <p className="mia-daily-hint">You already saved a purchase for this day, so it can’t be a no-spend day.</p>}
       {changesNoSpend && !saved && <p className="mia-daily-hint">You saved this day as no spending. Saving a purchase changes it to a spending day.</p>}
       {message && <p className="mia-daily-status" role="status">{message}</p>}
-      {!saved && <p className="mia-daily-footnote">Nothing is saved until you tap {allToday ? 'Save to today' : 'Save'}. Feelings stay private.</p>}
+      {!saved && <p className="mia-daily-footnote">Nothing is saved until you tap {allToday ? 'Save to today' : 'Save'}.{noSpend ? '' : ' Feelings stay private.'}</p>}
       {!saved ? (
         <div className="mia-daily-actions">
           <button type="button" className="mia-daily-save" disabled={busy || noSpendBlocked || (!noSpend && pending.length === 0)} onClick={() => void save()}>{busy ? 'Saving…' : allToday ? 'Save to today' : 'Save'}</button>

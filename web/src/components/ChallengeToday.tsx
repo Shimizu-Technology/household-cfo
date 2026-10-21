@@ -111,7 +111,7 @@ function ChallengeTodaySession({scope,cohortId,onClose,onStatements,onBaseline,o
       {loading&&<p role="status">Loading today…</p>}
       {readFailed&&<button type="button" onClick={refresh}>Try loading again</button>}
       {ready&&context&&actor&&calendar&&<>
-        <nav className="daily-actions daily-tabs" aria-label="Journal sections"><button type="button" aria-pressed={section==='today'} onClick={()=>setSection('today')}>Daily purchases</button><button type="button" aria-pressed={section==='checkpoints'} onClick={()=>setSection('checkpoints')}>Checkpoints</button></nav>
+        <nav className="daily-actions daily-tabs" aria-label="Journal sections"><button type="button" aria-pressed={section==='today'} onClick={()=>setSection('today')}>Purchases</button><button type="button" aria-pressed={section==='checkpoints'} onClick={()=>setSection('checkpoints')}>Checkpoints</button></nav>
         {section==='checkpoints'?<ChallengeCheckpoints context={context} scope={actor} refresh={attempt} mutate={mutation.mutate} busy={disabled} onDenied={onDenied} onBaseline={onBaseline}/>:<>
           {day?<>
             <section className="daily-overview" aria-label="Current personal daily report">
