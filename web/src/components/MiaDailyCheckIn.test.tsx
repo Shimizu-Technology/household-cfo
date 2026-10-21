@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError, fetchDailyContext, fetchDailyRequestStatus, mutateDaily } from '../api'
 import type { DailyContext, DailyDay, DailyInput } from '../lib/dailyChallenge'
-import { dailyCardNeedsAttention, registerDailyCard, restoreDailyCards } from '../lib/dailyCheckIn'
+import { clearDailyCards, dailyCardNeedsAttention, registerDailyCard, restoreDailyCards } from '../lib/dailyCheckIn'
 import { saveDailyRecovery, setDailyExpectedUser } from '../lib/dailyRecovery'
 import type { DailyReportIntake } from '../lib/savingsChallenge'
 import { baselineScope } from '../test/baselineFixtures'
@@ -248,6 +248,25 @@ describe('Mia daily report card', () => {
     expect(calls().filter((call) => call.action === 'purchase_stage')).toHaveLength(1)
     const approvals = calls().filter((call) => call.action === 'purchase_approve')
     expect(new Set(approvals.map((call) => call.key)).size).toBe(1)
+  })
+
+  it('stops the remaining save when a scope change clears the card during approval', async () => {
+    const original = vi.mocked(mutateDaily).getMockImplementation()!
+    let finishApproval!: () => void
+    vi.mocked(mutateDaily).mockImplementation((action, input, key) => action === 'purchase_approve'
+      ? new Promise((resolve) => { finishApproval = () => resolve({ actor_scope: baselineScope, record: dailyVersion, replayed: false }) })
+      : original(action, input, key))
+    const value = { ...report, purchases: [report.purchases[0]], feelings: { when_spent: 'rushed', now: null } }
+    const first = renderCard(value)
+    registerDailyCard({ scope: 'old-program', report: value, nonce: first.nonce })
+    await ready(first.card)
+    fireEvent.click(within(first.card).getByRole('button', { name: 'Save to today' }))
+    await waitFor(() => expect(actions()).toEqual(['purchase_stage', 'purchase_approve']))
+    first.view.unmount()
+    clearDailyCards('old-program')
+    await act(async () => { finishApproval(); await Promise.resolve() })
+    expect(actions()).toEqual(['purchase_stage', 'purchase_approve'])
+    expect(first.onSaved).not.toHaveBeenCalled()
   })
 
   it('waits for an earlier unconfirmed daily save from elsewhere before sending anything', async () => {

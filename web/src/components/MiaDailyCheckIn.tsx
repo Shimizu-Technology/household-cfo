@@ -101,6 +101,14 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   const foreignPending = mutation.pending && !ownKeys.has(mutation.pending.key) ? mutation.pending : null
   const unconfirmed = state.rows.filter((row) => row.status === 'unknown')
 
+  // A program change or sign-out forgets this card. Stop its async save as
+  // soon as an outstanding request returns, before sending any remaining work.
+  function currentCard(): DailyCardState {
+    const card = readDailyCard(nonce)
+    if (!card) throw new Stop('cancelled')
+    return card
+  }
+
   // One stable request key per exact request, kept with the card.
   function keyFor(step: string, input: DailyInput): string {
     const id = `${step}:${JSON.stringify(input)}`
@@ -114,11 +122,13 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   // Sends through the shared daily guard. A missing result is either a definite
   // failure (the guard released it) or unconfirmed (the guard still holds it).
   async function send<T>(action: Exclude<DailyAction, 'reflection_erase'>, input: DailyInput, step: string, rowId?: number): Promise<{ record: T } | { unknown: true } | { failed: true }> {
+    currentCard()
     const key = keyFor(step, input)
     // Recorded before sending: if the page closes mid-request, the restored card
     // checks this request's result before anything new is sent.
     update((current) => ({ ...current, unconfirmed: { action, input, key, rowId } }))
     const record = await perform(action, input, undefined, key)
+    currentCard()
     if (record) { update((current) => current.unconfirmed?.key === key ? { ...current, unconfirmed: undefined } : current); return { record: record as T } }
     if (actor && readDailyRecovery(actor)?.key === key) return { unknown: true }
     update((current) => current.unconfirmed?.key === key ? { ...current, unconfirmed: undefined } : current)
@@ -210,7 +220,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
     }
     // The server accepts a purchase on a no-spend day only after that day is
     // changed, so it is changed right before this purchase is approved.
-    const current = readDailyCard(nonce)!
+    const current = currentCard()
     if (day.spending_state === 'no_spend' && !current.switchedToSpending.includes(row.purchased_on)) {
       const switched = await send('check_in_save', { local_on: row.purchased_on, spending_state: 'spending', accepted: true, expected_version_id: day.check_in_version_id, expected_head_lock_version: day.check_in_lock_version, reason: 'Added a purchase in a Mia check-in' }, `spending:${row.purchased_on}`, row.id)
       if ('unknown' in switched) { patchRow(row.id, { status: 'unknown' }); throw new Stop('unknown') }
@@ -232,17 +242,17 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   async function savePurchases() {
     const days: Record<string, Awaited<ReturnType<typeof freshDay>>> = {}
     // Unconfirmed rows first, so their requests are settled before anything new.
-    const ordered = readDailyCard(nonce)!.rows.filter(open).sort((left, right) => Number(right.status === 'unknown') - Number(left.status === 'unknown'))
+    const ordered = currentCard().rows.filter(open).sort((left, right) => Number(right.status === 'unknown') - Number(left.status === 'unknown'))
     for (const row of ordered) {
-      const latest = readDailyCard(nonce)!.rows.find((item) => item.id === row.id)!
+      const latest = currentCard().rows.find((item) => item.id === row.id)!
       days[row.purchased_on] ??= await freshDay(row.purchased_on)
       if (latest.status !== 'saved') await saveRow(latest, days[row.purchased_on])
     }
     // Saving purchases checks the day in, so reminders treat it as reported,
     // including days whose purchases were saved before an interruption.
-    for (const row of readDailyCard(nonce)!.rows.filter((item) => item.status === 'saved')) days[row.purchased_on] ??= await freshDay(row.purchased_on)
+    for (const row of currentCard().rows.filter((item) => item.status === 'saved')) days[row.purchased_on] ??= await freshDay(row.purchased_on)
     for (const [date, day] of Object.entries(days)) {
-      const card = readDailyCard(nonce)!
+      const card = currentCard()
       if (!card.rows.some((row) => row.status === 'saved' && row.purchased_on === date) || card.checkedIn.includes(date) || card.switchedToSpending.includes(date) || day.spending_state === 'spending') continue
       const result = await send('check_in_save', { local_on: date, spending_state: 'spending', accepted: true, expected_version_id: day.check_in_version_id, expected_head_lock_version: day.check_in_lock_version, reason: day.check_in_version_id ? 'Purchases saved in a Mia check-in' : '' }, `checkin:${date}`)
       if ('record' in result) update((value) => ({ ...value, checkedIn: [...value.checkedIn, date] }))
@@ -250,7 +260,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
       else throw new Stop('Your purchases are saved. The check-in didn’t save — tap Save to finish it.')
     }
     // Optional feelings, kept separately with each purchase saved here.
-    const card = readDailyCard(nonce)!
+    const card = currentCard()
     const then = card.feelingThen.trim(), now = card.feelingNow.trim()
     let feelingsSaved = true
     if (then || now) {
@@ -291,12 +301,13 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
       let feelingsSaved = true
       if (noSpend) await saveNoSpend()
       else feelingsSaved = await savePurchases()
-      const card = readDailyCard(nonce)!
+      const card = currentCard()
       const complete = noSpend ? card.noSpendSaved : feelingsSaved && !card.unconfirmed && !card.rows.some(open) && card.rows.some((row) => row.status === 'saved')
       update((current) => ({ ...current, phase: complete ? 'saved' : 'idle', message: noSpend ? null : summary(card, feelingsSaved) }))
     } catch (failure) {
       const text = failure instanceof Stop && failure.message !== 'unknown' ? failure.message : 'We couldn’t confirm the last save. Tap Save to check — it won’t save twice.'
-      const card = readDailyCard(nonce)!
+      const card = readDailyCard(nonce)
+      if (!card) return
       const partial = noSpend ? null : summary(card, true)
       update((current) => ({ ...current, phase: 'idle', message: failure instanceof Stop ? text : partial && !partial.startsWith('Nothing') ? partial : text }))
     }
@@ -311,7 +322,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   }
 
   function remove(id: number) {
-    const rows = readDailyCard(nonce)!.rows
+    const rows = currentCard().rows
     const index = rows.findIndex((row) => row.id === id)
     update((current) => ({ ...current, rows: current.rows.filter((row) => row.id !== id) }))
     setInvalid((current) => { const copy = { ...current }; delete copy[id]; return copy })
