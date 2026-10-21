@@ -14,7 +14,8 @@ describe('AppErrorFallback', () => {
 
     expect(screen.getByText('This screen hit an unexpected problem.')).toBeTruthy()
     expect(screen.getByText(/verify any changes you made just before the error/)).toBeTruthy()
-    expect(screen.getByText('VERA')).toBeTruthy()
+    expect(screen.getByText('Household CFO')).toBeTruthy()
+    expect(screen.queryByText(/VERA/)).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(resetError).toHaveBeenCalledOnce()
   })

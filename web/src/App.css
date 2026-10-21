@@ -376,10 +376,12 @@
   font-weight: var(--weight-bold);
 }
 
-.income-schedule-submit:hover:not(:disabled) {
-  transform: translateY(-1px);
-  background: var(--plum);
-  box-shadow: var(--shadow-md);
+@media (hover: hover) and (pointer: fine) {
+  .income-schedule-submit:hover:not(:disabled) {
+    translate: 0 -1px;
+    background: var(--plum);
+    box-shadow: var(--shadow-md);
+  }
 }
 
 .income-schedule-form .setup-error {
@@ -831,7 +833,8 @@ textarea {
 button {
   border: 0;
   cursor: pointer;
-  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, color 160ms ease, opacity 160ms ease;
+  /* Press (transform) and hover lift (translate) are separate properties so they never fight. Shadows change instantly. */
+  transition: transform var(--duration-press) var(--ease-out), translate var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
 }
 
 .button,
@@ -881,14 +884,16 @@ button {
   font-size: var(--text-xs);
 }
 
-.button:hover:not(:disabled),
-.secondary-button:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
+@media (hover: hover) and (pointer: fine) {
+  .button:hover:not(:disabled),
+  .secondary-button:hover:not(:disabled) {
+    translate: 0 -1px;
+  }
 
-.button--primary:hover:not(:disabled) {
-  background: var(--brand-primary-hover);
-  box-shadow: var(--shadow-md);
+  .button--primary:hover:not(:disabled) {
+    background: var(--brand-primary-hover);
+    box-shadow: var(--shadow-md);
+  }
 }
 
 .button--secondary:hover:not(:disabled),
@@ -1308,7 +1313,7 @@ h3 {
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   text-decoration: none;
-  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, color 160ms ease;
+  transition: transform var(--duration-press) var(--ease-out), translate var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
   white-space: nowrap;
 }
 
@@ -1568,7 +1573,6 @@ h3 {
 .screen-grid {
   display: grid;
   gap: 18px;
-  animation: screen-enter 180ms ease-out both;
 }
 
 @keyframes screen-enter {
@@ -1589,7 +1593,7 @@ h3 {
 .budget-period-summary {
   display: grid;
   gap: 12px;
-  animation: screen-enter 240ms cubic-bezier(0.2, 0.72, 0.2, 1) both;
+  animation: screen-enter 120ms var(--ease-out) both;
 }
 
 .budget-period-summary-heading {
@@ -2162,13 +2166,15 @@ h3 {
   color: rgba(123, 74, 88, 0.78);
 }
 
-.quick-prompts button:not(:disabled):hover,
-.profile-section button:hover,
-.coach-panel button:hover,
-.ask-row button:not(:disabled):hover,
-.auth-actions button:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
+@media (hover: hover) and (pointer: fine) {
+  .quick-prompts button:not(:disabled):hover,
+  .profile-section button:hover,
+  .coach-panel button:hover,
+  .ask-row button:not(:disabled):hover,
+  .auth-actions button:hover {
+    translate: 0 -1px;
+    box-shadow: var(--shadow-sm);
+  }
 }
 
 .chat-card {
@@ -4781,13 +4787,15 @@ h3 {
   background: rgba(255, 253, 248, 0.86);
   box-shadow: var(--shadow-md);
   cursor: pointer;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  transition: translate var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
 }
 
-.document-upload-card label:hover {
-  border-color: rgba(123, 74, 88, 0.24);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+@media (hover: hover) and (pointer: fine) {
+  .document-upload-card label:hover {
+    border-color: rgba(123, 74, 88, 0.24);
+    translate: 0 -1px;
+    box-shadow: var(--shadow-md);
+  }
 }
 
 .document-upload-card label[aria-disabled="true"] {
@@ -6609,13 +6617,15 @@ h3 {
   text-transform: uppercase;
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(10px);
-  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+  transition: transform var(--duration-press) var(--ease-out), translate var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
 }
 
-.chat-scroll-bottom-button:hover {
-  transform: translateY(-1px);
-  border-color: rgba(123, 74, 88, 0.38);
-  box-shadow: var(--shadow-md);
+@media (hover: hover) and (pointer: fine) {
+  .chat-scroll-bottom-button:hover {
+    translate: 0 -1px;
+    border-color: rgba(123, 74, 88, 0.38);
+    box-shadow: var(--shadow-md);
+  }
 }
 
 .chat-scroll-bottom-button:focus-visible {

@@ -7,7 +7,7 @@ const rawSiteUrl = process.env.VITE_SITE_URL || process.env.URL || 'https://hous
 const siteUrl = rawSiteUrl.replace(/\/$/, '')
 const lastmod = process.env.SITEMAP_LASTMOD || new Date().toISOString().slice(0, 10)
 
-const robotsTxt = `# VERA coaching workspace
+const robotsTxt = `# Household CFO coaching workspace
 # ${siteUrl}
 
 User-agent: *

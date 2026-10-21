@@ -118,8 +118,9 @@ module Mia
     end
 
     def disclaimer
-      "#{name} is an AI coaching assistant built from #{identity.fetch('human_coach_name')}'s approved guidance. " \
-        "#{name} does not impersonate or replace that coach and does not replace legal, tax, investment, accounting, therapeutic, or financial advice."
+      display = AssistantDisplayName.short(name)
+      "#{display} is an AI coaching assistant built from #{identity.fetch('human_coach_name')}'s approved guidance. " \
+        "#{display} does not impersonate or replace that coach and does not replace legal, tax, investment, accounting, therapeutic, or financial advice."
     end
 
     def system_prompt

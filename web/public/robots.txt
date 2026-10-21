@@ -1,4 +1,4 @@
-# VERA coaching workspace
+# Household CFO coaching workspace
 # https://household-cfo.netlify.app
 
 User-agent: *

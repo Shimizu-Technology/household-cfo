@@ -203,7 +203,8 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     get "/api/public/brand", params: { hostname: "unknown.example.com" }
     assert_response :not_found
     assert_equal false, response.parsed_body.fetch("available")
-    assert_equal "VERA", response.parsed_body.dig("brand", "product_name")
+    assert_equal "Household CFO", response.parsed_body.dig("brand", "product_name")
+    assert_equal "hidden", response.parsed_body.dig("brand", "powered_by_placement")
     assert_nil response.parsed_body.fetch("workspace")
     assert_equal "no-store", response.headers["Cache-Control"]
 
@@ -212,7 +213,8 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     }
     assert_response :not_found
     assert_equal "https://unknown.example.com", response.headers["Access-Control-Allow-Origin"]
-    assert_equal "VERA", response.parsed_body.dig("brand", "product_name")
+    assert_equal "Household CFO", response.parsed_body.dig("brand", "product_name")
+    assert_equal "hidden", response.parsed_body.dig("brand", "powered_by_placement")
 
     get "/api/public/brand", params: { hostname: "morgan-money.example.com" }, headers: {
       "Origin" => "https://morgan-money.example.com"
@@ -239,7 +241,8 @@ class ApiV1WorkspaceBrandConfigurationsControllerTest < ActionDispatch::Integrat
     }
     assert_response :not_found
     assert_equal false, response.parsed_body.fetch("available")
-    assert_equal "VERA", response.parsed_body.dig("brand", "product_name")
+    assert_equal "Household CFO", response.parsed_body.dig("brand", "product_name")
+    assert_equal "hidden", response.parsed_body.dig("brand", "powered_by_placement")
     assert_nil response.parsed_body.fetch("workspace")
 
     get "/api/public/brand", params: { hostname: "morgan-money.example.com" }, headers: {
