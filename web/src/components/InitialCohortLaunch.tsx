@@ -103,6 +103,7 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
       <h3 id="initial-launch-heading" tabIndex={-1}>{state?.active_release_id ? 'Your group is live' : state?.can_launch ? 'Ready to launch' : 'Prepare your group for launch'}</h3>
       <p>{state?.active_release_id
         ? `This group has launched. Choose Update group to review any prepared changes.`
+        : state?.can_launch ? 'Your settings are ready. Review who will receive them, then launch.'
         : 'Prepare a version in Review settings, then review who will receive it before launching.'}</p>
     </div>
     {loading && <p role="status">Checking launch readiness…</p>}
