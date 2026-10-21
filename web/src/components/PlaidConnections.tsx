@@ -583,11 +583,9 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
         {resumeDialog}
         <div className="plaid-heading">
           <div>
-            <span className="eyebrow">Bank connections</span>
-            <h2 id="bank-connections-heading">{overview && !overview.configured ? 'Your workspace works without a bank connection.' : 'Connect the source. Keep control of the truth.'}</h2>
-            <p>{overview && !overview.configured ? `Keep planning, coaching with ${assistantName}, uploading documents, and reviewing manual entries as usual.` : `${assistantName} can read authorized bank activity immediately. Only confirmed transactions become categorized budget actuals.`}</p>
+            <h2 id="bank-connections-heading">{overview && !overview.configured ? 'Your workspace works without a bank connection.' : 'Connect a bank'}</h2>
+            <p>{overview && !overview.configured ? `Keep planning, asking ${assistantName}, uploading statements and adding purchases as usual.` : 'Purchases from a connected bank appear in Review. Nothing counts as spent until you confirm it.'}</p>
           </div>
-          {overview?.environment && <span className="plaid-environment">{overview.environment}</span>}
         </div>
 
         {error && <p className="form-error" role="alert">{error}</p>}
@@ -651,23 +649,21 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
       {resumeDialog}
       <div className="plaid-heading">
         <div>
-          <span className="eyebrow">{overview && !overview.configured ? 'Manual activity' : 'Transaction activity'}</span>
-          <h2 id="bank-activity-heading">{overview && !overview.configured ? 'Keep your record current without a bank feed.' : 'One feed. Every state made explicit.'}</h2>
-          <p>{overview && !overview.configured ? `Report expenses to ${assistantName} or add them during budget review. Nothing changes your official actuals until you confirm it.` : `Bank-observed activity is available to ${assistantName}. Confirmation controls category truth and official budget actuals.`}</p>
+          <h2 id="bank-activity-heading">{overview && !overview.configured ? 'Without a bank connection' : 'Bank activity'}</h2>
+          <p>{overview && !overview.configured ? `Tell ${assistantName} about a purchase or add it above. Nothing counts as spent until you confirm it.` : `Purchases from a connected bank appear here. Nothing counts as spent until you confirm it.`}</p>
         </div>
-        {overview?.environment && <span className="plaid-environment">{overview.environment}</span>}
       </div>
 
       {error && <p className="form-error" role="alert">{error}</p>}
       {notice && <p className="form-notice" role="status">{notice}</p>}
 
       {!overview ? (
-        <div className="plaid-empty"><strong>{busy === 'loading' ? 'Checking activity availability…' : 'Activity status is temporarily unavailable.'}</strong><p>Use Budget and {assistantName} for manual expense review while this status recovers.</p></div>
+        <div className="plaid-empty"><strong>{busy === 'loading' ? 'Checking activity availability…' : 'Bank activity is not available right now.'}</strong><p>You can still add a purchase above or tell {assistantName}.</p></div>
       ) : activeItems.length === 0 ? (
         overview.configured ? (
-          <div className="plaid-empty"><strong>No bank activity yet.</strong><p>Connect an account from My Profile. Once authorized, {assistantName} can describe the feed while budget actuals remain under your control.</p></div>
+          <div className="plaid-empty"><strong>No bank activity yet.</strong><p>Connect a bank in My Money, under Accounts. Nothing counts as spent until you confirm it.</p></div>
         ) : (
-          <div className="plaid-empty"><strong>Manual activity is ready.</strong><p>Tell {assistantName} about an expense, then review it in Budget before it becomes an official actual. Bank connection is optional and is not needed for this pilot.</p></div>
+          <div className="plaid-empty"><strong>Manual activity is ready.</strong><p>Tell {assistantName} about a purchase, then confirm it here. A bank connection is optional.</p></div>
         )
       ) : (
         <>

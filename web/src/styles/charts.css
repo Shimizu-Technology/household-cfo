@@ -102,6 +102,8 @@
 .month-plan-note,
 .month-plan-pending { margin: 8px 0; color: var(--muted); font-size: 13px; }
 .month-plan-pending { color: var(--mauve); display: flex; align-items: center; gap: 6px; }
+.month-plan-balance { margin: 4px 0 8px; color: var(--ink); font-size: 14px; }
+.month-plan-balance.is-short { color: var(--status-red); font-weight: 600; }
 .budget-screen .annual-budget-panel { display: flex; flex-direction: column; gap: 20px; }
 .budget-screen .annual-budget-summary { order: 1; border: 0; border-block: 1px solid var(--line); border-radius: 0; background: none; }
 .budget-screen .budget-detail-disclosure { order: 2; }

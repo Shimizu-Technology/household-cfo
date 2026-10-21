@@ -2,7 +2,7 @@
 .plaid-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .plaid-heading h2 { margin: .25rem 0 .45rem; font-family: var(--font-display); font-size: clamp(1.75rem, 3vw, 2.6rem); line-height: 1; }
 .plaid-heading p, .plaid-item p, .plaid-review-note { margin: 0; color: var(--ink-soft); }
-.plaid-environment, .plaid-status { border-radius: var(--radius-pill); padding: .4rem .7rem; background: var(--paper-deep); font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: .07em; }
+.plaid-status { border-radius: var(--radius-pill); padding: .4rem .7rem; background: var(--paper-deep); font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: .07em; }
 .plaid-status.is-update_required, .plaid-status.is-error { background: #fae8dc; color: #923e33; }
 .plaid-consent, .plaid-empty { padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(255,255,255,.55); }
 .plaid-consent { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .8rem 1rem; align-items: center; }
@@ -78,7 +78,6 @@
 
 @media (max-width: 700px) {
   .plaid-heading, .plaid-item { grid-template-columns: 1fr; display: grid; }
-  .plaid-environment { justify-self: start; }
   .plaid-consent { grid-template-columns: 1fr; }
   .plaid-consent a, .plaid-consent button { width: 100%; text-align: center; }
   .plaid-item-actions, .plaid-review-actions { justify-content: stretch; }
