@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { openCoachInvitation } from '../lib/coachChallengeApi'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -251,5 +252,17 @@ describe('Coach group essentials', () => {
     await waitFor(() => expect(lifecycle.finish).toHaveBeenCalled())
     expect(screen.queryByText('Participant added. Invitation email sent.')).toBeNull()
     expect(mocks.fetchAdminCohorts).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Daily invitation shortcut', () => {
+  it('opens the existing guarded invitation form and focuses email after loading', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const lifecycle = { pending: false, begin: vi.fn(() => ({ id: 1, workspaceId: 2 })), isCurrent: vi.fn(() => true), finish: vi.fn() }
+    render(<div role="tabpanel"><button onClick={(event) => openCoachInvitation(event.currentTarget)}>Invite someone</button><details className="coach-access-disclosure"><summary>Group invitations &amp; access</summary><CoachGroupsParticipants currentUser={owner} workspaceId={2} mutationLifecycle={lifecycle} onDirtyChange={() => undefined} /></details></div>)
+    fireEvent.click(screen.getByRole('button', { name: 'Invite someone' }))
+    await waitFor(() => expect(screen.getByLabelText('Participant email')).toBe(document.activeElement))
+    expect(screen.getByLabelText('Participant email').closest('details')?.open).toBe(true)
+    expect(mocks.createAdminUser).not.toHaveBeenCalled()
   })
 })

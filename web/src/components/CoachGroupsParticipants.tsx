@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { createAdminCohort, createAdminUser, fetchAdminCohorts, fetchAdminUsers, removeCoachGroupParticipant, resendAdminUserInvitation, updateAdminCohort } from '../api'
 import type { AdminCohort, AdminCohortInput, AdminCohortStatus, AdminUser, AdminUserMutationResponse, CurrentUser } from '../api'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
@@ -50,6 +50,8 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const generation = useRef(0)
+  const panel = useRef<HTMLElement>(null)
+  const invitation = useRef<HTMLDetailsElement>(null)
   const selected = groups.find((group) => group.id === selectedId) ?? null
   const groupDirty = !!selected && !!draft && JSON.stringify(draftFor(selected)) !== JSON.stringify(draft)
   const dirty = groupDirty || newName.trim().length > 0 || email.trim().length > 0
@@ -93,6 +95,23 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
   const currentRosterPage = Math.min(rosterPage, Math.max(0, rosterPages - 1))
   const visibleParticipants = participants.slice(currentRosterPage * 10, (currentRosterPage + 1) * 10)
   const disabled = busy || loading || mutationLifecycle.pending
+
+  useLayoutEffect(() => {
+    const access = panel.current?.closest<HTMLDetailsElement>('.coach-access-disclosure')
+    if (!access) return
+    function focusInvitation() {
+      if (access?.dataset.inviteRequested !== 'true' || !invitation.current) return
+      invitation.current.open = true
+      const input = invitation.current.querySelector<HTMLInputElement>('input[type="email"]')
+      if (!input || input.disabled) return
+      delete access.dataset.inviteRequested
+      input.focus({ preventScroll: true })
+      invitation.current.scrollIntoView({ block: 'start' })
+    }
+    focusInvitation()
+    access.addEventListener('coach-invite-requested', focusInvitation)
+    return () => access.removeEventListener('coach-invite-requested', focusInvitation)
+  }, [loading, selectedId, disabled])
 
   function changeRosterPage(nextPage: number) {
     if (disabled) return
@@ -157,13 +176,14 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
     if (!selected) return
     void mutate(async () => {
       const result = await createAdminUser({ email: email.trim(), role: 'participant', cohort_id: selected.id, send_invitation_email: sendEmail })
+      window.dispatchEvent(new CustomEvent('coach-roster-changed', { detail: selected.id }))
       return { notice: invitationNotice(result) }
     }, () => setEmail(''))
   }
 
   if (!workspaceId) return <section className="coach-groups"><h2>Groups & participants</h2><p>Choose a program to manage its groups and participants.</p></section>
   if (!allowed) return <section className="coach-groups"><h2>Groups & participants</h2><p>Ask a program owner to create groups and manage participant invitations. Your collaborator role does not include roster access.</p></section>
-  return <section className="coach-groups" aria-label="Groups and participants">
+  return <section ref={panel} className="coach-groups" aria-label="Groups and participants">
     <header className="coach-groups-header"><div><h2>Groups & participants</h2><p>Organize your program into groups and invite participants by email.</p></div><div className="coach-groups-actions"><Button variant="secondary" disabled={disabled} onClick={() => {
       if (dirty && !window.confirm('Discard unsaved changes and reload groups?')) return
       void mutate(async () => ({ notice: 'Groups and participants reloaded.' }), () => { setEmail(''); setNewName(''); setRemovingId(null) })
@@ -179,7 +199,7 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
     {selectedCohortId === undefined && !!groups.length && <label className="coach-group-picker">Group<select disabled={disabled} value={selectedId ?? ''} onChange={(event) => chooseGroup(Number(event.target.value))}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name} · {group.participant_count} participants</option>)}</select></label>}
     {selected && draft && <>
       <details className="coach-group-settings"><summary>Group details & dates</summary><form className="coach-groups-card" onSubmit={saveGroup}><h3>Group details</h3><div className="coach-groups-grid"><label>Group name<input required maxLength={120} value={draft.name} disabled={disabled} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label>Group status<select value={draft.status} disabled={disabled} onChange={(event) => setDraft({ ...draft, status: event.target.value as AdminCohortStatus })}><option value="draft">Draft</option><option value="enrolling">Enrolling</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select></label><label>Start date (optional)<input type="date" value={draft.starts_on} disabled={disabled} onChange={(event) => setDraft({ ...draft, starts_on: event.target.value })} /></label><label>End date (optional)<input type="date" value={draft.ends_on} min={draft.starts_on || undefined} disabled={disabled} onChange={(event) => setDraft({ ...draft, ends_on: event.target.value })} /></label></div><label>Group notes (optional)<textarea rows={3} maxLength={2000} value={draft.notes} disabled={disabled} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label><p>Status organizes the group. It does not publish or launch an assistant, tools, or branding. Completed and archived groups cannot have an open rollout.</p><div className="coach-groups-actions"><Button type="submit" disabled={disabled || !groupDirty || !draft.name.trim()}>Save group</Button><Button variant="secondary" disabled={disabled || !groupDirty} onClick={() => setDraft(draftFor(selected))}>Discard changes</Button></div></form></details>
-      <details className="coach-group-settings"><summary>Add a participant</summary><form className="coach-groups-card" onSubmit={inviteParticipant}><h3>Add a participant</h3><label>Participant email<input type="email" required maxLength={254} autoComplete="email" value={email} disabled={disabled} onChange={(event) => setEmail(event.target.value)} /></label><label className="coach-groups-check"><input type="checkbox" checked={sendEmail} disabled={disabled} onChange={(event) => setSendEmail(event.target.checked)} />Send an invitation email when eligible</label><p>Existing participants can join another group if its assistant is compatible. Their account and other groups stay unchanged. Shared or accepted accounts may be added without another email.</p><Button type="submit" disabled={disabled || !email.trim() || groupDirty || !!newName.trim()}>Add to {selected.name}</Button>{(groupDirty || newName.trim()) && <p>Save or discard group changes first.</p>}</form></details>
+      <details ref={invitation} className="coach-group-settings"><summary>Add a participant</summary><form className="coach-groups-card" onSubmit={inviteParticipant}><h3>Add a participant</h3><label>Participant email<input type="email" required maxLength={254} autoComplete="email" value={email} disabled={disabled} onChange={(event) => setEmail(event.target.value)} /></label><label className="coach-groups-check"><input type="checkbox" checked={sendEmail} disabled={disabled} onChange={(event) => setSendEmail(event.target.checked)} />Send an invitation email when eligible</label><p>Existing participants can join another group if its assistant is compatible. Their account and other groups stay unchanged. Shared or accepted accounts may be added without another email.</p><Button type="submit" disabled={disabled || !email.trim() || groupDirty || !!newName.trim()}>Add to {selected.name}</Button>{(groupDirty || newName.trim()) && <p>Save or discard group changes first.</p>}</form></details>
       <section className="coach-groups-card"><h3>Participants in {selected.name}</h3><label>Find a participant<input type="search" value={search} disabled={disabled} onChange={(event) => { setSearch(event.target.value); setRosterPage(0); setRemovingId(null) }} /></label><p>Invitation pending describes account access, not email delivery. Historical email delivery details are private to platform administrators.</p>
         {!participants.length && <p>{search ? 'No participants match your search.' : 'No participants in this group yet.'}</p>}
         {!!participants.length && <p className="coach-roster-count">Showing {currentRosterPage * 10 + 1}–{Math.min((currentRosterPage + 1) * 10, participants.length)} of {participants.length} {search.trim() ? 'matching participants' : 'participants'}.</p>}

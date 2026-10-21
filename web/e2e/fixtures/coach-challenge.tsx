@@ -7,15 +7,18 @@ let revoked = false
 const response = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 window.fetch = async (input, init) => {
-  const path = new URL(String(input), 'http://localhost').pathname
+  const url = new URL(String(input), 'http://localhost')
+  const path = url.pathname
   if (path.endsWith('/participants'))
     return response({
       actor_scope: { user_id: 10, coach_workspace_id: 20 },
-      cohort_id: 1,
+      cohort_id: path.includes('/2/') ? 2 : 1,
+      program_type: path.includes('/2/') ? 'household' : 'savings', can_invite: false, counts: { all: 1, needs_help: 1, checked_in: 0, not_checked_in: 0, invited: 0, joined: 1, setup_done: 0 },
       records: [
         {
-          enrollment_id: 2,
-          participant: { id: 3, name: 'Fictional pilot participant' },
+          enrollment_id: path.includes('/2/') ? null : 2,
+          membership_status: 'joined', needs_help: true, setup_help: path.includes('/2/') ? [{ id: 9, reason: 'upload_problem', status: 'requested' }] : [], shared_items: [],
+          participant: { id: 3, name: path.includes('/2/') ? 'Elena' : 'Fictional pilot participant' },
           participation_status: 'active',
           setup_status: 'plan_reviewed',
           check_in: { local_on: '2026-11-01', completed: null, availability: 'unavailable' },
@@ -23,7 +26,7 @@ window.fetch = async (input, init) => {
           more_help_requests: false,
         },
       ],
-      next_cursor: null,
+      next_offset: null,
     })
   if (path.endsWith('/scopes'))
     return revoked
@@ -75,7 +78,7 @@ export function Fixture() {
       >
         Synthetic revoke sharing
       </button>
-      <CoachChallengeDashboard userId={10} workspaceId={20} cohorts={[{ id: 1, name: 'Fictional savings cohort' }]} />
+      <CoachChallengeDashboard userId={10} workspaceId={20} cohorts={[{ id: 1, name: 'Fictional savings cohort' }, { id: 2, name: 'Household group' }]} />
       <ChallengeExport cohortId={1} scope={{ user_id: 3, household_id: 9 }} />
     </main>
   )

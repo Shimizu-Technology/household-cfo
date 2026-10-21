@@ -21,6 +21,10 @@ module Api
 
       def participants
         ChallengePrivacy::Access.staff!(cohort, current_user)
+        if params[:view] == "daily"
+          result = ChallengePrivacy::CoachDailyRoster.new(cohort, user: current_user).call(search: params[:search], filter: params[:filter], offset: params[:offset])
+          return render json: { **staff_scope, cohort_id: cohort.id, **result }
+        end
         rows = page(SavingsEnrollment.where(cohort: cohort).includes(:user))
         records = rows.first(50).filter_map do |enrollment|
           basic = ChallengePrivacy::SharedReader.new(enrollment, user: current_user).basic
@@ -66,7 +70,11 @@ module Api
       private
       def disable_caching! = response.set_header("Cache-Control", "private, no-store")
       def reject_filters!
-        allowed = action_name.in?(%w[participants exports]) ? %w[cursor] : []
+        allowed = if action_name == "participants" && params[:view] == "daily"
+          %w[view search filter offset]
+        else
+          action_name.in?(%w[participants exports]) ? %w[cursor] : []
+        end
         raise ArgumentError, "This fixed challenge view does not accept subgroup filters" unless (request.query_parameters.keys - allowed).empty?
       end
       def cohort

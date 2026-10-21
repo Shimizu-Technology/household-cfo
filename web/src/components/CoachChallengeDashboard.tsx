@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ApiRequestError, fetchSharedChallengeSource } from '../api'
 import {
   coachChallengeApi,
   type CoachChallengeScope,
   type CoachParticipant,
+  type CoachDailyPerson,
+  type CoachDailyPage,
+  type DailyFilter,
+  formatCoachTime,
+  openCoachInvitation,
+  openCoachSetupHelp,
   type SharedScopes,
   type SponsorIndex,
   type SponsorReport,
@@ -11,6 +17,7 @@ import {
 } from '../lib/coachChallengeApi'
 import { savingsDollars } from '../lib/savingsChallenge'
 import { formatDay } from '../lib/plainDates'
+import { SetupSupportInbox } from './SetupSupportInbox'
 import { DisabledReason } from './DisabledReason'
 import './CoachChallengeDashboard.css'
 
@@ -22,158 +29,117 @@ function Dashboard({ userId, workspaceId, cohorts, selectedCohortId }: Props) {
   const [localCohortId, setCohortId] = useState<number | null>(null)
   const cohortId = selectedCohortId === undefined ? localCohortId : selectedCohortId
   return (
-    <section className="coach-challenge">
-      <h2>Challenge check-ins & help</h2>
-      <p>
-        Participation and completed daily reports are visible here. Money and exact private records require the
-        participant’s separate sharing permission.
-      </p>
-      {selectedCohortId === undefined && <label>
-        Challenge group
-        <select
-          value={cohortId ?? ''}
-          onChange={(event) => setCohortId(event.target.value ? Number(event.target.value) : null)}
-        >
-          <option value="">Choose a group</option>
-          {cohorts.map((row) => (
-            <option key={row.id} value={row.id}>
-              {row.name}
-            </option>
-          ))}
-        </select>
-      </label>}
-      {selectedCohortId !== undefined && <p className="coach-current-group">{cohorts.find((row) => row.id === cohortId)?.name ?? 'Choose a group below to see check-ins and help.'}</p>}
-      {cohortId && (
-        <Group key={cohortId} scope={{ user_id: userId, coach_workspace_id: workspaceId }} cohortId={cohortId} />
-      )}
+    <section className="coach-challenge" aria-label="Daily coaching">
+      {selectedCohortId === undefined && <label>Group<select value={cohortId ?? ''} onChange={(event) => setCohortId(event.target.value ? Number(event.target.value) : null)}>
+        <option value="">Choose a group</option>
+        {cohorts.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+      </select></label>}
+      {cohortId ? <Group key={cohortId} scope={{ user_id: userId, coach_workspace_id: workspaceId }} cohortId={cohortId} /> : <p>Choose a group to see who needs you.</p>}
     </section>
   )
 }
 function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: number }) {
-  const [rows, setRows] = useState<CoachParticipant[]>([]),
-    [cursor, setCursor] = useState<number | null>(null),
-    [next, setNext] = useState<number | null>(null),
-    [pages, setPages] = useState<Array<number | null>>([]),
-    [selected, setSelected] = useState<CoachParticipant | null>(null),
-    [revision, setRevision] = useState(0),
-    [busy, setBusy] = useState(true),
-    [error, setError] = useState<string | null>(null),
-    [search, setSearch] = useState(''),
-    [rowPage, setRowPage] = useState(0)
+  const [page, setPage] = useState<CoachDailyPage | null>(null)
+  const [offset, setOffset] = useState(0)
+  const [selected, setSelected] = useState<CoachDailyPerson | null>(null)
+  const [revision, setRevision] = useState(0)
+  const [busy, setBusy] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<DailyFilter>('all')
+  const list = useRef<HTMLDivElement>(null)
+  const detail = useRef<HTMLDivElement>(null)
+  const returnTo = useRef<{ top: number; button: HTMLButtonElement } | null>(null)
   useEffect(() => {
     let live = true
     const controller = new AbortController()
-    coachChallengeApi
-      .participants(cohortId, cursor, controller.signal)
-      .then((result) => {
-        if (
-          result.actor_scope.user_id !== scope.user_id ||
-          result.actor_scope.coach_workspace_id !== scope.coach_workspace_id ||
-          result.cohort_id !== cohortId
-        )
-          throw new Error('The program changed. Reopen its challenge view.')
-        if (live) {
-          setRows(result.records)
-          setNext(result.next_cursor)
-          setBusy(false)
-        }
+    const timer = window.setTimeout(() => {
+      coachChallengeApi.daily(cohortId, search, filter, offset, controller.signal).then((result) => {
+        if (result.actor_scope.user_id !== scope.user_id || result.actor_scope.coach_workspace_id !== scope.coach_workspace_id || result.cohort_id !== cohortId)
+          throw new Error('The program changed. Reopen Daily coaching.')
+        if (live) { setPage(result); setError(null); setBusy(false) }
+      }).catch((failure) => {
+        if (live) { setPage(null); setSelected(null); setBusy(false); setError(message(failure)) }
       })
-      .catch((failure) => {
-        if (live) {
-          setRows([])
-          setSelected(null)
-          setBusy(false)
-          setError(message(failure))
-        }
-      })
-    return () => {
-      live = false
-      controller.abort()
+    }, search ? 200 : 0)
+    return () => { live = false; controller.abort(); window.clearTimeout(timer) }
+  }, [scope.user_id, scope.coach_workspace_id, cohortId, search, filter, offset, revision])
+  useEffect(() => {
+    function changed(event: Event) { if ((event as CustomEvent<number>).detail === cohortId) { returnTo.current = null; setSelected(null); setRevision((value) => value + 1) } }
+    window.addEventListener('coach-roster-changed', changed)
+    return () => window.removeEventListener('coach-roster-changed', changed)
+  }, [cohortId])
+  useLayoutEffect(() => {
+    if (selected) {
+      detail.current?.querySelector<HTMLElement>('h3')?.focus({ preventScroll: true })
+      if (window.matchMedia('(max-width: 620px)').matches) detail.current?.scrollIntoView({ block: 'start' })
+    } else if (returnTo.current) {
+      returnTo.current.button.focus({ preventScroll: true })
+      window.scrollTo({ top: returnTo.current.top, behavior: 'instant' })
+      returnTo.current = null
     }
-  }, [scope.user_id, scope.coach_workspace_id, cohortId, cursor, revision])
-  function reload() {
-    setRows([])
-    setSelected(null)
-    setBusy(true)
-    setError(null)
-    setRowPage(0)
-    setRevision((value) => value + 1)
+  }, [selected])
+  function change(nextFilter: DailyFilter, nextSearch = search) {
+    if (nextFilter === filter && nextSearch === search && offset === 0) return
+    returnTo.current = null; setSelected(null); setBusy(true); setError(null); setOffset(0); setFilter(nextFilter); setSearch(nextSearch)
   }
-  const matchingRows = rows.filter((row) => row.participant.name.toLowerCase().includes(search.trim().toLowerCase()))
-  const rowPages = Math.ceil(matchingRows.length / 10)
-  const visibleRows = matchingRows.slice(rowPage * 10, (rowPage + 1) * 10)
-  return (
-    <>
-      <button type="button" onClick={reload} disabled={busy}>
-        Refresh current permissions
-      </button>
-      {error && <p role="alert">{error}</p>}
-      {busy && <p role="status">Loading permitted participation metadata…</p>}
-      {!busy && rows.length > 0 && <>
-        <p className="coach-page-scope">Current page only. Search filters these enrolled participants; use More participants when available.</p><div className="coach-challenge-summary"><span><strong>{rows.filter((row) => row.check_in.completed === true).length}</strong> daily reports complete</span><span><strong>{rows.filter((row) => row.check_in.completed === false).length}</strong> reports not completed</span><span><strong>{rows.filter((row) => row.help_requests.some((request) => request.status !== 'resolved')).length}</strong> participants with visible open help</span></div>
-        <label>Find an enrolled participant<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setRowPage(0); setSelected(null) }} /></label>
-      </>}
-      {!busy && !error && rows.length === 0 && <p>No enrolled participants on this page. Invitations and group access are listed below.</p>}
-      {!busy && rows.length > 0 && visibleRows.length === 0 && <p>No enrolled participants on this page match your search.</p>}
-      <ul className="coach-challenge-roster">
-        {visibleRows.map((row) => (
-          <li key={row.enrollment_id}>
-            <strong>{row.participant.name}</strong>
-            <p>
-              {participationWords(row.participation_status)} · {row.setup_status === 'plan_reviewed' ? 'Target confirmed' : 'Target not confirmed yet'}
-            </p>
-            <p>
-              {formatDay(row.check_in.local_on)}:{' '}
-              {row.check_in.completed === null
-                ? 'check-in not shared'
-                : row.check_in.completed
-                  ? 'daily check-in done'
-                  : 'no daily check-in yet'}
-              .
-            </p>
-            <button type="button" onClick={() => setSelected(row)}>
-              Open permitted help & sharing
-            </button>
-          </li>
-        ))}
-      </ul>
-      {rowPages > 1 && <div className="coach-challenge-actions" aria-label="Check-in pages"><button disabled={rowPage === 0} onClick={() => { setRowPage(rowPage - 1); setSelected(null) }}>Previous check-ins</button><span>Page {rowPage + 1} of {rowPages} · {matchingRows.length} enrolled participants loaded</span><button disabled={rowPage + 1 >= rowPages} onClick={() => { setRowPage(rowPage + 1); setSelected(null) }}>Next check-ins</button></div>}
-      {(pages.length > 0 || next !== null) && <div className="coach-challenge-actions">
-        <button
-          disabled={busy || !pages.length}
-          onClick={() => {
-            setSelected(null)
-            setRowPage(0)
-            setRows([])
-            setBusy(true)
-            setCursor(pages.at(-1)!)
-            setPages(pages.slice(0, -1))
-          }}
-        >
-          Previous participants
-        </button>
-        <button
-          disabled={busy || next === null}
-          onClick={() => {
-            setSelected(null)
-            setRowPage(0)
-            setRows([])
-            setBusy(true)
-            setPages([...pages, cursor])
-            setCursor(next)
-          }}
-        >
-          More participants
-        </button>
+  function refresh() { returnTo.current = null; setSelected(null); setBusy(true); setError(null); setPage(null); setRevision((value) => value + 1) }
+  const savings = page?.program_type === 'savings'
+  const filters: Array<[DailyFilter, string]> = savings
+    ? [['all', 'Everyone'], ['needs_help', 'Need you'], ['checked_in', 'Checked in'], ['not_checked_in', 'No check-in']]
+    : [['all', 'Everyone'], ['needs_help', 'Need you'], ['invited', 'Invited'], ['joined', 'Joined'], ['setup_done', 'Setup done']]
+  return <>
+    <header className="coach-daily-heading"><h2>Who needs me today?</h2><div>
+      {page?.can_invite && <button className="coach-daily-primary" onClick={(event) => { if (!openCoachInvitation(event.currentTarget)) setError('Open Group invitations & access to invite someone.') }}>Invite someone</button>}
+      <button onClick={refresh} disabled={busy}>Refresh</button>
+    </div></header>
+    {error && <p role="alert">{error}</p>}
+    {busy && <p role="status">Loading people…</p>}
+    <div className={`coach-daily-layout${selected ? ' has-detail' : ''}`}>
+      <div className="coach-daily-list" ref={list}>
+        {page && <>
+          <div className="coach-challenge-summary" aria-label="Filter people">{filters.map(([value, label]) => <button key={value} aria-pressed={filter === value} onClick={() => change(value)}><strong>{page.counts[value]}</strong> {label}</button>)}</div>
+          <label>Find someone<input type="search" value={search} onChange={(event) => change(filter, event.target.value)} /></label>
+          {!busy && !page.records.length && <p>{search || filter !== 'all' ? 'No one matches. Try another name or choose Everyone.' : 'No one in this group yet. Invite someone to get started.'}</p>}
+          <ul className="coach-challenge-roster">{(!busy ? page.records : []).map((row) => <li key={row.participant.id} className={selected?.participant.id === row.participant.id ? 'is-selected' : undefined}>
+            <div><strong>{row.participant.name}</strong><p className={row.needs_help ? 'coach-daily-need' : undefined}>{dailyNeed(row)}</p>
+              <p>{savings ? savingsStatus(row) : householdStatus(row)}</p>
+            </div>
+            <button aria-label={`${row.needs_help ? 'View help for' : 'View'} ${row.participant.name}`} aria-pressed={selected?.participant.id === row.participant.id} onClick={(event) => { returnTo.current = { top: window.scrollY, button: event.currentTarget }; setSelected(row) }}>{row.needs_help ? 'View help' : 'View person'}</button>
+          </li>)}</ul>
+          {(offset > 0 || page.next_offset !== null) && <nav className="coach-challenge-actions" aria-label="People pages">
+            <button disabled={busy || offset === 0} onClick={() => { setBusy(true); setOffset(Math.max(0, offset - 20)) }}>Previous people</button>
+            <button disabled={busy || page.next_offset === null} onClick={() => { setBusy(true); setOffset(page.next_offset!) }}>More people</button>
+          </nav>}
+        </>}
+      </div>
+      {selected && <div className="coach-daily-detail" ref={detail}>
+        <header><h3 tabIndex={-1}>{selected.participant.name}</h3><button onClick={() => { setSelected(null); setRevision((value) => value + 1) }}>Back to people</button></header>
+        <p>{dailyNeed(selected)}</p><p>{savings ? savingsStatus(selected) : householdStatus(selected)}</p>
+        {selected.setup_help.length > 0 && <SetupSupportInbox actorId={scope.user_id} workspaceId={scope.coach_workspace_id} cohortId={cohortId} participantId={selected.participant.id} isAdmin={false} readOnly />}
+        {selected.setup_help.length > 0 && <button onClick={(event) => { openCoachSetupHelp(event.currentTarget, selected.participant.id) }}>Review setup help</button>}
+        {selected.enrollment_id !== null && <Participant key={selected.enrollment_id} row={{ ...selected, enrollment_id: selected.enrollment_id, check_in: selected.check_in! }} />}
+        {selected.enrollment_id === null && !selected.setup_help.length && <p>Private financial records and conversations stay private.</p>}
       </div>}
-      {selected && (
-        <Participant key={`participant:${selected.enrollment_id}:${revision}`} row={selected} onClose={() => setSelected(null)} />
-      )}
-      <details className="coach-report-disclosure"><summary>Checkpoint reports</summary><SponsorReports key={`sponsor:${cohortId}:${revision}`} scope={scope} cohortId={cohortId} /></details>
-    </>
-  )
+    </div>
+    {savings && !selected && <details className="coach-report-disclosure"><summary>Checkpoint reports</summary><SponsorReports key={`${cohortId}:${revision}`} scope={scope} cohortId={cohortId} /></details>}
+  </>
 }
-function Participant({ row, onClose }: { row: CoachParticipant; onClose: () => void }) {
+function householdStatus(row: CoachDailyPerson) {
+  return row.membership_status === 'invited' ? 'Invited · Hasn’t joined yet' : row.membership_status === 'revoked' ? 'Account access removed' : row.setup_status === 'complete' ? 'Joined · Setup done' : 'Joined · Setup not finished'
+}
+function savingsStatus(row: CoachDailyPerson) {
+  if (!row.enrollment_id) return row.membership_status === 'invited' ? 'Invited · Hasn’t joined yet' : 'Joined · Hasn’t started the challenge'
+  return `${row.check_in?.completed === true ? 'Checked in today' : row.check_in?.completed === false ? 'No check-in yet' : 'Check-in unavailable'} · ${row.setup_status === 'plan_reviewed' ? 'Target confirmed' : 'No target confirmed yet'}`
+}
+function dailyNeed(row: CoachDailyPerson) {
+  const needs: string[] = []
+  for (const help of row.setup_help) needs.push(({ upload_problem: 'Asked for help with an upload', practice_numbers: 'Asked for help replacing practice numbers', wrong_setup: 'Asked for help correcting setup', other: 'Asked for help starting again' } as Record<string, string>)[help.reason] ?? 'Asked for setup help')
+  if (row.help_requests.length) needs.push('Asked for challenge help')
+  for (const item of row.shared_items) needs.push(item === 'savings_plan_version' ? 'Shared their target plan with you' : item === 'summary' ? 'Shared their progress with you' : `Shared ${recordLabel(item)} with you`)
+  return [...new Set(needs)].join(' · ') || 'No open help requests'
+}
+function Participant({ row }: { row: CoachParticipant }) {
   const [scopes, setScopes] = useState<SharedScopes | null>(null),
     [error, setError] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
@@ -235,6 +201,13 @@ function Participant({ row, onClose }: { row: CoachParticipant; onClose: () => v
       if (live.current && !owned.signal.aborted) setBusy(false)
     }
   }
+  useEffect(() => {
+    const owned = new AbortController()
+    coachChallengeApi.scopes(row.enrollment_id, owned.signal).then((result) => {
+      if (live.current && !owned.signal.aborted && result.enrollment_id === row.enrollment_id) setScopes(result)
+    }).catch((failure) => { if (live.current && !owned.signal.aborted) setError(message(failure)) })
+    return () => owned.abort()
+  }, [row.enrollment_id])
   const current = (signal: AbortSignal) => live.current && !signal.aborted
   function selected(ref: SharedRecordRef, supportId?: number) {
     void request(async (signal) => {
@@ -247,13 +220,10 @@ function Participant({ row, onClose }: { row: CoachParticipant; onClose: () => v
   }
   return (
     <section className="coach-challenge-card" aria-label="Participant permitted sharing">
-      <header>
-        <h3>{row.participant.name}</h3>
-        <button onClick={onClose}>Close participant</button>
-      </header>
-      <p>Opening an exact record rechecks current consent. Refresh or close this panel after use.</p>
+      <h4>Help &amp; sharing</h4>
+      <p>Only what this person shared with you is available. Permission is checked each time you open a record.</p>
       {error && <p role="alert">{error}</p>}
-      {busy && <p role="status">Checking current permission…</p>}
+      {busy && <p role="status">Loading shared items…</p>}
       <button
         disabled={busy}
         onClick={() =>
@@ -264,7 +234,7 @@ function Participant({ row, onClose }: { row: CoachParticipant; onClose: () => v
           })
         }
       >
-        Check current sharing permissions
+        Refresh shared items
       </button>
       {scopes && (
         <>
@@ -280,28 +250,28 @@ function Participant({ row, onClose }: { row: CoachParticipant; onClose: () => v
                 })
               }
             >
-              Open consented savings summary
+              View shared progress
             </button>
           )}
           <ul>
             {scopes.selected_records.map((ref) => (
               <li key={`${ref.record_type}:${ref.record_id}`}>
                 <button disabled={busy} onClick={() => selected(ref)}>
-                  Open selected {recordLabel(ref.record_type)} #{ref.record_id}
+                  View shared {recordLabel(ref.record_type)}
                 </button>
               </li>
             ))}
           </ul>
           {scopes.support_access.map((access) => (
             <section key={access.id}>
-              <p>Time-bound support permission ends {access.expires_at}.</p>
+              <p>Shared until {formatCoachTime(access.expires_at)} (Guam time).</p>
               {access.selected_records.map((ref) => (
                 <button
                   key={`${ref.record_type}:${ref.record_id}`}
                   disabled={busy}
                   onClick={() => selected(ref, access.id)}
                 >
-                  Open selected support {recordLabel(ref.record_type)} #{ref.record_id}
+                  View shared {recordLabel(ref.record_type)}
                 </button>
               ))}
             </section>
@@ -313,11 +283,10 @@ function Participant({ row, onClose }: { row: CoachParticipant; onClose: () => v
           <h4>Participant-reported progress</h4>
           <p>
             {savingsDollars(summary.projection.reported_cents)} reported ·{' '}
-            {savingsDollars(summary.projection.evidence_supported_cents)} evidence-supported subset.
+            {savingsDollars(summary.projection.evidence_supported_cents)} matched to statements.
           </p>
           <p>
-            Accepted target {savingsDollars(summary.accepted_target_cents)}. The supported subset is part of the
-            reported amount.
+            Target {savingsDollars(summary.accepted_target_cents)}. The amount matched to statements is already included in the reported amount.
           </p>
         </section>
       )}
@@ -353,7 +322,7 @@ function Participant({ row, onClose }: { row: CoachParticipant; onClose: () => v
             })
           }
         >
-          {help.issue_kind.replaceAll('_', ' ')} · {help.status} · Open request #{help.id}
+          Help request {help.id} · {help.status === 'triaged' ? 'In review' : help.status === 'resolved' ? 'Resolved' : 'Waiting for you'}
         </button>
       ))}
       {((row.more_help_requests && !helpStarted) || helpCursor !== null) && (
@@ -376,12 +345,11 @@ function Participant({ row, onClose }: { row: CoachParticipant; onClose: () => v
       {ticket && (
         <section>
           <h4>
-            Request #{ticket.id} · {ticket.status}
+            Help request {ticket.id} · {ticket.status === 'triaged' ? 'In review' : ticket.status === 'resolved' ? 'Resolved' : 'Waiting for you'}
           </h4>
           <p className="coach-private-message">{ticket.message}</p>
           <p>
-            Selected references do not grant access automatically. Check the participant’s current sharing permission
-            above.
+            A help request does not share private records by itself. Use Refresh shared items to see what this person chose to share.
           </p>
           <div className="coach-challenge-actions">
             {(['triaged', 'resolved'] as const).map((status) => (
@@ -400,7 +368,7 @@ function Participant({ row, onClose }: { row: CoachParticipant; onClose: () => v
                   })
                 }
               >
-                Mark {status}
+                {status === 'triaged' ? 'Mark in review' : 'Mark resolved'}
               </button>
             ))}
           </div>
@@ -460,7 +428,9 @@ function SelectedFacts({
                 <dd className="coach-private-message">
                   {key.endsWith('_cents') && typeof value === 'number'
                     ? savingsDollars(value)
-                    : String(value ?? 'Unknown')}
+                    : key === 'created_at' && typeof value === 'string' ? formatCoachTime(value)
+                      : key.endsWith('_on') && typeof value === 'string' ? formatDay(value)
+                      : String(value ?? 'Unknown')}
                 </dd>
               </div>
             ))}
@@ -518,14 +488,12 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
   const current = (signal: AbortSignal) => live.current && !signal.aborted
   const selectedCheckpoint = index?.scheduled_checkpoints.find((row) => row.day === day)
   const sealBlockedReason = sealBlocker(selectedCheckpoint, day, index?.today_on)
-  const sealReason = sealBlockedReason ?? (!accepted && !busy ? 'Tick the box above to confirm you reviewed the consent and suppression policy.' : null)
+  const sealReason = sealBlockedReason ?? (!accepted && !busy ? 'Tick the box above to confirm you reviewed how privacy works.' : null)
   return (
     <section className="coach-challenge-card">
-      <h3>Fixed cohort checkpoint reports</h3>
-      <p>
-        Reports use active sponsor consent and coarse ranges. Small cells, complements and revealing changes are
-        suppressed. No personal money, names or dynamic subgroup filters are included.
-      </p>
+      <h3>Group checkpoint reports</h3>
+      <p>Group progress is shown in broad ranges, with permission. Names and personal amounts stay private.</p>
+      <details><summary>How privacy works</summary><p>Groups smaller than five are hidden. Results are also hidden when comparing groups or reports could identify someone. Only people who currently agree to sponsor reporting are included. Reports cannot be filtered into smaller groups.</p></details>
       <button
         disabled={busy}
         onClick={() =>
@@ -542,7 +510,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
       {index && (
         <>
           <p>
-            Sealed reports are fixed. Later consent changes can make an earlier report unavailable; they do not rebuild
+            Saved reports are fixed. Later consent changes can make an earlier report unavailable; they do not rebuild
             it.
           </p>
           <label>
@@ -557,7 +525,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
             >
               {index.scheduled_checkpoints.map((row) => (
                 <option key={row.day} value={row.day}>
-                  Day {row.day} · {row.cutoff_on ?? 'Start not configured'}
+                  Day {row.day} · {row.cutoff_on ? formatDay(row.cutoff_on) : 'Start date not set'}
                 </option>
               ))}
             </select>
@@ -569,8 +537,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
               disabled={busy}
               onChange={(event) => setAccepted(event.target.checked)}
             />
-            Seal the scheduled checkpoint after reviewing the consent and suppression policy. This does not send it to
-            BOG.
+            I reviewed how privacy works and want to save this checkpoint report. This does not send it to the sponsor.
           </label>
           <button
             disabled={busy || !accepted || sealBlockedReason !== null}
@@ -587,7 +554,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
               })
             }
           >
-            Seal reviewed Day {day} report
+            Save reviewed Day {day} report
           </button>
           <DisabledReason id="seal-reason">{sealReason}</DisabledReason>
           {index.records.map((row) => (
@@ -605,7 +572,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
                 })
               }
             >
-              Read sealed Day {row.checkpoint_day} · {formatDay(row.resolved_cutoff_on)}
+              Read saved Day {row.checkpoint_day} · {formatDay(row.resolved_cutoff_on)}
             </button>
           ))}
           {index.next_cursor !== null && (
@@ -620,7 +587,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
                 })
               }}
             >
-              More sealed reports
+              More saved reports
             </button>
           )}
         </>
@@ -630,9 +597,9 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
           <h4>
             Day {report.checkpoint_day} · {formatDay(report.cutoff_on)}
           </h4>
-          <p>Active consent denominator: {report.active_consent_count_range}.</p>
+          <p>People who agreed to reporting: {report.suppressed ? 'Hidden to protect privacy' : report.active_consent_count_range}.</p>
           {report.suppressed ? (
-            <p>Progress bands suppressed by the reporting policy.</p>
+            <p>Progress is hidden to protect people’s privacy.</p>
           ) : (
             <ul>
               {report.bands.map((row) => (
@@ -642,7 +609,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
               ))}
             </ul>
           )}
-          <p>{report.qualification}</p>
+          <p>These ranges reflect participant reports, not verified account balances.</p>
           <button
             disabled={busy || exportId === null}
             onClick={() =>
@@ -657,7 +624,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
               })
             }
           >
-            Download this coarse report
+            Download this group report
           </button>
         </section>
       )}
@@ -693,15 +660,11 @@ const message = (failure: unknown) =>
 // front instead of leaving the seal button disabled with no explanation.
 function sealBlocker(checkpoint: { cutoff_on: string | null; sealable?: boolean } | undefined, day: number, serverToday?: string) {
   if (!checkpoint) return null
-  if (!checkpoint.cutoff_on) return `Day ${day} cannot be sealed yet because the group's start date is not set.`
+  if (!checkpoint.cutoff_on) return `Day ${day} cannot be saved yet because the group's start date is not set.`
   // The API reckons dates in Guam time, so compare against Guam's today.
   // The server's own verdict wins over this browser's clock; the cutoff day itself can be sealed.
   const today = serverToday ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Guam' }).format(new Date())
   const blocked = checkpoint.sealable === undefined ? checkpoint.cutoff_on > today : !checkpoint.sealable
-  if (blocked) return `Day ${day} hasn’t ended yet. You can seal this report from ${formatDay(checkpoint.cutoff_on, { year: true })}.`
+  if (blocked) return `Day ${day} hasn’t ended yet. You can save this report from ${formatDay(checkpoint.cutoff_on, { year: true })}.`
   return null
-}
-
-function participationWords(status: string) {
-  return ({ active: 'Taking part', completed: 'Finished the 90 days', withdrawn: 'Left the challenge' } as Record<string, string>)[status] ?? 'Status unavailable'
 }
