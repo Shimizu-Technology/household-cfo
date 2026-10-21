@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError, fetchDailyContext, fetchDailyRequestStatus, mutateDaily } from '../api'
 import type { DailyContext, DailyDay, DailyInput } from '../lib/dailyChallenge'
-import { clearDailyCards, dailyCardNeedsAttention, registerDailyCard, restoreDailyCards } from '../lib/dailyCheckIn'
+import { clearDailyCards, forgetDailyCard, dailyCardNeedsAttention, registerDailyCard, restoreDailyCards } from '../lib/dailyCheckIn'
 import { saveDailyRecovery, setDailyExpectedUser } from '../lib/dailyRecovery'
 import type { DailyReportIntake } from '../lib/savingsChallenge'
 import { baselineScope } from '../test/baselineFixtures'
@@ -23,19 +23,28 @@ const actions = () => calls().map((call) => call.action)
 let failures: { action: string; merchant?: string; status: number; times: number }[] = []
 let days: Record<string, Partial<DailyDay>> = {}
 let nonceCount = 0
+const testNonces = new Set<string>()
 
 function renderCard(value: DailyReportIntake = report, nonce = `card-${++nonceCount}`) {
+  testNonces.add(nonce)
   const handlers = { onSaved: vi.fn(), onEditInToday: vi.fn(), onDismiss: vi.fn() }
   const view = render(<MiaDailyReportCard nonce={nonce} report={value} scope={baselineScope} {...handlers} />)
   return { card: screen.getByRole('region', { name: 'Your check-in' }), nonce, view, ...handlers }
 }
 async function ready(card: HTMLElement, name = /^Save/) {
-  await waitFor(() => expect((within(card).getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(false))
+  await waitFor(() => expect((within(card).getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(false), { timeout: 3000 })
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  for (const nonce of testNonces) forgetDailyCard(nonce)
+  testNonces.clear()
+  clearDailyCards()
+  sessionStorage.clear()
+  setDailyExpectedUser(null)
+})
 beforeEach(() => {
-  vi.clearAllMocks(); failures = []; days = {}
+  vi.resetAllMocks(); failures = []; days = {}
   sessionStorage.clear(); setDailyExpectedUser(null); setDailyExpectedUser(baselineScope.user_id)
   vi.mocked(fetchDailyContext).mockImplementation(async (date?: string) => contextFor(date ?? today, days[date ?? today]))
   vi.mocked(fetchDailyRequestStatus).mockResolvedValue({ actor_scope: baselineScope, state: 'unknown', can_retry: true })
@@ -88,6 +97,7 @@ describe('Mia daily report card', () => {
     await waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Amount for Ross'))
     fireEvent.click(within(card).getByRole('button', { name: 'Remove Ross' }))
     await waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Amount for Kings'))
+    await ready(card)
     fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
     await within(card).findByRole('heading', { name: 'Saved to today' })
     expect(calls().filter((call) => call.action === 'purchase_stage').map((call) => [call.input.amount_cents, call.input.merchant])).toEqual([[1250, 'Kings']])
@@ -102,6 +112,7 @@ describe('Mia daily report card', () => {
     expect(within(card).getByText('This one didn’t save. Try again.')).toBeTruthy()
     expect(dailyCardNeedsAttention(nonce)).toBe(true)
     vi.mocked(mutateDaily).mockClear()
+    await ready(card)
     fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
     await within(card).findByRole('heading', { name: 'Saved to today' })
     expect(calls().filter((call) => call.action.startsWith('purchase')).map((call) => [call.action, call.input.merchant ?? call.input.draft_id])).toEqual([['purchase_stage', 'Payless'], ['purchase_approve', 302]])
@@ -118,6 +129,7 @@ describe('Mia daily report card', () => {
     expect((within(card).getByLabelText('Amount for Shell') as HTMLInputElement).disabled).toBe(true)
     expect((within(card).getByRole('button', { name: 'Remove Shell' }) as HTMLButtonElement).disabled).toBe(true)
     expect((within(card).getByRole('button', { name: 'Not right' }) as HTMLButtonElement).disabled).toBe(true)
+    await ready(card)
     fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
     await within(card).findByRole('heading', { name: 'Saved to today' })
     const approvals = calls().filter((call) => call.action === 'purchase_approve')
@@ -133,6 +145,7 @@ describe('Mia daily report card', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
     await within(card).findByText('This one didn’t save. Try again.')
     expect((within(card).getByLabelText('Amount for Shell') as HTMLInputElement).disabled).toBe(false)
+    await ready(card)
     fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
     await within(card).findByRole('heading', { name: 'Saved to today' })
     expect(actions().filter((action) => action.startsWith('purchase'))).toEqual(['purchase_stage', 'purchase_approve', 'purchase_stage', 'purchase_approve'])
@@ -148,6 +161,7 @@ describe('Mia daily report card', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
     await within(card).findByText('Checking… Tap Save to confirm.')
     expect((within(card).getByLabelText('Place for Shell') as HTMLInputElement).disabled).toBe(true)
+    await ready(card)
     fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
     await within(card).findByRole('heading', { name: 'Saved to today' })
     const stages = calls().filter((call) => call.action === 'purchase_stage')
@@ -185,15 +199,23 @@ describe('Mia daily report card', () => {
     fireEvent.click(within(first.card).getByRole('button', { name: 'Save to today' }))
     await within(first.card).findByText('Checking… Tap Save to confirm.')
     first.view.unmount()
-    if (lookup === 'error') vi.mocked(fetchDailyRequestStatus).mockRejectedValueOnce(new Error('offline'))
-    else vi.mocked(fetchDailyRequestStatus).mockResolvedValueOnce({ actor_scope: baselineScope, state: 'in_flight' })
+    let settleLookup!: () => void
+    vi.mocked(fetchDailyRequestStatus).mockImplementationOnce(() => new Promise((resolve, reject) => {
+      settleLookup = () => lookup === 'error' ? reject(new Error('offline')) : resolve({ actor_scope: baselineScope, state: 'in_flight' })
+    }))
     const again = renderCard({ ...report, purchases: [report.purchases[0]] }, first.nonce)
-    const check = await within(again.card).findByRole('button', { name: 'Check last save' })
     expect((within(again.card).getByRole('button', { name: 'Save to today' }) as HTMLButtonElement).disabled).toBe(true)
+    await waitFor(() => expect(settleLookup).toBeTypeOf('function'), { timeout: 3000 })
     const count = calls().length
+    // While the automatic lookup is pending, a Save tap must not send anything.
+    fireEvent.click(within(again.card).getByRole('button', { name: 'Save to today' }))
+    expect(calls()).toHaveLength(count)
+    await act(async () => { settleLookup() })
+    expect(calls()).toHaveLength(count)
+    const check = await within(again.card).findByRole('button', { name: 'Check last save' }, { timeout: 3000 })
     vi.mocked(fetchDailyRequestStatus).mockResolvedValueOnce({ actor_scope: baselineScope, state: 'committed', record: dailyVersion, replayed: true })
     // "Check last save" stays disabled until the automatic lookup settles.
-    await waitFor(() => expect((check as HTMLButtonElement).disabled).toBe(false))
+    await waitFor(() => expect((check as HTMLButtonElement).disabled).toBe(false), { timeout: 3000 })
     fireEvent.click(check)
     await within(again.card).findByRole('heading', { name: 'Almost done' })
     await ready(again.card)
@@ -228,6 +250,7 @@ describe('Mia daily report card', () => {
     await within(card).findByText('Your purchases are saved. The check-in didn’t save — tap Save to finish it.')
     expect(within(card).queryByRole('heading', { name: 'Saved to today' })).toBeNull()
     expect(dailyCardNeedsAttention(nonce)).toBe(true)
+    await ready(card)
     fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
     await within(card).findByRole('heading', { name: 'Saved to today' })
     expect(actions().filter((value) => value === 'purchase_approve')).toHaveLength(1)

@@ -6,13 +6,16 @@ import { WorkosSignInDialog, type DialogEmailAuthStep } from './WorkosSignInDial
 
 const client = { authOptions: vi.fn(), startEmail: vi.fn(), verifyEmail: vi.fn(), resendEmail: vi.fn(), cancelEmail: vi.fn() }
 const props = { client, screen: 'sign-in' as const, onClose: vi.fn(), onAuthenticated: vi.fn(), onExternalSignIn: vi.fn() }
-const challenge: DialogEmailAuthStep = { step: 'code', challenge_id: 'challenge_test', email: 'invited@example.test', expires_at: new Date(Date.now() + 600_000).toISOString(), resend_after: 60 }
-beforeEach(() => { vi.resetAllMocks(); client.authOptions.mockResolvedValue({ google_enabled: false }); client.startEmail.mockResolvedValue(challenge); client.cancelEmail.mockResolvedValue(undefined); props.onExternalSignIn.mockResolvedValue(undefined) })
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
+const clock = new Date('2026-10-21T02:00:00Z')
+let challenge: DialogEmailAuthStep
+const freshChallenge = (): DialogEmailAuthStep => ({ step: 'code', challenge_id: 'challenge_test', email: 'invited@example.test', expires_at: new Date(clock.getTime() + 600_000).toISOString(), resend_after: 60 })
+beforeEach(() => { vi.resetAllMocks(); sessionStorage.clear(); vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] }); vi.setSystemTime(clock); vi.spyOn(window, 'setInterval'); challenge = freshChallenge(); client.authOptions.mockResolvedValue({ google_enabled: false }); client.startEmail.mockResolvedValue(challenge); client.cancelEmail.mockResolvedValue(undefined); props.onExternalSignIn.mockResolvedValue(undefined) })
+afterEach(() => { cleanup(); sessionStorage.clear(); vi.restoreAllMocks(); vi.useRealTimers() })
 async function startEmail() {
   fireEvent.change(screen.getByRole('textbox', { name: 'Email address' }), { target: { value: ' Invited@Example.test ' } })
   fireEvent.submit(screen.getByRole('textbox', { name: 'Email address' }).closest('form')!)
-  await screen.findByRole('textbox', { name: 'Sign-in code' })
+  await screen.findByRole('textbox', { name: 'Sign-in code' }, { timeout: 3000 })
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Sign-in code' })).toHaveProperty('disabled', false), { timeout: 3000 })
 }
 
 it('uses a named modal and offers Google only after a verified enabled option', async () => {
@@ -74,30 +77,33 @@ it.each([[60, '1 minute'], [3500, '59 minutes']])('shows the actual rate-limit d
   expect(screen.queryByText(/SECRET/)).toBeNull()
   expect(screen.getByRole('button', { name: 'Close' })).toHaveProperty('disabled', false)
 })
+async function expireCooldown() {
+  // Prove the component's one-second countdown effect is installed before moving time.
+  await waitFor(() => expect(window.setInterval).toHaveBeenCalledWith(expect.any(Function), 1000), { timeout: 3000 })
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_001) })
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Resend code' })).toHaveProperty('disabled', false), { timeout: 3000 })
+}
 it('counts down resend cooldown and replaces the challenge and code after resend', async () => {
-  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
   client.resendEmail.mockResolvedValue({ ...challenge, challenge_id: 'challenge_new', resend_after: 60 })
   render(<WorkosSignInDialog {...props} />); await startEmail()
   expect(screen.getByRole('button', { name: 'Resend code in 60s' })).toHaveProperty('disabled', true)
   fireEvent.change(screen.getByRole('textbox', { name: 'Sign-in code' }), { target: { value: '123456' } })
-  await act(async () => { vi.advanceTimersByTime(60_001) })
+  await expireCooldown()
   fireEvent.click(screen.getByRole('button', { name: 'Resend code' }))
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Sign-in code' })).toHaveProperty('value', ''))
-  expect(client.resendEmail).toHaveBeenCalledWith('challenge_test')
+  expect(client.resendEmail).toHaveBeenCalledExactlyOnceWith('challenge_test')
   expect(screen.getByRole('button', { name: 'Resend code in 60s' })).toHaveProperty('disabled', true)
   // A resend is confirmed visibly, not only to screen readers.
   expect(screen.getByText('We sent you a new code. Use the latest one.').closest('.sr-only')).toBeNull()
+  fireEvent.change(screen.getByRole('textbox', { name: 'Sign-in code' }), { target: { value: '654321' } })
+  client.verifyEmail.mockResolvedValue({ step: 'complete', return_to: '/#Home' })
+  fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
+  await waitFor(() => expect(client.verifyEmail).toHaveBeenCalledWith('challenge_new', '654321'))
 })
 it('a failed resend does not make the next first code say "new code"', async () => {
-  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
   client.resendEmail.mockRejectedValue(new ApiRequestError('SECRET provider detail', { status: 503 }))
   render(<WorkosSignInDialog {...props} />); await startEmail()
-  // Under CI load the countdown interval can start after the first jump, so
-  // flush pending effects and keep stepping the clock until resend unlocks.
-  await act(async () => {})
-  for (let step = 0; step < 5 && !screen.queryByRole('button', { name: 'Resend code' }); step += 1) {
-    await act(async () => { vi.advanceTimersByTime(60_001) })
-  }
+  await expireCooldown()
   fireEvent.click(screen.getByRole('button', { name: 'Resend code' }))
   await screen.findByRole('alert')
   fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
