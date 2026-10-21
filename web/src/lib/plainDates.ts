@@ -9,7 +9,7 @@
 //   checkpoint                        -> "Day 30 check-in" (Day 60, Day 90)
 //   approve (your own records)        -> "Save" or "Confirm"
 //   not counted / excluded            -> say why in words when it matters; hide when the count is zero
-//   unknown                           -> words such as "Nothing set aside yet", never $0
+//   unknown                           -> words such as "No amounts added yet", never $0; a confirmed zero shows $0.00 with its date
 //   time zone                         -> mention once ("Dates follow Guam time"), not on every card
 //
 // Date-only strings ("2026-10-17") are calendar days, not instants. They are
@@ -42,10 +42,6 @@ export function formatRange(start: string | null | undefined, end: string | null
   if (!start || !end) return [formatDay(start), formatDay(end)].filter(Boolean).join(' – ')
   const crosses = start.slice(0, 4) !== end.slice(0, 4)
   return `${formatDay(start)} – ${formatDay(end, { year: crosses })}`
-}
-
-export function isToday(iso: string | null | undefined, todayIso: string | null | undefined): boolean {
-  return Boolean(iso && todayIso && dayDate(iso) && iso === todayIso)
 }
 
 // 'Pacific/Guam' -> 'Guam time'; 'America/Los_Angeles' -> 'Los Angeles time'.

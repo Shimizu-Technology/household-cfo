@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as api from '../api'
 import { ApiRequestError } from '../api'
 import { SavingsChallengeHome } from './SavingsChallengeHome'
-import { savingsFixture, savingsEntryDraft, savingsEntryVersion } from '../test/savingsFixtures'
+import { savingsFixture, savingsEntryDraft, savingsEntryVersion, savingsPlanDraft } from '../test/savingsFixtures'
 import { homeSavingsStorage, saveHomeSavingsIdentity, type HomeSavingsIdentity } from '../lib/homeSavingsRecovery'
 vi.mock('../contexts/brandContextValue',()=>({useBrand:()=>({assistantName:'Mia'})}))
 vi.mock('../api',async original=>({...await original<typeof import('../api')>(),fetchSavingsChallenge:vi.fn(),fetchSavingsPage:vi.fn(),fetchHomeSavingsRequestStatus:vi.fn(),stageSavingsEntry:vi.fn(),approveSavingsEntry:vi.fn(),enrollSavingsChallenge:vi.fn(),attestSavingsZero:vi.fn(),stageSavingsPlan:vi.fn()}))
@@ -23,10 +23,10 @@ it('cold new-entry unknown enables only same action, preserves key through 409 a
  saveHomeSavingsIdentity(identity('entry_stage'));render(view());await screen.findByText('No target yet');expect(screen.getByLabelText('Amount in US dollars') .matches(':disabled')).toBe(true);await fresh();await waitFor(()=>expect(screen.getByLabelText('Amount in US dollars') .matches(':disabled')).toBe(false));expect(screen.getByRole('button',{name:'Review target plan'}) .matches(':disabled')).toBe(true);vi.mocked(api.stageSavingsEntry).mockRejectedValue(new ApiRequestError('Original payload already won',{status:409}));fireEvent.change(screen.getByLabelText('Amount in US dollars'),{target:{value:'10.00'}});fireEvent.click(screen.getByRole('button',{name:'Review savings record'}));await screen.findByText('This changed since you opened it. Refresh to see the latest, then try again.');expect(api.stageSavingsEntry).toHaveBeenCalledWith(expect.objectContaining({signed_cents:1000}),'original-safe-key',expect.any(AbortSignal));expect(sessionStorage.getItem(homeSavingsStorage)).toContain('original-safe-key');expect(screen.queryByRole('button',{name:'Retry exact savings request'})).toBeNull();vi.mocked(api.fetchHomeSavingsRequestStatus).mockResolvedValue({state:'committed',record:savingsEntryDraft(),replayed:true,challenge:fixture(),actor_scope:actor,cohort_id:42});fireEvent.click(screen.getByRole('button',{name:'Check earlier savings result'}));await screen.findByText(/earlier request was confirmed once/);expect(api.stageSavingsEntry).toHaveBeenCalledTimes(1)
 })
 it('pre-enrollment recovery verifies program identity and a newly committed enrollment without reenrolling',async()=>{
- saveHomeSavingsIdentity(identity('enrollment'));vi.mocked(api.fetchSavingsChallenge).mockResolvedValue(fixture(false));vi.mocked(api.fetchHomeSavingsRequestStatus).mockResolvedValue({state:'committed',record:fixture().enrollment,replayed:true,challenge:fixture(),actor_scope:actor,cohort_id:42});render(view());await screen.findByText('Join the 90-day savings challenge');expect(screen.getByLabelText(/read this notice/) .matches(':disabled')).toBe(true);vi.mocked(api.fetchSavingsChallenge).mockResolvedValue(fixture());fireEvent.click(screen.getByRole('button',{name:'Check earlier savings result'}));await screen.findByText('Set aside so far');await waitFor(()=>expect(document.activeElement?.textContent).toBe('Set aside so far'));expect(api.enrollSavingsChallenge).not.toHaveBeenCalled()
+ saveHomeSavingsIdentity(identity('enrollment'));vi.mocked(api.fetchSavingsChallenge).mockResolvedValue(fixture(false));vi.mocked(api.fetchHomeSavingsRequestStatus).mockResolvedValue({state:'committed',record:fixture().enrollment,replayed:true,challenge:fixture(),actor_scope:actor,cohort_id:42});render(view());await screen.findByText('Join the 90-day savings challenge');expect(screen.getByLabelText(/accept joining the challenge/) .matches(':disabled')).toBe(true);vi.mocked(api.fetchSavingsChallenge).mockResolvedValue(fixture());fireEvent.click(screen.getByRole('button',{name:'Check earlier savings result'}));await screen.findByText('Set aside so far');await waitFor(()=>expect(document.activeElement?.textContent).toBe('Set aside so far'));expect(api.enrollSavingsChallenge).not.toHaveBeenCalled()
 })
 it('cold enrollment unknown requires current terms consent and uses retained key',async()=>{
- saveHomeSavingsIdentity(identity('enrollment'));vi.mocked(api.fetchSavingsChallenge).mockResolvedValue(fixture(false));vi.mocked(api.enrollSavingsChallenge).mockResolvedValue({record:fixture().enrollment!,replayed:false,challenge:fixture()});render(view());await screen.findByText('Join the 90-day savings challenge');await fresh();await waitFor(()=>expect(screen.getByLabelText(/read this notice/) .matches(':disabled')).toBe(false));fireEvent.click(screen.getByLabelText(/read this notice/));fireEvent.click(screen.getByLabelText(/start later than the group/));fireEvent.click(screen.getByRole('button',{name:'Accept and join'}));await waitFor(()=>expect(api.enrollSavingsChallenge).toHaveBeenCalledWith(expect.objectContaining({expected_acceptance_digest:'a'.repeat(64)}),'original-safe-key',expect.any(AbortSignal)))
+ saveHomeSavingsIdentity(identity('enrollment'));vi.mocked(api.fetchSavingsChallenge).mockResolvedValue(fixture(false));vi.mocked(api.enrollSavingsChallenge).mockResolvedValue({record:fixture().enrollment!,replayed:false,challenge:fixture()});render(view());await screen.findByText('Join the 90-day savings challenge');await fresh();await waitFor(()=>expect(screen.getByLabelText(/accept joining the challenge/) .matches(':disabled')).toBe(false));fireEvent.click(screen.getByLabelText(/accept joining the challenge/));fireEvent.click(screen.getByLabelText(/start later than the group/));fireEvent.click(screen.getByRole('button',{name:'Accept and join'}));await waitFor(()=>expect(api.enrollSavingsChallenge).toHaveBeenCalledWith(expect.objectContaining({expected_acceptance_digest:'a'.repeat(64)}),'original-safe-key',expect.any(AbortSignal)))
 })
 it('cold approval only unlocks original paged draft and does not allow another draft or new report',async()=>{
  saveHomeSavingsIdentity(identity('entry_approve',{draftId:31}));vi.mocked(api.fetchSavingsPage).mockImplementation(async collection=>({records:collection==='entry_drafts'?[savingsEntryDraft(),{...savingsEntryDraft(),id:32}]:[],next_cursor:null,actor_scope:actor,enrollment_id:1,cohort_id:42}));vi.mocked(api.approveSavingsEntry).mockResolvedValue({record:savingsEntryVersion(),replayed:false,challenge:fixture()});render(view());await screen.findByText('No target yet');await fresh();await waitFor(()=>expect(screen.getByRole('button',{name:'Confirm savings record #31'}) .matches(':disabled')).toBe(false));expect(screen.getByRole('button',{name:'Confirm savings record #32'}) .matches(':disabled')).toBe(true);expect(screen.getByLabelText('Amount in US dollars') .matches(':disabled')).toBe(true);expect(api.fetchSavingsPage).toHaveBeenCalledWith('entry_drafts',30,expect.any(AbortSignal));fireEvent.click(screen.getByRole('button',{name:'Confirm savings record #31'}));await waitFor(()=>expect(api.approveSavingsEntry).toHaveBeenCalledWith(31,expect.objectContaining({accepted:true}),'original-safe-key',expect.any(AbortSignal)))
@@ -72,18 +72,39 @@ it('blocks stale enrollment acceptance until a scoped refresh and new explicit c
  vi.mocked(api.enrollSavingsChallenge).mockRejectedValueOnce(new ApiRequestError('Participation offer changed; refresh to review it.', {status:409})).mockResolvedValueOnce({record:fixture().enrollment!,challenge:fixture(),replayed:false})
  render(view());await screen.findByText('Join the 90-day savings challenge')
  const join=screen.getByRole('button',{name:'Accept and join'})
- fireEvent.click(screen.getByLabelText(/read this notice/));fireEvent.click(screen.getByLabelText(/start later than the group/));fireEvent.click(join)
+ fireEvent.click(screen.getByLabelText(/accept joining the challenge/));fireEvent.click(screen.getByLabelText(/start later than the group/));fireEvent.click(join)
  await screen.findByText('Participation offer changed; refresh to review it.')
  expect(join.matches(':disabled')).toBe(true)
- expect((screen.getByLabelText(/read this notice/) as HTMLInputElement).checked).toBe(false)
+ expect((screen.getByLabelText(/accept joining the challenge/) as HTMLInputElement).checked).toBe(false)
  expect((screen.getByLabelText(/start later than the group/) as HTMLInputElement).checked).toBe(false)
  const refreshed=fixture(false);refreshed.offer!.acceptance_digest='b'.repeat(64)
  vi.mocked(api.fetchSavingsChallenge).mockResolvedValue(refreshed)
  fireEvent.click(screen.getByRole('button',{name:'Refresh challenge'}))
  await waitFor(()=>expect(api.fetchSavingsChallenge).toHaveBeenCalledTimes(2))
  expect(join.matches(':disabled')).toBe(true)
- fireEvent.click(screen.getByLabelText(/read this notice/));fireEvent.click(screen.getByLabelText(/start later than the group/));fireEvent.click(join)
+ fireEvent.click(screen.getByLabelText(/accept joining the challenge/));fireEvent.click(screen.getByLabelText(/start later than the group/));fireEvent.click(join)
  await screen.findByText('Set aside so far')
  expect(vi.mocked(api.enrollSavingsChallenge).mock.calls[1][0].expected_acceptance_digest).toBe('b'.repeat(64))
  expect(sessionStorage.getItem(homeSavingsStorage)).toBeNull()
+})
+
+it('scoped Review target plan goes through the recoverable plan request once and offers the waiting target (R-5.3)', async () => {
+ const draft = { ...savingsPlanDraft(40000), id: 11 }
+ vi.mocked(api.fetchSavingsPage).mockImplementation(async collection => ({ records: collection === 'plan_drafts' ? [draft] : [], next_cursor: null, actor_scope: actor, enrollment_id: 1, cohort_id: 42 }))
+ let finish!: (value: Awaited<ReturnType<typeof api.stageSavingsPlan>>) => void
+ vi.mocked(api.stageSavingsPlan).mockImplementation(() => new Promise(resolve => { finish = resolve }))
+ render(view()); await screen.findByText('No target yet')
+ fireEvent.change(screen.getByLabelText('Target in US dollars'), { target: { value: '400.00' } })
+ const review = screen.getByRole('button', { name: 'Review target plan' })
+ fireEvent.click(review); fireEvent.click(review)
+ await waitFor(() => expect(api.stageSavingsPlan).toHaveBeenCalledTimes(1))
+ // planMutation.perform keeps a durable request identity while in flight, which blocks a second submit.
+ expect(sessionStorage.getItem('comfortable-plan-request-identities-v1')).toContain('plan_stage')
+ await act(async () => finish({ record: draft, challenge: { ...fixture(), pending_plan_count: 1 }, replayed: false }))
+ await screen.findByText(/Your new target is ready/)
+ expect(screen.queryByRole('button', { name: 'Review target plan' })).toBeNull()
+ const confirm = await screen.findByRole('button', { name: 'Confirm target plan #11' })
+ await waitFor(() => expect(document.activeElement).toBe(confirm))
+ expect(api.stageSavingsPlan).toHaveBeenCalledTimes(1)
+ expect(screen.getByText('Target waiting for you to confirm')).toBeTruthy()
 })

@@ -112,7 +112,7 @@ details[open] > summary.savings-row .savings-chevron { transform: rotate(90deg);
 .savings-enrollment { display: grid; gap: 12px; }
 .savings-enrollment > h3, .savings-enrollment > p { margin: 0; }
 .savings-join-dates { display: grid; gap: 2px; }
-.savings-join-dates span { color: var(--muted); font-size: var(--text-sm); }
+.savings-join-dates > span { color: var(--muted); font-size: var(--text-sm); }
 .savings-terms { margin: 0; padding-left: 20px; display: grid; gap: 8px; line-height: 1.5; }
 .savings-enrollment .savings-primary { justify-self: start; }
 .savings-state { display: grid; gap: 8px; padding: 4px 2px; }

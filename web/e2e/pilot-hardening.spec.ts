@@ -9295,7 +9295,7 @@ test('BOG UI savings Home joins late with explicit personal dates without full b
   const { home, calls } = await openSavingsHome(page, { enrolled: false })
   await expect(home).toContainText('Your 90 days: Sun, Oct 4 – Fri, Jan 1, 2027')
   await expect(page.getByText('Build your starting picture')).toHaveCount(0)
-  await home.getByLabel(/read this notice/).check()
+  await home.getByLabel(/accept joining the challenge/).check()
   await expect(home.getByRole('button', { name: 'Accept and join' })).toBeDisabled()
   await home.getByLabel(/start later than the group/).check()
   await home.getByRole('button', { name: 'Accept and join' }).click()
@@ -9316,7 +9316,7 @@ test('BOG UI shows Today and the private export only after joining', async ({ pa
   await expect(page.locator('.chat-today-button')).toHaveCount(0)
 
   await openSection(page, 'Savings')
-  await home.getByLabel(/read this notice/).check()
+  await home.getByLabel(/accept joining the challenge/).check()
   await home.getByLabel(/start later than the group/).check()
   await home.getByRole('button', { name: 'Accept and join' }).click()
   await expect(home).toContainText('Day 1 of 90')
@@ -9329,16 +9329,17 @@ test('BOG UI shows Today and the private export only after joining', async ({ pa
 test('BOG UI savings Home preserves approved totals through proposals corrections and withdrawals', async ({ page }) => {
   const { home, calls } = await openSavingsHome(page)
   const progress = home.getByRole('article', { name: 'Approved savings progress' })
-  await expect(progress).toContainText('Nothing set aside yet')
+  await expect(progress).toContainText('No amounts added yet')
   await home.getByLabel('Target in US dollars').fill('125.50')
   await home.getByRole('button', { name: 'Review target plan' }).click()
-  await expect(progress).toContainText('No target yet')
+  await expect(progress).toContainText('Target waiting for you to confirm')
+  await expect(home.getByRole('button', { name: 'Confirm target plan #11' })).toBeFocused()
   await home.getByRole('button', { name: 'Confirm target plan #11' }).click()
   await expect(progress).toContainText('$125.50')
   await openSetAside(page)
   await home.getByLabel('Amount in US dollars').fill('25.50')
   await home.getByRole('button', { name: 'Review savings record' }).click()
-  await expect(progress).toContainText('Nothing set aside yet')
+  await expect(progress).toContainText('No amounts added yet')
   await home.getByRole('button', { name: 'Confirm savings record #31' }).click()
   await expect(progress.locator('.savings-total')).toHaveText('$25.50')
   await openDetails(page, /^Your records & corrections/)
@@ -9371,7 +9372,7 @@ test('BOG UI savings Home excludes existing money and confirms zero only after a
   await home.getByRole('button', { name: 'Review savings record' }).click()
   await home.getByRole('button', { name: 'Confirm savings record #31' }).click()
   const progress = home.getByRole('article', { name: 'Approved savings progress' })
-  await expect(progress.locator('.savings-total')).toHaveText('Nothing set aside yet')
+  await expect(progress.locator('.savings-total')).toHaveText('No amounts added yet')
   await expect(progress).toContainText('1 record isn’t counted')
   await openSetAside(page)
   await openDetails(page, 'Nothing to add?')
@@ -9397,7 +9398,7 @@ test('BOG UI savings Home recovers uncertain submission with the same idempotenc
 test('BOG UI savings Home pages history preserves composer on refresh and clears revoked private data', async ({ page }) => {
   const { home, revoke } = await openSavingsHome(page, { manyDrafts: true })
   await openSetAside(page)
-  const reviews = home.getByRole('region', { name: 'Recent entries', exact: true })
+  const reviews = home.getByRole('region', { name: 'Your entries', exact: true })
   await expect(reviews.getByRole('button', { name: /^Confirm savings record/ })).toHaveCount(10)
   await reviews.getByRole('button', { name: 'Next records' }).click()
   await expect(reviews.getByRole('button', { name: 'Confirm savings record #11' })).toBeVisible()
@@ -9419,14 +9420,14 @@ test('BOG UI savings Home pages history preserves composer on refresh and clears
 
 test('BOG UI savings Home resets acceptance when refreshed participation terms change', async ({ page }) => {
   const { home, current } = await openSavingsHome(page, { enrolled: false })
-  await home.getByLabel(/read this notice/).check()
+  await home.getByLabel(/accept joining the challenge/).check()
   await home.getByLabel(/start later than the group/).check()
   await expect(home.getByRole('button', { name: 'Accept and join' })).toBeEnabled()
   current().offer!.policy_version = 'dev-notice-v2'
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect(home).toContainText('The joining details were updated. Review them and check the boxes again.')
   await expect(home).not.toContainText('dev-notice-v2')
-  await expect(home.getByLabel(/read this notice/)).not.toBeChecked()
+  await expect(home.getByLabel(/accept joining the challenge/)).not.toBeChecked()
   await expect(home.getByLabel(/start later than the group/)).not.toBeChecked()
   await expect(home.getByRole('button', { name: 'Accept and join' })).toBeDisabled()
 })
@@ -9473,16 +9474,16 @@ test('BOG UI savings Home captures accessible desktop and narrow-phone layouts',
 
 test('BOG UI savings Home requires refreshed acceptance after a stale offer conflict', async ({ page }) => {
   const { home, calls } = await openSavingsHome(page, { enrolled: false, staleOffer: true })
-  await home.getByLabel(/read this notice/).check(); await home.getByLabel(/start later than the group/).check()
+  await home.getByLabel(/accept joining the challenge/).check(); await home.getByLabel(/start later than the group/).check()
   await home.getByRole('button', { name: 'Accept and join' }).click()
   await expect(home.getByRole('alert')).toContainText('Participation offer changed')
   expect(calls[0].input.expected_acceptance_digest).toBe('a'.repeat(64))
-  await expect(home.getByLabel(/read this notice/)).not.toBeChecked()
+  await expect(home.getByLabel(/accept joining the challenge/)).not.toBeChecked()
   await expect(home.getByLabel(/start later than the group/)).not.toBeChecked()
   await expect(home.getByRole('button', { name: 'Accept and join' })).toBeDisabled()
   await home.getByRole('button', { name: 'Refresh challenge' }).click()
-  await expect(home.getByLabel(/read this notice/)).not.toBeChecked()
-  await home.getByLabel(/read this notice/).check(); await home.getByLabel(/start later than the group/).check()
+  await expect(home.getByLabel(/accept joining the challenge/)).not.toBeChecked()
+  await home.getByLabel(/accept joining the challenge/).check(); await home.getByLabel(/start later than the group/).check()
   await home.getByRole('button', { name: 'Accept and join' }).click()
   await expect(home).toContainText('Day 1 of 90')
   expect(calls[1].input.expected_acceptance_digest).toBe('b'.repeat(64))
@@ -9492,7 +9493,7 @@ test('BOG UI savings Home requires refreshed acceptance after a stale offer conf
 test('BOG UI savings Home opens a new draft review directly after many older records', async ({ page }) => {
   const { home } = await openSavingsHome(page, { manyDrafts: true })
   await openSetAside(page)
-  const reviews = home.getByRole('region', { name: 'Recent entries', exact: true })
+  const reviews = home.getByRole('region', { name: 'Your entries', exact: true })
   await expect(reviews.getByRole('button', { name: /^Confirm savings record/ })).toHaveCount(10)
   await openSetAside(page)
   await home.getByLabel('Amount in US dollars').fill('1.25')
@@ -9939,10 +9940,10 @@ async function baselinePeriod(dialog:ReturnType<Page['getByRole']>){await dialog
 async function baselineConsent(dialog:ReturnType<Page['getByRole']>){await dialog.getByLabel('A short note about this snapshot').fill('Reviewed this exact fictional window and its listed limits.');await dialog.getByRole('checkbox',{name:/I reviewed this period/}).check()}
 
 test('BOG UI baseline optional Home path approves limited unknown manual context with separate consent',async({page})=>{
-  const{dialog,calls,trigger}=await openBaseline(page,{home:true});await baselinePeriod(dialog);await dialog.getByRole('button',{name:'Continue without statements',exact:true}).click();await dialog.getByRole('button',{name:'Preview my snapshot',exact:true}).click();const proposal=dialog.getByRole('region',{name:'Snapshot preview',exact:true});await expect(proposal).toContainText('Spending observations are unknown.');await expect(proposal).toContainText('0 complete calendar months supported');await expect(dialog.getByRole('option',{name:'Complete — all coverage checks passed',exact:true})).toHaveAttribute('disabled','');await expect(dialog.getByRole('button',{name:'Save snapshot',exact:true})).toBeDisabled();await baselineConsent(dialog);await dialog.getByRole('button',{name:'Save snapshot',exact:true}).click();await expect(dialog).toContainText('Your saved snapshot');expect(calls[0].input).toMatchObject({coverage_status:'manual',request:{revision_ids:[],tracked_account_ids:[],cash_coverage:'unknown',category_eligibility:[],actual_decisions:[],cash_allocations:[]}});expect(calls[0].key).toBeTruthy();await assertBaselineFits(dialog);await dialog.getByRole('button',{name:'Close spending snapshot',exact:true}).focus();await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(trigger).toBeFocused()
+  const{dialog,calls,trigger}=await openBaseline(page,{home:true});await baselinePeriod(dialog);await dialog.getByRole('button',{name:'Continue without statements',exact:true}).click();await dialog.getByRole('button',{name:'Preview my snapshot',exact:true}).click();const proposal=dialog.getByRole('region',{name:'Snapshot preview',exact:true});await expect(proposal).toContainText('Spending observations are unknown.');await expect(proposal).toContainText('0 complete calendar months are covered');await expect(dialog.getByRole('option',{name:'Complete — all coverage checks passed',exact:true})).toHaveAttribute('disabled','');await expect(dialog.getByRole('button',{name:'Save snapshot',exact:true})).toBeDisabled();await baselineConsent(dialog);await dialog.getByRole('button',{name:'Save snapshot',exact:true}).click();await expect(dialog).toContainText('Your saved snapshot');expect(calls[0].input).toMatchObject({coverage_status:'manual',request:{revision_ids:[],tracked_account_ids:[],cash_coverage:'unknown',category_eligibility:[],actual_decisions:[],cash_allocations:[]}});expect(calls[0].key).toBeTruthy();await assertBaselineFits(dialog);await dialog.getByRole('button',{name:'Close spending snapshot',exact:true}).focus();await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(trigger).toBeFocused()
 })
 test('BOG UI baseline statements preview uses full-window patterns and keeps old approval while choices change',async({page})=>{
-  const{dialog,previews}=await openBaseline(page,{approved:true});await dialog.getByText('Choose statements (0 selected)',{exact:true}).click();await dialog.getByRole('checkbox',{name:/Fictional-checking.pdf/}).check();await dialog.getByRole('checkbox',{name:'Fictional checking',exact:true}).check();await dialog.getByRole('checkbox',{name:/I checked which household accounts/}).check();await dialog.getByLabel('Cash coverage').selectOption('not_used');await dialog.getByText('2. Categories to consider (optional)',{exact:true}).click();await expect(dialog.getByLabel('Consider Groceries for spending review')).toHaveValue('');await dialog.getByLabel('Consider Groceries for spending review').selectOption('yes');await dialog.getByLabel('Recurrence for Groceries').selectOption('annual');await dialog.getByLabel('Explanation for Groceries').fill('Annual event purchases vary.');await dialog.getByRole('button',{name:'Preview my snapshot',exact:true}).click();const proposal=dialog.getByRole('region',{name:'Snapshot preview',exact:true});await expect(proposal).toContainText('$1,370.00');await expect(proposal).toContainText('$1,360.00');await expect(proposal).toContainText('137 observations');await proposal.getByText('Merchant observations (37)',{exact:true}).click();await expect(proposal.getByText('Fictional merchant 20',{exact:true})).toBeVisible();await expect(proposal.getByText('Fictional merchant 21',{exact:true})).toHaveCount(0);await proposal.getByRole('button',{name:'Next merchants',exact:true}).click();await expect(proposal.getByText('Fictional merchant 37',{exact:true})).toBeVisible();await proposal.getByText('Observation sample (50 of 137)',{exact:true}).click();await expect(proposal).toContainText('All totals and patterns use the entire period');await baselineConsent(dialog);await dialog.getByLabel('Period ends').fill('2026-09-29');await expect(proposal).toContainText('This preview is out of date');await expect(dialog.getByRole('button',{name:'Save new snapshot',exact:true})).toBeDisabled();await expect(dialog).toContainText('Your saved snapshot');expect(previews[0].category_eligibility).toEqual([{budget_category_id:10,eligible:true,recurrence:'annual',reason:'Annual event purchases vary.'}]);await assertBaselineFits(dialog)
+  const{dialog,previews}=await openBaseline(page,{approved:true});await dialog.getByText('Choose statements (0 selected)',{exact:true}).click();await dialog.getByRole('checkbox',{name:/Fictional-checking.pdf/}).check();await dialog.getByRole('checkbox',{name:'Fictional checking',exact:true}).check();await dialog.getByRole('checkbox',{name:/I checked which household accounts/}).check();await dialog.getByLabel('Cash coverage').selectOption('not_used');await dialog.getByText('2. Categories to consider (optional)',{exact:true}).click();await expect(dialog.getByLabel('Consider Groceries for spending review')).toHaveValue('');await dialog.getByLabel('Consider Groceries for spending review').selectOption('yes');await dialog.getByLabel('Recurrence for Groceries').selectOption('annual');await dialog.getByLabel('Explanation for Groceries').fill('Annual event purchases vary.');await dialog.getByRole('button',{name:'Preview my snapshot',exact:true}).click();const proposal=dialog.getByRole('region',{name:'Snapshot preview',exact:true});await expect(proposal).toContainText('$1,370.00');await expect(proposal).toContainText('$1,360.00');await expect(proposal).toContainText('137 transactions');await proposal.getByText('Merchants (37)',{exact:true}).click();await expect(proposal.getByText('Fictional merchant 20',{exact:true})).toBeVisible();await expect(proposal.getByText('Fictional merchant 21',{exact:true})).toHaveCount(0);await proposal.getByRole('button',{name:'Next merchants',exact:true}).click();await expect(proposal.getByText('Fictional merchant 37',{exact:true})).toBeVisible();await proposal.getByText('Sample transactions (50 of 137)',{exact:true}).click();await expect(proposal).toContainText('All totals and patterns use the entire period');await baselineConsent(dialog);await dialog.getByLabel('Period ends').fill('2026-09-29');await expect(proposal).toContainText('This preview is out of date');await expect(dialog.getByRole('button',{name:'Save new snapshot',exact:true})).toBeDisabled();await expect(dialog).toContainText('Your saved snapshot');expect(previews[0].category_eligibility).toEqual([{budget_category_id:10,eligible:true,recurrence:'annual',reason:'Annual event purchases vary.'}]);await assertBaselineFits(dialog)
 })
 test('BOG UI baseline uncertain approval survives close and retries the identical body and key',async({page})=>{
   const{dialog,calls,trigger}=await openBaseline(page,{uncertain:true});await baselinePeriod(dialog);await dialog.getByRole('button',{name:'Preview my snapshot',exact:true}).click();await baselineConsent(dialog);await dialog.getByRole('button',{name:'Save snapshot',exact:true}).click();await expect(dialog.getByRole('button',{name:'Retry the same baseline request',exact:true})).toBeVisible();await expect(dialog.getByLabel('Period begins')).toBeDisabled();await dialog.getByRole('button',{name:'Close spending snapshot',exact:true}).click();await trigger.click();await expect(dialog.getByRole('button',{name:'Retry the same baseline request',exact:true})).toBeVisible();const metadata=await page.evaluate(()=>sessionStorage.getItem('baseline-request-identities-v1'));expect(metadata).not.toContain('category_eligibility');expect(metadata).not.toContain('Reviewed this exact fictional');await dialog.getByRole('button',{name:'Retry the same baseline request',exact:true}).click();await expect(dialog).toContainText('Your saved snapshot');expect(calls).toHaveLength(2);expect(calls[1]).toEqual(calls[0])
@@ -9970,7 +9971,7 @@ test('BOG UI baseline stale conflict preserves input and requires a fresh previe
   expect(calls[1].key).not.toBe(calls[0].key)
 })
 test('BOG UI baseline cash review stages an explicit actual decision and exact withdrawal allocation',async({page})=>{
-  const{dialog,previews}=await openBaseline(page);await baselinePeriod(dialog);await dialog.getByText('Choose statements (0 selected)',{exact:true}).click();await dialog.getByRole('checkbox',{name:/Fictional-checking.pdf/}).check();await dialog.getByRole('checkbox',{name:'Fictional checking',exact:true}).check();await dialog.getByLabel('Cash coverage').selectOption('partial');await dialog.getByText('Check transactions, duplicates and cash (optional)',{exact:true}).click();await dialog.getByText('Fictional cash lunch · 2026-09-15 · recorded amount $10.00 · Unreviewed',{exact:true}).click();await dialog.getByLabel('Classification for Fictional cash lunch').selectOption('purchase');await dialog.getByLabel('Account or cash for Fictional cash lunch').selectOption('cash');await dialog.getByLabel('Transaction review note for Fictional cash lunch').fill('Checked actual cash lunch receipt.');await dialog.getByRole('checkbox',{name:/I checked this recorded amount/}).check();await dialog.getByRole('button',{name:'Use this transaction decision in preview',exact:true}).click();await dialog.getByText('Allocate reviewed cash withdrawals to cash purchases',{exact:true}).click();await dialog.getByRole('radio',{name:/Fictional ATM.*Fictional-checking.pdf.*page 2/}).check();await dialog.getByLabel('Reviewed cash purchase').selectOption('701');await dialog.getByLabel('Cash allocated to this purchase').fill('10.00');await dialog.getByLabel('Cash allocation review note').fill('Compared actual withdrawal and cash receipt.');await dialog.getByRole('checkbox',{name:/I checked this exact withdrawal/}).check();await dialog.getByRole('button',{name:'Use this cash allocation in preview',exact:true}).click();await dialog.getByRole('button',{name:'Preview my snapshot',exact:true}).click();await expect(dialog.getByRole('region',{name:'Snapshot preview',exact:true})).toBeVisible();expect(previews[0].actual_decisions).toEqual([{transaction_id:701,event_type:'purchase',disposition:'include',tracked_account_id:null,cash:true,overlap_disposition:'new',source_review_version_id:null,matched_transaction_id:null,reason:'Checked actual cash lunch receipt.'}]);expect(previews[0].cash_allocations).toEqual([{source_review_version_id:801,transaction_id:701,amount_cents:1000,reason:'Compared actual withdrawal and cash receipt.'}]);await assertBaselineFits(dialog)
+  const{dialog,previews}=await openBaseline(page);await baselinePeriod(dialog);await dialog.getByText('Choose statements (0 selected)',{exact:true}).click();await dialog.getByRole('checkbox',{name:/Fictional-checking.pdf/}).check();await dialog.getByRole('checkbox',{name:'Fictional checking',exact:true}).check();await dialog.getByLabel('Cash coverage').selectOption('partial');await dialog.getByText('Check transactions, duplicates and cash (optional)',{exact:true}).click();await dialog.getByText('Fictional cash lunch · Tue, Sep 15 · recorded amount $10.00 · Unreviewed',{exact:true}).click();await dialog.getByLabel('Classification for Fictional cash lunch').selectOption('purchase');await dialog.getByLabel('Account or cash for Fictional cash lunch').selectOption('cash');await dialog.getByLabel('Transaction review note for Fictional cash lunch').fill('Checked actual cash lunch receipt.');await dialog.getByRole('checkbox',{name:/I checked this recorded amount/}).check();await dialog.getByRole('button',{name:'Use this transaction decision in preview',exact:true}).click();await dialog.getByText('Allocate reviewed cash withdrawals to cash purchases',{exact:true}).click();await dialog.getByRole('radio',{name:/Fictional ATM.*Fictional-checking.pdf.*page 2/}).check();await dialog.getByLabel('Reviewed cash purchase').selectOption('701');await dialog.getByLabel('Cash allocated to this purchase').fill('10.00');await dialog.getByLabel('Cash allocation review note').fill('Compared actual withdrawal and cash receipt.');await dialog.getByRole('checkbox',{name:/I checked this exact withdrawal/}).check();await dialog.getByRole('button',{name:'Use this cash allocation in preview',exact:true}).click();await dialog.getByRole('button',{name:'Preview my snapshot',exact:true}).click();await expect(dialog.getByRole('region',{name:'Snapshot preview',exact:true})).toBeVisible();expect(previews[0].actual_decisions).toEqual([{transaction_id:701,event_type:'purchase',disposition:'include',tracked_account_id:null,cash:true,overlap_disposition:'new',source_review_version_id:null,matched_transaction_id:null,reason:'Checked actual cash lunch receipt.'}]);expect(previews[0].cash_allocations).toEqual([{source_review_version_id:801,transaction_id:701,amount_cents:1000,reason:'Compared actual withdrawal and cash receipt.'}]);await assertBaselineFits(dialog)
 })
 test('BOG UI baseline revoked refresh clears private snapshots and controls',async({page})=>{
   const{dialog,revoke}=await openBaseline(page,{approved:true});await expect(dialog).toContainText('Your saved snapshot');revoke();await dialog.getByRole('button',{name:'Refresh my snapshot',exact:true}).click();await expect(dialog).toContainText('Private baseline access is no longer available');await expect(dialog.getByLabel('Period begins')).toHaveCount(0);await expect(dialog.getByRole('region',{name:'Current approved baseline',exact:true})).toHaveCount(0)

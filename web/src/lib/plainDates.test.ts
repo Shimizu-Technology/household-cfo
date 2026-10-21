@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { formatDay, formatRange, isToday, timeZoneLabel } from './plainDates'
+import { formatDay, formatRange, timeZoneLabel } from './plainDates'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -21,10 +21,7 @@ describe('plain dates', () => {
     expect(formatRange('2026-10-01', '2026-12-29')).toBe('Thu, Oct 1 – Tue, Dec 29')
     expect(formatRange('2026-10-01', null)).toBe('Thu, Oct 1')
   })
-  it('compares calendar days and names the time zone once in plain words', () => {
-    expect(isToday('2026-10-21', '2026-10-21')).toBe(true)
-    expect(isToday('2026-10-21', '2026-10-22')).toBe(false)
-    expect(isToday('bad', 'bad')).toBe(false)
+  it('names the time zone once in plain words', () => {
     expect(timeZoneLabel('Pacific/Guam')).toBe('Guam time')
     expect(timeZoneLabel('America/Los_Angeles')).toBe('Los Angeles time')
   })

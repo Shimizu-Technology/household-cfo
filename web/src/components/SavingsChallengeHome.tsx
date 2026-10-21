@@ -29,6 +29,11 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
   const { assistantName } = useBrand()
   const [planOpen, setPlanOpen] = useState(false)
   const [changingPlan, setChangingPlan] = useState(false)
+  const [zeroOpen, setZeroOpen] = useState(false)
+  // Focus to restore after a control that had focus unmounts (target row toggles and saves).
+  // 'restore-target' only applies if focus actually fell to the page; 'target' and 'zero' always move it.
+  const [focusRequest, setFocusRequest] = useState<'target' | 'restore-target' | 'zero' | null>(null)
+  const [focusPlanConfirm, setFocusPlanConfirm] = useState(false)
   const asideId = useId()
   const [entryOpen, setEntryOpen] = useState(Boolean(initialSavingsIntake))
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -70,6 +75,11 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
   const entryHeadingRef = useRef<HTMLHeadingElement>(null)
   const targetHeadingRef = useRef<HTMLHeadingElement>(null)
   const progressHeadingRef = useRef<HTMLHeadingElement>(null)
+  const zeroSummaryRef = useRef<HTMLElement>(null)
+  useEffect(()=>{if(!focusRequest)return;const frame=requestAnimationFrame(()=>{if(focusRequest==='restore-target'&&document.activeElement&&document.activeElement!==document.body){setFocusRequest(null);return}
+    // Prefer the waiting target's first confirm step when it is already on screen; otherwise its review takes focus when it loads.
+    const confirm=focusRequest!=='zero'&&focusPlanConfirm?targetHeadingRef.current?.closest('section')?.querySelector<HTMLElement>('[data-plan-confirm]:not(:disabled)'):null
+    const destination=focusRequest==='zero'?zeroSummaryRef.current:confirm??targetHeadingRef.current;destination?.scrollIntoView?.({block:'center'});destination?.focus();if(confirm)setFocusPlanConfirm(false);setFocusRequest(null)});return()=>cancelAnimationFrame(frame)},[focusRequest,focusPlanConfirm])
   const [focusAfterJoin,setFocusAfterJoin] = useState(false)
   const focusJoined = () => setFocusAfterJoin(true)
   useEffect(()=>{if(!focusAfterJoin||!challenge?.enrollment)return;const frame=requestAnimationFrame(()=>{progressHeadingRef.current?.scrollIntoView({block:'start'});progressHeadingRef.current?.focus();setFocusAfterJoin(false)});return()=>cancelAnimationFrame(frame)},[focusAfterJoin,challenge?.enrollment])
@@ -79,12 +89,12 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
   const scopeUser = participantScope?.user_id, scopeHousehold = participantScope?.household_id, scopeEnrollment = challenge?.enrollment?.id
   const planScope = useMemo(() => scopeUser && scopeHousehold && scopeEnrollment ? {user_id:scopeUser,household_id:scopeHousehold,enrollment_id:scopeEnrollment} : undefined, [scopeUser,scopeHousehold,scopeEnrollment])
   useEffect(() => { if(participantScope) fencePlanActor(participantScope) }, [participantScope])
-  const receivePlan = useCallback((result:SavingsMutation<unknown>) => {sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier plan request was confirmed once.':result.challenge.pending_plan_count?'Your new target is ready. Confirm it below. Spending choices aren’t counted as money set aside.':'Saved. Your target is up to date.');setRevision(value=>value+1);setChangingPlan(false);const record=result.record as {id?:number;status?:string};if(record.status==='pending'&&record.id){setPlanOpen(true);setReviewAnchor({collection:'plan_drafts',id:record.id})}}, [])
+  const receivePlan = useCallback((result:SavingsMutation<unknown>) => {sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier plan request was confirmed once.':result.challenge.pending_plan_count?'Your new target is ready. Confirm it below. Spending choices aren’t counted as money set aside.':'Saved. Your target is up to date.');setRevision(value=>value+1);setChangingPlan(false);setFocusRequest('restore-target');const record=result.record as {id?:number;status?:string};if(record.status==='pending'&&record.id){setPlanOpen(true);setFocusPlanConfirm(true);setReviewAnchor({collection:'plan_drafts',id:record.id})}}, [])
   const planMutation = useComfortablePlanMutation(planScope, receivePlan, clearPrivatePlan, revision)
   const scopeCohort = cohortId ?? challenge?.enrollment?.cohort_id
   const homeScope = useMemo(() => scopeUser && scopeHousehold && scopeCohort ? {user_id:scopeUser,household_id:scopeHousehold,cohort_id:scopeCohort} : undefined, [scopeUser,scopeHousehold,scopeCohort])
   const historyScope = useMemo(() => homeScope && scopeEnrollment ? {...homeScope,enrollment_id:scopeEnrollment} : undefined, [homeScope,scopeEnrollment])
-  const receiveHome = useCallback((result:SavingsMutation<unknown>,action:HomeSavingsAction) => { sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier request was confirmed once.':homeNotice[action]);setRevision(value=>value+1);const draft=result.record as {id?:number;status?:string;signed_cents?:number};if(draft.status==='pending'&&draft.id){setEntryOpen(true);setReviewAnchor({collection:'entry_drafts',id:draft.id})};setEffectiveOn(current=>current||savingsDefaultDate(result.challenge.calendar));if(action==='enrollment')focusJoined() }, [])
+  const receiveHome = useCallback((result:SavingsMutation<unknown>,action:HomeSavingsAction) => { sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier request was confirmed once.':action==='zero_attest'?zeroNotice(result):homeNotice[action]);setRevision(value=>value+1);const draft=result.record as {id?:number;status?:string;signed_cents?:number};if(draft.status==='pending'&&draft.id){setEntryOpen(true);setReviewAnchor({collection:'entry_drafts',id:draft.id})};setEffectiveOn(current=>current||savingsDefaultDate(result.challenge.calendar));if(action==='enrollment')focusJoined() }, [])
   const homeConflict = useCallback((message: string) => { setReadFailed(true); setParticipation(false); setLateAcceptance(false); setKnownZero(false); setError(message) }, [])
   const homeMutation = useHomeSavingsMutation(homeScope, receiveHome, clearPrivatePlan, () => Boolean(readPlanRequest(planScope)) || working.current, homeConflict)
   const homePendingRef = useRef(homeMutation.pending); useEffect(()=>{homePendingRef.current=homeMutation.pending},[homeMutation.pending])
@@ -150,9 +160,9 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
       const result = await attempt.perform(attempt.key, controller.signal)
       if (!mounted.current || epoch !== sequence.current) return
       setChallenge(result.challenge); setReadFailed(false); setRevision((value) => value + 1); setRetry(null); uncertainRequest.current = false
-      setNotice(result.replayed ? 'Your earlier request was confirmed. It was not added twice.' : (result.record as { status?: string }).status === 'pending' ? 'Check it below, then confirm.' : 'Saved.')
-      const draft = result.record as { id?: number; status?: string; signed_cents?: number }
-      if (draft.status === 'pending' && draft.id && Number.isSafeInteger(draft.id)) { if (draft.signed_cents === undefined) setPlanOpen(true); else setEntryOpen(true) }
+      const draft = result.record as { id?: number; status?: string; signed_cents?: number; cutoff_on?: string }
+      setNotice(result.replayed ? 'Your earlier request was confirmed. It was not added twice.' : draft.status === 'pending' ? 'Check it below, then confirm.' : draft.cutoff_on && draft.signed_cents === undefined ? zeroNotice(result) : 'Saved.')
+      if (draft.status === 'pending' && draft.id && Number.isSafeInteger(draft.id)) { if (draft.signed_cents === undefined) { setPlanOpen(true); setChangingPlan(false); setFocusRequest('restore-target'); setFocusPlanConfirm(true) } else setEntryOpen(true) }
       if (draft.status === 'pending' && draft.id && Number.isSafeInteger(draft.id)) setReviewAnchor({ collection: draft.signed_cents === undefined ? 'plan_drafts' : 'entry_drafts', id: draft.id })
       attempt.done?.()
       if (!draft.status && result.challenge.enrollment && !challenge?.enrollment) focusJoined()
@@ -185,7 +195,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
   const freshHome = homeMutation.pending?.fresh ? homeMutation.pending : null
   const actionLocked = (action:HomeSavingsAction, draftId?:number, entryId?:number) => busy || loading || readFailed || retry !== null || planMutation.busy || planMutation.needsRefresh || Boolean(homeMutation.pending && !(freshHome?.action===action && freshHome.draftId===draftId && freshHome.entryId===entryId))
   const entryFormLocked = actionLocked('entry_stage',undefined,editingEntry?.id)
-  function prepareHomeFresh() { const pending=homeMutation.pending; if(pending?.action==='entry_stage'||pending?.action==='entry_approve')setEntryOpen(true);if(pending?.action==='entry_approve'&&pending.draftId)setReviewAnchor({collection:'entry_drafts',id:pending.draftId});setParticipation(false);setLateAcceptance(false);setKnownZero(false);setAmount('');setEntryReason('');setEditingEntry(null);void refresh() }
+  function prepareHomeFresh() { const pending=homeMutation.pending; if(pending?.action==='entry_stage'||pending?.action==='entry_approve'||pending?.action==='zero_attest')setEntryOpen(true);if(pending?.action==='zero_attest')setZeroOpen(true);if(pending?.action==='entry_approve'&&pending.draftId)setReviewAnchor({collection:'entry_drafts',id:pending.draftId});setParticipation(false);setLateAcceptance(false);setKnownZero(false);setAmount('');setEntryReason('');setEditingEntry(null);void refresh() }
   const appliedEvidenceToken = useRef(evidenceRefreshToken)
   useEffect(()=>{if(evidenceRefreshToken===appliedEvidenceToken.current||busy||loading||retry||homeMutation.pending||planMutation.pending)return;appliedEvidenceToken.current=evidenceRefreshToken;void refresh()},[evidenceRefreshToken,busy,loading,retry,homeMutation.pending,planMutation.pending,refresh])
   function validate(action: () => void) {
@@ -243,10 +253,13 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
   const privacyRow = isValidElement(privacyAccess) && privacyAccess.type === ParticipantPrivacyAccess ? cloneElement(privacyAccess as ReactElement<{ variant?: 'row'; description?: string }>, { variant: 'row', description: 'Who can see what, and your reminders' }) : privacyAccess
   function openAside() { setEntryOpen(true); requestAnimationFrame(() => { entryHeadingRef.current?.scrollIntoView?.({ block: 'start' }); entryHeadingRef.current?.focus() }) }
   function openTarget() { setPlanOpen(true); requestAnimationFrame(() => { targetHeadingRef.current?.scrollIntoView?.({ block: 'center' }); targetHeadingRef.current?.focus() }) }
+  function openWaitingTarget() { setPlanOpen(true); setChangingPlan(false); setFocusRequest('target'); setFocusPlanConfirm(true) }
+  function openZero() { setEntryOpen(true); setZeroOpen(true); setFocusRequest('zero') }
+  const checkInOpen = calendar?.phase === 'active'
   const planHistory = challenge?.enrollment ? <SavingsHistory<SavingsPlanDraft> scope={historyScope} onDenied={clearPrivatePlan} key={reviewAnchor?.collection === 'plan_drafts' ? `plan:${reviewAnchor.id}` : 'plan'} focusRecordId={reviewAnchor?.collection === 'plan_drafts' ? reviewAnchor.id : undefined} collection="plan_drafts" label="Target changes" hideWhenEmpty revision={revision} enabled={!busy} render={(draft) => <>
     <p><strong>{draft.target_cents === null ? 'Choose my target later' : savingsDollars(draft.target_cents)}</strong> · {statusWord(draft.status)}</p>
     {draft.reason && <p>{draft.reason}</p>}
-    {draft.status === 'pending' && <SavingsPlanApprovalReview key={`${draft.id}:${draft.lock_version}:${revision}`} draft={draft} disabled={busy || loading || readFailed || planMutation.needsRefresh || Boolean(planMutation.pending && !(planMutation.freshAction?.action === 'plan_approve' && planMutation.freshAction.draftId === draft.id)) || retry !== null || homeMutation.pending !== null} onApprove={() => {if(homeMutation.isPending())return;const input={accepted:true as const,expected_draft_lock_version:draft.lock_version,expected_plan_version_id:draft.base_plan_version_id};if(participantScope)void planMutation.perform('plan_approve',input,draft.id);else stage((key,signal)=>approveSavingsPlan(draft.id,input,key,signal))}}/>}
+    {draft.status === 'pending' && <SavingsPlanApprovalReview key={`${draft.id}:${draft.lock_version}:${revision}`} draft={draft} autoFocus={focusPlanConfirm} onFocused={() => setFocusPlanConfirm(false)} disabled={busy || loading || readFailed || planMutation.needsRefresh || Boolean(planMutation.pending && !(planMutation.freshAction?.action === 'plan_approve' && planMutation.freshAction.draftId === draft.id)) || retry !== null || homeMutation.pending !== null} onApprove={() => {if(homeMutation.isPending())return;const input={accepted:true as const,expected_draft_lock_version:draft.lock_version,expected_plan_version_id:draft.base_plan_version_id};if(participantScope)void planMutation.perform('plan_approve',input,draft.id);else stage((key,signal)=>approveSavingsPlan(draft.id,input,key,signal))}}/>}
   </>} /> : null
   // Only one pending target can be confirmed. Once it exists, confirm it (or
   // explicitly choose to replace it) instead of preparing a duplicate.
@@ -271,11 +284,11 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
         <ul className="savings-terms">
           <li>You choose your target after joining: {suggested}, a smaller amount, or decide later.</li>
           <li>We keep a record of the savings and choices you confirm. Joining doesn’t move money, connect a bank, or need a credit card or a full budget.</li>
-          <li>Statements are optional and reviewed separately. Joining doesn’t give your coach access to your statements.</li>
+          <li>Statements are optional and reviewed separately. Joining doesn’t give a coach access to your statements.</li>
           <li>Your spot in the group is confirmed when you join.</li>
         </ul>
-        <label className="savings-check"><input type="checkbox" checked={participation} disabled={actionLocked('enrollment')} onChange={(event) => setParticipation(event.target.checked)} />I have read this notice and want to join.</label>
-        {offer.late_start_acceptance_required && <label className="savings-check"><input type="checkbox" checked={lateAcceptance} disabled={actionLocked('enrollment')} onChange={(event) => setLateAcceptance(event.target.checked)} />I understand my 90 days start later than the group’s, on {formatDay(offer.personal_starts_on)}, and run through {formatDay(offer.personal_ends_on, { year: true })}.</label>}
+        <label className="savings-check"><input type="checkbox" checked={participation} disabled={actionLocked('enrollment')} onChange={(event) => setParticipation(event.target.checked)} />I’ve read this and accept joining the challenge.</label>
+        {offer.late_start_acceptance_required && <label className="savings-check"><input type="checkbox" checked={lateAcceptance} disabled={actionLocked('enrollment')} onChange={(event) => setLateAcceptance(event.target.checked)} />I accept that my 90 days start later than the group’s, as shown above.</label>}
         <button type="button" className="savings-primary" disabled={actionLocked('enrollment') || !offer.accepting_enrollments || !participation || Boolean(offer.late_start_acceptance_required && !lateAcceptance)} onClick={() => homeStage('enrollment',(key, signal) => enrollSavingsChallenge({ participation_accepted: true, policy_version: offer.policy_version, late_start_accepted: lateAcceptance, expected_acceptance_digest: offer.acceptance_digest }, key, signal))}>Accept and join</button>
         {!offer.accepting_enrollments && <p role="status">This group isn’t taking new members right now.</p>}
       </> : <p>We couldn’t load the joining details. Refresh to see them before joining.</p>}
@@ -284,21 +297,24 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
     {challenge?.enrollment && <>
       <article className="savings-summary" aria-label="Approved savings progress">
         <h3 ref={progressHeadingRef} tabIndex={-1}>Set aside so far</h3>
-        <p className={reported === null ? 'savings-total savings-total--words' : 'savings-total'}>{reported === null ? 'Nothing set aside yet' : savingsDollars(reported)}</p>
-        <p className="savings-target-line">{!plan
-          ? <><span>No target yet</span> — <button type="button" className="savings-link" onClick={openTarget}>choose one</button></>
-          : plan.target_cents === null
-            ? <><span>You’ll choose a target later</span> — <button type="button" className="savings-link" onClick={openTarget}>choose now</button></>
-            : <>of {savingsDollars(plan.target_cents)} target{projection?.progress_basis_points != null ? ` · ${Math.floor(projection.progress_basis_points / 100)}%` : ''}</>}</p>
+        <p className={reported === null ? 'savings-total savings-total--words' : 'savings-total'}>{reported === null ? 'No amounts added yet' : savingsDollars(reported)}</p>
+        <p className="savings-target-line">{plan?.target_cents != null
+          ? <>of {savingsDollars(plan.target_cents)} target{projection?.progress_basis_points != null ? ` · ${Math.floor(projection.progress_basis_points / 100)}%` : ''}{pendingPlans > 0 && <> · <button type="button" className="savings-link" onClick={openWaitingTarget}>new target waiting</button></>}</>
+          : pendingPlans > 0
+            ? <><span>Target waiting for you to confirm</span> — <button type="button" className="savings-link" onClick={openWaitingTarget}>review it</button></>
+            : !plan
+              ? <><span>No target yet</span> — <button type="button" className="savings-link" onClick={openTarget}>choose one</button></>
+              : <><span>You’ll choose a target later</span> — <button type="button" className="savings-link" onClick={openTarget}>choose now</button></>}</p>
         {projection?.progress_basis_points != null && <progress className="savings-bar" aria-label="Progress toward your target" max={10000} value={projection.progress_basis_points} />}
         {calendar && <p className="savings-day-line">{dayLine(calendar, next)}</p>}
-        {projection && !projection.reporting_known && <p className="savings-caption">We don’t assume $0. Add money when you set it aside, or tell us if there’s nothing to add.</p>}
+        {projection && !projection.reporting_known && <p className="savings-caption">We don’t assume $0. Add money when you set it aside, or {elapsed ? <button type="button" className="savings-link savings-link--inline" onClick={openZero}>tell us if you set nothing aside</button> : 'tell us later if you set nothing aside'}.</p>}
+        {projection?.zero_attested && <p className="savings-caption">You confirmed nothing set aside through {formatDay(projection.cutoff_on)}.</p>}
         {/* Withdrawals use up matched money first, so the matched part can be smaller than any one record's match. */}
         {matched > 0 && <p className="savings-caption">{projection?.withdrawal_cents ? `After the money you took out, ${savingsDollars(matched)} of what’s left is matched to a statement.` : `${savingsDollars(matched)} of this is matched to a statement.`} That’s included above, not extra.</p>}
         {excluded > 0 && <p className="savings-caption">{excluded === 1 ? '1 record isn’t counted because it wasn’t' : `${excluded} records aren’t counted because they weren’t`} new money (for example, money you already had or borrowed).</p>}
         {reported !== null && reported < 0 && <p className="savings-caption">You’ve taken out more than you set aside, so the bar stays empty.</p>}
         <div className="savings-actions">
-          {checkIn && <button type="button" className="savings-primary" onClick={(event) => { event.currentTarget.focus(); checkIn() }}>Check in for today</button>}
+          {checkIn && checkInOpen && <button type="button" className="savings-primary" onClick={(event) => { event.currentTarget.focus(); checkIn() }}>Check in for today</button>}
           <button type="button" className="savings-secondary" aria-expanded={entryOpen} aria-controls={asideId} onClick={() => { if (entryOpen) setEntryOpen(false); else openAside() }}>I set money aside{pendingEntries > 0 && <span className="savings-badge"> · {pendingEntries} to confirm</span>}</button>
         </div>
       </article>
@@ -317,8 +333,8 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
           <div className="savings-form-actions"><button type="submit" className="savings-action" disabled={intakeActive && !withdrawal && Boolean(fundingEligible) && !newMoneyReviewed}>Review savings record</button>{editingEntry && <button type="button" onClick={() => { setEditingEntry(null); setAmount(''); setEntryReason('') }}>Cancel correction</button>}</div>
         </fieldset></form>
         {!elapsed && <p>You can add money once your 90 days start.</p>}
-        {projection && !projection.reporting_known && elapsed && <details className="savings-zero"><summary>Nothing to add?</summary><section aria-label="Confirm nothing set aside"><p>If you’re not sure, leave it for now. If you know you haven’t set aside or taken out any new money through {formatDay(projection.cutoff_on)}, you can say so.</p><label className="savings-check"><input type="checkbox" checked={knownZero} disabled={actionLocked('zero_attest')} onChange={(event) => setKnownZero(event.target.checked)} />I know I haven’t set aside or taken out any new money through this date.</label><button type="button" className="savings-action" disabled={actionLocked('zero_attest') || !knownZero} onClick={() => homeStage('zero_attest',(key, signal) => attestSavingsZero({ known_zero: true, cutoff_on: projection.cutoff_on, expected_enrollment_lock_version: challenge.enrollment!.lock_version }, key, signal), () => setKnownZero(false))}>Confirm nothing set aside</button></section></details>}
-        <SavingsHistory<SavingsEntryDraft> scope={historyScope} onDenied={clearPrivatePlan} key={reviewAnchor?.collection === 'entry_drafts' ? `entry:${reviewAnchor.id}` : 'entry'} focusRecordId={reviewAnchor?.collection === 'entry_drafts' ? reviewAnchor.id : undefined} collection="entry_drafts" label="Recent entries" hideWhenEmpty revision={revision} enabled={!busy} render={(draft) => <>
+        {projection && !projection.reporting_known && elapsed && <details className="savings-zero" open={zeroOpen} onToggle={event => setZeroOpen(event.currentTarget.open)}><summary ref={zeroSummaryRef}>Nothing to add?</summary><section aria-label="Confirm nothing set aside"><p>If you’re not sure, leave it for now. If you know you haven’t set aside or taken out any new money through {formatDay(projection.cutoff_on)}, you can say so.</p><label className="savings-check"><input type="checkbox" checked={knownZero} disabled={actionLocked('zero_attest')} onChange={(event) => setKnownZero(event.target.checked)} />I know I haven’t set aside or taken out any new money through this date.</label><button type="button" className="savings-action" disabled={actionLocked('zero_attest') || !knownZero} onClick={() => homeStage('zero_attest',(key, signal) => attestSavingsZero({ known_zero: true, cutoff_on: projection.cutoff_on, expected_enrollment_lock_version: challenge.enrollment!.lock_version }, key, signal), () => setKnownZero(false))}>Confirm nothing set aside</button></section></details>}
+        <SavingsHistory<SavingsEntryDraft> scope={historyScope} onDenied={clearPrivatePlan} key={reviewAnchor?.collection === 'entry_drafts' ? `entry:${reviewAnchor.id}` : `entry:${pendingEntries > 0 ? 'waiting' : 'newest'}`} focusRecordId={reviewAnchor?.collection === 'entry_drafts' ? reviewAnchor.id : undefined} seek={pendingEntries > 0 ? hasWaiting : neverStop} collection="entry_drafts" label="Your entries" hideWhenEmpty revision={revision} enabled={!busy} render={(draft) => <>
           <p><strong>{savingsDollars(draft.signed_cents)}</strong> · {formatDay(draft.effective_on)} · {statusWord(draft.status)}</p>
           <p>{savingsFundingLabel(draft.funding_source)}</p>
           {draft.reason && <p>{draft.reason}</p>}
@@ -340,14 +356,14 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
           <h3 ref={targetHeadingRef} tabIndex={-1}>{plan ? 'Change your target' : 'Choose your target'}</h3>
           <p>{suggested} is the suggested target. You can pick a smaller amount, or decide later.</p>
           {plan && <section aria-label="Accepted spending choices"><h4>Your current plan</h4><ComfortablePlanSummary plan={plan}/></section>}
-          {!showPlanForm && <>{planHistory}<p>Want a different target? <button type="button" className="savings-link" onClick={() => setChangingPlan(true)}>Change it instead</button></p></>}
+          {!showPlanForm && <>{planHistory}<p>Want a different target? <button type="button" className="savings-link" onClick={() => { setChangingPlan(true); setFocusRequest('restore-target') }}>Change it instead</button></p></>}
           {showPlanForm && <form onSubmit={submitPlan}><fieldset disabled={planFormLocked}>
             <label>Target in US dollars<input inputMode="decimal" value={target} disabled={postponed} onChange={(event) => setTarget(event.target.value)} /></label>
             <label className="savings-check"><input type="checkbox" checked={postponed} onChange={(event) => setPostponed(event.target.checked)} />I will choose my target later</label>
             {plan && <label>Reason for target change<textarea maxLength={500} value={planReason} onChange={(event) => setPlanReason(event.target.value)} required /></label>}
             <ComfortablePlanChoices key={`${participantScope?.user_id}:${participantScope?.household_id}:${challenge.enrollment.id}`} acceptedPlan={plan} scope={participantScope} disabled={planFormLocked} freshness={revision} onChange={setComfortable} onDenied={clearPrivatePlan} onBaseline={onReviewBaseline}/>
             {comfortable.error && <p className="savings-caption">{comfortable.error}</p>}
-            <div className="savings-form-actions"><button type="submit" className="savings-action" disabled={Boolean(planMutation.pending?.working) || (comfortable.edited && (!comfortable.reviewed || Boolean(comfortable.error)))}>Review target plan</button>{changingPlan && <button type="button" onClick={() => setChangingPlan(false)}>Keep the target waiting below</button>}</div>
+            <div className="savings-form-actions"><button type="submit" className="savings-action" disabled={Boolean(planMutation.pending?.working) || (comfortable.edited && (!comfortable.reviewed || Boolean(comfortable.error)))}>Review target plan</button>{changingPlan && <button type="button" onClick={() => { setChangingPlan(false); setFocusRequest('restore-target'); setFocusPlanConfirm(true) }}>Keep the target waiting below</button>}</div>
           </fieldset></form>}
           {showPlanForm && planHistory}
         </section>
@@ -357,7 +373,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
         <summary className="savings-row"><SavingsRowContent label="Your records & corrections" description="See what you’ve saved and fix a mistake" /></summary>
         <section className="savings-row-body" aria-label="Approved savings history">
           <p>A fix doesn’t change your total until you confirm it.</p>
-          <SavingsHistory<SavingsEntry> scope={historyScope} onDenied={clearPrivatePlan} key={freshHome?.entryId??'entries'} focusRecordId={freshHome?.entryId} collection="entries" label="Savings history" revision={revision} enabled={!busy} render={(entry) => {
+          <SavingsHistory<SavingsEntry> scope={historyScope} onDenied={clearPrivatePlan} key={freshHome?.entryId??'entries'} focusRecordId={freshHome?.entryId} collection="entries" label="Savings history" level={3} revision={revision} enabled={!busy} render={(entry) => {
             const version = entry.current_approved_version
             if (!version) return <p>Record #{entry.id} is waiting for you to confirm it under “I set money aside”.</p>
             const match = matchWords(version)
@@ -389,7 +405,13 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
     <p className="savings-footnote">{zone && `Dates follow ${zone}. `}Questions? <button type="button" className="savings-link" onClick={onAskMia}>Ask {assistantName}</button></p></>}
   </section>
 }
-function SavingsHistory<T extends RecordRow>({ collection, label, revision, enabled, render, focusRecordId, scope, onDenied, hideWhenEmpty }: { scope?: DailyScope; onDenied?: () => void; focusRecordId?: number; collection: SavingsCollection; label: string; revision: number; enabled: boolean; render: (record: T) => ReactNode; hideWhenEmpty?: boolean }) {
+// The server pages oldest first. `seek` walks forward (bounded) to the first page it accepts, or to the newest page,
+// so a long history still opens on what needs attention instead of the oldest ten.
+function SavingsHistory<T extends RecordRow>({ collection, label, revision, enabled, render, focusRecordId, scope, onDenied, hideWhenEmpty, seek, level = 4 }: { scope?: DailyScope; onDenied?: () => void; focusRecordId?: number; collection: SavingsCollection; label: string; revision: number; enabled: boolean; render: (record: T) => ReactNode; hideWhenEmpty?: boolean; seek?: (records: T[]) => boolean; level?: 3 | 4 }) {
+  const initialSeek = Boolean(seek) && !focusRecordId
+  const seeking = useRef(initialSeek)
+  const [seekingView, setSeekingView] = useState(initialSeek)
+  const seekSteps = useRef(0)
   const [page, setPage] = useState<SavingsPage<T> | null>(null)
   const [cursor, setCursor] = useState<number | null>(focusRecordId && focusRecordId > 1 ? focusRecordId - 1 : null)
   const [previous, setPrevious] = useState<(number | null)[]>(focusRecordId && focusRecordId > 1 ? [null] : [])
@@ -401,14 +423,24 @@ function SavingsHistory<T extends RecordRow>({ collection, label, revision, enab
     let live = true
     const controller = new AbortController()
     queueMicrotask(() => { if (live) { setLoading(true); setError(null) } })
-    void fetchSavingsPage<T>(collection, cursor, controller.signal).then((next) => { if (scope && (!next.actor_scope || !dailyResponseMatches({...next,actor_scope:next.actor_scope},scope))) throw new ApiRequestError('Private savings history changed.',{status:403}); if (live) setPage(next) }).catch((failure) => { if (live) { setError(message(failure)); setPage(null); if(failure instanceof ApiRequestError&&[401,403,404].includes(failure.status))onDenied?.() } }).finally(() => { if (live) setLoading(false) })
+    let continued = false
+    void fetchSavingsPage<T>(collection, cursor, controller.signal).then((next) => {
+      if (scope && (!next.actor_scope || !dailyResponseMatches({...next,actor_scope:next.actor_scope},scope))) throw new ApiRequestError('Private savings history changed.',{status:403})
+      if (!live) return
+      if (seeking.current && seek && next.next_cursor !== null && !seek(next.records) && seekSteps.current < 30) { seekSteps.current += 1; continued = true; setPrevious((pages) => [...pages, cursor]); setCursor(next.next_cursor); return }
+      seeking.current = false; setSeekingView(false); setPage(next)
+    }).catch((failure) => { if (live) { seeking.current = false; setSeekingView(false); setError(message(failure)); setPage(null); if(failure instanceof ApiRequestError&&[401,403,404].includes(failure.status))onDenied?.() } }).finally(() => { if (live && !continued) setLoading(false) })
     return () => { live = false; controller.abort() }
-  }, [attempt, collection, cursor, enabled, revision, scope, onDenied])
+  }, [attempt, collection, cursor, enabled, revision, scope, onDenied, seek])
+  const Heading = level === 3 ? 'h3' : 'h4'
   // Lists that only matter once something exists (recent entries, target changes) stay out of the way until then.
-  if (hideWhenEmpty && !error && previous.length === 0 && (page ? page.records.length === 0 && page.next_cursor === null : loading)) return null
-  return <section className="savings-history" aria-label={label}><h4>{label}</h4>{focusRecordId && previous.length > 0 && <p className="savings-caption">Showing your newest entry first. Use Previous records for older ones.</p>}{loading && <p role="status">Loading {label.toLowerCase()}…</p>}{error && <div role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt((value) => value + 1)}>Retry history</button></div>}{!loading && page && <>{page.records.length === 0 && <p>Nothing here yet.</p>}<ol>{page.records.map((record) => <li key={record.id}>{render(record)}</li>)}</ol>{(previous.length > 0 || page.next_cursor !== null) && <div className="savings-pager"><button type="button" disabled={previous.length === 0} onClick={() => { setCursor(previous[previous.length - 1]); setPrevious(previous.slice(0, -1)) }}>Previous records</button><button type="button" disabled={page.next_cursor === null} onClick={() => { setPrevious([...previous, cursor]); setCursor(page.next_cursor) }}>Next records</button></div>}</>}</section>
+  if (hideWhenEmpty && !error && (seekingView || (previous.length === 0 && (page ? page.records.length === 0 && page.next_cursor === null : loading)))) return null
+  return <section className="savings-history" aria-label={label}><Heading>{label}</Heading>{focusRecordId && previous.length > 0 && <p className="savings-caption">Showing your newest entry first. Use Previous records for older ones.</p>}{loading && <p role="status">Loading {label.toLowerCase()}…</p>}{error && <div role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt((value) => value + 1)}>Retry history</button></div>}{!loading && page && <>{page.records.length === 0 && <p>Nothing here yet.</p>}<ol>{page.records.map((record) => <li key={record.id}>{render(record)}</li>)}</ol>{(previous.length > 0 || page.next_cursor !== null) && <div className="savings-pager"><button type="button" disabled={previous.length === 0} onClick={() => { setCursor(previous[previous.length - 1]); setPrevious(previous.slice(0, -1)) }}>Previous records</button><button type="button" disabled={page.next_cursor === null} onClick={() => { setPrevious([...previous, cursor]); setCursor(page.next_cursor) }}>Next records</button></div>}{(previous.length > 0 || page.next_cursor !== null) && <p className="savings-caption">{page.next_cursor !== null ? 'More records are available. Use Next records to see them.' : 'Use Previous records to see older ones.'}</p>}</>}</section>
 }
-const homeNotice: Record<HomeSavingsAction, string> = { enrollment: 'You’re in. Welcome to the challenge.', entry_stage: 'Check it below, then confirm to add it to your total.', entry_approve: 'Saved. Your total is up to date.', zero_attest: 'Saved. Nothing set aside so far.' }
+const homeNotice: Record<Exclude<HomeSavingsAction, 'zero_attest'>, string> = { enrollment: 'You’re in. Welcome to the challenge.', entry_stage: 'Check it below, then confirm to add it to your total.', entry_approve: 'Saved. Your total is up to date.' }
+function zeroNotice(result: SavingsMutation<unknown>) { const cutoff = (result.record as { cutoff_on?: string }).cutoff_on ?? result.challenge.projection?.cutoff_on; return cutoff ? `You confirmed nothing set aside through ${formatDay(cutoff)}.` : 'You confirmed nothing set aside.' }
+const hasWaiting = (records: SavingsEntryDraft[]) => records.some((record) => record.status === 'pending')
+const neverStop = () => false
 function statusWord(status: string) { return status === 'pending' ? 'Waiting for you to confirm' : status === 'approved' ? 'Saved' : 'Not used' }
 function wholeDollars(cents: number) { return cents % 100 === 0 ? `$${new Intl.NumberFormat('en-US').format(cents / 100)}` : savingsDollars(cents) }
 function matchWords(version: SavingsEntryVersion) {
