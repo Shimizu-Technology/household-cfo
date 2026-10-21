@@ -40,7 +40,12 @@
   .coach-challenge { padding: .75rem; }
   .coach-daily-heading, .coach-daily-heading > div, .coach-challenge-actions, .coach-daily-detail > header { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; justify-items: stretch; width: 100%; }
   .coach-challenge button { width: 100%; }
-  .coach-challenge-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* One row of chips that scrolls sideways, so the people list starts high on the first screen. */
+  .coach-challenge-summary { display: flex; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; padding-bottom: .15rem; }
+  .coach-challenge-summary::-webkit-scrollbar { display: none; }
+  .coach-challenge .coach-challenge-summary button { width: auto; flex: 0 0 auto; min-height: 44px; white-space: nowrap; border-radius: var(--radius-pill); padding-inline: .9rem; }
+  /* Refresh is secondary: compact, not a second full-width button under Invite. */
+  .coach-challenge .coach-daily-heading button:not(.coach-daily-primary) { width: auto; justify-self: start; min-height: 44px; }
   .coach-daily-layout.has-detail { grid-template-columns: minmax(0, 1fr); }
   .coach-daily-layout.has-detail .coach-daily-list { display: none; }
   .coach-challenge-roster > li { display: grid; gap: .5rem; }
