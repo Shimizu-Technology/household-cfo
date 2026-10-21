@@ -2888,7 +2888,7 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 
   })
 }
 
-test('loading earlier Ask Mia messages keeps the reading position instead of jumping to the newest reply', async ({ page }) => {
+test('BOG UI loading earlier Ask Mia messages keeps the reading position instead of jumping to the newest reply', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.mia.messages = workspace.mia.messages.slice(-24).map((message: Record<string, unknown>) => ({ ...message, attachments: [] }))
   workspace.mia.older_message_count = 3

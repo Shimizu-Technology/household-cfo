@@ -1,6 +1,7 @@
 import { IncomeForms } from './components/IncomeForms'
 import { useIncomeForm } from './components/incomeFormState'
 import { useMiaEntryAnchor } from './components/useMiaEntryAnchor'
+import { useMiaHistoryPosition } from './components/useMiaHistoryPosition'
 import type { CurrentUser } from './api'
 import './styles/participantFlows.css'
 import { scheduleFirstSessionComposerFocus } from './components/firstSessionComposerFocus'
@@ -1571,6 +1572,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [miaLoading])
 
   useMiaEntryAnchor({ active: activeSection === 'Ask Mia', messageKey: newestMessageKey, loading: miaLoading, chatRef: chatCardRef, awayRef: chatScrolledAwayRef, anchor: anchorMiaChat, setShowScrollButton: setShowChatScrollButton })
+  const queueHistoryPosition = useMiaHistoryPosition({ chatRef: chatCardRef, visibleMessageCount, olderMessageCount: olderServerMessageCount, scope: chatStorageKey })
 
   const stopVoiceStream = useCallback(() => {
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
@@ -2316,15 +2318,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   async function handleLoadEarlierMessages() {
     // Reading older history: keep the restored position, never re-anchor.
     chatScrolledAwayRef.current = true
-    const chatCard = chatCardRef.current
-    const previousHeight = chatCard?.scrollHeight ?? 0
-    const previousTop = chatCard?.scrollTop ?? 0
-
     if (hiddenMessageCount > 0) {
+      if (!queueHistoryPosition()) return
       setVisibleMessageCount((count) => count + CHAT_HISTORY_PAGE_SIZE)
-      requestAnimationFrame(() => {
-        if (chatCard) chatCard.scrollTop = previousTop + (chatCard.scrollHeight - previousHeight)
-      })
       return
     }
 
@@ -2336,6 +2332,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     historyExpandedRef.current = true
     try {
       const page = await fetchMiaMessages(true, beforeId)
+      if (!queueHistoryPosition()) return
       setMessages((current) => {
         const existingIds = new Set(current.map((message) => message.id).filter(Boolean))
         const olderMessages = page.messages.filter((message) => !message.id || !existingIds.has(message.id))
@@ -2344,9 +2341,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setVisibleMessageCount((count) => count + page.messages.length)
       setOldestServerMessageId(page.oldest_message_id ?? beforeId)
       setOlderServerMessageCount(page.older_message_count)
-      requestAnimationFrame(() => {
-        if (chatCard) chatCard.scrollTop = previousTop + (chatCard.scrollHeight - previousHeight)
-      })
     } catch (caught) {
       historyExpandedRef.current = historyWasExpanded
       setMiaError(participantErrorMessage(caught, `Earlier ${assistantName} messages could not be loaded.`))
