@@ -10,9 +10,10 @@ import { useAuthContext } from '../contexts/authContextValue'
 import { Button } from './Button'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 import './CoachProgramSettings.css'
+import './ProgramSettingsFlow.css'
 
 const blankIdentity: CoachWorkspaceSettingsInput = { name: '', coach_profile: { display_name: '', title: 'Financial coach', bio: '' } }
-const releaseImpact = 'Publishing updates the program’s front door. Participants on a sealed release keep its brand until you launch or roll out a release that includes this version.'
+const releaseImpact = 'Publishing updates the program’s welcome screen. Participants on a sealed release keep its brand until you launch or update their group with this version.'
 
 function identityValues(workspace: CoachWorkspaceSettings): CoachWorkspaceSettingsInput {
   return { name: workspace.name, coach_profile: workspace.coach_profile ?? blankIdentity.coach_profile }
@@ -57,10 +58,10 @@ export function CreateCoachProgram({ disabled = false, onDirtyChange, onPendingC
       const ownerNote = created.owner_invitation
         ? ` ${created.owner_invitation.email} was invited as its owner${created.owner_invitation.delivery?.sent ? ' and emailed' : ', but the invitation email did not send, so share their sign-in link yourself'}.`
         : ''
-      const savedNotice = `${created.name} was created.${ownerNote} Choose it in the workspace selector to finish its assistant and branding.`
+      const savedNotice = `${created.name} was created.${ownerNote} Choose it in the program selector to finish its assistant and branding.`
       setNotice(savedNotice)
       try { await refreshCurrentUser() }
-      catch { if (mounted.current) setNotice(`${created.name} was created, but the workspace selector could not refresh. Reload to find this program; do not create it again.`) }
+      catch { if (mounted.current) setNotice(`${created.name} was created, but the program selector could not refresh. Reload to find this program; do not create it again.`) }
       if (mounted.current) onCreated?.(created)
     } catch (caught) { if (mounted.current) setError(message(caught)) }
     finally { if (mounted.current) setBusy(false) }
@@ -148,9 +149,9 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
     void mutate('identity', async (isCurrent) => {
       const next = await updateCoachWorkspaceSettings(workspace.id, { ...identity, revision: workspace.revision })
       if (!isCurrent()) return
-      setWorkspace(next); setIdentity(identityValues(next)); setNotice('Program identity saved. Assistant voice and published branding are managed separately below.')
+      setWorkspace(next); setIdentity(identityValues(next)); setNotice('Program identity saved. Your name and coach profile are up to date. Appearance changes are reviewed separately below.')
       try { await refreshCurrentUser() }
-      catch { if (isCurrent()) setNotice('Program identity saved, but the workspace selector could not refresh. Reload to see the updated name. Do not save this change again.') }
+      catch { if (isCurrent()) setNotice('Program identity saved, but the program selector could not refresh. Reload to see the updated name. Do not save this change again.') }
     })
   }
   function updateBrand(next: BrandConfig) { setDraft(next); setPreview(null); setNotice(null) }
@@ -191,28 +192,30 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
   }
 
   return <section className="program-settings" aria-busy={loading || busy}>
-    <header><p className="eyebrow">Program settings</p><h3>Your program, in your voice and colors.</h3><p>Start with its name and coach identity, then review the participant welcome screen.</p></header>
+    <header><h3>What will people see?</h3><p>Set your program name, coach profile, and welcome screen.</p></header>
     {currentUser.is_admin && <CreateCoachProgram disabled={busy || loading || identityDirty || brandDirty} onDirtyChange={setCreateDirty} />}
-    {workspaceId === null ? <p className="coach-read-only">Choose a workspace above to edit its settings. You can create the first program here.</p> : <>
+    {workspaceId === null ? <p className="coach-read-only">Choose a program above to edit its settings. You can create the first program here.</p> : <>
       {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><Button variant="ghost" disabled={busy} onClick={() => { if (!dirty || window.confirm('Discard unsaved program settings and reload?')) void load() }}>Reload settings</Button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
       {loading ? <p role="status">Loading program settings…</p> : workspace && brand && draft && <>
         <form className="panel" onSubmit={saveIdentity}>
-          <header><h3>Program and coach</h3><p>The workspace name helps staff choose the right program. The coach profile describes who is behind it.</p></header>
-          <fieldset disabled={busy || !workspace.permissions.manage}><IdentityFields values={identity} onChange={setIdentity} /><Button type="submit" disabled={!identityDirty || brandDirty}>{pending === 'identity' ? 'Saving…' : 'Save program identity'}</Button></fieldset>
-          {!workspace.permissions.manage && <p className="program-help">Only the workspace owner or a platform administrator can change program identity.</p>}
-          {identityDirty && brandDirty && <p className="program-help">Save the brand draft below before saving program identity.</p>}
+          <header><h3>Program and coach</h3><p>Help people recognize your program and the coach behind it.</p></header>
+          <fieldset disabled={busy || !workspace.permissions.manage}><IdentityFields values={identity} onChange={setIdentity} /><Button type="submit" aria-describedby="program-identity-save-help" disabled={!identityDirty || brandDirty}>{pending === 'identity' ? 'Saving…' : 'Save program identity'}</Button></fieldset>
+          {!workspace.permissions.manage && <p className="program-help">Only the program owner or a platform administrator can change program identity.</p>}
+          <p id="program-identity-save-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !workspace.permissions.manage ? 'Ask a program owner to change the name or coach profile.' : brandDirty ? 'Save the appearance draft below before saving program identity.' : !identityDirty ? 'Your program identity is saved. Change a field to save again.' : 'Save the name and coach profile together.'}</p>
         </form>
         <form className="panel" onSubmit={saveBrand}>
-          <header><h3>Participant branding</h3><p>{releaseImpact} Change the assistant’s name in Assistant voice.</p></header>
+          <header><h3>Welcome screen and appearance</h3><p>{releaseImpact} Change the assistant’s name in Assistant voice.</p></header>
           <fieldset disabled={busy || !brand.permissions.edit}><BrandFields draft={draft} onChange={updateBrand} /></fieldset>
-          {!brand.permissions.edit && <p className="program-help">Your workspace role can view this branding but cannot edit it.</p>}
+          {!brand.permissions.edit && <p className="program-help">Your program role can view this appearance but cannot edit it.</p>}
           <div className="program-actions">
-            <Button type="submit" disabled={busy || !brandDirty || !brand.permissions.edit}>{pending === 'brand' ? 'Saving…' : 'Save brand draft'}</Button>
-            <Button variant="secondary" disabled={busy || brandDirty || !brand.permissions.preview} onClick={runPreview}>{pending === 'preview' ? 'Previewing…' : 'Preview welcome screen'}</Button>
-            <Button disabled={busy || brandDirty || !brand.permissions.publish || !preview || preview.digest !== brand.preview?.digest} onClick={publish}>{pending === 'publish' ? 'Publishing…' : 'Publish branding'}</Button>
+            <Button variant="secondary" type="submit" aria-describedby="program-brand-save-help" disabled={busy || !brandDirty || !brand.permissions.edit}>{pending === 'brand' ? 'Saving…' : 'Save brand draft'}</Button>
+            <Button variant="secondary" aria-describedby="program-brand-preview-help" disabled={busy || brandDirty || !brand.permissions.preview} onClick={runPreview}>{pending === 'preview' ? 'Previewing…' : 'Preview welcome screen'}</Button>
+            <Button aria-describedby="program-brand-publish-help" disabled={busy || brandDirty || !brand.permissions.publish || !preview || preview.digest !== brand.preview?.digest} onClick={publish}>{pending === 'publish' ? 'Publishing…' : 'Publish branding'}</Button>
           </div>
-          <p className="program-help">{brandDirty ? 'Save your changes before previewing.' : preview ? 'Exact saved draft previewed. Review the screen below before publishing.' : 'Preview the saved draft to enable publishing.'}</p>
+          <p id="program-brand-save-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.edit ? 'Your role cannot save appearance changes.' : !brandDirty ? 'Appearance draft saved. Change a field to save again.' : 'Save your appearance changes first.'}</p>
+          <p id="program-brand-preview-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.preview ? 'A program editor, reviewer, or owner can preview the welcome screen.' : brandDirty ? 'Save your changes before previewing.' : 'Preview the saved welcome screen before publishing.'}</p>
+          <p id="program-brand-publish-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.publish ? 'A program owner or reviewer must publish this appearance.' : brandDirty ? 'Save and preview your changes before publishing.' : !preview || preview.digest !== brand.preview?.digest ? 'Preview the saved draft to enable publishing.' : 'Review the preview below, then publish. To update an existing group, continue to Release & rollout.'}</p>
         </form>
         {preview && <BrandWelcomePreview config={preview.brand} />}
         <details className="panel program-history"><summary>Brand version history ({brand.versions.length})</summary><div>
@@ -228,10 +231,10 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
 function IdentityFields({ values, onChange }: { values: CoachWorkspaceSettingsInput; onChange: (next: CoachWorkspaceSettingsInput) => void }) {
   function profile(key: keyof CoachWorkspaceSettingsInput['coach_profile'], value: string) { onChange({ ...values, coach_profile: { ...values.coach_profile, [key]: value } }) }
   return <div className="program-fields">
-    <label>Workspace name<input required maxLength={160} value={values.name} onChange={(event) => onChange({ ...values, name: event.target.value })} placeholder="Mrs. Mel’s program" /></label>
+    <label>Program name<input required maxLength={160} value={values.name} onChange={(event) => onChange({ ...values, name: event.target.value })} placeholder="Mrs. Mel’s program" /></label>
     <label>Coach display name<input required maxLength={120} value={values.coach_profile.display_name} onChange={(event) => profile('display_name', event.target.value)} placeholder="Mrs. Mel" /></label>
     <label>Coach title<input required maxLength={160} value={values.coach_profile.title} onChange={(event) => profile('title', event.target.value)} /></label>
-    <label className="program-wide">About the coach<textarea maxLength={2000} rows={3} value={values.coach_profile.bio} onChange={(event) => profile('bio', event.target.value)} /></label>
+    <label className="program-wide">About the coach<textarea aria-label="About the coach" maxLength={2000} rows={3} value={values.coach_profile.bio} onChange={(event) => profile('bio', event.target.value)} /></label>
   </div>
 }
 
@@ -240,27 +243,35 @@ const themes: Record<string, Pick<BrandConfig, 'colors'>> = {
   forest: { colors: { primary: '#375b48', primary_hover: '#294536', primary_soft: '#e5eee7', on_primary: '#ffffff', accent: '#9a7457', focus: '#375b48' } },
   ocean: { colors: { primary: '#315d7c', primary_hover: '#24445c', primary_soft: '#e2edf5', on_primary: '#ffffff', accent: '#a96e3c', focus: '#315d7c' } },
 }
+const fontLabels: Record<string, string> = {
+  inter: 'Inter', montserrat: 'Montserrat', nunito_sans: 'Nunito Sans', source_sans_3: 'Source Sans 3', system_sans: 'System sans serif',
+  cormorant_garamond: 'Cormorant Garamond', lora: 'Lora', merriweather: 'Merriweather', playfair_display: 'Playfair Display', source_serif_4: 'Source Serif 4', system_serif: 'System serif',
+}
 function BrandFields({ draft, onChange }: { draft: BrandConfig; onChange: (next: BrandConfig) => void }) {
   function field(key: keyof BrandConfig, value: string) { onChange({ ...draft, [key]: value }) }
   const theme = Object.entries(themes).find(([, value]) => value.colors.primary === draft.colors.primary)?.[0] ?? 'custom'
   return <div className="program-fields">
     <label>App name<input required maxLength={80} value={draft.product_name} onChange={(event) => field('product_name', event.target.value)} /></label>
+    <div className="program-wide"><details><summary>More names and text</summary><div className="program-fields program-advanced">
     <label>Short name<input required maxLength={32} value={draft.short_name} onChange={(event) => field('short_name', event.target.value)} /></label>
     <label>Organization<input required maxLength={100} value={draft.organization_name} onChange={(event) => field('organization_name', event.target.value)} /></label>
     <label>Participant term<input required maxLength={48} value={draft.participant_role_term} onChange={(event) => field('participant_role_term', event.target.value)} /></label>
     <label className="program-wide">Tagline<input maxLength={180} value={draft.tagline ?? ''} onChange={(event) => field('tagline', event.target.value)} /></label>
+    </div></details></div>
     <label className="program-wide">Welcome heading<input maxLength={120} value={draft.welcome_heading ?? ''} onChange={(event) => field('welcome_heading', event.target.value)} /></label>
-    <label className="program-wide">Welcome message<textarea rows={3} maxLength={320} value={draft.welcome_description ?? ''} onChange={(event) => field('welcome_description', event.target.value)} /></label>
+    <label className="program-wide">Welcome message<textarea aria-label="Welcome message" rows={3} maxLength={320} value={draft.welcome_description ?? ''} onChange={(event) => field('welcome_description', event.target.value)} /></label>
     <label>Color theme<select value={theme} onChange={(event) => { const next = themes[event.target.value]; if (next) onChange({ ...draft, colors: { ...draft.colors, ...next.colors } }) }}><option value="rose">Warm rose</option><option value="forest">Forest green</option><option value="ocean">Ocean blue</option>{theme === 'custom' && <option value="custom">Existing custom colors</option>}</select></label>
-    <label>Body font<select value={draft.typography.body} onChange={(event) => onChange({ ...draft, typography: { ...draft.typography, body: event.target.value } })}>{['inter', 'montserrat', 'nunito_sans', 'source_sans_3', 'system_sans'].map((font) => <option key={font} value={font}>{font.replaceAll('_', ' ')}</option>)}</select></label>
-    <label>Heading font<select value={draft.typography.display} onChange={(event) => onChange({ ...draft, typography: { ...draft.typography, display: event.target.value } })}>{['cormorant_garamond', 'lora', 'merriweather', 'playfair_display', 'source_serif_4', 'system_serif'].map((font) => <option key={font} value={font}>{font.replaceAll('_', ' ')}</option>)}</select></label>
+    <div className="program-wide"><details><summary>Fonts and support details</summary><div className="program-fields program-advanced">
+    <label>Body font<select value={draft.typography.body} onChange={(event) => onChange({ ...draft, typography: { ...draft.typography, body: event.target.value } })}>{['inter', 'montserrat', 'nunito_sans', 'source_sans_3', 'system_sans'].map((font) => <option key={font} value={font}>{fontLabels[font]}</option>)}</select></label>
+    <label>Heading font<select value={draft.typography.display} onChange={(event) => onChange({ ...draft, typography: { ...draft.typography, display: event.target.value } })}>{['cormorant_garamond', 'lora', 'merriweather', 'playfair_display', 'source_serif_4', 'system_serif'].map((font) => <option key={font} value={font}>{fontLabels[font]}</option>)}</select></label>
     <label>Support label<input maxLength={80} value={draft.support.label ?? ''} onChange={(event) => onChange({ ...draft, support: { ...draft.support, label: event.target.value || null } })} /></label>
     <label>Support email<input type="email" maxLength={254} value={draft.support.email ?? ''} onChange={(event) => onChange({ ...draft, support: { ...draft.support, email: event.target.value || null } })} /></label>
     <label className="program-wide">Support website<input type="url" maxLength={2048} pattern="https://.*" value={draft.support.url ?? ''} onChange={(event) => onChange({ ...draft, support: { ...draft.support, url: event.target.value || null } })} placeholder="https://…" /></label>
+    </div></details></div>
     <div className="program-wide"><details><summary>Logo, footer, and additional colors</summary><div className="program-fields program-advanced">
       <label className="program-wide">Logo image URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.logo_url ?? ''} onChange={(event) => onChange({ ...draft, logo_url: event.target.value || null })} placeholder="https://…" /><small>Use an existing approved HTTPS image.</small></label>
       <label className="program-wide">Browser icon URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.favicon_url ?? ''} onChange={(event) => onChange({ ...draft, favicon_url: event.target.value || null })} placeholder="https://…" /></label>
-      <label className="program-wide">Footer message<textarea rows={3} maxLength={500} value={draft.footer.text ?? ''} onChange={(event) => onChange({ ...draft, footer: { ...draft.footer, text: event.target.value || null } })} /></label>
+      <label className="program-wide">Footer message<textarea aria-label="Footer message" rows={3} maxLength={500} value={draft.footer.text ?? ''} onChange={(event) => onChange({ ...draft, footer: { ...draft.footer, text: event.target.value || null } })} /></label>
       <label>Privacy policy URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.footer.privacy_url ?? ''} onChange={(event) => onChange({ ...draft, footer: { ...draft.footer, privacy_url: event.target.value || null } })} /></label>
       <label>Terms URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.footer.terms_url ?? ''} onChange={(event) => onChange({ ...draft, footer: { ...draft.footer, terms_url: event.target.value || null } })} /></label>
       {Object.keys(draft.colors).map((key) => <label key={key}>{key.replaceAll('_', ' ')}<input type="color" value={draft.colors[key]} onChange={(event) => onChange({ ...draft, colors: { ...draft.colors, [key]: event.target.value } })} /></label>)}

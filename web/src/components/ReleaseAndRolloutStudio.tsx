@@ -3,6 +3,7 @@ import type { AdminPersonaAssignableCohort } from '../api'
 import { CohortReleaseStudio } from './CohortReleaseStudio'
 import { InitialCohortLaunch } from './InitialCohortLaunch'
 import { CohortRolloutStudio } from './CohortRolloutStudio'
+import './ProgramSettingsFlow.css'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
 type View = 'release' | 'rollout'
@@ -77,23 +78,13 @@ export function ReleaseAndRolloutStudio({
 
   return (
     <section className="release-rollout-studio">
-      <div className="cohort-release-truth" role="note">
-        <span className="cohort-release-truth-icon" aria-hidden="true"><EvidenceIcon /></span>
-        <div>
-          <strong>Seal your settings. Launch once. Update through controlled waves.</strong>
-          <p>Sealing or restoring only prepares a release. Launch your first sealed release below; after launch, starting and advancing move that wave immediately, completion makes the release the cohort default, and rollback restores the captured baseline for still-current exposed enrollments. A rollout labeled pre-cutover remains record-only until it is closed.</p>
-          <small>Every action is reviewed, recorded, and safe to retry.</small>
-        </div>
-      </div>
-
       <article className="panel release-rollout-heading">
         <div>
-          <p className="eyebrow">Release &amp; rollout</p>
-          <h3>Prepare one cohort from evidence to completion</h3>
-          <p>Seal the brand, assistant, and tools together. Review the first launch below, then use rollouts for later updates.</p>
+          <h3>Launch or update your group</h3>
+          <p>Review saved settings, then launch your group or update the people already using it.</p>
         </div>
         <label>
-          <span>Cohort</span>
+          <span>Group</span>
           <select value={selectedCohortId ?? ''} disabled={mutationLifecycle.pending} onChange={(event) => chooseCohort(Number(event.target.value))}>
             {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name} · {titleize(cohort.status)}</option>)}
           </select>
@@ -110,10 +101,10 @@ export function ReleaseAndRolloutStudio({
 
       <div className="release-rollout-tabs" role="tablist" aria-label="Release and rollout steps">
         <button type="button" role="tab" id="release-rollout-tab-release" aria-controls="release-rollout-panel-release" aria-selected={view === 'release'} tabIndex={view === 'release' ? 0 : -1} onKeyDown={handleViewKeyDown} onClick={() => setView('release')} disabled={mutationLifecycle.pending}>
-          <span>1</span><strong>Release</strong><small>Verify and seal</small>
+          <span>1</span><strong>Review settings</strong><small>Prepare a version</small>
         </button>
         <button type="button" role="tab" id="release-rollout-tab-rollout" aria-controls="release-rollout-panel-rollout" aria-selected={view === 'rollout'} tabIndex={view === 'rollout' ? 0 : -1} onKeyDown={handleViewKeyDown} onClick={() => setView('rollout')} disabled={mutationLifecycle.pending}>
-          <span>2</span><strong>Rollout</strong><small>Plan and manage waves</small>
+          <span>2</span><strong>Update group</strong><small>Choose who goes first</small>
         </button>
       </div>
 
@@ -143,8 +134,4 @@ export function ReleaseAndRolloutStudio({
 
 function titleize(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
-
-function EvidenceIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.75h9l3 3V20.25H6zM15 3.75v3h3M9 11.25h6M9 15h4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
 }

@@ -29,7 +29,9 @@ function renderStudio() {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
+  lifecycle.begin.mockReturnValue({ id: 1, workspaceId: 1 })
+  lifecycle.isCurrent.mockReturnValue(true)
   apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue(household)
 })
 afterEach(cleanup)
@@ -91,4 +93,38 @@ describe('CohortExperienceStudio experience choice', () => {
     expect(within(phone).getByText('Statements')).toBeTruthy()
     expect(screen.getByText('90-day Savings Challenge', { selector: 'p.experience-preview-mode' })).toBeTruthy()
   })
+  it('requires a fresh local preview even when the server previously previewed the saved choices', async () => {
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue({ ...household, preview_required: false, preview: { digest: 'previous', draft_revision: 1, generated_at: '2026-10-22' } })
+    renderStudio()
+    await screen.findByRole('button', { name: 'Publish tool version' })
+    expect(screen.getByText('Preview required')).toBeTruthy()
+    expect(screen.getByText('Preview navigation to enable publishing.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Publish tool version' })).toHaveProperty('disabled', true)
+    expect(screen.getByText('Included tools and financial controls').closest('details')).toHaveProperty('open', false)
+    expect(screen.getByText('Tool choices saved. Change a choice to save again.')).toBeTruthy()
+  })
+
+  it('explains role restrictions before asking a viewer to preview or publish', async () => {
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue({ ...household, permissions: { edit: false, review: false, publish: false, rollback: false } })
+    renderStudio()
+    await screen.findByRole('button', { name: 'Publish tool version' })
+    expect(screen.getByText('Your role cannot save changes to these tools.')).toBeTruthy()
+    expect(screen.getByText('A program editor, reviewer, or owner must preview these tools.')).toBeTruthy()
+    expect(screen.getByText(/This group or your program role does not allow publishing/)).toBeTruthy()
+  })
+
+  it('explains closed-group restrictions without blaming the owner’s role', async () => {
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue({ ...household, cohort: { ...household.cohort, status: 'completed' }, permissions: { edit: false, review: false, publish: false, rollback: false } })
+    renderStudio()
+    await screen.findByRole('button', { name: 'Publish tool version' })
+    expect(screen.getByText('Read-only group')).toBeTruthy()
+    expect(screen.queryByText('Preview required')).toBeNull()
+    expect(screen.getByText('Completed and archived groups are read-only. Their tools cannot be saved, previewed, or published.')).toBeTruthy()
+    for (const name of ['Save draft', 'Preview navigation', 'Publish tool version']) {
+      expect(screen.getByRole('button', { name })).toHaveProperty('disabled', true)
+      expect(screen.getByRole('button', { name }).getAttribute('aria-describedby')).toBe('experience-closed-help')
+    }
+    expect(screen.queryByText('Your role cannot save changes to these tools.')).toBeNull()
+  })
+
 })

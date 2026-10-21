@@ -101,7 +101,7 @@ function renderStudio(beforeReleaseAction?: () => boolean) {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
   apiMocks.createCohortReleaseRequestId.mockReturnValue('release-request-1')
   apiMocks.fetchCohortReleaseStudio.mockResolvedValue(studioFixture)
   apiMocks.sealCohortRelease.mockResolvedValue({ release: { id: 45 } })
@@ -114,10 +114,10 @@ describe('CohortReleaseStudio', () => {
   it('shows exact readiness, immutable history, and persistent runtime truth', async () => {
     renderStudio()
 
-    expect(await screen.findByRole('heading', { name: 'Ready to seal' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Ready to prepare' })).toBeTruthy()
     expect(screen.getByText('Release records are audit evidence.')).toBeTruthy()
     expect(screen.getByText(/without changing participant runtime/)).toBeTruthy()
-    for (const label of ['Workspace brand', 'Assistant voice', 'Participant tools', 'System controls', 'Participant cohort check']) {
+    for (const label of ['Program appearance', 'Assistant voice', 'Participant tools', 'System controls', 'Group membership']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
     expect(screen.getAllByText('Brand version')).toHaveLength(2)
@@ -131,14 +131,14 @@ describe('CohortReleaseStudio', () => {
   it('focuses the review from the top, traps focus, closes on Escape, and returns focus', async () => {
     const user = userEvent.setup()
     renderStudio()
-    const sealButton = await screen.findByRole('button', { name: 'Review and seal record' })
+    const sealButton = await screen.findByRole('button', { name: 'Review and prepare version' })
     await user.click(sealButton)
 
-    const dialog = screen.getByRole('dialog', { name: 'Seal this release record?' })
+    const dialog = screen.getByRole('dialog', { name: 'Prepare this version?' })
     expect(within(dialog).getByText('Brand version')).toBeTruthy()
     expect(within(dialog).getByText('9')).toBeTruthy()
     const cancel = within(dialog).getByRole('button', { name: 'Cancel' })
-    const confirm = within(dialog).getByRole('button', { name: 'Seal release record' })
+    const confirm = within(dialog).getByRole('button', { name: 'Prepare version' })
     expect(document.activeElement).toBe(dialog)
     await user.tab(); expect(document.activeElement).toBe(cancel)
     await user.tab({ shift: true })
@@ -154,8 +154,8 @@ describe('CohortReleaseStudio', () => {
       .mockRejectedValueOnce(new Error('Connection interrupted.'))
       .mockResolvedValueOnce({ release: { id: 45 } })
     renderStudio()
-    await user.click(await screen.findByRole('button', { name: 'Review and seal record' }))
-    const confirm = screen.getByRole('button', { name: 'Seal release record' })
+    await user.click(await screen.findByRole('button', { name: 'Review and prepare version' }))
+    const confirm = screen.getByRole('button', { name: 'Prepare version' })
 
     await user.click(confirm)
     expect((await screen.findByRole('alert')).textContent).toContain('Connection interrupted.')
@@ -163,8 +163,8 @@ describe('CohortReleaseStudio', () => {
 
     await waitFor(() => expect(apiMocks.sealCohortRelease).toHaveBeenCalledTimes(2))
     expect(apiMocks.sealCohortRelease.mock.calls.map((call) => call[2])).toEqual(['release-request-1', 'release-request-1'])
-    expect((await screen.findByRole('status')).textContent).toContain('Participant runtime did not change.')
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Ready to seal' })))
+    expect((await screen.findByRole('status')).textContent).toContain('Participant settings did not change.')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Ready to prepare' })))
   })
 
   it('submits exact historical evidence when restoring a record', async () => {
@@ -182,7 +182,7 @@ describe('CohortReleaseStudio', () => {
       source_experience_version_id: 7,
       source_brand_version_id: 8,
     }, 'release-request-1'))
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Ready to seal' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Ready to prepare' })))
   })
 
   it('labels historical v1 branding and restores it without a brand version token', async () => {
@@ -232,7 +232,7 @@ describe('CohortReleaseStudio', () => {
     })
     renderStudio()
 
-    expect(await screen.findByRole('heading', { name: 'Ready to seal' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Ready to prepare' })).toBeTruthy()
     expect(screen.getByText(/does not allow sealing records/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /seal record/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /restore record/i })).toBeNull()
@@ -242,7 +242,7 @@ describe('CohortReleaseStudio', () => {
     const user = userEvent.setup()
     const guard = vi.fn(() => false)
     renderStudio(guard)
-    await user.click(await screen.findByRole('button', { name: 'Review and seal record' }))
+    await user.click(await screen.findByRole('button', { name: 'Review and prepare version' }))
     expect(guard).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(apiMocks.sealCohortRelease).not.toHaveBeenCalled()
@@ -257,4 +257,21 @@ describe('CohortReleaseStudio', () => {
 
     expect(await screen.findByRole('heading', { name: '1 of 100 sealed records' })).toBeTruthy()
   })
+  it('shows the changed settings without treating an already-prepared version as a new task', async () => {
+    apiMocks.fetchCohortReleaseStudio.mockResolvedValue({ ...studioFixture, latest_release_match: true, candidate: { ...studioFixture.candidate!, seal_needed: false } })
+    renderStudio()
+    await screen.findByRole('heading', { name: 'Settings already prepared' })
+    expect(screen.getByRole('button', { name: 'Settings already prepared' })).toHaveProperty('disabled', true)
+    expect(screen.getByText('Readiness checks').closest('details')).toHaveProperty('open', false)
+    expect(screen.queryByRole('heading', { name: 'Ready to prepare' })).toBeNull()
+  })
+
+  it('lists only changed appearance, voice, tools and controls from the prepared bundle', async () => {
+    const latest = studioFixture.releases[0]
+    apiMocks.fetchCohortReleaseStudio.mockResolvedValue({ ...studioFixture, candidate: { ...studioFixture.candidate!, brand_snapshot_digest: latest.brand_snapshot_digest, registry_digest: latest.registry_digest } })
+    renderStudio()
+    await screen.findByRole('heading', { name: 'Ready to prepare' })
+    expect(screen.getByText(/Pending changes:/).closest('p')?.textContent).toBe('Pending changes: Mia voice, Participant tools. Preparing this version does not change what participants use.')
+  })
+
 })
