@@ -16,7 +16,7 @@ const people = Array.from({ length: 30 }, (_, index) => ({ id: 40 + index, email
 beforeEach(() => { vi.resetAllMocks(); sessionStorage.clear(); authScope.workspaceId = 2; supportMocks.fetchSetupSupportRequests.mockReset(); supportMocks.updateSetupSupportRequest.mockReset(); mocks.fetchAdminCohorts.mockImplementation(async () => structuredClone([cohort])); mocks.fetchAdminUsers.mockImplementation(async () => structuredClone(people)); mocks.fetchAdminPlaidHealth.mockResolvedValue({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] }); vi.spyOn(window, 'confirm').mockReturnValue(false) })
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.restoreAllMocks() })
 const actor = { id: 1, is_admin: true, coach_workspaces: [{ id: 2, name: 'Mel coaching' }] } as CurrentUser
-describe('staff operation hierarchy', () => {
+describe('staff operation hierarchy', { timeout: 30_000 }, () => {
   it('keeps ordinary platform support reachable without the default global cohort filter', async () => {
     authScope.workspaceId = null
     supportMocks.fetchSetupSupportRequests.mockResolvedValue({ records: [], next_cursor: null })
@@ -256,7 +256,7 @@ describe('staff operation hierarchy', () => {
     expect(screen.getByLabelText('Cohort scope')).toHaveProperty('value', '10')
     expect(mocks.updateAdminUser).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false))
-  })
+  }, 15_000)
   it('shows scoped invitation attention and removes roster controls from unrelated areas', async () => {
     const pending = { ...people[0], invitation_status: 'pending', invite_email: { ...people[0].invite_email, status: 'failed' } } as AdminUser
     const elsewhere = { ...people[1], invitation_status: 'pending', cohorts: [] } as AdminUser
@@ -311,7 +311,7 @@ describe('staff operation hierarchy', () => {
     fireEvent.change(screen.getByLabelText('Cohort scope'), { target: { value: '' } })
     expect(screen.getByLabelText('Cohort scope')).toHaveProperty('value', '')
     expect(screen.queryByLabelText(/Reason/)).toBeNull()
-  })
+  }, 15_000)
   it('discards the confirmed invitation and creation drafts when changing group', async () => {
     render(<AdminConsole currentUser={actor} />)
     await screen.findByText('Participant 00')

@@ -5714,13 +5714,15 @@ test('Coach Studio platform administrator deliberately switches between global a
 
   await openSection(page, 'Admin')
   await page.getByRole('button', { name: 'Cohorts', exact: true }).click()
+  await page.getByText('Create a cohort', { exact: true }).click()
   const adminWorkspacePicker = page.getByLabel('Admin workspace')
   await expect(adminWorkspacePicker).toHaveValue('platform')
   await expect(page.getByRole('button', { name: 'Create cohort' })).toBeDisabled()
   await adminWorkspacePicker.selectOption('1')
   await page.getByRole('button', { name: 'Cohorts', exact: true }).click()
+  await page.getByText('Create a cohort', { exact: true }).click()
   await expect(page.getByRole('button', { name: 'Create cohort' })).toBeEnabled()
-  await page.getByLabel('Name').first().fill('Unsaved cohort workspace switch')
+  await page.getByLabel('Cohort name', { exact: true }).fill('Unsaved cohort workspace switch')
   page.once('dialog', async (dialog) => {
     expect(dialog.message()).toContain('Discard unsaved program, cohort, invite, and user changes')
     await dialog.dismiss()
@@ -5730,8 +5732,9 @@ test('Coach Studio platform administrator deliberately switches between global a
   page.once('dialog', async (dialog) => dialog.accept())
   await adminWorkspacePicker.selectOption('platform')
   await page.getByRole('button', { name: 'Cohorts', exact: true }).click()
+  await page.getByText('Create a cohort', { exact: true }).click()
   await expect(adminWorkspacePicker).toHaveValue('platform')
-  await expect(page.getByLabel('Name').first()).toHaveValue('')
+  await expect(page.getByLabel('Cohort name', { exact: true })).toHaveValue('')
 })
 
 test('Coach Studio content controls follow independent editor and reviewer permissions', async ({ page }) => {
