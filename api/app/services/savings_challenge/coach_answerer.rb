@@ -217,7 +217,8 @@ module SavingsChallenge
       missing = purchases.count { |row| row[:merchant].blank? }
       place = missing.zero? ? "" : " Add where you spent #{missing == 1 ? 'it' : 'each one'} on the card."
       feelings = report[:feelings] ? " How you felt is on the card too; it stays private." : ""
-      "Got it: #{items.to_sentence}.#{place}#{feelings} I've put #{purchases.one? ? 'it' : 'these'} below — check #{purchases.one? ? 'it' : 'them'} and tap Save. Nothing is saved until you do."
+      heard = @message.match?(/\b(?:feel|feels|feeling|felt|stressed|anxious|guilty|worried|sad|upset|overwhelmed|ashamed)\b/i) ? "Thanks for telling me how you're feeling. " : ""
+      "#{heard}Got it: #{items.to_sentence}.#{place}#{feelings} I've put #{purchases.one? ? 'it' : 'these'} below — check #{purchases.one? ? 'it' : 'them'} and tap Save. Nothing is saved until you do."
     end
 
     # A clearly reported day outside the personal window: say which and why.

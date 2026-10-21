@@ -23,6 +23,7 @@ module SavingsChallenge
 
     def initialize(enrollment, message:, api_key: ENV["OPENROUTER_API_KEY"], model: AiModels.text, transport: nil)
       @enrollment, @message = enrollment, message.to_s.squish
+      @reading = DailyReportParser.new(enrollment, message: @message)
       @api_key, @model, @transport = api_key.to_s.strip, model.to_s.strip.presence || AiModels.text, transport
     end
 
@@ -55,6 +56,8 @@ module SavingsChallenge
       return unless purchases.any? || no_spend
 
       feelings = { when_spent: feeling(parsed["feeling_when_spent"]), now: feeling(parsed["feeling_now"]) }
+      date = purchases.first&.fetch(:purchased_on)
+      return unless purchases.all? { |row| row[:purchased_on] == date }
       { kind: "daily_report", local_on: today.iso8601, purchases: purchases, no_spend: no_spend,
         feelings: purchases.any? && feelings.values.any? ? feelings : nil, counted: false, approval_state: "unreviewed_input" }
     end
@@ -62,38 +65,43 @@ module SavingsChallenge
     def purchase(row)
       return unless row.is_a?(Hash) && row.keys.sort == %w[amount day merchant]
       amount = row["amount"].to_s.strip.delete_prefix("$")
-      return unless amount.match?(/\A\d{1,10}(?:\.\d{1,2})?\z/) && grounded_amount?(amount)
+      return unless amount.match?(/\A\d{1,10}(?:\.\d{1,2})?\z/)
       cents = DailyReportParser.cents(amount)
+      # The amount must be written in the message, with its cents, as money.
+      return unless cents && @reading.written_amounts.include?(cents)
       date = day(row["day"])
-      return unless cents && date
+      return unless date
 
-      merchant = DailyReportParser.merchant(row["merchant"])
-      merchant = "" unless merchant.blank? || @message.downcase.include?(merchant.downcase)
-      { amount_cents: cents, merchant: merchant, purchased_on: date.iso8601 }
+      { amount_cents: cents, merchant: grounded_place(row["merchant"]), purchased_on: date.iso8601 }
     end
 
-    # The amount must be written in the message, so a model cannot invent money.
-    def grounded_amount?(amount)
-      whole, fraction = amount.split(".")
-      variants = [ amount, whole.to_i.to_s, ("#{whole.to_i}.#{fraction.ljust(2, '0')}" if fraction) ].compact
-      variants.reject! { |value| value == whole.to_i.to_s } if fraction.to_i.positive?
-      variants.any? { |value| @message.match?(/(?<![\d.])#{Regexp.escape(value)}(?![\d])/) }
+    # A place the participant actually named, as whole words.
+    def grounded_place(value)
+      merchant = DailyReportParser.merchant(value)
+      return "" if merchant.length < 2
+      @message.match?(/(?<![[:alnum:]])#{Regexp.escape(merchant)}(?![[:alnum:]])/i) ? merchant : ""
     end
 
+    # The model's day counts only if it is the day the message itself names;
+    # otherwise the report is for today. Either way it must be inside the window.
     def day(value)
-      date = case value.to_s.strip.downcase
+      proposed = case value.to_s.strip.downcase
       when "today" then today
       when "yesterday" then today - 1
       when /\A\d{4}-\d{2}-\d{2}\z/ then Date.iso8601(value.to_s.strip)
       end
-      date if date && date >= @enrollment.starts_on && date <= [ @enrollment.ends_on, today ].min
+      date = proposed && proposed == @reading.date_reading ? proposed : today
+      date if date >= @enrollment.starts_on && date <= [ @enrollment.ends_on, today ].min
     rescue Date::Error
       nil
     end
 
+    # Feelings are kept only in the participant's own words.
     def feeling(value)
       text = value.is_a?(String) ? value.squish : ""
-      text.present? && text.length <= DailyReportParser::FEELING_LIMIT && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(text) ? text : nil
+      return nil unless text.present? && text.length <= DailyReportParser::FEELING_LIMIT && @message.downcase.include?(text.downcase)
+
+      HouseholdFinance::MiaCoachAnswerer.prompt_injection?(text) ? nil : text
     end
 
     def payload

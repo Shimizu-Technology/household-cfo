@@ -138,6 +138,12 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
       end
       assert_equal "daily_report", intake.call("I spent $12 at Payless today").fetch(:kind)
       assert_equal "withdrawal", intake.call("I took $50 from savings today").fetch(:kind)
+      # Savings wording is read before spending, as on main.
+      [ "Picked up an extra shift and saved $50 today", "Got my paycheck and set aside $50 today" ].each do |message|
+        assert_equal({ kind: "contribution", signed_cents: 5_000 }, intake.call(message).slice(:kind, :signed_cents), message)
+      end
+      assert_nil intake.call("Got $50 and put it in savings today"), "money put into savings is never a purchase"
+      assert_equal [ 5_000 ], intake.call("Spent $50 at Costco, saved $10 with coupons today").fetch(:purchases).map { |row| row[:amount_cents] }
     end
   end
 

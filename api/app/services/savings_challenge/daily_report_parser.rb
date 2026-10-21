@@ -34,15 +34,21 @@ module SavingsChallenge
       Regexp::IGNORECASE
     ).freeze
     # Day references this parser does not resolve; guessing would misdate money.
-    UNCLEAR_DATE_PATTERN = /\b(?:last|this|past)\s+(?:week|weekend|month)\b|\bthe\s+other\s+day\b|\b\d+\s+days?\s+ago\b|\bon\s+the\s+\d{1,2}(?:st|nd|rd|th)\b|\bover\s+the\s+weekend\b|\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/i.freeze
+    UNCLEAR_DATE_PATTERN = /\b(?:january|february|march|april|june|july|august|september|october|november|december)\b(?!\.?\s*\d)|\b(?:in|during|since|last|this)\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)\b(?!\.?\s*\d)|\b(?:last|this|past)\s+(?:week|weekend|month)\b|\bthe\s+other\s+day\b|\b\d+\s+days?\s+ago\b|\bon\s+the\s+\d{1,2}(?:st|nd|rd|th)\b|\bover\s+the\s+weekend\b|\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/i.freeze
     TIME_PATTERN = /\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*o['’]?clock\b/i.freeze
 
     QUESTION_OR_PLAN = /\?|\b(?:if|would|could|might|maybe|plan|plans|planning|want(?:ed)?\s+to|wanna|will|won['’]?t|should|shall|going\s+to|gonna|gotta|about\s+to|thinking\s+(?:of|about)|tomorrow|next\s+(?:week|month|time|payday)|hope\s+to|need\s+to|have\s+to|usually|always|every\s+(?:day|week|month)|each\s+(?:day|week|month)|budget(?:ed|ing)?)\b|\bmay\b(?!\s+\d)/i.freeze
     NEGATION = /\b(?:didn['’]?t|did\s+not|haven['’]?t|have\s+not|hasn['’]?t|not\s+yet|never|don['’]?t|do\s+not)\b/i.freeze
     # Money that is not a purchase anywhere in the message.
-    NOT_PURCHASE_MESSAGE = /\b(?:refund(?:ed|s)?|returned|reimburs\w*|borrow(?:ed|ing)?|lent|cash\s+advance|payday\s+loan|got\s+paid|salary)\b|\bgot\s+(?:\$?\s*\d[\d,.]*\s+)?back\b/i.freeze
+    NOT_PURCHASE_MESSAGE = /\b(?:refund(?:ed|s)?|returned|reimburs\w*|borrow(?:ed|ing)?|lent|cash\s+advance|payday\s+loan|got\s+paid|salary)\b|\bgot\s+(?:\$?\s*\d[\d,.]*\s+)?back\b|\d[\d,.]*\s*(?:million|billion|mil|bn)\b/i.freeze
     # A single clause that moves money without buying something.
-    NOT_PURCHASE_CLAUSE = /\b(?:pa(?:id|y|yment)|put)\s+(?:\$?\s*\d[\d,.]*\s+)?(?:(?:on|to|toward|towards|into|off|down)\s+)?(?:my\s+|the\s+|our\s+)?(?:credit\s*card|card|visa|mastercard|amex)\b|\b(?:credit\s*card|card)\s+(?:bill|balance|payment)|\b(?:loan|mortgage|car\s+note|debt|minimum\s+payment|transfer(?:red|ring)?|deposit(?:ed)?|withdr(?:ew|awn|awal|aw)|venmo|zelle|cash\s*app|atm|paid\s+back|pay\s+back|owe[ds]?|shares?|stocks?|crypto\w*|bitcoin|btc|etfs?|index\s+funds?|mutual\s+funds?|savings|set\s+aside|put\s+aside|reserved)\b/i.freeze
+    NOT_PURCHASE_CLAUSE = /\b(?:pa(?:id|y|yment)|put)\s+(?:\$?\s*\d[\d,.]*\s+)?(?:(?:on|to|toward|towards|into|off|down)\s+)?(?:my\s+|the\s+|our\s+)?(?:credit\s*card|card|visa|mastercard|amex)\b|\b(?:credit\s*card|card)\s+(?:bill|balance|payment)|\b(?:loan|mortgage|car\s+note|debt|minimum\s+payment|transfer(?:red|ring)?|deposit(?:ed)?|withdr(?:ew|awn|awal|aw)|venmo|zelle|cash\s*app|atm|paid\s+back|pay\s+back|owe[ds]?|shares?|stocks?|crypto\w*|bitcoin|btc|etfs?|index\s+funds?|mutual\s+funds?|savings|set\s+aside|put\s+aside|reserved|saved|save|saving)\b/i.freeze
+    # Money moved into savings is never a purchase ("Got $50 and put it in savings").
+    INTO_SAVINGS = /\b(?:put|moved|transferred|deposited|added|stashed|dropped)\b[^.;\n]{0,40}\b(?:in|into|to)\s+(?:my\s+|the\s+|our\s+)?(?:savings|challenge)\b/i.freeze
+    # Money talk that is not something bought: goals, income, balances, prices.
+    NOT_SPENDING_CLAUSE = /\b(?:goal|target|save\s+for|saving\s+for|pay\s*check|salary|income|earned|earn|earns|balance|gave\s+me|give\s+me|gives\s+me|won|found|went\s+up|goes\s+up|go\s+up|prices?|worth)\b/i.freeze
+    # Without its own spending verb, a clause with these is a total, a share or money on hand.
+    AMOUNT_ASIDE_CLAUSE = /\b(?:total|totals|altogether|of\s+(?:it|that|this|them)|was\s+for|were\s+for|have|has|had|left|wallet|purse)\b/i.freeze
     # "2 for 1", "buy one get one": a deal, never the price paid.
     DEAL_PATTERN = /\b\d+\s+for\s+\d+(?![\d.])(?!\s*(?:dollars?|bucks))|\bbuy\s+(?:one|1)\s+get\s+(?:one|1)\b|\bbogo\b/i.freeze
     SPEND_VERB = /\b(?:spent|paid|bought|purchased|charged|grabbed|dropped|blew|ordered|picked\s+up|got)\b/i.freeze
@@ -82,7 +88,7 @@ module SavingsChallenge
       return result(:excluded) if @message.blank? || @message.length > 2_000
       return result(:excluded) if HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
       return result(:excluded) if @message.match?(QUESTION_OR_PLAN) || @message.match?(NOT_PURCHASE_MESSAGE)
-      return result(:excluded) if HouseholdFinance::MoneyMovementText.investment_purchase?(@message)
+      return result(:excluded) if HouseholdFinance::MoneyMovementText.investment_purchase?(@message) || @message.match?(INTO_SAVINGS)
 
       no_spend = no_spend_date
       return no_spend if no_spend.is_a?(Result)
@@ -126,6 +132,27 @@ module SavingsChallenge
       nil
     end
 
+    # Cents of every standalone money amount written in the message, with dates
+    # and times masked: "20.99" gives only 2099, "Oct 20" and "2 kids" give none.
+    def written_amounts
+      masked = mask(@message, date_tokens(@message))
+      found = []
+      masked.scan(/(?<![\w.,])(\$\s*)?(#{NUMBER_SOURCE})(?![\w%]|[.,:\/]\d)/) do
+        match = Regexp.last_match
+        next unless match[1] || masked[match.end(0)..].match?(BARE_FOLLOWERS)
+
+        cents = self.class.cents(match[2])
+        found << cents if cents
+      end
+      found.uniq
+    end
+
+    # The one day the message names, or nil when it names none or several.
+    def date_reading
+      dates = date_tokens(@message).map { |token| token[:date] }.uniq
+      dates.one? ? dates.first : nil
+    end
+
     private
 
     def today = @enrollment.local_today
@@ -158,16 +185,27 @@ module SavingsChallenge
     def read_purchases
       return result(:rejected) if @message.match?(UNCLEAR_DATE_PATTERN)
 
-      segments = split_segments(@message)
+      segments = split_segments(@message).map { |segment| segment.sub(/\s*\binstead\s+of\b.*\z/i, "") }.reject(&:blank?)
       verb = @message.match?(SPEND_VERB)
       list_like = segments.count { |segment| segment.match?(LIST_ITEM) } >= 2
+      listed = segments.map { |segment| list_form?(segment) }
+      # A short "place amount" list stands on its own when every clause with a
+      # number is such a line; anything else needs a spending verb.
+      numbered = segments.each_index.select { |index| mask(segments[index], date_tokens(segments[index])).match?(/\d/) }
+      list_ok = numbered.any? && numbered.all? { |index| listed[index] }
       rows = []
       skipped = false
-      segments.each do |segment|
-        if segment.match?(NOT_PURCHASE_CLAUSE)
+      verb_seen = false
+      segments.each_with_index do |segment, index|
+        own_verb = segment.match?(SPEND_VERB)
+        if segment.match?(NOT_PURCHASE_CLAUSE) || segment.match?(NOT_SPENDING_CLAUSE) || (segment.match?(AMOUNT_ASIDE_CLAUSE) && !own_verb)
           skipped = true
+          verb_seen ||= own_verb
           next
         end
+        counted = own_verb || verb_seen || (listed[index] && list_ok)
+        verb_seen ||= own_verb
+        next unless counted
 
         dates = date_tokens(segment)
         amounts = segment_amounts(segment, dates, verb: verb, list_like: list_like)
@@ -206,6 +244,16 @@ module SavingsChallenge
     def window_rejection(date)
       kind = if date > today then :future elsif date < @enrollment.starts_on then :before_start else :after_end end
       Result.new(status: :rejected, reason: { kind: kind, date: date, starts_on: @enrollment.starts_on, ends_on: @enrollment.ends_on, today: today })
+    end
+
+    # "Shell $8", "$8.25 at Shell", "lunch 12.50 at Kings": one amount with a place, briefly.
+    def list_form?(segment)
+      text = mask(segment, date_tokens(segment)).gsub(/~+/, " ").gsub(/\b\d+\s+for\s+(?=\$)/i, "").squish
+      return false if text.split.size > 8 || text.scan(/\d[\d,]*(?:\.\d+)?/).size != 1
+      # "My car payment is $450" describes money; a list line names a place.
+      return false if text.match?(/\A(?:i|we|my|our|his|her|their|kids?|children|people)\b|\b(?:is|are|was|were|be|been)\b/i)
+
+      text.match?(LIST_ITEM) || text.match?(/(?:\A|\s)(?:at|from|@)\s+[a-z]/i)
     end
 
     def split_segments(text)

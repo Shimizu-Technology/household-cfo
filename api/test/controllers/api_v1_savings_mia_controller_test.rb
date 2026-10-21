@@ -213,6 +213,17 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
           response.parsed_body.dig("assistant_message", "content"), message
       end
 
+      post "/api/v1/mia/messages", params: { message: "I feel stressed, spent $60 at Ross", request_id: "daily-feeling-first" }, headers: auth, as: :json
+      assert_equal [ 6000 ], response.parsed_body.dig("savings_intake", "purchases").map { |row| row["amount_cents"] }
+      assert response.parsed_body.dig("assistant_message", "content").start_with?("Thanks for telling me how you're feeling. Got it: $60.00 at Ross.")
+
+      # Money talk that is not a purchase keeps Mia's normal answer and shows no card.
+      [ "My goal is $500", "Rent went up to $1,400", "I have $180 left", "Mom gave me $50" ].each_with_index do |message, index|
+        post "/api/v1/mia/messages", params: { message: message, request_id: "daily-money-talk-#{index}" }, headers: auth, as: :json
+        assert_nil response.parsed_body.fetch("savings_intake"), message
+        refute_includes response.parsed_body.dig("assistant_message", "content"), "tap Save", message
+      end
+
       [ "should I spend 20 at Ross?", "I might buy shoes at Ross", "paid 300 on my credit card", "bought 2 shares of Apple today" ].each_with_index do |message, index|
         post "/api/v1/mia/messages", params: { message: message, request_id: "daily-negative-#{index}" }, headers: auth, as: :json
         assert_nil response.parsed_body.fetch("savings_intake"), message

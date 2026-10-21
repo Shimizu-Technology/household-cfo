@@ -8,8 +8,11 @@ module SavingsChallenge
   class ChatIntake
     MONEY = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?(?![\d.,])#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
     SAVINGS_MOVE = /\b(?:withdrew|withdrawn|took)\b.{0,60}\b(?:savings|reserved|set aside)\b|\b(?:set aside|reserved|saved|put aside)\b/i.freeze
-    # Worth asking the extractor only when spending or feelings are plausibly reported.
-    PLAUSIBLE_REPORT = /#{DailyReportParser::SPEND_VERB}|\$\s*\d|\b\d[\d,.]*\s+(?:at|from|for|on)\s+[a-z]|\b(?:felt|feel|feeling)\b/i.freeze
+    # Money moved into savings is never a purchase, even when it is not a reviewable contribution.
+    INTO_SAVINGS = DailyReportParser::INTO_SAVINGS
+    # Worth asking the extractor only when it could produce a card: a number, and
+    # a spending verb or a place.
+    PLACE = /\b(?:at|from)\s+[a-z]/i.freeze
 
     def initialize(enrollment, message:, extractor: nil)
       @enrollment, @message, @extractor = enrollment, message.to_s, extractor
@@ -20,7 +23,12 @@ module SavingsChallenge
 
     def call
       return unless @enrollment && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
-      return savings_input if savings_report?
+      # Savings wording is read first ("picked up a shift and saved $50 today").
+      if savings_report?
+        intake = savings_input
+        return intake if intake
+      end
+      return if @message.match?(INTO_SAVINGS)
 
       daily_report
     end
@@ -28,8 +36,6 @@ module SavingsChallenge
     private
 
     def savings_report?
-      return false if @message.match?(DailyReportParser::SPEND_VERB) && !HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
-
       HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message) || @message.match?(SAVINGS_MOVE)
     end
 
@@ -57,7 +63,7 @@ module SavingsChallenge
       parsed = DailyReportParser.new(@enrollment, message: @message).call
       return parsed.report if parsed.found?
       @rejection = parsed.reason
-      return unless parsed.none? && @message.match?(PLAUSIBLE_REPORT)
+      return unless parsed.none? && @message.match?(/\d/) && (@message.match?(DailyReportParser::SPEND_VERB) || @message.match?(PLACE))
 
       (@extractor || DailyReportExtractor.new(@enrollment, message: @message)).call
     end
