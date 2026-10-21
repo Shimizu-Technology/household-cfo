@@ -1,3 +1,5 @@
+export const PARTICIPANT_TOOL_SECTIONS = ['Wealth', 'CFO Filter', 'Optionality']
+
 export const PARTICIPANT_SECTIONS = ['Home', 'Review', 'Ask Mia', 'My Money', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']
 
 export const SECTION_CAPABILITY_IDS: Record<string, string> = {

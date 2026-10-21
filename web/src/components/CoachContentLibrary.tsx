@@ -39,7 +39,9 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
 }) {
   const { activeCoachWorkspaceId } = useAuthContext()
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
-  const [libraryArea, setLibraryArea] = useState<'sources' | 'items' | 'packs'>('sources')
+  const workspaceRole = currentUser.coach_workspaces?.find((workspace) => workspace.id === activeCoachWorkspaceId)?.membership_role
+  const canCreate = currentUser.is_admin || (workspaceRole !== 'viewer' && workspaceRole !== 'reviewer')
+  const [libraryArea, setLibraryArea] = useState<'sources' | 'items' | 'packs'>('items')
   const [items, setItems] = useState<AdminContentItem[]>([])
   const [packs, setPacks] = useState<AdminContentPack[]>([])
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
@@ -135,20 +137,12 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
       {error && <div className="coach-content-alert is-error" role="alert"><span>{error}</span><button type="button" onClick={() => void load()}>Retry</button></div>}
       {notice && <p className="coach-content-alert is-success" role="status">{notice}</p>}
 
-      <div className="coach-content-explainer panel">
-        <div>
-          <p className="eyebrow">Approved teaching only</p>
-          <h3>Build reusable coaching material</h3>
-        </div>
-        <p>Write the coach's real guidance, approve a fixed version, then publish it inside a pack. Assistants use only the exact pack versions you attach and publish.</p>
-        <ul>
-          <li>Location labels never create slang, accents, or cultural assumptions.</li>
-          <li>New versions stay pending until you choose and republish them.</li>
-          <li>Content shapes coaching and wording. It cannot change financial records or approvals.</li>
-        </ul>
+      <div className="coach-content-explainer">
+        <div><h3>Build reusable coaching material</h3><p>Write teaching, approve it, then publish a collection to use with Mia.</p></div>
+        <details><summary>How teaching reaches participants</summary><p>Attach a published collection to Mia’s draft, then preview and publish her voice. Existing groups may also need an update in Release & rollout.</p><p>Location labels never create slang, accents, or cultural assumptions.</p><p>Teaching cannot change financial records or approvals.</p></details>
       </div>
 
-      <nav className="coach-library-areas" aria-label="Coaching library workflow">{(['sources', 'items', 'packs'] as const).map((area) => <button type="button" key={area} disabled={busy || mutationLifecycle.pending} aria-pressed={libraryArea === area} onClick={() => setLibraryArea(area)}>{({ sources: 'Private sources', items: 'Teaching items', packs: 'Published collections' })[area]}</button>)}</nav>
+      <nav className="coach-library-areas" aria-label="Coaching library workflow">{(['items', 'packs', 'sources'] as const).map((area) => <button type="button" key={area} disabled={busy || mutationLifecycle.pending} aria-pressed={libraryArea === area} onClick={() => setLibraryArea(area)}>{({ sources: 'Private sources', items: 'Teaching items', packs: 'Collections' })[area]}</button>)}</nav>
       <div hidden={libraryArea !== 'sources'}>
       <CoachContentSources
         currentUser={currentUser}
@@ -170,6 +164,7 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
         <div hidden={libraryArea !== 'items'}><ContentItemsPanel
           currentUser={currentUser}
           platformMode={platformMode}
+          canCreate={canCreate}
           items={items}
           selected={selectedItem}
           reviewRequest={itemReviewRequest}
@@ -185,29 +180,63 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
             return approved
           }}
         />
+        {selectedItem?.current_approved_version && selectedItem.kind !== 'phrase' && !selectedItem.has_unapproved_changes && <div className="coach-content-next"><p><strong>{selectedItem.title}</strong> is approved. Next, include it in a collection.</p><Button variant="secondary" disabled={busy || itemDirty} onClick={() => setLibraryArea('packs')}>Choose a collection</Button></div>}
         </div>
         <div hidden={libraryArea !== 'packs'}><ContentPacksPanel
           currentUser={currentUser}
           platformMode={platformMode}
+          canCreate={canCreate}
           packs={packs}
           items={items}
           selected={selectedPack}
           busy={busy}
           onDirtyChange={setPackDirty}
           onSelect={setSelectedPackId}
-          onCreate={(values) => mutate(async (ticket) => { const pack = await createAdminContentPack(values); if (mutationLifecycle.isCurrent(ticket)) setSelectedPackId(pack.id) }, 'Content pack draft created. Publish it when its item versions are correct.')}
-          onSave={(pack, values) => mutate(async () => { await updateAdminContentPack(pack.id, { ...values, draft_revision: pack.draft_revision ?? 0 }) }, 'Pack draft saved. Its published version has not changed.')}
+          onCreate={(values) => mutate(async (ticket) => { const pack = await createAdminContentPack(values); if (mutationLifecycle.isCurrent(ticket)) setSelectedPackId(pack.id) }, 'Collection draft created. Publish it when its teaching is correct.')}
+          onSave={(pack, values) => mutate(async () => { await updateAdminContentPack(pack.id, { ...values, draft_revision: pack.draft_revision ?? 0 }) }, 'Collection draft saved. Its published version has not changed.')}
           onPublish={(pack) => mutate(async () => { await publishAdminContentPack(pack.id, { draft_revision: pack.draft_revision ?? 0, draft_manifest_digest: pack.draft_manifest_digest ?? '', expected_published_version_id: pack.current_published_version?.id ?? null }) }, `${pack.name} is published as an immutable version.`)}
         />
+        {selectedPack?.current_published_version && <CollectionAttachment
+          pack={selectedPack} persona={selectedPersona} busy={busy || mutationLifecycle.pending}
+          dirty={itemDirty || packDirty || sourceDirty}
+          onAttach={() => mutate(async (ticket) => {
+            if (!selectedPersona || !selectedPack.current_published_version) return
+            const ids = (selectedPersona.content_packs ?? []).filter((version) => version.pack_id !== selectedPack.id).map((version) => version.id)
+            const next = await updateAdminPersonaContentPacks(selectedPersona.id, selectedPersona.draft_revision ?? 0, [...ids, selectedPack.current_published_version.id])
+            if (mutationLifecycle.isCurrent(ticket)) onPersonaChange(next)
+          }, `Collection saved to Mia’s draft. Open Assistant voice → Evaluate & publish for a fresh preview. ${selectedPersona?.published_version ? 'The published voice has not changed.' : 'This voice has not been published.'}`)}
+        />}
         </div>
       </div>
     </section>
   )
 }
 
-export function ContentItemsPanel({ currentUser, platformMode, items, selected, reviewRequest, focusRequest, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
+function CollectionAttachment({ pack, persona, busy, dirty, onAttach }: {
+  pack: AdminContentPack
+  persona: AdminPersonaDetail | null
+  busy: boolean
+  dirty: boolean
+  onAttach: () => Promise<boolean>
+}) {
+  const version = pack.current_published_version!
+  const attached = persona?.content_packs?.some((value) => value.id === version.id) === true
+  const reason = !persona ? 'Choose Mia in Assistant voice, then return to this collection.'
+    : !persona.permissions.edit || persona.status === 'archived' ? 'This assistant is read-only for your role. Choose one you can edit.'
+    : dirty ? 'Save or discard library edits before changing Mia’s teaching.'
+    : busy ? 'Another change is still saving.'
+    : attached ? 'This collection version is saved to Mia’s draft. Open Assistant voice → Evaluate & publish to review it before participants use it.'
+    : `Add ${pack.name} v${version.version} to ${persona.name}’s draft. A fresh voice preview and publication are required.`
+  return <section className="coach-content-next" aria-label="Use collection with Mia">
+    <h4>Use with Mia</h4><p>{reason}</p>
+    <Button disabled={!persona || !persona.permissions.edit || persona.status === 'archived' || dirty || busy || attached} onClick={() => void onAttach()}>{attached ? 'Saved to Mia’s draft' : 'Use with Mia'}</Button>
+  </section>
+}
+
+export function ContentItemsPanel({ currentUser, platformMode, canCreate = true, items, selected, reviewRequest, focusRequest, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
   currentUser: CurrentUser
   platformMode: boolean
+  canCreate?: boolean
   items: AdminContentItem[]
   selected: AdminContentItem | null
   reviewRequest: number
@@ -313,7 +342,8 @@ export function ContentItemsPanel({ currentUser, platformMode, items, selected, 
 
   return (
     <article className="panel coach-content-panel">
-      <header><div><p className="eyebrow">1 · Content items</p><h3>Coach-authored building blocks</h3></div><Button size="compact" disabled={busy} onClick={startCreate}>New item</Button></header>
+      <header><div><h3>Your teaching</h3></div><Button size="compact" disabled={busy || !canCreate} onClick={startCreate}>New item</Button></header>
+      {!canCreate && <p className="coach-content-note">An owner or editor can add teaching. You can review existing teaching here.</p>}
       <div className="coach-content-list" aria-label="Content items">
         {items.length === 0 && <p className="coach-content-empty">No approved teaching yet. Start with one short piece of guidance.</p>}
         {items.map((item) => (
@@ -328,7 +358,7 @@ export function ContentItemsPanel({ currentUser, platformMode, items, selected, 
           <label><span>Title</span><input ref={titleInputRef} required disabled={busy || Boolean(selected && !itemEditable)} maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
           <div className="coach-content-form-row">
             <label><span>Type</span><select disabled={busy || Boolean(selected && !itemEditable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentItemKind)}>{legacyPhrase && <option value="phrase">Phrase (legacy, read-only)</option>}{itemKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
-            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin || platformMode} value={effectiveScope} onChange={(event) => setScope(event.target.value as AdminContentScope)}>{(!platformMode || Boolean(selected)) && <option value="coach">My coaching library</option>}{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
+            {selected || !currentUser.is_admin || platformMode ? <div className="coach-content-owner"><span>Library</span><strong>{effectiveScope === 'platform' ? 'Platform library' : 'My coaching library'}</strong></div> : <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin || platformMode} value={effectiveScope} onChange={(event) => setScope(event.target.value as AdminContentScope)}>{(!platformMode || Boolean(selected)) && <option value="coach">My coaching library</option>}{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>}
           </div>
           <label><span>Draft wording</span><textarea required disabled={busy || Boolean(selected && !itemEditable)} rows={8} maxLength={10000} value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write the exact teaching, example, or cultural context Mia may use." /><small>{content.length.toLocaleString()} / 10,000 characters</small></label>
           <label className="coach-content-always-on"><input type="checkbox" disabled={busy || Boolean(selected && !itemEditable)} checked={alwaysOn} onChange={(event) => setAlwaysOn(event.target.checked)} /><span><strong>Supply for every question</strong><small>Use sparingly for foundational guidance that is relevant in every conversation.</small></span></label>
@@ -336,8 +366,9 @@ export function ContentItemsPanel({ currentUser, platformMode, items, selected, 
             {(!selected || itemEditable) && <Button type="submit" disabled={busy || !title.trim() || !content.trim() || Boolean(selected && !itemDirty)}>{selected ? 'Save draft' : 'Create draft'}</Button>}
             {selected?.approvable && !legacyPhrase && <Button type="button" variant="secondary" disabled={busy || itemDirty || !selected.has_unapproved_changes} onClick={() => void onApprove(selected)}>{itemDirty ? 'Save draft before approving' : selected.has_unapproved_changes ? 'Approve new version' : `Approved v${selected.current_approved_version?.version}`}</Button>}
           </div>
+          {(!selected || itemEditable) && <p className="coach-content-note">{busy ? 'Saving teaching…' : !title.trim() || !content.trim() ? 'Enter a title and wording to save this teaching.' : selected && !itemDirty ? 'No unsaved changes.' : 'Save this wording before approving it.'}</p>}
           {reviewedSourcePhrase && <p className="coach-content-note" role="note">This exact wording is locked to its approved coaching workspace source. Review it here, then approve the version before phrase promotion.</p>}
-          {legacyPhrase && <p className="coach-content-note" role="note">Legacy phrase items are read-only. Remove them from any legacy pack, then add reviewed wording through a private source or the selected assistant's Phrase editor.</p>}
+          {legacyPhrase && <p className="coach-content-note" role="note">Legacy phrase items are read-only. Remove them from any legacy collection, then add reviewed wording through a private source or the selected assistant's Phrase editor.</p>}
           {selected && !selected.editable && !legacyPhrase && <p className="coach-content-note">{selected.approvable ? 'This draft is read-only while you review and approve it.' : 'This content is visible for use and read-only for your workspace role.'}</p>}
         </form>
       )}
@@ -345,9 +376,10 @@ export function ContentItemsPanel({ currentUser, platformMode, items, selected, 
   )
 }
 
-export function ContentPacksPanel({ currentUser, platformMode, packs, items, selected, busy, onDirtyChange, onSelect, onCreate, onSave, onPublish }: {
+export function ContentPacksPanel({ currentUser, platformMode, canCreate = true, packs, items, selected, busy, onDirtyChange, onSelect, onCreate, onSave, onPublish }: {
   currentUser: CurrentUser
   platformMode: boolean
+  canCreate?: boolean
   packs: AdminContentPack[]
   items: AdminContentItem[]
   selected: AdminContentPack | null
@@ -441,9 +473,10 @@ export function ContentPacksPanel({ currentUser, platformMode, packs, items, sel
 
   return (
     <article className="panel coach-content-panel">
-      <header><div><p className="eyebrow">2 · Content packs</p><h3>Publish a reusable collection</h3></div><Button size="compact" disabled={busy} onClick={startCreate}>New pack</Button></header>
-      <div className="coach-content-list" aria-label="Content packs">
-        {packs.length === 0 && <p className="coach-content-empty">Create a pack after approving at least one content item.</p>}
+      <header><div><h3>Publish a reusable collection</h3></div><Button size="compact" disabled={busy || !canCreate} onClick={startCreate}>New collection</Button></header>
+      {!canCreate && <p className="coach-content-note">An owner or editor can create collections. You can review published collections here.</p>}
+      <div className="coach-content-list" aria-label="Collections">
+        {packs.length === 0 && <p className="coach-content-empty">Approve a teaching item, then create a collection.</p>}
         {packs.map((pack) => (
           <button type="button" disabled={busy} key={pack.id} className={selected?.id === pack.id ? 'is-selected' : ''} onClick={() => selectPack(pack)}>
             <span><strong>{pack.name}</strong><small>{label(pack.pack_kind)}</small></span>
@@ -453,11 +486,11 @@ export function ContentPacksPanel({ currentUser, platformMode, packs, items, sel
       </div>
       {(creating || selected) && (
         <form className="coach-content-form" onSubmit={(event) => void submit(event)}>
-          <label><span>Pack name</span><input required disabled={busy || Boolean(selected && !selected.editable)} maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <label><span>Collection name</span><input required disabled={busy || Boolean(selected && !selected.editable)} maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label>
           <label><span>Description</span><textarea disabled={busy || Boolean(selected && !selected.editable)} rows={2} maxLength={2000} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
           <div className="coach-content-form-row">
             <label><span>Purpose</span><select disabled={busy || Boolean(selected && !selected.editable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentPackKind)}>{packKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
-            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin || platformMode} value={effectiveScope} onChange={(event) => { const nextScope = event.target.value as AdminContentScope; setScope(nextScope); if (nextScope === 'platform') setSelectedVersions((current) => current.filter((id) => items.some((item) => item.scope === 'platform' && item.current_approved_version?.id === id))) }}>{(!platformMode || Boolean(selected)) && <option value="coach">My coaching library</option>}{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
+            {selected || !currentUser.is_admin || platformMode ? <div className="coach-content-owner"><span>Library</span><strong>{effectiveScope === 'platform' ? 'Platform library' : 'My coaching library'}</strong></div> :             <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin || platformMode} value={effectiveScope} onChange={(event) => { const nextScope = event.target.value as AdminContentScope; setScope(nextScope); if (nextScope === 'platform') setSelectedVersions((current) => current.filter((id) => items.some((item) => item.scope === 'platform' && item.current_approved_version?.id === id))) }}>{(!platformMode || Boolean(selected)) && <option value="coach">My coaching library</option>}{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>}
           </div>
           <fieldset className="coach-content-checklist"><legend>Exact approved item versions</legend>
             {approvedItems.map((item) => {
@@ -468,20 +501,21 @@ export function ContentPacksPanel({ currentUser, platformMode, packs, items, sel
               return <div className="coach-content-item-option" key={item.id}><label><input type="checkbox" disabled={busy || Boolean(selected && !selected.editable)} checked={included} onChange={() => toggleItem(item)} /><span><strong>{item.title}</strong><small>{updateAvailable ? `Pinned v${pinned?.version} · current v${current.version}` : `v${current.version}`}</small></span></label>{updateAvailable && selected?.editable && <button type="button" className="coach-content-upgrade" disabled={busy} onClick={() => upgradeItem(item)}>Use v{current.version}</button>}</div>
             })}
           </fieldset>
-          <div className="coach-content-promotion-path" role="note">
+          <details className="coach-content-promotion-path"><summary>Adding reviewed phrases instead?</summary>
             <strong>Reviewed phrases follow their source record.</strong>
-            <p>Open a private source, approve its exact content version, review the phrase and safety settings, then promote it directly to the selected assistant. Phrase artifacts are not added through content packs.</p>
-          </div>
+            <p>Open a private source, approve its exact content version, review the phrase and safety settings, then promote it directly to the selected assistant. Phrase artifacts are not added through collections.</p>
+          </details>
           {legacyPhraseVersions.length > 0 && <section className="coach-content-legacy-phrases" aria-labelledby="legacy-phrase-title">
-            <div><strong id="legacy-phrase-title">Legacy phrase selections must be removed</strong><p>This pack cannot be saved or published while it contains older phrase items. Remove each one explicitly; new reviewed phrases use direct assistant promotion.</p></div>
+            <div><strong id="legacy-phrase-title">Legacy phrase selections must be removed</strong><p>This collection cannot be saved or published while it contains older phrase items. Remove each one explicitly; new reviewed phrases use direct assistant promotion.</p></div>
             {legacyPhraseVersions.map((version) => <div key={version.id}><span><strong>{version.title}</strong><small>Phrase · v{version.version}</small></span>{selected?.editable && <button type="button" disabled={busy} onClick={() => removeLegacyPhrase(version.id)}>Remove legacy phrase</button>}</div>)}
           </section>}
-          {savedLegacyPhraseVersions.length > 0 && legacyPhraseVersions.length === 0 && <p className="coach-content-note" role="status">Legacy phrases are removed from your local selection. {effectiveSelectedVersions.length === 0 ? 'Choose at least one approved item, then save the pack to confirm removal.' : 'Save the pack to confirm removal before publishing.'}</p>}
+          {savedLegacyPhraseVersions.length > 0 && legacyPhraseVersions.length === 0 && <p className="coach-content-note" role="status">Legacy phrases are removed from your local selection. {effectiveSelectedVersions.length === 0 ? 'Choose at least one approved item, then save the collection to confirm removal.' : 'Save the collection to confirm removal before publishing.'}</p>}
           <div className="coach-content-actions">
-            {(!selected || selected.editable) && <Button type="submit" disabled={busy || legacyPhraseVersions.length > 0 || !name.trim() || effectiveSelectedVersions.length === 0 || Boolean(selected && !packDirty)}>{legacyPhraseVersions.length > 0 ? 'Remove legacy phrases to save' : selected ? 'Save pack' : 'Create pack draft'}</Button>}
-            {selected?.publishable && <Button type="button" variant="secondary" disabled={busy || savedLegacyPhraseVersions.length > 0 || packDirty || !selected.has_unpublished_changes || selected.draft_items.length === 0} onClick={() => void onPublish(selected)}>{savedLegacyPhraseVersions.length > 0 ? 'Remove and save legacy phrases first' : packDirty ? 'Save pack before publishing' : selected.has_unpublished_changes ? 'Publish exact version' : `Published v${selected.current_published_version?.version}`}</Button>}
+            {(!selected || selected.editable) && <Button type="submit" disabled={busy || legacyPhraseVersions.length > 0 || !name.trim() || effectiveSelectedVersions.length === 0 || Boolean(selected && !packDirty)}>{legacyPhraseVersions.length > 0 ? 'Remove legacy phrases to save' : selected ? 'Save collection' : 'Create collection draft'}</Button>}
+            {selected?.publishable && <Button type="button" variant="secondary" disabled={busy || savedLegacyPhraseVersions.length > 0 || packDirty || !selected.has_unpublished_changes || selected.draft_items.length === 0} onClick={() => void onPublish(selected)}>{savedLegacyPhraseVersions.length > 0 ? 'Remove and save legacy phrases first' : packDirty ? 'Save collection before publishing' : selected.has_unpublished_changes ? 'Publish exact version' : `Published v${selected.current_published_version?.version}`}</Button>}
           </div>
-          <p className="coach-content-note">Publishing creates a fixed snapshot. Later item edits never change a published pack or an assigned assistant automatically.</p>
+          {(!selected || selected.editable) && <p className="coach-content-note">{busy ? 'Saving collection…' : !name.trim() ? 'Name the collection first.' : effectiveSelectedVersions.length === 0 ? 'Choose at least one approved teaching item.' : packDirty ? 'Save your changes before publishing.' : selected?.has_unpublished_changes === false ? 'This collection version is already published. Use it with Mia below.' : 'Publish the saved collection, then use it with Mia below.'}</p>}
+          <p className="coach-content-note">Publishing creates a fixed snapshot. Later item edits never change a published collection or an assigned assistant automatically.</p>
         </form>
       )}
     </article>
@@ -502,7 +536,7 @@ export function PersonaContentPacksPanel({ persona, dirty, disabled = false, mut
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    void fetchAdminContentPacks().then(setPacks).catch((caught) => setError(errorMessage(caught, 'Content packs could not load.')))
+    void fetchAdminContentPacks().then(setPacks).catch((caught) => setError(errorMessage(caught, 'Collections could not load.')))
   }, [persona.id])
 
   const published = useMemo(() => packs.filter((pack) => pack.current_published_version && !pack.archived), [packs])
@@ -545,7 +579,7 @@ export function PersonaContentPacksPanel({ persona, dirty, disabled = false, mut
       const next = await updateAdminPersonaContentPacks(persona.id, persona.draft_revision ?? 0, selectedIds)
       if (mutationLifecycle.isCurrent(ticket)) onPersonaChange(next)
     } catch (caught) {
-      if (mutationLifecycle.isCurrent(ticket)) setError(errorMessage(caught, 'The content selection could not be saved.'))
+      if (mutationLifecycle.isCurrent(ticket)) setError(errorMessage(caught, 'The collection selection could not be saved.'))
     } finally {
       if (mutationLifecycle.isCurrent(ticket)) setBusy(false)
       mutationLifecycle.finish(ticket)
@@ -554,9 +588,9 @@ export function PersonaContentPacksPanel({ persona, dirty, disabled = false, mut
 
   return (
     <article className="panel persona-content-packs">
-      <header><div><p className="eyebrow">Approved coaching library</p><h3>Choose exact content pack versions</h3><p>These sources can shape Mia's wording and coaching method after the financial answer is verified.</p></div></header>
+      <header><div><h3>Choose published collections</h3><p>These sources can shape Mia's wording and coaching method after the financial answer is verified.</p></div></header>
       {error && <p className="coach-content-alert is-error" role="alert">{error}</p>}
-      {published.length === 0 ? <p className="coach-content-empty">Publish a content pack in Coaching Library, then return here to attach it.</p> : (
+      {published.length === 0 ? <p className="coach-content-empty">Publish a collection in Coaching Library, then return here to attach it.</p> : (
         <div className="persona-pack-options">
           {published.map((pack) => {
             const current = pack.current_published_version!
@@ -567,7 +601,7 @@ export function PersonaContentPacksPanel({ persona, dirty, disabled = false, mut
           })}
         </div>
       )}
-      <div className="coach-content-actions"><Button disabled={disabled || !changed || dirty || busy || !persona.permissions.edit} onClick={() => void save()}>{busy ? 'Saving sources' : 'Save source selection'}</Button><small>{disabled ? 'Finish restoring the reviewed phrase before changing sources.' : dirty ? 'Save persona fields before changing sources.' : 'Saving sources creates a new persona draft revision and requires a fresh preview.'}</small></div>
+      <div className="coach-content-actions"><Button disabled={disabled || !changed || dirty || busy || !persona.permissions.edit} onClick={() => void save()}>{busy ? 'Saving sources' : 'Save source selection'}</Button><small>{disabled ? 'Finish restoring the reviewed phrase before changing sources.' : dirty ? 'Save voice changes before changing collections.' : 'Saving collections changes Mia’s draft and requires a fresh preview.'}</small></div>
     </article>
   )
 }

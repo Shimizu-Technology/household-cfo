@@ -569,8 +569,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
   const [manualSetupFocusRequest, setManualSetupFocusRequest] = useState(0)
   const profileFocusSequenceRef = useRef(0)
+  // A coach or admin without a household seat starts in Coach Studio. An
+  // explicit section link still wins, so only an empty address changes.
+  const staffOnly = Boolean(auth.currentUser?.is_staff && !auth.currentUser?.is_participant)
   const [active, setActive] = useState(() => {
-    return sectionFromLocation()
+    return staffOnly && !window.location.hash && !hasPendingPlaidOAuthReturn() ? COACH_STUDIO_SECTION : sectionFromLocation()
   })
   const [routeAnnouncement, setRouteAnnouncement] = useState('')
   const [unavailableModuleNotice, setUnavailableModuleNotice] = useState<UnavailableModuleNotice | null>(null)
@@ -920,6 +923,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [activeSection, savingsCohortId, savingsEnrollmentRetry, savingsEnrollmentScope, savingsEnrollment?.scope])
   const activeSectionRef = useRef(activeSection)
   activeSectionRef.current = activeSection
+  // Name the staff starting section in the address so reload and back agree.
+  useLayoutEffect(() => {
+    if (activeSection !== COACH_STUDIO_SECTION || window.location.hash) return
+    window.history.replaceState({ section: COACH_STUDIO_SECTION }, '', `${window.location.pathname}${window.location.search}${sectionHash(COACH_STUDIO_SECTION)}`)
+    lastHandledLocationRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+  }, [activeSection])
   const selectedImport = useMemo(() => {
     const explicitImport = selectedImportId ? documentImports.find((documentImport) => documentImport.id === selectedImportId) : null
     return explicitImport ?? documentImports.find(documentNeedsReview) ?? documentImports[0] ?? null
@@ -3609,7 +3618,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           <AccountMenu menuRef={shellAccountMenuRef} onOpen={() => {
             if (participantProgramMenuRef.current) participantProgramMenuRef.current.open = false
           }}>
-              <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />
+              <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} savingsChallenge={isSavingsExperience} householdId={data.workspace.household_id} />
               <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotGuideOpen(true) }}><GuideIcon /> Guide</Button>
               {isRealWorkspace && <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotFeedbackOpen(true) }}><FeedbackIcon /> Report a problem</Button>}
               {isRealWorkspace && auth.currentUser && (auth.currentUser.is_admin || auth.currentUser.enterprise_access?.organizations.some(org => org.it_admin)) && <Button variant="ghost" size="compact" onClick={event => {event.currentTarget.closest('details')?.removeAttribute('open'); setEnterpriseSettingsOpen(true)}}>Organization access</Button>}
@@ -3621,7 +3630,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {transactionNotice && ['Ask Mia', 'Statements'].includes(activeSection) && <p data-review-result tabIndex={-1} role="status" className="document-alert success">{transactionNotice}</p>}
       {selectionNotice && <p className="document-alert" role="status">{selectionNotice}</p>}
       {restartNotice && <div className="document-alert financial-restart-notice" role="status"><p>{restartNotice}</p><button type="button" className="secondary-button" onClick={onDismissRestartNotice}>Dismiss</button></div>}
-      <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} onToday={isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => { if (todayCheckIn.checkedIn === false) { openDailyCheckIn(); return } setDailyIntake(null); setDailyOpen(true) } : undefined} />
+      <ParticipantTabs staffOnly={staffOnly} sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} onToday={isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => { if (todayCheckIn.checkedIn === false) { openDailyCheckIn(); return } setDailyIntake(null); setDailyOpen(true) } : undefined} />
 
       {isRealWorkspace && !isSavingsExperience && activeSection !== ADMIN_SECTION && activeSection !== COACH_STUDIO_SECTION && activeSection !== 'Ask Mia' && (
         <PilotSupportBar />

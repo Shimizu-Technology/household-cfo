@@ -1,0 +1,84 @@
+/* W6 navigation overrides stay separate from W7's shared visual cleanup. */
+.tabs-tools-group > summary {
+  min-height: 44px;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-weight: var(--weight-semibold);
+}
+.tabs-tools-group > summary:focus-visible,
+.staff-navigation a:focus-visible {
+  outline: 3px solid var(--brand-focus);
+  outline-offset: 3px;
+}
+.staff-navigation {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-block: 8px 16px;
+}
+.staff-navigation a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  text-decoration: none;
+}
+.staff-navigation a[aria-current="page"] {
+  color: var(--brand-on-primary);
+  background: var(--emerald);
+  border-color: var(--emerald);
+}
+.staff-navigation a:active,
+.tabs-tools-group > summary:active { transform: scale(0.97); }
+
+/* Native WebKit selects need an explicit height, not just min-height. */
+.coach-studio-screen :is(.coach-workspace-picker, .coach-group-context, .coach-section-picker) select {
+  box-sizing: border-box;
+  height: 44px;
+  min-height: 44px;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  font: inherit;
+  font-size: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink);
+}
+.coach-studio-screen .coach-studio-heading { margin: 0; gap: 8px; }
+.coach-studio-screen .coach-studio-heading h2 { font-size: 24px; line-height: 1.2; }
+.coach-section-picker { display: none; }
+
+@media (max-width: 600px) {
+  .app .money-topics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app .money-topics button { min-width: 0; white-space: normal; padding-inline: 8px; }
+  .coach-studio-screen :is(.coach-workspace-heading-tools, .coach-workspace-picker, .coach-group-context, .coach-section-picker) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    width: 100%;
+    gap: 6px;
+  }
+  .coach-studio-screen .coach-studio-section-tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 6px;
+    padding: 4px;
+  }
+  .coach-studio-screen .coach-studio-section-tabs button {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .staff-navigation a:active,
+  .tabs-tools-group > summary:active { transform: none; }
+}

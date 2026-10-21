@@ -46,7 +46,7 @@ const personaConfiguration = {
 
 const persona = { id: 81, name: 'Coach Lani', description: 'Private draft', status: 'draft', draft_revision: 1, draft: personaConfiguration as PersonaConfiguration, published_version: null, visible_assignment_count: 0, has_unpublished_changes: true, permissions: { read: true, edit: true, publish: true, assign: true, archive: true, restore: false }, guardrails: { rules: ['Financial and privacy policy remains locked.'] }, versions: [], assignments: [], approved_phrase_promotions: [], phrase_artifact_access: { can_add: true, artifacts: [] } } as unknown as AdminPersonaDetail
 const actor = { id: 10, is_admin: false, full_name: 'Fictional coach', coach_workspaces: [{ id: 2, name: 'Mel coaching', membership_role: 'owner' }] } as CurrentUser
-beforeEach(() => { vi.clearAllMocks(); supportMocks.fetchSetupSupportRequests.mockReset(); supportMocks.updateSetupSupportRequest.mockReset(); mocks.fetchAdminPersonas.mockResolvedValue([persona]); mocks.fetchAdminPersona.mockResolvedValue(persona); mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([]); Element.prototype.scrollIntoView = vi.fn(); window.scrollTo = vi.fn() })
+beforeEach(() => { vi.resetAllMocks(); supportMocks.fetchSetupSupportRequests.mockReset(); supportMocks.updateSetupSupportRequest.mockReset(); mocks.fetchAdminPersonas.mockResolvedValue([persona]); mocks.fetchAdminPersona.mockResolvedValue(persona); mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([]); Element.prototype.scrollIntoView = vi.fn(); window.scrollTo = vi.fn() })
 afterEach(cleanup)
 describe('coach daily operation and assistant workflow', () => {
   it('opens setup support only on demand in the selected group and holds workspace tabs during triage', async () => {
@@ -238,4 +238,14 @@ describe('coach daily operation and assistant workflow', () => {
     expect(screen.getByLabelText('Assistant name')).toHaveProperty('value', 'Unfinished coaching voice')
     expect(dirty).toHaveBeenLastCalledWith(true)
   })
+})
+
+it('starts with Daily coaching and a single quiet Studio heading', async () => {
+  render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
+  await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
+  expect(screen.getByRole('tab', { name: 'Daily coaching' }).getAttribute('aria-selected')).toBe('true')
+  expect(screen.getByRole('heading', { name: 'Coach Studio' })).toBeTruthy()
+  expect(screen.queryByText(/Start with participant check-ins/)).toBeNull()
+  expect(screen.queryByText('Your coaching workspace.')).toBeNull()
+  expect(mocks.fetchAdminPersonas).not.toHaveBeenCalled()
 })

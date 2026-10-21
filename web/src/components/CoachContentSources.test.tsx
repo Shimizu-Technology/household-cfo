@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminContentSource, CurrentUser } from '../api'
@@ -89,7 +89,7 @@ function source(
 }
 
 function renderSources(user: CurrentUser = currentUser) {
-  return render(
+  const view = render(
     <AuthContext.Provider value={{
       isAuthEnabled: false,
       authIdentityId: currentUser.clerk_id,
@@ -105,11 +105,13 @@ function renderSources(user: CurrentUser = currentUser) {
       <CoachContentSources currentUser={user} selectedPersona={null} refreshRequest={0} mutationLifecycle={mutationLifecycle} onDirtyChange={() => undefined} onItemAccepted={() => undefined} onReviewItem={() => undefined} onPersonaChange={() => undefined} />
     </AuthContext.Provider>,
   )
+  fireEvent.click(screen.getByText('Add file or link', { exact: true }))
+  return view
 }
 
 describe('CoachContentSources role controls', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
     apiMocks.fetchAdminContentSourceUrlIntakes.mockResolvedValue({ intakes: [], url_intake: { enabled: true, available: true } })
   })
   afterEach(cleanup)
@@ -214,4 +216,19 @@ describe('CoachContentSources role controls', () => {
     expect(await screen.findByRole('button', { name: 'Re-read saved snapshot' })).toBeTruthy()
     expect(screen.getByText(/never revisits the address/)).toBeTruthy()
   })
+  it.each(['guidance', 'phrase'] as const)('gives a %s candidate its actual next step', async (kind) => {
+    const record = source({ edit_candidates: false, review_candidates: true, download: true, reprocess: false, delete: false }, { candidateKind: kind })
+    apiMocks.fetchAdminContentSources.mockResolvedValue({ sources: [record], permissions: { upload_coach: false, upload_platform: false, retry_cleanup: false } })
+    apiMocks.fetchAdminContentSource.mockResolvedValue(record)
+    apiMocks.acceptAdminContentSourceCandidate.mockResolvedValue({ candidate: { ...record.candidates[0], status: 'accepted', accepted_content_item_id: 21 }, item: { id: 21, kind } })
+    renderSources()
+    await userEvent.click(await screen.findByRole('button', { name: /coach-source\.txt/i }))
+    const create = await screen.findByRole('button', { name: 'Create content draft' })
+    await waitFor(() => expect(create).toHaveProperty('disabled', false))
+    await userEvent.click(create)
+    const notice = await screen.findByRole('status')
+    expect(notice.textContent).toMatch(kind === 'phrase' ? /Phrases do not use collections/ : /include it in a collection/)
+    expect(screen.getByRole('button', { name: 'Approve content draft' })).toBeTruthy()
+  })
+
 })

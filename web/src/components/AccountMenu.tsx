@@ -29,7 +29,7 @@ export function AccountMenu({ children, menuRef, onOpen }: { children?: ReactNod
     <div className="shell-account-panel">
       {auth.currentUser && <div className="shell-account-identity">
         <strong>{auth.currentUser.full_name || 'Your account'}</strong>
-        <span className="shell-account-role">{auth.currentUser.role}</span>
+        <span className="shell-account-role">{auth.currentUser.is_admin ? 'Administrator' : auth.currentUser.is_coach ? 'Coach' : 'Household member'}</span>
         {auth.currentUser.email && <span className="shell-account-email" title={auth.currentUser.email}>{auth.currentUser.email}</span>}
       </div>}
       {auth.isAuthEnabled && <SignOutButton />}
