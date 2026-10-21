@@ -15,7 +15,7 @@
 .transaction-review-details > summary { cursor: pointer; padding-block: 8px; font-size: var(--text-sm, 0.875rem); }
 .participant-review .transaction-review-details:not([open]) { margin: 0; }
 .participant-review .transaction-draft-bulk-actions { border: 0; background: transparent; padding-inline: 0; }
-.participant-review [tabindex='-1']:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
+.participant-review [tabindex='-1']:focus-visible { outline: 2px solid var(--focus-color, #7b4a58); outline-offset: 4px; }
 .statements-screen .document-import-workspace { box-shadow: none; }
 .statements-screen .document-upload-card { background: transparent; box-shadow: none; border: 1px solid var(--line); }
 .statements-screen .document-upload-primary .document-upload-card label { padding: 16px; }
@@ -35,7 +35,7 @@
   .transaction-review-facts { grid-template-columns: minmax(0, 1fr) auto; }
   .transaction-review-facts span { grid-column: 1 / -1; }
 }
-.document-workspace-heading .text-button { background: transparent; color: var(--brand); border: 0; padding: 8px 0; text-align: left; text-decoration: underline; box-shadow: none; }
+.document-workspace-heading .text-button { background: transparent; color: var(--action-primary, #7b4a58); border: 0; padding: 8px 0; text-align: left; text-decoration: underline; box-shadow: none; }
 @media (max-width: 600px) {
   .income-source-form-actions, .income-schedule-form-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
   .income-source-form-actions button, .income-schedule-form-actions button { width: 100%; min-height: 44px; white-space: normal; }
@@ -44,5 +44,5 @@
 .document-file-options > summary, .document-reading-details > summary { cursor: pointer; padding: 10px 0; }
 .document-file-options[open] .document-review-actions { margin-top: 12px; }
 .document-review-header > .document-review-controls { flex: 0 1 auto; }
-.document-review-panel .document-review-actions > .secondary-button { border: 1px solid var(--line); background: transparent; color: var(--brand); box-shadow: none; }
+.document-review-panel .document-review-actions > .secondary-button { border: 1px solid var(--line); background: transparent; color: var(--action-primary, #7b4a58); box-shadow: none; }
 .document-review-panel .document-review-actions button, .document-review-panel .document-apply-bar button { min-height: 44px; }

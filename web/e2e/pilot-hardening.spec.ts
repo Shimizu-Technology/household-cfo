@@ -12302,7 +12302,11 @@ for (const resolution of ['confirm', 'ignore'] as const) {
     const last = page.getByRole('button', { name: new RegExp(`^${resolution === 'confirm' ? 'Confirm' : 'Ignore'} Focus Market 9102`) })
     await last.focus()
     await last.press('Enter')
-    await expect(page.getByRole('status').filter({ hasText: /^All caught up$/ })).toBeFocused()
+    const caughtUp = page.getByRole('status').filter({ hasText: /^All caught up$/ })
+    await expect(caughtUp).toBeFocused()
+    await expect(caughtUp).toHaveCSS('outline-style', 'solid')
+    expect(parseFloat(await caughtUp.evaluate(node => getComputedStyle(node).outlineWidth))).toBeGreaterThanOrEqual(2)
+    await expect(caughtUp).not.toHaveCSS('outline-color', 'rgba(0, 0, 0, 0)')
     expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('BODY')
   })
 }
@@ -12364,3 +12368,28 @@ for (const role of ['coach', 'admin'] as const) {
     }
   })
 }
+
+test('BOG UI ending income replaces a pristine schedule with one explicit confirmation and cancel restores editing', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const source = workspace.workspace.income_sources[0]
+  const writes: string[] = []
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  page.on('request', request => {
+    if (request.url().includes('/api/v1/income_sources') && !['GET', 'HEAD', 'OPTIONS'].includes(request.method())) writes.push(request.method())
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await page.getByRole('button', { name: 'Plan an income change', exact: true }).click()
+  await expect(page.locator('.income-schedule-form')).toBeVisible()
+  await page.locator('.income-source-manager').getByRole('button', { name: `End ${source.label}`, exact: true }).click()
+  await expect(page.locator('.income-schedule-form')).toHaveCount(0)
+  await expect(page.locator('.income-source-form')).toHaveCount(0)
+  await expect(page.locator('.income-source-end-confirmation')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add income source', exact: true })).toBeDisabled()
+  expect(writes).toEqual([])
+  await page.getByRole('button', { name: `Cancel ending ${source.label}`, exact: true }).click()
+  await expect(page.locator('.income-source-end-confirmation')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Add income source', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Plan an income change', exact: true }).click()
+  await expect(page.locator('.income-schedule-form')).toBeVisible()
+  expect(writes).toEqual([])
+})

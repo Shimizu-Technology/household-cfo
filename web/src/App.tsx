@@ -8296,6 +8296,7 @@ export function IncomeSourceManager({
   onUnsavedChangesChange?: (dirty: boolean) => void
 }) {
   const { open: formOpen, setOpen: setFormOpen, blocked: editorBlocked } = useIncomeForm('source')
+  const { setOpen: setEndingOpen } = useIncomeForm('ending')
   const [draft, setDraft] = useState<IncomeSourceDraft>(() => blankIncomeSourceDraft())
   const [draftBaseline, setDraftBaseline] = useState<IncomeSourceDraft>(() => blankIncomeSourceDraft())
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -8387,6 +8388,7 @@ export function IncomeSourceManager({
     lastActionTriggerRef.current = trigger ?? null
     setEditingId(null)
     setFormOpen(false)
+    setEndingOpen(true)
     setEndingId(sourceId)
     setEndingMonth('')
     setFormError(null)
@@ -8396,6 +8398,7 @@ export function IncomeSourceManager({
   function cancelEnd() {
     const trigger = lastActionTriggerRef.current
     setEndingId(null)
+    setEndingOpen(false)
     setEndingMonth('')
     setFormError(null)
     requestAnimationFrame(() => trigger?.focus())
@@ -8437,6 +8440,7 @@ export function IncomeSourceManager({
     try {
       await onArchive(source, `${endingMonth.slice(0, 7)}-01`)
       setEndingId(null)
+      setEndingOpen(false)
       setEndingMonth('')
       lastActionTriggerRef.current = null
       focusSourceCard(source.id)

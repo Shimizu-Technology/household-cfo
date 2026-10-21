@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { useState } from 'react'
+import { IncomeForms } from './components/IncomeForms'
+import { useIncomeForm } from './components/incomeFormState'
 import { AnnualIncomePlanner, DocumentReviewPanel, IncomeSourceManager, ManualTransactionCapture, TransactionDraftReviewStack, WorkspaceSetupForm } from './App'
 import type { AnnualBudgetPlan, FinancialDocumentImport, TransactionDraft } from './api'
 import type { ComponentProps } from 'react'
@@ -8,6 +11,44 @@ import type { ComponentProps } from 'react'
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 const draft = (id: number): TransactionDraft => ({ id, merchant: `Market ${id}`, amount: 12.34, amount_cents: 1234, occurred_on: '2026-10-21', status: 'pending', category_id: 1, category_name: 'Groceries', splits: [], matches: [] })
 const props = { isRealWorkspace: true, action: null, onUpdate: vi.fn(), onConfirm: vi.fn(), onIgnore: vi.fn(), onReopen: vi.fn(), onBulkConfirm: vi.fn(), onBulkIgnore: vi.fn() }
+
+it('lets only the active income editor close itself and keeps a locked sibling closed', () => {
+  function Editors() {
+    const source = useIncomeForm('source'), schedule = useIncomeForm('schedule')
+    return <><button onClick={() => source.setOpen(false)}>Close source</button><button onClick={() => source.setOpen(true)}>Open source</button><button onClick={() => schedule.setOpen(true)}>Open schedule</button><button onClick={() => schedule.setOpen(false)}>Close schedule</button>{source.open && <p>Source editor</p>}{schedule.open && <p>Schedule editor</p>}</>
+  }
+  const view = render(<IncomeForms locked={false}><Editors /></IncomeForms>)
+  fireEvent.click(screen.getByRole('button', { name: 'Open schedule' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Close source' }))
+  expect(screen.getByText('Schedule editor')).toBeTruthy()
+  view.rerender(<IncomeForms locked><Editors /></IncomeForms>)
+  fireEvent.click(screen.getByRole('button', { name: 'Open source' }))
+  expect(screen.queryByText('Source editor')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Close schedule' }))
+  expect(screen.queryByText('Schedule editor')).toBeNull()
+})
+
+it('opens only the end-source confirmation from a pristine schedule and requires its exact dated approval', async () => {
+  const source = { id: 8, label: 'Primary pay', source_type: 'job', active: true, timeline_status: 'current', starts_on: '2026-01-01', ends_on: null, base_amount: 6200, base_cadence: 'monthly', schedule_entries: [] } as AnnualBudgetPlan['income_sources'][number]
+  const plan = { year: 2026, months: [], monthly_income: {}, income_sources: [source] } as unknown as AnnualBudgetPlan
+  const onArchive = vi.fn().mockResolvedValue(undefined), onSchedule = vi.fn()
+  function Managers() {
+    const [dirty, setDirty] = useState(false)
+    return <IncomeForms locked={dirty}><IncomeSourceManager sources={[source]} action={null} error={null} onSave={vi.fn()} onArchive={onArchive} onRestore={vi.fn()} onUnsavedChangesChange={setDirty} /><AnnualIncomePlanner plan={plan} isRealWorkspace action={null} onSave={onSchedule} onDelete={vi.fn()} /></IncomeForms>
+  }
+  const view = render(<Managers />)
+  fireEvent.click(screen.getByRole('button', { name: 'Plan an income change' }))
+  expect(view.container.querySelector('.income-schedule-form')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'End Primary pay' }))
+  expect(view.container.querySelector('.income-schedule-form')).toBeNull()
+  expect(view.container.querySelector('.income-source-form')).toBeNull()
+  expect(onArchive).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('First $0 month'), { target: { value: '2026-12' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm stop for Primary pay' }))
+  await waitFor(() => expect(onArchive).toHaveBeenCalledWith(source, '2026-12-01'))
+  expect(onSchedule).not.toHaveBeenCalled()
+  await waitFor(() => expect(view.container.querySelector('.income-source-end-confirmation')).toBeNull())
+})
 
 it('shows only selected bulk actions and collapses per-row detail', () => {
   const { container } = render(<TransactionDraftReviewStack {...props} drafts={[draft(1), draft(2)]} />)
