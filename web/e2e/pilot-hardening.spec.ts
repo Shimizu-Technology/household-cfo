@@ -11039,7 +11039,8 @@ test('BOG UI compact savings chat preserves room for five files and the complete
   await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
   expect(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(100)
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeInViewport()
-  await expect(page.locator('.mia-disclaimer')).toContainText('Mia is an AI coach, not a financial advisor.')
+  // At 320px the line shortens to "Mia: AI coach, …" and "About" (the button keeps "About Mia" as its name).
+  expect(await page.locator('.mia-disclaimer > p').first().innerText()).toBe('Mia: AI coach, not a financial advisor. About')
   // The short line and its About link stay on one line on the smallest phone.
   expect(await page.locator('.mia-disclaimer > p').first().evaluate(node => Math.round(node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight)))).toBe(1)
   await expect(page.getByText(disclaimer, { exact: true })).toBeHidden()
