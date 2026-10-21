@@ -343,6 +343,114 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     Rails.logger = original_logger if defined?(original_logger) && original_logger
   end
 
+  test "read only plan preserves approved cents income dates and the December spike without locks or writes" do
+    travel_to Date.new(2026, 10, 15) do
+      household = create_household
+      income = household.income_sources.create!(label: "Pay", source_type: "job", amount_cents: 500_001, cadence: "monthly", starts_on: Date.new(2026, 1, 1))
+      income.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 550_003, cadence: "monthly", effective_on: Date.new(2026, 11, 1))
+      manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+      category = manager.create_category!(name: "Holiday", stack_key: "sinking_expected", monthly_amount: 0)
+      december = manager.ensure_plan!.budget_periods.find_by!(starts_on: Date.new(2026, 12, 1))
+      manager.update_allocation!(BudgetAllocation.find_by!(budget_category: category, budget_period: december), "1800.01")
+      expected = manager.plan_data
+      sql = []
+      subscriber = ->(_name, _start, _finish, _id, payload) { sql << payload[:sql] unless payload[:name] == "SCHEMA" }
+      actual = nil
+      ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+        actual = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).read_only_plan_data
+      end
+      assert_equal expected, actual
+      assert_equal 5000.01, actual[:monthly_income].values[9]
+      assert_equal 5500.03, actual[:monthly_income].values[10]
+      assert_equal "Dec", actual.dig(:annual_outlook, :next_irregular_month, :label)
+      assert_equal 1800.01, actual.dig(:annual_outlook, :next_irregular_month, :category_plan)
+      assert_equal 1, sql.count { |statement| statement.match?(/SELECT.*FROM "budget_periods"/) }
+      refute sql.any? { |statement| statement.match?(/FOR UPDATE|\A\s*(?:INSERT|UPDATE|DELETE)\b/i) }, sql.join("\n")
+    end
+  end
+
+  test "missing plan preview is read only and explicit initialization is idempotent" do
+    household = create_household
+    household.income_sources.create!(label: "Pay", source_type: "job", amount_cents: 123_456, cadence: "monthly")
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count" ]) do
+      preview = manager.read_only_plan_data
+      assert_equal false, preview[:plan_available]
+      assert_equal 12, preview[:months].length
+      assert_equal [ 1234.56 ], preview[:monthly_income].values.uniq
+    end
+    first = HouseholdFinance::AnnualBudgetManager.new(household).ensure_plan!
+    assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count" ]) do
+      assert_equal first.id, HouseholdFinance::AnnualBudgetManager.new(household).ensure_plan!.id
+    end
+    assert_equal true, HouseholdFinance::AnnualBudgetManager.new(household).read_only_plan_data[:plan_available]
+  end
+
+  test "incomplete read only plan keeps saved actuals manual allocations and pending reviews visible" do
+    household = create_household
+    household.expense_items.create!(label: "Food", stack_key: "discretionary", amount_cents: 10_000, cadence: "monthly")
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    year = manager.ensure_plan!
+    january = year.budget_periods.find_by!(starts_on: Date.new(Date.current.year, 1, 1))
+    category = household.budget_categories.find_by!(name: "Food")
+    BudgetAllocation.find_by!(budget_category: category, budget_period: january).update!(planned_amount_cents: 12_345, source: "manual")
+    transaction = household.household_transactions.create!(budget_period: january, occurred_on: january.starts_on, merchant: "Market", total_amount_cents: 1234, source_type: "manual_ui", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1234)
+    draft = household.transaction_drafts.create!(occurred_on: january.starts_on, merchant: "Pending Market", total_amount_cents: 2345, source_type: "manual_ui", status: "pending")
+    year.budget_periods.find_by!(starts_on: Date.new(Date.current.year, 12, 1)).destroy!
+    assert_no_difference([ "BudgetPeriod.count", "BudgetAllocation.count" ]) do
+      plan = HouseholdFinance::AnnualBudgetManager.new(household).read_only_plan_data
+      assert_equal false, plan[:plan_available]
+      assert_equal 12, plan[:months].size
+      row = plan[:rows].find { |item| item[:id] == category.id }
+      assert_equal 123.45, row[:months].first[:planned]
+      assert_equal 12.34, row[:months].first[:actual]
+      assert_equal 12.34, row[:actual_total]
+      assert_equal [ draft.id ], plan[:pending_transaction_drafts].pluck(:id)
+      assert_equal [ transaction.id ], plan[:recent_transactions].pluck(:id)
+    end
+  end
+
+  test "plan creation falls back to the unique persisted row without aborting its transaction" do
+    household = create_household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    year = manager.ensure_plan!
+    period = year.budget_periods.first
+    scope = year.budget_periods
+    original = scope.method(:create!)
+    # A real duplicate INSERT (validations skipped, as when a concurrent writer
+    # commits first) makes PostgreSQL reject the row. Only the savepoint keeps
+    # the caller's transaction usable for the fallback read.
+    scope.define_singleton_method(:create!) { |attributes| scope.new(attributes).save!(validate: false) }
+    existing = ApplicationRecord.transaction do
+      manager.send(:create_plan_record!, scope, { starts_on: period.starts_on }, ends_on: period.ends_on, status: "open")
+    end
+    assert_equal period.id, existing.id
+    assert_equal 12, BudgetPeriod.where(budget_year: year).count
+  ensure
+    scope&.define_singleton_method(:create!, original) if original
+  end
+
+  test "plan creation falls back only for a uniqueness validation race" do
+    household = create_household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    year = manager.ensure_plan!
+    period = year.budget_periods.first
+    scope = year.budget_periods
+    original = scope.method(:create!)
+    taken = BudgetPeriod.new(starts_on: period.starts_on).tap { |record| record.errors.add(:starts_on, :taken) }
+    scope.define_singleton_method(:create!) { |_attributes| raise ActiveRecord::RecordInvalid, taken }
+    assert_equal period.id, manager.send(:create_plan_record!, scope, { starts_on: period.starts_on }, ends_on: period.ends_on, status: "open").id
+
+    invalid = BudgetPeriod.new(starts_on: period.starts_on).tap { |record| record.errors.add(:ends_on, :blank) }
+    scope.define_singleton_method(:create!) { |_attributes| raise ActiveRecord::RecordInvalid, invalid }
+    assert_raises(ActiveRecord::RecordInvalid) do
+      manager.send(:create_plan_record!, scope, { starts_on: period.starts_on }, ends_on: nil, status: "open")
+    end
+  ensure
+    scope&.define_singleton_method(:create!, original) if original
+  end
+
   private
 
   def create_household

@@ -68,3 +68,123 @@
 .shortfall-swatch {
   background: var(--status-red);
 }
+
+/* Every month shares one axis at every width. Keep detail below the year. */
+.annual-cash-flow-chart,
+.annual-cash-flow-visual.compact .annual-cash-flow-chart {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  min-width: 0;
+  gap: 4px;
+}
+.cash-flow-month-trigger { border-radius: 0; box-shadow: none; }
+.cash-flow-month.is-report-month .cash-flow-month-trigger { box-shadow: none; outline: 1px solid var(--line); outline-offset: -1px; }
+.cash-flow-month-trigger:hover { outline: none; background: transparent; }
+.cash-flow-month-trigger:focus-visible,
+.cash-flow-month.is-pinned .cash-flow-month-trigger { outline: 2px solid var(--mauve); outline-offset: -2px; background: var(--paper-warm); }
+@media (hover: hover) and (pointer: fine) {
+  .cash-flow-month-trigger:hover { outline: 1px solid var(--mauve); outline-offset: -1px; background: var(--paper-warm); }
+}
+.month-plan-summary,
+.expense-stack-overview,
+.category-pressure-panel,
+.annual-cash-flow-visual,
+.budget-screen .panel,
+.budget-screen .budget-period-summary,
+.budget-screen .outlook-callout,
+.budget-screen .annual-outlook,
+.budget-screen .cash-flow-detail-panel { border: 0; border-radius: 0; box-shadow: none; background: none; padding: 0; }
+.month-plan-summary h3 { margin: 0; font-family: var(--font-body); font-size: 18px; }
+.month-plan-values { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 16px 0 8px; }
+.month-plan-values .plan-value { padding: 0; border: 0; border-radius: 0; background: none; }
+.month-plan-values .plan-value > span { font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.month-plan-values .plan-value strong { font-family: var(--font-body); font-variant-numeric: tabular-nums; }
+.month-plan-values .plan-value strong.value-xlong { font-size: 15px; }
+.month-plan-note,
+.month-plan-pending { margin: 8px 0; color: var(--muted); font-size: 13px; }
+.month-plan-pending { color: var(--mauve); display: flex; align-items: center; gap: 6px; }
+.budget-screen .annual-budget-panel { display: flex; flex-direction: column; gap: 20px; }
+.budget-screen .annual-budget-summary { order: 1; border: 0; border-block: 1px solid var(--line); border-radius: 0; background: none; }
+.budget-screen .budget-detail-disclosure { order: 2; }
+.budget-screen .annual-budget-heading h3 { font-family: var(--font-body); font-size: 20px; }
+.budget-screen .annual-budget-heading p { margin: 4px 0; }
+.budget-screen .outlook-callout { margin: 8px 0; color: var(--ink); font-size: 14px; }
+.budget-screen .annual-budget-panel button { box-shadow: none; }
+.budget-screen .eyebrow { display: none; }
+.annual-cash-flow-visual .financial-visual-heading h4 { font-family: var(--font-body); font-size: 18px; letter-spacing: 0; }
+.annual-cash-flow-visual .financial-visual-heading p { font-size: 13px; }
+.cash-flow-detail-panel { margin-top: 12px; padding-top: 12px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none; }
+.cash-flow-detail-panel span,
+.cash-flow-detail-panel dt,
+.cash-flow-month-summary { letter-spacing: 0; text-transform: none; }
+.cash-flow-detail-panel strong,
+.cash-flow-detail-panel dd,
+.cash-flow-month-summary b,
+.expense-stack-row b,
+.category-pressure-values { font-family: var(--font-body); font-variant-numeric: tabular-nums; }
+.compact .cash-flow-detail-panel { display: none; }
+.compact:focus-within .cash-flow-detail-panel,
+.compact:has(.is-pinned) .cash-flow-detail-panel { display: grid; }
+.annual-cash-flow-legend { font-size: 12px; margin-block: 8px; }
+.expense-stack-row { --group-color: var(--mauve); padding: 12px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; }
+.expense-stack-row.stack-discretionary { --group-color: var(--terracotta, #b97352); }
+.expense-stack-row.stack-sinking_expected { --group-color: #647d67; }
+.expense-stack-row.stack-sinking_unexpected { --group-color: var(--muted); }
+.expense-stack-row-heading strong::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 8px; background: var(--group-color); }
+.expense-stack-row .budget-progress-actual { background: var(--group-color); }
+.expense-stack-row-heading strong { font-size: 15px; }
+@media (max-width: 620px) {
+  .month-plan-values { grid-template-columns: 1fr; gap: 10px; }
+  .month-plan-values .plan-value { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .month-plan-values .plan-value strong { text-align: right; }
+  .month-plan-values .plan-value strong.value-xlong { max-width: 145px; font-size: 14px; }
+  .cash-flow-month-trigger > strong { font-size: 10px; }
+  .cash-flow-month-summary { display: none; }
+  .cash-flow-bars { height: 84px; padding-inline: 0; }
+  .cash-flow-bars i { width: 60%; }
+  .annual-cash-flow-chart,
+  .annual-cash-flow-visual.compact .annual-cash-flow-chart { gap: 2px; }
+  .financial-visual-heading { display: block; }
+  .budget-screen .budget-primary-actions { display: grid; grid-template-columns: 1fr; width: 100%; }
+  .budget-screen .budget-primary-actions button,
+  .budget-setup-prompt button { width: 100%; }
+  .expense-stack-row-heading { display: block; }
+}
+
+.cash-flow-detail-summary > span,
+.cash-flow-detail-context > div > span,
+.cash-flow-detail-panel dt,
+.cash-flow-month-summary small { letter-spacing: 0; text-transform: none; }
+.expense-stack-row.stack-sinking_expected .expense-stack-row-heading strong::before { border-radius: 50%; }
+.expense-stack-row.stack-sinking_unexpected .expense-stack-row-heading strong::before { background: transparent; border: 2px solid var(--group-color); }
+.home-screen .compact .financial-visual-heading > p { display: none; }
+.budget-screen :is(.budget-manual-manager, .annual-income-planner, .annual-category-form, .budget-detail-disclosure, .annual-budget-summary > span, .category-pressure-row) { border-radius: 0; box-shadow: none; background: none; }
+.budget-screen .budget-detail-disclosure { border: 0; border-block: 1px solid var(--line); }
+@media (max-width: 620px) {
+  .home-screen .month-plan-values { margin-top: 0; }
+  .home-screen .annual-cash-flow-legend { margin-block: 4px; }
+}
+/* The narrower Budget column uses aligned rows so figures never split. */
+.month-plan-summary { container-type: inline-size; }
+.month-plan-values .plan-value { container-type: normal; }
+.month-plan-values .plan-value strong { white-space: nowrap; overflow-wrap: normal; font-size: clamp(16px, 4.8cqw, 30px); }
+.month-plan-values .plan-value strong.value-long { font-size: clamp(14px, 4cqw, 24px); }
+.budget-operating-cockpit .month-plan-values { grid-template-columns: 1fr; }
+.budget-operating-cockpit .plan-value { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.budget-operating-cockpit .plan-value strong { text-align: right; }
+@media (max-width: 620px) {
+  .home-screen { gap: 12px; }
+  .home-screen .month-plan-note { font-size: 12px; margin: 6px 0; }
+  .home-screen .month-plan-pending { font-size: 12px; margin: 6px 0; }
+  .home-screen .cash-flow-bars { height: 56px; }
+  .home-screen .annual-cash-flow-legend { display: none; }
+  .home-screen .home-financial-visuals::after { content: 'Bar height = money left after the plan'; display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+}
+@container (max-width: 620px) {
+  .month-plan-values { grid-template-columns: 1fr; }
+  .month-plan-values .plan-value { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .month-plan-values .plan-value strong { text-align: right; }
+}
+
+.activity-preview { border: 0; border-radius: 0; background: none; box-shadow: none; }
+.month-plan-values .plan-value strong.is-empty { max-inline-size: 145px; white-space: normal; overflow-wrap: normal; font-size: 14px; }
+.budget-setup-prompt .button { box-shadow: none; }

@@ -3,6 +3,8 @@ module HouseholdFinance
     MONTH_NAMES = %w[Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec].freeze
     SUPPORTED_YEARS = 2000..2100
     MAX_PENDING_TRANSACTION_DRAFTS = 500
+    PreviewPeriod = Data.define(:id, :starts_on)
+    private_constant :PreviewPeriod
 
     def self.supported_year?(value)
       SUPPORTED_YEARS.cover?(value.to_i)
@@ -32,16 +34,32 @@ module HouseholdFinance
       plan_data_for(budget_year).merge(plan_available: true)
     end
 
+    # GETs may materialize a missing year/period once, but never resynchronize a
+    # complete approved plan. Recheck after locking: another first read may win.
+    def initialize_missing_plan!
+      return read_only_budget_year if complete_plan?
+
+      household.with_lock do
+        clear_read_plan_cache
+        @budget_year = ensure_plan_records! unless complete_plan?
+        read_only_budget_year
+      end
+    end
+
     def read_only_plan_data
-      budget_year = household.budget_years.find_by(year: year)
-      periods = budget_year&.budget_periods&.order(:starts_on)&.to_a || []
-      return plan_data_for(budget_year).merge(plan_available: true) if periods.length == 12
+      budget_year = read_only_budget_year
+      periods = read_only_periods
+      return plan_data_for(budget_year, periods: periods).merge(plan_available: true) if complete_plan?
 
       read_only_plan_preview
     end
 
-    def plan_data_for(budget_year)
-      periods = budget_year.budget_periods.order(:starts_on).to_a
+    # Shared only by readers using this manager, never by provisioning/mutations.
+    def read_only_periods
+      @read_only_periods ||= read_only_budget_year&.budget_periods&.where(starts_on: period_starts)&.order(:starts_on)&.to_a || []
+    end
+
+    def plan_data_for(budget_year, periods: budget_year.budget_periods.order(:starts_on).to_a)
       categories = plan_categories(periods)
       allocations_by_category_and_period = BudgetAllocation
         .where(budget_category: categories, budget_period: periods)
@@ -223,9 +241,43 @@ module HouseholdFinance
 
     attr_reader :household
 
+    def period_starts
+      (1..12).map { |month| Date.new(year, month, 1) }
+    end
+
+    def complete_plan?
+      read_only_budget_year && read_only_periods.map(&:starts_on) == period_starts
+    end
+
+    def clear_read_plan_cache
+      remove_instance_variable(:@read_only_budget_year) if defined?(@read_only_budget_year)
+      remove_instance_variable(:@read_only_periods) if defined?(@read_only_periods)
+    end
+
+    def create_plan_record!(scope, identity, **attributes)
+      scope.klass.transaction(requires_new: true) { scope.create!(identity.merge(attributes)) }
+    rescue ActiveRecord::RecordNotUnique
+      scope.find_by!(identity)
+    rescue ActiveRecord::RecordInvalid => error
+      # A concurrent insert may be visible to the uniqueness validator before
+      # the INSERT. Keep unrelated validation failures fail-closed.
+      raise unless identity.keys.any? { |key| error.record.errors.of_kind?(key, :taken) }
+
+      scope.find_by!(identity)
+    end
+
+    def read_only_budget_year
+      return @read_only_budget_year if defined?(@read_only_budget_year)
+
+      @read_only_budget_year = household.budget_years.find_by(year: year)
+    end
+
     def read_only_plan_preview
+      persisted_periods = read_only_periods.index_by(&:starts_on)
       months = (1..12).map do |month|
         starts_on = Date.new(year, month, 1)
+        next period_payload(persisted_periods.fetch(starts_on)) if persisted_periods.key?(starts_on)
+
         {
           id: "preview-#{year}-#{month}",
           label: MONTH_NAMES.fetch(month - 1),
@@ -241,6 +293,9 @@ module HouseholdFinance
         Money.dollars(sources.sum { |source| IncomeTimeline.period_cents(source, starts_on: starts_on, ends_on: ends_on) })
       end.transform_keys { |month| month.fetch(:id) }
       categories = household.budget_categories.ordered.to_a
+      allocations = BudgetAllocation.where(budget_period: read_only_periods, budget_category: categories)
+        .index_by { |allocation| [ allocation.budget_category_id, allocation.budget_period_id ] }
+      actuals = actuals_by_category_and_period(categories.map(&:id), read_only_periods)
       expenses = active_expenses
       row_sources = categories.map do |category|
         [ category.id, category.name, category.stack_key, category.stack_label, category.active, expenses.find { |expense| expense.label.casecmp?(category.name) } ]
@@ -251,6 +306,14 @@ module HouseholdFinance
       end)
       rows = row_sources.map do |id, name, stack_key, stack_label, active, expense|
         cells = months.map do |month|
+          if (period = persisted_periods[Date.iso8601(month.fetch(:starts_on))])
+            allocation = allocations[[ id, period.id ]]
+            actual_cents = actuals.fetch([ id, period.id ], 0)
+            next allocation_cell(period, allocation, actual_cents) if allocation
+
+            next { period_id: period.id, allocation_id: nil, planned: 0, actual: Money.dollars(actual_cents),
+              remaining: Money.dollars(-actual_cents), allocation_missing: true }
+          end
           planned_cents = if expense
             Money.period_cents(expense.amount_cents, expense.cadence, month: Date.iso8601(month.fetch(:starts_on)).month)
           else
@@ -272,12 +335,14 @@ module HouseholdFinance
           stack_label: stack_label,
           active: active,
           months: cells,
-          planned_total: cells.sum { |cell| cell.fetch(:planned) },
-          actual_total: 0
+          planned_total: Money.dollars(cells.sum { |cell| Money.cents(cell.fetch(:planned)) }),
+          actual_total: Money.dollars(cells.sum { |cell| Money.cents(cell.fetch(:actual)) })
         }
       end
 
       debt_portfolio = DebtPortfolio.new(household)
+      preview_periods = months.map { |month| PreviewPeriod.new(id: month.fetch(:id), starts_on: Date.iso8601(month.fetch(:starts_on))) }
+      budget_year = read_only_budget_year || household.budget_years.new(year: year)
       {
         year: year,
         household_id: household.id, financial_generation: household.financial_generation,
@@ -287,11 +352,11 @@ module HouseholdFinance
         monthly_debt_minimums: Money.dollars(debt_portfolio.monthly_minimum_cents),
         monthly_debt_minimums_known: debt_portfolio.minimum_payment_known?,
         income_sources: income_sources_payload,
-        annual_outlook: { typical_monthly_outflow: 0, months: [], upcoming_spikes: [], next_irregular_month: nil },
-        pending_transaction_drafts: [],
-        pending_transaction_drafts_meta: { total_count: 0, returned_count: 0, limit: MAX_PENDING_TRANSACTION_DRAFTS, truncated: false },
-        pending_mia_action_drafts: [],
-        recent_transactions: [],
+        annual_outlook: annual_outlook_payload(preview_periods, rows, monthly_income, Money.dollars(debt_portfolio.monthly_minimum_cents)),
+        pending_transaction_drafts: pending_drafts_payload(budget_year),
+        pending_transaction_drafts_meta: pending_drafts_meta(budget_year),
+        pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
+        recent_transactions: recent_transactions_payload(read_only_periods),
         archived_categories: archived_categories_payload,
         plan_available: false
       }
@@ -300,23 +365,23 @@ module HouseholdFinance
     def ensure_plan_records!
       raise ArgumentError, "Budget year is outside supported range" unless self.class.supported_year?(year)
 
-      budget_year = household.budget_years.find_or_create_by!(year: year) do |record|
-        record.status = "active"
-      end
+      budget_year = household.budget_years.find_by(year: year) ||
+        create_plan_record!(household.budget_years, { year: year }, status: "active")
       ensure_periods!(budget_year)
       ensure_categories_from_expenses!
       ensure_allocations_from_expenses!(budget_year)
       ensure_allocations_for_active_categories!(budget_year)
+      clear_read_plan_cache
       budget_year
     end
 
     def ensure_periods!(budget_year)
+      existing_starts = budget_year.budget_periods.pluck(:starts_on)
       (1..12).each do |month|
         starts_on = Date.new(budget_year.year, month, 1)
-        budget_year.budget_periods.find_or_create_by!(starts_on: starts_on) do |period|
-          period.ends_on = starts_on.end_of_month
-          period.status = "open"
-        end
+        next if existing_starts.include?(starts_on)
+
+        create_plan_record!(budget_year.budget_periods, { starts_on: starts_on }, ends_on: starts_on.end_of_month, status: "open")
       end
     end
 
