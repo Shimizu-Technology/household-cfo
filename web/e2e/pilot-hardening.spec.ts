@@ -12142,7 +12142,7 @@ for (const role of ['participant', 'coach', 'admin']) {
     expect(bounds!.x).toBeGreaterThanOrEqual(0)
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
     await panel.getByRole('button', { name: 'Guide', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'Your household money, day to day.' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: role === 'participant' ? 'Your household money, day to day.' : 'Your coaching workspace.' })).toBeVisible()
     await expect(page.locator('.shell-account-menu')).not.toHaveAttribute('open', '')
     await page.keyboard.press('Escape')
     await openAccountHelp(page)
