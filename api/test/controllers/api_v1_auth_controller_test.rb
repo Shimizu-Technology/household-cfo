@@ -123,6 +123,22 @@ class ApiV1AuthControllerTest < ActionDispatch::IntegrationTest
     assert_equal workspace.id, response.parsed_body.dig("user", "active_coach_workspace", "id")
   end
 
+  test "accepted local test identities do not write sign in activity on read requests" do
+    user = User.create!(clerk_id: "quiet-test-reader", email: "quiet-test-reader@example.com", role: "participant", invitation_status: "accepted")
+    2.times do
+      statements = []
+      subscriber = ->(_name, _start, _finish, _id, payload) { statements << payload[:sql] unless payload[:name] == "SCHEMA" }
+      ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+        get "/api/v1/auth/me", headers: { "Authorization" => "Bearer test_token_#{user.id}" }
+      end
+      assert_response :success
+      assert_empty statements.grep(/\A\s*(?:INSERT|UPDATE|DELETE)\b/i)
+    end
+    user.update!(invitation_status: "revoked")
+    get "/api/v1/auth/me", headers: { "Authorization" => "Bearer test_token_#{user.id}" }
+    assert_response :forbidden
+  end
+
   private
 
   def auth_headers(subject, email, first_name = "Test", last_name = "User")

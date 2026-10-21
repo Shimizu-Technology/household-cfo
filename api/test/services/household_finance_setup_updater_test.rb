@@ -11,6 +11,18 @@ class HouseholdFinanceSetupUpdaterTest < ActiveSupport::TestCase
     @household = Household.create!(created_by_user: @user, name: "Setup updater household")
   end
 
+  test "a setup total change reaches a complete plan that reads do not resynchronize" do
+    add_expense("Rent", 120_000, "monthly")
+    HouseholdFinance::AnnualBudgetManager.new(@household).ensure_plan!
+
+    update_fixed_expenses("1430")
+
+    plan = HouseholdFinance::AnnualBudgetManager.new(@household.reload).read_only_plan_data
+    assert plan.fetch(:plan_available)
+    rent = plan.fetch(:rows).find { |row| row.fetch(:name) == "Rent" }
+    assert_equal 1430.0, rent.fetch(:months).fetch(Date.current.month - 1).fetch(:planned)
+  end
+
   test "a new fixed total scales annual items in their own cadence" do
     rent = add_expense("Rent", 120_000, "monthly")
     insurance = add_expense("Car insurance", 120_000, "annual")

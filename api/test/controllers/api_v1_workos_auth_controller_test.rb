@@ -154,6 +154,33 @@ class ApiV1WorkosAuthControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "workspace around and before actions verify identity and enterprise access once per request" do
+    user = create_user(status: "accepted", role: "participant")
+    HouseholdFinance::WorkspaceResolver.new(user).household
+    with_workos do
+      with_workos_http do
+        WorkosIdentityMapping.bind!(user_id: user.id, subject: "user_test", expected_clerk_id: user.clerk_id, dry_run: false)
+        verify = WorkosAuth.method(:verify)
+        authorize = EnterpriseAccess.method(:authorize!)
+        verifies = 0
+        authorizations = 0
+        stub_method(WorkosAuth, :verify, ->(*args) { verifies += 1; verify.call(*args) }) do
+          stub_method(EnterpriseAccess, :authorize!, ->(**options) { authorizations += 1; authorize.call(**options) }) do
+            2.times do
+              get "/api/v1/workspace", headers: workos_headers
+              assert_response :success
+            end
+          end
+        end
+        assert_equal 2, verifies
+        assert_equal 2, authorizations
+        user.update!(invitation_status: "revoked")
+        get "/api/v1/workspace", headers: workos_headers
+        assert_response :forbidden
+      end
+    end
+  end
+
   private
 
   def create_user(status:, role: "participant")
