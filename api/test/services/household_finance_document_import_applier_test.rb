@@ -51,6 +51,33 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     assert_nil @household.income_sources.find_by(label: "Payroll deposit")
   end
 
+  test "applied expense changes reach a complete plan that reads do not resynchronize" do
+    expense = @document_import.items.create!(target_type: "expense_item", label: "Groceries", amount_cents: 825_00,
+      cadence: "monthly", stack_key: "discretionary", confidence: "medium")
+    assert HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call.success?
+    month = Date.current.month - 1
+    planned = lambda do
+      plan = HouseholdFinance::AnnualBudgetManager.new(@household.reload).read_only_plan_data
+      assert plan.fetch(:plan_available)
+      plan.fetch(:rows).find { |row| row.fetch(:name) == "Groceries" }.fetch(:months).fetch(month).fetch(:planned)
+    end
+    assert_equal 825.0, planned.call
+
+    # Correcting an applied value writes through to the plan; a later read only reads.
+    result = HouseholdFinance::AppliedDocumentImportItemUpdater.new(expense.reload, user: @user, attributes: { amount_cents: 900_00 }).call
+    assert result.success?, result.errors.inspect
+    assert_equal 900.0, planned.call
+
+    # A second statement updating the same expense also reaches the plan.
+    second = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement",
+      status: "needs_review", filename: "second.pdf", content_type: "application/pdf", byte_size: 100,
+      s3_key: "household-cfo/test/second.pdf", extracted_summary: "Groceries changed.")
+    second.items.create!(target_type: "expense_item", label: "Groceries", amount_cents: 950_00,
+      cadence: "monthly", stack_key: "discretionary", confidence: "medium")
+    assert HouseholdFinance::DocumentImportApplier.new(second, user: @user).call.success?
+    assert_equal 950.0, planned.call
+  end
+
   test "applies selected extracted values to household records with lineage" do
     income = @document_import.items.create!(
       target_type: "income_source",

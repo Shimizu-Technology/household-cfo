@@ -418,10 +418,35 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     period = year.budget_periods.first
     scope = year.budget_periods
     original = scope.method(:create!)
-    scope.define_singleton_method(:create!) { |_attributes| raise ActiveRecord::RecordNotUnique, "concurrent period insert" }
-    existing = manager.send(:create_plan_record!, scope, { starts_on: period.starts_on }, ends_on: period.ends_on, status: "open")
+    # A real duplicate INSERT (validations skipped, as when a concurrent writer
+    # commits first) makes PostgreSQL reject the row. Only the savepoint keeps
+    # the caller's transaction usable for the fallback read.
+    scope.define_singleton_method(:create!) { |attributes| scope.new(attributes).save!(validate: false) }
+    existing = ApplicationRecord.transaction do
+      manager.send(:create_plan_record!, scope, { starts_on: period.starts_on }, ends_on: period.ends_on, status: "open")
+    end
     assert_equal period.id, existing.id
-    assert_equal 12, year.budget_periods.count
+    assert_equal 12, BudgetPeriod.where(budget_year: year).count
+  ensure
+    scope&.define_singleton_method(:create!, original) if original
+  end
+
+  test "plan creation falls back only for a uniqueness validation race" do
+    household = create_household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    year = manager.ensure_plan!
+    period = year.budget_periods.first
+    scope = year.budget_periods
+    original = scope.method(:create!)
+    taken = BudgetPeriod.new(starts_on: period.starts_on).tap { |record| record.errors.add(:starts_on, :taken) }
+    scope.define_singleton_method(:create!) { |_attributes| raise ActiveRecord::RecordInvalid, taken }
+    assert_equal period.id, manager.send(:create_plan_record!, scope, { starts_on: period.starts_on }, ends_on: period.ends_on, status: "open").id
+
+    invalid = BudgetPeriod.new(starts_on: period.starts_on).tap { |record| record.errors.add(:ends_on, :blank) }
+    scope.define_singleton_method(:create!) { |_attributes| raise ActiveRecord::RecordInvalid, invalid }
+    assert_raises(ActiveRecord::RecordInvalid) do
+      manager.send(:create_plan_record!, scope, { starts_on: period.starts_on }, ends_on: nil, status: "open")
+    end
   ensure
     scope&.define_singleton_method(:create!, original) if original
   end

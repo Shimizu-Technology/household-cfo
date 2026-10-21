@@ -16,6 +16,7 @@ module HouseholdFinance
       target_runway_months
     ].freeze
     REQUIRED_MONEY_KEYS = %i[primary_income fixed_expenses flexible_spend].freeze
+    EXPENSE_KEYS = %i[fixed_expenses flexible_spend expected_sinking_fund unexpected_sinking_fund].freeze
     REQUIRED_LABELS = {
       household_name: "Household name",
       primary_goal: "Primary goal",
@@ -47,6 +48,9 @@ module HouseholdFinance
         upsert_runway_goal if attributes.key?(:target_runway_months)
         upsert_transition_goal
         confirm_setup_fields
+        # Reads no longer resynchronize a complete plan; carry expense changes
+        # into future allocations while the household lock is held.
+        AnnualBudgetManager.new(household).ensure_plan_inside_household_lock! if (attributes.keys & EXPENSE_KEYS).any?
       end
 
       household.reload
