@@ -51,7 +51,7 @@ it('does not download an old actor response after account switch', async () => {
   expect(URL.createObjectURL).not.toHaveBeenCalled()
 })
 function coachDownload() {
-  return screen.getByRole('button', { name: 'Download reviewed records' })
+  return screen.getByRole('button', { name: 'Download my record' })
 }
 it('clears review choices and ignores a delayed response after the same actor changes cohort', async () => {
   let finish!: (result: unknown) => void

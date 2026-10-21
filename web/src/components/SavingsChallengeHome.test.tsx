@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError } from '../api'
 import * as api from '../api'
-import { savingsEntryDraft, savingsEntryVersion, savingsFixture, savingsPlanDraft } from '../test/savingsFixtures'
+import { savingsEntryDraft, savingsEntryVersion, savingsFixture, savingsPlanDraft, savingsPlanVersion } from '../test/savingsFixtures'
 import { SavingsChallengeHome } from './SavingsChallengeHome'
 vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: 'Mia' }) }))
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchSavingsChallenge: vi.fn(), fetchSavingsPage: vi.fn(), stageSavingsPlan: vi.fn(), approveSavingsPlan: vi.fn(), stageSavingsEntry: vi.fn(), approveSavingsEntry: vi.fn(), enrollSavingsChallenge: vi.fn(), attestSavingsZero: vi.fn() }))
@@ -13,44 +13,88 @@ function view(key = 'first') { return <SavingsChallengeHome key={key} onAskMia={
 beforeEach(() => { vi.clearAllMocks(); fetchChallenge.mockResolvedValue(savingsFixture()); fetchPage.mockResolvedValue({ records: [], next_cursor: null }) })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 describe('participant savings Home', () => {
-  it('lists the privacy entry under Optional support, named like the account menu', async () => {
+  it('lists the privacy entry with the other plain rows, named like the account menu', async () => {
     render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} privacyAccess={<button type="button">Privacy &amp; reminders</button>} />)
-    const nav = await screen.findByRole('navigation', { name: 'Optional challenge support' })
-    expect(within(nav).getByRole('button', { name: 'Privacy & reminders' })).toBeTruthy()
+    await screen.findByText('Nothing set aside yet')
+    const rows = document.querySelector('.savings-rows') as HTMLElement
+    expect(within(rows).getByRole('button', { name: 'Privacy & reminders' })).toBeTruthy()
+    expect(within(rows).getByText('Your target & spending choices')).toBeTruthy()
+    expect(within(rows).getByText('Your records & corrections')).toBeTruthy()
+    expect(within(rows).getByText('Statements & spending snapshot (optional)')).toBeTruthy()
+  })
+
+  it('answers one question first: one filled action, plain dates and no zero-count noise', async () => {
+    const checkIn = vi.fn(), today = vi.fn()
+    render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onToday={today} onCheckIn={checkIn} />)
+    const summary = await screen.findByRole('article', { name: 'Approved savings progress' })
+    expect(summary.textContent).toContain('Day 4 of 90 · next check-in Day 30 on Fri, Oct 30')
+    expect(summary.querySelectorAll('.savings-primary')).toHaveLength(1)
+    fireEvent.click(within(summary).getByRole('button', { name: 'Check in for today' }))
+    expect(checkIn).toHaveBeenCalledTimes(1); expect(today).not.toHaveBeenCalled()
+    const calendar = screen.getByRole('region', { name: 'Personal challenge calendar' })
+    expect(calendar.textContent).toContain('Day 30Fri, Oct 30')
+    expect(calendar.querySelector('[aria-current="step"]')?.textContent).toContain('Day 30')
+    const page = document.body.textContent!
+    for (const noise of ['2026-10-30', 'Pacific/Guam', '0 waiting', 'not counted', 'Backed by statements']) expect(page).not.toContain(noise)
+    expect(page).toContain('Dates follow Guam time.')
+  })
+
+  it('falls back to the Today form for the check-in until a chat check-in is wired', async () => {
+    const today = vi.fn()
+    render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onToday={today} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Check in for today' }))
+    expect(today).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows a known total with its target, matched part and uncounted records in words', async () => {
+    const fixture = savingsFixture(); fixture.accepted_plan = { ...savingsPlanVersion(40000), financial_baseline_version_id: null, baseline_digest: null, spending_changes: [] }
+    fixture.projection = { ...fixture.projection!, reporting_known: true, reported_cents: 7500, evidence_supported_cents: 2550, progress_basis_points: 1875, excluded_entry_count: 1 }
+    fixture.pending_entry_count = 2
+    fetchChallenge.mockResolvedValue(fixture)
+    render(view())
+    const summary = await screen.findByRole('article', { name: 'Approved savings progress' })
+    expect(summary.querySelector('.savings-total')?.textContent).toBe('$75.00')
+    expect(summary.textContent).toContain('of $400.00 target · 18%')
+    expect(summary.textContent).toContain('$25.50 of this is matched to a statement. That’s included above, not extra.')
+    expect(summary.textContent).toContain('1 record isn’t counted because it wasn’t new money')
+    expect(within(summary).getByRole('button', { name: 'I set money aside · 2 to confirm' })).toBeTruthy()
+    expect(screen.getByRole('progressbar').getAttribute('value')).toBe('1875')
   })
 
   it('does not invent zero or accepted target and requires explicit known-zero acceptance', async () => {
-    render(view()); await screen.findAllByText('Not yet reported')
-    expect(screen.getByText('Not yet approved')).toBeTruthy()
+    render(view()); await screen.findAllByText('Nothing set aside yet')
+    expect(screen.getByText('No target yet')).toBeTruthy()
+    expect(screen.getByText(/We don’t assume \$0/)).toBeTruthy()
     expect(screen.queryByRole('progressbar')).toBeNull()
-    const confirm = screen.getByRole('button', { name: 'Confirm known zero' })
+    const confirm = screen.getByRole('button', { name: 'Confirm nothing set aside' })
     expect((confirm as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(screen.getByLabelText(/I know I have no eligible/))
+    fireEvent.click(screen.getByLabelText(/I know I haven’t set aside/))
     vi.mocked(api.attestSavingsZero).mockResolvedValue({ record: { id: 1, cutoff_on: '2026-10-04', approval_sequence: 1, previous_attestation_id: null, approved_at: '' }, replayed: false, challenge: savingsFixture() })
     fireEvent.click(confirm)
     await waitFor(() => expect(api.attestSavingsZero).toHaveBeenCalledWith({ known_zero: true, cutoff_on: '2026-10-04', expected_enrollment_lock_version: 0 }, expect.any(String), expect.any(AbortSignal)))
   })
   it('requires late-start acceptance and submits the authoritative policy and dates', async () => {
     fetchChallenge.mockResolvedValue(savingsFixture(false))
-    render(view()); await screen.findByText(/2026-10-04 – 2027-01-01/)
+    render(view()); await waitFor(() => expect(document.querySelector('.savings-join-dates strong')?.textContent).toBe('Your 90 days: Sun, Oct 4 – Fri, Jan 1, 2027'))
+    expect(document.body.textContent).not.toContain('Pacific/Guam')
     fireEvent.click(screen.getByLabelText(/read this notice/))
     expect((screen.getByRole('button', { name: 'Accept and join' }) as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(screen.getByLabelText(/later personal start/))
+    fireEvent.click(screen.getByLabelText(/start later than the group/))
     vi.mocked(api.enrollSavingsChallenge).mockResolvedValue({ record: savingsFixture().enrollment!, challenge: savingsFixture(), replayed: false })
     fireEvent.click(screen.getByRole('button', { name: 'Accept and join' }))
     await waitFor(() => expect(api.enrollSavingsChallenge).toHaveBeenCalledWith({ participation_accepted: true, policy_version: 'dev-notice-v1', late_start_accepted: true, expected_acceptance_digest: 'a'.repeat(64) }, expect.any(String), expect.any(AbortSignal)))
   })
   it('stages custom exact target as a proposal and preserves unapproved progress', async () => {
     vi.mocked(api.stageSavingsPlan).mockResolvedValue({ record: savingsPlanDraft(12550), challenge: { ...savingsFixture(), pending_plan_count: 1 }, replayed: false })
-    render(view()); await screen.findByText('Not yet approved')
+    render(view()); await screen.findByText('No target yet')
     fireEvent.change(screen.getByLabelText('Target in US dollars'), { target: { value: '125.50' } })
     fireEvent.click(screen.getByRole('button', { name: 'Review target plan' }))
     await waitFor(() => expect(api.stageSavingsPlan).toHaveBeenCalledWith({ target_cents: 12550, expected_plan_version_id: null, reason: '' }, expect.any(String), expect.any(AbortSignal)))
-    expect(screen.getByText('Not yet approved')).toBeTruthy()
+    expect(screen.getByText('No target yet')).toBeTruthy()
   })
   it('retries an uncertain request with identical key and payload while pausing edits and refresh', async () => {
     vi.mocked(api.stageSavingsEntry).mockRejectedValueOnce(new Error('Connection interrupted')).mockResolvedValueOnce({ record: savingsEntryDraft(), challenge: savingsFixture(), replayed: true })
-    render(view()); await screen.findByText('Not yet approved')
+    render(view()); await screen.findByText('No target yet')
     fireEvent.change(screen.getByLabelText('Amount in US dollars'), { target: { value: '25.50' } })
     fireEvent.click(screen.getByRole('button', { name: 'Review savings record' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Retry same request' }))
@@ -65,7 +109,7 @@ describe('participant savings Home', () => {
     fetchPage.mockImplementation(async (collection) => ({ records: collection === 'entries' ? [entry] : [], next_cursor: null }))
     vi.mocked(api.stageSavingsEntry).mockResolvedValue({ record: savingsEntryDraft(1000), challenge: fixture, replayed: false })
     HTMLElement.prototype.scrollIntoView = vi.fn()
-    render(view()); fireEvent.click(await screen.findByRole('button', { name: 'Correct record #41' }))
+    render(view()); fireEvent.click(await screen.findByRole('button', { name: 'Fix record #41' }))
     fireEvent.change(screen.getByLabelText('Amount in US dollars'), { target: { value: '10.00' } })
     fireEvent.change(screen.getByLabelText('Reason for correction'), { target: { value: 'Corrected amount' } })
     fireEvent.click(screen.getByRole('button', { name: 'Review savings record' }))
@@ -73,7 +117,7 @@ describe('participant savings Home', () => {
     expect(within(screen.getByRole('article', { name: 'Approved savings progress' })).getByText('$25.50')).toBeTruthy()
   })
   it('preserves typed entry on background refresh and clears it after revoked access', async () => {
-    render(view()); await screen.findByText('Not yet approved')
+    render(view()); await screen.findByText('No target yet')
     const input = screen.getByLabelText('Amount in US dollars') as HTMLInputElement
     fireEvent.change(input, { target: { value: '37.25' } })
     fireEvent(window, new Event('focus'))
@@ -91,38 +135,54 @@ describe('participant savings Home', () => {
     const ui = render(view()); await waitFor(() => expect(fetchChallenge).toHaveBeenCalledTimes(1))
     const signal = fetchChallenge.mock.calls[0][0]
     ui.rerender(view('new-scope'))
-    await screen.findByText('Review before joining')
+    await screen.findByText('Join the 90-day savings challenge')
     await act(async () => release(savingsFixture()))
     expect(signal?.aborted).toBe(true)
-    expect(screen.queryByText('Not yet approved')).toBeNull()
+    expect(screen.queryByText('No target yet')).toBeNull()
+  })
+  it('offers the waiting target instead of preparing a second draft (rehearsal R-5.3)', async () => {
+    let finish!: (value: Awaited<ReturnType<typeof api.stageSavingsPlan>>) => void
+    vi.mocked(api.stageSavingsPlan).mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    fetchPage.mockImplementation(async (collection) => ({ records: collection === 'plan_drafts' ? [savingsPlanDraft(40000)] : [], next_cursor: null }))
+    render(view()); await screen.findByText('No target yet')
+    fireEvent.change(screen.getByLabelText('Target in US dollars'), { target: { value: '400.00' } })
+    const review = screen.getByRole('button', { name: 'Review target plan' })
+    fireEvent.click(review); fireEvent.click(review)
+    expect(api.stageSavingsPlan).toHaveBeenCalledTimes(1)
+    await act(async () => finish({ record: savingsPlanDraft(40000), challenge: { ...savingsFixture(), pending_plan_count: 1 }, replayed: false }))
+    expect(screen.queryByRole('button', { name: 'Review target plan' })).toBeNull()
+    expect(screen.getByText('Your target & spending choices').closest('summary')!.textContent).toContain('1 to review')
+    await screen.findByRole('button', { name: 'Confirm target plan #11' })
+    fireEvent.click(screen.getByRole('button', { name: 'Change it instead' }))
+    expect(screen.getByRole('button', { name: 'Review target plan' })).toBeTruthy()
   })
   it('stages postponed target as null without pretending an accepted $500 target', async () => {
     vi.mocked(api.stageSavingsPlan).mockResolvedValue({ record: { ...savingsPlanDraft(), target_cents: null }, challenge: savingsFixture(), replayed: false })
-    render(view()); await screen.findByText('Not yet approved')
+    render(view()); await screen.findByText('No target yet')
     fireEvent.click(screen.getByLabelText('I will choose my target later'))
     fireEvent.click(screen.getByRole('button', { name: 'Review target plan' }))
     await waitFor(() => expect(api.stageSavingsPlan).toHaveBeenCalledWith({ target_cents: null, expected_plan_version_id: null, reason: '' }, expect.any(String), expect.any(AbortSignal)))
-    expect(screen.getByText('Not yet approved')).toBeTruthy()
+    expect(screen.getByText('No target yet')).toBeTruthy()
   })
   it('requires new acceptance when an offered policy or personal window changes', async () => {
     fetchChallenge.mockResolvedValueOnce(savingsFixture(false)).mockResolvedValue({ ...savingsFixture(false), offer: { ...savingsFixture(false).offer!, policy_version: 'dev-notice-v2', personal_ends_on: '2027-01-02' } })
-    render(view()); await screen.findByText('Review before joining')
-    fireEvent.click(screen.getByLabelText(/read this notice/)); fireEvent.click(screen.getByLabelText(/later personal start/))
+    render(view()); await screen.findByText('Join the 90-day savings challenge')
+    fireEvent.click(screen.getByLabelText(/read this notice/)); fireEvent.click(screen.getByLabelText(/start later than the group/))
     fireEvent(window, new Event('focus'))
     await screen.findByText('The joining details were updated. Review them and check the boxes again.')
     expect((screen.getByLabelText(/read this notice/) as HTMLInputElement).checked).toBe(false)
     expect((screen.getByRole('button', { name: 'Accept and join' }) as HTMLButtonElement).disabled).toBe(true)
   })
   it('rejects future actuals and fractional cents without a draft write', async () => {
-    render(view()); await screen.findByText('Not yet approved')
-    const form = screen.getByRole('region', { name: 'Report actual savings' }).querySelector('form')!
+    render(view()); await screen.findByText('No target yet')
+    const form = screen.getByRole('region', { name: 'Add money you set aside' }).querySelector('form')!
     fireEvent.change(screen.getByLabelText('Amount in US dollars'), { target: { value: '1.005' } })
     fireEvent.submit(form)
     await screen.findByText(/at most two decimal places/)
     fireEvent.change(screen.getByLabelText('Amount in US dollars'), { target: { value: '1.00' } })
-    fireEvent.change(screen.getByLabelText('Date money was set aside or withdrawn'), { target: { value: '2026-10-05' } })
+    fireEvent.change(screen.getByLabelText('Date you set it aside or took it out'), { target: { value: '2026-10-05' } })
     fireEvent.submit(form)
-    await screen.findByText(/Future promises/)
+    await screen.findByText(/A future date can’t be saved yet/)
     expect(api.stageSavingsEntry).not.toHaveBeenCalled()
   })
   it('shows signed negative server totals with a zero bar and no zero attestation shortcut', async () => {
@@ -130,10 +190,10 @@ describe('participant savings Home', () => {
     fetchChallenge.mockResolvedValue(fixture)
     render(view()); await screen.findByText('-$25.50')
     expect(screen.getByRole('progressbar').getAttribute('value')).toBe('0')
-    expect(screen.queryByRole('button', { name: 'Confirm known zero' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Confirm nothing set aside' })).toBeNull()
   })
   it('preserves typed inputs on a transient background failure and disables changes until refreshed', async () => {
-    render(view()); await screen.findByText('Not yet approved')
+    render(view()); await screen.findByText('No target yet')
     fireEvent.change(screen.getByLabelText('Amount in US dollars'), { target: { value: '17.25' } })
     fetchChallenge.mockRejectedValueOnce(new Error('Temporary unavailable'))
     fireEvent(window, new Event('focus'))
@@ -146,7 +206,7 @@ describe('participant savings Home', () => {
 
   it('preserves exact contribution input after a stale review conflict until refreshed', async () => {
     vi.mocked(api.stageSavingsEntry).mockRejectedValueOnce(new ApiRequestError('Review changed; refresh first', { status: 409 }))
-    render(view()); await screen.findByText('Not yet approved')
+    render(view()); await screen.findByText('No target yet')
     fireEvent.change(screen.getByLabelText('Amount in US dollars'), { target: { value: '27.35' } })
     fireEvent.click(screen.getByRole('button', { name: 'Review savings record' }))
     await screen.findByText('Review changed; refresh first')
@@ -159,8 +219,8 @@ describe('participant savings Home', () => {
 
 })
 
-it('offers evidence review only for current positive eligible entries and displays returned quality honestly',async()=>{const review=vi.fn();fetchPage.mockImplementation(async collection=>({records:collection==='entries'?[{id:41,lock_version:1,current_approved_version_id:51,current_approved_version:{...savingsEntryVersion(),evidence_status:'stale',evidence_supported_cents:0}},{id:42,lock_version:1,current_approved_version_id:52,current_approved_version:{...savingsEntryVersion(),id:52,funding_source:'borrowed'}},{id:43,lock_version:1,current_approved_version_id:53,current_approved_version:{...savingsEntryVersion(),id:53,signed_cents:-500,funding_source:'withdrawal'}}]:[],next_cursor:null}));render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onReviewEvidence={review}/>);await screen.findByText(/Linked proof needs review/);expect(screen.getAllByRole('button',{name:'Review savings evidence'})).toHaveLength(1);fireEvent.click(screen.getByRole('button',{name:'Review savings evidence'}));expect(review).toHaveBeenCalledWith(51);expect(screen.getAllByText(/Supported subset:.*part of the reported amount/)).toHaveLength(3)})
-it('pages approved entry revisions and opens optional proof review for an old eligible contribution without editing totals',async()=>{const reviewed=vi.fn();const old={...savingsEntryVersion(5000),id:11,reason:'Earlier approved contribution'};fetchPage.mockImplementation(async(collection,cursor)=>({records:collection==='entry_versions'?(cursor?[old]:[{...old,id:8,funding_source:'borrowed'}]):[],next_cursor:collection==='entry_versions'&&!cursor?8:null}));render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onReviewEvidence={reviewed}/>);await screen.findByText('Not yet approved');fireEvent.click(screen.getByText('Savings entry revision history',{exact:true}));const history=screen.getByRole('region',{name:'Savings entry revisions'});await within(history).findByText(/Borrowed money/);expect(within(history).queryByRole('button',{name:/Review proof for/})).toBeNull();fireEvent.click(within(history).getByRole('button',{name:'Next records'}));fireEvent.click(await within(history).findByRole('button',{name:'Review proof for savings revision 1'}));expect(reviewed).toHaveBeenCalledWith(11);expect(screen.getByRole('article',{name:'Approved savings progress'}).textContent).toContain('Not yet reported');expect(api.stageSavingsEntry).not.toHaveBeenCalled()})
+it('offers evidence review only for current positive eligible entries and displays returned quality honestly',async()=>{const review=vi.fn();fetchPage.mockImplementation(async collection=>({records:collection==='entries'?[{id:41,lock_version:1,current_approved_version_id:51,current_approved_version:{...savingsEntryVersion(),evidence_status:'stale',evidence_supported_cents:0}},{id:42,lock_version:1,current_approved_version_id:52,current_approved_version:{...savingsEntryVersion(),id:52,funding_source:'borrowed'}},{id:43,lock_version:1,current_approved_version_id:53,current_approved_version:{...savingsEntryVersion(),id:53,signed_cents:-500,funding_source:'withdrawal'}}]:[],next_cursor:null}));render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onReviewEvidence={review}/>);await screen.findByText(/Statement match needs another look/);expect(screen.getAllByRole('button',{name:/^(Match to a statement|Review statement match)$/})).toHaveLength(1);fireEvent.click(screen.getByRole('button',{name:'Review statement match'}));expect(review).toHaveBeenCalledWith(51);const history=screen.getByRole('region',{name:'Savings history'});expect(within(history).getByText(/Borrowed money — excluded/)).toBeTruthy();expect(within(history).getByText(/Withdrawal from challenge savings/)).toBeTruthy();expect(document.body.textContent).toContain('$25.50 · Sun, Oct 4')})
+it('pages approved entry revisions and opens optional proof review for an old eligible contribution without editing totals',async()=>{const reviewed=vi.fn();const old={...savingsEntryVersion(5000),id:11,reason:'Earlier approved contribution'};fetchPage.mockImplementation(async(collection,cursor)=>({records:collection==='entry_versions'?(cursor?[old]:[{...old,id:8,funding_source:'borrowed'}]):[],next_cursor:collection==='entry_versions'&&!cursor?8:null}));render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onReviewEvidence={reviewed}/>);await screen.findByText('No target yet');fireEvent.click(screen.getByText('Earlier versions of your records',{exact:true}));const history=screen.getByRole('region',{name:'Earlier versions'});await within(history).findByText(/Borrowed money/);expect(within(history).queryByRole('button',{name:/Review statement match for/})).toBeNull();fireEvent.click(within(history).getByRole('button',{name:'Next records'}));fireEvent.click(await within(history).findByRole('button',{name:'Review statement match for version 1'}));expect(reviewed).toHaveBeenCalledWith(11);expect(screen.getByRole('article',{name:'Approved savings progress'}).textContent).toContain('Nothing set aside yet');expect(api.stageSavingsEntry).not.toHaveBeenCalled()})
 
 it('keeps approved Home compact, preserves a collapsed entry draft and omits one-page pagination', async () => {
   const fixture = savingsFixture(); fixture.accepted_plan = { ...savingsPlanDraft(), id: 21, target_cents: 50000 } as unknown as NonNullable<typeof fixture.accepted_plan>
@@ -169,23 +229,26 @@ it('keeps approved Home compact, preserves a collapsed entry draft and omits one
   const entries = [{ id: 41, lock_version: 1, current_approved_version_id: 51, current_approved_version: savingsEntryVersion() }]
   let finishHistory!: (rows: typeof entries) => void
   fetchPage.mockImplementation(async collection => ({ records: collection === 'entries' ? await new Promise<typeof entries>(resolve => { finishHistory = resolve }) : [], next_cursor: null }))
-  render(view()); await screen.findByRole('button', { name: 'Report savings' })
-  const entry = screen.getByText('Report savings', { selector: 'summary' }).closest('details')!
-  const target = screen.getByText('Target & spending choices', { selector: 'summary' }).closest('details')!
-  expect(entry.open).toBe(false); expect(target.open).toBe(false)
-  fireEvent.click(entry.querySelector('summary')!)
+  render(view())
+  const toggle = await screen.findByRole('button', { name: 'I set money aside' })
+  const entry = screen.getByRole('region', { name: 'Add money you set aside', hidden: true })
+  const target = screen.getByText('Your target & spending choices').closest('details')!
+  expect(toggle.getAttribute('aria-expanded')).toBe('false'); expect(entry.classList.contains('is-collapsed')).toBe(true); expect(target.open).toBe(false)
+  expect(toggle.getAttribute('aria-controls')).toBe(entry.id)
+  fireEvent.click(toggle)
+  expect(toggle.getAttribute('aria-expanded')).toBe('true'); expect(entry.classList.contains('is-collapsed')).toBe(false)
   const amount = screen.getByLabelText('Amount in US dollars') as HTMLInputElement
   fireEvent.change(amount, { target: { value: '12.34' } })
-  fireEvent.click(entry.querySelector('summary')!)
-  fireEvent.click(entry.querySelector('summary')!)
+  fireEvent.click(toggle)
+  fireEvent.click(toggle)
   expect(amount.value).toBe('12.34')
-  const approved = screen.getByText('Your approved records & corrections', { selector: 'summary' }).closest('details')!
+  const approved = screen.getByText('Your records & corrections').closest('details')!
   fireEvent.click(approved.querySelector('summary')!)
   const history = screen.getByRole('region', { name: 'Savings history', hidden: true })
   expect(within(history).getByText('Loading savings history…')).toBeTruthy()
   await act(async () => finishHistory(entries))
   await waitFor(() => expect(screen.queryAllByText(/^Loading .*…$/)).toHaveLength(0))
-  expect(within(history).getByRole('button', { name: 'Correct record #41' })).toBeTruthy()
+  expect(within(history).getByRole('button', { name: 'Fix record #41' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Previous records' })).toBeNull()
   expect(api.stageSavingsEntry).not.toHaveBeenCalled()
 })

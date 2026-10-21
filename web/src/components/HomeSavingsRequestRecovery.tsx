@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { useHomeSavingsMutation } from '../lib/useHomeSavingsMutation'
-const labels = { enrollment: 'joining the challenge', entry_stage: 'preparing a savings record', entry_approve: 'approving a savings record', zero_attest: 'confirming known zero' }
+const labels = { enrollment: 'joining the challenge', entry_stage: 'preparing a savings record', entry_approve: 'confirming a savings record', zero_attest: 'confirming you set nothing aside' }
 export function HomeSavingsRequestRecovery({ state, onFresh }: { state: ReturnType<typeof useHomeSavingsMutation>; onFresh: () => void }) {
   const [accepted, setAccepted] = useState(false)
   const request = state.pending

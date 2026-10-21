@@ -1,60 +1,148 @@
-.savings-home { max-width: 1100px; margin-inline: auto; gap: 20px; }
-.savings-home .panel { min-width: 0; }
-.savings-home h3 { margin: 0 0 12px; }
-.savings-home p { line-height: 1.6; overflow-wrap: anywhere; }
-.savings-home button { min-height: 44px; padding: 10px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--emerald); color: var(--brand-on-primary); font: inherit; font-weight: var(--weight-bold); cursor: pointer; }
-.savings-home button:disabled { opacity: .6; cursor: default; }
-.savings-home button:focus-visible, .savings-home input:focus-visible, .savings-home select:focus-visible, .savings-home textarea:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 3px; }
-.savings-workflows { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+/* Savings challenge home: one column, one question first ("How much have I set
+   aside toward my target?"), one filled button, plain list rows below. Flat
+   surfaces: a 1px line or one tone step, never resting shadows or gradients. */
+.savings-home { max-width: 720px; width: 100%; margin-inline: auto; gap: 16px; --savings-ease: cubic-bezier(0.23, 1, 0.32, 1); }
+.savings-home .panel { min-width: 0; padding: 20px; border-radius: var(--radius-lg); background: var(--paper); box-shadow: none; }
+.savings-home .screen-heading { padding: 4px 2px 0; }
+.savings-home .screen-heading h2 { margin: 0; font-size: clamp(1.625rem, 6vw, 2rem); line-height: 1.1; letter-spacing: -0.02em; }
+.savings-home h3 { margin: 0 0 12px; font-size: var(--text-lg); }
+.savings-home h4 { margin: 16px 0 8px; font-size: var(--text-md); }
+.savings-home p { line-height: 1.55; overflow-wrap: anywhere; }
+
+/* Buttons: outlined by default; exactly one filled primary per view. */
+.savings-home button { min-height: 44px; padding: 10px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); color: var(--ink); font: inherit; font-weight: var(--weight-semibold); cursor: pointer; transition: transform 120ms var(--savings-ease), background-color 160ms var(--savings-ease); }
+.savings-home button:active:not(:disabled) { transform: scale(0.97); }
+.savings-home button:disabled { opacity: .55; cursor: default; }
+.savings-home .savings-primary { border-color: var(--emerald); background: var(--emerald); color: var(--brand-on-primary); font-weight: var(--weight-bold); }
+.savings-home .savings-secondary, .savings-home .savings-action { border: 1.5px solid var(--emerald); color: var(--emerald); font-weight: var(--weight-bold); }
+.savings-home .savings-link { min-height: 44px; padding: 0 2px; border: 0; background: none; color: var(--emerald); font-weight: var(--weight-semibold); text-decoration: underline; text-underline-offset: 3px; }
+.savings-home .savings-link:active:not(:disabled) { transform: none; }
+@media (hover: hover) and (pointer: fine) {
+  .savings-home button:hover:not(:disabled) { background: var(--paper-warm); }
+  .savings-home .savings-primary:hover:not(:disabled) { background: var(--brand-primary-hover); }
+  .savings-home .savings-link:hover:not(:disabled) { background: none; color: var(--brand-primary-hover); }
+}
+.savings-home button:focus-visible, .savings-home summary:focus-visible, .savings-home input:focus-visible, .savings-home select:focus-visible, .savings-home textarea:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 3px; }
+
+/* Forms */
 .savings-home fieldset { padding: 0; border: 0; margin: 0; min-width: 0; display: grid; gap: 14px; }
 .savings-home label { display: grid; gap: 7px; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
 .savings-home input:not([type=checkbox]), .savings-home select, .savings-home textarea { width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; background: var(--paper); color: var(--ink); font: inherit; font-size: var(--text-md); }
 /* WebKit can paint long native options outside an otherwise correctly sized
    select. Bound only that control; keep its choices and external focus outline. */
 .savings-home select { max-width: 100%; overflow: hidden; text-overflow: ellipsis; contain: paint; }
-.savings-home .savings-check { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; line-height: 1.6; }
+.savings-home .savings-check { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; line-height: 1.5; font-weight: var(--weight-medium); }
 .savings-check input { width: 20px; height: 20px; margin-top: 2px; flex-shrink: 0; }
-.savings-progress { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 24px; }
-.savings-total { font-family: var(--font-display); font-size: clamp(30px, 5vw, 48px); font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
-.savings-target { display: grid; gap: 8px; align-content: start; }
-.savings-progress progress, .savings-progress > p { grid-column: 1 / -1; width: 100%; }
-.savings-progress progress { accent-color: var(--emerald); height: 12px; }
-.savings-caption { font-size: var(--text-xs); color: var(--muted); }
-.savings-calendar { padding: 18px 24px; border-block: 1px solid var(--line); }
-.savings-calendar > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
-.savings-calendar ol { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 20px; }
-.savings-calendar li { display: grid; gap: 6px; flex: 1; min-width: 125px; }
-.savings-history { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 14px; }
-.savings-history ol { padding: 0; list-style: none; }
-.savings-history li { border-bottom: 1px solid var(--line); padding: 10px 0 16px; }
-.savings-pager, .savings-next { display: flex; gap: 10px; flex-wrap: wrap; }
-.savings-next p { width: 100%; }
+.savings-form-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.savings-caption, .savings-home .savings-caption { margin: 0; font-size: var(--text-sm); color: var(--muted); }
 .savings-error { background: #fff4f0; color: #71291e; border: 1px solid #d7998a; padding: 16px; border-radius: var(--radius-md); }
-.savings-notice { background: var(--emerald-soft); padding: 12px 16px; border-radius: var(--radius-md); }
-.savings-excluded { border-left: 3px solid var(--line); padding-left: 10px; }
-@media (max-width: 768px) { .savings-workflows { grid-template-columns: 1fr; } .savings-progress { grid-template-columns: 1fr; } .savings-calendar { padding: 16px 8px; } .savings-home button { max-width: 100%; overflow-wrap: anywhere; } }
+.savings-notice { margin: 0; background: var(--emerald-soft); padding: 12px 16px; border-radius: var(--radius-md); }
+.savings-excluded { margin: 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--paper-deep); }
+
+/* The one question */
+.savings-summary { display: grid; gap: 8px; padding: 22px 20px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); }
+.savings-summary > h3 { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--muted); scroll-margin-top: 20px; }
+.savings-summary p { margin: 0; }
+.savings-total { margin: 0; font-family: var(--number-font); font-size: clamp(2rem, 9vw, 2.5rem); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; line-height: 1.1; color: var(--ink); overflow-wrap: anywhere; }
+.savings-total--words { font-size: clamp(1.5rem, 6.5vw, 1.75rem); }
+.savings-target-line { color: var(--ink); font-size: var(--text-md); }
+.savings-target-line .savings-link { min-height: 0; padding: 12px 2px; margin-block: -12px; }
+.savings-bar { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 10px; margin: 6px 0 2px; border: 0; border-radius: var(--radius-pill); background: var(--paper-deep); overflow: hidden; color: var(--emerald); }
+.savings-bar::-webkit-progress-bar { background: var(--paper-deep); border-radius: var(--radius-pill); }
+.savings-bar::-webkit-progress-value { background: var(--emerald); border-radius: var(--radius-pill); }
+.savings-bar::-moz-progress-bar { background: var(--emerald); border-radius: var(--radius-pill); }
+.savings-day-line { color: var(--ink); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.savings-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.savings-badge { font-weight: var(--weight-bold); }
+
+/* "I set money aside" opens right under the summary. Kept mounted so typed
+   amounts survive closing it. */
+.savings-aside { display: grid; gap: 12px; }
+.savings-aside.is-collapsed { display: none; }
+.savings-aside > h3 { margin: 0; scroll-margin-top: 20px; }
+.savings-aside > p { margin: 0; color: var(--muted); }
+.savings-zero > summary { min-height: 44px; padding-block: 10px; box-sizing: border-box; font-weight: var(--weight-semibold); cursor: pointer; color: var(--emerald); }
+.savings-zero section { display: grid; gap: 10px; padding-top: 4px; }
+
+/* Day 30 / 60 / 90 */
+.savings-checkpoints { display: grid; gap: 8px; }
+.savings-checkpoints ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.savings-checkpoints li { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); font-variant-numeric: tabular-nums; }
+.savings-checkpoints li strong { font-size: var(--text-sm); }
+.savings-checkpoints li span { font-size: var(--text-sm); color: var(--muted); }
+.savings-checkpoints li.is-current { border-color: var(--emerald); background: var(--emerald-soft); }
+.savings-checkpoints li.is-current span { color: var(--ink); }
+.savings-checkpoints .savings-link { justify-self: start; }
+
+/* Plain list rows */
+.savings-rows { display: grid; border-top: 1px solid var(--line); margin-top: 8px; }
+.savings-row-group { border-bottom: 1px solid var(--line); min-width: 0; }
+.savings-row-group:empty { display: none; }
+.savings-home .savings-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 12px 4px; border: 0; border-radius: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; list-style: none; }
+.savings-home .savings-row:active:not(:disabled) { transform: none; background: var(--paper-warm); }
+summary.savings-row::-webkit-details-marker { display: none; }
+summary.savings-row::marker { content: ''; }
+.savings-row-text { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.savings-row-label { font-size: var(--text-md); font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.savings-row-count { color: var(--emerald); font-weight: var(--weight-bold); }
+.savings-row-desc { font-size: var(--text-sm); font-weight: var(--weight-regular); color: var(--muted); line-height: 1.4; }
+.savings-chevron { width: 20px; height: 20px; flex: none; color: var(--muted); transition: transform 180ms var(--savings-ease); }
+details[open] > summary.savings-row .savings-chevron { transform: rotate(90deg); }
+.savings-row-body { display: grid; gap: 12px; padding: 4px 4px 24px; min-width: 0; }
+.savings-row-body > h3 { margin: 0; scroll-margin-top: 20px; }
+.savings-row-body > p { margin: 0; }
+@media (hover: hover) and (pointer: fine) { .savings-home .savings-row:hover:not(:disabled) { background: var(--paper-warm); } }
+
+/* Export row contents */
+.savings-export fieldset { gap: 10px; }
+.savings-export label:not(:first-child) { display: flex; align-items: flex-start; gap: 10px; font-weight: var(--weight-medium); line-height: 1.5; }
+.savings-export input[type=checkbox] { width: 20px; height: 20px; margin-top: 2px; flex: none; }
+.savings-export button { justify-self: start; }
+
+.savings-history { border-top: 1px solid var(--line); padding-top: 12px; }
+.savings-history h4 { margin-top: 0; }
+.savings-history ol { margin: 0; padding: 0; list-style: none; }
+.savings-history li { display: grid; gap: 6px; border-bottom: 1px solid var(--line); padding: 12px 0; }
+.savings-history li p { margin: 0; }
+.savings-history li > div:not(.savings-form-actions) { display: grid; gap: 8px; }
+.savings-pager { display: flex; gap: 10px; flex-wrap: wrap; padding-top: 12px; }
+.savings-versions > summary { min-height: 44px; padding-block: 10px; box-sizing: border-box; font-weight: var(--weight-semibold); cursor: pointer; }
+
+/* Joining, not open and paused */
+.savings-enrollment { display: grid; gap: 12px; }
+.savings-enrollment > h3, .savings-enrollment > p { margin: 0; }
+.savings-join-dates { display: grid; gap: 2px; }
+.savings-join-dates span { color: var(--muted); font-size: var(--text-sm); }
+.savings-terms { margin: 0; padding-left: 20px; display: grid; gap: 8px; line-height: 1.5; }
+.savings-enrollment .savings-primary { justify-self: start; }
+.savings-state { display: grid; gap: 8px; padding: 4px 2px; }
+.savings-state p { margin: 0; font-size: var(--text-md); color: var(--ink); }
+.savings-state .savings-caption { color: var(--muted); }
+.savings-footnote { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+.savings-footnote .savings-link { min-height: 44px; }
+
+@media (max-width: 600px) {
+  .savings-home .panel, .savings-summary { padding: 18px 16px; }
+  .savings-actions, .savings-form-actions { flex-direction: column; }
+  .savings-actions > button, .savings-form-actions > button, .savings-enrollment .savings-primary, .savings-export button { width: 100%; justify-self: stretch; }
+  .savings-home button { max-width: 100%; overflow-wrap: anywhere; }
+  .savings-checkpoints li { padding: 8px 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .savings-home button, .savings-chevron { transition: none; }
+  .savings-home button:active:not(:disabled) { transform: none; }
+}
+
 .comfortable-plan { border-top: 1px solid var(--line); padding-top: 12px; min-width: 0; }
 .comfortable-plan summary { min-height: 44px; cursor: pointer; font-weight: var(--weight-bold); overflow-wrap: anywhere; align-content: center; }
 .savings-home fieldset.comfortable-choice { border: 1px solid var(--line); padding: 12px; border-radius: var(--radius-sm); margin-block: 10px; }
 .comfortable-plan legend { max-width: 100%; overflow-wrap: anywhere; padding: 0 5px; font-weight: var(--weight-bold); }
-.comfortable-summary { padding: 12px; margin-block: 14px; border-radius: var(--radius-sm); background: var(--paper); border: 1px solid var(--line); }
+.comfortable-summary { padding: 12px; margin-block: 8px; border-radius: var(--radius-sm); background: var(--paper-warm); border: 1px solid var(--line); }
 .comfortable-summary ul { padding-left: 20px; }
 .comfortable-summary p { margin-block: 8px; }
 .comfortable-plan select { max-width: 100%; text-overflow: ellipsis; overflow: hidden; }
-
-.savings-progress > h3 { grid-column: 1 / -1; scroll-margin-top: 20px; }
-.savings-progress > button { grid-column: 1 / -1; justify-self: start; }
-.savings-task { padding: 0; }
-.savings-task > summary, .savings-support > summary { padding: 18px 20px; min-height: 44px; font-weight: var(--weight-bold); cursor: pointer; overflow-wrap: anywhere; }
-.savings-task > section { padding: 8px 20px 20px; }
-.savings-task[open] > summary { border-bottom: 1px solid var(--line); }
-.savings-support { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); }
-.savings-support .savings-next { padding: 0 20px 20px; }
-.savings-home .savings-caption { font-size: var(--text-xs); }
-.savings-progress > button { width: auto; }
-@media (max-width: 768px) {
-  .savings-task > summary, .savings-support > summary { padding: 16px; }
-  .savings-task > section { padding: 8px 16px 16px; }
-  .savings-calendar li { min-width: 80px; }
-  .savings-calendar li strong { font-size: var(--text-sm); }
-}
+.savings-nowrap { white-space: nowrap; }
+.savings-join-dates strong { color: var(--ink); }
+/* A background refresh is noted just under the title without moving the page. */
+.savings-home .screen-heading { position: relative; }
+.savings-home .screen-heading .savings-refreshing { position: absolute; left: 2px; top: 100%; margin: 0; font-size: var(--text-xs); line-height: 16px; color: var(--muted); }
