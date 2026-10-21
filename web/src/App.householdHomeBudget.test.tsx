@@ -78,6 +78,15 @@ it('puts the whole year before monthly detail and replaces the full queue with a
   expect(props.onReviewTransactions).toHaveBeenCalledOnce()
   expect(screen.getByText(/1 purchase waiting for review/)).toBeTruthy()
 })
+it('links Mia plan changes waiting for review to Ask Mia, separately from purchases', () => {
+  const props = plannerProps()
+  const pendingPlan = { ...plan, pending_mia_action_drafts: [{ id: 7, title: 'Move $50 to groceries', status: 'pending' }] } as unknown as AnnualBudgetPlan
+  render(<AnnualBudgetPlanner {...props} plan={pendingPlan} />)
+  expect(screen.getByText(/1 plan change from .* waiting for you/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: /^Review in / }))
+  expect(props.onAskMia).toHaveBeenCalledOnce()
+  expect(screen.queryByText(/purchases? waiting for review/)).toBeNull()
+})
 it('shows a quiet unknown year and one setup path before values are entered', () => {
   const { container } = render(<AnnualBudgetPlanner {...plannerProps()} incomeKnown={false} planKnown={false} needsSetup />)
   expect(container.querySelectorAll('.cash-flow-bars i')).toHaveLength(0)
