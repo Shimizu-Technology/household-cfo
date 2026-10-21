@@ -88,6 +88,12 @@ describe('participant privacy help and reminders', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review dismiss reminder' })); expect(screen.getByText(/Dismissal does not record spending/)).toBeTruthy(); approve()
     await waitFor(() => expect(api.mutate).toHaveBeenCalledWith(expect.objectContaining({ action: 'dismiss' }), { enrollment_id: 100, reminder_id: 800, expected_lock_version: 0 }, expect.anything()))
   })
+  it('reviews a reminder preference without claiming an existing check-in is absent', async () => {
+    open(); fireEvent.click(await screen.findByText('Daily reminders'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Review in-app preference' }))
+    expect(screen.getByText('No financial details or feelings in notifications. Missing or dismissing a reminder does not record a check-in.')).toBeTruthy()
+    expect(screen.queryByText(/means no check-in was recorded/)).toBeNull()
+  })
   it('help request shares no extra records by default and clears its text after review', async () => {
     const api = syntheticPrivacyApi(); api.mutate = vi.fn(api.mutate); open(api); fireEvent.click(await screen.findByText('Ask for help'))
     fireEvent.change(screen.getByLabelText('Help recipient'), { target: { value: '904' } }); fireEvent.change(screen.getByLabelText('Your message'), { target: { value: 'Fictional technical help only' } }); fireEvent.click(screen.getByRole('button', { name: 'Review help request' }))
