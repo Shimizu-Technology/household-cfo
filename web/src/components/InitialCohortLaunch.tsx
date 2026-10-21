@@ -84,7 +84,7 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
       if (result.launch.cohort.id !== id) throw new Error('The launch response returned a different cohort. Reload before continuing.')
       setState(result.launch)
       setReview(null)
-      setNotice('Cohort launched. Participants now use the sealed brand, assistant, and tools. Future updates use a rollout.')
+      setNotice('Group launched. Participants now use the reviewed appearance, Mia voice, and tools. Choose Update group for future changes.')
       onLaunch()
     } catch (caught) {
       if (!mutationLifecycle.isCurrent(ticket) || cohortRef.current !== id) return
@@ -99,26 +99,26 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
   if (!cohortId) return null
   return <article ref={cardRef} className="panel initial-cohort-launch" aria-labelledby="initial-launch-heading">
     <div>
-      <p className="eyebrow">First launch</p>
-      <h3 id="initial-launch-heading" tabIndex={-1}>{state?.active_release_id ? 'This cohort is launched' : 'Make your first sealed release available'}</h3>
+
+      <h3 id="initial-launch-heading" tabIndex={-1}>{state?.active_release_id ? 'Your group is live' : state?.can_launch ? 'Ready to launch' : 'Prepare your group for launch'}</h3>
       <p>{state?.active_release_id
-        ? `Release activation is recorded. Use the Rollout step for later changes to participants’ brand, assistant, or tools.`
-        : 'Seal your ready settings, then review and launch them together. You only do this once per cohort.'}</p>
+        ? `This group has launched. Choose Update group to review any prepared changes.`
+        : 'Prepare a version in Review settings, then review who will receive it before launching.'}</p>
     </div>
     {loading && <p role="status">Checking launch readiness…</p>}
     {notice && <p className="initial-launch-notice" role="status">{notice}</p>}
     {error && <p role="alert">{error}</p>}
     {state && !state.active_release_id && <>
       {state.blockers.length > 0 && <ul>{state.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>}
-      {!state.can_launch && state.blockers.length === 0 && <p>A workspace owner or reviewer can launch this cohort.</p>}
-      {review ? <section className="initial-launch-review" aria-label="Review first cohort launch">
-        <h4 ref={reviewHeadingRef} tabIndex={-1}>Review first cohort launch</h4>
+      {!state.can_launch && state.blockers.length === 0 && <p>A program owner or reviewer can launch this group.</p>}
+      {review ? <section className="initial-launch-review" aria-label="Review first group launch">
+        <h4 ref={reviewHeadingRef} tabIndex={-1}>Review first group launch</h4>
         <p><strong>{state.cohort.name} · Release {state.release?.release_number}</strong></p>
-        <p>{state.message}</p>
+        <p>{state.participant_experience ? `${state.participant_experience.label} experience` : 'The reviewed appearance, Mia voice, and tools become available to this group together.'}</p>
         {state.participant_experience?.mode === 'savings_challenge' && <p>Launching does not open the challenge. Participants see it only after an administrator opens it from Admin &gt; Cohorts.</p>}
         <p>{state.cohort.participant_count} current {state.cohort.participant_count === 1 ? 'participant' : 'participants'} will use this release. New participants will use it too.</p>
         <div className="initial-launch-actions">
-          <Button disabled={mutationLifecycle.pending || !state.can_launch} onClick={() => void launch()}>{mutationLifecycle.pending ? 'Launching…' : 'Launch cohort now'}</Button>
+          <Button disabled={mutationLifecycle.pending || !state.can_launch} onClick={() => void launch()}>{mutationLifecycle.pending ? 'Launching…' : 'Launch group now'}</Button>
           <Button variant="secondary" disabled={mutationLifecycle.pending} onClick={() => setReview(null)}>Cancel</Button>
         </div>
       </section> : state.can_launch && state.release && <Button data-launch-review-trigger disabled={mutationLifecycle.pending || loading} onClick={() => {
@@ -126,6 +126,8 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
         setReview({ input: { release_id: state.release!.id, preview_digest: state.preview_digest }, requestId: createCohortReleaseRequestId() })
       }}>Review first launch</Button>}
     </>}
+    {state?.active_release_id && <p>{state.cohort.participant_count} {state.cohort.participant_count === 1 ? 'participant' : 'participants'} in this group.</p>}
+    {mutationLifecycle.pending && <p role="status">Wait for the current action to finish.</p>}
     {!review && <Button variant="ghost" disabled={mutationLifecycle.pending || loading} onClick={() => void load(cohortId)}>Refresh launch state</Button>}
   </article>
 }

@@ -22,11 +22,11 @@ type Confirmation = {
 }
 
 const requiredChecks = [
-  { key: 'workspace_brand', label: 'Workspace brand' },
+  { key: 'workspace_brand', label: 'Program appearance' },
   { key: 'assistant_voice', label: 'Assistant voice' },
   { key: 'participant_tools', label: 'Participant tools' },
   { key: 'system_controls', label: 'System controls' },
-  { key: 'participant_cohort', label: 'Participant cohort check' },
+  { key: 'participant_cohort', label: 'Group membership' },
 ] as const
 
 export function CohortReleaseStudio({
@@ -110,7 +110,7 @@ export function CohortReleaseStudio({
 
   const displayedChecks = useMemo(() => requiredChecks.map((expected) => {
     const check = studio?.candidate?.checks.find((entry) => normalizeCheckKey(entry.key || entry.label) === expected.key)
-    return check ?? {
+    return check ? { ...check, label: expected.label } : {
       key: expected.key,
       label: expected.label,
       ready: false,
@@ -125,6 +125,14 @@ export function CohortReleaseStudio({
   const historyLabel = studio?.history.truncated
     ? `${releases.length} of ${historyTotal} sealed records`
     : `${historyTotal} sealed record${historyTotal === 1 ? '' : 's'}`
+  const alreadyPrepared = Boolean(studio?.latest_release_match || studio?.candidate?.seal_needed === false)
+  const latest = releases[0]
+  const changes = studio?.candidate && latest ? [
+    studio.candidate.brand_snapshot_digest !== latest.brand_snapshot_digest ? 'Program appearance' : null,
+    studio.candidate.persona_version_id !== latest.persona_version_id ? 'Mia voice' : null,
+    studio.candidate.experience_version_id !== latest.experience_version_id ? 'Participant tools' : null,
+    studio.candidate.registry_digest !== latest.registry_digest ? 'System controls' : null,
+  ].filter(Boolean) : []
   const restoreExpectedLatestReleaseId = studio?.candidate?.expected_latest_release_id ?? null
 
   const closeConfirmation = useCallback(() => {
@@ -194,7 +202,7 @@ export function CohortReleaseStudio({
       const action = confirmation.kind
       setConfirmation(null)
       setNotice(action === 'seal'
-        ? 'Release record sealed. Participant runtime did not change.'
+        ? 'Version prepared. Participant settings did not change. Launch or update the group next.'
         : 'Restore record sealed. Participant runtime did not change.')
       await loadStudio(cohortId)
       onReleaseChange?.()
@@ -276,12 +284,14 @@ export function CohortReleaseStudio({
           <article className="panel cohort-release-readiness">
             <header>
               <div>
-                <p className="eyebrow">Exact readiness</p>
-                <h3 ref={releaseStateHeadingRef} tabIndex={-1}>{studio.candidate?.ready ? 'Ready to seal' : 'Needs attention before sealing'}</h3>
+
+                <h3 ref={releaseStateHeadingRef} tabIndex={-1}>{alreadyPrepared ? 'Settings already prepared' : studio.candidate?.ready ? 'Ready to prepare' : 'Settings need attention'}</h3>
               </div>
-              <span className={`cohort-release-state ${studio.candidate?.ready ? 'is-ready' : ''}`}>{studio.candidate?.ready ? 'Ready' : 'Blocked'}</span>
+              <span className={`cohort-release-state ${studio.candidate?.ready ? 'is-ready' : ''}`}>{alreadyPrepared ? 'Prepared' : studio.candidate?.ready ? 'Ready' : 'Needs attention'}</span>
             </header>
 
+            {!alreadyPrepared && changes.length > 0 && <p><strong>Pending changes:</strong> {changes.join(', ')}. Preparing this version does not change what participants use.</p>}
+            <details open={!alreadyPrepared}><summary>Readiness checks</summary>
             <ol className="cohort-release-checklist">
               {displayedChecks.map((check) => (
                 <li key={check.key} className={check.ready ? 'is-ready' : ''}>
@@ -290,7 +300,7 @@ export function CohortReleaseStudio({
                   <b>{check.ready ? 'Ready' : 'Needed'}<span className="sr-only">: {check.label}</span></b>
                 </li>
               ))}
-            </ol>
+            </ol></details>
 
             {studio.candidate?.blockers && studio.candidate.blockers.length > 0 && (
               <div className="cohort-release-blockers" role="note">
@@ -306,30 +316,32 @@ export function CohortReleaseStudio({
             )}
 
             {studio.candidate && (
-              <dl className="cohort-release-evidence">
+              <details><summary>Version details</summary><dl className="cohort-release-evidence">
                 <div><dt>Brand version</dt><dd>{brandEvidenceLabel(studio.candidate.brand_mode, studio.candidate.brand_version_id)}</dd></div>
                 <div><dt>Assistant version</dt><dd>{studio.candidate.persona_version_id ?? 'Neutral built-in voice'}</dd></div>
                 <div><dt>Participant tools version</dt><dd>{studio.candidate.experience_version_id ?? 'Safe default tools'}</dd></div>
                 <div className="is-wide"><dt>Bundle fingerprint</dt><dd>{shortDigest(studio.candidate.bundle_digest)}</dd></div>
-              </dl>
+              </dl></details>
             )}
 
+            {(pendingAction !== null || mutationLifecycle.pending) && <p role="status">Wait for the current action to finish.</p>}
+            {!studio.candidate?.ready && !alreadyPrepared && <p>Complete the readiness checks above before preparing a version.</p>}
             <div className="cohort-release-actions">
               {studio.permissions.seal ? (
                 <Button
                   onClick={requestSeal}
                   disabled={!studio.candidate?.ready || !studio.candidate.seal_needed || studio.latest_release_match || pendingAction !== null || mutationLifecycle.pending}
                 >
-                  {pendingAction === 'seal' ? 'Sealing record' : studio.latest_release_match || !studio.candidate?.seal_needed ? 'Latest evidence already sealed' : 'Review and seal record'}
+                  {pendingAction === 'seal' ? 'Preparing version' : studio.latest_release_match || !studio.candidate?.seal_needed ? 'Settings already prepared' : 'Review and prepare version'}
                 </Button>
               ) : <p className="coach-read-only">You can review release evidence, but this cohort or your role does not allow sealing records.</p>}
-              {(studio.latest_release_match || studio.candidate?.seal_needed === false) && <p className="cohort-release-noop" role="status">The latest sealed record already matches this exact brand, assistant, and tool bundle.</p>}
+              {(studio.latest_release_match || studio.candidate?.seal_needed === false) && <p className="cohort-release-noop" role="status">The latest version already includes these settings. Use the launch review above, or choose Update group to check for a pending update.</p>}
             </div>
           </article>
 
-          <article className="panel cohort-release-history">
+          <details className="panel cohort-release-history"><summary>Version history ({historyTotal})</summary>
             <header>
-              <div><p className="eyebrow">Immutable history</p><h3>{historyLabel}</h3></div>
+              <div><h3>{historyLabel}</h3></div>
             </header>
             {releases.length === 0 ? (
               <div className="cohort-release-empty"><strong>No release records yet.</strong><p>Seal the ready evidence to create this cohort's first record.</p></div>
@@ -361,7 +373,7 @@ export function CohortReleaseStudio({
                 ))}
               </ol>
             )}
-          </article>
+          </details>
         </div>
       ) : null}
 
@@ -442,8 +454,8 @@ function ReleaseConfirmationDialog({
     <div className="cohort-release-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !pending) onCancel() }}>
       <section ref={dialogRef} className="cohort-release-modal" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="cohort-release-modal-title" aria-describedby="cohort-release-modal-copy" onKeyDown={trapFocus}>
         <p className="eyebrow">Final review</p>
-        <h3 id="cohort-release-modal-title">{restoring ? `Restore record #${confirmation.release?.release_number}` : 'Seal this release record?'}</h3>
-        <p id="cohort-release-modal-copy">This creates immutable audit evidence for {cohortName}. It does not change the brand, assistant, or tools participants use.</p>
+        <h3 id="cohort-release-modal-title">{restoring ? `Restore record #${confirmation.release?.release_number}` : 'Prepare this version?'}</h3>
+        <p id="cohort-release-modal-copy">This saves a fixed version of the reviewed settings for {cohortName}. Participants keep their current settings until you launch or update the group.</p>
         <dl className="cohort-rollout-confirmation-summary">
           <div><dt>Cohort</dt><dd>{cohortName}</dd></div>
           <div><dt>{restoring ? 'Historical brand' : 'Brand version'}</dt><dd>{brandLabel}</dd></div>
@@ -453,7 +465,7 @@ function ReleaseConfirmationDialog({
         {error && <p className="coach-studio-alert is-error" role="alert">{error}</p>}
         <div className="cohort-release-modal-actions">
           <button ref={cancelRef} type="button" className="button button--ghost button--default" onClick={onCancel} disabled={pending}>Cancel</button>
-          <Button onClick={onConfirm} disabled={pending}>{pending ? 'Sealing record' : restoring ? 'Seal restore record' : 'Seal release record'}</Button>
+          <Button onClick={onConfirm} disabled={pending}>{pending ? 'Preparing version' : restoring ? 'Seal restore record' : 'Prepare version'}</Button>
         </div>
       </section>
     </div>

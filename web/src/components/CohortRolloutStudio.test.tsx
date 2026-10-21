@@ -8,7 +8,7 @@ import { CohortRolloutStudio } from './CohortRolloutStudio'
 
 const apiMocks = vi.hoisted(() => ({
   advanceCohortRollout: vi.fn(), cancelCohortRollout: vi.fn(), createCohortRolloutRequestId: vi.fn(() => 'rollout-request-1'),
-  fetchCohortRolloutStudio: vi.fn(), pauseCohortRollout: vi.fn(), planCohortRollout: vi.fn(), resumeCohortRollout: vi.fn(), rollbackCohortRollout: vi.fn(),
+  fetchCohortReleaseStudio: vi.fn(), fetchCohortRolloutStudio: vi.fn(), pauseCohortRollout: vi.fn(), planCohortRollout: vi.fn(), resumeCohortRollout: vi.fn(), rollbackCohortRollout: vi.fn(),
 }))
 
 vi.mock('../api', async (importOriginal) => ({ ...await importOriginal<typeof import('../api')>(), ...apiMocks }))
@@ -122,7 +122,8 @@ function renderStudio(studio = studioFixture(), reloadStudio = studio) {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
+  apiMocks.fetchCohortReleaseStudio.mockResolvedValue(null)
   apiMocks.createCohortRolloutRequestId.mockReturnValue('rollout-request-1')
   apiMocks.planCohortRollout.mockResolvedValue(mutationResponse('planned', false))
   apiMocks.advanceCohortRollout.mockResolvedValue(mutationResponse('advanced', true))
@@ -139,18 +140,19 @@ describe('CohortRolloutStudio', () => {
     const { onDirtyChange } = renderStudio()
     expect(await screen.findByDisplayValue('All participants')).toBeTruthy()
     expect(screen.getAllByRole('combobox').map((select) => (select as HTMLSelectElement).value)).toEqual(['wave-1', 'wave-1'])
+    await user.click(screen.getByText('Update in stages'))
     await user.click(screen.getByRole('button', { name: 'Add wave' }))
     const names = screen.getAllByRole('textbox')
     await user.clear(names[1]); await user.type(names[1], 'Later group')
     await user.selectOptions(screen.getByRole('combobox', { name: 'Wave for Ben Santos' }), 'wave-2')
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true))
-    await user.click(screen.getByRole('button', { name: 'Review rollout plan' }))
-    const dialog = screen.getByRole('dialog', { name: 'Record this rollout plan?' })
+    await user.click(screen.getByRole('button', { name: 'Review group update' }))
+    const dialog = screen.getByRole('dialog', { name: 'Review this group update?' })
     expect(within(dialog).getByText('Release #4')).toBeTruthy()
     expect(within(dialog).getByText('Brand version 9')).toBeTruthy()
     expect(within(dialog).getByText('Wave 1 · 1 participant')).toBeTruthy()
     expect(within(dialog).getByText('Later group · 1 participant')).toBeTruthy()
-    await user.click(within(dialog).getByRole('button', { name: 'Record rollout plan' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save update plan' }))
     await waitFor(() => expect(apiMocks.planCohortRollout).toHaveBeenCalledWith(12, {
       target_release_id: 44, expected_latest_release_id: 44, expected_roster_digest: 'roster-digest',
       waves: [{ name: 'Wave 1', user_ids: [7] }, { name: 'Later group', user_ids: [8] }],
@@ -161,11 +163,11 @@ describe('CohortRolloutStudio', () => {
     const user = userEvent.setup()
     apiMocks.planCohortRollout.mockRejectedValueOnce(new Error('Connection interrupted.')).mockResolvedValueOnce(mutationResponse('planned', false))
     renderStudio()
-    const review = await screen.findByRole('button', { name: 'Review rollout plan' })
+    const review = await screen.findByRole('button', { name: 'Review group update' })
     await user.click(review)
-    const dialog = screen.getByRole('dialog', { name: 'Record this rollout plan?' })
+    const dialog = screen.getByRole('dialog', { name: 'Review this group update?' })
     const cancel = within(dialog).getByRole('button', { name: 'Cancel' })
-    const confirm = within(dialog).getByRole('button', { name: 'Record rollout plan' })
+    const confirm = within(dialog).getByRole('button', { name: 'Save update plan' })
     expect(document.activeElement).toBe(dialog)
     await user.tab(); expect(document.activeElement).toBe(cancel)
     await user.tab({ shift: true }); expect(document.activeElement).toBe(confirm)
@@ -308,12 +310,13 @@ describe('CohortRolloutStudio', () => {
     apiMocks.planCohortRollout.mockRejectedValue(new ApiRequestError('Wave names were rejected.', { status: 422, code: 'cohort_rollout_invalid' }))
     renderStudio()
     await screen.findByDisplayValue('All participants')
+    await user.click(screen.getByText('Update in stages'))
     await user.click(screen.getByRole('button', { name: 'Add wave' }))
     const names = screen.getAllByRole('textbox')
     await user.clear(names[1]); await user.type(names[1], 'Later group')
     await user.selectOptions(screen.getByRole('combobox', { name: 'Wave for Ben Santos' }), 'wave-2')
-    await user.click(screen.getByRole('button', { name: 'Review rollout plan' }))
-    await user.click(screen.getByRole('button', { name: 'Record rollout plan' }))
+    await user.click(screen.getByRole('button', { name: 'Review group update' }))
+    await user.click(screen.getByRole('button', { name: 'Save update plan' }))
 
     expect((await screen.findByRole('alert')).textContent).toContain('Wave names were rejected.')
     expect(screen.getAllByRole('textbox').map((field) => (field as HTMLInputElement).value)).toEqual(['Wave 1', 'Later group'])
@@ -322,7 +325,7 @@ describe('CohortRolloutStudio', () => {
   })
 
   it.each([
-    { name: 'plan', initial: studioFixture(), next: activeRolloutStudio('planned'), trigger: 'Review rollout plan', confirm: 'Record rollout plan' },
+    { name: 'plan', initial: studioFixture(), next: activeRolloutStudio('planned'), trigger: 'Review group update', confirm: 'Save update plan' },
     { name: 'cancel', initial: activeRolloutStudio('planned'), next: studioFixture(), trigger: 'Review cancellation', confirm: 'Cancel rollout plan' },
     { name: 'rollback', initial: activeRolloutStudio('active'), next: studioFixture(), trigger: 'Review rollback', confirm: 'Roll back participant runtime' },
   ])('moves focus to the stable new state heading after $name', async ({ initial, next, trigger, confirm }) => {
@@ -333,4 +336,41 @@ describe('CohortRolloutStudio', () => {
     const heading = await screen.findByRole('heading', { name: 'Release #4' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
   })
+  it('hides planning for a live group with no new version', async () => {
+    const studio = studioFixture()
+    studio.latest_release = studio.active_release
+    studio.permissions.plan = false
+    studio.permissions.plan_blockers = ['Seal a new release before planning a rollout; the latest release is already active.']
+    renderStudio(studio)
+    await screen.findByRole('heading', { name: 'Your group is up to date' })
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Review group update' })).toBeNull()
+    expect(screen.queryByText('Update in stages')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Refresh update state' })).toBeTruthy()
+  })
+
+  it('keeps stages secondary and reviews everyone together with the exact roster digest', async () => {
+    const user = userEvent.setup()
+    renderStudio()
+    const review = await screen.findByRole('button', { name: 'Review group update' })
+    expect(screen.getByText('Update in stages').closest('details')).toHaveProperty('open', false)
+    expect(screen.getByText(/2 participants are included/)).toBeTruthy()
+    await user.click(review)
+    expect(screen.getByRole('dialog', { name: 'Review this group update?' })).toBeTruthy()
+    expect(screen.getByText('All participants · 2 participants')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Save update plan' }))
+    await waitFor(() => expect(apiMocks.planCohortRollout).toHaveBeenCalledWith(12, { target_release_id: 44, expected_latest_release_id: 44, expected_roster_digest: 'roster-digest', waves: [{ name: 'All participants', user_ids: [7, 8] }] }, 'rollout-request-1'))
+  })
+
+  it('compares the actual live and target versions instead of implying that every setting changed', async () => {
+    const baseline = { id: 43, bundle_digest: 'baseline', brand_snapshot_digest: 'brand-v8', persona_version_id: 1, experience_version_id: 1, registry_digest: 'registry' }
+    apiMocks.fetchCohortReleaseStudio.mockResolvedValue({ releases: [baseline, { ...baseline, id: 44, bundle_digest: 'bundle', experience_version_id: 2 }] })
+    renderStudio()
+    await screen.findByRole('button', { name: 'Review group update' })
+    expect(screen.getByText('What changes in this update')).toBeTruthy()
+    expect(screen.getByText('Participant tools', { selector: 'li' })).toBeTruthy()
+    expect(screen.queryByText('Mia voice', { selector: 'li' })).toBeNull()
+    expect(screen.queryByText('Program appearance', { selector: 'li' })).toBeNull()
+  })
+
 })
