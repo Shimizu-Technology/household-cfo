@@ -565,6 +565,9 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
   const canonicalUrl = useCallback((section: string) => hasPendingPlaidOAuthReturn() ? clearPlaidOAuthStateFromUrl(section) : `${window.location.pathname}${window.location.search}${sectionHash(section)}`, [])
   const focusHeading = useCallback(() => requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll: true })), [])
   const navigate = useCallback((section: string, browserNavigation = false) => {
+    // A hash traversal can dispatch both popstate and hashchange. The second
+    // event must not erase the explanation after an unavailable route is fixed.
+    if (browserNavigation && section === activeSection && window.location.hash === sectionHash(activeSection) && !hasPendingPlaidOAuthReturn()) return
     const target = sections.includes(section) ? section : COACH_STUDIO_SECTION
     if (target !== activeSection && dirty && !window.confirm('Discard your unsaved Coach Studio changes and leave this screen?')) {
       window.history.replaceState({ section: activeSection }, '', canonicalUrl(activeSection))

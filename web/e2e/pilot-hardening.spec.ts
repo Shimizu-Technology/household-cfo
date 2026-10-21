@@ -12344,6 +12344,7 @@ for (const role of ['coach', 'admin'] as const) {
     for (const destination of ['Home', 'Review', 'Ask Mia', 'Budget', 'My Money', 'My Profile', 'Statements', ...(role === 'coach' ? ['Admin'] : [])]) {
       await page.goto(`${url}#${encodeURIComponent(destination)}`)
       await expect(page).toHaveURL(/#Coach%20Studio$/)
+      await expect(page.getByRole('status').filter({ hasText: 'Household money is not available' })).toBeVisible()
       await expect(page.locator('.home-screen, .budget-screen, .profile-screen, .statements-screen, .money-topics')).toHaveCount(0)
     }
     await openAccountHelp(page)

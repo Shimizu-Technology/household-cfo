@@ -37,6 +37,8 @@ it('denies household and unauthorized Admin hashes while preserving the staff sc
   render(<App />)
   expect(window.location.hash).toBe('#Coach%20Studio')
   expect(screen.getByRole('status').textContent).toContain('Household money is not available')
+  act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')) })
+  expect(screen.getByRole('status').textContent).toContain('Household money is not available')
   act(() => { window.history.pushState({}, '', '/#Admin'); window.dispatchEvent(new PopStateEvent('popstate')) })
   expect(window.location.hash).toBe('#Coach%20Studio')
   expect(screen.queryByText('Program operations')).toBeNull()
