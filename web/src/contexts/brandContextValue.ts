@@ -3,9 +3,9 @@ import type { BrandConfig } from '../api'
 
 export const NEUTRAL_BRAND: BrandConfig = {
   schema_version: 1,
-  product_name: 'VERA',
-  short_name: 'VERA',
-  organization_name: 'VERA',
+  product_name: 'Household CFO',
+  short_name: 'Household CFO',
+  organization_name: 'Household CFO',
   participant_role_term: 'participant',
   powered_by_name: null,
   powered_by_placement: 'hidden',

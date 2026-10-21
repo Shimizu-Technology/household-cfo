@@ -6,7 +6,9 @@
 .chat-memory-button,
 .chat-clear-button,
 .chat-suggestions-button,
+.chat-context-button,
 .chat-expand-button,
+.chat-more-button,
 .chat-context-pill {
   border-color: var(--line);
   background: var(--paper);
@@ -17,19 +19,205 @@
   text-transform: none;
 }
 
-.chat-memory-button:hover,
-.chat-clear-button:hover,
-.chat-suggestions-button:hover,
-.chat-expand-button:hover {
-  border-color: color-mix(in srgb, var(--emerald) 30%, var(--line));
+@media (hover: hover) and (pointer: fine) {
+  .chat-memory-button:hover,
+  .chat-clear-button:hover,
+  .chat-suggestions-button:hover,
+  .chat-context-button:hover,
+  .chat-expand-button:hover,
+  .chat-more-button:hover {
+    border-color: color-mix(in srgb, var(--emerald) 30%, var(--line));
+    color: var(--emerald);
+  }
+}
+
+/* One header for the conversation. The page heading stays for focus and screen readers. */
+.mia-page-heading.sr-only { position: absolute; }
+
+.chat-context-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.chat-shell-header .mia-setup-count {
+  display: block;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1.3;
+}
+
+/* Phone-only "More" control: secondary chat actions live behind one button. */
+.chat-more { position: relative; display: none; }
+
+.chat-more-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+}
+
+.chat-more-button[aria-expanded='true'] {
+  border-color: color-mix(in srgb, var(--emerald) 35%, var(--line));
   color: var(--emerald);
 }
 
-.app .mia-context-trigger {
-  min-height: 40px;
+.chat-more-button:focus-visible,
+.chat-more-menu button:focus-visible,
+.chat-context-button:focus-visible {
+  outline: 3px solid var(--brand-focus);
+  outline-offset: 2px;
+}
+
+.chat-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  min-width: 200px;
+  max-width: min(280px, calc(100vw - 32px));
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  box-shadow: var(--shadow-md);
+  transform-origin: top right;
+  animation: chat-more-in 140ms var(--ease-out);
+}
+
+@keyframes chat-more-in {
+  from { opacity: 0; transform: scale(0.96); }
+}
+
+.chat-more-note {
+  margin: 0 0 4px;
+  padding: 6px 12px 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+
+.chat-more-menu button {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
   padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
+  text-align: left;
+}
+
+.chat-more-menu button:disabled { color: var(--muted); cursor: default; }
+
+@media (hover: hover) and (pointer: fine) {
+  .chat-more-menu button:hover:not(:disabled) { background: var(--emerald-soft); color: var(--emerald); }
+}
+
+/* Disclaimer: one short line, the full disclosure one tap away. */
+.mia-disclaimer { margin: 0; }
+.mia-disclaimer > p { margin: 0; }
+
+.mia-disclaimer-toggle {
+  display: inline;
+  /* Larger hit area without growing the line. */
+  padding: 10px 2px;
+  margin: -10px -2px;
+  border: 0;
+  background: none;
+  color: var(--emerald);
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.mia-disclaimer-toggle:focus-visible {
+  outline: 3px solid var(--brand-focus);
+  outline-offset: 2px;
+}
+
+/* Smallest phones: "Mia: AI coach, …" and "About" keep the line to one row
+   (the About button keeps the full name in its label). */
+.mia-disclaimer-colon { display: none; }
+@media (max-width: 350px) {
+  .mia-disclaimer-name,
+  .mia-disclaimer-verb { display: none; }
+  .mia-disclaimer-colon { display: inline; }
+}
+
+.mia-disclaimer > .mia-disclaimer-details {
+  max-height: 30dvh;
+  margin-top: var(--space-1);
+  overflow-y: auto;
+  color: var(--ink-soft);
+}
+
+/* The header never wraps: if the conversation column gets narrow (a phone, or a
+   tablet with Prompts or Context & help open beside it), the secondary actions
+   fold into More instead of growing the header and shrinking the history. */
+.mia-chat-shell { container: mia-chat / inline-size; }
+.chat-shell-copy h3,
+.chat-shell-copy > p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@container mia-chat (max-width: 640px) {
+  .chat-shell-header .chat-inline-action { display: none; }
+  .chat-more { display: block; }
+  .chat-more-button { width: 40px; height: 40px; }
+  .mia-chat-shell.is-expanded .chat-shell-header .chat-expand-button { display: inline-flex; }
+}
+
+@media (max-width: 620px) {
+  /* Phones: avatar, name, and one More button. Everything else is in the menu. */
+  .chat-shell-header .chat-inline-action { display: none; }
+  .chat-more { display: block; }
+  .mia-chat-shell.is-expanded .chat-shell-header .chat-expand-button { display: inline-flex; width: 44px; height: 44px; }
+  .chat-more-button { width: 44px; height: 44px; }
+
+  .chat-shell-header,
+  .is-chat-page .chat-shell-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 6px 8px 6px 12px;
+  }
+
+  .chat-shell-header > .message-avatar {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
+    font-size: var(--text-sm);
+  }
+
+  .chat-shell-copy { display: block; min-width: 0; }
+  .chat-shell-copy h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-shell-header .chat-period-context { display: none; }
+  .is-chat-page .empty-chat-state > .message-avatar { display: none; }
+  .chat-shell-header .chat-actions { grid-column: 3; grid-row: 1; width: auto; gap: 6px; }
+
+  .mia-chat-shell.is-expanded .chat-shell-header,
+  .is-chat-page .mia-chat-shell:not(.is-expanded) .chat-shell-header { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .mia-chat-shell.is-expanded .chat-shell-header .chat-actions,
+  .is-chat-page .mia-chat-shell:not(.is-expanded) .chat-shell-header .chat-actions { grid-column: 3; grid-row: 1; width: auto; justify-self: end; flex-wrap: nowrap; }
 }
 
 /* Mia's mark. */
@@ -105,3 +293,17 @@
     font-size: var(--text-sm);
   }
 }
+
+@media (max-width: 420px) {
+  /* Send and attach sit under the field on narrow phones; when the keyboard
+     scrolls the field into view, keep that row visible too. */
+  .mia-chat-shell .ask-row textarea { scroll-margin-bottom: 64px; }
+}
+
+/* Memory opens beside the chat like Prompts and Context & help. The panel header
+   already names it, so the profile card's own title and frame step back. */
+.mia-assist-body > .mia-memory-panel { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.mia-assist-body > .mia-memory-panel .mia-memory-heading .eyebrow,
+.mia-assist-body > .mia-memory-panel .mia-memory-heading h2 { display: none; }
+.mia-assist-body > .mia-memory-panel .mia-memory-heading { display: grid; gap: var(--space-3); }
+.mia-assist-body > .mia-memory-panel .mia-memory-form-grid { grid-template-columns: minmax(0, 1fr); }

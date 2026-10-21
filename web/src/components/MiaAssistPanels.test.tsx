@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { MiaAssistPanels } from './MiaAssistPanels'
+vi.mock('../api', async (original) => ({ ...(await original<typeof import('../api')>()), fetchHouseholdMemories: vi.fn(() => new Promise(() => undefined)) }))
 let compact = true
 beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: compact, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
@@ -62,4 +63,10 @@ test('busy chat disables reset, clear and prompts while help remains available',
   expect(screen.getByRole('button', { name: 'Guide' })).toHaveProperty('disabled', false)
   view.rerender(<MiaAssistPanels {...p} panel="prompts" busy />)
   expect(screen.getByRole('button', { name: 'Update income' })).toHaveProperty('disabled', true)
+})
+test('memory opens in place as a named panel instead of leaving the chat', () => {
+  render(<MiaAssistPanels {...props()} panel="memory" />)
+  const dialog = screen.getByRole('dialog', { name: 'What Mia remembers' })
+  expect(dialog.querySelector('#mia-memory')?.getAttribute('aria-busy')).toBe('true')
+  expect(screen.queryByRole('heading', { name: 'Your saved picture' })).toBeNull()
 })

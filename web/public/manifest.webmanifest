@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "VERA coaching workspace",
-  "short_name": "VERA",
+  "name": "Household CFO",
+  "short_name": "Household CFO",
   "description": "A secure coaching workspace configured for your program.",
   "start_url": "/",
   "scope": "/",

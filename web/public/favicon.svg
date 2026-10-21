@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">VERA</title>
-  <desc id="desc">Neutral sage VERA application icon</desc>
-  <rect width="512" height="512" rx="112" fill="#536a63" />
-  <circle cx="256" cy="256" r="150" fill="#fffdf8" opacity="0.13" />
-  <path d="M140 146h74l42 145 42-145h74L292 370h-72L140 146Z" fill="#fffdf8" />
-  <circle cx="380" cy="132" r="24" fill="#c69b72" />
+  <title id="title">Household CFO</title>
+  <desc id="desc">Household CFO application icon</desc>
+  <rect width="512" height="512" rx="112" fill="#7b4a58" />
+  <circle cx="256" cy="256" r="150" fill="#fffdf8" opacity="0.1" />
+  <path d="M150 146h66v82h80v-82h66v224h-66v-86h-80v86h-66V146Z" fill="#fffdf8" />
+  <circle cx="380" cy="132" r="24" fill="#d9a07f" />
 </svg>

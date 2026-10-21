@@ -285,7 +285,7 @@ class MiaParticipantRuntimeCutoverTest < ActiveSupport::TestCase
     assert_equal "safe_default", runtime.capabilities.fetch(:source)
     assert_equal "safe_default", runtime.brand.fetch(:mode)
     assert_equal false, runtime.brand.fetch(:available)
-    assert_equal "VERA", runtime.brand.dig(:config, "product_name")
+    assert_equal "Household CFO", runtime.brand.dig(:config, "product_name")
     assert runtime.capabilities.fetch(:modules).reject { |item| item.fetch(:core) }.none? { |item| item.fetch(:enabled) }
   ensure
     release_class&.define_method(:integrity_report, original_integrity_report) if original_integrity_report
@@ -427,7 +427,7 @@ class MiaParticipantRuntimeCutoverTest < ActiveSupport::TestCase
       assert_equal "safe_default", runtime.brand.fetch(:source)
       assert_equal "safe_default", runtime.brand.fetch(:mode)
       assert_equal false, runtime.brand.fetch(:available)
-      assert_equal "VERA", runtime.brand.dig(:config, "product_name")
+      assert_equal "Household CFO", runtime.brand.dig(:config, "product_name")
     end
   ensure
     version_class&.define_method(:config_digest, original_config_digest) if original_config_digest

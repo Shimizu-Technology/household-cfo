@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { usePilotDialog } from '../lib/usePilotDialog'
+import { MiaMemoryPanel } from './MiaMemoryPanel'
 import './MiaAssistPanels.css'
 
 type Prompt = { label: string; message: string }
 type Props = {
-  panel: 'context' | 'prompts' | null
+  panel: 'context' | 'prompts' | 'memory' | null
   onClose: () => void
   assistantName: string
   modal?: boolean
@@ -52,11 +53,11 @@ function PanelContent(props: Props) {
   const choose = (message: string) => act(() => props.onChoosePrompt(message))
   return <>
     <header className="mia-assist-header">
-      <div><h2 id="mia-assist-title">{props.panel === 'prompts' ? 'What would you like to do?' : 'Context & help'}</h2></div>
+      <div><h2 id="mia-assist-title">{props.panel === 'prompts' ? 'What would you like to do?' : props.panel === 'memory' ? `What ${props.assistantName} remembers` : 'Context & help'}</h2></div>
       <button type="button" className="secondary-button" onClick={props.onClose}>Close</button>
     </header>
     <div className="mia-assist-body">
-      {props.panel === 'prompts' ? <>
+      {props.panel === 'memory' ? <MiaMemoryPanel enabled={props.realWorkspace} /> : props.panel === 'prompts' ? <>
         <p className="mia-assist-intro">Choose a starting point, edit your message, then Send. Changes always need your review.</p>
         {[{ title: 'Update my information', prompts: props.updatePrompts }, { title: 'Ask a question', prompts: props.questionPrompts }].map(group => <section className="mia-assist-section" key={group.title} aria-label={group.title}>
           <h3>{group.title}</h3>

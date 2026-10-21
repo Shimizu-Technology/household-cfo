@@ -23,8 +23,9 @@ module Branding
       "short_name" => "Household CFO",
       "organization_name" => "Household CFO Method",
       "participant_role_term" => "household CFO",
-      "powered_by_name" => "VERA",
-      "powered_by_placement" => "header",
+      # Participants never see the platform name; attribution stays off by default.
+      "powered_by_name" => nil,
+      "powered_by_placement" => "hidden",
       "tagline" => "Your household finance command center",
       "welcome_heading" => "Your household money, in one clear place",
       "welcome_description" => "Plan the month, understand what changed, and make confident decisions with your coach's guidance.",
@@ -60,9 +61,9 @@ module Branding
       }
     }.freeze
     SAFE_DEFAULT_CONFIG = DEFAULT_CONFIG.merge(
-      "product_name" => "VERA",
-      "short_name" => "VERA",
-      "organization_name" => "VERA",
+      "product_name" => "Household CFO",
+      "short_name" => "Household CFO",
+      "organization_name" => "Household CFO",
       "participant_role_term" => "participant",
       "powered_by_name" => nil,
       "powered_by_placement" => "hidden",

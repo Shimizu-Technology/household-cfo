@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useBrand } from '../contexts/brandContextValue'
+import { brandByline } from '../lib/brandByline'
 
 export function AuthAccessPanel({ title, copy, recovering = false, onRetry, onSignOut, onSignIn, footer }: {
   title: string; copy: string; recovering?: boolean; onRetry?: () => Promise<void>;
@@ -8,7 +9,7 @@ export function AuthAccessPanel({ title, copy, recovering = false, onRetry, onSi
   const { brand } = useBrand()
   const [actionError, setActionError] = useState<string | null>(null)
   const [failedLogo, setFailedLogo] = useState<string | null>(null)
-  const byline = brand.powered_by_placement === 'header' && brand.powered_by_name ? `${brand.organization_name} powered by ${brand.powered_by_name}` : brand.organization_name
+  const byline = brandByline(brand)
   return <main className="app loading-state auth-state">
     <section className="hero-panel auth-panel">
       {brand.logo_url && failedLogo !== brand.logo_url && <img className="shell-brand-logo" src={brand.logo_url} alt="" referrerPolicy="no-referrer" onError={() => setFailedLogo(brand.logo_url)} />}
