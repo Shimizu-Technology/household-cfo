@@ -54,6 +54,7 @@ import { PersonaReleasePanel, type PersonaPublishEvidence } from './PersonaRelea
 import { savedPreviewDigestForCurrentDraft } from './personaReleaseState'
 import { useCoachWorkspaceMutationLifecycle, type CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
+import '../styles/participantNavigation.css'
 
 const guidedSteps = [
   { id: 'identity', label: 'Identity' },
@@ -748,14 +749,12 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     <section className="screen-grid coach-studio-screen" aria-busy={cohortsLoading || ((studioSection === 'assistants' || studioSection === 'library') && (loading || detailLoading)) || pendingAction !== null || workspaceMutations.pending}>
       <header className="screen-heading coach-studio-heading">
         <div>
-          <p className="eyebrow">Coach Studio</p>
-          <h2 data-page-heading tabIndex={-1}>Your coaching workspace.</h2>
+          <h2 data-page-heading tabIndex={-1}>Coach Studio</h2>
           {currentUser.is_admin && <p className="coach-active-program">{activeWorkspaceId === null
             ? 'Viewing all programs. Choose one below to work in it.'
             : <>Working in <strong>{workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.name ?? 'the selected program'}</strong></>}</p>}
         </div>
         <div className="coach-workspace-heading-tools">
-          <p>Start with participant check-ins and help. Program and assistant settings are available when you need them.</p>
           {workspaceOptions.length > 0 && (
             <label className="coach-workspace-picker">
               <span>Coach workspace</span>
@@ -775,22 +774,22 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
       <nav className="coach-studio-section-tabs" role="tablist" aria-label="Coach Studio areas">
         <button type="button" role="tab" id="coach-studio-tab-groups" aria-controls="coach-studio-panel-groups" aria-selected={studioSection === 'groups'} tabIndex={studioSection === 'groups' ? 0 : -1} data-studio-section="groups" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('groups')}>
-          <strong>Daily coaching</strong><small>Check-ins, help and participant access</small>
+          <strong>Daily coaching</strong>
         </button>
         <button type="button" role="tab" id="coach-studio-tab-settings" aria-controls="coach-studio-panel-settings" aria-selected={studioSection === 'settings'} tabIndex={studioSection === 'settings' ? 0 : -1} data-studio-section="settings" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('settings')}>
-          <strong>Program settings</strong><small>Name, coach identity, and participant branding</small>
+          <strong>Program settings</strong>
         </button>
         <button type="button" role="tab" id="coach-studio-tab-assistants" aria-controls="coach-studio-panel-assistants" aria-selected={studioSection === 'assistants'} tabIndex={studioSection === 'assistants' ? 0 : -1} data-studio-section="assistants" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('assistants')}>
-          <strong>Assistant voice</strong><small>Shape how Mia coaches and communicates</small>
+          <strong>Assistant voice</strong>
         </button>
         <button type="button" role="tab" id="coach-studio-tab-library" aria-controls="coach-studio-panel-library" aria-selected={studioSection === 'library'} tabIndex={studioSection === 'library' ? 0 : -1} data-studio-section="library" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('library')}>
-          <strong>Coaching Library</strong><small>Approve and publish reusable coaching sources</small>
+          <strong>Coaching Library</strong>
         </button>
         <button type="button" role="tab" id="coach-studio-tab-participant-tools" aria-controls="coach-studio-panel-participant-tools" aria-selected={studioSection === 'participant_tools'} tabIndex={studioSection === 'participant_tools' ? 0 : -1} data-studio-section="participant_tools" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('participant_tools')}>
-          <strong>Participant tools</strong><small>Choose the cohort's optional learning tools</small>
+          <strong>Participant tools</strong>
         </button>
         <button type="button" role="tab" id="coach-studio-tab-cohort-releases" aria-controls="coach-studio-panel-cohort-releases" aria-selected={studioSection === 'cohort_releases'} tabIndex={studioSection === 'cohort_releases' ? 0 : -1} data-studio-section="cohort_releases" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('cohort_releases')}>
-          <strong>Release &amp; rollout</strong><small>Seal a release, then plan and manage waves</small>
+          <strong>Release &amp; rollout</strong>
         </button>
       </nav>
 
