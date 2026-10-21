@@ -1,4 +1,5 @@
 import { EnterpriseSettings } from './components/EnterpriseSettings'
+import { householdPlanKnown } from './lib/householdMoneyKnown'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
 import { AccountMenu } from './components/AccountMenu'
 import { PARTICIPANT_SECTIONS, SECTION_CAPABILITY_IDS, participantSectionsForModules } from './lib/participantNavigation'
@@ -3648,7 +3649,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onOpenDebt={isRealWorkspace ? () => handleProfileSectionEdit('debt') : undefined}
               onOpenBudget={() => switchSection('Budget')}
               incomeKnown={!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('primary_income') || data.workspace.income_sources.length > 0}
-              planKnown={!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('fixed_expenses') && data.workspace.setup_status.confirmed_fields.includes('flexible_spend')}
+              planKnown={!isRealWorkspace || householdPlanKnown(data)}
             />
           )}
         </>
@@ -4332,7 +4333,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             <AnnualBudgetPlanner
               plan={budgetForView.annual_plan}
               incomeKnown={!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('primary_income') || data.workspace.income_sources.length > 0}
-              planKnown={!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('fixed_expenses') && data.workspace.setup_status.confirmed_fields.includes('flexible_spend')}
+              planKnown={!isRealWorkspace || householdPlanKnown(data)}
               needsSetup={Boolean(isRealWorkspace && !data.workspace.setup_complete)}
               onReviewTransactions={() => switchSection('Review')}
               isRealWorkspace={Boolean(isRealWorkspace)}
