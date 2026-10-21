@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminCohort, AdminUser, CurrentUser } from '../api'
 import { AdminConsole } from './AdminConsole'
@@ -13,15 +13,16 @@ vi.mock('./PilotFeedbackInbox', () => ({ PilotFeedbackInbox: () => <section>Priv
 vi.mock('./CoachProgramSettings', () => ({ CreateCoachProgram: () => <section>Create program controls</section> }))
 const cohort = { id: 10, name: 'BOG 90 day challenge', status: 'enrolling', starts_on: null, ends_on: null, notes: '', updated_at: '2026-10-04T12:00:00Z' } as AdminCohort
 const people = Array.from({ length: 30 }, (_, index) => ({ id: 40 + index, email: `participant${index}@example.test`, full_name: `Participant ${String(index).padStart(2, '0')}`, role: 'participant', invitation_status: 'accepted', cohorts: [{ id: 100 + index, role: 'participant', cohort: { id: 10, name: cohort.name, status: 'enrolling' } }], invite_email: { workspace_scoped: true, status: 'not_sent', last_attempted_at: null }, workspace: { setup_complete: false, setup_status: 'not_started', signed_in: true, has_pending_review_work: false, last_safe_activity_at: null } })) as AdminUser[]
-beforeEach(() => { vi.clearAllMocks(); authScope.workspaceId = 2; supportMocks.fetchSetupSupportRequests.mockReset(); supportMocks.updateSetupSupportRequest.mockReset(); mocks.fetchAdminCohorts.mockResolvedValue([cohort]); mocks.fetchAdminUsers.mockResolvedValue(people); mocks.fetchAdminPlaidHealth.mockResolvedValue({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] }); vi.spyOn(window, 'confirm').mockReturnValue(false) })
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+beforeEach(() => { vi.resetAllMocks(); sessionStorage.clear(); authScope.workspaceId = 2; supportMocks.fetchSetupSupportRequests.mockReset(); supportMocks.updateSetupSupportRequest.mockReset(); mocks.fetchAdminCohorts.mockImplementation(async () => structuredClone([cohort])); mocks.fetchAdminUsers.mockImplementation(async () => structuredClone(people)); mocks.fetchAdminPlaidHealth.mockResolvedValue({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] }); vi.spyOn(window, 'confirm').mockReturnValue(false) })
+afterEach(() => { cleanup(); sessionStorage.clear(); vi.restoreAllMocks() })
 const actor = { id: 1, is_admin: true, coach_workspaces: [{ id: 2, name: 'Mel coaching' }] } as CurrentUser
 describe('staff operation hierarchy', () => {
   it('keeps ordinary platform support reachable without the default global cohort filter', async () => {
     authScope.workspaceId = null
     supportMocks.fetchSetupSupportRequests.mockResolvedValue({ records: [], next_cursor: null })
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     expect(screen.getByLabelText('Cohort scope')).toHaveProperty('value', '10')
     fireEvent.click(screen.getByRole('button', { name: 'Support inbox' }))
     fireEvent.click(screen.getByRole('button', { name: 'Setup requests' }))
@@ -34,7 +35,8 @@ describe('staff operation hierarchy', () => {
     let complete!: (value: unknown) => void
     supportMocks.updateSetupSupportRequest.mockReturnValue(new Promise((resolve) => { complete = resolve }))
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     expect(supportMocks.fetchSetupSupportRequests).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Support inbox' }))
     expect(screen.getByRole('button', { name: 'Problems reported' }).getAttribute('aria-pressed')).toBe('true')
@@ -47,13 +49,14 @@ describe('staff operation hierarchy', () => {
     expect(screen.getByRole('button', { name: 'Problems reported' })).toHaveProperty('disabled', true)
     expect(screen.getByLabelText('Cohort scope')).toHaveProperty('disabled', true)
     expect(screen.getByLabelText(/^Admin workspace/)).toHaveProperty('disabled', true)
-    complete({ request: { ...record, status: 'in_review', lock_version: 3 } })
+    await act(async () => complete({ request: { ...record, status: 'in_review', lock_version: 3 } }))
     await screen.findByText('Request #91: In review.')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Participants & access' })).toHaveProperty('disabled', false))
   })
   it('pages thirty participants in fifteen compact access rows and separates support from the participant task', async () => {
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     expect(document.querySelectorAll('.admin-user-row')).toHaveLength(15)
     fireEvent.click(screen.getByRole('button', { name: 'Next participants' }))
     expect(document.querySelector('.admin-user-row')?.textContent).toContain('Participant 15')
@@ -75,7 +78,8 @@ describe('staff operation hierarchy', () => {
     const created = { ...cohort, id: 11, name: 'New challenge group' }
     mocks.createAdminCohort.mockResolvedValue(created)
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'pending@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Cohorts' }))
     const editForm = screen.getByRole('button', { name: 'Save cohort' }).closest('form')!
@@ -102,7 +106,8 @@ describe('staff operation hierarchy', () => {
     const created = { ...cohort, id: 11, name: 'Next challenge group' }
     mocks.createAdminCohort.mockResolvedValue(created)
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     fireEvent.click(screen.getByRole('button', { name: 'Cohorts' }))
     mocks.fetchAdminCohorts.mockResolvedValue([cohort, created])
     fireEvent.change(screen.getByLabelText('Cohort name'), { target: { value: created.name } })
@@ -117,7 +122,8 @@ describe('staff operation hierarchy', () => {
   })
   it('keeps another page’s unsaved edit after saving a participant', async () => {
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     fireEvent.click(screen.getByRole('button', { name: 'Cohorts' }))
     const cohortName = screen.getAllByLabelText('Name').find((input) => (input as HTMLInputElement).value === cohort.name)!
     fireEvent.change(cohortName, { target: { value: 'Draft BOG cohort name' } })
@@ -147,7 +153,8 @@ describe('staff operation hierarchy', () => {
     const pending = { ...people[15], invitation_status: 'pending' } as AdminUser
     mocks.createAdminUser.mockResolvedValue({ user: pending, created: false, reactivated: false, already_invited: true, invitation_sent: false, invitation_status: 'skipped' })
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     const form = screen.getByRole('button', { name: 'Create invite' }).closest('form')!
     fireEvent.change(within(form).getByLabelText(/Email/), { target: { value: pending.email } })
     fireEvent.submit(form)
@@ -160,7 +167,8 @@ describe('staff operation hierarchy', () => {
     const pending = { ...people[15], invitation_status: 'pending' } as AdminUser
     mocks.createAdminUser.mockResolvedValue({ user: pending, created: false, reactivated: false, already_invited: true, assigned_cohort_names: ['Synthetic cohort'], invitation_sent: false, invitation_status: 'skipped' })
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     const form = screen.getByRole('button', { name: 'Create invite' }).closest('form')!
     fireEvent.change(within(form).getByLabelText(/Email/), { target: { value: pending.email } })
     fireEvent.submit(form)
@@ -170,7 +178,8 @@ describe('staff operation hierarchy', () => {
   })
   it('prevents a concurrent invite from superseding a participant save and its refresh', async () => {
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     const inviteButton = screen.getByRole('button', { name: 'Create invite' })
     const inviteForm = inviteButton.closest('form')!
     const row = document.querySelector('.admin-user-row') as HTMLDetailsElement
@@ -182,7 +191,7 @@ describe('staff operation hierarchy', () => {
     expect(inviteButton).toHaveProperty('disabled', true)
     fireEvent.submit(inviteForm)
     expect(mocks.createAdminUser).not.toHaveBeenCalled()
-    resolveSave({ ...people[0], role: 'coach' } as AdminUser)
+    await act(async () => resolveSave({ ...people[0], role: 'coach' } as AdminUser))
     await waitFor(() => expect(inviteButton).toHaveProperty('disabled', false))
   })
   it('keeps participant drafts when an invitation resend refreshes the roster', async () => {
@@ -190,7 +199,8 @@ describe('staff operation hierarchy', () => {
     mocks.fetchAdminUsers.mockResolvedValue(people.map((user) => user.id === pending.id ? pending : user))
     mocks.resendAdminUserInvitation.mockResolvedValue({ user: pending, invite_email: { status: 'sent' } })
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     const firstRow = document.querySelector('.admin-user-row') as HTMLDetailsElement
     firstRow.open = true
     fireEvent.change(within(firstRow).getByLabelText('Role'), { target: { value: 'coach' } })
@@ -208,7 +218,8 @@ describe('staff operation hierarchy', () => {
   })
   it('keeps edits when the refresh after a save fails, and discards only after confirmed Refresh', async () => {
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     const row = document.querySelector('.admin-user-row') as HTMLDetailsElement
     row.open = true
     fireEvent.change(within(row).getByLabelText('Role'), { target: { value: 'coach' } })
@@ -226,7 +237,8 @@ describe('staff operation hierarchy', () => {
   })
   it('retains an unsaved per-person edit across operation areas and guards cohort changes', async () => {
     render(<AdminConsole currentUser={actor} />)
-    await screen.findAllByText('Participant 00')
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false), { timeout: 3000 })
     const row = document.querySelector('.admin-user-row') as HTMLDetailsElement
     row.open = true
     fireEvent.change(within(row).getByLabelText('Role'), { target: { value: 'coach' } })
