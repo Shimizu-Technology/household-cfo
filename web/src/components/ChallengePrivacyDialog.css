@@ -51,3 +51,21 @@
 @media (max-height: 360px) {
   .privacy-sections > details > summary span { display: none; }
 }
+
+/* Household information uses the same bounded overlay without savings controls. */
+.household-privacy-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: rgb(31 36 33 / 45%);
+  padding: 12px;
+}
+.household-privacy-dialog {
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100dvh - 32px);
+  margin: 0;
+  box-sizing: border-box;
+  overflow: auto;
+}

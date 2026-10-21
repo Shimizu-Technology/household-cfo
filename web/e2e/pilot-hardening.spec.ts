@@ -38,15 +38,19 @@ function brandRuntime(config = legacyBrandConfig) {
 
 async function openSection(page: Page, name: string) {
   const section = page.getByRole('link', { name, exact: true })
-  const tools = page.getByRole('button', { name: 'More', exact: true })
-  await expect(tools).toBeVisible()
+  const more = page.getByRole('button', { name: 'More', exact: true })
+  await expect(page.locator('.tabs-shell, .staff-navigation')).toBeVisible()
   if (!(await section.isVisible())) {
-    await tools.click()
+    await more.click()
+    if (['Wealth', 'CFO Filter', 'Optionality'].includes(name)) {
+      const group = page.locator('.tabs-tools-group')
+      if (!(await group.evaluate(element => element.hasAttribute('open')))) await group.locator('summary').click()
+    }
     await expect(section).toBeVisible()
   }
   await section.click()
   if (name === 'Coach Studio') await page.getByRole('tab', { name: /Assistant voice/ }).click()
-  await expect(tools).toHaveAttribute('aria-expanded', 'false')
+  if (await more.count()) await expect(more).toHaveAttribute('aria-expanded', 'false')
   await expect(page.locator('.tabs-tools-backdrop')).toHaveCount(0)
 }
 
@@ -4433,7 +4437,7 @@ test('desktop Tools stays anchored to its trigger and contains keyboard focus', 
   await page.keyboard.press('Shift+Tab')
   await expect(dialog.getByRole('button', { name: 'Close menu' })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('link', { name: 'Statements', exact: true })).toBeFocused()
+  await expect(dialog.locator('.tabs-tools-group > summary')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(dialog.getByRole('button', { name: 'Close menu' })).toBeFocused()
   await page.keyboard.press('Escape')
@@ -5607,8 +5611,8 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
     fitsViewport: document.documentElement.scrollWidth <= window.innerWidth,
   }))).toEqual({ scrollX: 0, fitsViewport: true })
 
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
-  await openSection(page, 'Coach Studio')
+  await page.reload()
+  await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await expect(workspacePicker).toHaveValue('2')
   await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
 
@@ -5622,8 +5626,8 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
     fitsViewport: document.documentElement.scrollWidth <= window.innerWidth,
   }))).toEqual({ scrollX: 0, fitsViewport: true })
 
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
-  await openSection(page, 'Coach Studio')
+  await page.reload()
+  await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await expect(workspacePicker).toHaveValue('1')
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
   await page.getByLabel('Internal description').fill('Saved after returning to the owner workspace')
@@ -6023,6 +6027,7 @@ test('participant navigation remains available when a saved optional-tool link i
   const tools = page.getByRole('button', { name: 'More', exact: true })
   await tools.click()
   await expect(page.getByRole('link', { name: 'CFO Filter', exact: true })).toHaveCount(0)
+  await page.locator('.tabs-tools-group > summary').click()
   await expect(page.getByRole('link', { name: 'Optionality', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Wealth', exact: true })).toBeVisible()
@@ -6883,7 +6888,7 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
     expect(dialog.message()).toContain('Discard your unsaved Coach Studio changes')
     await dialog.dismiss()
   })
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await page.getByRole('link', { name: 'Admin', exact: true }).click()
   await expect(page).toHaveURL(/#Coach%20Studio$/)
   await expect(sourceCheckbox).toBeChecked()
 
@@ -6896,8 +6901,8 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
   await showAssistantStage(page, 'Sources')
   await page.getByLabel(/Mrs. Mel Guam context/).check()
   page.once('dialog', (dialog) => dialog.accept())
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
-  await expect(page).toHaveURL(/#Home$/)
+  await page.getByRole('link', { name: 'Admin', exact: true }).click()
+  await expect(page).toHaveURL(/#Admin$/)
   await openSection(page, 'Coach Studio')
   await expect(page.getByLabel(/Mrs. Mel Guam context/)).not.toBeChecked()
 
@@ -6938,7 +6943,7 @@ test('Coach Studio protects unsaved work across mobile back and section navigati
     expect(dialog.message()).toContain('Discard your unsaved Coach Studio changes')
     await dialog.dismiss()
   })
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await page.getByRole('link', { name: 'Admin', exact: true }).click()
   await expect(page).toHaveURL(/#Coach%20Studio$/)
   await expect(page.getByLabel('Assistant name')).toHaveValue('Coach Lani with unsaved work')
 
@@ -7248,7 +7253,7 @@ test('Coach Studio retains unsaved work when the server reports a draft conflict
 
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
-  await expect(page.getByRole('heading', { name: 'Your coaching workspace.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Coach Studio', exact: true })).toBeVisible()
 
   await showAssistantStage(page, 'Draft')
   await page.getByLabel('Assistant name').fill('Coach Lani — revised locally')
@@ -12119,4 +12124,46 @@ test('Ask Mia starters fill the composer without sending and stay out of first-s
   // First-session setup keeps its own guidance primary; no starters compete with it.
   await expect(page.getByRole('group', { name: 'Ways to start' })).toHaveCount(0)
   expect(sends).toEqual([])
+})
+
+
+test('BOG UI participant navigation groups tools and keeps household privacy relevant at every width', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.capabilities = experienceCapabilities({ cfo_filter: true, optionality: true })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant')
+  await expect(page.locator('.tabs-shell')).toBeVisible()
+  const more = page.getByRole('button', { name: 'More', exact: true })
+  await more.click()
+  await expect(page.getByRole('link', { name: 'Wealth', exact: true })).toBeHidden()
+  await page.locator('.tabs-tools-group > summary').click()
+  await page.getByRole('link', { name: 'Wealth', exact: true }).click()
+  await expect(more).toHaveAttribute('aria-description', 'Current section: Wealth')
+  await openSection(page, 'My Money')
+  const topics = await page.locator('.money-topics button').evaluateAll(elements => elements.map(element => ({
+    client: element.clientWidth, scroll: element.scrollWidth, height: element.getBoundingClientRect().height,
+  })))
+  expect(topics).toHaveLength(6)
+  for (const topic of topics) { expect(topic.scroll).toBeLessThanOrEqual(topic.client); expect(topic.height).toBeGreaterThanOrEqual(44) }
+  await page.getByLabel('Account and help').click()
+  await page.getByRole('button', { name: 'Privacy', exact: true }).click()
+  const privacy = page.getByRole('dialog', { name: 'Your household privacy' })
+  await expect(privacy).toBeVisible()
+  await expect(privacy).not.toContainText(/savings|challenge|enrollment/i)
+  await page.keyboard.press('Escape')
+  await expect(page.getByLabel('Account and help')).toBeFocused()
+})
+
+test('BOG UI Coach Studio uses staff navigation and compact program controls without participant tabs', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  const nav = page.getByRole('navigation', { name: 'Staff sections' })
+  await expect(nav).toBeVisible()
+  await expect(nav.getByRole('link')).toHaveCount(1)
+  await expect(page.getByRole('navigation', { name: /participant sections/ })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Daily coaching', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByText('Your coaching workspace.', { exact: true })).toHaveCount(0)
+  const select = page.getByLabel('Coach workspace')
+  await expect(select).toBeVisible()
+  expect((await select.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })

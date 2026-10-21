@@ -22,7 +22,7 @@ beforeEach(() => {
 })
 describe('independent private control entry', () => {
   it('opens from self-only metadata without an active financial workspace', async () => {
-    render(<ParticipantPrivacyAccess userId={7} participant />)
+    render(<ParticipantPrivacyAccess userId={7} participant savingsChallenge />)
     expect(privacyApi.controls).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Privacy & reminders' }))
     expect(await screen.findByRole('dialog')).toHaveProperty('textContent', 'Private controls for 7:11')
@@ -34,13 +34,13 @@ describe('independent private control entry', () => {
       records: [],
       next_cursor: null,
     })
-    render(<ParticipantPrivacyAccess userId={7} participant />)
+    render(<ParticipantPrivacyAccess userId={7} participant savingsChallenge />)
     fireEvent.click(screen.getByRole('button'))
     await screen.findByRole('alert')
     expect(screen.queryByRole('dialog')).toBeNull()
   })
   it('rejects a changed household instead of opening stale controls', async () => {
-    render(<ParticipantPrivacyAccess userId={7} participant householdId={12} />)
+    render(<ParticipantPrivacyAccess userId={7} participant savingsChallenge householdId={12} />)
     fireEvent.click(screen.getByRole('button'))
     await screen.findByRole('alert')
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -53,9 +53,9 @@ describe('independent private control entry', () => {
           resolve = done
         })
     )
-    const view = render(<ParticipantPrivacyAccess userId={7} participant />)
+    const view = render(<ParticipantPrivacyAccess userId={7} participant savingsChallenge />)
     fireEvent.click(screen.getByRole('button'))
-    view.rerender(<ParticipantPrivacyAccess userId={8} participant />)
+    view.rerender(<ParticipantPrivacyAccess userId={8} participant savingsChallenge />)
     resolve({ actor_scope: { user_id: 7, household_id: 11 }, records: [], next_cursor: null })
     await waitFor(() => expect(screen.getByRole('button').hasAttribute('disabled')).toBe(false))
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -63,8 +63,40 @@ describe('independent private control entry', () => {
   it('does not expose participant controls to staff or a signed-out identity', () => {
     const view = render(<ParticipantPrivacyAccess userId={7} participant={false} />)
     expect(screen.queryByRole('button')).toBeNull()
-    view.rerender(<ParticipantPrivacyAccess userId={null} participant />)
+    view.rerender(<ParticipantPrivacyAccess userId={null} participant savingsChallenge />)
     expect(screen.queryByRole('button')).toBeNull()
     expect(privacyApi.controls).not.toHaveBeenCalled()
   })
+})
+
+it('opens household privacy without requesting savings enrollments and restores focus', async () => {
+  render(<ParticipantPrivacyAccess userId={7} participant savingsChallenge={false} householdId={11} />)
+  const trigger = screen.getByRole('button', { name: 'Privacy' })
+  fireEvent.click(trigger)
+  const dialog = await screen.findByRole('dialog', { name: 'Your household privacy' })
+  expect(dialog.textContent).toContain('Sharing requires your permission')
+  expect(dialog.textContent).not.toMatch(/savings|challenge|enrollment/i)
+  expect(privacyApi.controls).not.toHaveBeenCalled()
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(document.activeElement).toBe(trigger)
+})
+it('keeps metadata-only recovery without guessing the current program', async () => {
+  render(<ParticipantPrivacyAccess userId={7} participant />)
+  fireEvent.click(screen.getByRole('button'))
+  expect(await screen.findByRole('dialog')).toHaveProperty('textContent', 'Private controls for 7:11')
+})
+it('destroys household privacy when the program context changes', () => {
+  const view = render(<ParticipantPrivacyAccess userId={7} participant savingsChallenge={false} />)
+  fireEvent.click(screen.getByRole('button'))
+  view.rerender(<ParticipantPrivacyAccess userId={7} participant savingsChallenge />)
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+it('returns to the account summary when its menu closed behind the dialog', async () => {
+  render(<details open><summary>Account and help</summary><ParticipantPrivacyAccess userId={7} participant savingsChallenge={false} /></details>)
+  fireEvent.click(screen.getByRole('button', { name: 'Privacy' }))
+  document.querySelector('details')!.open = false
+  fireEvent.keyDown(document, { key: 'Escape' })
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByText('Account and help')))
 })
