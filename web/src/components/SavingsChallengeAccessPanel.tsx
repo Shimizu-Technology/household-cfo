@@ -20,10 +20,12 @@ const stateCopy: Record<SavingsChallengeAccess['state'], string> = {
  * Status and audited controls for the 90-day Savings Challenge on one cohort.
  * Everyone who can manage the cohort sees the status; only a platform administrator can change it.
  */
-export function SavingsChallengeAccessPanel({ cohort, busy, onChanged }: {
+export function SavingsChallengeAccessPanel({ cohort, busy, onChanged, onDirtyChange, onPendingChange }: {
   cohort: AdminCohort
   busy: boolean
   onChanged: () => Promise<void> | void
+  onDirtyChange?: (dirty: boolean) => void
+  onPendingChange?: (pending: boolean) => void
 }) {
   const challenge = cohort.savings_challenge
   const [review, setReview] = useState<Review | null>(null)
@@ -35,6 +37,11 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged }: {
   const sectionRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => { if (review) reviewHeadingRef.current?.focus() }, [review])
+
+  useEffect(() => { onDirtyChange?.(review !== null) }, [review, onDirtyChange])
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
+  useEffect(() => { onPendingChange?.(pending) }, [pending, onPendingChange])
+  useEffect(() => () => onPendingChange?.(false), [onPendingChange])
 
   if (!challenge) return null
 
@@ -59,7 +66,7 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged }: {
   }
 
   async function confirm() {
-    if (!review || !challenge || !reasonValid || pending) return
+    if (!review || !challenge || !reasonValid || pending || busy) return
     setPending(true)
     setError(null)
     try {
@@ -86,7 +93,7 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged }: {
     <section ref={sectionRef} className="challenge-access" aria-labelledby={`challenge-access-${cohort.id}`}>
       <div className="challenge-access-head">
         <div>
-          <p className="eyebrow">90-day Savings Challenge</p>
+          <p>90-day Savings Challenge</p>
           <h4 id={`challenge-access-${cohort.id}`}>Challenge status</h4>
         </div>
         <span className={`admin-badge ${tone}`} role="status">{challenge.label}</span>
@@ -129,10 +136,10 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged }: {
           <label className="admin-field wide">
             <span>Reason (required, recorded with your name)</span>
             <textarea rows={2} maxLength={MAX_REASON} value={reason} disabled={pending} onChange={(event) => setReason(event.target.value)} placeholder={review.action === 'open' ? 'For example: kickoff session is today' : 'For example: fixing a bug before more people join'} />
-            {reason.length > 0 && !reasonValid && <small className="admin-field-warning">Add a few more words ({MIN_REASON} characters at least).</small>}
+            {!reasonValid && <small className="admin-field-warning" id={`challenge-reason-help-${cohort.id}`}>Enter a reason of {MIN_REASON}–{MAX_REASON} characters to confirm this change.</small>}
           </label>
           <div className="challenge-access-actions">
-            <Button disabled={!reasonValid || pending || busy} onClick={() => void confirm()}>
+            <Button aria-describedby={!reasonValid ? `challenge-reason-help-${cohort.id}` : undefined} disabled={!reasonValid || pending || busy} onClick={() => void confirm()}>
               {pending ? 'Saving…' : review.action === 'open' ? 'Open the challenge' : 'Pause the challenge'}
             </Button>
             <Button variant="secondary" disabled={pending} onClick={cancel}>Cancel</Button>
@@ -152,6 +159,8 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged }: {
       ) : (
         <p className="admin-muted">Only a platform administrator can open or pause the challenge.</p>
       )}
+
+      {(pending || busy) && <p className="admin-muted" role="status">{pending ? 'Saving the challenge change…' : 'Wait for the current change to finish.'}</p>}
 
       {challenge.recent_events.length > 0 && (
         <details className="challenge-access-history">

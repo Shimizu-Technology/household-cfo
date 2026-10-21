@@ -5221,7 +5221,33 @@ test('import review copy follows extracted results when a selected receipt produ
   await expect(resolvedResult).not.toContainText('Nothing changed until you approve it.')
 })
 
-test('admin cohort rows show only safe pilot progress signals', async ({ page }) => {
+test('Admin UI keeps the selected challenge first, guards review drafts and explains disabled confirmation', async ({ page }) => {
+  const challenge = { state: 'open', label: 'Open', enabled: true, on_hold: false, capacity: 30, participant_count: 1, can_change: true, can_pause: true, can_open: false, blockers: [], recent_events: [] }
+  await page.route('http://api.test/api/v1/admin/cohorts', route => route.fulfill({ json: { cohorts: [{ ...pilotCohort, savings_challenge: challenge }] } }))
+  await page.goto('/?pilot_e2e_role=admin#Admin')
+  await page.getByRole('button', { name: 'Cohorts', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Challenge status' })).toBeVisible()
+  expect(await page.locator('.challenge-access').evaluate(element => Boolean(element.compareDocumentPosition(document.querySelector('.admin-task > summary')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
+  await expect(page.getByLabel('Cohort name', { exact: true })).toBeHidden()
+  await page.getByRole('button', { name: 'Pause the challenge', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Pause the challenge', exact: true })).toBeDisabled()
+  await expect(page.getByText('Enter a reason of 5–500 characters to confirm this change.')).toBeVisible()
+  await page.getByLabel(/Reason/).fill('Keep this review reason')
+  page.once('dialog', dialog => dialog.dismiss())
+  await page.getByLabel('Cohort scope').selectOption('')
+  await expect(page.getByLabel('Cohort scope')).toHaveValue(String(pilotCohort.id))
+  await expect(page.getByLabel(/Reason/)).toHaveValue('Keep this review reason')
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Pause the challenge', exact: true })).toBeFocused()
+  await page.getByRole('button', { name: 'Bank health', exact: true }).click()
+  await expect(page.getByLabel('Cohort scope')).toHaveCount(0)
+  await expect(page.locator('.admin-stat-row')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Programs & rules', exact: true }).click()
+  await expect(page.getByLabel('Cohort scope')).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('Admin UI cohort rows show only safe pilot progress signals', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin')
   await openSection(page, 'Admin')
   await page.getByText('Invite a participant or staff member', { exact: true }).click()
@@ -5234,10 +5260,14 @@ test('admin cohort rows show only safe pilot progress signals', async ({ page })
   const participantRow = page.locator('.admin-user-row').filter({ hasText: 'participant@pilot.test' })
   await participantRow.locator('summary').click()
   await expect(page.getByText('Optional household setup: Setup started', { exact: true })).toBeVisible()
+  await expect(participantRow.getByRole('button', { name: 'Resend email' })).toHaveCount(0)
+  await expect(participantRow.getByText('Already joined; an invitation email is no longer needed.')).toBeVisible()
+  await expect(page.locator('.admin-stat-row')).toHaveCount(0)
   await expect(page.getByText('Signed in', { exact: true })).toBeVisible()
   await expect(page.getByText('Review waiting', { exact: true })).toBeVisible()
   await expect(page.getByText(/Last safe activity:/)).toBeVisible()
   await page.getByRole('button', { name: 'Cohorts', exact: true }).click()
+  await page.getByText('Recent activity', { exact: true }).click()
   const operations = page.locator('.admin-operations')
   await expect(operations).toContainText('Active participants1')
   await expect(operations).toContainText('Mia requests18')
@@ -5685,13 +5715,15 @@ test('Coach Studio platform administrator deliberately switches between global a
 
   await openSection(page, 'Admin')
   await page.getByRole('button', { name: 'Cohorts', exact: true }).click()
+  await page.getByText('Create a cohort', { exact: true }).click()
   const adminWorkspacePicker = page.getByLabel('Admin workspace')
   await expect(adminWorkspacePicker).toHaveValue('platform')
   await expect(page.getByRole('button', { name: 'Create cohort' })).toBeDisabled()
   await adminWorkspacePicker.selectOption('1')
   await page.getByRole('button', { name: 'Cohorts', exact: true }).click()
+  await page.getByText('Create a cohort', { exact: true }).click()
   await expect(page.getByRole('button', { name: 'Create cohort' })).toBeEnabled()
-  await page.getByLabel('Name').first().fill('Unsaved cohort workspace switch')
+  await page.getByLabel('Cohort name', { exact: true }).fill('Unsaved cohort workspace switch')
   page.once('dialog', async (dialog) => {
     expect(dialog.message()).toContain('Discard unsaved program, cohort, invite, and user changes')
     await dialog.dismiss()
@@ -5701,8 +5733,9 @@ test('Coach Studio platform administrator deliberately switches between global a
   page.once('dialog', async (dialog) => dialog.accept())
   await adminWorkspacePicker.selectOption('platform')
   await page.getByRole('button', { name: 'Cohorts', exact: true }).click()
+  await page.getByText('Create a cohort', { exact: true }).click()
   await expect(adminWorkspacePicker).toHaveValue('platform')
-  await expect(page.getByLabel('Name').first()).toHaveValue('')
+  await expect(page.getByLabel('Cohort name', { exact: true })).toHaveValue('')
 })
 
 test('Coach Studio content controls follow independent editor and reviewer permissions', async ({ page }) => {
@@ -7428,7 +7461,7 @@ test('participant can add edit archive and restore individual debt records', asy
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
-test('admin can privately review and resolve submitted pilot feedback', async ({ page }) => {
+test('Admin UI can privately review and resolve submitted pilot feedback', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin')
   await openSection(page, 'Admin')
   await page.getByRole('button', { name: 'Support inbox', exact: true }).click()

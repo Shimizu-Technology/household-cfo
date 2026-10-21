@@ -44,6 +44,9 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   const [area, setArea] = useState<'participants' | 'cohorts' | 'feedback' | 'programs' | 'health'>('participants')
   const [supportView, setSupportView] = useState<'problems' | 'setup'>('problems')
   const [supportBusy, setSupportBusy] = useState(false)
+  const [feedbackBusy, setFeedbackBusy] = useState(false)
+  const [challengeDirty, setChallengeDirty] = useState(false)
+  const [challengeBusy, setChallengeBusy] = useState(false)
   const [cohorts, setCohorts] = useState<AdminCohort[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
   const [plaidHealth, setPlaidHealth] = useState<AdminPlaidHealth>({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] })
@@ -131,14 +134,11 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
     return users.some((user) => !adminUserDraftsEqual(userDrafts[user.id], adminDraftForUser(user)))
   }, [createDraft, editDraft, inviteDraft, selectedCohort, selectedCohortId, userDrafts, users])
 
-  const adminMutationPending = supportBusy || loading || cohortSaving || programCreating || inviteSaving || savingUserIds.size > 0 || resendingUserIds.size > 0
+  const adminMutationPending = challengeBusy || feedbackBusy || supportBusy || loading || cohortSaving || programCreating || inviteSaving || savingUserIds.size > 0 || resendingUserIds.size > 0
 
-  const adminStats = useMemo(() => ({
-    cohorts: cohorts.length,
-    users: users.length,
-    pending: users.filter((user) => user.invitation_status === 'pending').length,
-    setupComplete: users.filter((user) => user.workspace.setup_complete).length,
-  }), [cohorts.length, users])
+  const pendingInviteCount = scopedUsers.filter((user) => user.invitation_status === 'pending').length
+  const failedInviteCount = scopedUsers.filter((user) => user.invitation_status === 'pending' && user.invite_email.status === 'failed').length
+  const cohortScopeVisible = area === 'participants' || area === 'cohorts' || (area === 'feedback' && supportView === 'setup' && !platformMode)
 
   const loadAdminData = useCallback(async (preferredCohortId?: number | null, reset?: { all?: boolean; userIds?: number[]; cohort?: boolean }) => {
     const sequence = ++adminLoadSequenceRef.current
@@ -210,7 +210,8 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   }, [activeCoachWorkspaceId, loadAdminData])
 
   function selectCohort(cohortId: number | null) {
-    if (adminMutationPending || (adminDraftsDirty && !window.confirm('Discard unsaved cohort, invitation and participant changes?'))) return
+    if (cohortId === selectedCohortId || adminMutationPending || ((adminDraftsDirty || challengeDirty) && !window.confirm('Discard unsaved cohort, invitation, participant and challenge changes?'))) return
+    setCreateDraft({ name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' })
     setUserDrafts(adminDraftsForUsers(users))
     selectedCohortIdRef.current = cohortId
     setRosterPage(0)
@@ -219,12 +220,12 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
     serverSelectedCohortRef.current = nextCohort
     setEditDraft(cohortDraftFor(nextCohort))
     setNotice(null)
-    setInviteDraft((current) => ({ ...current, cohort_id: cohortId ? String(cohortId) : '' }))
+    setInviteDraft({ email: '', role: 'participant', cohort_id: cohortId ? String(cohortId) : '', send_invitation_email: true })
   }
 
   function chooseAdminWorkspace(nextWorkspaceId: number | null) {
     if (nextWorkspaceId === activeCoachWorkspaceId || adminMutationPending) return
-    if ((adminDraftsDirty || programCreateDirty) && !window.confirm('Discard unsaved program, cohort, invite, and user changes and switch workspaces?')) return
+    if ((adminDraftsDirty || programCreateDirty || challengeDirty) && !window.confirm('Discard unsaved program, cohort, invite, and user changes and switch workspaces?')) return
 
     setCreateDraft({ name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' })
     setEditDraft(null)
@@ -348,7 +349,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   }
 
   async function handleResendInvitation(user: AdminUser) {
-    if (adminMutationPending) return
+    if (adminMutationPending || user.invitation_status !== 'pending' || user.can_resend_invitation === false) return
 
     markUserResending(user.id, true)
     setError(null)
@@ -451,7 +452,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
 
   return (
     <section className="screen-grid admin-screen">
-      <header className="screen-heading admin-heading"><div><p className="eyebrow">Administration</p><h2 data-page-heading tabIndex={-1}>Program operations</h2><p>Manage participants, cohort access and support in the selected workspace.</p></div></header>
+      <header className="screen-heading admin-heading"><h2 data-page-heading tabIndex={-1}>Program operations</h2></header>
 
       {currentUser.is_admin && coachWorkspaces.length > 0 && (
         <label className="coach-workspace-picker">
@@ -474,36 +475,96 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
       <nav className="admin-area-nav" aria-label="Administration areas">
         {(['participants', 'cohorts', 'feedback', 'programs', 'health'] as const).map((value) => <button type="button" key={value} aria-pressed={area === value} disabled={adminMutationPending} onClick={() => setArea(value)}>{({ participants: 'Participants & access', cohorts: 'Cohorts', feedback: 'Support inbox', programs: 'Programs & rules', health: 'Bank health' })[value]}</button>)}
       </nav>
-      <label className="admin-current-cohort">Cohort scope<select disabled={adminMutationPending} value={selectedCohortId ?? ''} onChange={(event) => selectCohort(event.target.value ? Number(event.target.value) : null)}><option value="">All users</option>{displayCohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}</select></label>
+      {cohortScopeVisible && <label className="admin-current-cohort">Cohort scope<select disabled={adminMutationPending} value={selectedCohortId ?? ''} onChange={(event) => selectCohort(event.target.value ? Number(event.target.value) : null)}><option value="">All users</option>{displayCohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}</select></label>}
+      {adminMutationPending && <p className="admin-muted" role="status">{loading ? 'Loading program data…' : 'Please wait for the current change to finish before continuing.'}</p>}
 
       <div hidden={area !== 'programs'}>
       {currentUser.is_admin && <CreateCoachProgram key={activeCoachWorkspaceId ?? 'platform'} disabled={adminMutationPending || adminDraftsDirty} onDirtyChange={setProgramCreateDirty} onPendingChange={setProgramCreating} />}
 
+      {adminDraftsDirty && <p className="admin-muted">Save or discard your access, invitation or cohort changes before creating a program.</p>}
       <RoleMatrix open={roleMatrixOpen} onToggle={setRoleMatrixOpen} />
       </div>
-      <div className="admin-stat-row">
-        <AdminStat label="Cohorts" value={adminStats.cohorts.toString()} />
-        <AdminStat label="Invited users" value={adminStats.users.toString()} />
-        <AdminStat label="Pending" value={adminStats.pending.toString()} />
-        <AdminStat label="Optional setup complete" value={adminStats.setupComplete.toString()} />
-      </div>
-
       <div hidden={area !== 'health'}><PlaidHealthLedger health={plaidHealth} loading={loading} error={plaidHealthError} /></div>
       <div hidden={area !== 'feedback'}>
         <nav className="admin-area-nav" aria-label="Support inbox views">
           <button type="button" aria-pressed={supportView === 'problems'} disabled={adminMutationPending} onClick={() => setSupportView('problems')}>Problems reported</button>
           <button type="button" aria-pressed={supportView === 'setup'} disabled={adminMutationPending} onClick={() => setSupportView('setup')}>Setup requests</button>
         </nav>
-        <div hidden={supportView !== 'problems'}><PilotFeedbackInbox /></div>
+        <div hidden={supportView !== 'problems'}><PilotFeedbackInbox onPendingChange={setFeedbackBusy} /></div>
         {area === 'feedback' && supportView === 'setup' && <SetupSupportInbox actorId={currentUser.id} workspaceId={activeCoachWorkspaceId} cohortId={platformMode ? null : selectedCohortId} isAdmin={currentUser.is_admin} disabled={adminMutationPending && !supportBusy} onPendingChange={setSupportBusy} />}
       </div>
 
-      <div hidden={area !== 'cohorts' && area !== 'participants'} className="admin-layout">
+      <div hidden={area !== 'cohorts'} className="admin-layout">
         <article hidden={area !== 'cohorts'} className="panel admin-card">
           <div className="admin-card-heading">
-            <span className="spark" aria-hidden="true"><CohortIcon /></span>
             <div>
-              <p className="eyebrow">Cohorts</p>
+              <h3>{selectedCohort ? selectedCohort.name : 'No cohort selected'}</h3>
+            </div>
+          </div>
+
+          {selectedCohort && editDraft ? (
+            <div className="admin-selected-group">
+              <div className="admin-cohort-summary">
+                <AdminBadge value={titleize(selectedCohort.status)} tone={selectedCohort.status === 'active' ? 'green' : selectedCohort.status === 'archived' ? 'red' : 'gold'} />
+                <span>{selectedCohort.participant_count} participants</span>
+                <span>{selectedCohort.staff_count} staff</span>
+                <span>{cohortDateRange(selectedCohort)}</span>
+              </div>
+              <SavingsChallengeAccessPanel key={selectedCohort.id} cohort={selectedCohort} busy={adminMutationPending} onChanged={() => loadAdminData(selectedCohort.id)} onDirtyChange={setChallengeDirty} onPendingChange={setChallengeBusy} />
+              <details className="admin-task"><summary>Recent activity</summary>
+              <div className="admin-operations" aria-label="Privacy-safe cohort operations for the last seven days">
+                {selectedCohort.operational_summary.available ? (
+                  <>
+                    <div><small>Active participants</small><strong>{selectedCohort.operational_summary.participants_active}</strong></div>
+                    <div><small>Mia requests</small><strong>{selectedCohort.operational_summary.mia_requests}</strong></div>
+                    <div><small>Typical Mia time</small><strong>{selectedCohort.operational_summary.average_mia_latency_ms === null ? '—' : `${(selectedCohort.operational_summary.average_mia_latency_ms / 1000).toFixed(1)}s`}</strong></div>
+                    <div><small>Mia failures</small><strong>{selectedCohort.operational_summary.mia_failures}</strong></div>
+                    <div><small>Uploads</small><strong>{selectedCohort.operational_summary.uploads}</strong></div>
+                    <div><small>Upload failures</small><strong>{selectedCohort.operational_summary.upload_failures}</strong></div>
+                  </>
+                ) : (
+                  <p role="status">Activity metrics are temporarily unavailable. Refresh before using this cohort summary to judge participation.</p>
+                )}
+              </div>
+              <p className="admin-privacy-copy">Last 7 days · aggregate operational activity only. Financial values, uploaded document contents, and Mia conversations are not shown.</p>
+              </details>
+              <details className="admin-task"><summary>Edit cohort details</summary>
+              <form className="admin-form" onSubmit={handleUpdateCohort}>
+              <label className="admin-field wide">
+                <span>Name</span>
+                <input disabled={adminMutationPending} value={editDraft.name} onChange={(event) => setEditDraft((current) => current ? { ...current, name: event.target.value } : current)} />
+              </label>
+              <label className="admin-field">
+                <span>Status</span>
+                <select disabled={adminMutationPending} value={editDraft.status} onChange={(event) => setEditDraft((current) => current ? { ...current, status: event.target.value as AdminCohortStatus } : current)}>
+                  {cohortStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
+                </select>
+              </label>
+              <label className="admin-field">
+                <span>Starts</span>
+                <input disabled={adminMutationPending} type="date" value={editDraft.starts_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, starts_on: event.target.value } : current)} />
+              </label>
+              <label className="admin-field">
+                <span>Ends</span>
+                <input disabled={adminMutationPending} type="date" value={editDraft.ends_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, ends_on: event.target.value } : current)} />
+              </label>
+              <label className="admin-field wide">
+                <span>Notes</span>
+                <textarea disabled={adminMutationPending} value={editDraft.notes ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, notes: event.target.value } : current)} rows={3} />
+              </label>
+              <button type="submit" disabled={adminMutationPending}>{cohortSaving ? 'Saving' : 'Save cohort'}</button>
+              </form></details>
+            </div>
+          ) : (
+            <p className="admin-muted">Create a cohort, then select it here to update dates, status, and notes.</p>
+          )}
+        </article>
+      </div>
+
+      <div hidden={area !== 'cohorts'} className="admin-layout">
+        <details hidden={area !== 'cohorts'} className="panel admin-card admin-task"><summary>Create a cohort</summary>
+          <div className="admin-card-heading">
+            <div>
               <h3>Create the next group</h3>
             </div>
           </div>
@@ -534,104 +595,13 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
             <button type="submit" disabled={adminMutationPending || platformMode}>{cohortSaving ? 'Saving' : 'Create cohort'}</button>
             {platformMode && <p className="admin-muted">Choose an Admin workspace above before creating a cohort.</p>}
           </form>
-        </article>
-
-        <article hidden={area !== 'cohorts'} className="panel admin-card">
-          <div className="admin-card-heading">
-            <span className="spark" aria-hidden="true"><UsersIcon /></span>
-            <div>
-              <p className="eyebrow">Cohort list</p>
-              <h3>Select a group to manage</h3>
-            </div>
-          </div>
-
-          {loading && cohorts.length === 0 ? (
-            <p className="admin-muted">Loading cohorts and invitations...</p>
-          ) : (
-            <div className="cohort-list">
-              <button type="button" className={`cohort-list-card ${selectedCohortId === null ? 'active' : ''}`} onClick={() => selectCohort(null)}>
-                <strong>All users</strong>
-                <span>Full invitation list</span>
-              </button>
-              {displayCohorts.map((cohort) => (
-                <button type="button" className={`cohort-list-card ${selectedCohortId === cohort.id ? 'active' : ''}`} key={cohort.id} onClick={() => selectCohort(cohort.id)}>
-                  <strong>{cohort.name}</strong>
-                  <span>{titleize(cohort.status)} · {cohort.member_count} users · {cohort.setup_complete_count} optional setups complete</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </article>
+        </details>
       </div>
 
-      <div hidden={area !== 'cohorts' && area !== 'participants'} className="admin-layout">
-        <article hidden={area !== 'cohorts'} className="panel admin-card">
-          <div className="admin-card-heading">
-            <span className="spark" aria-hidden="true"><CohortIcon /></span>
-            <div>
-              <p className="eyebrow">Selected cohort</p>
-              <h3>{selectedCohort ? selectedCohort.name : 'No cohort selected'}</h3>
-            </div>
-          </div>
-
-          {selectedCohort && editDraft ? (
-            <form className="admin-form" onSubmit={handleUpdateCohort}>
-              <div className="admin-cohort-summary">
-                <AdminBadge value={titleize(selectedCohort.status)} tone={selectedCohort.status === 'active' ? 'green' : selectedCohort.status === 'archived' ? 'red' : 'gold'} />
-                <span>{selectedCohort.participant_count} participants</span>
-                <span>{selectedCohort.staff_count} staff</span>
-                <span>{cohortDateRange(selectedCohort)}</span>
-              </div>
-              <SavingsChallengeAccessPanel key={selectedCohort.id} cohort={selectedCohort} busy={adminMutationPending} onChanged={() => loadAdminData(selectedCohort.id, { cohort: true })} />
-              <div className="admin-operations" aria-label="Privacy-safe cohort operations for the last seven days">
-                {selectedCohort.operational_summary.available ? (
-                  <>
-                    <div><small>Active participants</small><strong>{selectedCohort.operational_summary.participants_active}</strong></div>
-                    <div><small>Mia requests</small><strong>{selectedCohort.operational_summary.mia_requests}</strong></div>
-                    <div><small>Typical Mia time</small><strong>{selectedCohort.operational_summary.average_mia_latency_ms === null ? '—' : `${(selectedCohort.operational_summary.average_mia_latency_ms / 1000).toFixed(1)}s`}</strong></div>
-                    <div><small>Mia failures</small><strong>{selectedCohort.operational_summary.mia_failures}</strong></div>
-                    <div><small>Uploads</small><strong>{selectedCohort.operational_summary.uploads}</strong></div>
-                    <div><small>Upload failures</small><strong>{selectedCohort.operational_summary.upload_failures}</strong></div>
-                  </>
-                ) : (
-                  <p role="status">Activity metrics are temporarily unavailable. Refresh before using this cohort summary to judge participation.</p>
-                )}
-              </div>
-              <p className="admin-privacy-copy">Last 7 days · aggregate operational activity only. Financial values, uploaded document contents, and Mia conversations are not shown.</p>
-              <label className="admin-field wide">
-                <span>Name</span>
-                <input disabled={adminMutationPending} value={editDraft.name} onChange={(event) => setEditDraft((current) => current ? { ...current, name: event.target.value } : current)} />
-              </label>
-              <label className="admin-field">
-                <span>Status</span>
-                <select disabled={adminMutationPending} value={editDraft.status} onChange={(event) => setEditDraft((current) => current ? { ...current, status: event.target.value as AdminCohortStatus } : current)}>
-                  {cohortStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
-                </select>
-              </label>
-              <label className="admin-field">
-                <span>Starts</span>
-                <input disabled={adminMutationPending} type="date" value={editDraft.starts_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, starts_on: event.target.value } : current)} />
-              </label>
-              <label className="admin-field">
-                <span>Ends</span>
-                <input disabled={adminMutationPending} type="date" value={editDraft.ends_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, ends_on: event.target.value } : current)} />
-              </label>
-              <label className="admin-field wide">
-                <span>Notes</span>
-                <textarea disabled={adminMutationPending} value={editDraft.notes ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, notes: event.target.value } : current)} rows={3} />
-              </label>
-              <button type="submit" disabled={adminMutationPending}>{cohortSaving ? 'Saving' : 'Save cohort'}</button>
-            </form>
-          ) : (
-            <p className="admin-muted">Create a cohort, then select it here to update dates, status, and notes.</p>
-          )}
-        </article>
-
+      <div hidden={area !== 'participants'} className="admin-layout">
         <details hidden={area !== 'participants'} className="panel admin-card admin-invite-disclosure"><summary>Invite a participant or staff member</summary>
           <div className="admin-card-heading">
-            <span className="spark" aria-hidden="true"><ShieldIcon /></span>
             <div>
-              <p className="eyebrow">Invite user</p>
               <h3>Add admin, coach, or participant</h3>
             </div>
           </div>
@@ -671,8 +641,9 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
       <article hidden={area !== 'participants'} className="panel admin-card admin-users-panel">
         <div className="admin-card-heading row-between">
           <div>
-            <p className="eyebrow">Users</p>
+
             <h3>{selectedCohort ? `${selectedCohort.name} members` : 'All invited users'}</h3>
+            <p className="admin-attention">{pendingInviteCount} awaiting sign-in{failedInviteCount > 0 ? ` · ${failedInviteCount} invitation emails need attention` : ''}</p>
             <p className="admin-list-summary">Showing {visibleUsers.length} of {matchingUsers.length} matching users · {scopedUsers.length} in this cohort scope. Revoked users are hidden by default.</p>
           </div>
           <button type="button" className="admin-refresh" onClick={() => { if (adminDraftsDirty && !window.confirm('Discard unsaved changes and refresh?')) return; void loadAdminData(undefined, { all: true }) }} disabled={adminMutationPending}>{loading ? 'Refreshing' : 'Refresh'}</button>
@@ -723,7 +694,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
 
               const draftNeedsCohort = cohortRequiredFor(draft.role, draft.invitation_status) && draft.cohort_ids.length === 0
               const draftRequiresCohort = cohortRequiredFor(draft.role, draft.invitation_status)
-              const canResendInvite = user.invitation_status === 'pending'
+              const canResendInvite = user.invitation_status === 'pending' && user.can_resend_invitation !== false
               const canCancelInvite = user.invitation_status === 'pending' && !isSelf
               const canRemoveFromSelectedCohort = selectedCohortId !== null && serverCohortIdsForUser(user).includes(String(selectedCohortId)) && !isSelf
               const rowSaving = savingUserIds.has(user.id)
@@ -731,15 +702,9 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
 
               return (
                 <details name="admin-participant-access" className="admin-user-row" key={`${activeCoachWorkspaceId ?? 'platform'}:${user.id}`}>
-                  <summary className="admin-user-summary"><span><strong>{user.full_name || user.email}</strong><small>{user.email}</small></span><span className="admin-badge-row"><AdminBadge value={titleize(user.role)} tone="neutral" /><AdminBadge value={titleize(user.invitation_status)} tone={user.invitation_status === 'accepted' ? 'green' : user.invitation_status === 'revoked' ? 'red' : 'gold'} /></span><span>{adminUserDraftsEqual(draft, adminDraftForUser(user)) ? 'View & manage access' : 'Unsaved access changes'}</span></summary>
+                  <summary className="admin-user-summary"><span><strong>{user.full_name || user.email}</strong><small>{user.email}</small></span><span>{titleize(user.role)} · {user.invitation_status === 'accepted' ? 'Joined' : user.invitation_status === 'revoked' ? 'Access revoked' : 'Invitation pending'}</span><span>{adminUserDraftsEqual(draft, adminDraftForUser(user)) ? 'Manage access' : 'Unsaved access changes'}</span></summary>
                   <div className="admin-user-detail"><div className="admin-user-main">
-                    <div>
-                      <strong>{user.full_name}</strong>
-                      <span>{user.email}</span>
-                    </div>
                     <div className="admin-badge-row">
-                      <AdminBadge value={titleize(user.role)} tone={user.role === 'admin' ? 'green' : user.role === 'coach' ? 'gold' : 'neutral'} />
-                      <AdminBadge value={titleize(user.invitation_status)} tone={user.invitation_status === 'accepted' ? 'green' : user.invitation_status === 'revoked' ? 'red' : 'gold'} />
                       {user.invite_email.workspace_scoped
                         ? <AdminBadge value="Email details in Platform mode" tone="neutral" />
                         : <AdminBadge value={`Email ${titleize(user.invite_email.status)}`} tone={inviteEmailTone(user.invite_email.status)} />}
@@ -755,6 +720,10 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
                   </div>
 
                   <div className="admin-user-controls">
+                    {isSelf && <p className="admin-field-note wide">You cannot change your own role or invitation status here. Ask another admin.</p>}
+                    {user.invitation_status === 'accepted' && <p className="admin-field-note wide">Already joined; an invitation email is no longer needed.</p>}
+                    {user.invitation_status === 'pending' && !canResendInvite && <p className="admin-field-note wide">Invitation email is not available for this account in this scope.</p>}
+                    {user.invitation_status === 'revoked' && <p className="admin-field-note wide">Restore access before sending another invitation.</p>}
                     <label className="admin-field compact">
                       <span>Role</span>
                       <select value={draft.role} disabled={isSelf || adminMutationPending} onChange={(event) => updateUserDraft(user.id, 'role', event.target.value)}>
@@ -787,7 +756,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
                     </div>
                     <div className="admin-user-actions">
                       <button type="button" onClick={() => void handleSaveUser(user)} disabled={adminMutationPending || draftNeedsCohort}>{rowSaving ? 'Saving' : 'Save'}</button>
-                      <button type="button" className="secondary-action" onClick={() => void handleResendInvitation(user)} disabled={adminMutationPending || !canResendInvite}>{rowResending ? 'Sending' : 'Resend email'}</button>
+                      {canResendInvite && <button type="button" className="secondary-action" onClick={() => void handleResendInvitation(user)} disabled={adminMutationPending}>{rowResending ? 'Sending' : 'Resend email'}</button>}
                       {canCancelInvite && <button type="button" className="danger-action" onClick={() => void handleCancelInvite(user)} disabled={adminMutationPending}>Cancel invite</button>}
                       {canRemoveFromSelectedCohort && <button type="button" className="danger-action" onClick={() => void handleRemoveFromSelectedCohort(user)} disabled={adminMutationPending}>Remove from cohort</button>}
                     </div>
@@ -803,21 +772,11 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   )
 }
 
-function AdminStat({ label, value }: { label: string; value: string }) {
-  return (
-    <article className="metric-card admin-stat-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
-  )
-}
-
 function PlaidHealthLedger({ health, loading, error }: { health: AdminPlaidHealth; loading: boolean; error: string | null }) {
   return (
     <article className="panel admin-card admin-plaid-health">
       <div className="admin-card-heading row-between">
         <div>
-          <p className="eyebrow">Connection health</p>
           <h3>Bank feed ledger</h3>
           <p className="admin-list-summary">Operational metadata only—no balances, transactions, Plaid identifiers, or access credentials.</p>
         </div>
@@ -876,7 +835,7 @@ function RoleMatrix({ open, onToggle }: { open: boolean; onToggle: (open: boolea
       <summary>
         <span>
           <strong>Role and cohort rules</strong>
-          <small>Backend-enforced policy for admin, coach, and participant users.</small>
+          <small>Who can manage access and support participants.</small>
         </span>
       </summary>
       <div className="role-matrix-grid">
@@ -1010,7 +969,7 @@ function alreadyInvitedNotice(response: AdminUserMutationResponse) {
   const cohorts = response.assigned_cohort_names ?? []
   const added = cohorts.length > 0 ? ` Added to ${cohorts.join(', ')}.` : ''
   const sent = cohorts.length > 0 ? ' No new email sent.' : ' Nothing was sent again.'
-  const resend = response.user.invitation_status === 'pending' ? ' Use Resend email on their row if they need another email.' : ''
+  const resend = response.user.invitation_status === 'pending' && response.user.can_resend_invitation !== false ? ' Use Resend email on their row if they need another email.' : ''
   return `${response.user.email} was ${status}.${added}${sent}${resend}`
 }
 
@@ -1022,7 +981,7 @@ function inviteActionNotice(response: AdminUserMutationResponse) {
 }
 
 function inviteDeliveryNotice(response: AdminUserMutationResponse) {
-  if (response.invitation_sent) return 'Invite email sent through Resend.'
+  if (response.invitation_sent) return 'Invite email sent.'
   if (response.invitation_status === 'failed') return `Invite saved, but email delivery failed${response.invitation_error ? `: ${response.invitation_error}` : '.'}`
   if (response.invitation_status === 'skipped') return 'Invite saved; email delivery was skipped by admin.'
 
@@ -1082,31 +1041,4 @@ function cohortDateRange(cohort: AdminCohort) {
 
 function formatShortDate(value: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
-}
-
-function CohortIcon() {
-  return (
-    <svg viewBox="0 0 24 24" role="img" aria-label="Cohort">
-      <path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h10a2.5 2.5 0 0 1 2.5 2.5v11A2.5 2.5 0 0 1 17 20H7a2.5 2.5 0 0 1-2.5-2.5v-11Z" className="icon-stroke" />
-      <path d="M8 9h8M8 12h5M8 15h7" className="icon-stroke" />
-    </svg>
-  )
-}
-
-function UsersIcon() {
-  return (
-    <svg viewBox="0 0 24 24" role="img" aria-label="Users">
-      <path d="M9.2 11.1a3.1 3.1 0 1 0 0-6.2 3.1 3.1 0 0 0 0 6.2ZM4.4 19.1c.55-3.1 2.2-4.65 4.8-4.65 2.58 0 4.22 1.55 4.78 4.65" className="icon-stroke" />
-      <path d="M16.2 11.4a2.55 2.55 0 1 0 0-5.1M15.7 14.45c2.05.18 3.35 1.58 3.9 4.2" className="icon-stroke" />
-    </svg>
-  )
-}
-
-function ShieldIcon() {
-  return (
-    <svg viewBox="0 0 24 24" role="img" aria-label="Secure access">
-      <path d="M12 2.7 19 5.4v5.25c0 4.45-2.8 8.5-7 10.05-4.2-1.55-7-5.6-7-10.05V5.4l7-2.7Z" />
-      <path d="m8.9 12.05 2 2 4.2-4.45" className="icon-stroke" />
-    </svg>
-  )
 }
