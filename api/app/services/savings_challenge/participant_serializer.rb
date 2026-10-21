@@ -1,18 +1,38 @@
 module SavingsChallenge
   class ParticipantSerializer
-    def self.record(record)
+    # One context per private collection, never cached across requests/actors.
+    class Context
+      def initialize(enrollment)
+        @enrollment = enrollment
+      end
+
+      def evidence_for(record)
+        raise ArgumentError, "Savings record belongs to another enrollment" unless record.savings_enrollment_id == @enrollment.id
+
+        @quality ||= EvidenceProjection.new(@enrollment, sequence: @enrollment.approval_sequence, cutoff_on: @enrollment.local_today).call[:quality]
+          .index_by { |row| row.fetch("entry_version_id") }
+        @locks ||= SavingsEvidenceAllocation.where(savings_enrollment: @enrollment).pluck(:savings_entry_version_id, :lock_version).to_h
+        [ @quality[record.id], @locks.fetch(record.id, 0) ]
+      end
+    end
+
+    def self.collection(records, enrollment:)
+      context = Context.new(enrollment)
+      records.map { |record| self.record(record, context: context) }
+    end
+
+    def self.record(record, context: nil)
       case record
       when SavingsEnrollment
         record.attributes.slice("id", "cohort_id", "accepted_cohort_release_id", "starts_on", "ends_on", "time_zone", "status", "policy_version", "late_start_accepted", "current_accepted_plan_version_id", "approval_sequence", "lock_version")
       when SavingsEntry
         record.attributes.slice("id", "current_approved_version_id", "lock_version").merge(
-          "current_approved_version" => record.current_approved_version && self.record(record.current_approved_version))
+          "current_approved_version" => record.current_approved_version && self.record(record.current_approved_version, context: context))
       when SavingsEntryVersion
-        evidence = EvidenceProjection.new(record.savings_enrollment, sequence: record.savings_enrollment.approval_sequence, cutoff_on: record.savings_enrollment.local_today).call[:quality]
-          .find { |row| row["entry_version_id"] == record.id }
+        evidence, lock_version = (context || Context.new(record.savings_enrollment)).evidence_for(record)
         record.attributes.slice("id", "savings_entry_id", "previous_version_id", "version_number", "approval_sequence", "signed_cents", "effective_on", "currency", "funding_source", "evidence_supported_cents", "reason", "approved_at")
           .merge("evidence_supported_cents" => evidence&.fetch("supported_cents") || 0, "evidence_status" => evidence&.fetch("status") || "not_linked",
-            "evidence_version_id" => evidence&.fetch("version_id"), "evidence_head_lock_version" => SavingsEvidenceAllocation.find_by(savings_entry_version: record)&.lock_version || 0)
+            "evidence_version_id" => evidence&.fetch("version_id"), "evidence_head_lock_version" => lock_version)
       when SavingsEvidenceVersion
         record.attributes.slice("id", "savings_evidence_allocation_id", "previous_version_id", "version_number", "approval_sequence", "state", "supported_cents", "digest", "reason", "approved_at", "proof_snapshot")
           .merge("proof_display" => evidence_display(record))

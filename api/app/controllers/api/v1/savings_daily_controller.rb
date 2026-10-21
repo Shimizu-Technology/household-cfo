@@ -4,7 +4,7 @@ module Api
       wrap_parameters false
       before_action :authenticate_user!
       before_action :disable_caching!
-      before_action :require_challenge!, except: %i[erase_reflection erase_status]
+      before_action :require_challenge!, except: %i[erase_reflection erase_status], unless: :private_snapshot_read?
 
       ACTIONS = {
         "purchase_stage" => "savings.daily.purchase.stage", "purchase_approve" => "savings.daily.purchase.approve",
@@ -36,8 +36,11 @@ module Api
 
       def records
         collection = params[:collection].to_s.to_sym
-        result = private_read { reader.page(collection, limit: 50, after_id: params[:cursor].presence, parent_id: params[:parent_id].presence) }
-        render json: result.merge(records: result[:records].map { |record| present(record) }, **actor_context)
+        result = private_read do
+          page = reader.page(collection, limit: 50, after_id: params[:cursor].presence, parent_id: params[:parent_id].presence)
+          page.merge(records: page[:records].map { |record| present(record) }, **actor_context)
+        end
+        render json: result
       rescue KeyError
         render json: { errors: [ "Choose a supported daily collection" ] }, status: :unprocessable_entity
       end
@@ -72,9 +75,9 @@ module Api
       end
 
       def candidates
-        date = SavingsChallenge::Daily::Inputs.elapsed_date!(@enrollment, local_on)
         cursor = params[:cursor].presence && SavingsChallenge::Inputs.id!(params[:cursor])
         result = private_read do
+          date = SavingsChallenge::Daily::Inputs.elapsed_date!(@enrollment, local_on)
           window = @enrollment.starts_on..[ @enrollment.ends_on, @enrollment.local_today ].min
           authorized_source_transactions = SourceProjectionRevision.joins(source_review_version: :source_review_head)
             .where(household_id: current_household.id, action: %w[create replace])
@@ -176,6 +179,10 @@ module Api
         SavingsChallenge::Daily::ReadPolicy.call!(@enrollment, user: current_user)
       end
       def private_read
+        if private_snapshot_read?
+          return with_private_read_snapshot(authorize: :require_challenge!) { yield }
+        end
+
         ApplicationRecord.transaction do
           ApplicationRecord.connection.execute("SET LOCAL lock_timeout = '2s'") if action_name == "request_status"
           current_household.lock!
