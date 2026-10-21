@@ -8,12 +8,14 @@ module SavingsChallenge
     def call
       versions = SavingsEvidenceVersion.where(savings_enrollment: @enrollment, approval_sequence: ..@sequence)
         .select("DISTINCT ON (savings_evidence_allocation_id) savings_evidence_versions.*")
-        .order(:savings_evidence_allocation_id, approval_sequence: :desc).includes(:savings_evidence_allocation).to_a
+        .order(:savings_evidence_allocation_id, approval_sequence: :desc)
+        .includes(savings_evidence_allocation: { savings_entry_version: :savings_entry }).to_a
+      proof = nil
       quality = versions.map do |version|
         eligible = version.proof_snapshot.select { |proof| proof.fetch("dependencies").all? { |row| Date.iso8601(row.fetch("posted_on")) <= @cutoff } }
         state = if version.state == "revoked"
           "revoked"
-        elsif @mode == :current && (!SavingsChallenge::EvidenceProof.new(@enrollment).current?(version.proof_snapshot, cutoff_on: @enrollment.ends_on) ||
+        elsif @mode == :current && (!(proof ||= SavingsChallenge::EvidenceProof.new(@enrollment)).current?(version.proof_snapshot, cutoff_on: @enrollment.ends_on) ||
           version.savings_evidence_allocation.savings_entry_version.savings_entry.current_approved_version_id != version.savings_evidence_allocation.savings_entry_version_id)
           "stale"
         else

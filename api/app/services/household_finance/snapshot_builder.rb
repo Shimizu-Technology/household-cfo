@@ -68,7 +68,7 @@ module HouseholdFinance
         {
           label: STACK_LABELS.fetch(stack_key),
           color: STACK_COLORS.fetch(stack_key),
-          amount: dollars(allocations.sum(&:planned_amount_cents)),
+          amount: dollars(stack_totals_cents.fetch(stack_key)),
           description: STACK_DESCRIPTIONS.fetch(stack_key),
           examples: allocations.any? ? allocations.map { |allocation| allocation.budget_category.name }.first(4) : STACK_EXAMPLES.fetch(stack_key)
         }
@@ -89,10 +89,7 @@ module HouseholdFinance
       @current_period = if ensure_plan
         annual_budget_manager.current_period_for(reference_date)
       else
-        BudgetPeriod.joins(:budget_year).find_by(
-          budget_years: { household_id: household.id, financial_generation: household.financial_generation, year: reference_date.year },
-          starts_on: reference_date.beginning_of_month
-        )
+        annual_budget_manager.read_only_periods.find { |period| period.starts_on == reference_date.beginning_of_month }
       end
     end
 
@@ -172,7 +169,7 @@ module HouseholdFinance
         allocations = current_allocations.select { |allocation| allocation.budget_category.stack_key == stack_key }
         if allocations.any?
           allocations.sum(&:planned_amount_cents)
-        elsif !ensure_plan
+        elsif !ensure_plan && !current_period
           active_expense_items.select { |expense| expense.stack_key == stack_key }.sum do |expense|
             Money.period_cents(expense.amount_cents, expense.cadence, month: reference_date.month)
           end

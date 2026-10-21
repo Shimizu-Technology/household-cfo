@@ -4,16 +4,21 @@ module Authenticatable
   private
 
   def authenticate_user!
+    return if @authentication_succeeded
+
     token = bearer_token
     if token.blank?
       render_unauthorized("Missing bearer token")
       return
     end
 
-    return authenticate_test_token!(token) if test_auth_token?(token)
-
-    AuthenticationProvider.mode
-    authenticate_workos!(token)
+    if test_auth_token?(token)
+      authenticate_test_token!(token)
+    else
+      AuthenticationProvider.mode
+      authenticate_workos!(token)
+    end
+    @authentication_succeeded = true if @current_user && !performed?
   rescue AuthenticationProvider::ConfigurationError => error
     render_service_unavailable(error.message)
   end
@@ -107,7 +112,11 @@ module Authenticatable
       return
     end
 
-    user.update!(last_sign_in_at: Time.current, invitation_status: "accepted", accepted_at: user.accepted_at || Time.current)
+    # Local test identities accept an invitation once. Repeated fixture reads
+    # need no activity write; hosted WorkOS sign-in persistence is unchanged.
+    if user.invitation_pending?
+      user.update!(last_sign_in_at: Time.current, invitation_status: "accepted", accepted_at: user.accepted_at || Time.current)
+    end
     @auth_provider = "test"
     @auth_subject = claims.fetch("sub")
     @authentication_claims = claims

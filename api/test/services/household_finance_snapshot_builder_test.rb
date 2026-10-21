@@ -1,6 +1,15 @@
 require "test_helper"
 
 class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
+  test "read only missing plan uses the known expense preview consistently without provisioning" do
+    household = household_with_runway(runway_months: 3, target_months: 6)
+    builder = HouseholdFinance::SnapshotBuilder.new(household, ensure_plan: false)
+    assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count" ]) do
+      assert_equal 100_000, builder.call[:total_expenses_cents]
+      assert_equal 1000.0, builder.budget_stacks.first[:amount]
+    end
+  end
+
   test "readiness tone uses the saved runway target" do
     household = household_with_runway(runway_months: 7, target_months: 12)
 
