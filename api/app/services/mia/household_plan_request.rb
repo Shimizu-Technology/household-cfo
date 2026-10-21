@@ -33,6 +33,9 @@ module Mia
       return :household if text.match?(HOUSEHOLD) || text.match?(INCOME_REPORT)
       return :household if matched_topics.one? && matched_topics.first != :debt
       return :ambiguous if matched_topics.any?
+      # An unnamed goal in the challenge means its target. Explicit household
+      # records were already matched above, even when other tracked goals exist.
+      return :challenge if text.match?(/\b(?:goal|target)\b/i) && !text.match?(/\b(?:debt|credit card|card balance|minimum payment)\b/i)
       return :ambiguous if text.match?(AMBIGUOUS)
 
       :challenge

@@ -293,12 +293,12 @@ class SavingsOptionalDebtTest < ActiveSupport::TestCase
         assert_not_includes answer, "personal savings practice", message
         assert_not_includes answer, "Start with one purchase", message
       end
-      assert_includes coach("Will borrowing from my savings affect the challenge?").call, "progress is unknown"
+      assert_includes coach("Will borrowing from my savings affect the challenge?").call, "progress isn't known yet"
       extra = coach("How much extra should I save each week to reach my goal?")
       answer = extra.call
       assert_not extra.deterministic?
       assert_not_includes answer, "cannot rank your cards"
-      assert_includes answer, "progress is unknown"
+      assert_includes answer, "progress isn't known yet"
     end
   end
 

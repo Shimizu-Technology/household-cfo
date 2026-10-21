@@ -3,7 +3,7 @@ import type { BaselineScope } from './financialBaseline'
 export type DailyScope = BaselineScope & { enrollment_id: number; cohort_id?: number }
 export type DailyCategory = { id: number; name: string; stack_key: string }
 export type DailySplit = { budget_category_id: number; amount_cents: number }
-export type DailyDay = { local_on: string; scope: 'participant_daily_reports'; spending_state: 'spending' | 'no_spend' | 'unknown'; check_in_id: number | null; check_in_version_id: number | null; check_in_lock_version: number; completed_at: string | null; approved_purchase_count: number; reported_spend_cents: number | null; canonical_links_changed: boolean; no_spend_discrepancy: boolean; all_account_completeness: 'unknown' }
+export type DailyDay = { local_on: string; scope: 'participant_daily_reports'; spending_state: 'spending' | 'no_spend' | 'unknown'; check_in_id: number | null; check_in_version_id: number | null; check_in_lock_version: number; completed_at: string | null; approved_purchase_count: number; reported_spend_cents: number | null; canonical_links_changed: boolean; no_spend_discrepancy: boolean; checked_in?: boolean; all_account_completeness: 'unknown' }
 export type DailyEnvelope = { actor_scope: BaselineScope; enrollment_id?: number | null; cohort_id?: number | null }
 export type DailyContext = DailyEnvelope & { enrollment_id: number; calendar: SavingsCalendar; day: DailyDay | null; categories: DailyCategory[]; category_options: { stack_key: string; label: string }[] }
 export type DailyVersion = { id: number; version_number: number; previous_version_id: number | null; approved_at: string; reason: string | null }

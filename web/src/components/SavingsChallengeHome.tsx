@@ -23,9 +23,9 @@ import { SavingsRowButton, SavingsRowContent } from './SavingsRow'
 
 type RecordRow = SavingsEntry | SavingsEntryVersion | SavingsEntryDraft | SavingsPlanDraft
 type Retry = { key: string; perform: (key: string, signal: AbortSignal) => Promise<SavingsMutation<unknown>>; done?: () => void }
-type HomeProps = { onOptionalDebt?: () => void; cohortId?: number; evidenceRefreshToken?: number; onReviewEvidence?: (entryVersionId:number)=>void; participantScope?: BaselineScope; onAskMia: () => void; onReviewStatements: () => void; onReviewBaseline?: () => void; onToday?: () => void; onCheckIn?: () => void; privacyAccess?: ReactNode; initialSavingsIntake?: SavingsIntake | null; onEnrollmentKnown?: (enrolled: boolean) => void }
+type HomeProps = { onOptionalDebt?: () => void; cohortId?: number; evidenceRefreshToken?: number; onReviewEvidence?: (entryVersionId:number)=>void; participantScope?: BaselineScope; onAskMia: () => void; onReviewStatements: () => void; onReviewBaseline?: () => void; onToday?: () => void; onCheckIn?: () => void; checkedInToday?: boolean; privacyAccess?: ReactNode; initialSavingsIntake?: SavingsIntake | null; onEnrollmentKnown?: (enrolled: boolean) => void }
 export function SavingsChallengeHome(props: HomeProps) { return <SavingsChallengeHomeBody key={`${props.participantScope?.user_id}:${props.participantScope?.household_id}:${props.cohortId}`} {...props}/> }
-function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshToken, onAskMia, onReviewStatements, onReviewBaseline, onToday, onCheckIn, privacyAccess, initialSavingsIntake, participantScope, onReviewEvidence, onEnrollmentKnown }: HomeProps) {
+function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshToken, onAskMia, onReviewStatements, onReviewBaseline, onToday, onCheckIn, checkedInToday = false, privacyAccess, initialSavingsIntake, participantScope, onReviewEvidence, onEnrollmentKnown }: HomeProps) {
   const { assistantName } = useBrand()
   const [planOpen, setPlanOpen] = useState(false)
   const [changingPlan, setChangingPlan] = useState(false)
@@ -316,7 +316,10 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
         {excluded > 0 && <p className="savings-caption">{excluded === 1 ? '1 record isn’t counted because it wasn’t' : `${excluded} records aren’t counted because they weren’t`} new money (for example, money you already had or borrowed).</p>}
         {reported !== null && reported < 0 && <p className="savings-caption">You’ve taken out more than you set aside, so the bar stays empty.</p>}
         <div className="savings-actions">
-          {checkIn && checkInOpen && <button type="button" className="savings-primary" onClick={(event) => { event.currentTarget.focus(); checkIn() }}>Check in for today</button>}
+          {checkIn && checkInOpen && (checkedInToday ? <>
+            <p className="savings-caption">You checked in today</p>
+            <button type="button" className="savings-secondary" onClick={(event) => { event.currentTarget.focus(); checkIn() }}>Add more</button>
+          </> : <button type="button" className="savings-primary" onClick={(event) => { event.currentTarget.focus(); checkIn() }}>Check in for today</button>)}
           <button type="button" className="savings-secondary" aria-expanded={entryOpen} aria-controls={asideId} onClick={() => { if (entryOpen) setEntryOpen(false); else openAside() }}>I set money aside{pendingEntries > 0 && <span className="savings-badge"> · {pendingEntries} to confirm</span>}</button>
         </div>
       </article>

@@ -25,6 +25,9 @@ module SavingsChallenge
           completed_at: version&.approved_at&.iso8601, approved_purchase_count: purchases.size,
           reported_spend_cents: known ? purchases.sum(&:amount_cents) : nil, canonical_links_changed: stale.positive?,
           no_spend_discrepancy: version&.spending_state == "no_spend" && purchases.any?,
+          # The day is reported once a spending or no-spend check-in is saved, the
+          # same rule reminders and coaches use; purchases alone do not finish it.
+          checked_in: version&.spending_state.in?(%w[spending no_spend]) || false,
           all_account_completeness: "unknown" }
       end
     end

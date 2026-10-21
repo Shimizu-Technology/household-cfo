@@ -26,7 +26,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_includes answer, "$200.01"
     assert_includes answer, "$500.00"
     assert_includes answer, "90-day"
-    assert_includes answer, "approved reported"
+    assert_includes answer, "So far you've saved"
     assert_nil response.parsed_body.fetch("budget")
     assert_nil response.parsed_body.fetch("transaction_draft")
     count = ChatMessage.count
@@ -38,7 +38,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   test "card, loan and hard-day questions get final answers without calling the model" do
     ENV["OPENROUTER_API_KEY"] = "fictional-key"
     with_savings_runtime { debt_approve(debt_stage(debt_terms(label: "Visa", balance_cents: 30_000))) }
-    HouseholdFinance::MiaNarrator.class_eval { alias_method :__orig_openrouter, :openrouter_response; define_method(:openrouter_response) { $model_calls_in_test = $model_calls_in_test.to_i + 1; nil } }
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { $model_calls_in_test = $model_calls_in_test.to_i + 1; nil }
     $model_calls_in_test = 0
     begin
       asks = [ "How much do I owe on my card according to what I approved?", "which card first and how much extra should I pay?",
@@ -61,7 +61,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       assert_operator hard.index("you can skip today"), :<, hard.index("988")
       assert_equal 0, $model_calls_in_test
     ensure
-      HouseholdFinance::MiaNarrator.class_eval { alias_method :openrouter_response, :__orig_openrouter }
+      narrator_stub&.call
     end
   end
 
@@ -114,7 +114,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
 
   test "hopeless language with food or essentials keeps food-first guidance and the 988 line without the model" do
     ENV["OPENROUTER_API_KEY"] = "fictional-key"
-    HouseholdFinance::MiaNarrator.class_eval { alias_method :__orig_openrouter2, :openrouter_response; define_method(:openrouter_response) { $model_calls_in_test2 = $model_calls_in_test2.to_i + 1; nil } }
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { $model_calls_in_test2 = $model_calls_in_test2.to_i + 1; nil }
     $model_calls_in_test2 = 0
     begin
       post "/api/v1/mia/messages", params: { message: "We have no food this week and I give up", request_id: "food-hopeless" }, headers: auth, as: :json
@@ -128,7 +128,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       assert_equal 1, content.scan("988").length, content
       assert_equal 0, $model_calls_in_test2
     ensure
-      HouseholdFinance::MiaNarrator.class_eval { alias_method :openrouter_response, :__orig_openrouter2 }
+      narrator_stub&.call
     end
   end
 
@@ -151,12 +151,11 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       post "/api/v1/mia/messages", params: { message: "I spent $12.35 at Synthetic Cafe today", request_id: "chat-purchase" }, headers: auth, as: :json
       assert_response :created
       intake = response.parsed_body.fetch("savings_intake")
-      assert_equal "purchase", intake.fetch("kind")
-      assert_equal 1235, intake.fetch("amount_cents")
-      assert_equal "2026-11-15", intake.fetch("effective_on")
-      assert_equal "Synthetic Cafe", intake.fetch("merchant")
+      assert_equal "daily_report", intake.fetch("kind")
+      assert_equal [ { "amount_cents" => 1235, "merchant" => "Synthetic Cafe", "purchased_on" => "2026-11-15" } ], intake.fetch("purchases")
+      assert_equal "2026-11-15", intake.fetch("local_on")
       refute intake.fetch("counted")
-      [ "Could I save $20 today?", "I spent $20 and $30 today", "I saved $20 on 2026-11-16", "I spent $20 at Synthetic Cafe yesterday", "I have not yet saved $20 today", "I paid a credit card payment of $20 today" ].each_with_index do |message, index|
+      [ "Could I save $20 today?", "I saved $20 on 2026-11-16", "I spent $20 at Synthetic Cafe yesterday", "I have not yet saved $20 today", "I paid a credit card payment of $20 today" ].each_with_index do |message, index|
         post "/api/v1/mia/messages", params: { message: message, request_id: "ambiguous-#{index}" }, headers: auth, as: :json
         assert_response :created
         assert_nil response.parsed_body.fetch("savings_intake")
@@ -166,6 +165,154 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       assert_equal 2001, response.parsed_body.dig("savings_intake", "signed_cents")
       assert response.parsed_body.dig("savings_intake", "new_money_confirmation_required")
     end
+  end
+
+  test "daily reports become one card the participant saves, with a reply that never claims a record" do
+    ENV["OPENROUTER_API_KEY"] = "fictional-key"
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { raise "daily reports must not call the narrator" }
+    extractor_stub = stub_private_method(SavingsChallenge::DailyReportExtractor, :openrouter_response) { raise "a parsed daily report must not call the extractor" }
+    assert_no_difference [ "SavingsDailyPurchaseDraft.count", "SavingsDailyPurchaseVersion.count", "SavingsDailyCheckInVersion.count", "SavingsDailyReflectionVersion.count", "HouseholdTransaction.count", "TransactionDraft.count" ] do
+      post "/api/v1/mia/messages", params: { message: "I spent $8 at Shell and 20 at Payless, felt rushed", request_id: "daily-two" }, headers: auth, as: :json
+      assert_response :created
+      intake = response.parsed_body.fetch("savings_intake")
+      assert_equal({ "kind" => "daily_report", "local_on" => "2026-11-15", "no_spend" => false, "counted" => false, "approval_state" => "unreviewed_input",
+        "purchases" => [ { "amount_cents" => 800, "merchant" => "Shell", "purchased_on" => "2026-11-15" }, { "amount_cents" => 2000, "merchant" => "Payless", "purchased_on" => "2026-11-15" } ],
+        "feelings" => { "when_spent" => "rushed", "now" => nil } }, intake)
+      reply = response.parsed_body.dig("assistant_message", "content")
+      assert_includes reply, "$8.00 at Shell and $20.00 at Payless"
+      assert_includes reply, "tap Save. Nothing is saved until you do."
+      refute_match(/\b(?:I|I've|we)\s+(?:saved|recorded|added)\b/i, reply.sub("Nothing is saved until you do.", ""))
+      assert_nil response.parsed_body.fetch("transaction_draft")
+
+      post "/api/v1/mia/messages", params: { message: "spent 12 for lunch", request_id: "daily-no-place" }, headers: auth, as: :json
+      assert_equal "", response.parsed_body.dig("savings_intake", "purchases", 0, "merchant")
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Add where you spent it on the card"
+
+      post "/api/v1/mia/messages", params: { message: "No spending today", request_id: "daily-no-spend" }, headers: auth, as: :json
+      assert_response :created
+      assert_equal({ "kind" => "daily_report", "local_on" => "2026-11-15", "purchases" => [], "no_spend" => true, "feelings" => nil,
+        "counted" => false, "approval_state" => "unreviewed_input" }, response.parsed_body.fetch("savings_intake"))
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "No spending today. I've put it below"
+
+      post "/api/v1/mia/messages", params: { message: "I spent nothing today but I feel stressed", request_id: "daily-no-spend-feeling" }, headers: auth, as: :json
+      assert response.parsed_body.dig("savings_intake", "no_spend")
+      assert_nil response.parsed_body.dig("savings_intake", "feelings")
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "How you feel isn't saved with a no-spend day"
+
+      # Day 1 of the personal window: yesterday cannot be recorded, and Mia says why.
+      [ "spent $9 at Shell yesterday", "I didn't spend anything yesterday" ].each_with_index do |message, index|
+        post "/api/v1/mia/messages", params: { message: message, request_id: "daily-before-start-#{index}" }, headers: auth, as: :json
+        assert_nil response.parsed_body.fetch("savings_intake"), message
+        assert_equal "Your challenge started on Sun, Nov 15, so I can't add yesterday's spending to it. Nothing was saved. You can tell me about today instead.",
+          response.parsed_body.dig("assistant_message", "content"), message
+      end
+
+      post "/api/v1/mia/messages", params: { message: "I feel stressed, spent $60 at Ross", request_id: "daily-feeling-first" }, headers: auth, as: :json
+      assert_equal [ 6000 ], response.parsed_body.dig("savings_intake", "purchases").map { |row| row["amount_cents"] }
+      assert response.parsed_body.dig("assistant_message", "content").start_with?("Thanks for telling me how you're feeling. Got it: $60.00 at Ross.")
+
+      # Money talk that is not a purchase keeps Mia's normal answer and shows no card.
+      [ "My goal is $500", "Rent went up to $1,400", "I have $180 left", "Mom gave me $50" ].each_with_index do |message, index|
+        post "/api/v1/mia/messages", params: { message: message, request_id: "daily-money-talk-#{index}" }, headers: auth, as: :json
+        assert_nil response.parsed_body.fetch("savings_intake"), message
+        refute_includes response.parsed_body.dig("assistant_message", "content"), "tap Save", message
+      end
+
+      [ "should I spend 20 at Ross?", "I might buy shoes at Ross", "paid 300 on my credit card", "bought 2 shares of Apple today" ].each_with_index do |message, index|
+        post "/api/v1/mia/messages", params: { message: message, request_id: "daily-negative-#{index}" }, headers: auth, as: :json
+        assert_nil response.parsed_body.fetch("savings_intake"), message
+      end
+    end
+  ensure
+    narrator_stub&.call
+    extractor_stub&.call
+  end
+
+  test "an unreadable daily report may use the stubbed extractor, which is validated and never counted" do
+    ENV["OPENROUTER_API_KEY"] = "fictional-key"
+    extractor_stub = stub_private_method(SavingsChallenge::DailyReportExtractor, :openrouter_response) { { purchases: [ { amount: "12", merchant: "Kings", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "", counted: true }.to_json }
+    post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract-extra" }, headers: auth, as: :json
+    assert_nil response.parsed_body.fetch("savings_intake"), "an extra field rejects the whole proposal"
+    SavingsChallenge::DailyReportExtractor.class_eval do
+      define_method(:openrouter_response) { { purchases: [ { amount: "12", merchant: "Kings", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "" }.to_json }
+    end
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { raise "a daily report reply is deterministic" }
+    assert_no_difference [ "SavingsDailyPurchaseDraft.count", "SavingsDailyPurchaseVersion.count" ] do
+      post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract" }, headers: auth, as: :json
+    end
+    assert_equal [ { "amount_cents" => 1200, "merchant" => "Kings", "purchased_on" => "2026-11-15" } ], response.parsed_body.dig("savings_intake", "purchases")
+    refute response.parsed_body.dig("savings_intake", "counted")
+  ensure
+    extractor_stub&.call
+    narrator_stub&.call
+  end
+
+  test "an ungrounded two-day model report falls back to Mia without a purchase card" do
+    ENV["OPENROUTER_API_KEY"] = "fictional-key"
+    extractor_stub = stub_private_method(SavingsChallenge::DailyReportExtractor, :openrouter_response) do
+      { purchases: [ { amount: "12", merchant: "Kings", day: "today" }, { amount: "15", merchant: "Ross", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "" }.to_json
+    end
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { "Tell me which purchase was yesterday and which was today." }
+    assert_no_difference [ "SavingsDailyPurchaseDraft.count", "SavingsDailyPurchaseVersion.count" ] do
+      post "/api/v1/mia/messages", params: { message: "lunch w cousins came to 12 at Kings yesterday and dinner w friends came to 15 at Ross today", request_id: "two-days-invalid" }, headers: auth, as: :json
+      assert_response :created
+      assert_nil response.parsed_body["savings_intake"]
+      assert response.parsed_body.dig("assistant_message", "content").present?
+    end
+  ensure
+    extractor_stub&.call
+    narrator_stub&.call
+  end
+
+  test "crisis and wellbeing-check replies carry an explicit safety flag, in replies and in history" do
+    [ [ "i dont see the point anymore", "hopeless" ], [ "kms", "crisis" ] ].each_with_index do |(message, kind), index|
+      post "/api/v1/mia/messages", params: { message: message, request_id: "safety-#{index}" }, headers: auth, as: :json
+      assert_response :created
+      assert_equal true, response.parsed_body.dig("assistant_message", "safety_reply"), kind
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "988", kind
+      assert_nil response.parsed_body["savings_intake"], kind
+    end
+    post "/api/v1/mia/messages", params: { message: "No spending today", request_id: "safety-after" }, headers: auth, as: :json
+    assert_equal false, response.parsed_body.dig("assistant_message", "safety_reply")
+    get "/api/v1/mia/messages", headers: auth
+    assert_response :success
+    flags = response.parsed_body.fetch("messages").select { |row| row["role"] == "assistant" }.map { |row| row["safety_reply"] }
+    assert_equal [ true, true, false ], flags.last(3)
+  end
+
+  test "goal changes in the challenge point to the challenge target, and saved money gets a plain reply" do
+    @savings_household.goals.create!(label: "Family trip", goal_type: "savings", record_kind: "tracked", target_amount_cents: 100_000)
+    assert_no_difference [ "SavingsPlanDraft.count", "MiaActionDraft.count", "SavingsEntryDraft.count" ] do
+      [ "Change my goal to $300", "Update my goal to $700", "lower my target to 300", "make my goal $400" ].each_with_index do |message, index|
+        post "/api/v1/mia/messages", params: { message: message, request_id: "goal-#{index}" }, headers: auth, as: :json
+        assert_response :created
+        reply = response.parsed_body.dig("assistant_message", "content")
+        assert_includes reply, "open Savings, then Your target & spending choices", message
+        refute_includes reply, "household plan or your savings challenge", message
+        assert_nil response.parsed_body["savings_intake"], message
+      end
+      post "/api/v1/mia/messages", params: { message: "Picked up an extra shift and saved $50 today", request_id: "plain-contribution" }, headers: auth, as: :json
+      assert_equal "contribution", response.parsed_body.dig("savings_intake", "kind")
+      assert_equal "Got it: $50.00 set aside today. I've put it below — check it, then save it to your challenge. Only new money you set aside counts, and nothing is saved until you do.",
+        response.parsed_body.dig("assistant_message", "content")
+    end
+  end
+
+  test "goal questions and savings reports do not become target change instructions" do
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { nil }
+    extractor_stub = stub_private_method(SavingsChallenge::DailyReportExtractor, :openrouter_response) { nil }
+    [ "Can I make my goal by December?", "I set aside $20 for my goal", "what's my goal?", "should I change my goal?",
+      "Should I change my goal", "I saved $50 toward my goal today", "I put aside $20 for my target", "My goal is at $300" ].each_with_index do |message, index|
+      post "/api/v1/mia/messages", params: { message: message, request_id: "goal-question-#{index}" }, headers: auth, as: :json
+      assert_response :created
+      reply = response.parsed_body.dig("assistant_message", "content")
+      refute_includes reply, "Your target & spending choices", message
+      refute_includes reply, "To change your challenge goal", message
+      assert_includes reply, "Only new money you actually set aside counts", message if message.downcase.start_with?("should")
+    end
+  ensure
+    narrator_stub&.call
+    extractor_stub&.call
   end
 
   test "household category chat prepares an explicit review and applies once without changing savings" do
@@ -193,7 +340,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "ambiguous goal and debt edits ask which records without creating annual setup" do
-    [ "Update my goal to $700", "Change my card balance to $900", "Update household debt and my challenge target" ].each_with_index do |message, index|
+    [ "Change my card balance to $900", "Update household debt and my challenge target" ].each_with_index do |message, index|
       assert_no_difference [ "BudgetYear.count", "MiaActionDraft.count", "SavingsPlanDraft.count", "SavingsDebtDraft.count" ] do
         post "/api/v1/mia/messages", params: { message: message, request_id: "scope-#{index}" }, headers: auth, as: :json
         assert_response :created
@@ -411,6 +558,17 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   end
 
   private
+  # Replaces a private instance method for one test and returns a restorer that
+  # puts the original back, still private. `method_defined?` ignores private
+  # methods, so restoring by alias name alone can silently leave a stub behind
+  # for every later test in the process.
+  def stub_private_method(klass, name, &body)
+    original = klass.instance_method(name)
+    klass.send(:define_method, name, &body)
+    klass.send(:private, name)
+    -> { klass.send(:define_method, name, original); klass.send(:private, name) }
+  end
+
   def with_intent_resolver(resolver)
     singleton = class << HouseholdFinance::MiaIntentResolver; self; end
     defined_before = singleton.method_defined?(:new, false)

@@ -25,7 +25,7 @@ describe('participant savings Home', () => {
 
   it('answers one question first: one filled action, plain dates and no zero-count noise', async () => {
     const checkIn = vi.fn(), today = vi.fn()
-    render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onToday={today} onCheckIn={checkIn} />)
+    render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onToday={today} onCheckIn={checkIn} checkedInToday={false} />)
     const summary = await screen.findByRole('article', { name: 'Approved savings progress' })
     expect(summary.textContent).toContain('Day 4 of 90 · next check-in Day 30 on Fri, Oct 30')
     expect(summary.querySelectorAll('.savings-primary')).toHaveLength(1)
@@ -37,6 +37,27 @@ describe('participant savings Home', () => {
     const page = document.body.textContent!
     for (const noise of ['2026-10-30', 'Pacific/Guam', '0 waiting', 'not counted', 'Backed by statements']) expect(page).not.toContain(noise)
     expect(page).toContain('Dates follow Guam time.')
+  })
+
+  it('replaces the primary action after check-in and opens Mia to add more', async () => {
+    const checkIn = vi.fn(), today = vi.fn()
+    const props = { onAskMia: vi.fn(), onReviewStatements: vi.fn(), onToday: today, onCheckIn: checkIn }
+    const { rerender } = render(<SavingsChallengeHome {...props} checkedInToday={false} />)
+    const summary = await screen.findByRole('article', { name: 'Approved savings progress' })
+    expect(within(summary).getByRole('button', { name: 'Check in for today' })).toBeTruthy()
+    rerender(<SavingsChallengeHome {...props} checkedInToday />)
+    expect(within(summary).getByText('You checked in today')).toBeTruthy()
+    expect(within(summary).queryByRole('button', { name: 'Check in for today' })).toBeNull()
+    expect(summary.querySelectorAll('.savings-primary')).toHaveLength(0)
+    const addMore = within(summary).getByRole('button', { name: 'Add more' })
+    expect(addMore.className).toBe('savings-secondary')
+    fireEvent.click(addMore)
+    expect(checkIn).toHaveBeenCalledTimes(1)
+    expect(today).not.toHaveBeenCalled()
+    rerender(<SavingsChallengeHome {...props} checkedInToday={false} />)
+    expect(within(summary).queryByText('You checked in today')).toBeNull()
+    expect(within(summary).queryByRole('button', { name: 'Add more' })).toBeNull()
+    expect(summary.querySelectorAll('.savings-primary')).toHaveLength(1)
   })
 
   it('falls back to the Today form for the check-in until a chat check-in is wired', async () => {
@@ -266,12 +287,14 @@ describe('participant savings Home', () => {
     expect(summary.textContent).not.toContain('No amounts added yet')
   })
   it('does not offer the daily check-in as the main action outside the open 90 days', async () => {
-    for (const phase of ['upcoming', 'window_ended'] as const) {
+    for (const phase of ['upcoming', 'window_ended'] as const) for (const checkedInToday of [false, true]) {
       const fixture = savingsFixture(); fixture.calendar = { ...fixture.calendar!, phase, day: null }
       fetchChallenge.mockResolvedValue(fixture)
-      render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onToday={vi.fn()} />)
+      render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onToday={vi.fn()} onCheckIn={vi.fn()} checkedInToday={checkedInToday} />)
       const summary = await screen.findByRole('article', { name: 'Approved savings progress' })
       expect(within(summary).queryByRole('button', { name: 'Check in for today' })).toBeNull()
+      expect(within(summary).queryByRole('button', { name: 'Add more' })).toBeNull()
+      expect(within(summary).queryByText('You checked in today')).toBeNull()
       expect(summary.querySelector('.savings-primary')).toBeNull()
       expect(summary.textContent).toContain(phase === 'upcoming' ? 'Your 90 days start Thu, Oct 1' : 'Your 90 days ended Tue, Dec 29')
       cleanup()

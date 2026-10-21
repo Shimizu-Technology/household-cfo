@@ -40,17 +40,17 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
       savings_plan(30_000)
       savings_draft(10_000)
       unknown = answer("What is my savings progress?")
-      assert_includes unknown, "progress is unknown"
+      assert_includes unknown, "progress isn't known yet"
       refute_includes unknown, "progress is $0"
       contribution = savings_approve(savings_draft(10_000))
       savings_approve(savings_draft(-2500, funding: "withdrawal"))
       savings_draft(20_000, entry: contribution.savings_entry)
       response = answer("What is my savings progress?")
-      assert_includes response, "reported progress is $75.00"
-      assert_includes response, "subset is $0.00"
+      assert_includes response, "So far you've saved $75.00 to your challenge."
+      refute_includes response, "matches a statement"
       assert_includes response, "goal is $300.00"
-      assert_includes response, "Open Home"
-      assert_includes response, "pending until you approve"
+      assert_includes response, "open Savings"
+      assert_includes response, "2 savings records are waiting for you to save in Savings"
       assert_equal 2, SavingsEntryVersion.count
     end
   end
@@ -95,7 +95,7 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
       savings_enroll
       [ "Transferred $100 to my challenge account", "Put $40 cash in my savings yesterday" ].each do |message|
         response = answer(message)
-        assert_includes response, "Open Home to review a contribution", message
+        assert_includes response, "open Savings and save it there", message
         refute_includes response, "For a purchase, enter the amount", message
       end
       [ "I spent $100 on crypto yesterday", "Bought $200 worth of bitcoin" ].each do |message|
@@ -136,7 +136,14 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
         "I usually put $50 in savings today", "I sent $200 to my mom's savings today", "I bought $50 of Apple stock today" ].each do |message|
         assert_nil intake.call(message), message
       end
-      assert_equal "purchase", intake.call("I spent $12 at Payless today").fetch(:kind)
+      assert_equal "daily_report", intake.call("I spent $12 at Payless today").fetch(:kind)
+      assert_equal "withdrawal", intake.call("I took $50 from savings today").fetch(:kind)
+      # Savings wording is read before spending, as on main.
+      [ "Picked up an extra shift and saved $50 today", "Got my paycheck and set aside $50 today" ].each do |message|
+        assert_equal({ kind: "contribution", signed_cents: 5_000 }, intake.call(message).slice(:kind, :signed_cents), message)
+      end
+      assert_nil intake.call("Got $50 and put it in savings today"), "money put into savings is never a purchase"
+      assert_equal [ 5_000 ], intake.call("Spent $50 at Costco, saved $10 with coupons today").fetch(:purchases).map { |row| row[:amount_cents] }
     end
   end
 

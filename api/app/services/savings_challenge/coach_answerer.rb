@@ -2,8 +2,11 @@ module SavingsChallenge
   # Financial facts come from approved participant records. Uploads and proposed
   # spending reductions never become saved cash through a chat answer.
   class CoachAnswerer
-    def initialize(household:, user:, enrollment:, message:, attachments: [])
+    def initialize(household:, user:, enrollment:, message:, attachments: [], daily_report: nil, daily_rejection: nil, savings_intake: nil)
       @household, @user, @enrollment, @message, @attachments = household, user, enrollment, message.to_s, attachments
+      @savings_intake = savings_intake if savings_intake.is_a?(Hash) && savings_intake[:kind].in?(%w[contribution withdrawal])
+      @daily_report = daily_report if daily_report.is_a?(Hash) && daily_report[:kind] == "daily_report"
+      @daily_rejection = daily_rejection if daily_rejection.is_a?(Hash) && daily_rejection[:date]
     end
 
     LOAN_TOPIC = /\b(?:loans?|mortgage|lending|lender|credit score|credit report|borrow(?:ing)?)\b/i
@@ -45,6 +48,10 @@ module SavingsChallenge
       return "The recommended goal is $500 in new money you actually set aside over 90 days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
       private_context do
         return attachment_answer if @attachments.any?
+        return deterministic(daily_report_answer) if @daily_report
+        return deterministic(daily_rejection_answer) if @daily_rejection
+        return deterministic(savings_intake_answer) if @savings_intake
+        return deterministic(target_change_answer) if target_change?
         return deterministic(card_balance_answer) if @message.match?(CARD_BALANCE_QUESTION) && !@message.match?(PAYMENT_REPORT)
         return savings_answer if @message.match?(BORROWING_FROM_SAVINGS)
         if (@message.match?(CARD_RANKING_QUESTION) || (@message.match?(EXTRA_PAYMENT_QUESTION) && @message.match?(CARD_OR_DEBT_WORD))) && !@message.match?(PAYMENT_REPORT)
@@ -195,15 +202,94 @@ module SavingsChallenge
     end
 
     def daily_answer
-      "For a purchase, enter the amount, where and date in Today, then review it before approval. Feelings then and now are optional. If a receipt or statement shows the same purchase, link the reviewed record so it is counted once. Use an explicit no-spend check-in for a day with no purchases; an unanswered day remains unknown. Which day would you like to review?"
+      "Tell me the amount, where and date, like \"$12 at Kings yesterday\", and I'll put it on a card for you to check and save. How you felt is optional. If you spent nothing, say \"no spending today\"; a day you skip just stays unknown."
+    end
+
+    # The card below the reply lists exactly what was read. Nothing is saved
+    # until the participant taps Save, so this never claims a record changed.
+    def daily_report_answer
+      report = @daily_report
+      if report[:no_spend]
+        day = report[:local_on] == @enrollment.local_today.iso8601 ? "today" : "that day"
+        # Feelings are kept with a purchase; a no-spend day has none to keep them with.
+        feelings = @message.match?(/\b(?:feel|feels|feeling|felt)\b/i) ? " How you feel isn't saved with a no-spend day, but I'm glad you told me." : ""
+        return "No spending #{day}. I've put it below — tap Save to record it. Nothing is saved until you do.#{feelings}"
+      end
+      purchases = report[:purchases]
+      items = purchases.map { |row| row[:merchant].present? ? "#{money(row[:amount_cents])} at #{row[:merchant]}" : money(row[:amount_cents]) }
+      missing = purchases.count { |row| row[:merchant].blank? }
+      place = missing.zero? ? "" : " Add where you spent #{missing == 1 ? 'it' : 'each one'} on the card."
+      feelings = report[:feelings] ? " How you felt is on the card too; it stays private." : ""
+      heard = @message.match?(/\b(?:feel|feels|feeling|felt|stressed|anxious|guilty|worried|sad|upset|overwhelmed|ashamed)\b/i) ? "Thanks for telling me how you're feeling. " : ""
+      "#{heard}Got it: #{items.to_sentence}.#{place}#{feelings} I've put #{purchases.one? ? 'it' : 'these'} below — check #{purchases.one? ? 'it' : 'them'} and tap Save. Nothing is saved until you do."
+    end
+
+    # A clearly reported day outside the personal window: say which and why.
+    def daily_rejection_answer
+      reason = @daily_rejection
+      date, today = reason[:date], reason[:today]
+      label = ->(day) { day.strftime("%a, %b %-d") }
+      spending = date == today - 1 ? "yesterday's spending" : "spending from #{label.call(date)}"
+      case reason[:kind]
+      when :before_start
+        "Your challenge started on #{label.call(reason[:starts_on])}, so I can't add #{spending} to it. Nothing was saved. You can tell me about today instead."
+      when :after_end
+        "Your challenge ended on #{label.call(reason[:ends_on])}, so I can't add #{spending} to it. Nothing was saved."
+      else
+        "#{label.call(date)} hasn't happened yet, so I can't add it. Nothing was saved. Tell me once it's done."
+      end
     end
 
     def savings_answer
       projection = Projection.new(@enrollment).call
       plan = @enrollment.current_accepted_plan_version
-      progress = projection[:reporting_known] ? "Your approved reported progress is #{money(projection[:reported_cents])}. The evidence-supported subset is #{money(projection[:evidence_supported_cents])}; it is included in reported progress, never added to it." : "You have not yet approved a savings report for this window; progress is unknown."
-      target = plan&.target_cents ? " Your accepted goal is #{money(plan.target_cents)} over your personal 90-day challenge." : " You have not accepted a money target yet; you can continue check-ins."
-      "#{progress}#{target} Only new money actually set aside counts, minus withdrawals. Lower spending, refunds, debt payments and moving money already saved do not create progress. Open Home to review a contribution or withdrawal; a draft stays pending until you approve it. Have you actually reserved new money, or are you reviewing a spending change?"
+      progress = if projection[:reporting_known]
+        backed = projection[:evidence_supported_cents].to_i.positive? ? " #{money(projection[:evidence_supported_cents])} of that matches a statement." : ""
+        "So far you've saved #{money(projection[:reported_cents])} to your challenge.#{backed}"
+      else
+        "You haven't saved any money to your challenge yet, so your progress isn't known yet. That's not the same as $0."
+      end
+      target = plan&.target_cents ? " Your goal is #{money(plan.target_cents)} over your 90-day challenge." : " You haven't picked a goal yet; you can keep checking in."
+      waiting = SavingsEntryDraft.joins(:savings_entry).where(savings_entries: { savings_enrollment_id: @enrollment.id }, status: "pending").count
+      target += " #{waiting} savings #{waiting == 1 ? 'record is' : 'records are'} waiting for you to save in Savings; #{waiting == 1 ? 'it doesn’t' : 'they don’t'} count until you do." if waiting.positive?
+      "#{progress}#{target} Only new money you actually set aside counts, minus anything you take out. Spending less, refunds, debt payments and moving money you already had don't count on their own. To add money you set aside, open Savings and save it there; nothing counts until you do. Did you set aside new money, or are you thinking about a spending change?"
+    end
+
+    def label_day(iso)
+      date = Date.iso8601(iso.to_s)
+      today = @enrollment.local_today
+      return "today" if date == today
+      return "yesterday" if date == today - 1
+
+      "on #{date.strftime('%a, %b %-d')}"
+    rescue Date::Error
+      ""
+    end
+
+    # The card below lists it; nothing is saved until the participant saves it.
+    def savings_intake_answer
+      amount = money(@savings_intake[:amount_cents])
+      day = label_day(@savings_intake[:effective_on])
+      if @savings_intake[:kind] == "withdrawal"
+        "Got it: #{amount} taken out of your challenge savings #{day}. I've put it below — check it, then save it. Nothing is saved until you do."
+      else
+        "Got it: #{amount} set aside #{day}. I've put it below — check it, then save it to your challenge. Only new money you set aside counts, and nothing is saved until you do."
+      end
+    end
+
+    TARGET_CHANGE = /\A\s*(?:please\s+)?(?:i\s+(?:want|would like)\s+to\s+)?(?:change|set|make|update|lower|raise|move|switch|drop|bump)\s+(?:(?:my|the|challenge|savings)\s+)*(?:goal|target)\b|\A\s*(?:please\s+)?change\s+it\s+to\s+\$?\s*\d.{0,40}\b(?:goal|target)\b/i.freeze
+
+    def target_change?
+      return false if @message.match?(/\?|\b(?:set\s+aside|put\s+aside|saved|reserved|withdrew|took)\b/i)
+
+      @message.match?(TARGET_CHANGE) && !@message.match?(/\b(?:debt|credit card|card balance|household)\b/i)
+    end
+
+    # A goal change happens in Savings, where the participant saves it.
+    def target_change_answer
+      cents = @message[/\$\s*(\d[\d,]*(?:\.\d{1,2})?)/, 1]&.then { |value| HouseholdFinance::Money.chat_cents(value) rescue nil }
+      lead = cents&.positive? ? "To make your challenge goal #{money(cents)}" : "To change your challenge goal"
+      "#{lead}, open Savings, then Your target & spending choices. It changes once you save it there, and nothing has changed yet. A smaller goal is completely fine."
     end
 
     def baseline_answer

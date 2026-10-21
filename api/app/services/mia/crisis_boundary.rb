@@ -134,5 +134,12 @@ module Mia
     def self.response
       RuntimePersona::FALLBACKS.fetch("crisis")
     end
+
+    # True for a crisis reply or any reply carrying the wellbeing check. The
+    # client hides money prompts and cards under such a reply.
+    def self.safety_reply?(reply)
+      text = reply.to_s
+      text == response || includes_wellbeing_check?(text)
+    end
   end
 end
