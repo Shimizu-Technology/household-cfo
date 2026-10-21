@@ -52,9 +52,9 @@ describe('ContentPacksPanel phrase migration', () => {
     expect((screen.getByRole('button', { name: 'Remove and save legacy phrases first' }) as HTMLButtonElement).disabled).toBe(true)
 
     await userEvent.click(screen.getByRole('button', { name: 'Remove legacy phrase' }))
-    expect(screen.getByText(/Save the pack to confirm removal before publishing/i)).toBeTruthy()
+    expect(screen.getByText(/Save the collection to confirm removal before publishing/i)).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Remove and save legacy phrases first' }) as HTMLButtonElement).disabled).toBe(true)
-    await userEvent.click(screen.getByRole('button', { name: 'Save pack' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save collection' }))
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(pack, expect.objectContaining({ item_version_ids: [11] })))
   })
 

@@ -342,7 +342,9 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
       if (!mutationLifecycle.isCurrent(ticket)) return
       updateCandidate(result.candidate)
       onItemAccepted(result.item)
-      setNotice('Content draft created. It is not available to Mia yet. Approve the item, publish a pack, and publish the assistant before Mia can use it.')
+      setNotice(result.item.kind === 'phrase'
+        ? 'Phrase draft created. Next, approve its exact wording, then return to this source for phrase review and add it directly to Mia. Phrases do not use collections.'
+        : 'Content draft created. Next, approve the teaching item and include it in a collection. It is not available to Mia yet.')
       queueMicrotask(() => noticeRef.current?.focus())
     })
   }
@@ -448,20 +450,19 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
   return (
     <article className="panel coach-source-intake" aria-labelledby="coach-source-title">
       <header className="coach-source-header">
-        <div><p className="eyebrow">Bring in a source (optional)</p><h3 id="coach-source-title">Turn private material into reviewable drafts</h3><p>Upload a file or save a secure web snapshot. Nothing becomes available to Mia automatically.</p></div>
-        <ol className="coach-source-trust" aria-label="Content publication steps"><li>Private source</li><li>Review candidates</li><li>Content draft</li><li>Approve item</li><li>Publish pack</li><li>Publish assistant</li></ol>
+        <div><h3 id="coach-source-title">Review private sources</h3><p>Choose a source to review its teaching. Nothing becomes available to Mia automatically.</p></div>
       </header>
 
       {error && <div className="coach-source-alert is-error" role="alert" tabIndex={-1} ref={errorRef}><span>{error}</span>{listLoadFailed && <button type="button" onClick={() => void loadSources()}>Retry</button>}</div>}
       {conflictCandidate && <div className="coach-source-alert is-error" role="alert" tabIndex={-1} ref={conflictRef}><span>This candidate changed on the server. Your edits are still here.</span><button type="button" onClick={() => { adoptCandidateBase(conflictCandidate); setConflictCandidate(null); queueMicrotask(() => candidateContentRef.current?.focus()) }}>Keep editing</button><button type="button" onClick={reloadConflictCandidate}>Reload server candidate</button></div>}
       {notice && <div className="coach-source-alert is-success" role="status" tabIndex={-1} ref={noticeRef}><span>{notice}</span>{selectedCandidate?.accepted_content_item_id && <button type="button" onClick={() => onReviewItem(selectedCandidate.accepted_content_item_id!)}>Review content draft</button>}</div>}
 
-      <div className="coach-source-create-grid">
+      <details className="coach-source-add"><summary>Add file or link</summary><div className="coach-source-create-grid">
         {showUpload ? <section className="coach-source-upload-card" aria-labelledby="coach-file-upload-title"><div className="coach-source-create-heading"><div><h4 id="coach-file-upload-title">Upload a private file</h4><p>Use a file already saved on this device.</p></div><span className="coach-source-private-label">Private file</span></div><form className="coach-source-upload" onSubmit={(event) => void upload(event)}>
           <label htmlFor="coach-source-file"><span>Private source file</span><input ref={fileInputRef} id="coach-source-file" type="file" accept=".pdf,.docx,.txt,.md,.vtt,.srt" onChange={selectFile} aria-describedby="coach-source-file-help" disabled={!listReady || loading || controlsBusy} /></label>
           {currentUser.is_admin && <label><span>Owner</span><select value={scope} disabled={!listReady || loading || controlsBusy || platformMode} onChange={(event) => setScope(event.target.value as AdminContentScope)}>{collectionPermissions.upload_platform && <option value="platform">Platform library</option>}{collectionPermissions.upload_coach && <option value="coach">My coaching library</option>}</select></label>}
           <Button type="submit" disabled={!file || !listReady || loading || controlsBusy}>{action === 'upload' ? 'Uploading privately…' : 'Upload and read'}</Button>
-          <p id="coach-source-file-help">PDF (12 MB), DOCX (10 MB), or TXT, MD, VTT, SRT (2 MB). Text PDFs only; scanned pages need OCR first. The file is stored privately. Extracted text is sent through the configured AI provider's no-data-collection routing setting to propose drafts. It never reaches participant chat until you approve an item, publish a pack, and publish the assistant.</p>
+          <p id="coach-source-file-help">PDF (12 MB), DOCX (10 MB), or TXT, MD, VTT, SRT (2 MB). Text PDFs only; scanned pages need OCR first. The file stays private. Its text is sent to the configured AI provider to suggest teaching for your review. Approval is required before any teaching can reach Mia.</p>
           <details className="coach-source-limits"><summary>Library and upload limits</summary><p>Each staff account may keep up to 100 active private sources totaling 512 MB, with 5 uploads in progress and 10 new uploads started per 15 minutes.</p></details>
           {file && <p className="coach-source-file-name"><strong>Ready:</strong> {file.name} · {formatBytes(file.size)}</p>}
         </form></section> : <p className="coach-content-note">You can review private sources here. Editors manage uploads and candidate wording.</p>}
@@ -476,7 +477,7 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
           onBusyChange={setUrlBusy}
           onSourceReady={openReadyUrlSource}
         />
-      </div>
+      </div></details>
 
       {collectionPermissions.retry_cleanup && failedCleanupCount > 0 && <div className="coach-source-alert is-error" role="alert"><span>{failedCleanupCount} abandoned private upload {failedCleanupCount === 1 ? 'needs' : 'need'} storage cleanup.</span><button type="button" disabled={controlsBusy} onClick={() => void retryFailedUploadCleanups()}>Retry failed cleanup</button></div>}
 
@@ -484,7 +485,7 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
         <section className="coach-source-list" aria-label="Private content sources">
           <header><h4>Private sources</h4><small>Showing {sources.length} current</small></header>
           {loading && sources.length === 0 && <p role="status">Loading private sources…</p>}
-          {!loading && sources.length === 0 && !error && <p>No private sources yet. Manual content creation below is always available.</p>}
+          {!loading && sources.length === 0 && !error && <p>No private sources yet. Add a file or link here, or write your own in Teaching items.</p>}
           {sources.map((source) => <button type="button" key={source.id} aria-current={selectedSource?.id === source.id ? 'true' : undefined} className={selectedSource?.id === source.id ? 'is-selected' : ''} onClick={() => requestSource(source.id)} disabled={controlsBusy}><span><strong>{source.filename}</strong><small>{formatBytes(source.byte_size)}{source.ingestion_method === 'url_snapshot' ? ' · Fixed web snapshot' : ''}</small></span><span className={`coach-source-status is-${source.status}`}>{statusLabel(source.status)}</span></button>)}
         </section>
 
@@ -503,14 +504,16 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
                 <label><span>Candidate title</span><input maxLength={160} disabled={!candidateEditable || controlsBusy} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
                 <label><span>Type</span><select disabled={!candidateEditable || controlsBusy} value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value as AdminContentItemKind })}>{platformPhraseBlocked && <option value="phrase" disabled>Phrase — choose a coaching workspace type</option>}{candidateKinds.map((kind) => <option key={kind} value={kind}>{label(kind)}</option>)}</select></label>
                 <label><span>Draft wording</span><textarea ref={candidateContentRef} rows={7} maxLength={10000} disabled={!candidateEditable || controlsBusy} value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} /><small>{draft.content.length.toLocaleString()} / 10,000 characters</small></label>
-                <label><span>Suggested topics</span><input disabled={!candidateEditable || controlsBusy} value={draft.topics} onChange={(event) => setDraft({ ...draft, topics: event.target.value })} /><small>Comma separated review metadata; Mia does not use these labels directly.</small></label>
-                <figure className="coach-candidate-evidence"><figcaption>Source evidence · {locatorLabel(selectedCandidate.evidence_locator)}</figcaption><blockquote>{selectedCandidate.evidence_excerpt}</blockquote></figure>
+                <label><span>Suggested topics</span><input disabled={!candidateEditable || controlsBusy} value={draft.topics} onChange={(event) => setDraft({ ...draft, topics: event.target.value })} /><small>Separate topics with commas. These labels help your review; Mia does not use them.</small></label>
+                <figure className="coach-candidate-evidence"><figcaption>Excerpt from this source</figcaption><blockquote>{selectedCandidate.evidence_excerpt}</blockquote><details><summary>Source location details</summary><p>{locatorLabel(selectedCandidate.evidence_locator)}</p></details></figure>
                 {selectedCandidate.safety_code && selectedCandidate.safety_code !== 'source_deleted' && <p className="coach-source-safety" role="note">Needs attention: {safetyLabel(selectedCandidate.safety_code)} Edit the candidate, then save to run the server check again.</p>}
                 {selectedCandidate.safety_code === 'source_deleted' && <p className="coach-content-note">The private source file was deleted. This review record remains for audit history.</p>}
                 {platformPhraseBlocked && <p className="coach-source-safety" role="note">Approved phrases belong to a coaching workspace so they can follow phrase review. Choose another type for this platform candidate.</p>}
                 {(candidateEditable || candidateReviewable) && <div className="coach-candidate-actions">{candidateEditable && <Button type="submit" variant="secondary" disabled={!candidateDirty || controlsBusy || !draft.title.trim() || !draft.content.trim() || platformPhraseBlocked}>Save edits</Button>}{candidateReviewable && <><Button type="button" disabled={controlsBusy || !draft.title.trim() || !draft.content.trim() || platformPhraseBlocked || Boolean(selectedCandidate.safety_code && !candidateDirty)} onClick={() => void acceptCandidate()}>{candidateDirty ? (selectedCandidate.safety_code ? 'Save, recheck, and create draft' : 'Save and create draft') : 'Create content draft'}</Button>{!confirmReject ? <Button id="coach-source-reject-trigger" type="button" variant="ghost" disabled={controlsBusy} onClick={() => setConfirmReject(true)}>Reject</Button> : <span className="coach-inline-confirm" role="alert" tabIndex={-1} ref={rejectConfirmRef}>Reject this candidate?<button type="button" disabled={controlsBusy} onClick={() => void rejectCandidate()}>Yes, reject</button><button type="button" disabled={controlsBusy} onClick={() => { setConfirmReject(false); queueMicrotask(() => document.getElementById('coach-source-reject-trigger')?.focus()) }}>Cancel</button></span>}</>}</div>}
                 {selectedCandidate.status === 'proposed' && !candidateEditable && !candidateReviewable && <p className="coach-content-note">Candidate review is paused while the source changes state.</p>}
-                {selectedCandidate.status === 'accepted' && <p className="coach-source-alert is-success">Content draft created. It remains unavailable until item approval, pack publication, and assistant publication.</p>}
+                {selectedCandidate.status === 'accepted' && <p className="coach-source-alert is-success">{selectedCandidate.accepted_content_item_version_id
+                  ? selectedCandidate.kind === 'phrase' ? 'Next: review the phrase and its safety settings below, then add the approved phrase directly to Mia. No collection is needed.' : 'This teaching is approved. Next, include it in a collection to use with Mia.'
+                  : selectedCandidate.kind === 'phrase' ? 'Next: approve the phrase wording, then return here for phrase review and add it directly to Mia. No collection is needed.' : 'Next: approve this teaching, then include it in a collection to use with Mia.'}</p>}
                 {selectedCandidate.status === 'accepted' && selectedCandidate.accepted_content_item_id && <Button type="button" size="compact" variant="secondary" disabled={Boolean(action) || phraseBusy} onClick={() => onReviewItem(selectedCandidate.accepted_content_item_id!)}>{selectedCandidate.accepted_content_item_version_id ? 'Review approved content version' : 'Approve content draft'}</Button>}
               </form>}
               {selectedCandidate && selectedSource.scope === 'coach' && <CoachPhraseProposalPanel

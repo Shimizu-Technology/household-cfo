@@ -348,3 +348,7 @@
   .coach-url-intake-actions .button,
   .coach-url-intake-form .button { width: 100%; }
 }
+
+.coach-source-add > summary,
+.coach-candidate-evidence details > summary { min-height: 44px; align-content: center; cursor: pointer; }
+.coach-source-add .coach-source-create-grid { margin-top: .75rem; }
