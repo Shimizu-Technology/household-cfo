@@ -5274,9 +5274,10 @@ test('Coach Studio waits for its initial library before opening a create form', 
   listGate = new Promise<void>((resolve) => { releaseList = resolve })
   page.once('dialog', dialog => dialog.accept())
   await page.getByRole('combobox', { name: /Coach workspace/ }).selectOption('2')
-  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'true')
+  await expect(page.getByRole('tab', { name: 'Daily coaching', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('.coach-create-form')).toHaveCount(0)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'true')
   await expect(create).toBeDisabled()
   releaseList?.()
   await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
@@ -11491,6 +11492,7 @@ for (const delayedPath of ['', '/context']) {
 
 for (const role of ['participant', 'coach'] as const) {
   test(`BOG UI ${role} cannot see or reopen an admin reset from stale Mia offers`, async ({ page }) => {
+    if (role === 'coach') await mockStaffWithParticipantSeat(page, 'coach')
     const base = realWorkspaceData(true)
     const staleOffer = {
       id: 202, role: 'assistant', author: 'Mia', content: 'An earlier reset offer is retained here.',
@@ -11511,7 +11513,7 @@ for (const role of ['participant', 'coach'] as const) {
         budget: null, transaction_draft: null, mia_action_draft: null,
       } })
     })
-    await page.goto(`/?pilot_e2e_role=${role}#Ask%20Mia`)
+    await page.goto(`/?pilot_e2e_role=${role}${role === 'coach' ? '&pilot_e2e_live_api=true' : ''}#Ask%20Mia`)
     await expect(page.getByText(staleOffer.content, { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Review start over', exact: true })).toHaveCount(0)
     await openAccountHelp(page)
