@@ -10210,7 +10210,7 @@ h3 {
 .mia-page-heading { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; position: relative; }
 .is-chat-page .screen-heading { min-width: 0; padding: 0; }
 .is-chat-page .screen-heading .eyebrow, .is-chat-page .screen-heading > p { display: none; }
-.is-chat-page .screen-heading h2 { margin: 0; font-size: var(--text-2xl); line-height: 1.2; }
+.is-chat-page .screen-heading h2 { margin: 0; font-size: var(--text-xl); line-height: 1.2; }
 .is-chat-page .mia-layout { display: flex; flex: 1 1 0; min-height: 0; gap: 0; }
 .is-chat-page .mia-chat-shell:not(.is-expanded) { width: 100%; height: 100%; min-height: 0; max-height: none; border-radius: var(--radius-lg); }
 .is-chat-page .chat-shell-header { flex: 0 0 auto; padding: 10px 14px; }
@@ -10234,7 +10234,7 @@ h3 {
   .is-chat-page .cohort-brand-chip, .is-chat-page .account-pill > small { display: none; }
   .is-chat-page .account-pill > span { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
   .is-chat-page .shell-actions { width: auto; flex: 0 0 auto; }
-  .is-chat-page .screen-heading h2 { font-size: var(--text-2xl); }
+  .is-chat-page .screen-heading h2 { font-size: var(--text-lg); }
   .is-chat-page .chat-shell-header { padding: 6px 10px; }
   .is-chat-page .mia-chat-shell .chat-card { padding: 12px; }
   .is-chat-page .composer-attachment-tray { max-height: 64px; }
@@ -10244,7 +10244,7 @@ h3 {
   .is-chat-page .first-session-setup-progress { padding: 5px 10px; }
 }
 @media (max-width: 350px) {
-  .is-chat-page .screen-heading h2 { font-size: var(--text-2xl); }
+  .is-chat-page .screen-heading h2 { font-size: var(--text-md); }
   .mia-context-disclosure > summary { padding: 5px 7px; font-size: var(--text-xs); }
 }
 @media (max-height: 450px) {
