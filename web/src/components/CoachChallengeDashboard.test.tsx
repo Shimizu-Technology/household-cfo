@@ -46,6 +46,14 @@ async function open() {
   fireEvent.click(screen.getByRole('button', { name: 'Open permitted help & sharing' }))
 }
 describe('coach challenge permission boundaries', () => {
+  it('shows each daily check-in with a plain date and plain status', async () => {
+    render(<CoachChallengeDashboard {...props} selectedCohortId={1} />)
+    await screen.findByText('Synthetic participant')
+    const roster = document.querySelector('.coach-challenge-roster')!.textContent!
+    expect(roster).toContain('Sun, Nov 1: daily check-in done.')
+    expect(roster).not.toMatch(/\d{4}-\d{2}-\d{2}/)
+    expect(roster).not.toContain('Daily report completed')
+  })
   it('pages thirty enrolled participants and searches the loaded roster without extra private reads', async () => {
     vi.mocked(coachChallengeApi.participants).mockResolvedValueOnce({ actor_scope: scope, cohort_id: 1, records: Array.from({ length: 30 }, (_, index) => ({ ...row, enrollment_id: index + 1, participant: { id: index + 40, name: `Fictional participant ${String(index).padStart(2, '0')}` } })), next_cursor: null })
     render(<CoachChallengeDashboard {...props} selectedCohortId={1} />)
@@ -192,8 +200,8 @@ describe('sealing a checkpoint report explains why it is unavailable', () => {
     const button = await openReports('2999-11-14')
     expect(button).toHaveProperty('disabled', true)
     const reason = document.getElementById(button.getAttribute('aria-describedby') ?? '')
-    expect(reason?.textContent).toContain('2999-11-14')
-    expect(reason?.textContent).toContain('has not happened yet')
+    expect(reason?.textContent).toContain('Nov 14, 2999')
+    expect(reason?.textContent).toContain('hasn’t ended yet')
   })
 
   it('trusts the server on the cutoff day itself, whatever this browser clock says', async () => {
@@ -203,7 +211,7 @@ describe('sealing a checkpoint report explains why it is unavailable', () => {
 
   it('says the cutoff has not ended when the server says it cannot be sealed yet', async () => {
     const button = await openReports('2000-01-30', { sealable: false, today_on: '2000-01-29' })
-    expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent).toContain('has not happened yet')
+    expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent).toContain('hasn’t ended yet')
   })
 
   it('asks for the review confirmation once the cutoff has passed', async () => {

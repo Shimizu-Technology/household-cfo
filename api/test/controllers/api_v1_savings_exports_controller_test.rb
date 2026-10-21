@@ -41,6 +41,27 @@ class ApiV1SavingsExportsControllerTest < ActionDispatch::IntegrationTest
     assert_not response.parsed_body.dig("daily", "reflection_versions").empty?
   end
 
+  test "export includes the participant's own daily check-ins and confirmed purchases in plain words, feelings still opt-in" do
+    get path, params: { include_reflections: "false" }, headers: auth(@savings_user)
+    assert_response :success
+    result = response.parsed_body
+    check_in = result.dig("daily", "check_in_versions").sole
+    assert_equal "spending", check_in["spending_state"]
+    assert_equal "2026-11-01", check_in["local_on"]
+    assert_equal [ check_in["id"] ], result.dig("current_daily_records", "check_ins").pluck("current_version_id")
+    purchase = result.dig("daily", "purchase_versions").sole
+    assert purchase["amount_cents"].positive?
+    assert_equal [ purchase["id"] ], result.dig("current_daily_records", "purchases").pluck("current_version_id")
+    assert_not result["daily"].key?("reflection_versions")
+    assert_equal false, result["optional_reflections_included"]
+    assert_equal "Pacific/Guam", result.dig("enrollment", "time_zone")
+    assert_match(/\A\d{4}-\d{2}-\d{2}T/, result["captured_at"])
+    qualifications = result["qualifications"].join(" ")
+    assert_includes qualifications, "Money matched to a statement is part of what you set aside, not added to it."
+    assert_includes qualifications, "Statements, chat, anything you haven't confirmed, and other people's records are left out."
+    assert_no_match(/Evidence-supported|participant-reported|reflection|pending proposals/, qualifications)
+  end
+
   test "export rejects another actor unsupported filters and unavailable runtime" do
     get path, headers: auth(@savings_user)
     assert_response :unprocessable_entity

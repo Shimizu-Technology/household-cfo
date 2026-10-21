@@ -78,8 +78,15 @@ module Api
         page!(enrollment!.savings_entry_versions)
       end
 
+      # Optional status=pending|approved lets Home list what is waiting for the
+      # participant separately from what they already confirmed.
       def entry_drafts
         scope = SavingsEntryDraft.joins(:savings_entry).where(savings_entries: { savings_enrollment_id: enrollment!.id })
+        unless params[:status].nil?
+          status = params[:status].to_s
+          raise ArgumentError, "Draft status must be pending or approved" unless %w[pending approved].include?(status)
+          scope = scope.where(status: status)
+        end
         page!(scope)
       end
 
@@ -154,11 +161,23 @@ module Api
         SavingsChallenge::EnrollmentOffer.call(cohort: @savings_cohort, user: current_user, membership: current_cohort_membership)
       end
 
+      # Keyset pages over record ids.
+      #   direction=oldest (default): ascending ids; `cursor` returns rows with a larger id.
+      #   direction=newest: descending ids; `cursor` returns rows with a smaller id.
+      # In both directions next_cursor is the id of the last row returned when more
+      # rows remain in that direction, otherwise nil. Pass it back as `cursor`.
       def page!(scope)
-        cursor = params[:cursor].nil? ? 0 : SavingsChallenge::Inputs.id!(params[:cursor])
+        direction = params[:direction].nil? ? "oldest" : params[:direction].to_s
+        raise ArgumentError, "Page direction must be oldest or newest" unless %w[oldest newest].include?(direction)
+        cursor = params[:cursor].nil? ? nil : SavingsChallenge::Inputs.id!(params[:cursor])
         limit = params[:limit].nil? ? 50 : SavingsChallenge::Inputs.id!(params[:limit])
         raise ArgumentError, "Page limit must be between 1 and 100" unless limit.between?(1, 100)
-        rows = scope.where("#{scope.klass.table_name}.id > ?", cursor).order(:id).limit(limit + 1).to_a
+        table = scope.klass.table_name
+        rows = if direction == "newest"
+          (cursor ? scope.where("#{table}.id < ?", cursor) : scope).reorder(id: :desc)
+        else
+          scope.where("#{table}.id > ?", cursor || 0).order(:id)
+        end.limit(limit + 1).to_a
         has_more = rows.length > limit
         visible = rows.first(limit)
         render json: { records: visible.map { |record| SavingsChallenge::ParticipantSerializer.record(record) }, next_cursor: has_more ? visible.last.id : nil,

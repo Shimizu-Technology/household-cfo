@@ -3,6 +3,7 @@ import { privacyApi } from '../lib/privacyApi'
 import type { PrivacyScope } from '../lib/challengePrivacy'
 import { ChallengePrivacyDialog } from './ChallengePrivacyDialog'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
+import { SavingsRowButton } from './SavingsRow'
 
 // One name for this entry everywhere (menu, Home, dialog title, Mia's text).
 export const PRIVACY_LABEL = 'Privacy & reminders'
@@ -13,16 +14,21 @@ export function ParticipantPrivacyAccess({
   userId,
   participant,
   householdId,
+  variant,
+  description,
 }: {
   userId: number | null
   participant: boolean
   householdId?: number | null
+  // 'row' renders the entry as a plain list row (savings home); description is its one-line hint.
+  variant?: 'button' | 'row'
+  description?: string
 }) {
   if (!participant || !userId) return null
-  return <PrivacyAccess key={`${userId}:${householdId ?? 'metadata'}`} userId={userId} householdId={householdId} />
+  return <PrivacyAccess key={`${userId}:${householdId ?? 'metadata'}`} userId={userId} householdId={householdId} variant={variant} description={description} />
 }
 
-function PrivacyAccess({ userId, householdId }: { userId: number; householdId?: number | null }) {
+function PrivacyAccess({ userId, householdId, variant, description }: { userId: number; householdId?: number | null; variant?: 'button' | 'row'; description?: string }) {
   const [scope, setScope] = useState<PrivacyScope | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -64,9 +70,11 @@ function PrivacyAccess({ userId, householdId }: { userId: number; householdId?: 
   }
   return (
     <div className="participant-private-access">
-      <button type="button" disabled={busy} onClick={() => void open()}>
-        {busy ? 'Opening private controls…' : PRIVACY_LABEL}
-      </button>
+      {variant === 'row'
+        ? <SavingsRowButton label={PRIVACY_LABEL} busyLabel={busy ? 'Opening…' : undefined} description={description ?? ''} disabled={busy} onClick={() => void open()} />
+        : <button type="button" disabled={busy} onClick={() => void open()}>
+          {busy ? 'Opening private controls…' : PRIVACY_LABEL}
+        </button>}
       {error && <p role="alert">{error}</p>}
       {scope && <ChallengePrivacyDialog actorScope={scope} participant onClose={() => setScope(null)} />}
     </div>

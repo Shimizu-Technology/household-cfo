@@ -8,7 +8,7 @@ import '../../src/App.css'
 const params=new URLSearchParams(location.search), actor={user_id:7,household_id:8}, scope={...actor,cohort_id:42}
 let enrolled=params.get('mode')!=='enrollment', challenge={...savingsFixture(enrolled),cohort_id:42}, interrupted=false, statusInFlight=false, wrongScope=false, lateConflict=false
 const entry={id:41,current_approved_version_id:51,lock_version:2,current_approved_version:savingsEntryVersion()}
-const drafts=params.get('pending')==='entry_approve'?[savingsEntryDraft(),{...savingsEntryDraft(),id:32}]:[]
+const drafts=params.get('pending')==='entry_approve'?[savingsEntryDraft(),{...savingsEntryDraft(1000),id:32}]:[]
 let holdRead=false,releaseRead:(()=>void)|null=null
 const journal=new Map<string,object>(), calls:Array<{key:string;action:string}>=[]
 const action=params.get('pending')as HomeSavingsAction|null
@@ -19,8 +19,9 @@ window.fetch=async(input,options)=>{
  if(path.endsWith('/request_status'))return response(statusInFlight?{state:'in_flight',actor_scope:actor,cohort_id:42}:journal.has(key)?{...journal.get(key),state:'committed',replayed:true,actor_scope:actor,cohort_id:42}:{state:'unknown',can_retry:true,actor_scope:actor,cohort_id:wrongScope?99:42},statusInFlight?202:200)
  if((options?.method??'GET')==='GET'){
   if(path.endsWith('/savings_challenge')){if(holdRead){holdRead=false;const captured=structuredClone(challenge);return new Promise<Response>(resolve=>{releaseRead=()=>resolve(response(captured))})}return response(challenge)}
-  const records=path.endsWith('/entry_drafts')?drafts:path.endsWith('/entries')?[entry,{...entry,id:42}]:[];const cursor=Number(url.searchParams.get('cursor')??0)
-  return response({records:records.filter(row=>row.id>cursor).slice(0,10),next_cursor:null,actor_scope:actor,enrollment_id:1,cohort_id:42})
+  const all=path.endsWith('/entry_drafts')?drafts:path.endsWith('/entries')?[entry,{...entry,id:42,current_approved_version:savingsEntryVersion(1000)}]:[];const status=url.searchParams.get('status');const newest=url.searchParams.get('direction')==='newest';const cursorParam=url.searchParams.get('cursor');const cursor=Number(cursorParam??0)
+  const filtered=status?all.filter(row=>(row as {status?:string}).status===status):all;const records=newest?[...filtered].sort((a,b)=>b.id-a.id).filter(row=>cursorParam===null||row.id<cursor):filtered.filter(row=>row.id>cursor)
+  return response({records:records.slice(0,10),next_cursor:null,actor_scope:actor,enrollment_id:1,cohort_id:42})
  }
  const values=JSON.parse(String(options?.body))as Record<string,unknown>;calls.push({key,action:path.split('/').at(-1)!});window.dispatchEvent(new Event('qa-request'))
  if(lateConflict){lateConflict=false;const result={record:savingsEntryDraft(),replayed:false,challenge};journal.set(key,structuredClone(result));return response({errors:['Earlier original request committed. Check its result.']},409)}

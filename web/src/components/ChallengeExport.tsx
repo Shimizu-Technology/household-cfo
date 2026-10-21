@@ -3,10 +3,12 @@ import { fetchPrivateJson } from '../api'
 import { printableChallengeRecord, type PrivateChallengeRecord } from '../lib/privateChallengeRecord'
 import type { BaselineScope } from '../lib/financialBaseline'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
-export function ChallengeExport({ scope, cohortId }: { scope: BaselineScope; cohortId: number }) {
-  return <Export key={`${scope.user_id}:${scope.household_id}:${cohortId}`} scope={scope} cohortId={cohortId} />
+import { SavingsRowContent } from './SavingsRow'
+type ExportProps = { scope: BaselineScope; cohortId: number; variant?: 'panel' | 'row' }
+export function ChallengeExport({ scope, cohortId, variant }: ExportProps) {
+  return <Export key={`${scope.user_id}:${scope.household_id}:${cohortId}`} scope={scope} cohortId={cohortId} variant={variant} />
 }
-function Export({ scope, cohortId }: { scope: BaselineScope; cohortId: number }) {
+function Export({ scope, cohortId, variant = 'panel' }: ExportProps) {
   const [format, setFormat] = useState<'printable' | 'json'>('printable')
   const [feelings, setFeelings] = useState(false),
     [accepted, setAccepted] = useState(false),
@@ -51,7 +53,7 @@ function Export({ scope, cohortId }: { scope: BaselineScope; cohortId: number })
       anchor.click()
       URL.revokeObjectURL(url)
       setAccepted(false)
-      setNotice('Your private challenge record was downloaded. Keep the file somewhere you trust.')
+      setNotice('Downloaded. Keep the file somewhere you trust.')
     } catch (failure) {
       if (live.current && !owned.signal.aborted) {
         setError(participantErrorMessage(failure, 'Private export unavailable. Try again.'))
@@ -62,14 +64,17 @@ function Export({ scope, cohortId }: { scope: BaselineScope; cohortId: number })
     }
   }
   return (
-    <details className="challenge-personal-export">
-      <summary>Download your private challenge record</summary>
+    <details className={variant === 'row' ? 'savings-row-group savings-export' : 'challenge-personal-export'}>
+      {variant === 'row'
+        ? <summary className="savings-row"><SavingsRowContent label="Download your record" description="Keep or print a private copy" /></summary>
+        : <summary>Download your record</summary>}
+      <div className={variant === 'row' ? 'savings-row-body' : undefined}>
       <p>
-        Download a readable summary of approved savings, target changes and checkpoint history. Open the downloaded record in your browser to print or save as PDF. Choose JSON for the complete structured history.
-        Original statements, chat and pending proposals are excluded.
+        A private copy of what you’ve confirmed: money set aside, target changes and check-ins. Open it in your browser to print or save it as a PDF.
+        Statements, chat and anything you haven’t confirmed are left out.
       </p>
       <fieldset disabled={busy}>
-        <label>Record format<select value={format} onChange={event => { setFormat(event.target.value as 'printable' | 'json'); setAccepted(false) }}><option value="printable">Readable record · print or save as PDF</option><option value="json">Structured JSON · complete data</option></select></label>
+        <label>Record format<select value={format} onChange={event => { setFormat(event.target.value as 'printable' | 'json'); setAccepted(false) }}><option value="printable">Readable copy · print or save as PDF</option><option value="json">Data file (JSON) · everything, for other apps</option></select></label>
         <label>
           <input
             type="checkbox"
@@ -86,11 +91,12 @@ function Export({ scope, cohortId }: { scope: BaselineScope; cohortId: number })
           Download this private file to my device. The app cannot recall downloaded copies.
         </label>
         <button type="button" disabled={!accepted} onClick={() => void download()}>
-          {busy ? 'Preparing private export…' : 'Download reviewed records'}
+          {busy ? 'Preparing your copy…' : 'Download my record'}
         </button>
       </fieldset>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
+      </div>
     </details>
   )
 }

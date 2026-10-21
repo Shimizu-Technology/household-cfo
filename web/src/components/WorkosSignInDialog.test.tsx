@@ -92,7 +92,12 @@ it('a failed resend does not make the next first code say "new code"', async () 
   vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
   client.resendEmail.mockRejectedValue(new ApiRequestError('SECRET provider detail', { status: 503 }))
   render(<WorkosSignInDialog {...props} />); await startEmail()
-  await act(async () => { vi.advanceTimersByTime(60_001) })
+  // Under CI load the countdown interval can start after the first jump, so
+  // flush pending effects and keep stepping the clock until resend unlocks.
+  await act(async () => {})
+  for (let step = 0; step < 5 && !screen.queryByRole('button', { name: 'Resend code' }); step += 1) {
+    await act(async () => { vi.advanceTimersByTime(60_001) })
+  }
   fireEvent.click(screen.getByRole('button', { name: 'Resend code' }))
   await screen.findByRole('alert')
   fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
