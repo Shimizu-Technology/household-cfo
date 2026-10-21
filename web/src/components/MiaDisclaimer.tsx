@@ -12,11 +12,11 @@ export function MiaDisclaimer({ assistantName, fullText }: { assistantName: stri
   return (
     <div className="disclaimer mia-disclaimer">
       <p>
-        {assistantName} is an AI coaching assistant, not a legal, tax or financial advisor.
+        {assistantName}<span className="mia-disclaimer-verb"> is an</span><span className="mia-disclaimer-colon">:</span> AI coach, not a financial advisor.
         {full && <>
           {' '}
-          <button type="button" className="mia-disclaimer-toggle" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(current => !current)}>
-            About {assistantName}
+          <button type="button" className="mia-disclaimer-toggle" aria-label={`About ${assistantName}`} aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(current => !current)}>
+            About<span className="mia-disclaimer-name"> {assistantName}</span>
           </button>
         </>}
       </p>

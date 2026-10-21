@@ -14,9 +14,12 @@ const fullText = 'Mia is an AI coaching assistant built from Mrs. Mel’s approv
 
 describe('MiaDisclaimer', () => {
   it('shows one short line and keeps the full disclosure one tap away', async () => {
-    render(<MiaDisclaimer assistantName="Mia" fullText={fullText} />)
+    const view = render(<MiaDisclaimer assistantName="Mia" fullText={fullText} />)
 
-    expect(screen.getByText(/Mia is an AI coaching assistant, not a legal, tax or financial advisor\./)).toBeTruthy()
+    // Wide screens read "Mia is an AI coach…"; the smallest phones swap " is an" for ":" in CSS.
+    const line = view.container.querySelector('.mia-disclaimer > p')!
+    expect(line.querySelector('.mia-disclaimer-verb')?.textContent).toBe(' is an')
+    expect(line.textContent).toMatch(/^Mia is an: AI coach, not a financial advisor\. About Mia$/)
     const about = screen.getByRole('button', { name: 'About Mia' })
     expect(about.getAttribute('aria-expanded')).toBe('false')
     expect(screen.getByText(fullText).hidden).toBe(true)
@@ -31,7 +34,7 @@ describe('MiaDisclaimer', () => {
 
   it('keeps the short line when there is no fuller text', () => {
     render(<MiaDisclaimer assistantName="Mia" fullText={null} />)
-    expect(screen.getByText(/not a legal, tax or financial advisor/)).toBeTruthy()
+    expect(screen.getByText(/AI coach, not a financial advisor/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /About/ })).toBeNull()
   })
 })
@@ -40,7 +43,7 @@ describe('ChatMoreMenu', () => {
   it('opens secondary chat actions and returns focus to More after a choice', async () => {
     const onPrompts = vi.fn()
     const onClear = vi.fn()
-    render(<ChatMoreMenu note="Plan context: October 2026" items={[
+    render(<ChatMoreMenu note="Using your October 2026 plan" items={[
       { key: 'prompts', label: 'Prompts', onSelect: onPrompts },
       { key: 'clear', label: 'Clear chat', onSelect: onClear, disabled: true },
     ]} />)
@@ -51,7 +54,7 @@ describe('ChatMoreMenu', () => {
 
     await userEvent.click(more)
     expect(more.getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getByText('Plan context: October 2026')).toBeTruthy()
+    expect(screen.getByText('Using your October 2026 plan')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Clear chat' }) as HTMLButtonElement).disabled).toBe(true)
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Prompts' }))
 

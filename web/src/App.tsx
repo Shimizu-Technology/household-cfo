@@ -635,7 +635,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [spendingReportError, setSpendingReportError] = useState<string | null>(null)
   const [newBudgetCategory, setNewBudgetCategory] = useState<NewBudgetCategoryDraft>(blankBudgetCategoryDraft)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
-  const [assistPanel, setAssistPanel] = useState<'context' | 'prompts' | null>(null)
+  const [assistPanel, setAssistPanel] = useState<'context' | 'prompts' | 'memory' | null>(null)
   const showMiaSuggestions = assistPanel === 'prompts'
   const chatContextTriggerRef = useRef<HTMLButtonElement | null>(null)
   const chatMoreTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -3524,13 +3524,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const debtMinimumsKnown = data.wealth.summary.debt_minimums_known !== false
   const runtimeBrand = data.workspace.brand
   const brand = runtimeBrand.config
-  const miaPlanPeriodLabel = `${selectedBudgetMonth?.label ?? monthNameFormatter.format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} ${selectedBudgetYear}`
+  // Plain words for the household plan Mia reads; savings participants don't need it.
+  const miaPlanLabel = `Using your ${monthNameFormatter.format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} ${selectedBudgetYear} plan`
   const showMiaMemoryAction = !isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant)
-  const openMiaMemory = () => {
-    setIsChatExpanded(false)
-    switchSection('My Profile')
-    window.setTimeout(() => { const memory = document.getElementById('mia-memory'); const disclosure = memory?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true; memory?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 80)
-  }
 
   const workspace = (
     <main className={`app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}`}>
@@ -3663,11 +3659,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   <h3 id="mia-chat-title" aria-label={`Ask ${assistantName}`}><span className="chat-heading-verb">Ask </span>{assistantName}</h3>
                   {isFirstSessionSetup
                     ? <p className="mia-setup-count">{data.workspace.setup_status.completed_count} of {data.workspace.setup_status.required_count} essentials confirmed</p>
-                    : <p className="chat-period-context"><span className="chat-period-prefix">{isSavingsExperience ? 'Optional plan context' : 'Plan context'}: </span>{miaPlanPeriodLabel}</p>}
+                    : !isSavingsExperience && <p className="chat-period-context">{miaPlanLabel}</p>}
                 </div>
                 <div className="chat-actions">
                   {data.workspace.experience_mode === 'savings_challenge' && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <button type="button" className="secondary-button chat-today-button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
-                  {showMiaMemoryAction && <button type="button" className="chat-memory-button chat-inline-action" onClick={openMiaMemory}>Memory</button>}
+                  {showMiaMemoryAction && <button type="button" className="chat-memory-button chat-inline-action" aria-expanded={assistPanel === 'memory'} aria-controls="mia-assist-title" onClick={(event) => { assistTriggerRef.current = event.currentTarget; setAssistPanel(current => current === 'memory' ? null : 'memory') }}>Memory</button>}
                   {currentMessages.length > 0 && (
                     <button ref={clearChatTriggerRef} type="button" className="chat-clear-button chat-inline-action" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
                       {miaClearing ? 'Clearing' : 'Clear'}
@@ -3698,9 +3694,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   </button>
                   <ChatMoreMenu
                     triggerRef={chatMoreTriggerRef}
-                    note={isFirstSessionSetup ? undefined : `${isSavingsExperience ? 'Optional plan context' : 'Plan context'}: ${miaPlanPeriodLabel}`}
+                    note={isFirstSessionSetup || isSavingsExperience ? undefined : miaPlanLabel}
                     items={[
-                      ...(showMiaMemoryAction ? [{ key: 'memory', label: 'Memory', onSelect: openMiaMemory }] : []),
+                      ...(showMiaMemoryAction ? [{ key: 'memory', label: 'Memory', onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('memory') } }] : []),
                       { key: 'prompts', label: 'Prompts', onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('prompts') } },
                       { key: 'context', label: 'Context & help', onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('context') } },
                       ...(currentMessages.length > 0 ? [{ key: 'clear', label: miaClearing ? 'Clearing' : 'Clear chat', disabled: miaClearing || miaLoading, onSelect: (trigger: HTMLButtonElement) => handleClearMessagesRequest({ currentTarget: trigger }) }] : []),

@@ -155,6 +155,15 @@
   outline-offset: 2px;
 }
 
+/* Smallest phones: "Mia: AI coach, …" and "About" keep the line to one row
+   (the About button keeps the full name in its label). */
+.mia-disclaimer-colon { display: none; }
+@media (max-width: 350px) {
+  .mia-disclaimer-name,
+  .mia-disclaimer-verb { display: none; }
+  .mia-disclaimer-colon { display: inline; }
+}
+
 .mia-disclaimer > .mia-disclaimer-details {
   max-height: 30dvh;
   margin-top: var(--space-1);
@@ -290,3 +299,11 @@
      scrolls the field into view, keep that row visible too. */
   .mia-chat-shell .ask-row textarea { scroll-margin-bottom: 64px; }
 }
+
+/* Memory opens beside the chat like Prompts and Context & help. The panel header
+   already names it, so the profile card's own title and frame step back. */
+.mia-assist-body > .mia-memory-panel { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.mia-assist-body > .mia-memory-panel .mia-memory-heading .eyebrow,
+.mia-assist-body > .mia-memory-panel .mia-memory-heading h2 { display: none; }
+.mia-assist-body > .mia-memory-panel .mia-memory-heading { display: grid; gap: var(--space-3); }
+.mia-assist-body > .mia-memory-panel .mia-memory-form-grid { grid-template-columns: minmax(0, 1fr); }

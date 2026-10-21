@@ -10,6 +10,7 @@ import type { SourceReview, SourceReviewFilter } from '../src/lib/sourceReview'
 import type { BrandConfig, CoachWorkspaceSettings, WorkspaceBrandConfiguration, WorkspaceBrandVersion, WorkspaceCollaborator } from '../src/api'
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const longMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const currentMonth = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date())
 const currentShortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date())
 const currentYear = new Date().getFullYear()
@@ -89,8 +90,12 @@ async function chatHeaderAction(page: Page, name: string) {
   await expect(header).toBeVisible()
   const more = chatMoreButton(page)
   if (!(await more.isVisible())) return header.getByRole('button', { name, exact: true })
-  if (await more.getAttribute('aria-expanded') !== 'true') await more.click()
-  return page.locator('.chat-more-menu').getByRole('button', { name: CHAT_MENU_LABELS[name] ?? name, exact: true })
+  const item = page.locator('.chat-more-menu').getByRole('button', { name: CHAT_MENU_LABELS[name] ?? name, exact: true })
+  await expect(async () => {
+    if (await more.getAttribute('aria-expanded') !== 'true') await more.click()
+    await expect(item).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 15000 })
+  return item
 }
 
 // The control that should hold focus after a chat panel or full screen closes.
@@ -1721,6 +1726,12 @@ test('Mia memory stays explicit, reversible, and usable on mobile and desktop', 
   await expect(pendingWhilePaused.getByRole('button', { name: 'Reject' })).toBeEnabled()
   await expect(pendingWhilePaused.getByRole('button', { name: 'Forget' })).toBeEnabled()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+
+  // Memory opens in place: the conversation stays put and focus returns to the control that opened it.
+  await expect(page.locator('main.app')).toHaveClass(/is-chat-page/)
+  await closeChatAssistPanel(page)
+  await expect(await chatReturnTarget(page, 'Memory')).toBeFocused()
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
 })
 
 test('Mia memory shows a real initial loading state and keeps controls disabled', async ({ page }) => {
@@ -3483,7 +3494,7 @@ test('Ask Mia uses a new request ID when the retry targets a different budget mo
   const nextMonthIndex = (new Date().getMonth() + 1) % 12
   await page.getByLabel('Report month').selectOption(String(nextMonthIndex))
   await openSection(page, 'Ask Mia')
-  await expect(page.locator('.chat-period-context')).toHaveText(`Plan context: ${months[nextMonthIndex]} ${currentYear}`)
+  await expect(page.locator('.chat-period-context')).toHaveText(`Using your ${longMonths[nextMonthIndex]} ${currentYear} plan`)
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   await expect(page.getByText('Use the newly selected month.')).toBeVisible()
 
@@ -8924,7 +8935,7 @@ test('BOG UI Home and current review survive a future Budget year', async ({ pag
   const selectedPeriod = future.annual_plan.months[new Date().getMonth()]
   await expect.poll(() => periods.some((period) => period.start === selectedPeriod.starts_on && period.end === selectedPeriod.ends_on)).toBe(true)
   await openSection(page, 'Ask Mia')
-  await expect(page.locator('.chat-period-context')).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear + 1}`)
+  await expect(page.locator('.chat-period-context')).toHaveText(`Using your ${longMonths[new Date().getMonth()]} ${currentYear + 1} plan`)
   await openSection(page, 'Home')
   const summary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
   await expect(summary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$3,475.00')
@@ -9711,13 +9722,13 @@ test('BOG UI delayed budget year keeps the approved period and pauses editing an
   await expect(page.getByRole('combobox', { name: 'Report month', exact: true })).toBeDisabled()
   await openSection(page, 'Ask Mia')
   await expect(page.getByRole('status').filter({ hasText: `Loading the ${currentYear + 1} plan.` })).toBeVisible()
-  await expect(page.locator('.chat-period-context').first()).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear}`)
+  await expect(page.locator('.chat-period-context').first()).toHaveText(`Using your ${longMonths[new Date().getMonth()]} ${currentYear} plan`)
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Review my selected period.')
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeDisabled()
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).press('Enter')
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue('Review my selected period.')
   release()
-  await expect(page.locator('.chat-period-context').first()).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear + 1}`)
+  await expect(page.locator('.chat-period-context').first()).toHaveText(`Using your ${longMonths[new Date().getMonth()]} ${currentYear + 1} plan`)
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
   const period = future.annual_plan.months[new Date().getMonth()]
   await expect.poll(() => periods.some((entry) => entry.start === period.starts_on && entry.end === period.ends_on)).toBe(true)
@@ -9741,7 +9752,7 @@ test('BOG UI failed budget year preserves previous rows and context across brows
   // A server fault is shown in plain words, never the raw server text.
   await expect(page.getByRole('alert').filter({ hasText: 'Something went wrong on our side.' })).toBeVisible()
   await expect(page.getByText('Fictional year request failed.')).toHaveCount(0)
-  await expect(page.locator('.chat-period-context').first()).toHaveText(`Plan context: ${months[new Date().getMonth()]} ${currentYear}`)
+  await expect(page.locator('.chat-period-context').first()).toHaveText(`Using your ${longMonths[new Date().getMonth()]} ${currentYear} plan`)
   await page.goBack()
   await expect(page.getByText(`Annual budget · ${currentYear}`, { exact: true })).toBeVisible()
   await expect(page.getByRole('combobox', { name: 'Report month', exact: true })).toBeEnabled()
@@ -11028,7 +11039,9 @@ test('BOG UI compact savings chat preserves room for five files and the complete
   await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
   expect(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(100)
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeInViewport()
-  await expect(page.locator('.mia-disclaimer')).toContainText('Mia is an AI coaching assistant, not a legal, tax or financial advisor.')
+  await expect(page.locator('.mia-disclaimer')).toContainText('Mia is an AI coach, not a financial advisor.')
+  // The short line and its About link stay on one line on the smallest phone.
+  expect(await page.locator('.mia-disclaimer > p').first().evaluate(node => Math.round(node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight)))).toBe(1)
   await expect(page.getByText(disclaimer, { exact: true })).toBeHidden()
   const aboutToggle = page.getByRole('button', { name: 'About Mia', exact: true })
   await aboutToggle.click()
