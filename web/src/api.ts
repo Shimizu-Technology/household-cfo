@@ -5014,7 +5014,9 @@ export async function fetchSavingsPage<T extends SavingsEntry | SavingsEntryDraf
   const ids = Array.isArray(page.records) ? page.records.map((record) => record.id) : []
   // Newest-first pages must really be descending and before the cursor; the default keeps its existing checks.
   const ordered = !newest || (ids.every((id, index) => index === 0 || id < ids[index - 1]) && (cursor === null || ids.every((id) => id < cursor)))
-  const nextOk = page.next_cursor === null || (Number.isSafeInteger(page.next_cursor) && page.next_cursor >= 1 && (newest ? cursor === null || page.next_cursor < cursor : page.next_cursor > (cursor ?? 0)))
+  // next_cursor continues after the last row on this page: its smallest id when newest first, its largest otherwise.
+  const edge = ids.length ? newest ? Math.min(...ids) : Math.max(...ids) : null
+  const nextOk = page.next_cursor === null || (Number.isSafeInteger(page.next_cursor) && page.next_cursor >= 1 && page.next_cursor === edge && (newest ? cursor === null || page.next_cursor < cursor : page.next_cursor > (cursor ?? 0)))
   if (!Array.isArray(page.records) || page.records.length > 10 || page.records.some((record) => !Number.isSafeInteger(record.id) || record.id < 1) || new Set(ids).size !== ids.length || !ordered || !nextOk) throw new Error('Savings history could not be verified. Retry this page.')
   return page
 }

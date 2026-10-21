@@ -241,6 +241,52 @@ class ApiV1SavingsChallengesControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "newest-first pages stay scoped to the participant, interleave statuses correctly and order entries" do
+    with_savings_runtime do
+      savings_enroll
+      other = User.create!(clerk_id: "clerk_other_#{SecureRandom.hex(8)}", email: "other-#{SecureRandom.hex(8)}@example.com", role: "participant", invitation_status: "accepted")
+      other_household = HouseholdFinance::WorkspaceResolver.new(other).household
+      @savings_cohort.cohort_memberships.create!(user: other, role: "participant")
+      savings_run("enrollment.accept", { participation_accepted: true, policy_version: "1", late_start_accepted: true, expected_acceptance_digest: savings_offer_digest(user: other) }, user: other, household: other_household)
+      other_stage = -> { savings_run("entry.stage", { signed_cents: 100, effective_on: @savings_enrollment.local_today.iso8601, funding_source: "new_money_reserved", expected_version_id: nil, expected_entry_lock_version: 0, reason: "" }, user: other, household: other_household).subject }
+
+      # Own drafts alternate approved / pending, with the other participant's drafts in between.
+      own = []
+      6.times do |index|
+        draft = savings_draft(100 + index)
+        savings_approve(draft) if index.even?
+        own << draft
+        other_stage.call
+      end
+      approved = own.select.with_index { |_, index| index.even? }.map(&:id)
+      pending = own.select.with_index { |_, index| index.odd? }.map(&:id)
+      other_ids = SavingsEntryDraft.where(created_by_user: other).pluck(:id)
+
+      get "#{path}/entry_drafts", params: { direction: "newest", status: "approved", limit: 2 }, headers: headers
+      assert_equal approved.last(2).reverse, response.parsed_body["records"].pluck("id")
+      assert_equal approved[1], response.parsed_body["next_cursor"]
+      get "#{path}/entry_drafts", params: { direction: "newest", status: "approved", limit: 2, cursor: approved[1] }, headers: headers
+      assert_equal [ approved[0] ], response.parsed_body["records"].pluck("id")
+      assert_nil response.parsed_body["next_cursor"]
+      get "#{path}/entry_drafts", params: { direction: "oldest", status: "pending", limit: 2, cursor: pending[0] }, headers: headers
+      assert_equal pending.drop(1), response.parsed_body["records"].pluck("id")
+      assert_nil response.parsed_body["next_cursor"]
+
+      # A cursor taken from someone else's records only moves within your own.
+      get "#{path}/entry_drafts", params: { direction: "newest", cursor: other_ids.max + 1 }, headers: headers
+      assert_equal own.map(&:id).reverse, response.parsed_body["records"].pluck("id")
+      assert_empty response.parsed_body["records"].pluck("id") & other_ids
+      get "#{path}/entry_drafts", params: { direction: "oldest", cursor: other_ids.min }, headers: headers
+      assert_empty response.parsed_body["records"].pluck("id") & other_ids
+
+      get "#{path}/entries", params: { direction: "newest" }, headers: headers
+      assert_response :success
+      entry_ids = response.parsed_body["records"].pluck("id")
+      assert_equal @savings_enrollment.savings_entries.order(id: :desc).pluck(:id), entry_ids
+      assert_equal entry_ids.sort.reverse, entry_ids
+    end
+  end
+
   test "private status recovers an exact plan proposal without changing totals or trusting client scope" do
     with_savings_runtime do
       savings_enroll

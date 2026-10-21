@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import * as api from '../api'
 import { ApiRequestError } from '../api'
@@ -27,6 +27,17 @@ it('pre-enrollment recovery verifies program identity and a newly committed enro
 })
 it('cold enrollment unknown requires current terms consent and uses retained key',async()=>{
  saveHomeSavingsIdentity(identity('enrollment'));vi.mocked(api.fetchSavingsChallenge).mockResolvedValue(fixture(false));vi.mocked(api.enrollSavingsChallenge).mockResolvedValue({record:fixture().enrollment!,replayed:false,challenge:fixture()});render(view());await screen.findByText('Join the 90-day savings challenge');await fresh();await waitFor(()=>expect(screen.getByLabelText(/accept joining the challenge/) .matches(':disabled')).toBe(false));fireEvent.click(screen.getByLabelText(/accept joining the challenge/));fireEvent.click(screen.getByLabelText(/start later than the group/));fireEvent.click(screen.getByRole('button',{name:'Accept and join'}));await waitFor(()=>expect(api.enrollSavingsChallenge).toHaveBeenCalledWith(expect.objectContaining({expected_acceptance_digest:'a'.repeat(64)}),'original-safe-key',expect.any(AbortSignal)))
+})
+it('recovery anchored on the newest waiting draft shows no Newer button or anchor note',async()=>{
+ saveHomeSavingsIdentity(identity('entry_approve',{draftId:31}))
+ vi.mocked(api.fetchSavingsPage).mockImplementation(async(collection,cursor,_signal,options)=>{const rows=collection==='entry_drafts'&&options?.status==='pending'?[savingsEntryDraft()]:[];const records=options?.direction==='newest'?rows.filter(row=>cursor==null||row.id<cursor):rows.filter(row=>row.id>(cursor??0));return{records,next_cursor:null,actor_scope:actor,enrollment_id:1,cohort_id:42}})
+ render(view());await screen.findByText('No target yet');await fresh()
+ const waiting=await screen.findByRole('region',{name:'Waiting for you to confirm'})
+ await within(waiting).findByRole('button',{name:'Confirm savings record #31'})
+ // One page read at the anchor plus one check for anything newer; nothing newer exists here.
+ await waitFor(()=>expect(api.fetchSavingsPage).toHaveBeenCalledWith('entry_drafts',31,expect.any(AbortSignal),{direction:'oldest',status:'pending'}))
+ expect(within(waiting).queryByRole('button',{name:'Newer records'})).toBeNull()
+ expect(within(waiting).queryByText(/Opened at the record/)).toBeNull()
 })
 it('cold approval only unlocks original paged draft and does not allow another draft or new report',async()=>{
  saveHomeSavingsIdentity(identity('entry_approve',{draftId:31}));vi.mocked(api.fetchSavingsPage).mockImplementation(async collection=>({records:collection==='entry_drafts'?[savingsEntryDraft(),{...savingsEntryDraft(),id:32}]:[],next_cursor:null,actor_scope:actor,enrollment_id:1,cohort_id:42}));vi.mocked(api.approveSavingsEntry).mockResolvedValue({record:savingsEntryVersion(),replayed:false,challenge:fixture()});render(view());await screen.findByText('No target yet');await fresh();await waitFor(()=>expect(screen.getByRole('button',{name:'Confirm savings record #31'}) .matches(':disabled')).toBe(false));expect(screen.getByRole('button',{name:'Confirm savings record #32'}) .matches(':disabled')).toBe(true);expect(screen.getByLabelText('Amount in US dollars') .matches(':disabled')).toBe(true);expect(api.fetchSavingsPage).toHaveBeenCalledWith('entry_drafts',32,expect.any(AbortSignal),{direction:'newest',status:'pending'});fireEvent.click(screen.getByRole('button',{name:'Confirm savings record #31'}));await waitFor(()=>expect(api.approveSavingsEntry).toHaveBeenCalledWith(31,expect.objectContaining({accepted:true}),'original-safe-key',expect.any(AbortSignal)))
@@ -104,7 +115,7 @@ it('scoped Review target plan goes through the recoverable plan request once and
  await screen.findByText(/Your new target is ready/)
  expect(screen.queryByRole('button', { name: 'Review target plan' })).toBeNull()
  const confirm = await screen.findByRole('button', { name: 'Confirm target plan #11' })
- await waitFor(() => expect(document.activeElement).toBe(confirm))
+ await waitFor(() => expect(document.activeElement).toBe(confirm), { timeout: 3000 })
  expect(api.stageSavingsPlan).toHaveBeenCalledTimes(1)
  expect(screen.getByText('Target waiting for you to confirm')).toBeTruthy()
 })

@@ -94,7 +94,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
   const scopeCohort = cohortId ?? challenge?.enrollment?.cohort_id
   const homeScope = useMemo(() => scopeUser && scopeHousehold && scopeCohort ? {user_id:scopeUser,household_id:scopeHousehold,cohort_id:scopeCohort} : undefined, [scopeUser,scopeHousehold,scopeCohort])
   const historyScope = useMemo(() => homeScope && scopeEnrollment ? {...homeScope,enrollment_id:scopeEnrollment} : undefined, [homeScope,scopeEnrollment])
-  const receiveHome = useCallback((result:SavingsMutation<unknown>,action:HomeSavingsAction) => { sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier request was confirmed once.':action==='zero_attest'?zeroNotice(result):homeNotice[action]);setRevision(value=>value+1);const draft=result.record as {id?:number;status?:string;signed_cents?:number};if(draft.status==='pending'&&draft.id){setEntryOpen(true);setReviewAnchor({collection:'entry_drafts',id:draft.id})};setEffectiveOn(current=>current||savingsDefaultDate(result.challenge.calendar));if(action==='enrollment')focusJoined() }, [])
+  const receiveHome = useCallback((result:SavingsMutation<unknown>,action:HomeSavingsAction) => { sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier request was confirmed once.':action==='zero_attest'?zeroNotice(result):homeNotice[action]);setRevision(value=>value+1);const draft=result.record as {id?:number;status?:string;signed_cents?:number};if(draft.status==='pending'&&draft.id)setEntryOpen(true);if(action==='entry_approve'||result.challenge.pending_entry_count===0)setReviewAnchor(anchor=>anchor?.collection==='entry_drafts'?null:anchor);setEffectiveOn(current=>current||savingsDefaultDate(result.challenge.calendar));if(action==='enrollment')focusJoined() }, [])
   const homeConflict = useCallback((message: string) => { setReadFailed(true); setParticipation(false); setLateAcceptance(false); setKnownZero(false); setError(message) }, [])
   const homeMutation = useHomeSavingsMutation(homeScope, receiveHome, clearPrivatePlan, () => Boolean(readPlanRequest(planScope)) || working.current, homeConflict)
   const homePendingRef = useRef(homeMutation.pending); useEffect(()=>{homePendingRef.current=homeMutation.pending},[homeMutation.pending])
@@ -163,7 +163,9 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
       const draft = result.record as { id?: number; status?: string; signed_cents?: number; cutoff_on?: string }
       setNotice(result.replayed ? 'Your earlier request was confirmed. It was not added twice.' : draft.status === 'pending' ? 'Check it below, then confirm.' : draft.cutoff_on && draft.signed_cents === undefined ? zeroNotice(result) : 'Saved.')
       if (draft.status === 'pending' && draft.id && Number.isSafeInteger(draft.id)) { if (draft.signed_cents === undefined) { setPlanOpen(true); setChangingPlan(false); setFocusRequest('restore-target'); setFocusPlanConfirm(true) } else setEntryOpen(true) }
-      if (draft.status === 'pending' && draft.id && Number.isSafeInteger(draft.id)) setReviewAnchor({ collection: draft.signed_cents === undefined ? 'plan_drafts' : 'entry_drafts', id: draft.id })
+      // Newest-first entry lists already show a just-staged draft at the top, so only target drafts are anchored here.
+      if (draft.status === 'pending' && draft.id && Number.isSafeInteger(draft.id) && draft.signed_cents === undefined) setReviewAnchor({ collection: 'plan_drafts', id: draft.id })
+      if (result.challenge.pending_entry_count === 0 || (draft.status === undefined && draft.signed_cents !== undefined)) setReviewAnchor((anchor) => anchor?.collection === 'entry_drafts' ? null : anchor)
       attempt.done?.()
       if (!draft.status && result.challenge.enrollment && !challenge?.enrollment) focusJoined()
       setEffectiveOn((current) => current || savingsDefaultDate(result.challenge.calendar))
@@ -335,7 +337,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
         {!elapsed && <p>You can add money once your 90 days start.</p>}
         {projection && !projection.reporting_known && elapsed && <details className="savings-zero" open={zeroOpen} onToggle={event => setZeroOpen(event.currentTarget.open)}><summary ref={zeroSummaryRef}>Nothing to add?</summary><section aria-label="Confirm nothing set aside"><p>If you’re not sure, leave it for now. If you know you haven’t set aside or taken out any new money through {formatDay(projection.cutoff_on)}, you can say so.</p><label className="savings-check"><input type="checkbox" checked={knownZero} disabled={actionLocked('zero_attest')} onChange={(event) => setKnownZero(event.target.checked)} />I know I haven’t set aside or taken out any new money through this date.</label><button type="button" className="savings-action" disabled={actionLocked('zero_attest') || !knownZero} onClick={() => homeStage('zero_attest',(key, signal) => attestSavingsZero({ known_zero: true, cutoff_on: projection.cutoff_on, expected_enrollment_lock_version: challenge.enrollment!.lock_version }, key, signal), () => setKnownZero(false))}>Confirm nothing set aside</button></section></details>}
         {/* Waiting entries are fetched on their own (newest first), so they show even when they are older than the latest page. */}
-        {(pendingEntries > 0 || reviewAnchor?.collection === 'entry_drafts') && <SavingsHistory<SavingsEntryDraft> scope={historyScope} onDenied={clearPrivatePlan} key={reviewAnchor?.collection === 'entry_drafts' ? `waiting:${reviewAnchor.id}` : 'waiting'} focusRecordId={reviewAnchor?.collection === 'entry_drafts' ? reviewAnchor.id : undefined} options={WAITING} collection="entry_drafts" label="Waiting for you to confirm" hideWhenEmpty revision={revision} enabled={!busy} render={(draft) => <>
+        {(pendingEntries > 0 || (reviewAnchor?.collection === 'entry_drafts' && homeMutation.pending !== null)) && <SavingsHistory<SavingsEntryDraft> scope={historyScope} onDenied={clearPrivatePlan} key={reviewAnchor?.collection === 'entry_drafts' ? `waiting:${reviewAnchor.id}` : 'waiting'} focusRecordId={reviewAnchor?.collection === 'entry_drafts' ? reviewAnchor.id : undefined} options={WAITING} collection="entry_drafts" label="Waiting for you to confirm" hideWhenEmpty revision={revision} enabled={!busy} render={(draft) => <>
           <p><strong>{savingsDollars(draft.signed_cents)}</strong> · {formatDay(draft.effective_on)}{draft.status === 'pending' ? '' : ` · ${statusWord(draft.status)}`}</p>
           <p>{savingsFundingLabel(draft.funding_source)}</p>
           {draft.reason && <p>{draft.reason}</p>}
@@ -411,15 +413,18 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
     <p className="savings-footnote">{zone && `Dates follow ${zone}. `}Questions? <button type="button" className="savings-link" onClick={onAskMia}>Ask {assistantName}</button></p></>}
   </section>
 }
-// One request per page. Lists that should open on the latest records ask the server for newest-first pages;
-// "Older records" continues backward and "Newer records" returns. Other lists keep the default oldest-first order.
+// Lists that should open on the latest records ask the server for newest-first pages (one request per page).
+// "Older records" continues with a before-cursor; "Newer records" asks for the next rows after the newest id
+// on screen (oldest-first, then reversed), so paging back and forth never skips or repeats a page.
+// Other lists keep the default oldest-first order with a simple cursor stack.
+type HistoryView = { kind: 'from'; cursor: number | null; anchored: boolean } | { kind: 'newer'; after: number }
 function SavingsHistory<T extends RecordRow>({ collection, label, revision, enabled, render, focusRecordId, scope, onDenied, hideWhenEmpty, options, level = 4 }: { scope?: DailyScope; onDenied?: () => void; focusRecordId?: number; collection: SavingsCollection; label: string; revision: number; enabled: boolean; render: (record: T) => ReactNode; hideWhenEmpty?: boolean; options?: SavingsPageOptions; level?: 3 | 4 }) {
   const newest = options?.direction === 'newest'
-  // Open at a specific record: newest-first pages start just after it, oldest-first pages just before it.
-  const focusCursor = focusRecordId ? newest ? focusRecordId + 1 : focusRecordId > 1 ? focusRecordId - 1 : null : null
-  const [page, setPage] = useState<SavingsPage<T> | null>(null)
-  const [cursor, setCursor] = useState<number | null>(focusCursor)
-  const [previous, setPrevious] = useState<(number | null)[]>(focusCursor !== null ? [null] : [])
+  const [view, setView] = useState<HistoryView>(() => newest
+    ? { kind: 'from', cursor: focusRecordId ? focusRecordId + 1 : null, anchored: Boolean(focusRecordId) }
+    : { kind: 'from', cursor: focusRecordId && focusRecordId > 1 ? focusRecordId - 1 : null, anchored: Boolean(focusRecordId && focusRecordId > 1) })
+  const [previous, setPrevious] = useState<(number | null)[]>(() => !newest && focusRecordId && focusRecordId > 1 ? [null] : [])
+  const [page, setPage] = useState<{ records: T[]; older: boolean; newer: boolean } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -427,15 +432,41 @@ function SavingsHistory<T extends RecordRow>({ collection, label, revision, enab
     if (!enabled) return
     let live = true
     const controller = new AbortController()
+    const checked = (next: SavingsPage<T>) => { if (scope && (!next.actor_scope || !dailyResponseMatches({...next,actor_scope:next.actor_scope},scope))) throw new ApiRequestError('Private savings history changed.',{status:403}); return next }
+    const read = (cursor: number | null, direction: 'oldest' | 'newest') => fetchSavingsPage<T>(collection, cursor, controller.signal, { ...options, direction }).then(checked)
     queueMicrotask(() => { if (live) { setLoading(true); setError(null) } })
-    void fetchSavingsPage<T>(collection, cursor, controller.signal, options).then((next) => { if (scope && (!next.actor_scope || !dailyResponseMatches({...next,actor_scope:next.actor_scope},scope))) throw new ApiRequestError('Private savings history changed.',{status:403}); if (live) setPage(next) }).catch((failure) => { if (live) { setError(message(failure)); setPage(null); if(failure instanceof ApiRequestError&&[401,403,404].includes(failure.status))onDenied?.() } }).finally(() => { if (live) setLoading(false) })
+    const load = async () => {
+      if (!newest) { const next = await read(view.kind === 'from' ? view.cursor : null, 'oldest'); return { records: next.records, older: false, newer: next.next_cursor !== null } }
+      if (view.kind === 'newer') {
+        const next = await read(view.after, 'oldest')
+        return { records: [...next.records].reverse(), older: true, newer: next.next_cursor !== null }
+      }
+      const next = await read(view.cursor, 'newest')
+      // An anchored page may or may not be the newest one; ask once whether anything newer exists.
+      const top = next.records.length ? Math.max(...next.records.map((record) => record.id)) : view.cursor !== null ? view.cursor - 1 : null
+      const newer = view.cursor === null || top === null ? false : view.anchored ? (await read(top, 'oldest')).records.length > 0 : true
+      return { records: next.records, older: next.next_cursor !== null, newer }
+    }
+    void load().then((next) => { if (live) setPage(next) }).catch((failure) => { if (live) { setError(message(failure)); setPage(null); if(failure instanceof ApiRequestError&&[401,403,404].includes(failure.status))onDenied?.() } }).finally(() => { if (live) setLoading(false) })
     return () => { live = false; controller.abort() }
-  }, [attempt, collection, cursor, enabled, revision, scope, onDenied, options])
+  }, [attempt, collection, view, enabled, revision, scope, onDenied, options, newest])
   const Heading = level === 3 ? 'h3' : 'h4'
   const back = newest ? 'Newer records' : 'Previous records', forward = newest ? 'Older records' : 'Next records'
+  const canBack = newest ? Boolean(page?.newer) : previous.length > 0
+  const canForward = newest ? Boolean(page?.older) : Boolean(page?.newer)
+  const ids = page?.records.map((record) => record.id) ?? []
+  function goBack() {
+    if (newest) { if (ids.length) setView({ kind: 'newer', after: Math.max(...ids) }); return }
+    setView({ kind: 'from', cursor: previous[previous.length - 1], anchored: false }); setPrevious(previous.slice(0, -1))
+  }
+  function goForward() {
+    if (newest) { if (ids.length) setView({ kind: 'from', cursor: Math.min(...ids), anchored: false }); return }
+    if (ids.length) { setPrevious([...previous, view.kind === 'from' ? view.cursor : null]); setView({ kind: 'from', cursor: Math.max(...ids), anchored: false }) }
+  }
   // Lists that only matter once something exists (waiting entries, target changes) stay out of the way until then.
-  if (hideWhenEmpty && !error && previous.length === 0 && (page ? page.records.length === 0 && page.next_cursor === null : loading)) return null
-  return <section className="savings-history" aria-label={label}><Heading>{label}</Heading>{focusRecordId && previous.length > 0 && <p className="savings-caption">Opened at the record you were working on. Use {back} to see the rest.</p>}{loading && <p role="status">Loading {label.toLowerCase()}…</p>}{error && <div role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt((value) => value + 1)}>Retry history</button></div>}{!loading && page && <>{page.records.length === 0 && <p>Nothing here yet.</p>}<ol>{page.records.map((record) => <li key={record.id}>{render(record)}</li>)}</ol>{(previous.length > 0 || page.next_cursor !== null) && <div className="savings-pager"><button type="button" disabled={previous.length === 0} onClick={() => { setCursor(previous[previous.length - 1]); setPrevious(previous.slice(0, -1)) }}>{back}</button><button type="button" disabled={page.next_cursor === null} onClick={() => { setPrevious([...previous, cursor]); setCursor(page.next_cursor) }}>{forward}</button></div>}{(previous.length > 0 || page.next_cursor !== null) && <p className="savings-caption">{page.next_cursor !== null ? `More records are available. Use ${forward} to see them.` : `Use ${back} to go back.`}</p>}</>}</section>
+  if (hideWhenEmpty && !error && !canBack && (page ? page.records.length === 0 && !canForward : loading)) return null
+  const anchoredAway = view.kind === 'from' && view.anchored && canBack
+  return <section className="savings-history" aria-label={label}><Heading>{label}</Heading>{anchoredAway && <p className="savings-caption">Opened at the record you were working on. Use {back} to see the rest.</p>}{loading && <p role="status">Loading {label.toLowerCase()}…</p>}{error && <div role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt((value) => value + 1)}>Retry history</button></div>}{!loading && page && <>{page.records.length === 0 && <p>Nothing here yet.</p>}<ol>{page.records.map((record) => <li key={record.id}>{render(record)}</li>)}</ol>{(canBack || canForward) && <div className="savings-pager"><button type="button" disabled={!canBack} onClick={goBack}>{back}</button><button type="button" disabled={!canForward} onClick={goForward}>{forward}</button></div>}{(canBack || canForward) && <p className="savings-caption">{canForward ? `More records are available. Use ${forward} to see them.` : `Use ${back} to go back.`}</p>}</>}</section>
 }
 const homeNotice: Record<Exclude<HomeSavingsAction, 'zero_attest'>, string> = { enrollment: 'You’re in. Welcome to the challenge.', entry_stage: 'Check it below, then confirm to add it to your total.', entry_approve: 'Saved. Your total is up to date.' }
 function zeroNotice(result: SavingsMutation<unknown>) { const cutoff = (result.record as { cutoff_on?: string }).cutoff_on ?? result.challenge.projection?.cutoff_on; return cutoff ? `You confirmed nothing set aside through ${formatDay(cutoff)}.` : 'You confirmed nothing set aside.' }
