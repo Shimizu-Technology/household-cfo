@@ -1631,14 +1631,18 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   })
   const tabBoxes = await Promise.all(Array.from({ length: 6 }, (_, index) => tabs.nth(index).boundingBox()))
   if (testInfo.project.name.includes('mobile')) {
-    for (const first of [0, 2, 4]) expect(tabBoxes[first]?.y).toBeCloseTo(tabBoxes[first + 1]?.y ?? 0, 0)
-    expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(3)
+    expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(1)
+    const strip = page.locator('.coach-studio-section-tabs')
+    expect(await strip.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
   } else if (testInfo.project.name === 'desktop-chrome') {
     for (const box of tabBoxes) expect(box?.y).toBeCloseTo(tabBoxes[0]?.y ?? 0, 0)
     expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(1)
   }
 
-  for (const box of tabBoxes) {
+  for (let index = 0; index < 6; index += 1) {
+    // A phone has one scrolling task row; every task must remain reachable.
+    await tabs.nth(index).scrollIntoViewIfNeeded()
+    const box = await tabs.nth(index).boundingBox()
     expect(box).not.toBeNull()
     expect(box!.height).toBeGreaterThanOrEqual(44)
     expect(box!.x).toBeGreaterThanOrEqual(0)
