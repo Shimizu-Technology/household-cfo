@@ -3,6 +3,9 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
+import { cssPolicyFindings } from './design-css-policy.mjs'
+import { cssPolicyAllowlist } from './design-css-allowlist.mjs'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = readFileSync(resolve(__dirname, '../src/App.tsx'), 'utf8')
 const adminConsole = readFileSync(resolve(__dirname, '../src/components/AdminConsole.tsx'), 'utf8')
@@ -127,6 +130,27 @@ assert.ok(css.includes('--emerald: #7b4a58'), 'primary brand token should shift 
 assert.ok(css.includes('--emerald-soft: #f1e2e3'), 'soft brand token should use dusty rose')
 assert.ok(!css.includes('#0f4c3a'), 'old masculine green should not remain in main app CSS')
 
+assert.ok(css.includes('background: var(--pending-hatch)') && css.includes('--pending-hatch: url("data:image/svg+xml,'), 'pending money and its legend keep the same non-gradient hatch')
+
+// The first CSS paint and React's safe fallback share every BrandDocument
+// legacy alias. A resolved/persisted release may still supply its own palette.
+const fallbackSource = readFileSync(resolve(__dirname, '../src/contexts/brandContextValue.ts'), 'utf8')
+const fallbackColors = fallbackSource.match(/colors: \{([\s\S]*?)\n  \}/)[1]
+const rootTokens = css.match(/^:root \{([\s\S]*?)\n\}/)[1]
+for (const [token, field] of Object.entries({
+  cream: 'background', paper: 'surface', 'paper-warm': 'surface_muted', 'paper-deep': 'surface_muted',
+  ink: 'text', 'ink-soft': 'text_muted', muted: 'text_muted', line: 'border',
+  emerald: 'primary', mauve: 'primary', berry: 'primary_hover', 'emerald-soft': 'primary_soft',
+  gold: 'accent', plum: 'text', 'brand-on-primary': 'on_primary', 'brand-primary-hover': 'primary_hover', 'brand-focus': 'focus',
+})) {
+  const value = fallbackColors.match(new RegExp(`\\b${field}: '([^']+)'`))[1]
+  assert.ok(rootTokens.includes(`--${token}: ${value};`), `fallback ${field} must agree with CSS --${token}`)
+}
+assert.ok(fallbackSource.includes("typography: { display: 'cormorant_garamond', body: 'montserrat' }"), 'fallback keeps the approved brand typography')
+assert.ok(rootTokens.includes('--font-body: Montserrat, ui-sans-serif, system-ui, sans-serif;'), 'CSS body fallback matches BrandDocument montserrat')
+assert.ok(rootTokens.includes('--number-font: Montserrat, ui-sans-serif, system-ui, sans-serif;'), 'money uses the body face')
+assert.ok(rootTokens.includes('--font-display: "Cormorant Garamond", Georgia, serif;'), 'CSS display fallback matches BrandDocument cormorant')
+
 for (const structuredControl of [
   '<ChoiceChips label="Tone traits"',
   '<SelectChoice label="Energy"',
@@ -226,14 +250,52 @@ assert.ok(
   'React event values must not be read from a deferred annual-income state updater',
 )
 
-const stylesheetDirectories = ['../src', '../src/components', '../src/styles']
-for (const directory of stylesheetDirectories) {
-  for (const name of readdirSync(resolve(__dirname, directory)).filter((file) => file.endsWith('.css'))) {
-    const source = readFileSync(resolve(__dirname, directory, name), 'utf8')
-    for (const block of source.match(/@font-face\s*\{[^}]*\}/g) ?? []) {
-      assert.ok(!block.includes('var('), `${name}: @font-face descriptors must be literal values, not custom properties`)
-    }
+function stylesheets(directory) {
+  return readdirSync(resolve(__dirname, directory), { withFileTypes: true }).flatMap((entry) => {
+    const file = `${directory}/${entry.name}`
+    return entry.isDirectory() ? stylesheets(file) : entry.name.endsWith('.css') ? [file] : []
+  })
+}
+const stylesheetFiles = stylesheets('../src')
+for (const file of stylesheetFiles) {
+  const source = readFileSync(resolve(__dirname, file), 'utf8')
+  for (const block of source.match(/@font-face\s*\{[^}]*\}/g) ?? []) {
+    assert.ok(!block.includes('var('), `${file}: @font-face descriptors must be literal values, not custom properties`)
   }
 }
 
+// Exercise the policy itself so an accidentally weakened scanner cannot pass.
+for (const [sample, kind] of [
+  ['.card { background: linear-gradient(red, blue) }', 'gradient'],
+  ['.card { backdrop-filter: blur(4px) }', 'glass'],
+  ['.card { box-shadow: var(--shadow-sm) }', 'shadow'],
+  ['.card { border-inline-start: 4px solid red }', 'side-border'],
+  ['.card { border: 2px solid red }', 'side-border'],
+  ['.card { border-left: 2pt solid red }', 'side-border'],
+  ['.card { border-right: solid red var(--accent-width) }', 'side-border'],
+  ['.card { border-inline-start: solid red }', 'side-border'],
+  ['.card { border-left-width: calc(1px + 1px) }', 'side-border'],
+  ['.card { border-left: 0.1em solid red }', 'side-border'],
+  ['.card:hover { color: red }', 'hover'],
+  ['.card:HOVER { color: red }', 'hover'],
+  ['@media (hover: hover) { .card:hover { color: red } }', 'hover'],
+  ['@media (width >= 0px) or ((hover: hover) and (pointer: fine)) { .card:hover { color: red } }', 'hover'],
+  ['/* gradient(red, blue) */ .card { background: radial-gradient(red, blue) }', 'gradient'],
+]) assert.ok(cssPolicyFindings(sample, 'fixture.css').some((finding) => finding.kind === kind), `CSS policy must detect ${kind}`)
+assert.deepEqual(cssPolicyFindings(`/* linear-gradient(red, blue) */
+  .card { box-shadow: none; border-left: 1px solid var(--line); border-right: solid red 0.75pt; backdrop-filter: none }
+  @media (max-width: 600px) { @media (hover: hover) and (pointer: fine) { .card:hover { color: red } } }
+`, 'fixture.css'), [], 'comments, flat surfaces and nested fine-pointer hover are valid')
+const cssPolicyFailures = []
+const matchedAllowlistKeys = new Set()
+for (const path of stylesheetFiles) {
+  const file = path.replace('../', '')
+  const source = readFileSync(resolve(__dirname, path), 'utf8')
+  for (const finding of cssPolicyFindings(source, file)) {
+    if (cssPolicyAllowlist.has(finding.key)) matchedAllowlistKeys.add(finding.key)
+    else cssPolicyFailures.push(`${file}:${finding.line} ${finding.kind}: ${finding.key}`)
+  }
+}
+assert.deepEqual(cssPolicyFailures, [], 'new CSS decoration/ungated hover: remove it or document a specific intentional exception')
+assert.deepEqual([...cssPolicyAllowlist].filter((key) => !matchedAllowlistKeys.has(key)), [], 'stale CSS policy exceptions: remove keys whose finding no longer exists')
 console.log('design regression checks passed')

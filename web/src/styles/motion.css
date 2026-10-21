@@ -1,13 +1,7 @@
-/*
- * Press feedback. Loaded last so it applies to every button style.
- *
- * A button gives under the finger: a quick scale on :active, transform only.
- * Hover lifts use the separate `translate` property and only on devices that
- * really hover (see App.css), so a tap on a phone never leaves a button
- * floating. Disabled controls do not react.
- */
+/* Frequent actions are immediate, including keyboard navigation. Press is a
+ * direct state change, never a queued animation. Disabled controls stay still. */
 :is(.button, .secondary-button, .primary-button, .danger-button, .tabs a) {
-  transition: transform var(--duration-press) var(--ease-out), translate var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+  transition: none;
 }
 
 :is(button, .button, .secondary-button, .primary-button, .danger-button, .tabs a):not(:disabled, [aria-disabled='true']):active {

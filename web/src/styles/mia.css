@@ -96,7 +96,7 @@
   background: var(--paper);
   box-shadow: var(--shadow-md);
   transform-origin: top right;
-  animation: chat-more-in 140ms var(--ease-out);
+  animation: none;
 }
 
 @keyframes chat-more-in {
@@ -223,10 +223,10 @@
 /* Mia's mark. */
 .message-avatar {
   border: 0;
-  /* Both stops keep white initials above 4.5:1 for the Household CFO palette. */
-  background: linear-gradient(140deg, color-mix(in srgb, var(--gold) 70%, var(--plum)), var(--emerald));
+  /* Approved mauve keeps white initials above 4.5:1. */
+  background: var(--emerald);
   color: var(--brand-on-primary);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 /* First message: a greeting and a few ways to start. */
@@ -243,7 +243,7 @@
 }
 
 .empty-chat-state h3 {
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-size: var(--text-2xl);
   font-weight: var(--weight-semibold);
 }
@@ -269,8 +269,10 @@
   cursor: pointer;
 }
 
-.empty-chat-starters button:hover {
-  background: var(--emerald-soft);
+@media (hover: hover) and (pointer: fine) {
+  .empty-chat-starters button:hover {
+    background: var(--emerald-soft);
+  }
 }
 
 .empty-chat-starters button:focus-visible {

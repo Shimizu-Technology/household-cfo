@@ -20,7 +20,7 @@
 .program-preview header { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; padding: 1rem; border-bottom: 1px solid; }
 .program-preview header img { width: 40px; height: 40px; object-fit: contain; }
 .program-preview > div { padding: clamp(1rem, 4vw, 3rem); display: grid; gap: .75rem; }
-.program-preview h4 { font-size: clamp(1.5rem, 4vw, 2.4rem); margin: 0; line-height: 1.2; }
+.program-preview h4 { font-size: var(--text-xl); margin: 0; line-height: 1.2; }
 .program-preview-action { width: fit-content; display: inline-block; padding: .75rem 1rem; border-radius: var(--radius-sm); font-weight: var(--weight-semibold); }
 .program-preview footer { padding: 1rem; border-top: 1px solid; font-size: var(--text-sm); }
 @media (max-width: 640px) {
