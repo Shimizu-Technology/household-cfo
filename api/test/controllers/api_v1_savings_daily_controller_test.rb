@@ -321,6 +321,15 @@ class ApiV1SavingsDailyControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "daily read before first workspace preserves not found enrollment denial" do
+    with_daily_operations do
+      @savings_household.destroy!
+      assert_difference("Household.count", 1) { get daily_path, headers: auth_headers }
+      assert_response :not_found
+      assert_empty @savings_user.households.sole.budget_years
+    end
+  end
+
   private
   def enroll_second_daily_program
     @savings_cohort = Cohort.create!(name: "Second synthetic daily program", status: "enrolling", created_by_user: @savings_owner,

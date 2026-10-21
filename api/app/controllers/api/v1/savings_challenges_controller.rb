@@ -3,7 +3,7 @@ module Api
     class SavingsChallengesController < BaseController
       wrap_parameters false
       before_action :authenticate_user!
-      before_action :require_savings_access!
+      before_action :require_savings_access!, unless: :private_snapshot_read?
       around_action :private_request
 
       REQUEST_ACTIONS = { "enrollment" => "savings.enrollment.accept", "plan_stage" => "savings.plan.stage",
@@ -106,6 +106,10 @@ module Api
 
       def private_request
         response.set_header("Cache-Control", "private, no-store")
+        if private_snapshot_read?
+          return with_private_read_snapshot(authorize: :require_savings_access!) { yield }
+        end
+
         ApplicationRecord.transaction do
           ApplicationRecord.connection.execute("SET LOCAL lock_timeout = '2s'") if action_name == "request_status"
           current_household.lock!
@@ -180,7 +184,7 @@ module Api
         end.limit(limit + 1).to_a
         has_more = rows.length > limit
         visible = rows.first(limit)
-        render json: { records: visible.map { |record| SavingsChallenge::ParticipantSerializer.record(record) }, next_cursor: has_more ? visible.last.id : nil,
+        render json: { records: SavingsChallenge::ParticipantSerializer.collection(visible, enrollment: enrollment!), next_cursor: has_more ? visible.last.id : nil,
           actor_scope: { user_id: current_user.id, household_id: current_household.id },
           enrollment_id: enrollment!.id, cohort_id: @savings_cohort.id }
       end

@@ -33,6 +33,9 @@ module HouseholdFinance
           else
             items.each { |item| apply_item!(item) }
             update_import_status!
+            # Reads no longer resynchronize a complete plan, so expense changes
+            # must reach future allocations while this write holds the lock.
+            AnnualBudgetManager.new(household).ensure_plan_inside_household_lock! if @expenses_changed
           end
 
           DocumentImportStatusReconciler.new(document_import).call
@@ -102,6 +105,7 @@ module HouseholdFinance
       stack_key = item.stack_key.presence_in(ExpenseItem::STACK_KEYS) || "discretionary"
       record = find_label_record_or_initialize(household.expense_items, item.label, stack_key: stack_key)
       record.update!(amount_cents: item.amount_cents.to_i, cadence: cadence_for(item), active: item.amount_cents.to_i.positive?)
+      @expenses_changed = true
       record
     end
 

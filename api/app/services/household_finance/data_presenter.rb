@@ -3,12 +3,14 @@ module HouseholdFinance
     UNRESOLVED_COHORT = Object.new.freeze
 
     def initialize(household, user: nil, annual_plan: nil, persona: nil, cohort_membership: UNRESOLVED_COHORT,
-      experience_capabilities: nil, brand: nil, ensure_plan: true, runtime: nil)
+      experience_capabilities: nil, brand: nil, ensure_plan: true, runtime: nil, initialize_missing_plan: false)
       @runtime = runtime
       @household = household
       @user = user
       ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
       @annual_plan = annual_plan
+      @ensure_plan = ensure_plan
+      @initialize_missing_plan = initialize_missing_plan
       @annual_budget_manager = AnnualBudgetManager.new(household)
       @snapshot_builder = SnapshotBuilder.new(household, annual_budget_manager: @annual_budget_manager, ensure_plan: ensure_plan)
       @cohort_membership = if cohort_membership.equal?(UNRESOLVED_COHORT)
@@ -376,7 +378,8 @@ module HouseholdFinance
     attr_reader :household, :user, :snapshot_builder, :persona, :cohort_membership
 
     def annual_plan
-      @annual_plan ||= annual_budget_manager.plan_data
+      initialize_read_plan!
+      @annual_plan ||= @ensure_plan ? annual_budget_manager.plan_data : annual_budget_manager.read_only_plan_data
     end
 
     def scoped_annual_plan
@@ -391,7 +394,15 @@ module HouseholdFinance
     end
 
     def snapshot
+      initialize_read_plan!
       @snapshot ||= snapshot_builder.call
+    end
+
+    def initialize_read_plan!
+      return unless @initialize_missing_plan
+
+      annual_budget_manager.initialize_missing_plan!
+      @initialize_missing_plan = false
     end
 
     def memberships

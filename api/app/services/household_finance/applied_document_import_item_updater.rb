@@ -112,6 +112,9 @@ module HouseholdFinance
         attributes[:active] = item.amount_cents.positive?
       end
       record.update!(attributes)
+      # Reads no longer resynchronize a complete plan; carry the correction into
+      # future allocations while the household lock is held.
+      AnnualBudgetManager.new(household).ensure_plan_inside_household_lock!
     end
 
     def sync_account!
