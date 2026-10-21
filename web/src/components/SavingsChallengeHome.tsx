@@ -327,7 +327,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
       </section>
 
       {calendar && <section className="savings-checkpoints" aria-label="Personal challenge calendar">
-        <ol>{(['30', '60', '90'] as const).map((day) => <li key={day} aria-current={next?.day === day ? 'step' : undefined} className={next?.day === day ? 'is-current' : undefined}><strong>Day {day}</strong><span>{formatDay(calendar.checkpoints[day])}</span></li>)}</ol>
+        <ol>{(['30', '60', '90'] as const).map((day) => <li key={day} aria-current={next?.day === day ? 'step' : undefined} className={next?.day === day ? 'is-current' : undefined}><strong>Day {day}</strong><span>{formatDay(calendar.checkpoints[day]).split(', ').map((part, index) => <span key={index} className="savings-nowrap">{index > 0 && ', '}{part}</span>)}</span></li>)}</ol>
         {onCheckIn && onToday && <button type="button" className="savings-link" onClick={(event) => { event.currentTarget.focus(); onToday() }}>Open today’s record and check-ins</button>}
       </section>}
     </>}

@@ -146,3 +146,4 @@ details[open] > summary.savings-row .savings-chevron { transform: rotate(90deg);
 /* A background refresh is noted just under the title without moving the page. */
 .savings-home .screen-heading { position: relative; }
 .savings-home .screen-heading .savings-refreshing { position: absolute; left: 2px; top: 100%; margin: 0; font-size: var(--text-xs); line-height: 16px; color: var(--muted); }
+@media (max-width: 360px) { .savings-checkpoints li { padding: 8px; } .savings-checkpoints li strong, .savings-checkpoints li span { font-size: var(--text-xs); } }
