@@ -50,6 +50,17 @@ it('opens only the end-source confirmation from a pristine schedule and requires
   await waitFor(() => expect(view.container.querySelector('.income-source-end-confirmation')).toBeNull())
 })
 
+it('opens only the dated end approval from a suggested action without saving it', async () => {
+  const source = { id: 8, label: 'Primary pay', source_type: 'job', active: true, starts_on: '2026-01-01', ends_on: null, base_amount: 6200, base_cadence: 'monthly', schedule_entries: [] } as AnnualBudgetPlan['income_sources'][number]
+  const onArchive = vi.fn(), onSave = vi.fn()
+  const view = render(<IncomeForms locked={false}><IncomeSourceManager sources={[source]} action={null} error={null} onSave={onSave} onArchive={onArchive} onRestore={vi.fn()} focusRequest={{ key: 1, actionType: 'archive_income_source', sourceId: source.id, payload: { ends_on: '2026-12-01' } }} /></IncomeForms>)
+  await waitFor(() => expect(screen.getByLabelText('First $0 month')).toHaveProperty('value', '2026-12'))
+  expect(view.container.querySelector('.income-source-form')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Confirm stop for Primary pay' })).toBeTruthy()
+  expect(onArchive).not.toHaveBeenCalled()
+  expect(onSave).not.toHaveBeenCalled()
+})
+
 it('shows only selected bulk actions and collapses per-row detail', () => {
   const { container } = render(<TransactionDraftReviewStack {...props} drafts={[draft(1), draft(2)]} />)
   expect(screen.queryByRole('button', { name: 'Confirm selected' })).toBeNull()

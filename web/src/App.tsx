@@ -8321,14 +8321,17 @@ export function IncomeSourceManager({
     handledFocusKeyRef.current = focusRequest.key
     const source = sources.find((candidate) => candidate.id === focusRequest.sourceId)
     requestAnimationFrame(() => {
-      setFormOpen(true)
       if (focusRequest.actionType === 'create_income_source') {
+        setFormOpen(true)
         setDraftBaseline(blankIncomeSourceDraft()); setDraft(incomeSourceDraftWithProposal(blankIncomeSourceDraft(), focusRequest.payload)); setEditingId(null); setEndingId(null); setFormError(null); lastActionTriggerRef.current = null
         requestAnimationFrame(() => sourceNameRef.current?.focus())
       } else if (focusRequest.actionType === 'update_income_source' && source) {
+        setFormOpen(true)
         setEndingId(null); setEditingId(source.id); setDraftBaseline(incomeSourceDraftFor(source)); setDraft(incomeSourceDraftWithProposal(incomeSourceDraftFor(source), focusRequest.payload)); setFormError(null)
         requestAnimationFrame(() => { sourceFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); sourceNameRef.current?.focus({ preventScroll: true }); sourceNameRef.current?.select() })
       } else if (focusRequest.actionType === 'archive_income_source' && source) {
+        setFormOpen(false)
+        setEndingOpen(true)
         const blank = blankIncomeSourceDraft()
         setDraftBaseline(blank); setDraft(blank); setEditingId(null); setEndingId(source.id); setEndingMonth(''); setFormError(null)
         requestAnimationFrame(() => endMonthRef.current?.focus())
@@ -8340,7 +8343,7 @@ export function IncomeSourceManager({
       }
       onFocusRequestHandled?.()
     })
-  }, [focusRequest, onFocusRequestHandled, sources, setFormOpen])
+  }, [focusRequest, onFocusRequestHandled, sources, setFormOpen, setEndingOpen])
 
   function focusSourceCard(sourceId: number) {
     requestAnimationFrame(() => sourceCardRefs.current.get(sourceId)?.focus())
