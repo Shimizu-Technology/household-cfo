@@ -281,6 +281,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "goal changes in the challenge point to the challenge target, and saved money gets a plain reply" do
+    @savings_household.goals.create!(label: "Family trip", goal_type: "savings", record_kind: "tracked", target_amount_cents: 100_000)
     assert_no_difference [ "SavingsPlanDraft.count", "MiaActionDraft.count", "SavingsEntryDraft.count" ] do
       [ "Change my goal to $300", "Update my goal to $700" ].each_with_index do |message, index|
         post "/api/v1/mia/messages", params: { message: message, request_id: "goal-#{index}" }, headers: auth, as: :json
