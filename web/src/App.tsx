@@ -182,6 +182,7 @@ import { participantErrorMessage } from './lib/participantErrorMessage'
 // Must stay the last import: keyboard-aware dialog sizing overrides component styles.
 import './dialogViewport.css'
 
+const monthNameFormatter = new Intl.DateTimeFormat('en-US', { month: 'long' })
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -3511,7 +3512,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const debtMinimumsKnown = data.wealth.summary.debt_minimums_known !== false
   const runtimeBrand = data.workspace.brand
   const brand = runtimeBrand.config
-  const miaPlanPeriodLabel = `${selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} ${selectedBudgetYear}`
+  const miaPlanPeriodLabel = `${selectedBudgetMonth?.label ?? monthNameFormatter.format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} ${selectedBudgetYear}`
   const showMiaMemoryAction = !isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant)
   const openMiaMemory = () => {
     setIsChatExpanded(false)

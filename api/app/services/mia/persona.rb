@@ -69,12 +69,6 @@ module Mia
       "#{name} is a coaching and education tool inside #{participant_product}. She does not replace legal, tax, investment, accounting, therapeutic, or financial advice."
     end
 
-    # The built-in persona data is sealed into cohort releases, so its stored
-    # product string stays as is. Participants never see the platform name.
-    def participant_product
-      data.fetch("product").sub(/\s+powered by\s+.+\z/i, "")
-    end
-
     def system_prompt_seed
       data["system_prompt_seed"]
     end
@@ -119,6 +113,12 @@ module Mia
     end
 
     private
+
+    # The built-in persona data is sealed into cohort releases, so its stored
+    # product string stays as is. Participants never see the platform name.
+    def participant_product
+      data.fetch("product").sub(/\s+powered by\s+.+\z/i, "")
+    end
 
     def persona_seed_prompt
       return nil if system_prompt_seed.blank?
