@@ -7,6 +7,7 @@ import { ApiRequestError } from '../api'
 vi.mock('../lib/coachChallengeApi', () => ({
   coachChallengeApi: {
     participants: vi.fn(),
+    daily: vi.fn(),
     scopes: vi.fn(),
     summary: vi.fn(),
     selected: vi.fn(),
@@ -22,6 +23,7 @@ afterEach(cleanup)
 const scope = { user_id: 10, coach_workspace_id: 20 }
 const row = {
   enrollment_id: 2,
+  membership_status: 'joined' as const, needs_help: false, setup_help: [], shared_items: [],
   participant: { id: 3, name: 'Synthetic participant' },
   participation_status: 'active',
   setup_status: 'plan_reviewed',
@@ -31,73 +33,98 @@ const row = {
 }
 const props = { userId: 10, workspaceId: 20, cohorts: [{ id: 1, name: 'Synthetic cohort' }] }
 beforeEach(() => {
-  vi.clearAllMocks()
-  vi.mocked(coachChallengeApi.participants).mockResolvedValue({
+  vi.resetAllMocks()
+  vi.mocked(coachChallengeApi.daily).mockResolvedValue({
     actor_scope: scope,
     cohort_id: 1,
     records: [row],
-    next_cursor: null,
+    program_type: 'savings', can_invite: false, counts: { all: 1, needs_help: 0, checked_in: 1, not_checked_in: 0, invited: 0, joined: 1, setup_done: 0 }, next_offset: null,
   })
+  vi.mocked(coachChallengeApi.scopes).mockResolvedValue({ enrollment_id: 2, summary_available: false, selected_records: [], support_access: [] })
+  vi.stubGlobal('matchMedia', () => ({ matches: false }))
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
 })
 async function open() {
   render(<CoachChallengeDashboard {...props} />)
-  fireEvent.change(screen.getByLabelText('Challenge group'), { target: { value: '1' } })
+  fireEvent.change(screen.getByLabelText('Group'), { target: { value: '1' } })
   await screen.findByText('Synthetic participant')
-  fireEvent.click(screen.getByRole('button', { name: 'Open permitted help & sharing' }))
+  fireEvent.click(screen.getByRole('button', { name: 'View Synthetic participant' }))
 }
 describe('coach challenge permission boundaries', () => {
   it('shows each daily check-in with a plain date and plain status', async () => {
     render(<CoachChallengeDashboard {...props} selectedCohortId={1} />)
     await screen.findByText('Synthetic participant')
     const roster = document.querySelector('.coach-challenge-roster')!.textContent!
-    expect(roster).toContain('Sun, Nov 1: daily check-in done.')
+    expect(roster).toContain('Checked in today')
     expect(roster).not.toMatch(/\d{4}-\d{2}-\d{2}/)
     expect(roster).not.toContain('Daily report completed')
   })
-  it('pages thirty enrolled participants and searches the loaded roster without extra private reads', async () => {
-    vi.mocked(coachChallengeApi.participants).mockResolvedValueOnce({ actor_scope: scope, cohort_id: 1, records: Array.from({ length: 30 }, (_, index) => ({ ...row, enrollment_id: index + 1, participant: { id: index + 40, name: `Fictional participant ${String(index).padStart(2, '0')}` } })), next_cursor: null })
+  it('keeps the roster available when its active count is tapped again', async () => {
     render(<CoachChallengeDashboard {...props} selectedCohortId={1} />)
-    await screen.findByText('Fictional participant 00')
-    expect(document.querySelectorAll('.coach-challenge-roster > li')).toHaveLength(10)
-    expect(screen.queryByText('Fictional participant 29')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Next check-ins' }))
-    expect(screen.getByText('Fictional participant 10')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Find an enrolled participant'), { target: { value: 'participant 29' } })
-    expect(screen.getByText('Fictional participant 29')).toBeTruthy()
-    expect(document.querySelectorAll('.coach-challenge-roster > li')).toHaveLength(1)
-    expect(coachChallengeApi.participants).toHaveBeenCalledTimes(1)
+    await screen.findByText('Synthetic participant')
+    fireEvent.click(screen.getByRole('button', { name: '1 Everyone' }))
+    expect(screen.getByText('Synthetic participant')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false)
+    expect(coachChallengeApi.daily).toHaveBeenCalledTimes(1)
+  })
+  it('searches and filters on the server without fetching private records', async () => {
+    render(<CoachChallengeDashboard {...props} selectedCohortId={1} />)
+    await screen.findByText('Synthetic participant')
+    vi.mocked(coachChallengeApi.daily).mockResolvedValueOnce({ actor_scope: scope, cohort_id: 1, records: [], program_type: 'savings', can_invite: false, counts: { all: 30, needs_help: 1, checked_in: 2, not_checked_in: 28, invited: 0, joined: 30, setup_done: 0 }, next_offset: null })
+    fireEvent.change(screen.getByLabelText('Find someone'), { target: { value: 'person beyond first page' } })
+    await screen.findByText(/No one matches/)
+    expect(coachChallengeApi.daily).toHaveBeenLastCalledWith(1, 'person beyond first page', 'all', 0, expect.any(AbortSignal))
+    fireEvent.click(screen.getByRole('button', { name: '1 Need you' }))
+    await waitFor(() => expect(coachChallengeApi.daily).toHaveBeenLastCalledWith(1, 'person beyond first page', 'needs_help', 0, expect.any(AbortSignal)))
     expect(coachChallengeApi.summary).not.toHaveBeenCalled()
     expect(coachChallengeApi.ticket).not.toHaveBeenCalled()
   })
 
-  it('uses the single selected cohort and searches participation without revealing money', async () => {
-    const view = render(<CoachChallengeDashboard {...props} selectedCohortId={1} />)
-    await screen.findByText('Synthetic participant')
-    expect(screen.queryByLabelText('Challenge group')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Previous participants' })).toBeNull()
-    fireEvent.change(screen.getByLabelText('Find an enrolled participant'), { target: { value: 'another name' } })
-    expect(screen.queryByText('Synthetic participant')).toBeNull()
-    expect(coachChallengeApi.summary).not.toHaveBeenCalled()
-    vi.mocked(coachChallengeApi.participants).mockResolvedValueOnce({ actor_scope: scope, cohort_id: 9, records: [], next_cursor: null })
-    view.rerender(<CoachChallengeDashboard {...props} cohorts={[{ id: 9, name: 'Another challenge' }]} selectedCohortId={9} />)
-    expect(screen.queryByText('Synthetic participant')).toBeNull()
-    await waitFor(() => expect(coachChallengeApi.participants).toHaveBeenLastCalledWith(9, null, expect.any(AbortSignal)))
-    await screen.findByText(/No enrolled participants on this page/)
-  })
-
   it('keeps exactly one participant panel when enrollment and cohort IDs coincide', async () => {
-    vi.mocked(coachChallengeApi.participants).mockResolvedValue({
-      actor_scope: scope, cohort_id: 1, records: [{ ...row, enrollment_id: 1 }], next_cursor: null,
+    vi.mocked(coachChallengeApi.daily).mockResolvedValue({
+      actor_scope: scope, cohort_id: 1, records: [{ ...row, enrollment_id: 1 }], program_type: 'savings', can_invite: false, counts: { all: 1, needs_help: 0, checked_in: 1, not_checked_in: 0, invited: 0, joined: 1, setup_done: 0 }, next_offset: null,
     })
     await open()
     expect(screen.getAllByRole('region', { name: 'Participant permitted sharing' })).toHaveLength(1)
-    fireEvent.click(screen.getByRole('button', { name: 'Close participant' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back to people' }))
     expect(screen.queryByRole('region', { name: 'Participant permitted sharing' })).toBeNull()
-    expect(screen.getAllByText('Fixed cohort checkpoint reports')).toHaveLength(1)
-    fireEvent.click(screen.getByRole('button', { name: 'Open permitted help & sharing' }))
+    expect(screen.getAllByText('Group checkpoint reports')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'View Synthetic participant' }))
     expect(screen.getAllByRole('region', { name: 'Participant permitted sharing' })).toHaveLength(1)
-    fireEvent.click(screen.getByRole('button', { name: 'Close participant' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back to people' }))
     expect(screen.queryByRole('region', { name: 'Participant permitted sharing' })).toBeNull()
+  })
+
+  it('shows household people and their setup needs without savings or empty enrollment wording', async () => {
+    vi.mocked(coachChallengeApi.daily).mockResolvedValue({ actor_scope: scope, cohort_id: 1, program_type: 'household', can_invite: true,
+      counts: { all: 2, needs_help: 1, invited: 1, joined: 1, setup_done: 0, checked_in: 0, not_checked_in: 0 }, next_offset: null,
+      records: [{ ...row, enrollment_id: null, check_in: null, needs_help: true, participant: { id: 7, name: 'Elena' }, setup_help: [{ id: 8, reason: 'upload_problem', status: 'requested' }] },
+        { ...row, enrollment_id: null, check_in: null, membership_status: 'invited', participant: { id: 8, name: 'Fiona' } }] })
+    render(<CoachChallengeDashboard {...props} selectedCohortId={1} />)
+    await screen.findByText('Elena')
+    expect(screen.getByText('Asked for help with an upload')).toBeTruthy()
+    expect(screen.getByText('Invited · Hasn’t joined yet')).toBeTruthy()
+    expect(screen.queryByText('Checkpoint reports')).toBeNull()
+    expect(screen.queryByText(/No enrolled|check-in|Challenge check-ins/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Invite someone' })).toBeTruthy()
+  })
+
+  it('opens focused detail and restores the same selected row on Back', async () => {
+    await open()
+    expect(screen.getByRole('heading', { name: 'Synthetic participant' })).toBe(document.activeElement)
+    fireEvent.click(screen.getByRole('button', { name: 'Back to people' }))
+    expect(screen.getByRole('button', { name: 'View Synthetic participant' })).toBe(document.activeElement)
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
+  })
+
+  it('does not move focus back to the roster when an invitation refreshes it', async () => {
+    await open()
+    const input = document.createElement('input')
+    document.body.append(input); input.focus()
+    act(() => window.dispatchEvent(new CustomEvent('coach-roster-changed', { detail: 1 })))
+    expect(document.activeElement).toBe(input)
+    expect(window.scrollTo).not.toHaveBeenCalled()
+    input.remove()
   })
 
   it('loads only metadata until separate explicit consented summary read', async () => {
@@ -114,10 +141,9 @@ describe('coach challenge permission boundaries', () => {
     })
     await open()
     expect(coachChallengeApi.summary).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Check current sharing permissions' }))
     await screen.findByText('Challenge summary shared')
     expect(coachChallengeApi.summary).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Open consented savings summary' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View shared progress' }))
     await screen.findByText(/\$100.00 reported/)
     expect(coachChallengeApi.summary).toHaveBeenCalledTimes(1)
   })
@@ -131,22 +157,33 @@ describe('coach challenge permission boundaries', () => {
       projection: { reported_cents: 10000, evidence_supported_cents: 5000, reporting_known: true, achieved: false },
     })
     await open()
-    fireEvent.click(screen.getByRole('button', { name: 'Check current sharing permissions' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Open consented savings summary' }))
+    const progress = await screen.findByRole('button', { name: 'View shared progress' })
+    await waitFor(() => expect(progress).toHaveProperty('disabled', false))
+    fireEvent.click(progress)
     await screen.findByText(/\$100.00 reported/)
-    fireEvent.click(screen.getByRole('button', { name: 'Check current sharing permissions' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh shared items' }))
     await screen.findByText('Sharing revoked')
     expect(screen.queryByText(/\$100.00 reported/)).toBeNull()
   })
+  it('clears an opened private summary when the main roster is refreshed', async () => {
+    vi.mocked(coachChallengeApi.scopes).mockResolvedValue({ enrollment_id: 2, summary_available: true, selected_records: [], support_access: [] })
+    vi.mocked(coachChallengeApi.summary).mockResolvedValue({ enrollment_id: 2, accepted_target_cents: 50000, projection: { reported_cents: 10000, evidence_supported_cents: 0, reporting_known: true, achieved: false } })
+    await open()
+    fireEvent.click(await screen.findByRole('button', { name: 'View shared progress' }))
+    await screen.findByText(/\$100.00 reported/)
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(screen.queryByText(/\$100.00 reported/)).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Participant permitted sharing' })).toBeNull()
+  })
   it('rejects a different workspace response without participant metadata', async () => {
-    vi.mocked(coachChallengeApi.participants).mockResolvedValue({
+    vi.mocked(coachChallengeApi.daily).mockResolvedValue({
       actor_scope: { ...scope, coach_workspace_id: 99 },
       cohort_id: 1,
       records: [row],
-      next_cursor: null,
+      program_type: 'savings', can_invite: false, counts: { all: 1, needs_help: 0, checked_in: 1, not_checked_in: 0, invited: 0, joined: 1, setup_done: 0 }, next_offset: null,
     })
     render(<CoachChallengeDashboard {...props} />)
-    fireEvent.change(screen.getByLabelText('Challenge group'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Group'), { target: { value: '1' } })
     await screen.findByRole('alert')
     expect(screen.queryByText('Synthetic participant')).toBeNull()
   })
@@ -165,11 +202,12 @@ describe('coach challenge permission boundaries', () => {
         })
     )
     const view = render(<CoachChallengeDashboard {...props} />)
-    fireEvent.change(screen.getByLabelText('Challenge group'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Group'), { target: { value: '1' } })
     await screen.findByText('Synthetic participant')
-    fireEvent.click(screen.getByRole('button', { name: 'Open permitted help & sharing' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Check current sharing permissions' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Open consented savings summary' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View Synthetic participant' }))
+    const progress = await screen.findByRole('button', { name: 'View shared progress' })
+    await waitFor(() => expect(progress).toHaveProperty('disabled', false))
+    fireEvent.click(progress)
     await waitFor(() => expect(coachChallengeApi.summary).toHaveBeenCalled())
     view.rerender(<CoachChallengeDashboard {...props} workspaceId={21} />)
     await act(async () =>
@@ -190,10 +228,10 @@ describe('sealing a checkpoint report explains why it is unavailable', () => {
       scheduled_checkpoints: [{ day: 30, cutoff_on: cutoffOn, sealable: server.sealable }, { day: 60, cutoff_on: null }, { day: 90, cutoff_on: null }],
     })
     render(<CoachChallengeDashboard {...props} />)
-    fireEvent.change(screen.getByLabelText('Challenge group'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Group'), { target: { value: '1' } })
     await screen.findByText('Synthetic participant')
     fireEvent.click(screen.getByText('Review scheduled reports'))
-    return screen.findByText('Seal reviewed Day 30 report')
+    return screen.findByText('Save reviewed Day 30 report')
   }
 
   it('says the cutoff has not happened yet and links the reason to the button', async () => {

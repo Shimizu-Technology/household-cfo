@@ -30,3 +30,6 @@
 .coach-roster-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; }
 .coach-roster-pages > span { font-size: var(--text-sm); color: var(--muted); }
 @media (max-width: 640px) { .coach-roster-pages .button { flex: 1 1 8rem; } .coach-roster-pages > span { width: 100%; text-align: center; order: -1; } }
+.coach-groups select { appearance: auto; box-sizing: border-box; height: 44px; }
+.coach-groups .button { box-shadow: none; }
+@media (max-width: 640px) { .coach-groups-actions { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; } .coach-groups-actions button, .coach-roster-pages .button { width: 100%; } }

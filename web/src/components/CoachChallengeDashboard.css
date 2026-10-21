@@ -1,82 +1,54 @@
-.coach-challenge {
-  margin-top: 24px;
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--paper);
+.coach-challenge { margin: 0; padding: 1rem; min-width: 0; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.coach-challenge h2 { margin: 0; font: var(--weight-semibold) 1.5rem/1.25 var(--font-body); }
+.coach-challenge h3, .coach-challenge h4 { margin: 0; }
+.coach-challenge p { margin: .35rem 0; line-height: 1.45; }
+.coach-challenge label { display: grid; gap: .4rem; margin: .65rem 0; min-width: 0; }
+.coach-challenge input:not([type="checkbox"]), .coach-challenge select { appearance: none; box-sizing: border-box; height: 44px; min-height: 44px; width: 100%; min-width: 0; border: 1px solid var(--line-strong, var(--line)); border-radius: var(--radius-sm); padding: .6rem; font: inherit; background: var(--paper); color: var(--ink); }
+.coach-challenge select { appearance: auto; }
+.coach-challenge button { min-height: 44px; border: 1px solid var(--line-strong, var(--line)); background: transparent; color: var(--ink); padding: .5rem .7rem; border-radius: var(--radius-sm); font: inherit; cursor: pointer; margin: 0; box-shadow: none; white-space: normal; }
+.coach-challenge button:disabled { opacity: .6; cursor: default; }
+.coach-challenge button:focus-visible, .coach-challenge summary:focus-visible { outline: 2px solid var(--mauve); outline-offset: 3px; }
+.coach-challenge button:active:not(:disabled) { transform: scale(.97); }
+.coach-challenge button.coach-daily-primary { background: var(--mauve); color: var(--paper); border-color: var(--mauve); }
+.coach-daily-heading, .coach-daily-heading > div, .coach-challenge-actions, .coach-daily-detail > header { display: flex; gap: .5rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.coach-daily-heading { margin-bottom: .5rem; }
+.coach-daily-layout { display: grid; gap: 1rem; min-width: 0; }
+.coach-daily-layout.has-detail { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.coach-daily-list, .coach-daily-detail { min-width: 0; }
+.coach-daily-detail { border-top: 1px solid var(--line); padding-top: .75rem; scroll-margin-top: 1rem; overflow-wrap: anywhere; }
+.coach-challenge-summary { display: flex; flex-wrap: wrap; gap: .4rem; }
+.coach-challenge-summary button { font-size: var(--text-sm); flex: 1 1 auto; }
+.coach-challenge-summary button[aria-pressed="true"] { background: var(--paper-warm); border-color: var(--mauve); }
+.coach-challenge-summary strong { font-variant-numeric: tabular-nums; }
+.coach-challenge-roster { list-style: none; margin: 0; padding: 0; }
+.coach-challenge-roster > li { display: flex; align-items: center; justify-content: space-between; gap: .75rem; border-bottom: 1px solid var(--line); padding: .75rem 0; min-width: 0; overflow-wrap: anywhere; }
+.coach-challenge-roster > li > div { min-width: 0; }
+.coach-challenge-roster > li > button { flex-shrink: 0; }
+.coach-challenge-roster > li p { font-size: var(--text-sm); }
+.coach-challenge-roster > li.is-selected { background: var(--paper-warm); }
+.coach-daily-need { color: var(--mauve); font-weight: var(--weight-semibold); }
+.coach-challenge-card { padding: .75rem 0; min-width: 0; overflow-wrap: anywhere; }
+.coach-challenge-card button { margin: .25rem .25rem .25rem 0; }
+.coach-challenge-card ul { padding-left: 1rem; }
+.coach-challenge-card > ul { list-style: none; padding: 0; }
+.coach-challenge .coach-challenge-check { display: flex; align-items: center; min-height: 44px; }
+.coach-challenge-check input { flex: 0 0 auto; width: 22px; height: 22px; }
+.coach-private-message { white-space: pre-wrap; overflow-wrap: anywhere; }
+.coach-report-disclosure > summary, .coach-challenge-card summary { min-height: 44px; box-sizing: border-box; padding: .75rem 0; cursor: pointer; font-weight: var(--weight-bold); }
+@media (hover: hover) and (pointer: fine) { .coach-challenge button:hover:not(:disabled) { background: var(--paper-warm); } .coach-challenge button.coach-daily-primary:hover:not(:disabled) { background: var(--mauve-dark, var(--mauve)); } }
+@media (max-width: 620px) {
+  .coach-challenge { padding: .75rem; }
+  .coach-daily-heading, .coach-daily-heading > div, .coach-challenge-actions, .coach-daily-detail > header { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; justify-items: stretch; width: 100%; }
+  .coach-challenge button { width: 100%; }
+  /* One row of chips that scrolls sideways, so the people list starts high on the first screen. */
+  .coach-challenge-summary { display: flex; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; padding-bottom: .15rem; }
+  .coach-challenge-summary::-webkit-scrollbar { display: none; }
+  .coach-challenge .coach-challenge-summary button { width: auto; flex: 0 0 auto; min-height: 44px; white-space: nowrap; border-radius: var(--radius-pill); padding-inline: .9rem; }
+  /* Refresh is secondary: compact, not a second full-width button under Invite. */
+  .coach-challenge .coach-daily-heading button:not(.coach-daily-primary) { width: auto; justify-self: start; min-height: 44px; }
+  .coach-daily-layout.has-detail { grid-template-columns: minmax(0, 1fr); }
+  .coach-daily-layout.has-detail .coach-daily-list { display: none; }
+  .coach-challenge-roster > li { display: grid; gap: .5rem; }
+  .coach-challenge-card button { margin: .25rem 0; }
 }
-.coach-challenge label {
-  display: grid;
-  gap: 8px;
-  margin: 12px 0;
-}
-.coach-challenge select {
-  width: 100%;
-  min-height: 44px;
-}
-.coach-challenge button {
-  min-height: 44px;
-  border: 1px solid var(--line);
-  background: var(--paper-warm);
-  color: var(--ink);
-  padding: 8px 12px;
-  border-radius: var(--radius-md);
-  font: inherit;
-  cursor: pointer;
-  margin: 4px;
-}
-.coach-challenge button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-.coach-challenge-roster {
-  list-style: none;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
-  gap: 12px;
-}
-.coach-challenge-roster > li,
-.coach-challenge-card {
-  border: 1px solid var(--line);
-  padding: 16px;
-  border-radius: var(--radius-md);
-  margin: 12px 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.coach-challenge-card header,
-.coach-challenge-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-}
-.coach-challenge .coach-challenge-check {
-  display: flex;
-  align-items: flex-start;
-}
-.coach-challenge-check input {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-}
-.coach-private-message {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.coach-challenge { margin-top: 0; padding: 1rem; }
-.coach-challenge h2 { margin-top: 0; }
-.coach-challenge input[type="search"], .coach-challenge select { min-height: 44px; width: 100%; min-width: 0; border: 1px solid var(--line-strong); border-radius: var(--radius-md); padding: .65rem; font: inherit; background: var(--paper); color: var(--ink); }
-.coach-challenge-summary { display: flex; flex-wrap: wrap; gap: .6rem; }
-.coach-challenge-summary > span { padding: .6rem .8rem; border-radius: var(--radius-md); background: var(--paper-warm); }
-.coach-challenge-roster { grid-template-columns: 1fr; gap: .5rem; }
-.coach-challenge-roster > li { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(9rem, 1fr) minmax(12rem, 1fr) auto; align-items: center; gap: .6rem; padding: .7rem; margin: 0; border-radius: var(--radius-md); }
-.coach-challenge-roster > li p { margin: 0; font-size: var(--text-sm); }
-.coach-challenge-roster > li button { margin: 0; }
-.coach-report-disclosure > summary { min-height: 44px; padding: .75rem; cursor: pointer; font-weight: var(--weight-bold); }
-.coach-current-group { font-weight: var(--weight-bold); }
-@media (max-width: 900px) { .coach-challenge-roster > li { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 620px) { .coach-challenge-roster > li { grid-template-columns: 1fr; gap: .35rem; } .coach-challenge-summary > span { flex: 1 1 9rem; } }
+@media (prefers-reduced-motion: reduce) { .coach-challenge button:active:not(:disabled) { transform: none; } }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { fetchSetupSupportRequests, updateSetupSupportRequest } from '../setupHelpApi'
+import { formatCoachTime } from '../lib/coachChallengeApi'
 import type { SetupSupportRequest } from '../lib/setupHelp'
 import { Button } from './Button'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
@@ -10,6 +11,8 @@ type Props = {
   workspaceId: number | null
   cohortId: number | null
   isAdmin: boolean
+  participantId?: number
+  readOnly?: boolean
   disabled?: boolean
   onPendingChange?: (pending: boolean) => void
   mutationLifecycle?: CoachWorkspaceMutationLifecycle
@@ -19,10 +22,11 @@ const statusLabels = { requested: 'Requested', in_review: 'In review', ready: 'P
 
 // Remounting resets both the displayed metadata and any outstanding confirmation.
 export function SetupSupportInbox(props: Props) {
-  return <ScopedSetupSupportInbox key={`${props.actorId}:${props.workspaceId}:${props.cohortId}:${props.isAdmin}`} {...props} />
+  return <ScopedSetupSupportInbox key={`${props.actorId}:${props.workspaceId}:${props.cohortId}:${props.isAdmin}:${props.participantId}`} {...props} />
 }
 
-function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disabled = false, onPendingChange, mutationLifecycle }: Props) {
+function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, participantId: initialParticipantId, readOnly = false, disabled = false, onPendingChange, mutationLifecycle }: Props) {
+  const [participantId, setParticipantId] = useState(initialParticipantId)
   const canLoadScope = workspaceId !== null || isAdmin
   const [records, setRecords] = useState<SetupSupportRequest[]>([])
   const [cursor, setCursor] = useState<number | null>(null)
@@ -33,6 +37,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
   const [notice, setNotice] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<{ id: number; version: number } | null>(null)
   const [uncertainId, setUncertainId] = useState<number | null>(null)
+  const root = useRef<HTMLElement>(null)
   const live = useRef(true)
   const sequence = useRef(0)
   const controller = useRef<AbortController | null>(null)
@@ -61,7 +66,21 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
     setNotice(null)
     setConfirmation(null)
     try {
-      const page = await fetchSetupSupportRequests(cohortId, pageCursor, abort.signal)
+      const first = await fetchSetupSupportRequests(cohortId, pageCursor, abort.signal)
+      const page = { ...first, records: [...first.records] }
+      if (participantId !== undefined) {
+        const seen = new Set<number>()
+        let next = page.next_cursor
+        while (next !== null && !seen.has(next)) {
+          seen.add(next)
+          const more = await fetchSetupSupportRequests(cohortId, next, abort.signal)
+          if (!current()) return
+          page.records.push(...more.records)
+          next = more.next_cursor
+        }
+        page.records = page.records.filter((record) => record.user_id === participantId)
+        page.next_cursor = null
+      }
       if (!current()) return
       setRecords(page.records)
       setCursor(pageCursor)
@@ -91,7 +110,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
           setNotice(actionMessage ? `${actionMessage} No action was repeated. ${verification}` : verification)
         } else {
           setUncertainId(verifyId)
-          setError(`${actionMessage ? `${actionMessage} ` : ''}Request #${verifyId} could not be verified. Fresh requests will check again; no action has been repeated.`)
+          setError(`${actionMessage ? `${actionMessage} ` : ''}Request #${verifyId} could not be verified. Refresh requests will check again; no action has been repeated.`)
         }
       }
     } catch (caught) {
@@ -106,7 +125,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
     } finally {
       if (current()) setLoading(false)
     }
-  }, [cohortId, canLoadScope])
+  }, [cohortId, canLoadScope, participantId])
 
   useEffect(() => {
     let canceled = false
@@ -114,8 +133,30 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
     return () => { canceled = true }
   }, [load, actorId])
 
+  useLayoutEffect(() => {
+    if (readOnly || initialParticipantId !== undefined) return
+    const disclosure = root.current?.closest<HTMLElement>('.setup-support-disclosure')
+    if (!disclosure) return
+    function followRequest() {
+      const requested = disclosure?.dataset.focusParticipant
+      if (!requested || !/^[1-9]\d*$/.test(requested)) return
+      const id = Number(requested)
+      if (participantId !== id) { setParticipantId(id); return }
+      if (loading) return
+      const heading = root.current?.querySelector<HTMLElement>(`[data-participant-id="${id}"] h4`)
+      if (heading) {
+        delete disclosure!.dataset.focusParticipant
+        heading.focus({ preventScroll: true })
+        heading.scrollIntoView({ block: 'center' })
+      }
+    }
+    followRequest()
+    disclosure.addEventListener('coach-setup-review-requested', followRequest)
+    return () => disclosure.removeEventListener('coach-setup-review-requested', followRequest)
+  }, [initialParticipantId, participantId, readOnly, loading, records])
+
   async function act(record: SetupSupportRequest, action: SupportAction) {
-    if (savingRef.current || loading || disabled || uncertainId !== null || !canLoadScope || (action === 'prepare' && !isAdmin)) return
+    if (readOnly || savingRef.current || loading || disabled || uncertainId !== null || !canLoadScope || (action === 'prepare' && !isAdmin)) return
     if (!record.permissions?.[action]) return
     if (action === 'prepare' && (confirmation?.id !== record.id || confirmation.version !== record.lock_version)) return
     savingRef.current = true
@@ -149,33 +190,34 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
 
   const blocked = disabled || saving || loading || uncertainId !== null
   return (
-    <article className="panel setup-support-inbox" aria-label="Setup help requests" aria-busy={loading || saving}>
+    <article ref={root} className="panel setup-support-inbox" aria-label="Setup help requests" aria-busy={loading || saving}>
       <header className="setup-support-heading">
-        <div><p className="eyebrow">Participant setup help</p><h3>Setup requests</h3></div>
-        <Button variant="secondary" disabled={disabled || saving || loading || !canLoadScope} onClick={() => { setNotice(null); void load(null, uncertainId) }}>Fresh requests</Button>
+        <h3>Setup help</h3>
+        <Button variant="secondary" disabled={disabled || saving || loading || !canLoadScope} onClick={() => { setNotice(null); void load(null, uncertainId) }}>Refresh requests</Button>
       </header>
-      <p className="setup-support-privacy">Only request metadata is shared here. Financial details, documents and private conversations stay private. The participant must review and confirm every restart.</p>
-      {!canLoadScope ? <p>Choose a workspace to view its setup requests.</p> : <>
+      <p className="setup-support-privacy">Only the reason and request status are shared here. Financial details, documents and private conversations stay private. The participant must review and confirm every restart.</p>
+      {!readOnly && initialParticipantId === undefined && participantId !== undefined && <div className="setup-support-actions"><p>Showing this person’s setup requests.</p><Button variant="secondary" disabled={saving || loading} onClick={() => setParticipantId(undefined)}>All setup requests</Button></div>}
+      {!canLoadScope ? <p>Choose a program to view its setup requests.</p> : <>
         {workspaceId === null && <p>Platform support requests; select a program workspace for its requests.</p>}
         {error && <div className="setup-support-alert" role="alert"><p>{error}</p><Button variant="secondary" disabled={disabled || saving || loading} onClick={() => void load(cursor, uncertainId)}>Retry loading requests</Button></div>}
         {notice && <p role="status" className="setup-support-notice">{notice}</p>}
         {loading && <p role="status">Loading setup requests…</p>}
-        {!loading && !error && records.length === 0 && <p>No setup requests in this scope.</p>}
+        {!loading && !error && records.length === 0 && <p>No setup help requests here.</p>}
         <div className="setup-support-records">
           {records.map((record) => {
             const open = ['requested', 'in_review', 'ready'].includes(record.status)
             const canPrepare = isAdmin && record.permissions?.prepare && (record.status === 'requested' || record.status === 'in_review' || (record.status === 'ready' && ['expired', 'stale'].includes(record.review_state)))
-            return <section className="setup-support-record" key={record.id} aria-label={`Request #${record.id}`}>
-              <header><h4>{record.participant_name || 'Participant'}</h4><span className="setup-support-status">{record.status === 'ready' && ['expired', 'stale'].includes(record.review_state) ? 'Review needs refreshing' : statusLabels[record.status]}</span></header>
+            return <section className="setup-support-record" key={record.id} data-participant-id={record.user_id} aria-label={`Request #${record.id}`}>
+              <header><h4 tabIndex={-1}>{record.participant_name || 'Participant'}</h4><span className="setup-support-status">{record.status === 'ready' && ['expired', 'stale'].includes(record.review_state) ? 'Review needs refreshing' : statusLabels[record.status]}</span></header>
               <dl>
-                <div><dt>Request</dt><dd>#{record.id}</dd></div>
+                <div><dt>Request</dt><dd>Help request {record.id}</dd></div>
                 <div><dt>Program</dt><dd>{record.program_name || 'No program linked'}</dd></div>
                 <div><dt>Reason</dt><dd>{record.reason_label}</dd></div>
-                <div><dt>Requested</dt><dd><time dateTime={record.created_at}>{formatDate(record.created_at)}</time></dd></div>
+                <div><dt>Requested</dt><dd><time dateTime={record.created_at}>{formatCoachTime(record.created_at)}</time></dd></div>
               </dl>
               {record.status === 'ready' && <p>{record.review_state === 'expired' ? 'The participant review expired.' : record.review_state === 'stale' ? 'The participant review needs refreshing because the setup changed.' : 'Waiting for the participant to review and confirm.'}</p>}
               {open && !record.permissions?.triage && !record.permissions?.decline && !(isAdmin && record.permissions?.prepare) && <p>Your current access is read-only for this request.</p>}
-              {open && <div className="setup-support-actions">
+              {open && !readOnly && <div className="setup-support-actions">
                 {record.status === 'requested' && record.permissions?.triage && <Button variant="secondary" disabled={blocked} onClick={() => void act(record, 'triage')}>Mark in review</Button>}
                 {record.permissions?.decline && <Button variant="secondary" disabled={blocked} onClick={() => void act(record, 'decline')}>Recommend corrections</Button>}
                 {canPrepare && <Button disabled={blocked} onClick={() => setConfirmation({ id: record.id, version: record.lock_version })}>Prepare participant review</Button>}
@@ -187,7 +229,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, disa
             </section>
           })}
         </div>
-        {nextCursor !== null && <div className="setup-support-pagination"><p>Showing one page of requests. Fresh requests returns to the first page.</p><Button variant="secondary" disabled={blocked} onClick={() => { setNotice(null); void load(nextCursor) }}>Load more requests</Button></div>}
+        {nextCursor !== null && <div className="setup-support-pagination"><p>Showing one page of requests. Refresh requests returns to the first page.</p><Button variant="secondary" disabled={blocked} onClick={() => { setNotice(null); void load(nextCursor) }}>Load more requests</Button></div>}
       </>}
     </article>
   )
@@ -198,8 +240,4 @@ function errorMessage(caught: unknown, fallback: string) {
   if (status === 401 || status === 403) return 'Your current workspace or program permissions do not allow this action. Refresh your access before trying again.'
   if (status === 409) return 'The request or participant setup changed. The previous confirmation has been discarded.'
   return caught instanceof Error ? caught.message : fallback
-}
-function formatDate(value: string) {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Date unavailable' : new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }

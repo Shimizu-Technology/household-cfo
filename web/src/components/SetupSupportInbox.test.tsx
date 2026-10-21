@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openCoachSetupHelp } from '../lib/coachChallengeApi'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SetupSupportRequest } from '../lib/setupHelp'
@@ -14,7 +15,7 @@ describe('staff setup request safety', () => {
   it('fails closed when server permissions are absent or deny writes, even for a platform admin', async () => {
     mocks.fetchSetupSupportRequests.mockResolvedValue({ records: [{ ...request, permissions: undefined }, { ...request, id: 11, permissions: { triage: false, prepare: false, decline: false } }], next_cursor: null })
     render(<SetupSupportInbox {...base} workspaceId={null} cohortId={null} isAdmin />)
-    await screen.findByText('#11')
+    await screen.findByText('Help request 11')
     expect(screen.queryByRole('button', { name: 'Prepare participant review' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Mark in review' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Recommend corrections' })).toBeNull()
@@ -23,7 +24,7 @@ describe('staff setup request safety', () => {
     mocks.fetchSetupSupportRequests.mockResolvedValue({ records: [{ ...request, private_chat: 'Hidden chat', account_balance: 'Hidden balance', documents: ['Hidden document'], snapshot_digest: 'Hidden hash' }], next_cursor: null })
     render(<SetupSupportInbox {...base} />)
     await screen.findByText('Fictional Participant')
-    expect(screen.getByText('#9')).toBeTruthy()
+    expect(screen.getByText('Help request 9')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Prepare participant review' })).toBeNull()
     expect(screen.queryByText(/Hidden/)).toBeNull()
     expect(screen.queryByRole('button', { name: /apply|reset/i })).toBeNull()
@@ -90,7 +91,7 @@ describe('staff setup request safety', () => {
     await screen.findByText('Older Participant')
     expect(screen.queryByText('Fictional Participant')).toBeNull()
     expect(mocks.fetchSetupSupportRequests).toHaveBeenLastCalledWith(5, 9, expect.any(AbortSignal))
-    fireEvent.click(screen.getByRole('button', { name: 'Fresh requests' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh requests' }))
     await screen.findByText('Fictional Participant')
     expect(mocks.fetchSetupSupportRequests).toHaveBeenLastCalledWith(5, null, expect.any(AbortSignal))
   })
@@ -116,7 +117,7 @@ describe('staff setup request safety', () => {
     const signal = mocks.fetchSetupSupportRequests.mock.calls[0][2] as AbortSignal
     rerender(<SetupSupportInbox {...base} actorId={2} />)
     expect(signal.aborted).toBe(true)
-    await screen.findByText('No setup requests in this scope.')
+    await screen.findByText('No setup help requests here.')
     await act(async () => pending.resolve({ records: [request], next_cursor: null }))
     expect(screen.queryByText('Fictional Participant')).toBeNull()
   })
@@ -130,7 +131,7 @@ describe('staff setup request safety', () => {
   })
   it('requires explicit workspace context for coaches and does not fetch in platform mode', () => {
     render(<SetupSupportInbox {...base} workspaceId={null} cohortId={null} />)
-    expect(screen.getByText('Choose a workspace to view its setup requests.')).toBeTruthy()
+    expect(screen.getByText('Choose a program to view its setup requests.')).toBeTruthy()
     expect(mocks.fetchSetupSupportRequests).not.toHaveBeenCalled()
   })
   it('loads ordinary platform requests for admins and allows only the server-granted actions', async () => {
@@ -148,7 +149,7 @@ describe('staff setup request safety', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm preparation' }))
     await screen.findByText('Waiting for the participant to review and confirm.')
     expect(mocks.updateSetupSupportRequest).toHaveBeenNthCalledWith(2, 9, 'prepare', 3)
-    expect(screen.getByRole('button', { name: 'Fresh requests' })).toHaveProperty('disabled', false)
+    expect(screen.getByRole('button', { name: 'Refresh requests' })).toHaveProperty('disabled', false)
   })
   it('hides preparation for an admin own request when the server denies it', async () => {
     mocks.fetchSetupSupportRequests.mockResolvedValue({ records: [{ ...request, user_id: base.actorId, cohort_id: null, program_name: null, permissions: { triage: true, decline: true, prepare: false } }], next_cursor: null })
@@ -192,7 +193,7 @@ describe('staff setup request safety', () => {
     expect(screen.queryByRole('status')).toBeNull()
     expect(mocks.updateSetupSupportRequest).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('button', { name: 'Mark in review' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Fresh requests' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh requests' }))
     await screen.findByText('Request #9 has been reloaded. Check its current status before acting again.')
     expect(screen.queryByRole('alert')).toBeNull()
     expect(mocks.updateSetupSupportRequest).toHaveBeenCalledTimes(1)
@@ -211,5 +212,40 @@ describe('staff setup request safety', () => {
     expect(screen.getByRole('button', { name: 'Prepare participant review' })).toHaveProperty('disabled', true)
     fireEvent.click(screen.getByRole('button', { name: 'Mark in review' }))
     expect(mocks.updateSetupSupportRequest).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('person-specific setup help', () => {
+  it('keeps the Daily detail read-only so writes use the guarded support task', async () => {
+    render(<SetupSupportInbox {...base} participantId={3} readOnly />)
+    await screen.findByText('Help request 9')
+    expect(screen.queryByRole('button', { name: 'Mark in review' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Recommend corrections' })).toBeNull()
+    expect(mocks.updateSetupSupportRequest).not.toHaveBeenCalled()
+  })
+  it('finds the selected person beyond the first page and keeps other requests out', async () => {
+    mocks.fetchSetupSupportRequests.mockResolvedValueOnce({ records: [{ ...request, user_id: 99 }], next_cursor: 9 })
+      .mockResolvedValue({ records: [{ ...request, id: 12 }], next_cursor: null })
+    render(<SetupSupportInbox {...base} participantId={3} />)
+    await screen.findByText('Help request 12')
+    expect(screen.queryByText('Help request 9')).toBeNull()
+    expect(mocks.fetchSetupSupportRequests).toHaveBeenLastCalledWith(5, 9, expect.any(AbortSignal))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark in review' }))
+    await waitFor(() => expect(mocks.updateSetupSupportRequest).toHaveBeenCalledWith(12, 'triage', 2))
+  })
+})
+
+describe('Daily setup shortcut', () => {
+  it('focuses an already-open inbox on another person beyond its first page', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const other = { ...request, user_id: 22, id: 55, participant_name: 'Another person' }
+    mocks.fetchSetupSupportRequests.mockImplementation((_cohort, cursor) => Promise.resolve(cursor === 9 ? { records: [other], next_cursor: null } : { records: [request], next_cursor: 9 }))
+    render(<div role="tabpanel"><button onClick={(event) => openCoachSetupHelp(event.currentTarget, 22)}>Review setup help</button><div className="setup-support-disclosure"><button className="setup-support-disclosure-button" aria-expanded="true">Setup help requests</button><SetupSupportInbox {...base} /></div></div>)
+    await screen.findByText('Help request 9')
+    fireEvent.click(screen.getByRole('button', { name: 'Review setup help' }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Another person' })).toBe(document.activeElement))
+    expect(screen.queryByText('Help request 9')).toBeNull()
+    expect(mocks.fetchSetupSupportRequests).toHaveBeenCalledWith(5, 9, expect.any(AbortSignal))
+    expect(mocks.updateSetupSupportRequest).not.toHaveBeenCalled()
   })
 })
