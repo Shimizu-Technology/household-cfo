@@ -1,192 +1,115 @@
-// Exact legacy declaration/rule snapshots at 55aba478. This is a migration
-// ledger, not permission to add decoration. Remove entries as their owner fixes
-// them; changing selector, value or media context requires explicit review.
+// Exact exceptions, never blanket selectors. New values/rules must pass the policy.
+// Remaining component debt belongs to other slices; shared overlays and focus
+// rings are intentional. Remove each exception when its owner retires the rule.
 export const cssPolicyAllowlist = new Set([
-  // hover: pre-existing shared/component debt, preserved for incremental ownership.
-  "[\"src/App.css\",\"hover\",[],\".button--secondary:hover:not(:disabled), .secondary-button:hover:not(:disabled)\",\".button--secondary:hover:not(:disabled), .secondary-button:hover:not(:disabled) { border-color: rgba(123, 74, 88, 0.32); background: white; }\"]",
-  "[\"src/App.css\",\"hover\",[],\".button--ghost:hover:not(:disabled)\",\".button--ghost:hover:not(:disabled) { background: rgba(123, 74, 88, 0.08); box-shadow: none; }\"]",
-  "[\"src/App.css\",\"hover\",[],\".tabs-tools-list > a:hover, .tabs-tools-list > a.active\",\".tabs-tools-list > a:hover, .tabs-tools-list > a.active { background: var(--emerald-soft); color: var(--emerald); }\"]",
-  "[\"src/App.css\",\"hover\",[],\".mia-update-examples button:hover:not(:disabled), .mia-update-examples button:focus-visible\",\".mia-update-examples button:hover:not(:disabled), .mia-update-examples button:focus-visible { border-color: var(--emerald); background: white; }\"]",
-  "[\"src/App.css\",\"hover\",[],\".mia-action-selection-row:hover\",\".mia-action-selection-row:hover { background: rgba(23, 96, 87, 0.05); }\"]",
-  "[\"src/App.css\",\"hover\",[],\".cash-flow-month-trigger:hover, .cash-flow-month-trigger:focus-visible, .cash-flow-month.is-pinned .cash-flow-month-trigger\",\".cash-flow-month-trigger:hover, .cash-flow-month-trigger:focus-visible, .cash-flow-month.is-pinned .cash-flow-month-trigger { outline: 2px solid rgba(143, 74, 95, 0.28); outline-offset: 2px; background: rgba(143, 74, 95, 0.05); }\"]",
-  "[\"src/components/CoachStudio.css\",\"hover\",[],\".coach-library-list > button:hover, .coach-library-list > button:focus-visible\",\".coach-library-list > button:hover, .coach-library-list > button:focus-visible { border-color: color-mix(in srgb, var(--mauve) 55%, var(--line)); }\"]",
+  // Existing component-owned hover; outside W7 stylesheet ownership: .plaid-transaction:hover.
   "[\"src/components/PlaidConnections.css\",\"hover\",[],\".plaid-transaction:hover\",\".plaid-transaction:hover { border-color: color-mix(in srgb, var(--berry) 38%, var(--line)); }\"]",
+  // Existing component-owned hover; outside W7 stylesheet ownership: .statement-source-review button:hover:not(:disabled).
   "[\"src/components/StatementSourceReview.css\",\"hover\",[],\".statement-source-review button:hover:not(:disabled)\",\".statement-source-review button:hover:not(:disabled) { border-color: var(--action-primary, #7b4a58); }\"]",
+  // Existing component-owned hover; outside W7 stylesheet ownership: .statement-source-review button[type=submit]:hover:not(:disabled), .statement-source-review .source-review-primary:hover:not(:disabled).
   "[\"src/components/StatementSourceReview.css\",\"hover\",[],\".statement-source-review button[type=submit]:hover:not(:disabled), .statement-source-review .source-review-primary:hover:not(:disabled)\",\".statement-source-review button[type=submit]:hover:not(:disabled), .statement-source-review .source-review-primary:hover:not(:disabled) { background: var(--action-primary-hover, #613845); }\"]",
+  // Existing component-owned hover; outside W7 stylesheet ownership: .workos-sign-in-dialog > header .workos-sign-in-close:hover.
   "[\"src/components/WorkosSignInDialog.css\",\"hover\",[],\".workos-sign-in-dialog > header .workos-sign-in-close:hover\",\".workos-sign-in-dialog > header .workos-sign-in-close:hover { background: var(--paper-warm); color: var(--ink); }\"]",
+  // Existing component-owned hover; outside W7 stylesheet ownership: .cash-flow-month-trigger:hover.
   "[\"src/styles/charts.css\",\"hover\",[],\".cash-flow-month-trigger:hover\",\".cash-flow-month-trigger:hover { outline: none; background: transparent; }\"]",
-  "[\"src/styles/mia.css\",\"hover\",[],\".empty-chat-starters button:hover\",\".empty-chat-starters button:hover { background: var(--emerald-soft); }\"]",
-  "[\"src/styles/shell.css\",\"hover\",[],\".app .tabs-shell .tabs :where(button, a):hover\",\".app .tabs-shell .tabs :where(button, a):hover { color: var(--ink); background: color-mix(in srgb, var(--emerald-soft) 55%, transparent); }\"]",
-  // gradient: pre-existing shared/component debt, preserved for incremental ownership.
-  "[\"src/App.css\",\"gradient\",[],\".income-schedule-form\",\"background: linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(248, 238, 233, 0.72))\"]",
-  "[\"src/App.css\",\"gradient\",[],\"body\",\"background: radial-gradient(circle at top left, color-mix(in srgb, var(--emerald) 11%, transparent), transparent 30rem), linear-gradient(180deg, color-mix(in srgb, var(--paper) 95%, var(--cream)) 0%, var(--cream) 42%, color-mix(in srgb, var(--cream) 86%, var(--emerald-soft)) 100%)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".shell-header\",\"background: linear-gradient(135deg, var(--paper-warm) 0%, var(--paper) 55%, color-mix(in srgb, var(--paper) 74%, var(--emerald-soft)) 100%)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".hero-panel\",\"background: linear-gradient(135deg, var(--paper-warm) 0%, var(--paper) 55%, color-mix(in srgb, var(--paper) 74%, var(--emerald-soft)) 100%)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".home-welcome-panel\",\"background: linear-gradient(135deg, color-mix(in srgb, var(--paper) 98%, transparent), color-mix(in srgb, var(--paper) 56%, var(--emerald-soft)))\"]",
-  "[\"src/App.css\",\"gradient\",[],\".auth-panel::after\",\"background: radial-gradient(circle, rgba(123, 74, 88, 0.18), transparent 68%)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".progress-track span\",\"background: linear-gradient(90deg, var(--emerald), var(--gold))\"]",
-  "[\"src/App.css\",\"gradient\",[],\".income-source-form\",\"background: linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(248, 238, 233, 0.72))\"]",
-  "[\"src/App.css\",\"gradient\",[],\".first-session-setup-form\",\"background: linear-gradient(145deg, rgba(255, 253, 248, 0.98), rgba(247, 236, 232, 0.86))\"]",
-  "[\"src/App.css\",\"gradient\",[],\".first-session-card\",\"background: linear-gradient(135deg, #fffdf8, #f3e5e4)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".upload-card\",\"background: linear-gradient(180deg, #fffdf8, #f7f0e4)\"]",
-  "[\"src/App.css\",\"gradient\",[\"@media (max-width: 620px)\"],\"body\",\"background: radial-gradient(circle at top left, color-mix(in srgb, var(--emerald) 9%, transparent), transparent 18rem), linear-gradient(180deg, color-mix(in srgb, var(--paper) 95%, var(--cream)) 0%, var(--cream) 46%, color-mix(in srgb, var(--cream) 86%, var(--emerald-soft)) 100%)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".document-import-workspace\",\"background: radial-gradient(circle at 8% 0%, rgba(185, 115, 82, 0.11), transparent 18rem), linear-gradient(135deg, rgba(255, 253, 248, 0.96), rgba(243, 237, 226, 0.74))\"]",
-  "[\"src/App.css\",\"gradient\",[],\".document-applied-summary\",\"background: linear-gradient(135deg, rgba(95, 125, 97, 0.08), rgba(255, 253, 248, 0.88)), #fffdf8\"]",
-  "[\"src/App.css\",\"gradient\",[],\".document-preview-header\",\"background: linear-gradient(135deg, rgba(123, 74, 88, 0.08), rgba(255, 253, 248, 0.96))\"]",
-  "[\"src/App.css\",\"gradient\",[],\".mia-context.panel\",\"background: linear-gradient(135deg, rgba(123, 74, 88, 0.1), rgba(255, 253, 248, 0.9))\"]",
-  "[\"src/App.css\",\"gradient\",[],\".first-session-setup-progress\",\"background: linear-gradient(135deg, rgba(23, 96, 87, 0.09), rgba(255, 250, 242, 0.96))\"]",
-  "[\"src/App.css\",\"gradient\",[],\".mia-update-guide\",\"background: linear-gradient(135deg, rgba(23, 96, 87, 0.08), rgba(255, 250, 242, 0.94))\"]",
-  "[\"src/App.css\",\"gradient\",[],\".clear-chat-dialog\",\"background: linear-gradient(135deg, rgba(123, 74, 88, 0.09), rgba(255, 253, 248, 0.98) 42%), #fffdf8\"]",
-  "[\"src/App.css\",\"gradient\",[],\".mia-chat-shell .chat-card\",\"background: radial-gradient(circle at 12% 0%, rgba(185, 115, 82, 0.09), transparent 16rem), #fffaf2\"]",
-  "[\"src/App.css\",\"gradient\",[],\".budget-manual-manager\",\"background: linear-gradient(145deg, #fffaf4, #f8eee9)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".manual-transaction-capture\",\"background: linear-gradient(135deg, #f4fbf7, #fffaf2)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".mia-action-draft-stack\",\"background: linear-gradient(180deg, #f4fbf7, #fffaf2)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".mia-action-draft-stack.compact\",\"background: linear-gradient(180deg, #f7fbf8, #fffaf2)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".transaction-draft-category-warning\",\"background: linear-gradient(135deg, #fff7ed, #fffdf8)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".transaction-draft-impact\",\"background: linear-gradient(180deg, #fffaf6, #f8eee9)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".transaction-draft-editor\",\"background: linear-gradient(180deg, #fffaf7, #fffdf9)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".budget-progress-pending\",\"background: repeating-linear-gradient(135deg, #b57352 0 5px, #f2c9ac 5px 10px)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".pending-swatch\",\"background: repeating-linear-gradient(135deg, #b57352 0 4px, #f2c9ac 4px 8px)\"]",
-  "[\"src/App.css\",\"gradient\",[],\".cash-flow-bars\",\"background: linear-gradient(180deg, rgba(255, 255, 255, 0.25), rgba(246, 239, 229, 0.62))\"]",
+  // Existing component-owned gradient; outside W7 stylesheet ownership: .pilot-feedback-list > button.active.
   "[\"src/components/PilotFeedbackInbox.css\",\"gradient\",[],\".pilot-feedback-list > button.active\",\"background: linear-gradient(105deg, var(--emerald-soft), rgba(255, 253, 248, 0.86))\"]",
+  // Existing component-owned gradient; outside W7 stylesheet ownership: .pilot-feedback-detail.
   "[\"src/components/PilotFeedbackInbox.css\",\"gradient\",[],\".pilot-feedback-detail\",\"background: linear-gradient(180deg, rgba(255, 253, 248, 0.95), rgba(251, 247, 243, 0.84))\"]",
-  "[\"src/styles/mia.css\",\"gradient\",[],\".message-avatar\",\"background: linear-gradient(140deg, color-mix(in srgb, var(--gold) 70%, var(--plum)), var(--emerald))\"]",
-  // shadow: pre-existing shared/component debt, preserved for incremental ownership.
-  "[\"src/App.css\",\"shadow\",[],\".income-schedule-form :where(input, select)\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".income-schedule-money-input\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".income-schedule-submit\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[\"@media (hover: hover) and (pointer: fine)\"],\".income-schedule-submit:hover:not(:disabled)\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".brand-bootstrap-panel, .auth-state-panel\",\"box-shadow: 0 22px 70px color-mix(in srgb, var(--ink) 13%, transparent)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".button--primary\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".button--secondary, .secondary-button\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[\"@media (hover: hover) and (pointer: fine)\"],\".button--primary:hover:not(:disabled)\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".shell-header\",\"box-shadow: var(--shadow-md)\"]",
+  // Intentional floating surface or focus ring: .participant-private-access > p.
   "[\"src/App.css\",\"shadow\",[],\".participant-private-access > p\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".shell-mia-button[aria-current='page']\",\"box-shadow: inset 0 0 0 1px rgba(123, 74, 88, 0.04)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".hero-panel\",\"box-shadow: var(--shadow-overlay)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".panel, .metric-card, .insight-card, .stack-card, .choice-card, .decision-card, .upload-card, .milestone-card, .chat-card\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".tabs :where(button, a).active\",\"box-shadow: var(--shadow-md)\"]",
+  // Intentional floating surface or focus ring: .tabs-secondary.
   "[\"src/App.css\",\"shadow\",[],\".tabs-secondary\",\"box-shadow: var(--shadow-overlay)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".tabs-shell\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".home-welcome-panel\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".home-review-card, .home-period-card\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".readiness-path-panel\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".readiness-milestone-card.reached\",\"box-shadow: inset 0 0 0 1px rgba(74, 131, 105, 0.12)\"]",
-  "[\"src/App.css\",\"shadow\",[\"@media (hover: hover) and (pointer: fine)\"],\".quick-prompts button:not(:disabled):hover, .profile-section button:hover, .coach-panel button:hover, .ask-row button:not(:disabled):hover, .auth-actions button:hover\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".ask-row:focus-within\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".first-session-setup-form\",\"box-shadow: var(--shadow-overlay)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".debt-tracking fieldset > label.selected\",\"box-shadow: 0 0 0 2px color-mix(in srgb, var(--mauve) 18%, transparent)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".first-session-card\",\"box-shadow: var(--shadow-md)\"]",
+  // Intentional floating surface or focus ring: .pilot-dialog.
   "[\"src/App.css\",\"shadow\",[],\".pilot-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".admin-plaid-health-mark\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".admin-plaid-health-row.is-initializing .admin-plaid-health-mark, .admin-plaid-health-row.is-disconnecting .admin-plaid-health-mark\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".admin-plaid-health-row.is-stale .admin-plaid-health-mark, .admin-plaid-health-row.is-action_required .admin-plaid-health-mark, .admin-plaid-health-row.is-error .admin-plaid-health-mark\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".cohort-list-card.active\",\"box-shadow: inset 4px 0 0 var(--emerald)\"]",
-  "[\"src/App.css\",\"shadow\",[\"@media (max-width: 620px)\"],\".hero-panel\",\"box-shadow: var(--shadow-md)\"]",
+  // Intentional floating surface or focus ring: .tabs-secondary.
   "[\"src/App.css\",\"shadow\",[\"@media (max-width: 620px)\"],\".tabs-secondary\",\"box-shadow: var(--shadow-overlay)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".document-upload-card label\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[\"@media (hover: hover) and (pointer: fine)\"],\".document-upload-card label:hover\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".document-history-card.active\",\"box-shadow: inset 4px 0 0 var(--emerald)\"]",
+  // Intentional floating surface or focus ring: .document-preview-modal.
   "[\"src/App.css\",\"shadow\",[],\".document-preview-modal\",\"box-shadow: var(--shadow-overlay)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".document-preview-body img\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".document-preview-sheet\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".mia-chat-shell\",\"box-shadow: var(--shadow-md)\"]",
+  // Intentional floating surface or focus ring: .mia-chat-shell.is-expanded.
   "[\"src/App.css\",\"shadow\",[],\".mia-chat-shell.is-expanded\",\"box-shadow: var(--shadow-overlay)\"]",
+  // Intentional floating surface or focus ring: .clear-chat-dialog.
   "[\"src/App.css\",\"shadow\",[],\".clear-chat-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
+  // Intentional floating surface or focus ring: .mia-suggestions-panel.
   "[\"src/App.css\",\"shadow\",[],\".mia-suggestions-panel\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".message-row .message\",\"box-shadow: var(--shadow-sm)\"]",
+  // Intentional floating surface or focus ring: .chat-scroll-bottom-button.
   "[\"src/App.css\",\"shadow\",[],\".chat-scroll-bottom-button\",\"box-shadow: var(--shadow-md)\"]",
+  // Intentional floating surface or focus ring: .chat-scroll-bottom-button:hover.
   "[\"src/App.css\",\"shadow\",[\"@media (hover: hover) and (pointer: fine)\"],\".chat-scroll-bottom-button:hover\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".message-attachment-card.is-image\",\"box-shadow: var(--shadow-md)\"]",
+  // Intentional floating surface or focus ring: .local-attachment-preview.
   "[\"src/App.css\",\"shadow\",[],\".local-attachment-preview\",\"box-shadow: var(--shadow-overlay)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".composer-voice.is-recording\",\"box-shadow: var(--shadow-sm)\"]",
+  // Intentional floating surface or focus ring: .mia-suggestions-panel.
   "[\"src/App.css\",\"shadow\",[\"@media (max-width: 620px)\"],\".mia-suggestions-panel\",\"box-shadow: var(--shadow-overlay)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".budget-manual-manager\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".budget-manual-manager:focus-visible\",\"box-shadow: 0 0 0 4px rgba(143, 74, 95, 0.14), 0 18px 42px rgba(54, 42, 36, 0.08)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".budget-manual-tabs button[aria-pressed=\\\"true\\\"]\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".transaction-draft-card.is-selected\",\"box-shadow: inset 0 0 0 1px rgba(143, 74, 95, 0.12)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".transaction-split-editor\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".annual-budget-editor-toolbar\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".annual-budget-table input[data-dirty=\\\"true\\\"]\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".month-plan-summary, .expense-stack-overview, .category-pressure-panel, .annual-cash-flow-visual\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".cash-flow-month.is-report-month .cash-flow-month-trigger\",\"box-shadow: inset 0 0 0 1px rgba(143, 74, 95, 0.24)\"]",
-  "[\"src/App.css\",\"shadow\",[],\".cash-flow-month.negative .cash-flow-bars\",\"box-shadow: inset 0 0 0 1px rgba(174, 75, 69, 0.2)\"]",
+  // Intentional floating surface or focus ring: .first-session-setup-options.
   "[\"src/App.css\",\"shadow\",[],\".first-session-setup-options\",\"box-shadow: var(--shadow-md)\"]",
+  // Intentional floating surface or focus ring: .mia-context-drawer.
   "[\"src/App.css\",\"shadow\",[],\".mia-context-drawer\",\"box-shadow: var(--shadow-md)\"]",
+  // Intentional floating surface or focus ring: .shell-account-panel.
   "[\"src/App.css\",\"shadow\",[],\".shell-account-panel\",\"box-shadow: var(--shadow-md)\"]",
+  // Intentional floating surface or focus ring: .participant-program-switch > .participant-program-picker.
   "[\"src/App.css\",\"shadow\",[],\".participant-program-switch > .participant-program-picker\",\"box-shadow: var(--shadow-md)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .bank-resume-dialog.
   "[\"src/components/BankActivityResumeDialog.css\",\"shadow\",[],\".bank-resume-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .baseline-dialog.
   "[\"src/components/BaselineReview.css\",\"shadow\",[],\".baseline-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .challenge-privacy-dialog.
   "[\"src/components/ChallengePrivacyDialog.css\",\"shadow\",[],\".challenge-privacy-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .daily-dialog.
   "[\"src/components/ChallengeToday.css\",\"shadow\",[],\".daily-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .coach-source-guard.
   "[\"src/components/CoachContentSources.css\",\"shadow\",[],\".coach-source-guard\",\"box-shadow: var(--shadow-soft)\"]",
-  "[\"src/components/CoachStudio.css\",\"shadow\",[],\".coach-studio-section-tabs button[aria-selected='true']\",\"box-shadow: inset 0 0 0 1px var(--mauve)\"]",
-  "[\"src/components/CoachStudio.css\",\"shadow\",[],\".release-rollout-tabs button[aria-selected='true']\",\"box-shadow: inset 0 0 0 1px var(--mauve)\"]",
-  "[\"src/components/CoachStudio.css\",\"shadow\",[],\".cohort-rollout-wave-list section.is-active\",\"box-shadow: inset 0 0 0 1px var(--mauve)\"]",
+  // Intentional floating surface or focus ring: .cohort-release-modal.
   "[\"src/components/CoachStudio.css\",\"shadow\",[],\".cohort-release-modal\",\"box-shadow: 0 1.5rem 4rem rgb(32 25 28 / 30%)\"]",
-  "[\"src/components/CoachStudio.css\",\"shadow\",[],\".coach-library-list > button.is-selected\",\"box-shadow: inset 3px 0 0 var(--mauve)\"]",
-  "[\"src/components/CoachStudio.css\",\"shadow\",[],\".coach-mode-switch button.is-active\",\"box-shadow: inset 0 0 0 1px var(--mauve)\"]",
-  "[\"src/components/CoachStudio.css\",\"shadow\",[],\".coach-save-bar\",\"box-shadow: 0 0.5rem 1.4rem rgb(63 41 48 / 12%)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .mia-assist-panel.is-modal.
   "[\"src/components/MiaAssistPanels.css\",\"shadow\",[],\".mia-assist-panel.is-modal\",\"box-shadow: var(--shadow-overlay)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .optional-debt-dialog.
   "[\"src/components/OptionalDebtReview.css\",\"shadow\",[],\".optional-debt-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .pilot-feedback-filters button[aria-pressed="true"].
   "[\"src/components/PilotFeedbackInbox.css\",\"shadow\",[],\".pilot-feedback-filters button[aria-pressed=\\\"true\\\"]\",\"box-shadow: inset 0 0 0 1px rgba(23, 96, 87, 0.06)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .pilot-feedback-list > button.active.
   "[\"src/components/PilotFeedbackInbox.css\",\"shadow\",[],\".pilot-feedback-list > button.active\",\"box-shadow: inset 4px 0 0 var(--emerald)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .plaid-health-mark.
   "[\"src/components/PlaidConnections.css\",\"shadow\",[],\".plaid-health-mark\",\"box-shadow: var(--shadow-sm)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .plaid-state-mark.
   "[\"src/components/PlaidConnections.css\",\"shadow\",[],\".plaid-state-mark\",\"box-shadow: 0 0 0 4px color-mix(in srgb, var(--paper-deep) 45%, transparent)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .plaid-transaction.is-needs_review .plaid-state-mark.
   "[\"src/components/PlaidConnections.css\",\"shadow\",[],\".plaid-transaction.is-needs_review .plaid-state-mark\",\"box-shadow: var(--shadow-sm)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .plaid-transaction.is-confirmed .plaid-state-mark.
   "[\"src/components/PlaidConnections.css\",\"shadow\",[],\".plaid-transaction.is-confirmed .plaid-state-mark\",\"box-shadow: var(--shadow-sm)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .plaid-transaction.is-source_changed .plaid-state-mark.
   "[\"src/components/PlaidConnections.css\",\"shadow\",[],\".plaid-transaction.is-source_changed .plaid-state-mark\",\"box-shadow: var(--shadow-sm)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .plaid-activity-tabs button.is-active.
   "[\"src/components/PlaidConnections.css\",\"shadow\",[],\".plaid-activity-tabs button.is-active\",\"box-shadow: var(--shadow-sm)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .evidence-dialog.
   "[\"src/components/SavingsEvidenceDialog.css\",\"shadow\",[],\".evidence-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .workos-sign-in-dialog.
   "[\"src/components/WorkosSignInDialog.css\",\"shadow\",[],\".workos-sign-in-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
+  // Existing component-owned shadow; outside W7 stylesheet ownership: .workspace-opening-panel.
   "[\"src/components/WorkspaceOpening.css\",\"shadow\",[],\".workspace-opening-panel\",\"box-shadow: var(--shadow-md)\"]",
+  // Intentional floating surface or focus ring: .chat-more-menu.
   "[\"src/styles/mia.css\",\"shadow\",[],\".chat-more-menu\",\"box-shadow: var(--shadow-md)\"]",
-  "[\"src/styles/mia.css\",\"shadow\",[],\".message-avatar\",\"box-shadow: var(--shadow-sm)\"]",
-  "[\"src/styles/opening.css\",\"shadow\",[],\".brand-bootstrap-panel, .auth-state-panel, .app.auth-state > .auth-panel\",\"box-shadow: var(--shadow-md)\"]",
-  // side-border: pre-existing shared/component debt, preserved for incremental ownership.
-  "[\"src/App.css\",\"side-border\",[],\".outlook-callout.spike\",\"border-left: 4px solid var(--gold)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".outlook-callout.irregular\",\"border-left: 4px solid var(--gold)\"]",
+  // Intentional floating surface or focus ring: .brand-bootstrap-mark, .shell-mia-mark, .tabs :where(button, a).active.
   "[\"src/App.css\",\"side-border\",[\"@media (forced-colors: active)\"],\".brand-bootstrap-mark, .shell-mia-mark, .tabs :where(button, a).active\",\"border: 2px solid ButtonText\"]",
-  "[\"src/App.css\",\"side-border\",[],\".home-review-card.has-reviews\",\"border-left: 5px solid var(--status-yellow)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".home-review-card.is-clear\",\"border-left: 5px solid var(--status-green)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".readiness-milestone-card\",\"border-left: 5px solid var(--status-yellow)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".coach-panel.red\",\"border-left: 5px solid var(--status-red)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".coach-panel.yellow\",\"border-left: 5px solid var(--status-yellow)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".coach-panel.green\",\"border-left: 5px solid var(--status-green)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".insight-card.green, .stack-card.green, .milestone-card.green, .choice-card.green, .decision-card.approve\",\"border-left: 5px solid var(--status-green)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".insight-card.yellow, .stack-card.yellow, .milestone-card.yellow, .choice-card.yellow, .decision-card.wait\",\"border-left: 5px solid var(--status-yellow)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".insight-card.red, .stack-card.red, .choice-card.red\",\"border-left: 5px solid var(--status-red)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".insight-card.blue, .stack-card.gold\",\"border-left: 5px solid var(--gold)\"]",
+  // Intentional floating surface or focus ring: .document-processing-state span.
   "[\"src/App.css\",\"side-border\",[],\".document-processing-state span\",\"border: 2px solid rgba(123, 74, 88, 0.18)\"]",
+  // Intentional floating surface or focus ring: .document-preview-spinner.
   "[\"src/App.css\",\"side-border\",[],\".document-preview-spinner\",\"border: 2px solid rgba(123, 74, 88, 0.18)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".mia-action-source\",\"border-left: 3px solid rgba(143, 74, 95, 0.22)\"]",
-  "[\"src/App.css\",\"side-border\",[],\".setup-base-note\",\"border-left: 3px solid var(--line)\"]",
+  // Existing component-owned side-border; outside W7 stylesheet ownership: .coach-source-snapshot-note.
   "[\"src/components/CoachContentSources.css\",\"side-border\",[],\".coach-source-snapshot-note\",\"border-left: 0.2rem solid var(--mauve)\"]",
+  // Existing component-owned side-border; outside W7 stylesheet ownership: .coach-source-safety.
   "[\"src/components/CoachContentSources.css\",\"side-border\",[],\".coach-source-safety\",\"border-left: 0.25rem solid var(--status-red)\"]",
-  "[\"src/components/CoachStudio.css\",\"side-border\",[],\".cohort-rollout-runtime-note\",\"border-left: 4px solid var(--mauve)\"]",
-  "[\"src/components/CoachStudio.css\",\"side-border\",[],\".cohort-release-truth\",\"border-left: 5px solid var(--mauve)\"]",
-  "[\"src/components/CoachStudio.css\",\"side-border\",[],\".persona-proposal-change blockquote\",\"border-left: 3px solid var(--brand, #145c46)\"]",
-  "[\"src/components/CoachStudio.css\",\"side-border\",[],\".coach-culture-boundary, .coach-read-only\",\"border-left: 4px solid var(--gold)\"]",
-  "[\"src/components/CoachStudio.css\",\"side-border\",[],\".coach-preview-result\",\"border-left: 5px solid var(--status-yellow)\"]",
-  "[\"src/components/CoachStudio.css\",\"side-border\",[],\".coach-preview-result blockquote\",\"border-left: 4px solid var(--mauve)\"]",
-  "[\"src/components/CoachStudio.css\",\"side-border\",[],\".persona-release-preview-evidence blockquote\",\"border-left: 3px solid var(--mauve)\"]",
-  "[\"src/components/CoachStudio.css\",\"side-border\",[],\".persona-release-result blockquote\",\"border-left: 3px solid var(--mauve)\"]",
+  // Existing component-owned side-border; outside W7 stylesheet ownership: .pilot-feedback-narrative > div.
   "[\"src/components/PilotFeedbackInbox.css\",\"side-border\",[],\".pilot-feedback-narrative > div\",\"border-left: 3px solid rgba(123, 74, 88, 0.2)\"]",
+  // Existing component-owned side-border; outside W7 stylesheet ownership: .savings-home .savings-secondary, .savings-home .savings-action.
   "[\"src/components/SavingsChallengeHome.css\",\"side-border\",[],\".savings-home .savings-secondary, .savings-home .savings-action\",\"border: 1.5px solid var(--emerald)\"]",
+  // Existing component-owned side-border; outside W7 stylesheet ownership: .evidence-legs.
   "[\"src/components/SavingsEvidenceDialog.css\",\"side-border\",[],\".evidence-legs\",\"border-left: 2px solid var(--line,#cad6d2)\"]",
+  // Existing component-owned side-border; outside W7 stylesheet ownership: .source-event-unresolved.
   "[\"src/components/StatementSourceReview.css\",\"side-border\",[],\".source-event-unresolved\",\"border-left-width: 4px\"]",
+  // Existing component-owned side-border; outside W7 stylesheet ownership: .opening-progress-indicator.
   "[\"src/components/WorkspaceOpening.css\",\"side-border\",[],\".opening-progress-indicator\",\"border: 2px solid currentColor\"]",
+  // Existing component-owned side-border; outside W7 stylesheet ownership: .expense-stack-row.stack-sinking_unexpected .expense-stack-row-heading strong::before.
   "[\"src/styles/charts.css\",\"side-border\",[],\".expense-stack-row.stack-sinking_unexpected .expense-stack-row-heading strong::before\",\"border: 2px solid var(--group-color)\"]",
-  // glass: pre-existing shared/component debt, preserved for incremental ownership.
-  "[\"src/App.css\",\"glass\",[],\".tabs\",\"backdrop-filter: blur(16px)\"]",
-  "[\"src/App.css\",\"glass\",[],\".tabs-shell\",\"backdrop-filter: blur(18px)\"]",
-  "[\"src/App.css\",\"glass\",[],\".pilot-dialog-backdrop\",\"backdrop-filter: blur(7px)\"]",
-  "[\"src/App.css\",\"glass\",[],\".document-apply-bar\",\"backdrop-filter: blur(10px)\"]",
-  "[\"src/App.css\",\"glass\",[],\".document-preview-backdrop\",\"backdrop-filter: blur(8px)\"]",
-  "[\"src/App.css\",\"glass\",[],\".clear-chat-backdrop\",\"backdrop-filter: blur(8px)\"]",
-  "[\"src/App.css\",\"glass\",[],\".chat-scroll-bottom-button\",\"backdrop-filter: blur(10px)\"]",
-  "[\"src/App.css\",\"glass\",[],\".annual-budget-editor-toolbar\",\"backdrop-filter: blur(12px)\"]",
-  "[\"src/components/CoachStudio.css\",\"glass\",[],\".coach-save-bar\",\"backdrop-filter: blur(10px)\"]",
+  // Existing component-owned glass; outside W7 stylesheet ownership: .workos-sign-in-backdrop.
   "[\"src/components/WorkosSignInDialog.css\",\"glass\",[],\".workos-sign-in-backdrop\",\"backdrop-filter: blur(7px)\"]",
-  "[\"src/styles/shell.css\",\"glass\",[\"@media (max-width: 620px)\"],\".app > .tabs-shell\",\"backdrop-filter: blur(16px)\"]",
 ])

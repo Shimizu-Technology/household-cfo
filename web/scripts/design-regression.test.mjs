@@ -130,6 +130,25 @@ assert.ok(css.includes('--emerald: #7b4a58'), 'primary brand token should shift 
 assert.ok(css.includes('--emerald-soft: #f1e2e3'), 'soft brand token should use dusty rose')
 assert.ok(!css.includes('#0f4c3a'), 'old masculine green should not remain in main app CSS')
 
+// The first CSS paint and React's safe fallback share every BrandDocument
+// legacy alias. A resolved/persisted release may still supply its own palette.
+const fallbackSource = readFileSync(resolve(__dirname, '../src/contexts/brandContextValue.ts'), 'utf8')
+const fallbackColors = fallbackSource.match(/colors: \{([\s\S]*?)\n  \}/)[1]
+const rootTokens = css.match(/^:root \{([\s\S]*?)\n\}/)[1]
+for (const [token, field] of Object.entries({
+  cream: 'background', paper: 'surface', 'paper-warm': 'surface_muted', 'paper-deep': 'surface_muted',
+  ink: 'text', 'ink-soft': 'text_muted', muted: 'text_muted', line: 'border',
+  emerald: 'primary', mauve: 'primary', berry: 'primary_hover', 'emerald-soft': 'primary_soft',
+  gold: 'accent', plum: 'text', 'brand-on-primary': 'on_primary', 'brand-primary-hover': 'primary_hover', 'brand-focus': 'focus',
+})) {
+  const value = fallbackColors.match(new RegExp(`\\b${field}: '([^']+)'`))[1]
+  assert.ok(rootTokens.includes(`--${token}: ${value};`), `fallback ${field} must agree with CSS --${token}`)
+}
+assert.ok(fallbackSource.includes("typography: { display: 'cormorant_garamond', body: 'montserrat' }"), 'fallback keeps the approved brand typography')
+assert.ok(rootTokens.includes('--font-body: Montserrat, ui-sans-serif, system-ui, sans-serif;'), 'CSS body fallback matches BrandDocument montserrat')
+assert.ok(rootTokens.includes('--number-font: Montserrat, ui-sans-serif, system-ui, sans-serif;'), 'money uses the body face')
+assert.ok(rootTokens.includes('--font-display: "Cormorant Garamond", Georgia, serif;'), 'CSS display fallback matches BrandDocument cormorant')
+
 for (const structuredControl of [
   '<ChoiceChips label="Tone traits"',
   '<SelectChoice label="Energy"',

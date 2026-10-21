@@ -1447,7 +1447,8 @@ test('an unavailable sealed workspace brand fails closed to the neutral brand an
   await expect(page.getByText('Brand That Must Not Render')).toHaveCount(0)
   await expect(page.getByText('Leaked Brand')).toHaveCount(0)
   await expect(page).toHaveTitle(/^Household CFO/)
-  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--emerald').trim())).toBe('#536a63')
+  // The safe fallback keeps the approved mauve palette before any release loads.
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--emerald').trim())).toBe('#7b4a58')
 
   await page.getByRole('button', { name: 'Try again' }).click()
   await expect.poll(() => workspaceRequests).toBe(2)
