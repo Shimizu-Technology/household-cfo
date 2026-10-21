@@ -91,7 +91,7 @@ describe('profile base amounts', () => {
 })
 
 describe('debt minimums card', () => {
-  it('offers a direct button to My Money Debt', () => {
+  it('keeps Home focused on money and one next action when debt minimums need entry', () => {
     const dashboard = {
       summary: { readiness_tone: 'yellow', readiness_label: 'Debt minimums needed', readiness_available: false, next_safe_to_spend_amount: null, monthly_income: 0, debt_payments: 0 },
       action_center: { current_month_label: 'October', current_year: 2026, current_month_index: 9, total_review_count: 0, transaction_review_count: 0, mia_action_review_count: 0 },
@@ -102,10 +102,9 @@ describe('debt minimums card', () => {
     } as unknown as DashboardData
     const onOpenDebt = vi.fn()
     render(<HomeScreen dashboard={dashboard} budget={{} as never} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} pendingImportCount={0} onReviewImports={vi.fn()} onOpenDebt={onOpenDebt} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add debt minimums' }))
-    expect(onOpenDebt).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByRole('button', { name: 'Open My Money > Debt' }))
-    expect(onOpenDebt).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('button', { name: 'Add debt minimums' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open My Money > Debt' })).toBeNull()
+    expect(screen.getByRole('button', { name: /Tell .+ what changed/ })).toBeTruthy()
   })
 })
 

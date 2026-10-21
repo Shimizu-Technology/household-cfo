@@ -19,22 +19,15 @@ const stackOrder: BudgetStackKey[] = [
 ]
 
 const stackLabels: Record<BudgetStackKey, string> = {
-  non_discretionary: 'Non-discretionary',
-  discretionary: 'Discretionary',
-  sinking_expected: 'Sinking Fund — Expected',
-  sinking_unexpected: 'Sinking Fund — Unexpected',
+  non_discretionary: 'Must-pay bills',
+  discretionary: 'Flexible spending',
+  sinking_expected: 'Planned yearly costs',
+  sinking_unexpected: 'Surprise fund',
 }
 
 export function MonthPlanSummary({
-  label,
-  income,
-  planned,
-  actual,
-  pending,
-  safeToSpend,
-  baselineSurplus,
-  debtMinimums = 0,
-  debtMinimumsKnown = true,
+  label, income, planned, actual, pending, debtMinimums = 0,
+  debtMinimumsKnown = true, incomeKnown = true, planKnown = true, compact = false,
 }: {
   label: string
   income: number
@@ -45,67 +38,25 @@ export function MonthPlanSummary({
   baselineSurplus?: number
   debtMinimums?: number
   debtMinimumsKnown?: boolean
+  incomeKnown?: boolean
+  planKnown?: boolean
+  compact?: boolean
 }) {
   const remaining = subtractMoney(planned, actual)
-  const projected = addMoney(actual, pending)
-  const totalPlannedOutflow = addMoney(planned, debtMinimums)
-
   return (
     <section className="month-plan-summary" aria-label={`${label} plan position`}>
-      <div className="month-plan-summary-heading">
-        <div>
-          <span>{label}</span>
-          <h3>Month-to-date inside the annual plan</h3>
-        </div>
-        <div className="month-plan-income">
-          <span>Expected income</span>
-          <strong>{currency.format(income)}</strong>
-        </div>
-      </div>
-
+      <h3 className={compact ? 'sr-only' : undefined}>{label}</h3>
       <div className="month-plan-values">
-        <PlanValue label="Planned" value={planned} />
-        <PlanValue label="Confirmed actual" value={actual} />
-        <PlanValue label="Pending review" value={pending} tone="pending" />
-        <PlanValue label={remaining >= 0 ? 'Plan remaining' : 'Over plan'} value={Math.abs(remaining)} tone={remaining < 0 ? 'negative' : undefined} />
+        <PlanValue label="Money in" value={incomeKnown ? income : null} />
+        <PlanValue label="Spent so far (confirmed)" value={actual > 0 ? actual : null} emptyText="No confirmed transactions yet" />
+        <PlanValue label={remaining < 0 && planKnown ? 'Over the plan' : 'Left in the plan'} value={planKnown ? Math.abs(remaining) : null} tone={remaining < 0 ? 'negative' : undefined} />
       </div>
-
-      <BudgetProgressTrack planned={planned} actual={actual} pending={pending} label={`${label}: ${currency.format(actual)} confirmed, ${currency.format(pending)} pending, against ${currency.format(planned)} planned`} />
-
-      <div className="month-plan-explanation">
-        <span><i className="confirmed-swatch" /> Confirmed actuals</span>
-        <span><i className="pending-swatch" /> Pending if approved</span>
-        <strong>{projected > planned && planned > 0 ? `${currency.format(subtractMoney(projected, planned))} over plan if all pending items are approved` : `${currency.format(Math.max(subtractMoney(planned, projected), 0))} remains after pending review`}</strong>
-      </div>
-
-      {(safeToSpend != null || baselineSurplus !== undefined) && (
-        <div className="month-plan-decision-row">
-          {safeToSpend != null && (
-            <div>
-              <span>Safe to spend</span>
-              <strong>{debtMinimumsKnown ? currency.format(safeToSpend) : 'Not available'}</strong>
-              <small>A cushion for extras: 40% of what’s left after your plan and debt minimums. It stays at $0 in Red, and it isn’t the same as plan remaining.</small>
-            </div>
-          )}
-          {baselineSurplus !== undefined && (
-            <div>
-              <span>Baseline left</span>
-              <strong>{debtMinimumsKnown ? currency.format(baselineSurplus) : 'Not available'}</strong>
-              <small>Expected income less category plans and required debt minimums.</small>
-            </div>
-          )}
-        </div>
-      )}
-
-      {(debtMinimums > 0 || !debtMinimumsKnown) && (
-        <div className="money-out-reconciliation" role="group" aria-label="Monthly money out breakdown">
-          <div><span>Category plan</span><strong>{currency.format(planned)}</strong></div>
-          <i aria-hidden="true">+</i>
-          <div><span>Debt minimums</span><strong>{debtMinimumsKnown ? currency.format(debtMinimums) : 'Not entered'}</strong></div>
-          <i aria-hidden="true">=</i>
-          <div className="total"><span>Total money out</span><strong>{debtMinimumsKnown ? currency.format(totalPlannedOutflow) : 'Not available'}</strong></div>
-        </div>
-      )}
+      {planKnown && !compact && <p className="month-plan-note">{currency.format(planned)} planned for purchases. What’s left excludes pending purchases and debt payments.</p>}
+      {pending > 0 && <p className="month-plan-pending"><i className="pending-swatch" aria-hidden="true" /> {currency.format(pending)} pending review · not counted as spent</p>}
+      {planKnown && !compact && <BudgetProgressTrack planned={planned} actual={actual} pending={pending} label={`${label}: ${currency.format(actual)} confirmed, ${currency.format(pending)} pending, against ${currency.format(planned)} planned`} />}
+      {planKnown && !compact && (debtMinimums > 0 || !debtMinimumsKnown) && <p className="month-plan-note" role="group" aria-label="Monthly money out breakdown">
+        Category plan {currency.format(planned)} + Debt minimums {debtMinimumsKnown ? currency.format(debtMinimums) : 'Not entered'} = Total money out {debtMinimumsKnown ? currency.format(addMoney(planned, debtMinimums)) : 'Not available'}
+      </p>}
     </section>
   )
 }
@@ -116,7 +67,7 @@ export function ExpenseStackOverview({ positions }: { positions: BudgetPosition[
     const stackPositions = positions.filter((position) => position.stackKey === stackKey && position.active)
     return {
       stackKey,
-      label: stackPositions[0]?.stackLabel ?? stackLabels[stackKey],
+      label: stackLabels[stackKey],
       totals: budgetPositionTotals(stackPositions),
     }
   })
@@ -125,8 +76,7 @@ export function ExpenseStackOverview({ positions }: { positions: BudgetPosition[
     <section className="expense-stack-overview" aria-labelledby={titleId}>
       <div className="financial-visual-heading">
         <div>
-          <span>Expense Stack</span>
-          <h4 id={titleId}>See which layer is using the plan.</h4>
+          <h4 id={titleId}>Where the money goes</h4>
         </div>
         <p>Confirmed spending is solid. Pending review stays striped until you approve it.</p>
       </div>
@@ -186,7 +136,7 @@ export function CategoryPressureList({
               <div className="category-pressure-row-heading">
                 <div>
                   <strong>{position.name}</strong>
-                  <span>{position.stackLabel}</span>
+                  <span>{stackLabels[position.stackKey]}</span>
                 </div>
                 <div className="category-pressure-status">
                   {position.pending > 0 && <span>{currency.format(position.pending)} pending</span>}
@@ -217,10 +167,12 @@ export function AnnualCashFlowChart({
   plan,
   compact = false,
   selectedMonthIndex = 0,
+  moneyKnown = true,
 }: {
   plan: AnnualBudgetPlan
   compact?: boolean
   selectedMonthIndex?: number
+  moneyKnown?: boolean
 }) {
   const titleId = useId()
   const months = plan.annual_outlook.months
@@ -268,16 +220,53 @@ export function AnnualCashFlowChart({
     <section className={`annual-cash-flow-visual${compact ? ' compact' : ''}`} aria-labelledby={titleId}>
       <div className="financial-visual-heading">
         <div>
-          <span>Annual cash flow</span>
-          <h4 id={titleId}>What’s left each month in {plan.year}</h4>
+          <h4 id={titleId}>{compact ? `Your ${plan.year} outlook` : `What’s left each month in ${plan.year}`}</h4>
         </div>
-        <p>{negativeMonths.length === 0 ? 'Every planned month has money left over.' : `${negativeMonths.length} planned month${negativeMonths.length === 1 ? ' needs' : 's need'} attention.`}</p>
+        <p>{!moneyKnown ? 'Enter your income and plan to see your year.' : negativeMonths.length === 0 ? 'Every planned month has money left over.' : `${negativeMonths.length} planned month${negativeMonths.length === 1 ? ' needs' : 's need'} attention.`}</p>
       </div>
       <div className="annual-cash-flow-legend" aria-hidden="true">
         <span><i className="surplus-swatch" /> Left after the plan</span>
         <span><i className="shortfall-swatch" /> Short of the plan</span>
       </div>
-      {activeMonth && (
+      <div className="annual-cash-flow-scroll" role="region" aria-label={`${plan.year} monthly income and planned outflow chart`} tabIndex={0}>
+        <div className={`annual-cash-flow-chart${moneyKnown ? '' : ' is-unknown'}`} style={{ '--cash-flow-rows': chartRows } as CSSProperties}>
+          {months.map((month) => {
+            const rowMaximum = month.baseline_surplus >= 0 ? largestSurplus : largestShortfall
+            const surplusHeight = rowMaximum === 0 ? 0 : (Math.abs(month.baseline_surplus) / rowMaximum) * 100
+            const style = { '--surplus-height': `${surplusHeight}%` } as CSSProperties
+            return (
+              <article className={`cash-flow-month${month.baseline_surplus < 0 ? ' negative' : ''}${month.period_id === reportPeriodId ? ' is-report-month' : ''}${pinnedPeriodId === month.period_id ? ' is-pinned' : ''}`} style={style} key={month.period_id}>
+                <button
+                  type="button"
+                  className="cash-flow-month-trigger"
+                  aria-pressed={pinnedPeriodId === month.period_id}
+                  aria-current={month.period_id === reportPeriodId ? 'date' : undefined}
+                  aria-label={!moneyKnown ? `${month.label} ${plan.year}: Not entered` : `${month.label} ${plan.year}: ${currency.format(month.income)} income, ${currency.format(month.planned_outflow)} planned outflow, and ${currency.format(Math.abs(month.baseline_surplus))} ${month.baseline_surplus < 0 ? 'short' : 'left over'}`}
+                  onMouseEnter={(event) => {
+                    // Focusing a month can scroll another bar beneath a stationary
+                    // pointer. Keep the keyboard user's detail on the focused month.
+                    const keyboardFocusedMonth = event.currentTarget.closest('.annual-cash-flow-chart')?.querySelector('.cash-flow-month-trigger:focus-visible')
+                    if (!keyboardFocusedMonth && (pinnedPeriodId === null || !pinnedPeriodExists)) previewPeriod(month.period_id)
+                  }}
+                  onFocus={() => previewPeriod(month.period_id)}
+                  onClick={() => togglePinnedPeriod(month.period_id)}
+                >
+                  <div className="cash-flow-bars" aria-hidden="true">
+                    <span className="cash-flow-bar-above">{moneyKnown && month.baseline_surplus > 0 && <i />}</span>
+                    <span className="cash-flow-bar-below">{moneyKnown && month.baseline_surplus < 0 && <i />}</span>
+                  </div>
+                  <strong>{month.label}</strong>
+                  <span className={`cash-flow-month-summary${month.baseline_surplus < 0 ? ' negative' : ''}`}>
+                    <b>{moneyKnown ? compactCurrency.format(Math.abs(month.baseline_surplus)) : '—'}</b>
+                    {moneyKnown && <small>{month.baseline_surplus < 0 ? 'short' : 'left'}</small>}
+                  </span>
+                </button>
+              </article>
+            )
+          })}
+        </div>
+      </div>
+      {moneyKnown && activeMonth && (
         <div className="cash-flow-detail-panel" aria-live="polite">
           <div className="cash-flow-detail-summary">
             <span>{activeMonth.period_id === reportPeriodId ? 'Report month' : 'Chart preview'}</span>
@@ -316,55 +305,18 @@ export function AnnualCashFlowChart({
           </div>
         </div>
       )}
-      <div className="annual-cash-flow-scroll" role="region" aria-label={`${plan.year} monthly income and planned outflow chart`} tabIndex={0}>
-        <div className="annual-cash-flow-chart" style={{ '--cash-flow-rows': chartRows } as CSSProperties}>
-          {months.map((month) => {
-            const rowMaximum = month.baseline_surplus >= 0 ? largestSurplus : largestShortfall
-            const surplusHeight = rowMaximum === 0 ? 0 : (Math.abs(month.baseline_surplus) / rowMaximum) * 100
-            const style = { '--surplus-height': `${surplusHeight}%` } as CSSProperties
-            return (
-              <article className={`cash-flow-month${month.baseline_surplus < 0 ? ' negative' : ''}${month.period_id === reportPeriodId ? ' is-report-month' : ''}${pinnedPeriodId === month.period_id ? ' is-pinned' : ''}`} style={style} key={month.period_id}>
-                <button
-                  type="button"
-                  className="cash-flow-month-trigger"
-                  aria-pressed={pinnedPeriodId === month.period_id}
-                  aria-current={month.period_id === reportPeriodId ? 'date' : undefined}
-                  aria-label={`${month.label} ${plan.year}: ${currency.format(month.income)} income, ${currency.format(month.planned_outflow)} planned outflow, and ${currency.format(Math.abs(month.baseline_surplus))} ${month.baseline_surplus < 0 ? 'short' : 'left over'}`}
-                  onMouseEnter={(event) => {
-                    // Focusing a month can scroll another bar beneath a stationary
-                    // pointer. Keep the keyboard user's detail on the focused month.
-                    const keyboardFocusedMonth = event.currentTarget.closest('.annual-cash-flow-chart')?.querySelector('.cash-flow-month-trigger:focus-visible')
-                    if (!keyboardFocusedMonth && (pinnedPeriodId === null || !pinnedPeriodExists)) previewPeriod(month.period_id)
-                  }}
-                  onFocus={() => previewPeriod(month.period_id)}
-                  onClick={() => togglePinnedPeriod(month.period_id)}
-                >
-                  <div className="cash-flow-bars" aria-hidden="true">
-                    <span className="cash-flow-bar-above">{month.baseline_surplus > 0 && <i />}</span>
-                    <span className="cash-flow-bar-below">{month.baseline_surplus < 0 && <i />}</span>
-                  </div>
-                  <strong>{month.label}</strong>
-                  <span className={`cash-flow-month-summary${month.baseline_surplus < 0 ? ' negative' : ''}`}>
-                    <b>{compactCurrency.format(Math.abs(month.baseline_surplus))}</b>
-                    <small>{month.baseline_surplus < 0 ? 'short' : 'left'}</small>
-                  </span>
-                </button>
-              </article>
-            )
-          })}
-        </div>
-      </div>
+
     </section>
   )
 }
 
-function PlanValue({ label, value, tone }: { label: string; value: number; tone?: 'pending' | 'negative' }) {
-  const formattedValue = currency.format(value)
+function PlanValue({ label, value, tone, emptyText = 'Not entered' }: { label: string; value: number | null; tone?: 'pending' | 'negative'; emptyText?: string }) {
+  const formattedValue = value === null ? emptyText : currency.format(value)
   const lengthClass = formattedValue.length > 14 ? ' value-xlong' : formattedValue.length > 10 ? ' value-long' : ''
   return (
     <div className={tone ? `plan-value ${tone}` : 'plan-value'}>
       <span>{label}</span>
-      <strong className={lengthClass.trim()} title={formattedValue}>{formattedValue}</strong>
+      <strong className={`${lengthClass}${value === null ? ' is-empty' : ''}`.trim()} title={formattedValue}>{formattedValue}</strong>
     </div>
   )
 }

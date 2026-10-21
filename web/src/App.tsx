@@ -941,9 +941,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const selectedBudgetYear = (usesSelectedBudgetContext ? budgetView?.year : null) ?? activeBudgetPlan?.year ?? new Date().getFullYear()
   const selectedBudgetMonthIndex = Math.max(0, Math.min(11, (usesSelectedBudgetContext ? budgetView?.monthIndex : null) ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
-  const selectedBudgetOutlookMonth = selectedBudgetMonth
-    ? activeBudgetPlan?.annual_outlook.months.find((month) => month.period_id === selectedBudgetMonth.id) ?? null
-    : null
   const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
   const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
   selectedBudgetPeriodRef.current = { startsOn: selectedBudgetMonthStartsOn, endsOn: selectedBudgetMonthEndsOn }
@@ -2031,11 +2028,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (!switchSection('Statements')) return
     if (documentImportId !== undefined) setSelectedImportId(documentImportId)
     requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-  }
-
-  function startUploadFirstSession() {
-    if (!switchSection('Statements')) return
-    window.setTimeout(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
   }
 
   async function handleAskMia(prompt = question) {
@@ -3643,15 +3635,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <button type="button" aria-label="Dismiss tool notice" onClick={() => setUnavailableModuleNotice(null)}>Dismiss</button>
             </div>
           )}
-          <HomeWelcomePanel
-            needsSetup={Boolean(isRealWorkspace && !data.workspace?.setup_complete)}
-            setupStatus={data.workspace.setup_status}
-            onPrimaryAction={isRealWorkspace && !data.workspace?.setup_complete ? startChatFirstSession : () => switchSection('Ask Mia')}
-            onManualSetup={startManualFirstSession}
-          />
-          {isRealWorkspace && !data.workspace?.setup_complete && (
-            <FirstSessionCard onChat={startChatFirstSession} onShareAll={shareAllFirstSession} onManual={startManualFirstSession} onUpload={startUploadFirstSession} onGuide={() => setPilotGuideOpen(true)} />
-          )}
+          {isRealWorkspace && !data.workspace.setup_complete && <HomeWelcomePanel onPrimaryAction={startChatFirstSession} onManualSetup={startManualFirstSession} plan={data.budget.annual_plan} income={data.workspace.setup_status.confirmed_fields.includes('primary_income') || data.workspace.income_sources.length > 0 ? data.budget.monthly_income : null} />}
           {data.workspace.setup_complete && (
             <HomeScreen
               dashboard={data.dashboard}
@@ -3662,6 +3646,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               pendingImportCount={pendingImportsCount}
               onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
               onOpenDebt={isRealWorkspace ? () => handleProfileSectionEdit('debt') : undefined}
+              onOpenBudget={() => switchSection('Budget')}
+              incomeKnown={!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('primary_income') || data.workspace.income_sources.length > 0}
+              planKnown={!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('fixed_expenses') && data.workspace.setup_status.confirmed_fields.includes('flexible_spend')}
             />
           )}
         </>
@@ -4335,34 +4322,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
       {activeSection === 'Budget' && budgetForView && (
         <section className="screen-grid budget-screen">
-          <ScreenHeading
-            eyebrow="Budget"
-            title="Know what came in, what went out, and what is left."
-            copy={budgetForView.intro}
-          />
-
-          <div className="budget-period-summary" key={selectedBudgetOutlookMonth?.period_id ?? 'current-baseline'}>
-            <div className="budget-period-summary-heading">
-              <div>
-                <p className="eyebrow">Report month</p>
-                <h3>{selectedBudgetOutlookMonth ? `${selectedBudgetOutlookMonth.label} ${selectedBudgetYear}` : 'Current approved baseline'}</h3>
-              </div>
-              <p>{selectedBudgetOutlookMonth ? 'These headline figures follow the month selected in the annual plan below.' : 'These figures use the currently approved recurring household baseline.'}</p>
-            </div>
-            <div className="metric-row">
-              <Metric label="Income" value={currency.format(selectedBudgetOutlookMonth?.income ?? budgetForView.monthly_income)} />
-              <Metric label="Planned outflow" value={debtMinimumsKnown ? currency.format(selectedBudgetOutlookMonth?.planned_outflow ?? budgetForView.total_monthly_outflow) : 'Not available'} />
-              <Metric
-                label={debtMinimumsKnown && (selectedBudgetOutlookMonth?.baseline_surplus ?? budgetForView.baseline_surplus) < 0 ? 'Short each month' : 'Left over each month'}
-                value={debtMinimumsKnown ? currency.format(Math.abs(selectedBudgetOutlookMonth?.baseline_surplus ?? budgetForView.baseline_surplus)) : 'Not available'}
-              />
-            </div>
-          </div>
-
+          <div className="screen-heading"><h2 data-page-heading tabIndex={-1}>Budget</h2></div>
+          {isRealWorkspace && !data.workspace.setup_complete && <div className="budget-setup-prompt">
+            <p>Enter your income and spending plan to see how your year looks.</p>
+            <Button onClick={startChatFirstSession}>Set up with {assistantName}</Button>
+          </div>}
           {budgetForView.annual_plan ? (
             <fieldset className="budget-loading-boundary" disabled={budgetYearLoading} aria-busy={budgetYearLoading}><legend className="sr-only">Annual budget controls</legend>
             <AnnualBudgetPlanner
               plan={budgetForView.annual_plan}
+              incomeKnown={!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('primary_income') || data.workspace.income_sources.length > 0}
+              planKnown={!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('fixed_expenses') && data.workspace.setup_status.confirmed_fields.includes('flexible_spend')}
+              needsSetup={Boolean(isRealWorkspace && !data.workspace.setup_complete)}
+              onReviewTransactions={() => switchSection('Review')}
               isRealWorkspace={Boolean(isRealWorkspace)}
               action={budgetContextAction}
               error={budgetError}
@@ -4388,16 +4360,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               }}
               onArchiveCategory={handleArchiveBudgetCategory}
               onRestoreCategory={handleRestoreBudgetCategory}
-              onApplyMiaActionDraft={handleApplyMiaActionDraft}
-              onCancelMiaActionDraft={handleCancelMiaActionDraft}
-              onOpenManualMiaAction={openManualControls}
-              onUpdateDraft={handleUpdateTransactionDraft}
-              onMatchDraft={handleMatchTransactionDraft}
-              onConfirmDraft={handleConfirmTransactionDraft}
-              onIgnoreDraft={handleIgnoreTransactionDraft}
               onReopenDraft={handleReopenTransactionDraft}
-              onBulkConfirmDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
-              onBulkIgnoreDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
               focusRequest={budgetFocusRequest}
               onFocusRequestHandled={() => setBudgetFocusRequest(null)}
             />
@@ -4799,89 +4762,23 @@ function ScreenHeading({ eyebrow, title, copy }: { eyebrow: string; title: strin
   )
 }
 
-function HomeWelcomePanel({
-  needsSetup,
-  setupStatus,
-  onPrimaryAction,
-  onManualSetup,
-}: {
-  needsSetup: boolean
-  setupStatus: WorkspaceSetupStatus
-  onPrimaryAction: () => void
-  onManualSetup: () => void
-}) {
-  const { brand, assistantName } = useBrand()
-  const defaultHeading = needsSetup ? `Give ${assistantName} a useful starting point.` : 'Welcome back.'
-  const defaultDescription = needsSetup
-    ? 'Start with money in, money out, and one goal; you can refine the rest as real decisions come up.'
-    : 'Review what needs your call, see this month inside the annual plan, and make one clear next move.'
-  return (
-    <section className={`home-welcome-panel${needsSetup ? '' : ' is-ready'}`} aria-labelledby="home-welcome-title">
-      <div className="home-welcome-copy">
-        <p className="eyebrow">{brand.tagline || 'Your coaching workspace'}</p>
-        <h2
-          id="home-welcome-title"
-          data-page-heading={needsSetup ? true : undefined}
-          tabIndex={needsSetup ? -1 : undefined}
-        >
-          {brand.welcome_heading || defaultHeading}
-        </h2>
-        <p>{brand.welcome_description || defaultDescription}</p>
-      </div>
-      <div className="home-welcome-actions">
-        {needsSetup && <div className="home-readiness-chip">
-          <span aria-hidden="true"><MiaMark /></span>
-          <div>
-            <small>First step</small>
-            <strong>{setupStatus.completed_count} of {setupStatus.required_count} essentials confirmed</strong>
-          </div>
-        </div>}
-        <Button onClick={onPrimaryAction}>
-          {needsSetup ? `Set up with ${assistantName}` : `Tell ${assistantName} what changed`}
-        </Button>
-        {needsSetup && <Button variant="ghost" onClick={onManualSetup}>Enter the five fields manually</Button>}
-      </div>
-    </section>
-  )
+export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, plan, income = null }: { onPrimaryAction: () => void; onManualSetup: () => void; plan?: AnnualBudgetPlan; income?: number | null }) {
+  const { assistantName } = useBrand()
+  return <section className="home-welcome-panel" aria-labelledby="home-welcome-title">
+    <h2 id="home-welcome-title" data-page-heading tabIndex={-1}>Welcome to your household plan.</h2>
+    <p>Start with your money in and money out; {assistantName} will help you one question at a time.</p>
+    <FirstSessionCard onChat={onPrimaryAction} onManual={onManualSetup} />
+    <dl className="home-unknown-money"><div><dt>Money in</dt><dd>{income === null ? 'Not entered' : currency.format(income)}</dd></div><div><dt>Your plan</dt><dd>Not entered</dd></div></dl>
+    {plan && <AnnualCashFlowChart plan={plan} compact moneyKnown={false} />}
+  </section>
 }
 
-function FirstSessionCard({ onChat, onShareAll, onManual, onUpload, onGuide }: { onChat: () => void; onShareAll: () => void; onManual: () => void; onUpload: () => void; onGuide: () => void }) {
+function FirstSessionCard({ onChat, onManual }: { onChat: () => void; onManual: () => void }) {
   const { assistantName } = useBrand()
-  return (
-    <section className="first-session-card" aria-labelledby="first-session-title">
-      <div className="first-session-heading">
-        <div>
-          <p className="eyebrow">Your first {assistantName} session</p>
-          <h2 id="first-session-title">Start with money in, money out.</h2>
-          <p>Give {assistantName} five essentials, then bring your assistant one real money question. You do not need every account, tab, or statement today.</p>
-        </div>
-        <Button variant="secondary" onClick={onGuide}>Read the 3-minute guide</Button>
-      </div>
-      <div className="first-session-paths">
-        <article>
-          <span>Recommended</span>
-          <h3>Let {assistantName} guide the setup</h3>
-          <p>Start a conversation and answer one simple question at a time. You do not need to gather every number before you begin.</p>
-          <div className="first-session-path-actions">
-            <button type="button" onClick={onChat}>Start one question at a time</button>
-            <button type="button" className="secondary-button" onClick={onShareAll}>Share everything at once</button>
-          </div>
-        </article>
-        <article className="first-session-path-secondary">
-          <span>Manual option</span>
-          <h3>Enter the five fields yourself</h3>
-          <p>Use the short form when you prefer exact fields. You can switch between chat and manual controls at any time.</p>
-          <Button variant="secondary" onClick={onManual}>Open the short form</Button>
-        </article>
-        <article className="first-session-path-secondary">
-          <span>Optional: try a file</span>
-          <h3>Use a file only if it helps</h3>
-          <p>Try a sample or real budget, statement, pay stub, or receipt. If something doesn’t work, tell us. Nothing changes your numbers until you approve it.</p>
-          <Button variant="secondary" onClick={onUpload}>Test a private upload</Button>
-        </article>
-      </div>
-    </section>
-  )
+  return <div className="home-welcome-actions">
+    <Button onClick={onChat}>Set up with {assistantName}</Button>
+    <Button variant="ghost" onClick={onManual}>Enter my numbers</Button>
+  </div>
 }
 
 function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }: { status: WorkspaceSetupStatus; onStartChat: () => void; onShareAll: () => void; onManual: () => void }) {
@@ -6557,7 +6454,7 @@ export function WorkspaceSetupForm({
 
       <fieldset className="setup-fieldset">
         <legend>Essential first-session information</legend>
-        <p>Use your best monthly estimate. Saving these five fields is enough to begin; details below can wait. A blank amount saves as $0, and cents are fine.</p>
+        <p>Use your best monthly estimate. Saving these five fields is enough to begin; details below can wait. Enter your best estimate, or 0 if none. Leave optional unknown amounts blank; cents are fine.</p>
         <div className="setup-field-grid">
           <label className="setup-field text-wide" title={`The household name ${assistantName} should use in this workspace.`}>
             <span>Household name</span>
@@ -9049,51 +8946,21 @@ function AnnualIncomePlanner({
   )
 }
 
-function AnnualOutlookPanel({ plan, selectedMonthIndex }: { plan: AnnualBudgetPlan; selectedMonthIndex: number }) {
-  const outlook = plan.annual_outlook
-  const nextIrregular = outlook.next_irregular_month
-
-  if (plan.monthly_debt_minimums_known === false) {
-    return <section className="annual-outlook" aria-labelledby="annual-outlook-title"><div className="annual-income-heading"><div><p className="eyebrow">Look ahead</p><h4 id="annual-outlook-title">Complete debt minimums to unlock the annual outlook.</h4><p>Planned outflow and surplus stay unavailable until every required monthly debt minimum is entered.</p></div></div></section>
-  }
-
-  return (
-    <section className="annual-outlook" aria-labelledby="annual-outlook-title">
-      <div className="annual-income-heading">
-        <div>
-          <p className="eyebrow">Look ahead</p>
-          <h4 id="annual-outlook-title">See the expensive months before they arrive.</h4>
-          <p>Total planned outflow combines editable categories with required debt minimums for each month.</p>
-        </div>
-        <span>{currency.format(outlook.typical_monthly_outflow)} typical planned month</span>
-      </div>
-
-      {(outlook.upcoming_spikes.length > 0 || nextIrregular) && (
-        <div className="annual-outlook-callouts">
-          {outlook.upcoming_spikes.map((month) => (
-            <article className="outlook-callout spike" key={month.period_id}>
-              <span>{month.label} spending spike</span>
-              <strong>{currency.format(month.planned_outflow)} planned</strong>
-              {month.amount_above_typical != null && <p>{currency.format(month.amount_above_typical)} above a typical month.</p>}
-            </article>
-          ))}
-          {nextIrregular && (
-            <article className="outlook-callout irregular">
-              <span>Next expected irregular plan · {nextIrregular.label}</span>
-              <strong>{currency.format(nextIrregular.expected_irregular)}</strong>
-              <p>{nextIrregular.expected_contributors.map((item) => item.name).join(' · ') || 'Expected sinking funds'}</p>
-            </article>
-          )}
-        </div>
-      )}
-
-      <AnnualCashFlowChart plan={plan} selectedMonthIndex={selectedMonthIndex} />
-    </section>
-  )
+function AnnualOutlookPanel({ plan, selectedMonthIndex, moneyKnown = true }: { plan: AnnualBudgetPlan; selectedMonthIndex: number; moneyKnown?: boolean }) {
+  const known = moneyKnown && plan.monthly_debt_minimums_known !== false
+  return <section className="annual-outlook" aria-label="Year outlook">
+    <AnnualCashFlowChart plan={plan} selectedMonthIndex={selectedMonthIndex} moneyKnown={known} />
+    {known && plan.annual_outlook.upcoming_spikes.map(month => <p className="outlook-callout" key={month.period_id}><strong>{month.label} spending spike: {currency.format(month.planned_outflow)} planned.</strong> {month.amount_above_typical != null && `${currency.format(month.amount_above_typical)} above a typical month.`}</p>)}
+    {moneyKnown && !known && <p>Debt minimums not entered. Add them in My Money to complete your year outlook.</p>}
+  </section>
 }
 
-function AnnualBudgetPlanner({
+export function AnnualBudgetPlanner({
   plan,
+  incomeKnown = true,
+  planKnown = true,
+  needsSetup = false,
+  onReviewTransactions,
   isRealWorkspace,
   action,
   error,
@@ -9115,20 +8982,15 @@ function AnnualBudgetPlanner({
   onAskMia,
   onArchiveCategory,
   onRestoreCategory,
-  onApplyMiaActionDraft,
-  onCancelMiaActionDraft,
-  onOpenManualMiaAction,
-  onUpdateDraft,
-  onMatchDraft,
-  onConfirmDraft,
-  onIgnoreDraft,
   onReopenDraft,
-  onBulkConfirmDrafts,
-  onBulkIgnoreDrafts,
   focusRequest,
   onFocusRequestHandled,
 }: {
   plan: AnnualBudgetPlan
+  incomeKnown?: boolean
+  planKnown?: boolean
+  needsSetup?: boolean
+  onReviewTransactions: () => void
   isRealWorkspace: boolean
   action: string | null
   error: string | null
@@ -9150,16 +9012,7 @@ function AnnualBudgetPlanner({
   onAskMia: () => void
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
-  onApplyMiaActionDraft: (draft: MiaActionDraft, itemIds?: number[]) => void
-  onCancelMiaActionDraft: (draft: MiaActionDraft) => void
-  onOpenManualMiaAction: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
-  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
-  onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
-  onConfirmDraft: (draft: TransactionDraft) => void
-  onIgnoreDraft: (draft: TransactionDraft) => void
   onReopenDraft: (draft: TransactionDraft) => void
-  onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
-  onBulkIgnoreDrafts: (drafts: TransactionDraft[]) => void
   focusRequest?: BudgetFocusRequest | null
   onFocusRequestHandled?: () => void
 }) {
@@ -9401,7 +9254,6 @@ function AnnualBudgetPlanner({
     <article className="panel annual-budget-panel">
       <div className="annual-budget-heading">
         <div>
-          <p className="eyebrow">Annual budget · {plan.year}</p>
           <h3>Your annual plan</h3>
           <p>Choose the month, review your plan, or make a change.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
@@ -9422,20 +9274,19 @@ function AnnualBudgetPlanner({
             <button type="button" className="secondary-button budget-year-arrow" aria-label="Next year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>›</button>
           </div>
         </div>
-        <div className="annual-budget-actions">
+        {!needsSetup && <div className="annual-budget-actions">
           <div className="budget-status-row"><span>{plan.rows.length} categories</span><span>{plan.pending_transaction_drafts.length + (plan.pending_mia_action_drafts ?? []).length} awaiting review</span></div>
           <div className="budget-primary-actions">
-            <button type="button" onClick={onAskMia}>Ask {assistantName} to update my plan</button>
+            {!manualTool && <button type="button" onClick={onAskMia}>Ask {assistantName} to update my plan</button>}
             {isRealWorkspace && <button type="button" ref={manualTriggerRef} className="secondary-button" aria-controls="budget-manual-manager" aria-expanded={manualTool !== null} disabled={manualTool !== null} onClick={openManualManager}>{manualTool ? 'Manual tools open' : 'Manage manually'}</button>}
           </div>
-        </div>
+        </div>}
       </div>
 
       {manualTool && (
         <section id="budget-manual-manager" className="budget-manual-manager" aria-labelledby="budget-manual-manager-title" ref={manualManagerRef} tabIndex={-1}>
           <div className="budget-manual-manager-heading">
             <div>
-              <p className="eyebrow">Manual budget tools</p>
               <h4 id="budget-manual-manager-title">What do you want to change?</h4>
               <p>Choose one focused task. Your full annual controls stay here when you need them.</p>
             </div>
@@ -9466,10 +9317,10 @@ function AnnualBudgetPlanner({
                 <label>
                   <span>Expense Stack group</span>
                   <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={action === 'create-category'}>
-                    <option value="non_discretionary">Non-discretionary</option>
-                    <option value="discretionary">Discretionary</option>
-                    <option value="sinking_expected">Sinking Fund — Expected</option>
-                    <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
+                    <option value="non_discretionary">Must-pay bills</option>
+                    <option value="discretionary">Flexible spending</option>
+                    <option value="sinking_expected">Planned yearly costs</option>
+                    <option value="sinking_unexpected">Surprise fund</option>
                   </select>
                 </label>
                 <label>
@@ -9641,62 +9492,33 @@ function AnnualBudgetPlanner({
         </section>
       )}
 
-      <div className="annual-budget-summary" aria-label="Annual money out breakdown">
+      <AnnualOutlookPanel plan={plan} selectedMonthIndex={currentMonthIndex} moneyKnown={incomeKnown && planKnown} />
+
+      {planKnown && <div className="annual-budget-summary" aria-label="Annual money out breakdown">
         <span><small>Annual category plan</small><strong>{currency.format(annualCategoryPlan)}</strong></span>
         <span><small>Annual debt minimums</small><strong>{planDebtMinimumsKnown ? currency.format(annualDebtMinimums) : 'Not entered'}</strong></span>
         <span><small>Total annual money out</small><strong>{planDebtMinimumsKnown ? currency.format(annualPlannedOutflow) : 'Not available'}</strong></span>
         <span><small>{currentMonth?.label ?? 'Month'} money out</small><strong>{planDebtMinimumsKnown ? currency.format(addMoney(currentPlanned, plan.monthly_debt_minimums)) : 'Not available'}</strong></span>
-      </div>
+      </div>}
 
       <div className="budget-operating-cockpit">
         <MonthPlanSummary
           label={`${currentMonth?.label ?? 'Selected month'} ${plan.year}`}
           income={currentMonthIncome}
+          incomeKnown={incomeKnown}
+          planKnown={planKnown}
           planned={currentPositionTotals.planned}
           actual={currentPositionTotals.actual}
           pending={currentPositionTotals.pending}
           debtMinimums={plan.monthly_debt_minimums}
           debtMinimumsKnown={planDebtMinimumsKnown}
         />
-        <ExpenseStackOverview positions={currentPositions} />
+        {planKnown && <ExpenseStackOverview positions={currentPositions} />}
       </div>
 
-      {(plan.pending_mia_action_drafts ?? []).length > 0 && (
-        <MiaActionDraftReviewStack
-          drafts={plan.pending_mia_action_drafts ?? []}
-          isRealWorkspace={isRealWorkspace}
-          action={action}
-          disabledReason={isEditingBudget ? `Finish saving or canceling annual budget edits before applying ${assistantName} action drafts.` : undefined}
-          draftActionsDisabled={isEditingBudget}
-          onApply={onApplyMiaActionDraft}
-          onCancel={onCancelMiaActionDraft}
-          onEditManually={onOpenManualMiaAction}
-        />
-      )}
+      {plan.pending_transaction_drafts.length > 0 && <p className="budget-review-link">{plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length} purchase{(plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length) === 1 ? '' : 's'} waiting for review · <button type="button" className="text-button" onClick={onReviewTransactions}>Review</button></p>}
 
-      {plan.pending_transaction_drafts.length > 0 && (
-        <TransactionDraftReviewStack
-          drafts={plan.pending_transaction_drafts}
-          isRealWorkspace={isRealWorkspace}
-          action={action}
-          draftActionsDisabled={isEditingBudget}
-          disabledReason={isEditingBudget ? 'Finish saving or canceling annual budget edits before confirming transaction drafts.' : undefined}
-          categories={plan.rows}
-          plan={plan}
-          queueMeta={plan.pending_transaction_drafts_meta}
-          onUpdate={onUpdateDraft}
-          onMatch={onMatchDraft}
-          onConfirm={onConfirmDraft}
-          onIgnore={onIgnoreDraft}
-          onReopen={onReopenDraft}
-          onBulkConfirm={onBulkConfirmDrafts}
-          onBulkIgnore={onBulkIgnoreDrafts}
-        />
-      )}
-
-      <AnnualOutlookPanel plan={plan} selectedMonthIndex={currentMonthIndex} />
-
-      <details className="budget-detail-disclosure">
+      {planKnown && <details className="budget-detail-disclosure">
         <summary>
           <span><strong>Monthly activity and transactions</strong><small>See category pressure, confirmed spending, and the ledger.</small></span>
           <b>{currentPositions.length} categories</b>
@@ -9709,7 +9531,7 @@ function AnnualBudgetPlanner({
           error={spendingReportError}
           reopen={isRealWorkspace ? { action, disabled: isEditingBudget, onReopen: onReopenDraft } : undefined}
         />
-      </details>
+      </details>}
     </article>
   )
 }
@@ -9802,13 +9624,6 @@ function clearMiaRetryRequest(chatStorageKey: string) {
   }
 }
 
-function MiaMark() {
-  return (
-    <svg viewBox="0 0 24 24" role="img" aria-label="Assistant mark">
-      <path d="M12 2.75 14.42 9.2l6.83 2.8-6.83 2.8L12 21.25 9.58 14.8 2.75 12l6.83-2.8L12 2.75Z" />
-    </svg>
-  )
-}
 
 function ShieldIcon() {
   return (

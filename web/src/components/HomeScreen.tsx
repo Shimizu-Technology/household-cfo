@@ -1,23 +1,10 @@
 import type { BudgetData, DashboardData, ReadinessMilestone } from '../api'
-import {
-  AnnualCashFlowChart,
-  CategoryPressureList,
-  MonthPlanSummary,
-} from './BudgetVisuals'
+import { AnnualCashFlowChart, MonthPlanSummary } from './BudgetVisuals'
 import { budgetPositionsForMonth, budgetPositionTotals } from '../lib/budgetPosition'
-import { Metric } from './Metric'
-import { sumMoney } from '../lib/moneyMath'
+import { Button } from './Button'
 import { useBrand } from '../contexts/brandContextValue'
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
-
-const statusCopy: Record<string, string> = {
-  green: 'steady',
-  yellow: 'watch',
-  red: 'pause',
-  blue: 'context',
-  gold: 'build',
-}
 
 type HomeScreenProps = {
   dashboard: DashboardData
@@ -28,158 +15,49 @@ type HomeScreenProps = {
   pendingImportCount: number
   onReviewImports: () => void
   onOpenDebt?: () => void
+  onOpenBudget?: () => void
+  incomeKnown?: boolean
+  planKnown?: boolean
 }
 
-export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt }: HomeScreenProps) {
-  const { brand, assistantName } = useBrand()
+export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenBudget, incomeKnown = true, planKnown = true }: HomeScreenProps) {
+  const { assistantName } = useBrand()
   const actionCenter = dashboard.action_center
-  const currentPlan = budget.annual_plan?.year === actionCenter.current_year ? budget.annual_plan : null
-  const currentMonthIndex = Math.max(0, Math.min(11, actionCenter.current_month_index))
-  const monthPlanned = currentPlan ? sumMoney(currentPlan.rows.map((row) => row.months[currentMonthIndex]?.planned ?? 0)) : 0
-  const monthActual = currentPlan ? sumMoney(currentPlan.rows.map((row) => row.months[currentMonthIndex]?.actual ?? 0)) : 0
-  const currentPositions = currentPlan ? budgetPositionsForMonth(currentPlan, currentMonthIndex) : []
-  const currentTotals = budgetPositionTotals(currentPositions)
-  const currentMonthIncome = dashboard.summary.monthly_income
-  const upcomingSpike = currentPlan?.annual_outlook?.upcoming_spikes[0]
-  const nextIrregular = currentPlan?.annual_outlook?.next_irregular_month
+  const plan = budget.annual_plan?.year === actionCenter.current_year ? budget.annual_plan : null
+  const monthIndex = Math.max(0, Math.min(11, actionCenter.current_month_index))
+  const totals = budgetPositionTotals(plan ? budgetPositionsForMonth(plan, monthIndex) : [])
+  const month = plan?.months[monthIndex]
+  const income = month ? plan?.monthly_income[month.id] ?? dashboard.summary.monthly_income : dashboard.summary.monthly_income
+  const spike = plan?.annual_outlook.upcoming_spikes[0]
+  const purchaseCount = actionCenter.transaction_review_count
 
   return (
     <section className="screen-grid home-screen">
       <div className="screen-heading home-heading">
-        <h2 data-page-heading tabIndex={-1}>CFO snapshot</h2>
+        <h2 data-page-heading tabIndex={-1}>Home</h2>
         <p>{actionCenter.current_month_label} {actionCenter.current_year}</p>
       </div>
-
-      <div className={`status-ribbon ${dashboard.summary.readiness_tone}`}>
-        <div>
-          <span>Readiness</span>
-          <strong>{dashboard.summary.readiness_label}</strong>
-        </div>
-        <p>Red means stabilize basics first. Yellow means cash flow is close but runway still needs protection. Green means target runway and positive monthly surplus are both in place.</p>
+      {plan ? <MonthPlanSummary compact label={`${actionCenter.current_month_label} ${actionCenter.current_year}`} income={income} planned={totals.planned} actual={totals.actual} pending={totals.pending} debtMinimums={plan.monthly_debt_minimums} debtMinimumsKnown={plan.monthly_debt_minimums_known !== false} incomeKnown={incomeKnown} planKnown={planKnown} /> : <p role="status">Your current plan could not be loaded. This does not mean spending is zero.</p>}
+      <div className="home-next-action">
+        <Button onClick={purchaseCount > 0 ? onReviewTransactions : onAskMia}>{purchaseCount > 0 ? `Review ${purchaseCount} purchase${purchaseCount === 1 ? '' : 's'}` : `Tell ${assistantName} what changed`}</Button>
       </div>
-
-      <section className="home-action-center" aria-label={`${brand.product_name} action center`}>
-
-        {currentPlan ? <MonthPlanSummary
-          label={`${actionCenter.current_month_label} ${actionCenter.current_year}`}
-          income={currentMonthIncome}
-          planned={currentPlan ? currentTotals.planned : monthPlanned}
-          actual={currentPlan ? currentTotals.actual : monthActual}
-          pending={currentTotals.pending}
-          safeToSpend={dashboard.summary.readiness_available ? dashboard.summary.next_safe_to_spend_amount : null}
-          baselineSurplus={budget.baseline_surplus}
-          debtMinimums={currentPlan?.monthly_debt_minimums ?? dashboard.summary.debt_payments}
-          debtMinimumsKnown={currentPlan ? currentPlan.monthly_debt_minimums_known !== false : dashboard.summary.readiness_available}
-        /> : <article className="panel" role="status">
-          <h3>Current month plan unavailable</h3>
-          <p>Your current plan could not be loaded. This does not mean spending is zero.</p>
-        </article>}
-
-        <article className={`home-review-card ${actionCenter.total_review_count > 0 || pendingImportCount > 0 ? 'has-reviews' : 'is-clear'}`}>
-          <span>What needs review?</span>
-          <strong>{actionCenter.total_review_count}</strong>
-          <p>{actionCenter.total_review_count === 0 ? (pendingImportCount > 0 ? `Transaction and ${assistantName} change reviews are up to date. Files still need your review below.` : `You are caught up. New transactions and ${assistantName} changes will wait here for your approval.`) : 'Pending items do not change actuals or the plan until you approve them.'}</p>
-          {pendingImportCount > 0 && <p>{pendingImportCount} file{pendingImportCount === 1 ? '' : 's'} needing review. File review is separate from transaction and plan changes.</p>}
-          <div className="home-review-actions">
-            {pendingImportCount > 0 && <button type="button" className="subtle" onClick={onReviewImports}>Review {pendingImportCount} file{pendingImportCount === 1 ? '' : 's'}</button>}
-            {actionCenter.transaction_review_count > 0 && <button type="button" onClick={onReviewTransactions}>Review {actionCenter.transaction_review_count} transaction{actionCenter.transaction_review_count === 1 ? '' : 's'}</button>}
-            {actionCenter.mia_action_review_count > 0 && <button type="button" className="subtle" onClick={onReviewMiaActions}>Review {actionCenter.mia_action_review_count} {assistantName} change{actionCenter.mia_action_review_count === 1 ? '' : 's'}</button>}
-          </div>
-        </article>
-      </section>
-
-      <div className="two-column">
-        <article className={`panel coach-panel ${dashboard.summary.readiness_tone}`}>
-          <p className="eyebrow">One next move</p>
-          <h3>{dashboard.coach_read.title}</h3>
-          <p>{dashboard.coach_read.body}</p>
-          {dashboard.coach_read.action === 'open_debt' && onOpenDebt && <button type="button" onClick={onOpenDebt}>Open My Money &gt; Debt</button>}
-          <button type="button" className={dashboard.coach_read.action === 'open_debt' && onOpenDebt ? 'secondary-button' : undefined} onClick={onAskMia}>Tell {assistantName} what changed</button>
-        </article>
-        <div className="card-list">
-          {dashboard.alerts.map((alert) => (
-            <article className={`insight-card ${alert.tone}`} key={alert.title}>
-              <span>{statusCopy[alert.tone] ?? 'note'}</span>
-              <h3>{alert.title}</h3>
-              <p>{alert.body}</p>
-              {alert.action === 'open_debt' && onOpenDebt && <button type="button" className="secondary-button" onClick={onOpenDebt}>Add debt minimums</button>}
-            </article>
-          ))}
-        </div>
+      {plan && <section className="home-financial-visuals" aria-label="Your year outlook">
+        <AnnualCashFlowChart plan={plan} compact selectedMonthIndex={monthIndex} moneyKnown={incomeKnown && planKnown && plan.monthly_debt_minimums_known !== false} />
+        {incomeKnown && planKnown && spike && <p className="home-year-note"><strong>{spike.label}: {currency.format(spike.planned_outflow)} planned out.</strong> {spike.amount_above_typical != null && `${currency.format(spike.amount_above_typical)} above a typical month.`}</p>}
+      </section>}
+      <p className="home-plan-link"><button type="button" className="text-button" onClick={onOpenBudget}>Plan details →</button></p>
+      <div className="home-readiness-line">
+        <span>Readiness: {dashboard.summary.readiness_label}</span>
+        <details className="home-readiness-details">
+          <summary>Readiness details</summary>
+          <p>Red: protect the basics. Yellow: build your cash cushion. Green: your target cushion and a positive monthly balance are in place.</p>
+          {dashboard.readiness_path.available === false ? <p>{dashboard.readiness_path.unavailable_reason}</p> : <div className="readiness-milestone-grid"><ReadinessMilestoneCard label="Yellow checkpoint" milestone={dashboard.readiness_path.yellow} /><ReadinessMilestoneCard label="Green target" milestone={dashboard.readiness_path.green} /></div>}
+        </details>
       </div>
-
-      <details className="panel home-detail-disclosure">
-        <summary>
-          <span>
-            <strong>Explore the plan behind this snapshot</strong>
-            <small>Category pressure, the annual outlook, runway milestones, and this week’s rhythm</small>
-          </span>
-          <b>Plan details</b>
-        </summary>
-
-        <div className="home-detail-content">
-          {currentPlan && currentPlan.monthly_debt_minimums_known !== false && (
-            <section className="home-financial-visuals" aria-label="Monthly and annual financial position">
-              <CategoryPressureList positions={currentPositions} limit={4} />
-              <AnnualCashFlowChart plan={currentPlan} compact selectedMonthIndex={currentMonthIndex} />
-            </section>
-          )}
-
-          {currentPlan?.monthly_debt_minimums_known !== false && (upcomingSpike || nextIrregular) && (
-            <section className="home-look-ahead" aria-label="Annual plan look ahead">
-              <div>
-                <span>Look ahead</span>
-                <h3>The next annual-plan pressure is visible now.</h3>
-              </div>
-              {upcomingSpike && (
-                <article>
-                  <span>{upcomingSpike.label} spending spike</span>
-                  <strong>{currency.format(upcomingSpike.planned_outflow)} planned</strong>
-                  {upcomingSpike.amount_above_typical != null && <p>{currency.format(upcomingSpike.amount_above_typical)} above a typical planned month.</p>}
-                </article>
-              )}
-              {nextIrregular && (
-                <article>
-                  <span>{nextIrregular.label} expected irregular plan</span>
-                  <strong>{currency.format(nextIrregular.expected_irregular)}</strong>
-                  <p>{nextIrregular.expected_contributors.map((item) => item.name).join(' · ') || 'Expected sinking funds'}</p>
-                </article>
-              )}
-            </section>
-          )}
-
-          <section className="readiness-path-panel" aria-labelledby="readiness-path-title">
-            <div className="readiness-path-heading">
-              <div>
-                <p className="eyebrow">Annual runway</p>
-                <h3 id="readiness-path-title">Your path from Red to Yellow to Green</h3>
-              </div>
-              <p>Yellow is the halfway runway checkpoint. Green is the full runway target. They are planning signals, not grades.</p>
-            </div>
-            {dashboard.readiness_path.available === false ? (
-              <p className="setup-error" role="status">{dashboard.readiness_path.unavailable_reason}</p>
-            ) : <>
-              <div className="readiness-current-row">
-                <Metric label="Protected liquid" value={currency.format(dashboard.readiness_path.protected_liquid_amount)} />
-                <Metric label="Current runway" value={dashboard.readiness_path.current_runway_months === null ? 'Not available' : `${dashboard.readiness_path.current_runway_months} months`} />
-                <Metric label="Monthly surplus" value={dashboard.readiness_path.monthly_surplus === null ? 'Not available' : currency.format(dashboard.readiness_path.monthly_surplus)} />
-                <Metric label="Full target" value={`${dashboard.readiness_path.target_runway_months} months`} />
-              </div>
-              <div className="readiness-milestone-grid">
-                <ReadinessMilestoneCard label="Yellow checkpoint" milestone={dashboard.readiness_path.yellow} />
-                <ReadinessMilestoneCard label="Green target" milestone={dashboard.readiness_path.green} />
-              </div>
-            </>}
-          </section>
-
-          <article className="next-steps">
-            <h3>This week’s coaching rhythm</h3>
-            <ol>
-              {dashboard.next_steps.map((step) => <li key={step}>{step}</li>)}
-            </ol>
-          </article>
-        </div>
-      </details>
+      {(pendingImportCount > 0 || actionCenter.mia_action_review_count > 0) && <div className="home-other-reviews">
+        {pendingImportCount > 0 && <button type="button" className="text-button" onClick={onReviewImports}>{pendingImportCount} file{pendingImportCount === 1 ? '' : 's'} waiting for review</button>}
+        {actionCenter.mia_action_review_count > 0 && <button type="button" className="text-button" onClick={onReviewMiaActions}>{actionCenter.mia_action_review_count} {assistantName} change{actionCenter.mia_action_review_count === 1 ? '' : 's'} waiting for review</button>}
+      </div>}
     </section>
   )
 }
