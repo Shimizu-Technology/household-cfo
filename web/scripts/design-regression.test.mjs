@@ -287,12 +287,15 @@ assert.deepEqual(cssPolicyFindings(`/* linear-gradient(red, blue) */
   @media (max-width: 600px) { @media (hover: hover) and (pointer: fine) { .card:hover { color: red } } }
 `, 'fixture.css'), [], 'comments, flat surfaces and nested fine-pointer hover are valid')
 const cssPolicyFailures = []
+const matchedAllowlistKeys = new Set()
 for (const path of stylesheetFiles) {
   const file = path.replace('../', '')
   const source = readFileSync(resolve(__dirname, path), 'utf8')
   for (const finding of cssPolicyFindings(source, file)) {
-    if (!cssPolicyAllowlist.has(finding.key)) cssPolicyFailures.push(`${file}:${finding.line} ${finding.kind}: ${finding.key}`)
+    if (cssPolicyAllowlist.has(finding.key)) matchedAllowlistKeys.add(finding.key)
+    else cssPolicyFailures.push(`${file}:${finding.line} ${finding.kind}: ${finding.key}`)
   }
 }
 assert.deepEqual(cssPolicyFailures, [], 'new CSS decoration/ungated hover: remove it or document a specific intentional exception')
+assert.deepEqual([...cssPolicyAllowlist].filter((key) => !matchedAllowlistKeys.has(key)), [], 'stale CSS policy exceptions: remove keys whose finding no longer exists')
 console.log('design regression checks passed')
