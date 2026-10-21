@@ -202,7 +202,7 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
           <header><h3>Program and coach</h3><p>Help people recognize your program and the coach behind it.</p></header>
           <fieldset disabled={busy || !workspace.permissions.manage}><IdentityFields values={identity} onChange={setIdentity} /><Button type="submit" aria-describedby="program-identity-save-help" disabled={!identityDirty || brandDirty}>{pending === 'identity' ? 'Saving…' : 'Save program identity'}</Button></fieldset>
           {!workspace.permissions.manage && <p className="program-help">Only the program owner or a platform administrator can change program identity.</p>}
-          <p id="program-identity-save-help" className="program-help">{busy ? 'Wait for the current action to finish.' : brandDirty ? 'Save the appearance draft below before saving program identity.' : !identityDirty ? 'Your program identity is saved. Change a field to save again.' : 'Save the name and coach profile together.'}</p>
+          <p id="program-identity-save-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !workspace.permissions.manage ? 'Ask a program owner to change the name or coach profile.' : brandDirty ? 'Save the appearance draft below before saving program identity.' : !identityDirty ? 'Your program identity is saved. Change a field to save again.' : 'Save the name and coach profile together.'}</p>
         </form>
         <form className="panel" onSubmit={saveBrand}>
           <header><h3>Welcome screen and appearance</h3><p>{releaseImpact} Change the assistant’s name in Assistant voice.</p></header>

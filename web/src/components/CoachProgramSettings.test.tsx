@@ -62,6 +62,7 @@ describe('program settings', () => {
     const name = await screen.findByLabelText('App name')
     expect(name.closest('fieldset')?.disabled).toBe(true)
     expect(screen.getByLabelText('Program name').closest('fieldset')?.disabled).toBe(true)
+    expect(screen.getByText('Ask a program owner to change the name or coach profile.')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Preview welcome screen' }) as HTMLButtonElement).disabled).toBe(false)
     expect((screen.getByRole('button', { name: 'Publish branding' }) as HTMLButtonElement).disabled).toBe(true)
   })

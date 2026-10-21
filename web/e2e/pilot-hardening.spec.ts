@@ -8752,6 +8752,7 @@ test('Coach Studio program reviewer cannot edit identity or access participants 
   await page.getByRole('tab', { name: /Program settings/ }).click()
   await expect(page.getByLabel('Program name', { exact: true })).toHaveValue('Partner coaching workspace')
   await expect(page.getByLabel('Program name', { exact: true })).toBeDisabled()
+  await expect(page.getByText('Ask a program owner to change the name or coach profile.')).toBeVisible()
   await expect(page.getByLabel('App name', { exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Preview welcome screen' })).toBeEnabled()
   await page.evaluate(() => document.fonts.ready)
