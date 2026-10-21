@@ -3882,7 +3882,7 @@ export async function fetchSpendingReport(startOn: string, endOn: string): Promi
 export type MiaMessageResponse = {
   setup_help?: { available: boolean } | null
   financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
-  savings_intake?: import('./lib/savingsChallenge').SavingsIntake | null
+  savings_intake?: import('./lib/savingsChallenge').SavingsIntake | import('./lib/savingsChallenge').DailyReportIntake | null
   user_message: MiaMessage
   assistant_message: MiaMessage
   transaction_draft?: TransactionDraft | null

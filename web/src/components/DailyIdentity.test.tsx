@@ -13,7 +13,7 @@ afterEach(cleanup)
 beforeEach(()=>vi.clearAllMocks())
 it('does not render or select another enrollment’s canonical candidate',async()=>{
  vi.mocked(fetchDailyCandidates).mockResolvedValue({actor_scope:baselineScope,enrollment_id:101,cohort_id:55,records:[{id:1,merchant:'Wrong program merchant',amount_cents:1250,posted_on:'2026-09-28',purchased_on_candidates:['2026-09-28'],splits:dailyVersion.splits,digest:'synthetic',source_owned:false}],next_cursor:null})
- render(<DailyPurchaseEditor context={{...dailyContext,cohort_id:55}} scope={scope} selectedDate="2026-09-28" mutate={vi.fn()} busy={false} onDone={vi.fn()} onStatements={vi.fn()} onDenied={denied}/>)
+ render(<DailyPurchaseEditor context={{...dailyContext,cohort_id:55}} scope={scope} selectedDate="2026-09-28" onSave={vi.fn()} busy={false} onDone={vi.fn()} onStatements={vi.fn()} onDenied={denied}/>)
  fireEvent.change(screen.getByLabelText('Purchase source'),{target:{value:'existing_transaction'}})
  await waitFor(()=>expect(denied).toHaveBeenCalledOnce());expect(screen.queryByText(/Wrong program merchant/)).toBeNull()
 })

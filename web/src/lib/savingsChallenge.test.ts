@@ -1,6 +1,6 @@
 import { savingsFixture } from '../test/savingsFixtures'
 import { describe, expect, it } from 'vitest'
-import { checkedSavingsIntake, type SavingsIntake, savingsDefaultDate, savingsDollars, savingsInputCents, savingsInputDollars } from './savingsChallenge'
+import { checkedDailyReport, checkedSavingsIntake, type DailyReportIntake, type SavingsIntake, savingsDefaultDate, savingsDollars, savingsInputCents, savingsInputDollars } from './savingsChallenge'
 describe('exact savings input', () => {
   it.each([['25.50', 2550], ['1', 100], ['0.01', 1], ['12.3', 1230], [' 500.00 ', 50000]])('converts %s to exact integer cents', (text, cents) => expect(savingsInputCents(text)).toBe(cents))
   it.each(['1.005', '1e3', '1,000', '-1', '.5', 'NaN', '', '0', '9007199254740993'])('rejects ambiguous, fractional-cent, nonpositive or unsafe %s', (value) => expect(() => savingsInputCents(value)).toThrow())
@@ -26,5 +26,21 @@ describe('unreviewed Mia convenience input', () => {
     for (const unsafe of [{ counted: true }, { amount_cents: 12.5 }, { amount_cents: 0 }, { effective_on: '2026-02-30' }, { signed_cents: -1250 }, { merchant: '' }, { approval_state: 'approved' }]) {
       expect(checkedSavingsIntake({ ...input, ...unsafe } as SavingsIntake)).toBeNull()
     }
+  })
+})
+
+describe('chat daily report card input', () => {
+  const report: DailyReportIntake = { kind: 'daily_report', local_on: '2026-10-21', purchases: [{ amount_cents: 800, merchant: 'Shell', purchased_on: '2026-10-21' }, { amount_cents: 2000, merchant: '', purchased_on: '2026-10-20' }], no_spend: false, feelings: { when_spent: 'rushed', now: null }, counted: false, approval_state: 'unreviewed_input' }
+  it('accepts purchases (a place may still be missing) or an explicit no-spend day, never counted input', () => {
+    expect(checkedDailyReport(report)).toEqual(report)
+    expect(checkedDailyReport({ ...report, purchases: [], no_spend: true, feelings: null })).not.toBeNull()
+    expect(checkedSavingsIntake(report)).toBeNull()
+    for (const unsafe of [{ counted: true }, { approval_state: 'approved' }, { purchases: [] }, { no_spend: true }, { local_on: '2026-02-30' },
+      { purchases: [{ amount_cents: 0, merchant: 'Shell', purchased_on: '2026-10-21' }] }, { purchases: [{ amount_cents: 12.5, merchant: 'Shell', purchased_on: '2026-10-21' }] },
+      { purchases: [{ amount_cents: 800, merchant: 'x'.repeat(121), purchased_on: '2026-10-21' }] }, { purchases: Array(11).fill(report.purchases[0]) },
+      { feelings: { when_spent: 'x'.repeat(141), now: null } }]) {
+      expect(checkedDailyReport({ ...report, ...unsafe })).toBeNull()
+    }
+    expect(checkedDailyReport(null)).toBeNull()
   })
 })

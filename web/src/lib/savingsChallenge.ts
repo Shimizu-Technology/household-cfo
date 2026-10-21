@@ -67,13 +67,30 @@ export function savingsDefaultDate(calendar: SavingsCalendar | undefined): strin
 }
 
 export type SavingsIntake = { kind: 'purchase' | 'contribution' | 'withdrawal'; amount_cents: number; effective_on: string; merchant?: string; signed_cents?: number; approval_state: 'unreviewed_input'; counted: false; new_money_confirmation_required?: true }
-export function checkedSavingsIntake(value: SavingsIntake | null | undefined): SavingsIntake | null {
-  if(!value || !['purchase','contribution','withdrawal'].includes(value.kind) || value.approval_state!=='unreviewed_input' || value.counted!==false || !Number.isSafeInteger(value.amount_cents) || value.amount_cents<1 || value.amount_cents>2147483647 || !/^\d{4}-\d{2}-\d{2}$/.test(value.effective_on))return null
+export function checkedSavingsIntake(value: SavingsIntake | DailyReportIntake | null | undefined): SavingsIntake | null {
+  if(!value || value.kind==='daily_report')return null
+  if(!['purchase','contribution','withdrawal'].includes(value.kind) || value.approval_state!=='unreviewed_input' || value.counted!==false || !Number.isSafeInteger(value.amount_cents) || value.amount_cents<1 || value.amount_cents>2147483647 || !/^\d{4}-\d{2}-\d{2}$/.test(value.effective_on))return null
   const date = new Date(`${value.effective_on}T00:00:00Z`)
   if(!Number.isFinite(date.getTime()) || date.toISOString().slice(0,10)!==value.effective_on)return null
   if(value.kind==='purchase' && (!value.merchant?.trim() || value.merchant.length>120))return null
   if(value.signed_cents!==undefined && value.signed_cents!==(value.kind==='withdrawal'?-value.amount_cents:value.amount_cents))return null
   return value
+}
+
+// A chat daily report: purchases or an explicit no-spend day, never saved or counted
+// until the participant taps Save on the card that lists every item.
+export type DailyReportPurchase = { amount_cents: number; merchant: string; purchased_on: string }
+export type DailyReportIntake = { kind: 'daily_report'; local_on: string; purchases: DailyReportPurchase[]; no_spend: boolean; feelings: { when_spent: string | null; now: string | null } | null; approval_state: 'unreviewed_input'; counted: false }
+const isoDay = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+const shortText = (value: unknown, limit: number) => value === null || (typeof value === 'string' && value.length <= limit)
+export function checkedDailyReport(value: unknown): DailyReportIntake | null {
+  if (!value || typeof value !== 'object') return null
+  const report = value as DailyReportIntake
+  if (report.kind !== 'daily_report' || report.approval_state !== 'unreviewed_input' || report.counted !== false || !isoDay(report.local_on) || typeof report.no_spend !== 'boolean' || !Array.isArray(report.purchases) || report.purchases.length > 10) return null
+  if (report.no_spend ? report.purchases.length > 0 : report.purchases.length === 0) return null
+  if (!report.purchases.every((row) => row && Number.isSafeInteger(row.amount_cents) && row.amount_cents >= 1 && row.amount_cents <= 2147483647 && typeof row.merchant === 'string' && row.merchant.length <= 120 && isoDay(row.purchased_on))) return null
+  if (report.feelings !== null && (typeof report.feelings !== 'object' || !shortText(report.feelings.when_spent, 140) || !shortText(report.feelings.now, 140))) return null
+  return report
 }
 
 export function savingsPlanContextInput(plan: SavingsPlanContext | null | undefined): SavingsPlanContextInput | undefined {
