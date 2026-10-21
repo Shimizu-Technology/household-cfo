@@ -2,9 +2,10 @@ module SavingsChallenge
   # Financial facts come from approved participant records. Uploads and proposed
   # spending reductions never become saved cash through a chat answer.
   class CoachAnswerer
-    def initialize(household:, user:, enrollment:, message:, attachments: [], daily_report: nil)
+    def initialize(household:, user:, enrollment:, message:, attachments: [], daily_report: nil, daily_rejection: nil)
       @household, @user, @enrollment, @message, @attachments = household, user, enrollment, message.to_s, attachments
       @daily_report = daily_report if daily_report.is_a?(Hash) && daily_report[:kind] == "daily_report"
+      @daily_rejection = daily_rejection if daily_rejection.is_a?(Hash) && daily_rejection[:date]
     end
 
     LOAN_TOPIC = /\b(?:loans?|mortgage|lending|lender|credit score|credit report|borrow(?:ing)?)\b/i
@@ -47,6 +48,7 @@ module SavingsChallenge
       private_context do
         return attachment_answer if @attachments.any?
         return deterministic(daily_report_answer) if @daily_report
+        return deterministic(daily_rejection_answer) if @daily_rejection
         return deterministic(card_balance_answer) if @message.match?(CARD_BALANCE_QUESTION) && !@message.match?(PAYMENT_REPORT)
         return savings_answer if @message.match?(BORROWING_FROM_SAVINGS)
         if (@message.match?(CARD_RANKING_QUESTION) || (@message.match?(EXTRA_PAYMENT_QUESTION) && @message.match?(CARD_OR_DEBT_WORD))) && !@message.match?(PAYMENT_REPORT)
@@ -206,7 +208,9 @@ module SavingsChallenge
       report = @daily_report
       if report[:no_spend]
         day = report[:local_on] == @enrollment.local_today.iso8601 ? "today" : "that day"
-        return "No spending #{day}. I've put it below — tap Save to record it. Nothing is saved until you do."
+        # Feelings are kept with a purchase; a no-spend day has none to keep them with.
+        feelings = @message.match?(/\b(?:feel|feels|feeling|felt)\b/i) ? " How you feel isn't saved with a no-spend day, but I'm glad you told me." : ""
+        return "No spending #{day}. I've put it below — tap Save to record it. Nothing is saved until you do.#{feelings}"
       end
       purchases = report[:purchases]
       items = purchases.map { |row| row[:merchant].present? ? "#{money(row[:amount_cents])} at #{row[:merchant]}" : money(row[:amount_cents]) }
@@ -214,6 +218,22 @@ module SavingsChallenge
       place = missing.zero? ? "" : " Add where you spent #{missing == 1 ? 'it' : 'each one'} on the card."
       feelings = report[:feelings] ? " How you felt is on the card too; it stays private." : ""
       "Got it: #{items.to_sentence}.#{place}#{feelings} I've put #{purchases.one? ? 'it' : 'these'} below — check #{purchases.one? ? 'it' : 'them'} and tap Save. Nothing is saved until you do."
+    end
+
+    # A clearly reported day outside the personal window: say which and why.
+    def daily_rejection_answer
+      reason = @daily_rejection
+      date, today = reason[:date], reason[:today]
+      label = ->(day) { day.strftime("%a, %b %-d") }
+      spending = date == today - 1 ? "yesterday's spending" : "spending from #{label.call(date)}"
+      case reason[:kind]
+      when :before_start
+        "Your challenge started on #{label.call(reason[:starts_on])}, so I can't add #{spending} to it. Nothing was saved. You can tell me about today instead."
+      when :after_end
+        "Your challenge ended on #{label.call(reason[:ends_on])}, so I can't add #{spending} to it. Nothing was saved."
+      else
+        "#{label.call(date)} hasn't happened yet, so I can't add it. Nothing was saved. Tell me once it's done."
+      end
     end
 
     def savings_answer

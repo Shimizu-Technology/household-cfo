@@ -15,6 +15,9 @@ module SavingsChallenge
       @enrollment, @message, @extractor = enrollment, message.to_s, extractor
     end
 
+    # Why a clearly reported day could not become a card (outside the window), or nil.
+    attr_reader :rejection
+
     def call
       return unless @enrollment && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
       return savings_input if savings_report?
@@ -53,6 +56,7 @@ module SavingsChallenge
     def daily_report
       parsed = DailyReportParser.new(@enrollment, message: @message).call
       return parsed.report if parsed.found?
+      @rejection = parsed.reason
       return unless parsed.none? && @message.match?(PLAUSIBLE_REPORT)
 
       (@extractor || DailyReportExtractor.new(@enrollment, message: @message)).call

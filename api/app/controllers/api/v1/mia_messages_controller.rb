@@ -524,9 +524,11 @@ module Api
           cohort_id: current_participant_runtime.cohort_id, cohort_release_id: current_participant_runtime.release_id).call
         history = intent_transcript_without_memory_commands(transcript_for_current_persona(transcript)).map { |message| message.slice(:role, :content) }
         # Read before the household lock: the optional extractor may wait on the provider.
-        savings_intake = attached_imports.empty? ? SavingsChallenge::ChatIntake.new(enrollment, message: content).call : nil
+        chat_intake = SavingsChallenge::ChatIntake.new(enrollment, message: content) if attached_imports.empty?
+        savings_intake = chat_intake&.call
         coach_answerer = SavingsChallenge::CoachAnswerer.new(household: current_household, user: current_user,
-          enrollment: enrollment, message: content, attachments: attached_imports, daily_report: savings_intake)
+          enrollment: enrollment, message: content, attachments: attached_imports, daily_report: savings_intake,
+          daily_rejection: chat_intake&.rejection)
         reference = coach_answerer.call
         @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
         narrator = SavingsChallenge::Narrator.new(user_message: content,

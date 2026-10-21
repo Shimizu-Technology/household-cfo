@@ -200,6 +200,19 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
         "counted" => false, "approval_state" => "unreviewed_input" }, response.parsed_body.fetch("savings_intake"))
       assert_includes response.parsed_body.dig("assistant_message", "content"), "No spending today. I've put it below"
 
+      post "/api/v1/mia/messages", params: { message: "I spent nothing today but I feel stressed", request_id: "daily-no-spend-feeling" }, headers: auth, as: :json
+      assert response.parsed_body.dig("savings_intake", "no_spend")
+      assert_nil response.parsed_body.dig("savings_intake", "feelings")
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "How you feel isn't saved with a no-spend day"
+
+      # Day 1 of the personal window: yesterday cannot be recorded, and Mia says why.
+      [ "spent $9 at Shell yesterday", "I didn't spend anything yesterday" ].each_with_index do |message, index|
+        post "/api/v1/mia/messages", params: { message: message, request_id: "daily-before-start-#{index}" }, headers: auth, as: :json
+        assert_nil response.parsed_body.fetch("savings_intake"), message
+        assert_equal "Your challenge started on Sun, Nov 15, so I can't add yesterday's spending to it. Nothing was saved. You can tell me about today instead.",
+          response.parsed_body.dig("assistant_message", "content"), message
+      end
+
       [ "should I spend 20 at Ross?", "I might buy shoes at Ross", "paid 300 on my credit card", "bought 2 shares of Apple today" ].each_with_index do |message, index|
         post "/api/v1/mia/messages", params: { message: message, request_id: "daily-negative-#{index}" }, headers: auth, as: :json
         assert_nil response.parsed_body.fetch("savings_intake"), message
@@ -214,21 +227,21 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     ENV["OPENROUTER_API_KEY"] = "fictional-key"
     SavingsChallenge::DailyReportExtractor.class_eval do
       alias_method :__orig_daily_extract, :openrouter_response
-      define_method(:openrouter_response) { { purchases: [ { amount: "12.50", merchant: "Kings", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "", counted: true }.to_json }
+      define_method(:openrouter_response) { { purchases: [ { amount: "12", merchant: "Kings", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "", counted: true }.to_json }
     end
-    post "/api/v1/mia/messages", params: { message: "lunch w my cousins was 12.50 at Kings", request_id: "daily-extract-extra" }, headers: auth, as: :json
+    post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract-extra" }, headers: auth, as: :json
     assert_nil response.parsed_body.fetch("savings_intake"), "an extra field rejects the whole proposal"
     SavingsChallenge::DailyReportExtractor.class_eval do
-      define_method(:openrouter_response) { { purchases: [ { amount: "12.50", merchant: "Kings", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "" }.to_json }
+      define_method(:openrouter_response) { { purchases: [ { amount: "12", merchant: "Kings", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "" }.to_json }
     end
     HouseholdFinance::MiaNarrator.class_eval do
       alias_method :__orig_daily_openrouter, :openrouter_response
       define_method(:openrouter_response) { raise "a daily report reply is deterministic" }
     end
     assert_no_difference [ "SavingsDailyPurchaseDraft.count", "SavingsDailyPurchaseVersion.count" ] do
-      post "/api/v1/mia/messages", params: { message: "lunch w my cousins was 12.50 at Kings", request_id: "daily-extract" }, headers: auth, as: :json
+      post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract" }, headers: auth, as: :json
     end
-    assert_equal [ { "amount_cents" => 1250, "merchant" => "Kings", "purchased_on" => "2026-11-15" } ], response.parsed_body.dig("savings_intake", "purchases")
+    assert_equal [ { "amount_cents" => 1200, "merchant" => "Kings", "purchased_on" => "2026-11-15" } ], response.parsed_body.dig("savings_intake", "purchases")
     refute response.parsed_body.dig("savings_intake", "counted")
   ensure
     SavingsChallenge::DailyReportExtractor.class_eval { alias_method :openrouter_response, :__orig_daily_extract }

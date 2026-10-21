@@ -8,7 +8,8 @@ module SavingsChallenge
   # card or loan payments, savings moves and investments are not purchases,
   # and an unclear day is left to the conversation instead of guessed.
   class DailyReportParser
-    Result = Struct.new(:status, :report, keyword_init: true) do
+    # reason explains a rejected day ({ kind: :before_start | :after_end | :future, date:, ... }).
+    Result = Struct.new(:status, :report, :reason, keyword_init: true) do
       def found? = status == :found
       # Nothing that looks like a daily report was read; an extractor may try.
       def none? = status == :none
@@ -42,6 +43,8 @@ module SavingsChallenge
     NOT_PURCHASE_MESSAGE = /\b(?:refund(?:ed|s)?|returned|reimburs\w*|borrow(?:ed|ing)?|lent|cash\s+advance|payday\s+loan|got\s+paid|salary)\b|\bgot\s+(?:\$?\s*\d[\d,.]*\s+)?back\b/i.freeze
     # A single clause that moves money without buying something.
     NOT_PURCHASE_CLAUSE = /\b(?:pa(?:id|y|yment)|put)\s+(?:\$?\s*\d[\d,.]*\s+)?(?:(?:on|to|toward|towards|into|off|down)\s+)?(?:my\s+|the\s+|our\s+)?(?:credit\s*card|card|visa|mastercard|amex)\b|\b(?:credit\s*card|card)\s+(?:bill|balance|payment)|\b(?:loan|mortgage|car\s+note|debt|minimum\s+payment|transfer(?:red|ring)?|deposit(?:ed)?|withdr(?:ew|awn|awal|aw)|venmo|zelle|cash\s*app|atm|paid\s+back|pay\s+back|owe[ds]?|shares?|stocks?|crypto\w*|bitcoin|btc|etfs?|index\s+funds?|mutual\s+funds?|savings|set\s+aside|put\s+aside|reserved)\b/i.freeze
+    # "2 for 1", "buy one get one": a deal, never the price paid.
+    DEAL_PATTERN = /\b\d+\s+for\s+\d+(?![\d.])(?!\s*(?:dollars?|bucks))|\bbuy\s+(?:one|1)\s+get\s+(?:one|1)\b|\bbogo\b/i.freeze
     SPEND_VERB = /\b(?:spent|paid|bought|purchased|charged|grabbed|dropped|blew|ordered|picked\s+up|got)\b/i.freeze
     # A bare number counts as dollars only after one of these spending verbs.
     BARE_AFTER_VERB = /\b(?:spent|paid|charged|dropped|blew)\s+(?:(?:about|around|like|roughly|almost|over|just|another)\s+)?\z/i.freeze
@@ -147,7 +150,7 @@ module SavingsChallenge
       dates = date_tokens(@message).map { |token| token[:date] }.uniq
       return result(:rejected) if dates.length > 1 || dates.include?(nil)
       date = dates.first || today
-      return result(:rejected) unless open_day?(date)
+      return window_rejection(date) unless open_day?(date)
 
       report(purchases: [], no_spend: true, local_on: date, feelings: nil)
     end
@@ -175,11 +178,14 @@ module SavingsChallenge
         amounts.each { |cents| rows << { amount_cents: cents, merchant: merchant, date: dates.first&.fetch(:date) } }
       end
       # A card payment or savings move alone is not an unread purchase.
-      return skipped ? result(:excluded) : [] if rows.empty?
+      # Nothing priced was read: a card payment, savings move or deal alone is not
+      # an unread purchase for the extractor to guess at.
+      return skipped || @message.match?(DEAL_PATTERN) ? result(:excluded) : [] if rows.empty?
       return result(:rejected) if rows.length > MAX_PURCHASES
 
       purchases = assign_dates(rows)
-      return result(:rejected) unless purchases.all? { |row| open_day?(row[:purchased_on]) }
+      outside = purchases.find { |row| !open_day?(row[:purchased_on]) }
+      return window_rejection(outside[:purchased_on]) if outside
 
       purchases
     end
@@ -195,6 +201,12 @@ module SavingsChallenge
     end
 
     def open_day?(date) = date && date >= @enrollment.starts_on && date <= last_open_day
+
+    # A real day that cannot be recorded, so Mia can say which and why.
+    def window_rejection(date)
+      kind = if date > today then :future elsif date < @enrollment.starts_on then :before_start else :after_end end
+      Result.new(status: :rejected, reason: { kind: kind, date: date, starts_on: @enrollment.starts_on, ends_on: @enrollment.ends_on, today: today })
+    end
 
     def split_segments(text)
       text.split(/\n+|;|(?<=[.!])\s+|,(?!\d{3}(?!\d))\s*|\s+(?:and|then|plus|also)\s+(?=\S)/i)
@@ -212,7 +224,8 @@ module SavingsChallenge
 
       list = segment.match(LIST_ITEM)
       if list && !segment.match?(SPEND_VERB) && !segment.match?(/\b(?:at|from)\b/i)
-        return [] unless list[:dollar] || verb || list_like
+        # "Coffee 4.75": dollars and cents on a short line is money even without "$".
+        return [] unless list[:dollar] || verb || list_like || list[:amount].match?(/\.\d{2}\z/)
         return [] if list[:place].squish.match?(/\A(?:i|we|my|our|the|a|an|kids?|children|people)\b/i)
 
         cents = self.class.cents(list[:amount])
@@ -236,10 +249,15 @@ module SavingsChallenge
         after = masked[match.end(0)..]
         next unless after.match?(BARE_FOLLOWERS)
         next if before.match?(/\b(?:at|on|in|by|around|about|from|until|til|till|after|before|over|under|of|x)\s*\z/i) && !before.match?(BARE_AFTER_VERB)
+        # Deal wording ("2 for 1", "buy 2 for 1") is a quantity, not the price.
+        next if before.match?(/\b\d+\s+for\s*\z/i)
 
+        cents_written = match[1].match?(/\.\d{2}\z/)
         money = before.match?(BARE_AFTER_VERB) ||
           (before.match?(LEADING_JOINER) && (verb || after.match?(/\A[^$\d]*?\s(?:at|@|from)\s+[a-z]/i))) ||
-          (before.match?(/\bfor\s*\z/i) && verb)
+          (before.match?(/\bfor\s*\z/i) && verb) ||
+          # "lunch 12.50 at Kings": dollars and cents beside a place, or on a short line.
+          (cents_written && (after.match?(/\A\s+(?:at|@|from)\s+[a-z]/i) || masked.split.size <= 4))
         next unless money
 
         cents = self.class.cents(match[1])
