@@ -99,7 +99,69 @@ class SavingsDebtConcurrencyTest < ActiveSupport::TestCase
     end
   end
 
+  # Home load fires the savings reads in parallel. Reminder reads lock the
+  # household and then the participant's user row. Card review and privacy reads
+  # used to resolve the household inside their transaction, which locked the user
+  # row first. Queue both behind a held household (any parallel read) so the
+  # reminder read wins the household: with the old order that is a deadlock.
+  [ [ "card review", "/api/v1/savings_challenge/debt" ], [ "privacy", "/api/v1/savings_challenge/%<enrollment>d/privacy" ] ].each do |name, template|
+    test "#{name} read and reminder read queued on one household both succeed without deadlock" do
+      with_savings_runtime do
+        savings_enroll
+        reminder_path = "/api/v1/savings_challenge/#{@savings_enrollment.id}/reminders"
+        other_path = format(template, enrollment: @savings_enrollment.id)
+        ready, release = Queue.new, Queue.new
+        locker = Thread.new do
+          ApplicationRecord.connection_pool.with_connection do
+            ApplicationRecord.transaction do
+              Household.lock.find(@savings_household.id)
+              ready << true
+              release.pop
+            end
+          end
+        end
+        Timeout.timeout(10) { ready.pop }
+        waiting = lock_waiters
+        reminder = Thread.new { home_read(reminder_path) }
+        wait_for_lock_waiters(waiting + 1)
+        other = Thread.new { home_read(other_path) }
+        wait_for_lock_waiters(waiting + 2)
+        release << true
+        results = [ reminder, other ].map { |thread| thread.join(20) && thread.value }
+        assert results.none? { |row| row.is_a?(Exception) }, results.map(&:inspect).join("\n")
+        assert_equal [ 200, 200 ], results.map(&:first), results.inspect
+      ensure
+        release << true
+        threads = [ locker, reminder, other ].compact
+        threads.each { |thread| thread.join(20) }
+        # A request still running here would race the fixture cleanup, so stop it
+        # before the test ends and fail loudly instead.
+        stuck = threads.select(&:alive?)
+        stuck.each { |thread| thread.kill.join(5) }
+        assert stuck.empty?, "Locker and request threads must finish before fixtures are cleaned up"
+      end
+    end
+  end
+
   private
+  def home_read(path)
+    ApplicationRecord.connection_pool.with_connection do
+      session = ActionDispatch::Integration::Session.new(Rails.application)
+      session.get path, headers: { "Authorization" => "Bearer test_token_#{@savings_user.id}", "X-Cohort-Id" => @savings_cohort.id.to_s }
+      [ session.response.status, session.response.parsed_body ]
+    end
+  rescue StandardError => error
+    error
+  end
+
+  def lock_waiters
+    ApplicationRecord.uncached { ApplicationRecord.connection.select_value("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'").to_i }
+  end
+
+  def wait_for_lock_waiters(count)
+    Timeout.timeout(10) { sleep 0.02 until lock_waiters >= count }
+  end
+
   def concurrently(inputs)
     ready, start = Queue.new, Queue.new
     threads = inputs.map do |input|

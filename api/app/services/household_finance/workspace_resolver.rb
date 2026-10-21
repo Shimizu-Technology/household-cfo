@@ -4,8 +4,12 @@ module HouseholdFinance
       @user = user
     end
 
+    # The user row lock only serializes first-time creation. Resolving an
+    # existing household takes no lock: callers often resolve inside a
+    # transaction that then locks the household and, later, the user. Taking
+    # the user first there inverted that order and deadlocked parallel reads.
     def household
-      user.with_lock do
+      existing_household || user.with_lock do
         existing_household || create_household
       end
     rescue ActiveRecord::RecordNotUnique
