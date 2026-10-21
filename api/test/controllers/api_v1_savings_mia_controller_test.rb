@@ -169,14 +169,8 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
 
   test "daily reports become one card the participant saves, with a reply that never claims a record" do
     ENV["OPENROUTER_API_KEY"] = "fictional-key"
-    HouseholdFinance::MiaNarrator.class_eval do
-      alias_method :__orig_daily_openrouter, :openrouter_response
-      define_method(:openrouter_response) { raise "daily reports must not call the narrator" }
-    end
-    SavingsChallenge::DailyReportExtractor.class_eval do
-      alias_method :__orig_daily_extract, :openrouter_response
-      define_method(:openrouter_response) { raise "a parsed daily report must not call the extractor" }
-    end
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { raise "daily reports must not call the narrator" }
+    extractor_stub = stub_private_method(SavingsChallenge::DailyReportExtractor, :openrouter_response) { raise "a parsed daily report must not call the extractor" }
     assert_no_difference [ "SavingsDailyPurchaseDraft.count", "SavingsDailyPurchaseVersion.count", "SavingsDailyCheckInVersion.count", "SavingsDailyReflectionVersion.count", "HouseholdTransaction.count", "TransactionDraft.count" ] do
       post "/api/v1/mia/messages", params: { message: "I spent $8 at Shell and 20 at Payless, felt rushed", request_id: "daily-two" }, headers: auth, as: :json
       assert_response :created
@@ -230,33 +224,27 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       end
     end
   ensure
-    HouseholdFinance::MiaNarrator.class_eval { alias_method :openrouter_response, :__orig_daily_openrouter }
-    SavingsChallenge::DailyReportExtractor.class_eval { alias_method :openrouter_response, :__orig_daily_extract }
+    narrator_stub&.call
+    extractor_stub&.call
   end
 
   test "an unreadable daily report may use the stubbed extractor, which is validated and never counted" do
     ENV["OPENROUTER_API_KEY"] = "fictional-key"
-    SavingsChallenge::DailyReportExtractor.class_eval do
-      alias_method :__orig_daily_extract, :openrouter_response
-      define_method(:openrouter_response) { { purchases: [ { amount: "12", merchant: "Kings", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "", counted: true }.to_json }
-    end
+    extractor_stub = stub_private_method(SavingsChallenge::DailyReportExtractor, :openrouter_response) { { purchases: [ { amount: "12", merchant: "Kings", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "", counted: true }.to_json }
     post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract-extra" }, headers: auth, as: :json
     assert_nil response.parsed_body.fetch("savings_intake"), "an extra field rejects the whole proposal"
     SavingsChallenge::DailyReportExtractor.class_eval do
       define_method(:openrouter_response) { { purchases: [ { amount: "12", merchant: "Kings", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "" }.to_json }
     end
-    HouseholdFinance::MiaNarrator.class_eval do
-      alias_method :__orig_daily_openrouter, :openrouter_response
-      define_method(:openrouter_response) { raise "a daily report reply is deterministic" }
-    end
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { raise "a daily report reply is deterministic" }
     assert_no_difference [ "SavingsDailyPurchaseDraft.count", "SavingsDailyPurchaseVersion.count" ] do
       post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract" }, headers: auth, as: :json
     end
     assert_equal [ { "amount_cents" => 1200, "merchant" => "Kings", "purchased_on" => "2026-11-15" } ], response.parsed_body.dig("savings_intake", "purchases")
     refute response.parsed_body.dig("savings_intake", "counted")
   ensure
-    SavingsChallenge::DailyReportExtractor.class_eval { alias_method :openrouter_response, :__orig_daily_extract }
-    HouseholdFinance::MiaNarrator.class_eval { alias_method :openrouter_response, :__orig_daily_openrouter } if HouseholdFinance::MiaNarrator.method_defined?(:__orig_daily_openrouter)
+    extractor_stub&.call
+    narrator_stub&.call
   end
 
   test "household category chat prepares an explicit review and applies once without changing savings" do
@@ -502,6 +490,17 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   end
 
   private
+  # Replaces a private instance method for one test and returns a restorer that
+  # puts the original back, still private. `method_defined?` ignores private
+  # methods, so restoring by alias name alone can silently leave a stub behind
+  # for every later test in the process.
+  def stub_private_method(klass, name, &body)
+    original = klass.instance_method(name)
+    klass.send(:define_method, name, &body)
+    klass.send(:private, name)
+    -> { klass.send(:define_method, name, original); klass.send(:private, name) }
+  end
+
   def with_intent_resolver(resolver)
     singleton = class << HouseholdFinance::MiaIntentResolver; self; end
     defined_before = singleton.method_defined?(:new, false)
