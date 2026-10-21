@@ -257,4 +257,73 @@ describe('staff operation hierarchy', () => {
     expect(mocks.updateAdminUser).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false))
   })
+  it('shows scoped invitation attention and removes roster controls from unrelated areas', async () => {
+    const pending = { ...people[0], invitation_status: 'pending', invite_email: { ...people[0].invite_email, status: 'failed' } } as AdminUser
+    const elsewhere = { ...people[1], invitation_status: 'pending', cohorts: [] } as AdminUser
+    mocks.fetchAdminUsers.mockResolvedValue([pending, elsewhere])
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findByText('1 awaiting sign-in · 1 invitation emails need attention')
+    expect(document.querySelector('.admin-stat-row')).toBeNull()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Bank health' })).toHaveProperty('disabled', false))
+    fireEvent.click(screen.getByRole('button', { name: 'Bank health' }))
+    expect(screen.queryByLabelText('Cohort scope')).toBeNull()
+    expect(screen.getByText('No active Plaid connections yet.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Programs & rules' }))
+    expect(screen.queryByLabelText('Cohort scope')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Participants & access' }))
+    expect(screen.getByLabelText('Cohort scope')).toHaveProperty('value', '10')
+  })
+  it('offers resend only for pending eligible accounts and explains joined accounts', async () => {
+    mocks.fetchAdminUsers.mockResolvedValue([
+      people[0],
+      { ...people[1], invitation_status: 'pending', can_resend_invitation: false },
+      { ...people[2], invitation_status: 'pending', can_resend_invitation: true },
+    ])
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findByText('Participant 00')
+    const rows = [...document.querySelectorAll<HTMLDetailsElement>('.admin-user-row')]
+    rows.forEach((row) => { row.open = true })
+    expect(within(rows[0]).queryByRole('button', { name: 'Resend email' })).toBeNull()
+    expect(within(rows[0]).getByText('Already joined; an invitation email is no longer needed.')).toBeTruthy()
+    expect(within(rows[1]).queryByRole('button', { name: 'Resend email' })).toBeNull()
+    expect(within(rows[2]).getByRole('button', { name: 'Resend email' })).toBeTruthy()
+  })
+  it('puts selected challenge first and guards its review across group and workspace switches', async () => {
+    mocks.fetchAdminCohorts.mockResolvedValue([{ ...cohort, savings_challenge: { state: 'open', label: 'Open', capacity: 30, participant_count: 8, can_change: true, can_pause: true, can_open: false, blockers: [], recent_events: [] } }])
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findByText('Participant 00')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cohorts' })).toHaveProperty('disabled', false))
+    fireEvent.click(screen.getByRole('button', { name: 'Cohorts' }))
+    const challenge = document.querySelector('.challenge-access')!
+    const create = screen.getByText('Create a cohort', { exact: true })
+    expect(challenge.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Pause the challenge' }))
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Keep this review reason' } })
+    fireEvent.change(screen.getByLabelText('Cohort scope'), { target: { value: '' } })
+    expect(screen.getByLabelText('Cohort scope')).toHaveProperty('value', '10')
+    fireEvent.change(screen.getByLabelText(/^Admin workspace/), { target: { value: 'platform' } })
+    expect(authScope.selectCoachWorkspace).not.toHaveBeenCalled()
+    expect(screen.getByLabelText(/Reason/)).toHaveProperty('value', 'Keep this review reason')
+    fireEvent.click(screen.getByRole('button', { name: 'Participants & access' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cohorts' }))
+    expect(screen.getByLabelText(/Reason/)).toHaveProperty('value', 'Keep this review reason')
+    vi.mocked(window.confirm).mockReturnValue(true)
+    fireEvent.change(screen.getByLabelText('Cohort scope'), { target: { value: '' } })
+    expect(screen.getByLabelText('Cohort scope')).toHaveProperty('value', '')
+    expect(screen.queryByLabelText(/Reason/)).toBeNull()
+  })
+  it('discards the confirmed invitation and creation drafts when changing group', async () => {
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findByText('Participant 00')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cohorts' })).toHaveProperty('disabled', false))
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'unfinished@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cohorts' }))
+    fireEvent.change(screen.getByLabelText('Cohort name'), { target: { value: 'Unfinished group' } })
+    vi.mocked(window.confirm).mockReturnValue(true)
+    fireEvent.change(screen.getByLabelText('Cohort scope'), { target: { value: '' } })
+    expect(screen.getByLabelText('Cohort name')).toHaveProperty('value', '')
+    fireEvent.click(screen.getByRole('button', { name: 'Participants & access' }))
+    expect(screen.getByLabelText('Email')).toHaveProperty('value', '')
+  })
+
 })

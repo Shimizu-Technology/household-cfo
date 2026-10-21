@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminCohort, SavingsChallengeAccess } from '../api'
@@ -92,4 +92,40 @@ describe('SavingsChallengeAccessPanel', () => {
     expect(screen.getByText(/by Leon/)).toBeTruthy()
     expect(screen.getByText('Kickoff')).toBeTruthy()
   })
+  it('explains the empty reason, reports review and pending state, and keeps a failed retry id', async () => {
+    const user = userEvent.setup()
+    const onDirtyChange = vi.fn(), onPendingChange = vi.fn(), onChanged = vi.fn()
+    let reject!: (error: Error) => void
+    apiMocks.changeSavingsChallengeAccess.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail }))
+    render(<SavingsChallengeAccessPanel cohort={cohortWith({})} busy={false} onChanged={onChanged} onDirtyChange={onDirtyChange} onPendingChange={onPendingChange} />)
+    await user.click(screen.getByRole('button', { name: 'Open the challenge to participants' }))
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+    const button = screen.getByRole('button', { name: 'Open the challenge' })
+    expect(button.getAttribute('aria-describedby')).toBe('challenge-reason-help-7')
+    expect(screen.getByText('Enter a reason of 5–500 characters to confirm this change.')).toBeTruthy()
+    await user.type(screen.getByLabelText(/Reason/), 'Kickoff today')
+    await user.click(button)
+    expect(onPendingChange).toHaveBeenLastCalledWith(true)
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty('disabled', true)
+    await act(async () => reject(new Error('Temporary failure')))
+    await screen.findByText('Temporary failure')
+    expect(onPendingChange).toHaveBeenLastCalledWith(false)
+    expect(screen.getByLabelText(/Reason/)).toHaveProperty('value', 'Kickoff today')
+    await user.click(screen.getByRole('button', { name: 'Open the challenge' }))
+    expect(apiMocks.changeSavingsChallengeAccess.mock.calls.map((call) => call[3])).toEqual(['request-1', 'request-1'])
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false))
+  })
+  it('cancels without mutation and returns focus to the trigger', async () => {
+    const user = userEvent.setup(), onDirtyChange = vi.fn()
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => window.setTimeout(() => callback(0), 0))
+    try {
+      render(<SavingsChallengeAccessPanel cohort={cohortWith({})} busy={false} onChanged={vi.fn()} onDirtyChange={onDirtyChange} />)
+      await user.click(screen.getByRole('button', { name: 'Open the challenge to participants' }))
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(apiMocks.changeSavingsChallengeAccess).not.toHaveBeenCalled()
+      expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open the challenge to participants' })))
+    } finally { vi.unstubAllGlobals() }
+  })
+
 })

@@ -40,7 +40,7 @@ const workflowLabels: Record<PilotFeedbackWorkflow, string> = {
 
 const emptyCounts: AdminPilotFeedbackCounts = { submitted: 0, reviewed: 0, resolved: 0 }
 
-export function PilotFeedbackInbox() {
+export function PilotFeedbackInbox({ onPendingChange }: { onPendingChange?: (pending: boolean) => void } = {}) {
   const [filter, setFilter] = useState<FeedbackFilter>('submitted')
   const [reports, setReports] = useState<AdminPilotFeedbackSummary[]>([])
   const [counts, setCounts] = useState<AdminPilotFeedbackCounts>(emptyCounts)
@@ -147,20 +147,21 @@ export function PilotFeedbackInbox() {
     }
   }
 
+  useEffect(() => { onPendingChange?.(saving || screenshotLoading) }, [saving, screenshotLoading, onPendingChange])
+  useEffect(() => () => onPendingChange?.(false), [onPendingChange])
+  const busy = loading || detailLoading || saving || screenshotLoading
   const totalCount = counts.submitted + counts.reviewed + counts.resolved
 
   return (
     <article className="panel admin-card pilot-feedback-inbox" aria-labelledby="pilot-feedback-title">
       <div className="admin-card-heading row-between pilot-feedback-heading">
         <div className="pilot-feedback-title-group">
-          <span className="pilot-feedback-icon" aria-hidden="true"><FeedbackIcon /></span>
-          <div>
-            <p className="eyebrow">Private pilot feedback</p>
+                    <div>
             <h3 id="pilot-feedback-title">Review what testers reported</h3>
-            <p>Only admins can read these narratives or prepare five-minute screenshot links.</p>
+            <p>Participant reports are private to admins. Screenshot links expire after five minutes.</p>
           </div>
         </div>
-        <button type="button" className="admin-refresh" onClick={() => void loadReports(filter, selectedId)} disabled={loading}>
+        <button type="button" className="admin-refresh" onClick={() => void loadReports(filter, selectedId)} disabled={busy}>
           {loading ? 'Refreshing' : 'Refresh feedback'}
         </button>
       </div>
@@ -175,6 +176,7 @@ export function PilotFeedbackInbox() {
             <button
               type="button"
               key={option.value}
+              disabled={busy}
               aria-pressed={filter === option.value}
               onClick={() => {
                 setNotice(null)
@@ -188,6 +190,7 @@ export function PilotFeedbackInbox() {
         })}
       </div>
 
+      {busy && <p className="admin-muted" role="status">{saving ? 'Saving feedback status…' : screenshotLoading ? 'Preparing the private link…' : 'Loading feedback…'}</p>}
       <div className="pilot-feedback-layout">
         <div className="pilot-feedback-list" aria-label="Pilot feedback reports">
           {loading && reports.length === 0 ? (
@@ -198,6 +201,7 @@ export function PilotFeedbackInbox() {
             <button
               type="button"
               className={selectedId === report.id ? 'active' : ''}
+              disabled={busy}
               aria-current={selectedId === report.id ? 'true' : undefined}
               key={report.id}
               onClick={() => void selectReport(report.id)}
@@ -245,7 +249,7 @@ export function PilotFeedbackInbox() {
                       <small>Links expire in {Math.round(screenshotLink.expires_in / 60)} minutes.</small>
                     </div>
                   ) : (
-                    <button type="button" onClick={() => void prepareScreenshot()} disabled={screenshotLoading}>
+                    <button type="button" onClick={() => void prepareScreenshot()} disabled={busy}>
                       {screenshotLoading ? 'Preparing link' : 'Prepare private link'}
                     </button>
                   )}
@@ -255,12 +259,12 @@ export function PilotFeedbackInbox() {
               <div className="pilot-feedback-status-actions" aria-label="Feedback review status">
                 <span>Review status</span>
                 <div>
-                  {(['submitted', 'reviewed', 'resolved'] as PilotFeedbackStatus[]).map((status) => (
+                  {(['submitted', 'reviewed', 'resolved'] as PilotFeedbackStatus[]).filter((status) => status !== detail.status).map((status) => (
                     <button
                       type="button"
                       key={status}
                       aria-pressed={detail.status === status}
-                      disabled={saving || detail.status === status}
+                      disabled={busy}
                       onClick={() => void changeStatus(status)}
                     >
                       {status === 'submitted' ? 'Reopen' : status === 'reviewed' ? 'Mark reviewed' : 'Mark resolved'}
@@ -292,13 +296,4 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
-function FeedbackIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M5.5 5.5h13v9h-7l-4.5 4v-4H5.5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-      <path d="M8.5 9h7M8.5 12h4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  )
 }

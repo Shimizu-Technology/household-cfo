@@ -22,3 +22,49 @@
 .admin-roster-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; }
 .admin-roster-pages button { border: 1px solid var(--line); border-radius: var(--radius-md); padding: .65rem .8rem; color: var(--ink); background: var(--paper-warm); font: inherit; cursor: pointer; }
 .admin-roster-pages button:disabled { opacity: .6; cursor: default; }
+
+/* Admin operations use quiet rows and a single group picker. */
+.admin-screen .panel { box-shadow: none; background: var(--paper); }
+.admin-screen .admin-layout { grid-template-columns: minmax(0, 1fr); }
+.admin-screen .admin-heading h2 { margin: 0; font-size: var(--text-2xl); }
+.admin-screen .coach-workspace-picker { max-width: 42rem; gap: .25rem; }
+.admin-screen .admin-card-heading h3 { font-size: var(--text-lg); }
+.admin-screen .admin-field > span { text-transform: none; letter-spacing: normal; font-size: var(--text-sm); }
+.admin-screen .admin-badge { text-transform: none; letter-spacing: normal; }
+.admin-screen select, .admin-screen .admin-field.compact select { box-sizing: border-box; appearance: none; min-height: 44px; height: 44px; padding: .65rem 2rem .65rem .65rem; background-color: var(--paper); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%237b4a58' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right .7rem center; }
+.admin-screen .admin-user-list { gap: 0; border-top: 1px solid var(--line); }
+.admin-screen .admin-user-row { display: block; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; padding: 0; }
+.admin-screen .admin-user-summary { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(8rem, .7fr); padding: .65rem 0; min-height: 64px; }
+.admin-screen .admin-user-summary > span:last-child { grid-column: auto; color: var(--emerald); }
+.admin-screen .admin-user-detail { padding: 1rem 0; }
+.admin-screen .admin-user-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.admin-screen .admin-user-controls .cohort-select, .admin-screen .admin-user-actions { grid-column: 1 / -1; }
+.admin-screen .admin-user-actions { display: flex; flex-wrap: wrap; align-items: start; }
+.admin-screen .admin-user-actions button { width: auto; }
+.admin-screen .admin-user-toolbar { border: 0; border-radius: 0; padding: 0; background: transparent; }
+.admin-attention { margin: .3rem 0; color: var(--ink); font-size: var(--text-sm); }
+.admin-selected-group { display: grid; gap: 1rem; min-width: 0; }
+.admin-task > summary { min-height: 44px; padding: .65rem 0; cursor: pointer; font-weight: var(--weight-bold); }
+.admin-task > .admin-form, .admin-task > .admin-card-heading { margin-top: .75rem; }
+.admin-screen .admin-operations { margin-top: .5rem; }
+.admin-screen .admin-operations strong { font-family: var(--font-body); font-variant-numeric: tabular-nums; }
+.admin-screen button, .admin-screen summary { transition: none; }
+.admin-screen button:not(:disabled):active { transform: scale(.97); }
+@media (max-width: 620px) {
+  .admin-screen .admin-card { padding: .85rem; }
+  .admin-screen .admin-user-summary { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
+  .admin-screen .admin-user-summary > span:last-child { grid-column: 1; }
+  .admin-screen .admin-user-controls { grid-template-columns: minmax(0, 1fr); }
+  .admin-screen .admin-user-actions { display: grid; }
+  .admin-screen .admin-user-actions button { width: 100%; }
+  .admin-screen .admin-area-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-screen .admin-area-nav button { padding: .6rem .4rem; border-radius: var(--radius-md); }
+  .admin-screen .admin-roster-pages { display: grid; }
+  .admin-screen .admin-form > button { grid-column: 1 / -1; width: 100%; }
+}
+.admin-screen .button { box-shadow: none; }
+@media (max-width: 620px) {
+  /* 16px text keeps iOS from zooming an access form when it receives focus. */
+  .admin-screen input:not([type="checkbox"]), .admin-screen textarea, .admin-screen select,
+  .admin-screen .admin-field.compact input, .admin-screen .admin-field.compact select { font-size: 16px; }
+}
