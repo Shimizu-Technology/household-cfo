@@ -10379,6 +10379,9 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 .app .pilot-support-bar { flex-wrap: nowrap; align-items: center; gap: 8px; }
 .app .pilot-support-bar > span { min-width: 0; line-height: 1.35; }
 .app .pilot-support-bar > div { width: auto; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; gap: 4px; }
+/* A long coach support label truncates instead of wrapping the bar or overflowing a phone. */
+.app .pilot-support-bar a.button { max-width: 9rem; min-width: 0; }
+.pilot-support-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 620px) {
   .shell-actions .participant-program-switch { width: max-content; min-width: 96px; }
   .participant-program-switch .program-name { display: none; }
