@@ -12,6 +12,7 @@ import {
   type PersonaConfiguration,
 } from '../api'
 import { Button } from './Button'
+import './PersonaVoiceFlow.css'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
 type AuthoringState = { description: string; draft_config: PersonaConfiguration }
@@ -165,7 +166,7 @@ export function PersonaSetupChat({
       resolutionRetryScopeRef.current = null
       setSession(result.session)
       if (result.persona) onPersonaChange(result.persona)
-      setAnnouncement(action === 'apply' ? 'Proposal applied to the saved draft.' : 'Proposal rejected. You can keep chatting.')
+      setAnnouncement(action === 'apply' ? 'Proposal applied to the saved draft. Next, open Evaluate & publish to preview this voice.' : 'Proposal rejected. You can keep chatting.')
       window.requestAnimationFrame(() => composerRef.current?.focus())
     } catch (caught) {
       if (isCurrent(sequence, personaId, ticket)) setError(setupErrorMessage(caught, `The proposal could not be ${action === 'apply' ? 'applied' : 'rejected'}.`))
@@ -227,9 +228,9 @@ export function PersonaSetupChat({
       <legend className="sr-only">Setup chat controls</legend>
       <section className="persona-setup-chat" aria-labelledby="persona-setup-chat-title">
         <header>
-          <p className="eyebrow">Private coach workspace</p>
-          <h4 id="persona-setup-chat-title">Tell Mia how this assistant should work</h4>
-          <p>Describe the coach, audience, voice, community context, teaching approach, or response style. Mia will propose exact draft changes for you to review.</p>
+
+          <h4 id="persona-setup-chat-title">Describe Mia’s voice</h4>
+          <p>Tell Mia who you coach and how you want her to sound. Review her proposal, apply it to the draft, then open Evaluate & publish for a fresh preview.</p>
         </header>
         <div className="persona-setup-privacy" role="note">
           Your setup messages and this persona draft may be sent to the configured model. Participant household and financial data are excluded. Nothing changes until you apply a reviewed proposal.

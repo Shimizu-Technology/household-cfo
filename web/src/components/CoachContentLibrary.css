@@ -268,3 +268,17 @@
 .coach-library-areas button { min-height: 44px; padding: .65rem .9rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; }
 .coach-library-areas button[aria-pressed="true"] { background: var(--emerald); border-color: var(--emerald); color: var(--brand-on-primary, var(--paper)); }
 @media (max-width: 620px) { .coach-library-areas button { flex: 1 1 8rem; } }
+
+.coach-content-library .coach-content-explainer { grid-template-columns: minmax(0, 1fr); gap: .5rem; }
+.coach-content-explainer summary,
+.coach-content-promotion-path summary { min-height: 44px; align-content: center; cursor: pointer; }
+.coach-content-next { display: grid; gap: .65rem; padding-block: 1rem; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.coach-content-next h4,
+.coach-content-next p { margin: 0; }
+.coach-content-next .button { justify-self: start; }
+.coach-content-owner { display: grid; align-content: start; gap: .4rem; font-size: var(--text-sm); }
+.coach-content-owner strong { min-height: 44px; align-content: center; font-weight: var(--weight-normal, 400); }
+@media (max-width: 520px) {
+  .coach-content-library .coach-content-next .button { width: 100%; justify-self: stretch; white-space: normal; border-radius: var(--radius-sm); }
+  .coach-content-library .coach-library-areas { display: grid; grid-template-columns: minmax(0, 1fr); }
+}

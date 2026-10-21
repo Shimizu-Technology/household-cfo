@@ -123,10 +123,10 @@ export function CoachPhraseProposalPanel({
     return (
       <section className="coach-phrase-review" aria-label="Approved phrase review">
         <div className="coach-phrase-review-heading">
-          <div><p className="eyebrow">Phrase promotion</p><h5>Approve the content draft first</h5></div>
+          <div><h5>Approve the content draft first</h5></div>
           <span className="coach-phrase-stage">Waiting for approval</span>
         </div>
-        <p>The accepted source candidate is still a content draft. Approve its exact version below before proposing wording for an assistant.</p>
+        <p>Use Approve content draft above to review the exact wording in Teaching items, then return to this source for phrase review.</p>
       </section>
     )
   }
@@ -283,10 +283,10 @@ export function CoachPhraseProposalPanel({
   return (
     <section className="coach-phrase-review" aria-label="Approved phrase review" aria-busy={loading || busy}>
       <div className="coach-phrase-review-heading">
-        <div><p className="eyebrow">Phrase promotion</p><h5>Review exact wording before any assistant can use it</h5></div>
+        <div><h5>Review exact wording before any assistant can use it</h5></div>
         <span className={`coach-phrase-stage is-${selected?.attestation?.decision ?? selected?.status ?? 'draft'}`}>{stage}</span>
       </div>
-      <p className="coach-phrase-boundary">This proposal carries only the approved phrase and its safety settings. Private source evidence stays out of assistant setup and participant chat.</p>
+      <p className="coach-phrase-boundary">Review the wording and when Mia may use it, then add the approved phrase directly to her draft. No collection is needed. Private source evidence stays out of participant chat.</p>
 
       {error && <div className="coach-phrase-message is-error" role="alert" tabIndex={-1} ref={errorRef}><span>{error}</span>{selectedId ? <button type="button" onClick={() => void reloadProposal()}>Reload latest review</button> : loadFailed ? <button type="button" onClick={retryInitialLoad}>Retry phrase review</button> : null}</div>}
       {notice && <div className="coach-phrase-message is-success" role="status" tabIndex={-1} ref={noticeRef}>{notice}</div>}
