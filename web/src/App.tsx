@@ -5109,7 +5109,7 @@ function DocumentUploadCard({
         }}
       />
       <label htmlFor={inputId} aria-disabled={disabled}>
-        
+
         <h4>{card.label}</h4>
         <p>{card.helper}</p>
         <small>{card.formats}</small>
@@ -6409,7 +6409,7 @@ export function WorkspaceSetupForm({
     <form ref={formRef} noValidate className={`panel setup-form${firstSession ? ' first-session-setup-form' : ''}`} onSubmit={onSubmit}>
       <div className="row-between setup-form-heading">
         <div>
-          
+
           <h3>{firstSession ? 'Start with what you know today.' : personalOnly ? 'Household details' : editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
           <p>{firstSession ? 'Use your best monthly estimates. Enter 0 when an amount does not apply, and you can refine everything later.' : personalOnly ? `Your household name and the goal ${assistantName} helps you work toward.` : editing ? `Save when the changes are intentional. ${assistantName} will use the updated context after you confirm.` : `Review first. Click Edit profile before changing the numbers ${assistantName} uses as context.`}</p>
         </div>

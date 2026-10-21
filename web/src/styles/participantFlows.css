@@ -44,5 +44,6 @@
 .document-file-options > summary, .document-reading-details > summary { cursor: pointer; padding: 10px 0; }
 .document-file-options[open] .document-review-actions { margin-top: 12px; }
 .document-review-header > .document-review-controls { flex: 0 1 auto; }
+.document-review-header .document-review-actions > button { white-space: nowrap; }
 .document-review-panel .document-review-actions > .secondary-button { border: 1px solid var(--line); background: transparent; color: var(--action-primary, #7b4a58); box-shadow: none; }
 .document-review-panel .document-review-actions button, .document-review-panel .document-apply-bar button { min-height: 44px; }

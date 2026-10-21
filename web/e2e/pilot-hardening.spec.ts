@@ -8999,7 +8999,7 @@ test('BOG UI Home and current review survive a future Budget year', async ({ pag
 
 test('BOG UI partially reviewed statements keep their remaining coverage visible', async ({ page }) => {
   const source = {
-    id: 1201, household_id: 77, document_kind: 'statement', status: 'partially_applied', filename: 'QA-partial.pdf', content_type: 'application/pdf', byte_size: 50,
+    id: 1201, household_id: 77, document_kind: 'statement', status: 'partially_applied', filename: `${'October-household-statement-with-a-long-filename-'.repeat(3)}2026.pdf`, content_type: 'application/pdf', byte_size: 50,
     document_date: null, period_start_on: `${currentYear}-01-01`, period_end_on: `${currentYear}-01-31`, extracted_summary: 'Three extracted purchases.', extraction_error: null,
     processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
     uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [], attempts: [],
@@ -9018,14 +9018,20 @@ test('BOG UI partially reviewed statements keep their remaining coverage visible
   await expect(review.locator('.document-review-header .document-status')).toHaveCount(0)
   await expect(review.getByRole('button', { name: 'Apply selected', exact: true })).toHaveCount(0)
   await expect(review.locator('.document-file-options')).toHaveJSProperty('open', false)
-  await expect.poll(async () => (await review.locator('.document-review-header').boundingBox())?.height ?? 0).toBeLessThan(260)
+  const preview = review.getByRole('button', { name: 'Preview original', exact: true })
+  await expect.poll(() => preview.evaluate((button) => {
+    const label = document.createRange()
+    label.selectNodeContents(button)
+    return label.getClientRects().length
+  })).toBe(1)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await expect(review.getByRole('button', { name: 'Remove original file', exact: true })).not.toBeVisible()
   await openDetails(page, 'File options')
   await expect(review.getByRole('button', { name: 'Remove original file', exact: true })).toBeEnabled()
   await expect(review.getByRole('button', { name: 'Delete upload & record', exact: true })).toBeDisabled()
   await openDetails(page, 'Find an upload')
   await page.getByLabel('Filter by status').selectOption('needs_review')
-  await expect(page.locator('.document-history-card').filter({ hasText: 'QA-partial.pdf' })).toBeVisible()
+  await expect(page.locator('.document-history-card').filter({ hasText: source.filename })).toBeVisible()
 })
 
 test('BOG UI Home defers source-only review until Statements is requested', async ({ page }) => {
