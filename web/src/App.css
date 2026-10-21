@@ -922,7 +922,8 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 a:focus-visible,
-summary:focus-visible {
+summary:focus-visible,
+[role="region"][tabindex="0"]:focus-visible {
   outline: 3px solid var(--brand-focus);
   outline-offset: 3px;
 }

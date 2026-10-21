@@ -10296,8 +10296,15 @@ test('BOG UI route headings stay semantic without decorative outlines and keyboa
   const budgetLink = page.getByRole('link', { name: 'Budget', exact: true })
   await budgetLink.focus()
   await page.keyboard.press('Tab')
-  const focus = await page.evaluate(() => ({ tag: document.activeElement?.tagName, style: getComputedStyle(document.activeElement!).outlineStyle, width: getComputedStyle(document.activeElement!).outlineWidth }))
-  expect(['BUTTON', 'A', 'SUMMARY']).toContain(focus.tag)
+  const focus = await page.evaluate(() => {
+    const element = document.activeElement!
+    return { tag: element.tagName, region: element.matches('[role="region"][tabindex="0"]'), style: getComputedStyle(element).outlineStyle, width: getComputedStyle(element).outlineWidth }
+  })
+  if (focus.region) {
+    await expect(page.locator('[role="region"][tabindex="0"]:focus')).toHaveAccessibleName(/\S/)
+  } else {
+    expect(['BUTTON', 'A', 'SUMMARY']).toContain(focus.tag)
+  }
   expect(focus.style).toBe('solid')
   expect(parseFloat(focus.width)).toBeGreaterThanOrEqual(2)
   await budgetLink.press('Enter')
