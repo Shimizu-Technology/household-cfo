@@ -132,8 +132,13 @@ class SavingsDebtConcurrencyTest < ActiveSupport::TestCase
         assert_equal [ 200, 200 ], results.map(&:first), results.inspect
       ensure
         release << true
-        [ locker, reminder, other ].compact.each { |thread| thread.join(20) }
-        assert !locker&.alive?, "Household locker must finish"
+        threads = [ locker, reminder, other ].compact
+        threads.each { |thread| thread.join(20) }
+        # A request still running here would race the fixture cleanup, so stop it
+        # before the test ends and fail loudly instead.
+        stuck = threads.select(&:alive?)
+        stuck.each { |thread| thread.kill.join(5) }
+        assert stuck.empty?, "Locker and request threads must finish before fixtures are cleaned up"
       end
     end
   end
