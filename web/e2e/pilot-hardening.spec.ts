@@ -1463,7 +1463,8 @@ test('an unavailable sealed workspace brand fails closed to the neutral brand an
   await expect(page.getByText('Brand That Must Not Render')).toHaveCount(0)
   await expect(page.getByText('Leaked Brand')).toHaveCount(0)
   await expect(page).toHaveTitle(/^Household CFO/)
-  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--emerald').trim())).toBe('#536a63')
+  // The safe fallback keeps the approved mauve palette before any release loads.
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--emerald').trim())).toBe('#7b4a58')
 
   await page.getByRole('button', { name: 'Try again' }).click()
   await expect.poll(() => workspaceRequests).toBe(2)
@@ -10356,8 +10357,15 @@ test('BOG UI route headings stay semantic without decorative outlines and keyboa
   const budgetLink = page.getByRole('link', { name: 'Budget', exact: true })
   await budgetLink.focus()
   await page.keyboard.press('Tab')
-  const focus = await page.evaluate(() => ({ tag: document.activeElement?.tagName, style: getComputedStyle(document.activeElement!).outlineStyle, width: getComputedStyle(document.activeElement!).outlineWidth }))
-  expect(['BUTTON', 'A', 'SUMMARY']).toContain(focus.tag)
+  const focus = await page.evaluate(() => {
+    const element = document.activeElement!
+    return { tag: element.tagName, region: element.matches('[role="region"][tabindex="0"]'), style: getComputedStyle(element).outlineStyle, width: getComputedStyle(element).outlineWidth }
+  })
+  if (focus.region) {
+    await expect(page.locator('[role="region"][tabindex="0"]:focus')).toHaveAccessibleName(/\S/)
+  } else {
+    expect(['BUTTON', 'A', 'SUMMARY']).toContain(focus.tag)
+  }
   expect(focus.style).toBe('solid')
   expect(parseFloat(focus.width)).toBeGreaterThanOrEqual(2)
   await budgetLink.press('Enter')

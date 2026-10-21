@@ -21,7 +21,7 @@
   color: var(--muted);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .app .shell-brand-copy h1 {
@@ -40,7 +40,7 @@
   margin: 0 0 var(--space-6);
   padding: 0;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--cream) 94%, transparent);
+  background: var(--cream);
   box-shadow: none;
 }
 
@@ -72,9 +72,11 @@
   box-shadow: none;
 }
 
-.app .tabs-shell .tabs :where(button, a):hover {
-  color: var(--ink);
-  background: color-mix(in srgb, var(--emerald-soft) 55%, transparent);
+@media (hover: hover) and (pointer: fine) {
+  .app .tabs-shell .tabs :where(button, a):hover {
+    color: var(--ink);
+    background: color-mix(in srgb, var(--emerald-soft) 55%, transparent);
+  }
 }
 
 .app .tabs-shell .tabs :where(button, a).active {
@@ -162,8 +164,8 @@
     padding: 0 max(var(--space-2), env(safe-area-inset-right)) env(safe-area-inset-bottom) max(var(--space-2), env(safe-area-inset-left));
     border-top: 1px solid var(--line);
     border-bottom: 0;
-    background: color-mix(in srgb, var(--paper) 96%, transparent);
-    backdrop-filter: blur(16px);
+    background: var(--paper);
+    backdrop-filter: none;
   }
 
   .app .tabs-shell .tabs,
