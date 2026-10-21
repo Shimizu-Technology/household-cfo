@@ -12405,7 +12405,8 @@ for (const role of ['coach', 'admin'] as const) {
     const financeReads: string[] = []
     await page.route('http://api.test/api/v1/**', route => {
       const path = new URL(route.request().url()).pathname
-      if (/^\/api\/v1\/(workspace|budget|accounts|goals|income_sources|document_imports|spending_report|savings_challenge|mia)(\/|$)/.test(path)) financeReads.push(path)
+      // Mirrors financialDataPath in src/api.ts, plus participant savings reads.
+      if (/^\/api\/v1\/(workspace|budget|budget_categories|budget_allocations|income_sources|income_schedule_entries|debts|accounts|goals|profile|household_memories|mia_memory_settings|document_imports|financial_baseline|source_review_accounts|source_reviews|transaction_drafts|mia_action_drafts|spending_report|mia|plaid|savings_challenge)(\/|\?|$)/.test(path)) financeReads.push(path)
       return route.fallback()
     })
     const url = `/?pilot_e2e_role=${role}`

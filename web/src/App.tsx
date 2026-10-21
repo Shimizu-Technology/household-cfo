@@ -693,6 +693,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     budgetActionRef.current = name
     setBudgetAction(name)
     setBudgetNotice(null)
+    setTransactionResult(null)
     return true
   }
   const endBudgetAction = () => {
@@ -754,7 +755,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [documentImportsLoaded, setDocumentImportsLoaded] = useState(false)
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
-  const [transactionNotice, setTransactionNotice] = useState<string | null>(null)
+  // A review result belongs to the screen where it happened and clears on the next money action.
+  const [transactionResult, setTransactionResult] = useState<{ section: string; text: string } | null>(null)
+  const setTransactionNotice = (text: string) => setTransactionResult({ section: activeSectionRef.current, text })
   const [documentsNotice, setDocumentsNotice] = useState<string | null>(null)
   const [uploadingKind, setUploadingKind] = useState<DocumentImportKind | null>(null)
   const [pendingMiaAttachments, setPendingMiaAttachments] = useState<PendingMiaAttachment[]>([])
@@ -1004,6 +1007,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
   }, [activeSection, savingsCohortId, savingsEnrollmentRetry, savingsEnrollmentScope, savingsEnrollment?.scope])
   const activeSectionRef = useRef(activeSection)
+  const transactionNotice = transactionResult?.section === activeSection ? transactionResult.text : null
   activeSectionRef.current = activeSection
   // Name the staff starting section in the address so reload and back agree.
   useLayoutEffect(() => {
@@ -2335,7 +2339,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     historyExpandedRef.current = true
     try {
       const page = await fetchMiaMessages(true, beforeId)
-      if (!queueHistoryPosition()) return
+      // A discarded page leaves history as it was, so later refreshes keep paging normally.
+      if (!queueHistoryPosition()) { historyExpandedRef.current = historyWasExpanded; return }
       setMessages((current) => {
         const existingIds = new Set(current.map((message) => message.id).filter(Boolean))
         const olderMessages = page.messages.filter((message) => !message.id || !existingIds.has(message.id))
