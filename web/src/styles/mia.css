@@ -162,11 +162,26 @@
   color: var(--ink-soft);
 }
 
+/* The header never wraps: if the conversation column gets narrow (a phone, or a
+   tablet with Prompts or Context & help open beside it), the secondary actions
+   fold into More instead of growing the header and shrinking the history. */
+.mia-chat-shell { container: mia-chat / inline-size; }
+.chat-shell-copy h3,
+.chat-shell-copy > p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@container mia-chat (max-width: 640px) {
+  .chat-shell-header .chat-inline-action { display: none; }
+  .chat-more { display: block; }
+  .chat-more-button { width: 40px; height: 40px; }
+  .mia-chat-shell.is-expanded .chat-shell-header .chat-expand-button { display: inline-flex; }
+}
+
 @media (max-width: 620px) {
   /* Phones: avatar, name, and one More button. Everything else is in the menu. */
   .chat-shell-header .chat-inline-action { display: none; }
   .chat-more { display: block; }
   .mia-chat-shell.is-expanded .chat-shell-header .chat-expand-button { display: inline-flex; width: 44px; height: 44px; }
+  .chat-more-button { width: 44px; height: 44px; }
 
   .chat-shell-header,
   .is-chat-page .chat-shell-header {

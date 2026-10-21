@@ -639,6 +639,18 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const showMiaSuggestions = assistPanel === 'prompts'
   const chatContextTriggerRef = useRef<HTMLButtonElement | null>(null)
   const chatMoreTriggerRef = useRef<HTMLButtonElement | null>(null)
+  // Opening a companion panel can narrow the chat so its inline trigger folds into
+  // More and loses focus; remember it and hand focus back when the panel closes.
+  const assistTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const closeAssistPanel = useCallback(() => {
+    const trigger = assistTriggerRef.current
+    setAssistPanel(null)
+    window.requestAnimationFrame(() => {
+      const active = document.activeElement
+      if (active && active !== document.body) return
+      visibleChatTrigger(trigger, chatMoreTriggerRef.current)?.focus({ preventScroll: true })
+    })
+  }, [])
   const [financialRestartOpen, setFinancialRestartOpen] = useState(false)
   const [setupHelpOpen, setSetupHelpOpen] = useState(false)
   const [setupRestart, setSetupRestart] = useState<{ requestId?: number } | null>(null)
@@ -1363,7 +1375,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         return
       }
       if (assistPanel) {
-        setAssistPanel(null)
+        closeAssistPanel()
         return
       }
       setIsChatExpanded(false)
@@ -1371,7 +1383,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [confirmClearChat, isChatExpanded, assistPanel])
+  }, [confirmClearChat, isChatExpanded, assistPanel, closeAssistPanel])
 
   useEffect(() => {
     if (!previewImport && !previewAttachment) return
@@ -3666,11 +3678,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     className="chat-suggestions-button chat-inline-action"
                     aria-expanded={showMiaSuggestions}
                     aria-controls="mia-assist-title"
-                    onClick={() => setAssistPanel(current => current === 'prompts' ? null : 'prompts')}
+                    onClick={(event) => { assistTriggerRef.current = event.currentTarget; setAssistPanel(current => current === 'prompts' ? null : 'prompts') }}
                   >
                     Prompts
                   </button>
-                  <button ref={chatContextTriggerRef} type="button" className="chat-context-button chat-inline-action" aria-expanded={assistPanel === 'context'} aria-controls="mia-assist-title" onClick={() => setAssistPanel(current => current === 'context' ? null : 'context')}>Context &amp; help</button>
+                  <button ref={chatContextTriggerRef} type="button" className="chat-context-button chat-inline-action" aria-expanded={assistPanel === 'context'} aria-controls="mia-assist-title" onClick={(event) => { assistTriggerRef.current = event.currentTarget; setAssistPanel(current => current === 'context' ? null : 'context') }}>Context &amp; help</button>
                   <button
                     type="button"
                     className="chat-expand-button chat-inline-action"
@@ -3689,8 +3701,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     note={isFirstSessionSetup ? undefined : `${isSavingsExperience ? 'Optional plan context' : 'Plan context'}: ${miaPlanPeriodLabel}`}
                     items={[
                       ...(showMiaMemoryAction ? [{ key: 'memory', label: 'Memory', onSelect: openMiaMemory }] : []),
-                      { key: 'prompts', label: 'Prompts', onSelect: () => setAssistPanel('prompts') },
-                      { key: 'context', label: 'Context & help', onSelect: () => setAssistPanel('context') },
+                      { key: 'prompts', label: 'Prompts', onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('prompts') } },
+                      { key: 'context', label: 'Context & help', onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('context') } },
                       ...(currentMessages.length > 0 ? [{ key: 'clear', label: miaClearing ? 'Clearing' : 'Clear chat', disabled: miaClearing || miaLoading, onSelect: (trigger: HTMLButtonElement) => handleClearMessagesRequest({ currentTarget: trigger }) }] : []),
                       ...(isChatExpanded ? [] : [{ key: 'expand', label: 'Full screen', onSelect: () => { setAssistPanel(null); setIsChatExpanded(true) } }]),
                     ]}
@@ -3864,7 +3876,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 </button>
               </form>
             </section>
-            <MiaAssistPanels panel={assistPanel} onClose={() => setAssistPanel(null)} assistantName={assistantName} modal={isChatExpanded} disclaimer={data.mia.disclaimer}
+            <MiaAssistPanels panel={assistPanel} onClose={closeAssistPanel} assistantName={assistantName} modal={isChatExpanded} disclaimer={data.mia.disclaimer}
               contextSummary={isFirstSessionSetup ? 'Your household setup is still incomplete. Share what you know; missing answers stay unknown.' : isSavingsExperience ? 'Your approved challenge records and household plan are separate. A bank movement or upload does not establish new savings.' : `Your saved household plan for ${selectedBudgetMonth?.label ?? 'this month'} ${selectedBudgetYear} is available. Dates and missing values still matter.`}
               setupContent={isFirstSessionSetup ? <FirstSessionSetupProgress status={data.workspace.setup_status} onStartChat={() => { setAssistPanel(null); startChatFirstSession() }} onShareAll={() => { setAssistPanel(null); shareAllFirstSession() }} onManual={() => { setAssistPanel(null); startManualFirstSession() }} /> : undefined}
               pendingCount={pendingImportsCount} processingCount={processingImportsCount}
