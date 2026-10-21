@@ -12,10 +12,6 @@ export const cssPolicyAllowlist = new Set([
   "[\"src/components/WorkosSignInDialog.css\",\"hover\",[],\".workos-sign-in-dialog > header .workos-sign-in-close:hover\",\".workos-sign-in-dialog > header .workos-sign-in-close:hover { background: var(--paper-warm); color: var(--ink); }\"]",
   // Existing component-owned hover; outside W7 stylesheet ownership: .cash-flow-month-trigger:hover.
   "[\"src/styles/charts.css\",\"hover\",[],\".cash-flow-month-trigger:hover\",\".cash-flow-month-trigger:hover { outline: none; background: transparent; }\"]",
-  // Existing component-owned gradient; outside W7 stylesheet ownership: .pilot-feedback-list > button.active.
-  "[\"src/components/PilotFeedbackInbox.css\",\"gradient\",[],\".pilot-feedback-list > button.active\",\"background: linear-gradient(105deg, var(--emerald-soft), rgba(255, 253, 248, 0.86))\"]",
-  // Existing component-owned gradient; outside W7 stylesheet ownership: .pilot-feedback-detail.
-  "[\"src/components/PilotFeedbackInbox.css\",\"gradient\",[],\".pilot-feedback-detail\",\"background: linear-gradient(180deg, rgba(255, 253, 248, 0.95), rgba(251, 247, 243, 0.84))\"]",
   // Intentional floating surface or focus ring: .participant-private-access > p.
   "[\"src/App.css\",\"shadow\",[],\".participant-private-access > p\",\"box-shadow: var(--shadow-sm)\"]",
   // Intentional floating surface or focus ring: .tabs-secondary.
@@ -64,10 +60,6 @@ export const cssPolicyAllowlist = new Set([
   "[\"src/components/MiaAssistPanels.css\",\"shadow\",[],\".mia-assist-panel.is-modal\",\"box-shadow: var(--shadow-overlay)\"]",
   // Existing component-owned shadow; outside W7 stylesheet ownership: .optional-debt-dialog.
   "[\"src/components/OptionalDebtReview.css\",\"shadow\",[],\".optional-debt-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
-  // Existing component-owned shadow; outside W7 stylesheet ownership: .pilot-feedback-filters button[aria-pressed="true"].
-  "[\"src/components/PilotFeedbackInbox.css\",\"shadow\",[],\".pilot-feedback-filters button[aria-pressed=\\\"true\\\"]\",\"box-shadow: inset 0 0 0 1px rgba(23, 96, 87, 0.06)\"]",
-  // Existing component-owned shadow; outside W7 stylesheet ownership: .pilot-feedback-list > button.active.
-  "[\"src/components/PilotFeedbackInbox.css\",\"shadow\",[],\".pilot-feedback-list > button.active\",\"box-shadow: inset 4px 0 0 var(--emerald)\"]",
   // Existing component-owned shadow; outside W7 stylesheet ownership: .plaid-health-mark.
   "[\"src/components/PlaidConnections.css\",\"shadow\",[],\".plaid-health-mark\",\"box-shadow: var(--shadow-sm)\"]",
   // Existing component-owned shadow; outside W7 stylesheet ownership: .plaid-state-mark.
@@ -98,8 +90,6 @@ export const cssPolicyAllowlist = new Set([
   "[\"src/components/CoachContentSources.css\",\"side-border\",[],\".coach-source-snapshot-note\",\"border-left: 0.2rem solid var(--mauve)\"]",
   // Existing component-owned side-border; outside W7 stylesheet ownership: .coach-source-safety.
   "[\"src/components/CoachContentSources.css\",\"side-border\",[],\".coach-source-safety\",\"border-left: 0.25rem solid var(--status-red)\"]",
-  // Existing component-owned side-border; outside W7 stylesheet ownership: .pilot-feedback-narrative > div.
-  "[\"src/components/PilotFeedbackInbox.css\",\"side-border\",[],\".pilot-feedback-narrative > div\",\"border-left: 3px solid rgba(123, 74, 88, 0.2)\"]",
   // Existing component-owned side-border; outside W7 stylesheet ownership: .savings-home .savings-secondary, .savings-home .savings-action.
   "[\"src/components/SavingsChallengeHome.css\",\"side-border\",[],\".savings-home .savings-secondary, .savings-home .savings-action\",\"border: 1.5px solid var(--emerald)\"]",
   // Existing component-owned side-border; outside W7 stylesheet ownership: .evidence-legs.
