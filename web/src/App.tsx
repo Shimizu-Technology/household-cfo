@@ -2129,7 +2129,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       assertOriginalWorkspace()
       const reviewedIntake = checkedSavingsIntake(response.savings_intake)
       const dailyReport = checkedDailyReport(response.savings_intake)
-      if (challengeIntakeScopeRef.current === challengeIntakeScope) { setMiaSavingsNote(reviewedIntake ? {scope:challengeIntakeScope,intake:reviewedIntake} : null); setMiaDailyReports((current) => [...current.filter((card) => { const keep = dailyCardNeedsAttention(card.nonce); if (!keep) forgetDailyCard(card.nonce); return keep }), ...(dailyReport ? [(() => { const entry = {scope:challengeIntakeScope,report:dailyReport,nonce:crypto.randomUUID()}; registerDailyCard(entry); return entry })()] : [])]) }
+      if (challengeIntakeScopeRef.current === challengeIntakeScope) {
+        setMiaSavingsNote(reviewedIntake ? { scope: challengeIntakeScope, intake: reviewedIntake } : null)
+        const entry = dailyReport ? { scope: challengeIntakeScope, report: dailyReport, nonce: crypto.randomUUID() } : null
+        if (entry) registerDailyCard(entry)
+        const staleNonces = new Set(miaDailyReports.filter((card) => !dailyCardNeedsAttention(card.nonce)).map((card) => card.nonce))
+        staleNonces.forEach(forgetDailyCard)
+        setMiaDailyReports((current) => [...current.filter((card) => !staleNonces.has(card.nonce)), ...(entry ? [entry] : [])])
+      }
       if (miaRetryRequestRef.current?.id === miaRequestId) {
         miaRetryRequestRef.current = null
         if (isRealWorkspace) clearMiaRetryRequest(chatStorageKey)

@@ -10105,9 +10105,16 @@ test('BOG UI daily Mia report card saves every listed purchase once with one tap
   expect(calls.map(row=>row.action)).toEqual(['purchase_stage','purchase_approve','purchase_stage','purchase_approve','check_in_save','reflection_save','reflection_save'])
   expect(calls[0].input).toEqual({amount_cents:800,merchant:'Fictional fuel',purchased_on:'2026-09-28',link_kind:'manual_new',expected_version_id:null,expected_head_lock_version:0});expect(calls[3].input).toMatchObject({accepted:true})
   const fits=await card.evaluate(root=>root.scrollWidth<=root.clientWidth+1);expect(fits).toBe(true)
+  const storedCards = () => page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('household-cfo:mia-daily-cards:v1:')).flatMap(key => JSON.parse(sessionStorage.getItem(key) ?? '[]')))
+  await expect.poll(async () => (await storedCards()).length).toBe(1)
   // Leaving Ask Mia and coming back restores the saved summary; it cannot be saved again.
   await page.getByRole('link',{name:'Savings',exact:true}).click();await page.getByRole('link',{name:'Ask Mia',exact:true}).click()
   await expect(card.getByRole('heading',{name:'Saved',exact:true})).toBeVisible();await expect(card.getByRole('button',{name:'Save',exact:true})).toHaveCount(0);expect(calls).toHaveLength(7)
+  // A new reply removes the completed card and registers exactly one replacement under StrictMode.
+  await sendMiaDailyReport(page)
+  await expect(card.getByRole('heading',{name:'Check these, then save',exact:true})).toBeVisible()
+  await expect.poll(async () => (await storedCards()).length).toBe(1)
+  expect(calls).toHaveLength(7)
 })
 test('BOG UI daily Mia card reload mid-save checks the interrupted approval and finishes without saving twice',async({page})=>{
   const{dialog,calls}=await openDaily(page,{holdSecondApprove:true});await dialog.getByRole('button',{name:'Close Today',exact:true}).click()

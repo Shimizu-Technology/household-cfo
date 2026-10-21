@@ -70,6 +70,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   const patchRow = (id: number, patch: Partial<DailyCardRow>) => update((current) => ({ ...current, rows: current.rows.map((row) => row.id === id ? { ...row, ...patch } : row) }))
   const [contexts, setContexts] = useState<Record<string, DailyContext>>({})
   const [invalid, setInvalid] = useState<Record<number, string>>({})
+  const saveInFlightRef = useRef(false)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const cardRef = useRef<HTMLElement>(null)
   const dates = useMemo(() => noSpend ? [report.local_on] : [...new Set(state.rows.map((row) => row.purchased_on))], [noSpend, report.local_on, state.rows])
@@ -287,7 +288,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   }
 
   async function save() {
-    if (busy || reconciling || foreignPending) return
+    if (saveInFlightRef.current || busy || reconciling || foreignPending) return
     const problems: Record<number, string> = {}
     for (const row of state.rows.filter((item) => open(item) && !locked(item))) {
       try { if (savingsInputCents(row.amount) > 2147483647) problems[row.id] = 'Enter a smaller amount.' } catch { problems[row.id] = 'Enter an amount like 8.25.' }
@@ -296,25 +297,30 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
     }
     setInvalid(problems)
     if (Object.keys(problems).length) { update((current) => ({ ...current, message: 'Check the highlighted item before saving.' })); return }
-    update((current) => ({ ...current, phase: 'saving', message: noSpend ? 'Saving…' : `Saving ${openRows.length === 1 ? 'your purchase' : `${openRows.length} purchases`}…` }))
+    saveInFlightRef.current = true
     try {
-      await settleUnconfirmed()
-      let feelingsSaved = true
-      if (noSpend) await saveNoSpend()
-      else feelingsSaved = await savePurchases()
-      const card = currentCard()
-      const complete = noSpend ? card.noSpendSaved : feelingsSaved && !card.unconfirmed && !card.rows.some(open) && card.rows.some((row) => row.status === 'saved')
-      update((current) => ({ ...current, phase: complete ? 'saved' : 'idle', message: noSpend ? null : summary(card, feelingsSaved) }))
-    } catch (failure) {
-      const text = failure instanceof Stop && failure.message !== 'unknown' ? failure.message : 'We couldn’t confirm the last save. Tap Save to check — it won’t save twice.'
-      const card = readDailyCard(nonce)
-      if (!card) return
-      const partial = noSpend ? null : summary(card, true)
-      update((current) => ({ ...current, phase: 'idle', message: failure instanceof Stop ? text : partial && !partial.startsWith('Nothing') ? partial : text }))
+      update((current) => ({ ...current, phase: 'saving', message: noSpend ? 'Saving…' : `Saving ${openRows.length === 1 ? 'your purchase' : `${openRows.length} purchases`}…` }))
+      try {
+        await settleUnconfirmed()
+        let feelingsSaved = true
+        if (noSpend) await saveNoSpend()
+        else feelingsSaved = await savePurchases()
+        const card = currentCard()
+        const complete = noSpend ? card.noSpendSaved : feelingsSaved && !card.unconfirmed && !card.rows.some(open) && card.rows.some((row) => row.status === 'saved')
+        update((current) => ({ ...current, phase: complete ? 'saved' : 'idle', message: noSpend ? null : summary(card, feelingsSaved) }))
+      } catch (failure) {
+        const text = failure instanceof Stop && failure.message !== 'unknown' ? failure.message : 'We couldn’t confirm the last save. Tap Save to check — it won’t save twice.'
+        const card = readDailyCard(nonce)
+        if (!card) return
+        const partial = noSpend ? null : summary(card, true)
+        update((current) => ({ ...current, phase: 'idle', message: failure instanceof Stop ? text : partial && !partial.startsWith('Nothing') ? partial : text }))
+      }
+      const after = readDailyCard(nonce)
+      if (after && (after.noSpendSaved || after.rows.some((row) => row.status === 'saved'))) onSaved()
+      requestAnimationFrame(() => headingRef.current?.focus())
+    } finally {
+      saveInFlightRef.current = false
     }
-    const after = readDailyCard(nonce)
-    if (after && (after.noSpendSaved || after.rows.some((row) => row.status === 'saved'))) onSaved()
-    requestAnimationFrame(() => headingRef.current?.focus())
   }
 
   function edit(id: number, patch: Partial<DailyCardRow>) {

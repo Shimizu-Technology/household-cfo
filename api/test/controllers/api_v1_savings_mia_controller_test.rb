@@ -283,7 +283,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   test "goal changes in the challenge point to the challenge target, and saved money gets a plain reply" do
     @savings_household.goals.create!(label: "Family trip", goal_type: "savings", record_kind: "tracked", target_amount_cents: 100_000)
     assert_no_difference [ "SavingsPlanDraft.count", "MiaActionDraft.count", "SavingsEntryDraft.count" ] do
-      [ "Change my goal to $300", "Update my goal to $700" ].each_with_index do |message, index|
+      [ "Change my goal to $300", "Update my goal to $700", "lower my target to 300", "make my goal $400" ].each_with_index do |message, index|
         post "/api/v1/mia/messages", params: { message: message, request_id: "goal-#{index}" }, headers: auth, as: :json
         assert_response :created
         reply = response.parsed_body.dig("assistant_message", "content")
@@ -296,6 +296,23 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       assert_equal "Got it: $50.00 set aside today. I've put it below — check it, then save it to your challenge. Only new money you set aside counts, and nothing is saved until you do.",
         response.parsed_body.dig("assistant_message", "content")
     end
+  end
+
+  test "goal questions and savings reports do not become target change instructions" do
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { nil }
+    extractor_stub = stub_private_method(SavingsChallenge::DailyReportExtractor, :openrouter_response) { nil }
+    [ "Can I make my goal by December?", "I set aside $20 for my goal", "what's my goal?", "should I change my goal?",
+      "Should I change my goal", "I saved $50 toward my goal today", "I put aside $20 for my target", "My goal is at $300" ].each_with_index do |message, index|
+      post "/api/v1/mia/messages", params: { message: message, request_id: "goal-question-#{index}" }, headers: auth, as: :json
+      assert_response :created
+      reply = response.parsed_body.dig("assistant_message", "content")
+      refute_includes reply, "Your target & spending choices", message
+      refute_includes reply, "To change your challenge goal", message
+      assert_includes reply, "Only new money you actually set aside counts", message if message.downcase.start_with?("should")
+    end
+  ensure
+    narrator_stub&.call
+    extractor_stub&.call
   end
 
   test "household category chat prepares an explicit review and applies once without changing savings" do

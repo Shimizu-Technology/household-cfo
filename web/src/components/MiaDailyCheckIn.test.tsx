@@ -52,7 +52,7 @@ beforeEach(() => {
 })
 
 describe('Mia daily report card', () => {
-  it('lists every purchase with plain days and saves them all with one tap, then moves focus to the result', async () => {
+  it('lists every purchase with plain days, ignores a synchronous double click, and saves each request once', async () => {
     const { card, onSaved } = renderCard()
     expect(within(card).getByText('Check these, then save')).toBeTruthy()
     expect(within(card).getByText('Today')).toBeTruthy()
@@ -62,7 +62,8 @@ describe('Mia daily report card', () => {
     expect(within(card).getByRole('status').textContent).toBe('')
     expect(mutateDaily).not.toHaveBeenCalled()
     await ready(card)
-    fireEvent.click(within(card).getByRole('button', { name: 'Save' }))
+    const save = within(card).getByRole('button', { name: 'Save' })
+    act(() => { save.click(); save.click() })
     const heading = await within(card).findByRole('heading', { name: 'Saved' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
     expect(actions()).toEqual(['purchase_stage', 'purchase_approve', 'purchase_stage', 'purchase_approve', 'check_in_save', 'check_in_save'])
@@ -70,7 +71,8 @@ describe('Mia daily report card', () => {
     expect(calls()[1].input).toMatchObject({ draft_id: 301, accepted: true })
     expect(new Set(calls().map((call) => call.key)).size).toBe(6)
     expect(within(card).queryByRole('button', { name: /^Save/ })).toBeNull()
-    expect(onSaved).toHaveBeenCalled()
+    expect(onSaved).toHaveBeenCalledOnce()
+    expect(within(card).queryByText(/couldn’t confirm/)).toBeNull()
   })
 
   it('saves edits and removals exactly as shown, needs a place, and links row errors', async () => {

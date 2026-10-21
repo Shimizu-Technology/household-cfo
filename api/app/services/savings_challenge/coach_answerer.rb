@@ -277,9 +277,11 @@ module SavingsChallenge
       end
     end
 
-    TARGET_CHANGE = /\b(?:change|set|make|update|lower|raise|move|switch|drop|bump)\b.{0,40}\b(?:goal|target)\b|\b(?:goal|target)\b.{0,20}\b(?:to|be|at)\s+\$?\s*\d/i.freeze
+    TARGET_CHANGE = /\A\s*(?:please\s+)?(?:i\s+(?:want|would like)\s+to\s+)?(?:change|set|make|update|lower|raise|move|switch|drop|bump)\s+(?:(?:my|the|challenge|savings)\s+)*(?:goal|target)\b|\A\s*(?:please\s+)?change\s+it\s+to\s+\$?\s*\d.{0,40}\b(?:goal|target)\b/i.freeze
 
     def target_change?
+      return false if @message.match?(/\?|\b(?:set\s+aside|put\s+aside|saved|reserved|withdrew|took)\b/i)
+
       @message.match?(TARGET_CHANGE) && !@message.match?(/\b(?:debt|credit card|card balance|household)\b/i)
     end
 
