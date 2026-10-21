@@ -2869,12 +2869,20 @@ test('loading earlier Ask Mia messages keeps the reading position instead of jum
   workspace.mia.older_message_count = 3
   workspace.mia.oldest_message_id = workspace.mia.messages[0].id
   workspace.mia.has_older_messages = true
-  const older = [1, 2, 3].map((n) => ({ id: 5000 + n, role: n % 2 ? 'user' : 'assistant', author: n % 2 ? 'You' : 'Mia', content: `Earlier page message ${n}`, created_at: new Date().toISOString() }))
+  const firstCurrentId = workspace.mia.messages[0].id
+  const older = [1, 2, 3].map((n) => ({ id: firstCurrentId - 4 + n, role: n % 2 ? 'user' : 'assistant', author: n % 2 ? 'You' : 'Mia', content: `Earlier page message ${n}`, created_at: new Date().toISOString() }))
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
-  await page.route('http://api.test/api/v1/mia/messages**', (route) => route.fulfill({ json: { messages: older, oldest_message_id: 5001, older_message_count: 0, has_older_messages: false } }))
+  await page.route('http://api.test/api/v1/mia/messages**', (route) => {
+    const historyPage = new URL(route.request().url()).searchParams.has('before_id')
+    // The five-second latest-message poll must not pretend to be an older page.
+    return route.fulfill({ json: historyPage
+      ? { messages: older, oldest_message_id: older[0].id, older_message_count: 0, has_older_messages: false }
+      : workspace.mia })
+  })
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await expect(page.getByRole('button', { name: /Load earlier messages/ })).toBeVisible({ timeout: 15_000 })
-  await page.waitForTimeout(3000) // past the initial settling window
+  await settleChatLayout(page)
+  await page.waitForTimeout(3000) // past the initial settling window after branded fonts load
   await page.locator('.chat-card').evaluate((card) => { card.scrollTop = 0 })
   const marker = page.locator('.chat-card .message-row .message').nth(1)
   const text = (await marker.innerText()).trim()
@@ -5586,8 +5594,8 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
     fitsViewport: document.documentElement.scrollWidth <= window.innerWidth,
   }))).toEqual({ scrollX: 0, fitsViewport: true })
 
-  await page.reload()
-  await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openLegacyStaffMoneyRoute(page, 'Home')
+  await openSection(page, 'Coach Studio')
   await expect(workspacePicker).toHaveValue('2')
   await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
 
@@ -5601,8 +5609,8 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
     fitsViewport: document.documentElement.scrollWidth <= window.innerWidth,
   }))).toEqual({ scrollX: 0, fitsViewport: true })
 
-  await page.reload()
-  await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openLegacyStaffMoneyRoute(page, 'Home')
+  await openSection(page, 'Coach Studio')
   await expect(workspacePicker).toHaveValue('1')
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
   await page.getByLabel('Internal description').fill('Saved after returning to the owner workspace')
@@ -10107,6 +10115,8 @@ test('BOG UI daily Mia report card saves every listed purchase once with one tap
   expect(calls).toHaveLength(7)
 })
 test('BOG UI daily Mia card reload mid-save checks the interrupted approval and finishes without saving twice',async({page})=>{
+  // This journey deliberately delays an approval and cold-loads the app three times.
+  test.slow()
   const{dialog,calls}=await openDaily(page,{holdSecondApprove:true});await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
   const card=await sendMiaDailyReport(page);await card.getByLabel('Place for purchase 2').fill('Fictional lunch');await card.getByRole('button',{name:'Save',exact:true}).click()
   await expect.poll(()=>calls.filter(row=>row.action==='purchase_approve').length).toBe(2)
@@ -12077,7 +12087,7 @@ for (const role of ['participant', 'coach', 'admin']) {
     await page.goto(`/?pilot_e2e_role=${role}`)
     await openAccountHelp(page)
     const panel = page.locator('.shell-account-panel')
-    await expect(panel.locator('.shell-account-role')).toHaveText(role)
+    await expect(panel.locator('.shell-account-role')).toHaveText({ participant: 'Household member', coach: 'Coach', admin: 'Administrator' }[role]!)
     await expect(panel.locator('.shell-account-email')).toHaveText(`${role}@pilot.test`)
     await expect(panel.locator('details')).toHaveCount(0)
     const bounds = await panel.boundingBox()
