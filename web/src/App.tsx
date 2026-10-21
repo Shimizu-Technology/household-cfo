@@ -3,6 +3,7 @@ import { useIncomeForm } from './components/incomeFormState'
 import { useMiaEntryAnchor } from './components/useMiaEntryAnchor'
 import type { CurrentUser } from './api'
 import './styles/participantFlows.css'
+import { scheduleFirstSessionComposerFocus } from './components/firstSessionComposerFocus'
 import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { householdPlanKnown } from './lib/householdMoneyKnown'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
@@ -2089,11 +2090,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   function openFirstSessionChat(prompt: string) {
-    switchSection('Ask Mia')
+    switchSection('Ask Mia', { focusHeading: false })
     setQuestion(prompt)
     setMiaError(null)
     setVoiceNotice(null)
-    window.setTimeout(() => composerRef.current?.focus({ preventScroll: true }), 80)
+    scheduleFirstSessionComposerFocus(() => composerRef.current, () => activeSectionRef.current === 'Ask Mia')
   }
 
   function openDocumentReview(documentImportId?: number) {
