@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ParticipantTabs } from './ParticipantTabs'
 import { useState } from 'react'
 import { usePilotDialog } from '../lib/usePilotDialog'
 const brandState = vi.hoisted(() => ({ assistantName: 'Mia' }))
-vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: brandState.assistantName, brand: { short_name: 'VERA', participant_role_term: 'Participant' } }) }))
+vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: brandState.assistantName, brand: { short_name: 'Household CFO', participant_role_term: 'Participant' } }) }))
 afterEach(cleanup)
 it('keeps the challenge’s core tasks visible and finance tools secondary', () => {
   const change = vi.fn(); const today = vi.fn()
@@ -78,4 +78,49 @@ it('uses a short Mia label in the tab bar and keeps visible and accessible names
   } finally {
     brandState.assistantName = 'Mia'
   }
+})
+
+it('groups enabled framework tools under one Tools entry and preserves route links', () => {
+  const change = vi.fn()
+  render(<ParticipantTabs sections={['Home', 'Budget', 'Wealth', 'Optionality']} activeSection="Home" onChange={change} />)
+  fireEvent.click(screen.getByRole('button', { name: 'More' }))
+  expect(document.querySelector('.tabs-tools-group')?.hasAttribute('open')).toBe(false)
+  const summary = screen.getByText('Tools')
+  fireEvent.click(summary)
+  // jsdom does not implement the native details toggle on click.
+  summary.parentElement?.setAttribute('open', '')
+  fireEvent.click(screen.getByRole('link', { name: 'Wealth' }))
+  expect(change).toHaveBeenCalledWith('Wealth')
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+it('identifies the active More destination and opens its tool group', () => {
+  render(<ParticipantTabs sections={['Home', 'Wealth']} activeSection="Wealth" onChange={vi.fn()} />)
+  expect(screen.getByRole('button', { name: 'More' }).getAttribute('aria-description')).toBe('Current section: Wealth')
+  fireEvent.click(screen.getByRole('button', { name: 'More' }))
+  expect(screen.getByRole('link', { name: 'Wealth' }).getAttribute('aria-current')).toBe('page')
+})
+it('shows only staff destinations for a staff-only shell and preserves modified links', () => {
+  const change = vi.fn()
+  render(<ParticipantTabs staffOnly sections={['Home', 'Budget', 'Coach Studio', 'Admin']} activeSection="Coach Studio" onChange={change} />)
+  expect(screen.getByRole('navigation', { name: 'Staff sections' })).toBeTruthy()
+  expect(screen.queryByRole('link', { name: 'Home' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
+  const studio = screen.getByRole('link', { name: 'Coach Studio' })
+  expect(studio.getAttribute('aria-current')).toBe('page')
+  expect(studio.getAttribute('href')).toBe('#Coach%20Studio')
+  fireEvent.click(studio, { ctrlKey: true })
+  expect(change).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('link', { name: 'Admin' }))
+  expect(change).toHaveBeenCalledWith('Admin')
+})
+
+it('returns to More when the parent keeps the current route after a guarded selection', async () => {
+  render(<ParticipantTabs sections={['Home', 'Ask Mia', 'Budget', 'Review', 'My Money']} activeSection="Home" onChange={vi.fn()} />)
+  const more = screen.getByRole('button', { name: 'More' })
+  fireEvent.click(more)
+  const destination = screen.getByRole('link', { name: 'My Money' })
+  destination.focus()
+  fireEvent.click(destination)
+  await waitFor(() => expect(document.activeElement).toBe(more))
+  expect(screen.queryByRole('dialog')).toBeNull()
 })

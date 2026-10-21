@@ -1,0 +1,24 @@
+.persona-voice-summary {
+  margin: 0;
+  padding-block: .75rem;
+  border-block: 1px solid var(--line);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.persona-release .persona-release-details > summary,
+.persona-release-review > summary {
+  min-height: 44px;
+  display: list-item;
+  align-content: center;
+  cursor: pointer;
+}
+.persona-release-preview-evidence details { min-width: 0; overflow-wrap: anywhere; }
+.persona-setup-chat header h4 { margin-top: 0; }
+@media (max-width: 520px) {
+  .persona-release .persona-release-actions { flex-direction: column; align-items: stretch; }
+  .persona-release .persona-release-actions .button { width: 100%; white-space: normal; border-radius: var(--radius-sm); }
+}
+
+.persona-release-review { display: grid; gap: 1rem; min-width: 0; }
+.persona-release-review > .persona-release-step { margin-top: 1rem; }

@@ -309,14 +309,14 @@ export function CoachUrlSourceIntake({
 
   return <section className="coach-url-intake" aria-labelledby="coach-url-intake-title">
     <div className="coach-source-create-heading">
-      <div><h4 id="coach-url-intake-title">Add a secure web source</h4><p>The server visits the address once and stores a private, fixed snapshot. Mia never browses the live site or sees the address.</p></div>
+      <div><h4 id="coach-url-intake-title">Add a web source</h4><p>Save a private copy of a web page for review. Mia never visits the live site or sees its address.</p></div>
       <span className="coach-source-private-label">Private snapshot</span>
     </div>
 
     {canCreate && available ? <form className="coach-url-intake-form" onSubmit={(event) => void submit(event)}>
       <label htmlFor="coach-source-url"><span>HTTPS address</span><input id="coach-source-url" name="source-url" type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="https://example.com/guide" value={url} onChange={(event) => changeUrl(event.target.value)} aria-describedby="coach-source-url-help" disabled={disabled || busy || loading} /></label>
       <Button type="submit" disabled={!url.trim() || disabled || busy || loading}>{action === 'create' ? 'Queuing securely…' : 'Import private snapshot'}</Button>
-      <p id="coach-source-url-help">HTTPS only. Redirects and public network addresses are checked by the server. PDF, DOCX, plain text, and readable web pages use the same private review and approval path as file uploads.</p>
+      <p id="coach-source-url-help">Enter an HTTPS address. PDF, DOCX, text, and readable web pages follow the same review and approval steps as uploaded files.</p>
     </form> : canCreate ? <div className="coach-source-unavailable" role="status"><strong>Secure web import is unavailable.</strong><span>Upload the source as a file, or try again after secure intake is configured.</span></div> : <p className="coach-content-note">Editors can add secure web snapshots. Reviewers can inspect candidates after the snapshot is processed.</p>}
 
     {error && <div ref={errorRef} className="coach-source-alert is-error" role="alert" tabIndex={-1}><span>{error}</span>{(loadFailed || pollFailed) && <button type="button" onClick={() => void loadIntakes()}>Refresh secure imports</button>}</div>}
