@@ -50,7 +50,8 @@ assert.ok(html.includes('<meta name="mobile-web-app-capable" content="yes" />'),
 assert.ok(css.includes('.shell-brand h1') && css.includes('.home-welcome-panel'), 'the stable shell should keep Home-specific coaching content inside Home')
 assert.ok(app.includes('brand.welcome_heading') && app.includes('brand.welcome_description'), 'Home should use the coach-configured welcome copy')
 assert.ok(brandContext.includes('fetchPublicBrand(hostname') && brandDocument.includes("'--brand-on-primary'"), 'public bootstrap and runtime document styling should use the resolved brand')
-assert.ok(html.includes('<title>VERA</title>') && !html.includes('Mia'), 'static metadata should remain neutral until a hostname brand resolves')
+assert.ok(html.includes('<title>Household CFO</title>') && !html.includes('Mia'), 'static metadata should use the consumer brand without naming an assistant until a hostname brand resolves')
+assert.ok(!/VERA/.test(html) && !/VERA/.test(readFileSync(new URL('../public/manifest.webmanifest', import.meta.url), 'utf8')), 'participants never see the internal platform name in static metadata')
 for (const rejectedCopy of [
   'Mia, your household CFO.',
   'Plan, don’t gamble.',

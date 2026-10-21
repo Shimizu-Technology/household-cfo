@@ -40,7 +40,7 @@ frontend_origins = frontend_origins.reject { |origin| local_origin.call(origin) 
 
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   # The unauthenticated bootstrap must be readable even when a program domain
-  # is unknown or disabled so the browser can render the neutral VERA boundary.
+  # is unknown or disabled so the browser can render the neutral brand boundary.
   # The controller binds the requested hostname to this exact Origin and never
   # exposes authenticated workspace data.
   allow do

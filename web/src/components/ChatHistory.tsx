@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { shortAssistantName } from '../lib/assistantName'
 import type { FinancialDocumentImport, MiaMessage, MiaMessageAttachment } from '../api'
 import { parseMiaAnswerPresentation } from '../lib/miaPresentation'
 import { MiaReadOnlyAnswer } from './MiaReadOnlyAnswer'
@@ -111,7 +112,7 @@ export function ChatHistory({
             <div className={`message-row ${message.role}${presentation ? ' has-structured-answer' : ''}`} key={messageKey(message, messageIndex)}>
               {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">{assistantInitial}</span>}
               <div className={`message ${message.role}`}>
-                <strong>{message.author}</strong>
+                <strong>{message.role === 'assistant' ? shortAssistantName(message.author) || message.author : message.author}</strong>
                 {presentation
                   ? <MiaReadOnlyAnswer presentation={presentation} idPrefix={`mia-answer-${messageIndex}`} />
                   : <SafeMessageText content={message.content} allowFormatting={message.role === 'assistant'} stripAuthorPrefix={message.role === 'assistant' ? message.author : undefined} />}

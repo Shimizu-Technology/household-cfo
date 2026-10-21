@@ -52,7 +52,8 @@ describe('AuthLanding', () => {
     expect(screen.getByRole('link', { name: 'Support' }).getAttribute('href')).toBe('https://example.test/support')
     expect(screen.getByRole('link', { name: 'Privacy' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Terms' })).toBeTruthy()
-    expect(screen.getByText('Powered by VERA')).toBeTruthy()
+    // The stored platform attribution is never shown to participants.
+    expect(screen.queryByText(/VERA/)).toBeNull()
     expect(view.container.querySelector<HTMLImageElement>('.shell-brand-logo')?.src).toBe('https://assets.example.test/island.svg')
   })
 })

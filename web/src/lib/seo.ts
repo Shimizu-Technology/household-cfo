@@ -1,9 +1,9 @@
 import type { BrandConfig } from '../api'
 
-export const SITE_NAME = 'VERA'
-export const DEFAULT_TITLE = 'VERA | Secure coaching workspace'
+export const SITE_NAME = 'Household CFO'
+export const DEFAULT_TITLE = 'Household CFO | Secure coaching workspace'
 export const DEFAULT_DESCRIPTION = 'A secure coaching workspace for reviewing information, planning next steps, and working with your program assistant.'
-export const DEFAULT_KEYWORDS = 'VERA, coaching workspace, planning assistant'
+export const DEFAULT_KEYWORDS = 'Household CFO, household finance coaching, planning assistant'
 export const THEME_COLOR = '#536a63'
 
 type SeoRoute = { title: string; description: string; robots?: string }

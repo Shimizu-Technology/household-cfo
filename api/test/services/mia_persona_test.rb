@@ -47,7 +47,8 @@ class MiaPersonaTest < ActiveSupport::TestCase
     assert_includes prompt, "Do not"
     assert_includes prompt, "That’s a good question"
     assert_includes prompt, "Never use \"par\" to mean friend"
-    assert_includes persona.disclaimer, "inside Household CFO Method powered by VERA"
+    assert_includes persona.disclaimer, "inside Household CFO Method."
+    refute_includes persona.disclaimer, "VERA"
     assert_includes persona.uncertainty_line, "do not have enough approved data"
   end
 

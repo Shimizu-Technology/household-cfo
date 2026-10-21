@@ -78,7 +78,7 @@ export function SeoManager({ section }: { section: string }) {
     upsertMeta('meta[name="twitter:description"]', { name: 'twitter:description', content: route.description })
     upsertMeta('meta[name="twitter:image"]', { name: 'twitter:image', content: image })
 
-    upsertStructuredData('vera-web-application-schema', webApplicationStructuredData(brand))
+    upsertStructuredData('web-application-schema', webApplicationStructuredData(brand))
   }, [assistantName, brand, section])
 
   return null
