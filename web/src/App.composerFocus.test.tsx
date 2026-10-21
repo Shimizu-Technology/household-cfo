@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { scheduleFirstSessionComposerFocus } from './components/firstSessionComposerFocus'
 
@@ -26,6 +26,13 @@ it('preserves a chat menu control selected before the delayed composer focus', (
   act(() => context.focus())
   act(() => vi.advanceTimersByTime(80))
   expect(document.activeElement).toBe(context)
+})
+it('yields to a touch press even when Safari leaves DOM focus on the earlier trigger', () => {
+  const { origin, composer } = setup()
+  scheduleFirstSessionComposerFocus(() => composer, () => true)
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'Context and help' }))
+  act(() => vi.advanceTimersByTime(80))
+  expect(document.activeElement).toBe(origin)
 })
 it('does not focus a departed chat after the participant navigates away', () => {
   const { origin, composer } = setup()
