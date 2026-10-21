@@ -190,6 +190,8 @@ describe('Mia daily report card', () => {
     expect((within(again.card).getByRole('button', { name: 'Save to today' }) as HTMLButtonElement).disabled).toBe(true)
     const count = calls().length
     vi.mocked(fetchDailyRequestStatus).mockResolvedValueOnce({ actor_scope: baselineScope, state: 'committed', record: dailyVersion, replayed: true })
+    // "Check last save" stays disabled until the automatic lookup settles.
+    await waitFor(() => expect((check as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(check)
     await within(again.card).findByRole('heading', { name: 'Almost done' })
     await ready(again.card)

@@ -165,7 +165,8 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   // request. If it is still running or the lookup fails, keep writes blocked
   // and offer another lookup; an unknown request replays its original body/key.
   const [reconciling, setReconciling] = useState(() => Boolean(readDailyCard(nonce)?.unconfirmed))
-  const [checking, setChecking] = useState(false)
+  // Disabled until the automatic lookup settles, so a tap can't race it.
+  const [checking, setChecking] = useState(() => Boolean(readDailyCard(nonce)?.unconfirmed))
   const [statusAttempt, setStatusAttempt] = useState(0)
   useEffect(() => {
     const pending = readDailyCard(nonce)?.unconfirmed
