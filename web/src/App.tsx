@@ -1,6 +1,7 @@
 import { IncomeForms } from './components/IncomeForms'
 import { useIncomeForm } from './components/incomeFormState'
 import { useMiaEntryAnchor } from './components/useMiaEntryAnchor'
+import type { CurrentUser } from './api'
 import './styles/participantFlows.css'
 import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { householdPlanKnown } from './lib/householdMoneyKnown'
@@ -537,9 +538,83 @@ function App() {
   const [restartNonce, setRestartNonce] = useState(0)
   const [restartNotice, setRestartNotice] = useState<string | null>(null)
   const identity = `${auth.authProvider}:${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
+  if (auth.currentUser?.is_staff && !auth.currentUser.is_participant) return <StaffWorkspaceApp key={identity} currentUser={auth.currentUser} />
   return <ParticipantProgramSession identity={identity} authIdentityId={auth.authProvider === 'workos' ? `${auth.authProvider}:${auth.authIdentityId}` : auth.authIdentityId} legacyAuthIdentityId={auth.authProvider === 'workos' ? auth.currentUser?.clerk_id : undefined} actorId={auth.currentUser?.id} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)}>
     {selection => <WorkspaceApp key={`${identity}:${selection.selectedCohortId ?? 'default'}:${restartNonce}`} {...selection} restartNotice={restartNotice} onDismissRestartNotice={() => setRestartNotice(null)} onFinancialRestart={message => { setRestartNotice(message); setRestartNonce(value => value + 1) }} />}
   </ParticipantProgramSession>
+}
+
+/** Staff without a participant seat never mount the household loader or its tools. */
+export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser }) {
+  const auth = useAuthContext()
+  const { brand } = useBrand()
+  const sections = useMemo(() => currentUser.is_admin ? [COACH_STUDIO_SECTION, ADMIN_SECTION] : [COACH_STUDIO_SECTION], [currentUser.is_admin])
+  const requestedSection = useCallback(() => {
+    try { return decodeURIComponent(window.location.hash.slice(1)) } catch { return '' }
+  }, [])
+  const [active, setActive] = useState(() => sections.includes(requestedSection()) ? requestedSection() : COACH_STUDIO_SECTION)
+  const activeSection = sections.includes(active) ? active : COACH_STUDIO_SECTION
+  const [dirty, setDirty] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [guideOpen, setGuideOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [enterpriseOpen, setEnterpriseOpen] = useState(false)
+  const accountRef = useRef<HTMLDetailsElement>(null)
+  const ready = !auth.isVerifyingApi && !auth.isLoading && !auth.authError && (!auth.isAuthEnabled || auth.isSignedIn)
+  useLayoutEffect(() => { setActiveParticipantCohortId(null) }, [])
+  const canonicalUrl = useCallback((section: string) => hasPendingPlaidOAuthReturn() ? clearPlaidOAuthStateFromUrl(section) : `${window.location.pathname}${window.location.search}${sectionHash(section)}`, [])
+  const focusHeading = useCallback(() => requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll: true })), [])
+  const navigate = useCallback((section: string, browserNavigation = false) => {
+    const target = sections.includes(section) ? section : COACH_STUDIO_SECTION
+    if (target !== activeSection && dirty && !window.confirm('Discard your unsaved Coach Studio changes and leave this screen?')) {
+      window.history.replaceState({ section: activeSection }, '', canonicalUrl(activeSection))
+      return
+    }
+    if (target !== activeSection) setDirty(false)
+    setActive(target)
+    const unavailable = Boolean(section && !sections.includes(section))
+    setNotice(unavailable ? 'Household money is not available in this staff workspace.' : `${target} screen loaded.`)
+    if (browserNavigation || target === activeSection) window.history.replaceState({ section: target }, '', canonicalUrl(target))
+    else window.history.pushState({ section: target }, '', canonicalUrl(target))
+    focusHeading()
+  }, [activeSection, canonicalUrl, dirty, focusHeading, sections])
+  useLayoutEffect(() => {
+    if (!ready) return
+    const follow = () => navigate(requestedSection(), true)
+    if (window.location.hash !== sectionHash(activeSection) || !sections.includes(active) || hasPendingPlaidOAuthReturn()) follow()
+    window.addEventListener('popstate', follow)
+    window.addEventListener('hashchange', follow)
+    return () => { window.removeEventListener('popstate', follow); window.removeEventListener('hashchange', follow) }
+  }, [active, activeSection, navigate, ready, requestedSection, sections])
+  useEffect(() => {
+    if (!dirty) return
+    const leave = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', leave)
+    return () => window.removeEventListener('beforeunload', leave)
+  }, [dirty])
+  const closeHelp = (close: () => void) => { close(); requestAnimationFrame(() => accountRef.current?.querySelector<HTMLElement>('summary')?.focus()) }
+
+  if (auth.isAuthEnabled && auth.authRecoveryRequired && auth.authError) return <AuthAccessPanel title={auth.authErrorStatus === 503 ? 'Secure access is temporarily unavailable.' : auth.authErrorStatus === 401 ? 'Sign in again to continue.' : 'We couldn’t finish checking your access.'} copy={auth.authError} recovering onRetry={!auth.isLoading && auth.authErrorStatus !== 401 && (auth.authIdentityId || auth.authProvider === 'workos' && (auth.authErrorStatus === 503 || auth.authErrorStatus === 409)) ? auth.refreshCurrentUser : undefined} onSignIn={auth.authErrorStatus === 401 ? auth.signIn : undefined} onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
+  if (auth.isLoading || auth.isVerifyingApi) return <WorkspaceOpening status="Signing you in securely…" onRetry={() => window.location.reload()} recovery={!auth.isLoading && auth.isSignedIn ? <SignOutButton /> : undefined} />
+  if (auth.isAuthEnabled && !auth.isSignedIn) return <AuthLanding />
+  if (auth.authError) return <AccessDenied message={auth.authError} onSignOut={auth.signOut} onRetry={auth.refreshCurrentUser} />
+  return <main className="app staff-app">
+    <SeoManager section={activeSection} />
+    <header className="shell-header"><div className="shell-brand"><BrandLogo brand={brand} /><div className="shell-brand-copy"><h1>{brand.short_name}</h1></div></div>
+      <AccountMenu menuRef={accountRef}>
+        <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setGuideOpen(true) }}>Guide</Button>
+        <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFeedbackOpen(true) }}>Report a problem</Button>
+        {(currentUser.is_admin || currentUser.enterprise_access?.organizations.some(org => org.it_admin)) && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setEnterpriseOpen(true) }}>Organization access</Button>}
+      </AccountMenu>
+    </header>
+    <ParticipantTabs staffOnly sections={sections} activeSection={activeSection} onChange={navigate} />
+    {notice && <p role="status" className={notice.includes('Household money') ? 'document-alert' : 'sr-only'}>{notice}</p>}
+    {activeSection === ADMIN_SECTION && currentUser.is_admin ? <AdminConsole currentUser={currentUser} /> : <CoachStudio currentUser={currentUser} onDirtyChange={setDirty} />}
+    <BrandFooter />
+    {guideOpen && <PilotGuideDialog staffOnly onClose={() => closeHelp(() => setGuideOpen(false))} />}
+    {feedbackOpen && <PilotFeedbackDialog initialWorkflow={activeSection === ADMIN_SECTION ? 'admin' : 'other'} onClose={() => closeHelp(() => setFeedbackOpen(false))} onSubmit={submitPilotFeedback} />}
+    {enterpriseOpen && <EnterpriseSettings currentUser={currentUser} onClose={() => setEnterpriseOpen(false)} />}
+  </main>
 }
 
 function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onProgramUnavailable, selectionNotice, onFinancialRestart, restartNotice, onDismissRestartNotice}: {onFinancialRestart: (message: string) => void; restartNotice: string | null; onDismissRestartNotice: () => void; selectedCohortId?: number; onChooseProgram: (cohortId: number) => void; onProgramVerified: (cohortId: number) => void; onProgramUnavailable: () => void; selectionNotice: string | null}) {
@@ -4792,7 +4867,7 @@ function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow
   return 'other'
 }
 
-function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () => void; savingsChallenge?: boolean }) {
+function PilotGuideDialog({ onClose, savingsChallenge = false, staffOnly = false }: { onClose: () => void; savingsChallenge?: boolean; staffOnly?: boolean }) {
   const { assistantName } = useBrand()
   const dialogRef = usePilotDialog(onClose)
 
@@ -4803,13 +4878,17 @@ function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () =
         <header>
           <div>
             <p className="eyebrow">Quick guide</p>
-            <h2 id="pilot-guide-title">{savingsChallenge ? 'Your 90-day challenge in three simple moves.' : 'Your household money, day to day.'}</h2>
+            <h2 id="pilot-guide-title">{staffOnly ? 'Your coaching workspace.' : savingsChallenge ? 'Your 90-day challenge in three simple moves.' : 'Your household money, day to day.'}</h2>
           </div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
         <div className="pilot-dialog-body">
         <ol className="pilot-guide-steps">
-          {savingsChallenge ? <>
+          {staffOnly ? <>
+            <li><span>1</span><div><strong>Start in Daily coaching.</strong><p>Choose a group and review who needs help.</p></div></li>
+            <li><span>2</span><div><strong>Open a participant with permission.</strong><p>Use only the information that participant has shared for coaching.</p></div></li>
+            <li><span>3</span><div><strong>Use the program tools when needed.</strong><p>Program settings, Assistant voice and Coaching Library stay in Coach Studio.</p></div></li>
+          </> : savingsChallenge ? <>
             <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested $500 over 90 days is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
             <li><span>2</span><div><strong>Use Today for a quick check-in.</strong><p>Report purchases when useful, distinguish no spending from unknown spending, and return for your Day 30, 60 and 90 checkpoints. Feelings are optional.</p></div></li>
             <li><span>3</span><div><strong>Report money you actually set aside.</strong><p>On Home, choose Report savings, check its date and funding source, then approve your reviewed record. A plan or pending proposal does not count as savings. Ask {assistantName} for a comfortable next step.</p></div></li>
@@ -4818,10 +4897,10 @@ function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () =
           <li><span>3</span><div><strong>Compare with your statement.</strong><p>Upload in Statements, check each line and approve the changes you want.</p></div></li></>}
 
         </ol>
-        <div className="pilot-guide-power-path">
+        {!staffOnly && <div className="pilot-guide-power-path">
           <strong>Optional upload check</strong>
           <p>{savingsChallenge ? "Statements can help you understand spending, but they are optional. Use Statements to upload and review. A credit card, full budget and bank connection are not required. Uploading does not grant your coach access to your private statements." : <>If a file would save time, try one budget, statement, receipt, or pay stub. Review extracted setup values before applying them and report any failed read from Ask {assistantName} or Statements.</>}</p>
-        </div>
+        </div>}
         <footer>
           <ShieldIcon />
           <p>Use Report a problem if you get stuck. Avoid typing account numbers or financial values into the report, and crop screenshots to the problem area.</p>
