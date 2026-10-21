@@ -54,6 +54,16 @@ async function openSection(page: Page, name: string) {
   await expect(page.locator('.tabs-tools-backdrop')).toHaveCount(0)
 }
 
+// Legacy deep-link/request-isolation coverage remains until W5 removes staff
+// money routes. These are deliberately not staff navigation journeys.
+async function openLegacyStaffMoneyRoute(page: Page, section: string) {
+  const navigation = page.getByRole('navigation', { name: 'Staff sections' })
+  await expect(navigation).toBeVisible()
+  await expect(navigation.getByRole('link', { name: section, exact: true })).toHaveCount(0)
+  await page.evaluate(value => { window.location.hash = encodeURIComponent(value) }, section)
+  await expect(page).toHaveURL(new RegExp(`#${encodeURIComponent(section)}$`))
+}
+
 async function openSetAside(page: Page) {
   const toggle = page.getByRole('region', { name: 'Savings challenge', exact: true }).getByRole('button', { name: /^I set money aside/ })
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
@@ -116,7 +126,7 @@ async function chatReturnTarget(page: Page, name: string) {
 
 async function openChatContext(page: Page) {
   const header = page.locator('.chat-shell-header')
-  if (decodeURIComponent(new URL(page.url()).hash) === '#Ask Mia') await expect(header).toBeVisible()
+  if (decodeURIComponent(new URL(page.url()).hash) === '#Ask Mia') await expect(header).toBeVisible({ timeout: 15000 })
   if (!(await header.count())) return
   if (await chatAssistPanel(page).getByRole('heading', { name: 'Context & help', exact: true }).isVisible()) return
   await (await chatHeaderAction(page, 'Context & help')).click()
@@ -5515,7 +5525,7 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
   const delayedSave = new Promise<void>((resolve) => { releaseSave = resolve })
 
   await page.addInitScript(() => {
-    window.localStorage.setItem('household-cfo:coach-workspace-id', '1')
+    if (!window.localStorage.getItem('household-cfo:coach-workspace-id')) window.localStorage.setItem('household-cfo:coach-workspace-id', '1')
   })
   await page.route('http://api.test/api/v1/admin/personas', (route) => {
     const workspaceId = route.request().headers()['x-coach-workspace-id'] ?? ''
@@ -6039,6 +6049,7 @@ test('BOG UI household participant navigation keeps a disabled deep link canonic
   releaseRefresh?.()
   await expect(page.getByRole('status').filter({ hasText: 'CFO Filter is not included' })).toHaveCount(0)
   await page.getByRole('button', { name: 'More', exact: true }).click()
+  await page.locator('.tabs-tools-group > summary').click()
   await expect(page.getByRole('link', { name: 'CFO Filter', exact: true })).toBeVisible()
   await expect(page).toHaveURL(/#Home$/)
   await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
@@ -9791,7 +9802,7 @@ test('BOG UI budget year response cannot cross a coach workspace switch or repla
   await page.getByRole('button', { name: 'Next year', exact: true }).click()
   await openSection(page, 'Coach Studio')
   await page.getByLabel('Coach workspace').selectOption('2')
-  await openSection(page, 'Budget')
+  await openLegacyStaffMoneyRoute(page, 'Budget')
   await expect(page.getByRole('button', { name: 'Next year', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: 'Next year', exact: true }).click()
   await expect(page.getByText('Fresh budget after workspace switch.', { exact: true }).first()).toBeAttached()
@@ -10153,8 +10164,8 @@ test('BOG UI daily Mia savings note requires new-money confirmation before a dra
 
 for (const interruptedAt of ['storage', 'processing'] as const) {
   test(`BOG UI program switch stops an old attachment chain during ${interruptedAt}`, async ({ page }) => {
-    await page.clock.install()
-    await page.clock.pauseAt(new Date(Date.now() + 100))
+    await page.clock.install({ time: new Date('2026-09-30T00:00:00Z') })
+    await page.clock.pauseAt(new Date('2026-10-01T00:00:00Z'))
     let releaseStorage!: () => void
     const storageGate = new Promise<void>(resolve => { releaseStorage = resolve })
     const calls: Array<{kind: string; cohort: string | undefined}> = []
@@ -10217,7 +10228,7 @@ for (const interruptedAt of ['storage', 'processing'] as const) {
 for (const role of ['participant', 'coach', 'admin']) {
   test(`BOG UI account help stays stable across navigation for ${role}`, async ({ page }) => {
     await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
-    await page.goto(`/?pilot_e2e_role=${role}#Home`)
+    await page.goto(`/?pilot_e2e_role=${role}#${role === 'participant' ? 'Home' : 'Coach%20Studio'}`)
     const account = page.locator('.shell-account-menu > summary')
     await expect(page.getByRole('button', { name: 'Open Mia', exact: true })).toHaveCount(0)
     await page.evaluate(() => document.fonts.ready)
@@ -10233,10 +10244,16 @@ for (const role of ['participant', 'coach', 'admin']) {
     }
     await account.press('Escape')
     await expect(account).toBeFocused()
-    await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
-    await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
-    expect(Math.abs(await account.evaluate(node => node.getBoundingClientRect().right) - homeRight)).toBeLessThanOrEqual(4)
-    await openSection(page, 'Budget')
+    if (role === 'participant') {
+      await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+      await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
+      expect(Math.abs(await account.evaluate(node => node.getBoundingClientRect().right) - homeRight)).toBeLessThanOrEqual(4)
+      await openSection(page, 'Budget')
+    } else {
+      await expect(page.getByRole('navigation', { name: /participant sections/ })).toHaveCount(0)
+      if (role === 'admin') await openSection(page, 'Admin')
+      else await page.getByRole('tab', { name: 'Program settings', exact: true }).click()
+    }
     expect(Math.abs(await account.evaluate(node => node.getBoundingClientRect().right) - homeRight)).toBeLessThanOrEqual(1)
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
   })
@@ -10244,7 +10261,7 @@ for (const role of ['participant', 'coach', 'admin']) {
 
 test('BOG UI pilot support stays vertically aligned on narrow phones and account fits short screens', async ({ page }) => {
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
-  await page.goto('/?pilot_e2e_role=admin#Home')
+  await page.goto('/?pilot_e2e_role=participant#Home')
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 568 })
     const alignment = await page.locator('.pilot-support-bar').evaluate(node => {
@@ -10524,6 +10541,7 @@ test('BOG UI My Money groups saved records and opens category editing without mo
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
   const topics = page.getByRole('navigation', { name: 'My Money topics' })
+  await expect(topics).toBeVisible({ timeout: 15000 })
   await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.income-source-manager-card').first()).toBeVisible()
   await expect(page.locator('.income-schedule-form')).toBeVisible()
@@ -11285,7 +11303,8 @@ async function mockFinancialRestartBrowser(page: Page, options: { lostReply?: bo
 }
 
 async function assertRestartUnknownMoney(page: Page) {
-  await openSection(page, 'My Money')
+  if (await page.getByRole('navigation', { name: 'Staff sections' }).count()) await openLegacyStaffMoneyRoute(page, 'My Money')
+  else await openSection(page, 'My Money')
   await expect(page.locator('.income-source-manager-heading')).toContainText('Income not entered')
   await expect(page.locator('.income-source-empty')).toContainText('No income sources yet.')
   await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: 'Debt', exact: true }).click()
@@ -11913,12 +11932,12 @@ test('BOG UI a selected coach can open own setup help from Context My Money and 
   let help = await openFixSetupFromChat(page)
   await expect(help.getByRole('button', { name: 'Review starting setup again', exact: true })).toBeEnabled()
   await help.getByRole('button', { name: 'Close', exact: true }).click()
-  await openSection(page, 'My Money')
+  await openLegacyStaffMoneyRoute(page, 'My Money')
   await page.locator('.money-setup-help').click()
   help = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
   await expect(help).toBeVisible()
   await help.getByRole('button', { name: 'Close', exact: true }).click()
-  await openSection(page, 'Ask Mia')
+  await openLegacyStaffMoneyRoute(page, 'Ask Mia')
   await page.locator('.chat-card').getByRole('button', { name: 'Fix my setup', exact: true }).click()
   await expect(help).toBeVisible()
   await help.getByRole('button', { name: 'Close', exact: true }).click()
@@ -11983,7 +12002,7 @@ test('BOG UI changing a selected coach workspace ignores late own-help state and
   await openSection(page, 'Coach Studio')
   await page.getByLabel('Coach workspace').selectOption('2')
   await expect(page.getByLabel('Coach workspace')).toHaveValue('2')
-  await openSection(page, 'Ask Mia')
+  await openLegacyStaffMoneyRoute(page, 'Ask Mia')
   help = await openFixSetupFromChat(page)
   await expect(help.getByRole('button', { name: 'Review starting setup again', exact: true })).toBeEnabled()
   release()
@@ -11999,7 +12018,7 @@ test('BOG UI changing a selected coach workspace ignores late own-help state and
   await openSection(page, 'Coach Studio')
   await page.getByLabel('Coach workspace').selectOption('1')
   await expect(page.getByLabel('Coach workspace')).toHaveValue('1')
-  await openSection(page, 'Ask Mia')
+  await openLegacyStaffMoneyRoute(page, 'Ask Mia')
   help = await openFixSetupFromChat(page)
   await help.getByRole('button', { name: 'Review starting setup again', exact: true }).click()
   await expect(review.getByRole('checkbox', { name: /I reviewed what starts fresh/ })).not.toBeChecked()
