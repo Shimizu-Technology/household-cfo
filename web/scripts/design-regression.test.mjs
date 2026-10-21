@@ -3,6 +3,9 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
+import { cssPolicyFindings } from './design-css-policy.mjs'
+import { cssPolicyAllowlist } from './design-css-allowlist.mjs'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = readFileSync(resolve(__dirname, '../src/App.tsx'), 'utf8')
 const adminConsole = readFileSync(resolve(__dirname, '../src/components/AdminConsole.tsx'), 'utf8')
@@ -226,14 +229,42 @@ assert.ok(
   'React event values must not be read from a deferred annual-income state updater',
 )
 
-const stylesheetDirectories = ['../src', '../src/components', '../src/styles']
-for (const directory of stylesheetDirectories) {
-  for (const name of readdirSync(resolve(__dirname, directory)).filter((file) => file.endsWith('.css'))) {
-    const source = readFileSync(resolve(__dirname, directory, name), 'utf8')
-    for (const block of source.match(/@font-face\s*\{[^}]*\}/g) ?? []) {
-      assert.ok(!block.includes('var('), `${name}: @font-face descriptors must be literal values, not custom properties`)
-    }
+function stylesheets(directory) {
+  return readdirSync(resolve(__dirname, directory), { withFileTypes: true }).flatMap((entry) => {
+    const file = `${directory}/${entry.name}`
+    return entry.isDirectory() ? stylesheets(file) : entry.name.endsWith('.css') ? [file] : []
+  })
+}
+const stylesheetFiles = stylesheets('../src')
+for (const file of stylesheetFiles) {
+  const source = readFileSync(resolve(__dirname, file), 'utf8')
+  for (const block of source.match(/@font-face\s*\{[^}]*\}/g) ?? []) {
+    assert.ok(!block.includes('var('), `${file}: @font-face descriptors must be literal values, not custom properties`)
   }
 }
 
+// Exercise the policy itself so an accidentally weakened scanner cannot pass.
+for (const [sample, kind] of [
+  ['.card { background: linear-gradient(red, blue) }', 'gradient'],
+  ['.card { backdrop-filter: blur(4px) }', 'glass'],
+  ['.card { box-shadow: var(--shadow-sm) }', 'shadow'],
+  ['.card { border-inline-start: 4px solid red }', 'side-border'],
+  ['.card { border: 2px solid red }', 'side-border'],
+  ['.card:hover { color: red }', 'hover'],
+  ['@media (hover: hover) { .card:hover { color: red } }', 'hover'],
+  ['/* gradient(red, blue) */ .card { background: radial-gradient(red, blue) }', 'gradient'],
+]) assert.ok(cssPolicyFindings(sample, 'fixture.css').some((finding) => finding.kind === kind), `CSS policy must detect ${kind}`)
+assert.deepEqual(cssPolicyFindings(`/* linear-gradient(red, blue) */
+  .card { box-shadow: none; border-left: 1px solid red; backdrop-filter: none }
+  @media (max-width: 600px) { @media (hover: hover) and (pointer: fine) { .card:hover { color: red } } }
+`, 'fixture.css'), [], 'comments, flat surfaces and nested fine-pointer hover are valid')
+const cssPolicyFailures = []
+for (const path of stylesheetFiles) {
+  const file = path.replace('../', '')
+  const source = readFileSync(resolve(__dirname, path), 'utf8')
+  for (const finding of cssPolicyFindings(source, file)) {
+    if (!cssPolicyAllowlist.has(finding.key)) cssPolicyFailures.push(`${file}:${finding.line} ${finding.kind}: ${finding.key}`)
+  }
+}
+assert.deepEqual(cssPolicyFailures, [], 'new CSS decoration/ungated hover: remove it or document a specific intentional exception')
 console.log('design regression checks passed')
