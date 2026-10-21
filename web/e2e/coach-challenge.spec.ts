@@ -3,7 +3,7 @@ test('BOG UI Coach Studio metadata and explicit current sharing fit each viewpor
   await page.goto('/e2e/fixtures/coach-challenge.html')
   await page.getByLabel('Challenge group').selectOption('1')
   await expect(page.getByText('Fictional pilot participant')).toBeVisible()
-  await expect(page.getByText(/Check-in unavailable/)).toBeVisible()
+  await expect(page.getByText(/check-in not shared/)).toBeVisible()
   await expect(page.getByText(/\$100.00 reported/)).toHaveCount(0)
   await page.getByRole('button', { name: 'Open permitted help & sharing' }).click()
   await page.getByRole('button', { name: 'Check current sharing permissions' }).click()

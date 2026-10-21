@@ -270,7 +270,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
     <div className="screen-heading"><h2 data-page-heading tabIndex={-1}>Your savings challenge</h2>{loading && challenge && <p className="savings-refreshing" role="status">Loading your challenge…</p>}</div>
     {error && <div className="savings-error" role="alert" tabIndex={-1} ref={requestErrorRef}><p>{error}</p>{retry ? <><p>We couldn’t confirm that this saved. Try again before making another change.</p><button type="button" disabled={busy} onClick={() => void mutate(retry)}>Retry same request</button></> : <button type="button" disabled={busy} onClick={() => {privateDenied.current=false;void refresh()}}>Refresh challenge</button>}</div>}
     <HomeSavingsRequestRecovery state={homeMutation} onFresh={prepareHomeFresh}/>
-    {freshHome?.action==='entry_stage'&&freshHome.entryId&&<p role="status">Open “Your records & corrections” below and choose Fix record #{freshHome.entryId} to finish. Only that record can be changed right now.</p>}
+    {freshHome?.action==='entry_stage'&&freshHome.entryId&&<p role="status">Open “Your records & corrections” below and choose Fix on the record you were changing. Only that record can be changed right now.</p>}
     {(planMutation.pending || planMutation.error) && <PlanRequestRecovery state={planMutation} onRefresh={()=>void refresh()}/>}
     {notice && <p className="savings-notice" role="status">{notice}</p>}
     {readFailed && challenge && <p role="status">Showing your last saved results. We couldn’t refresh them, so refresh before making changes.</p>}
@@ -322,7 +322,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
       </article>
 
       <section id={asideId} className={entryOpen ? 'savings-aside panel' : 'savings-aside panel is-collapsed'} aria-label="Add money you set aside">
-        <h3 ref={entryHeadingRef} tabIndex={-1}>{editingEntry ? `Fix record #${editingEntry.id}` : 'Add money you set aside'}</h3>
+        <h3 ref={entryHeadingRef} tabIndex={-1}>{editingEntry?.current_approved_version ? `Fix the ${entryWords(editingEntry.current_approved_version.signed_cents, editingEntry.current_approved_version.effective_on, 'fix')}` : editingEntry ? 'Fix this record' : 'Add money you set aside'}</h3>
         <p>This is your own record of money you’ve already put aside. It doesn’t move money and isn’t checked with your bank. Paying down debt, or moving money you already had, doesn’t count as new.</p>
         <form onSubmit={submitEntry}><fieldset disabled={entryFormLocked || !elapsed}>
           <label>Amount in US dollars<input inputMode="decimal" value={amount} onChange={(event) => { setNewMoneyReviewed(false); setAmount(event.target.value) } } required /></label>
@@ -341,7 +341,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
           <p><strong>{savingsDollars(draft.signed_cents)}</strong> · {formatDay(draft.effective_on)}{draft.status === 'pending' ? '' : ` · ${statusWord(draft.status)}`}</p>
           <p>{savingsFundingLabel(draft.funding_source)}</p>
           {draft.reason && <p>{draft.reason}</p>}
-          {draft.status === 'pending' && <><p>Your total doesn’t change until you confirm.</p><button type="button" className="savings-action" disabled={actionLocked('entry_approve',draft.id) || !calendar || draft.effective_on > calendar.local_today} onClick={() => homeStage('entry_approve',(key, signal) => approveSavingsEntry(draft.id, { accepted: true, expected_draft_lock_version: draft.lock_version, expected_version_id: draft.base_version_id, expected_entry_lock_version: draft.base_entry_lock_version }, key, signal),undefined,draft.id)}>Confirm savings record #{draft.id}</button>{(!calendar || draft.effective_on > calendar.local_today) && <p>You can confirm this on or after {formatDay(draft.effective_on)}.</p>}</>}
+          {draft.status === 'pending' && <><p>Your total doesn’t change until you confirm.</p><button type="button" className="savings-action" disabled={actionLocked('entry_approve',draft.id) || !calendar || draft.effective_on > calendar.local_today} onClick={() => homeStage('entry_approve',(key, signal) => approveSavingsEntry(draft.id, { accepted: true, expected_draft_lock_version: draft.lock_version, expected_version_id: draft.base_version_id, expected_entry_lock_version: draft.base_entry_lock_version }, key, signal),undefined,draft.id)}>Confirm {entryWords(draft.signed_cents, draft.effective_on)}</button>{(!calendar || draft.effective_on > calendar.local_today) && <p>You can confirm this on or after {formatDay(draft.effective_on)}.</p>}</>}
         </>} />}
         <SavingsHistory<SavingsEntryDraft> scope={historyScope} onDenied={clearPrivatePlan} key="confirmed" options={CONFIRMED} collection="entry_drafts" label="Your entries" hideWhenEmpty revision={revision} enabled={!busy} render={(draft) => <>
           <p><strong>{savingsDollars(draft.signed_cents)}</strong> · {formatDay(draft.effective_on)} · {statusWord(draft.status)}</p>
@@ -383,14 +383,14 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
           <p>A fix doesn’t change your total until you confirm it.</p>
           <SavingsHistory<SavingsEntry> scope={historyScope} onDenied={clearPrivatePlan} key={freshHome?.entryId??'entries'} focusRecordId={freshHome?.entryId} options={NEWEST} collection="entries" label="Savings history" level={3} revision={revision} enabled={!busy} render={(entry) => {
             const version = entry.current_approved_version
-            if (!version) return <p>Record #{entry.id} is waiting for you to confirm it under “I set money aside”.</p>
+            if (!version) return <p>This record is waiting for you to confirm it under “I set money aside”.</p>
             const match = matchWords(version)
             return <>
               <p><strong>{savingsDollars(version.signed_cents)}</strong> · {formatDay(version.effective_on)}{version.version_number > 1 ? ` · fixed (version ${version.version_number})` : ''}</p>
               <p>{savingsFundingLabel(version.funding_source)}{match ? ` · ${match}` : ''}</p>
               <div className="savings-form-actions">
                 {onReviewEvidence && version.signed_cents > 0 && savingsFundingOptions.some(option=>option.value===version.funding_source&&option.eligible) && <button type="button" disabled={locked} onClick={()=>onReviewEvidence(version.id)}>{version.evidence_status === 'not_linked' ? 'Match to a statement' : 'Review statement match'}</button>}
-                <button type="button" disabled={actionLocked('entry_stage',undefined,entry.id)} onClick={() => editEntry(entry)}>Fix record #{entry.id}</button>
+                <button type="button" disabled={actionLocked('entry_stage',undefined,entry.id)} onClick={() => editEntry(entry)}>Fix the {entryWords(version.signed_cents, version.effective_on, 'fix')}</button>
               </div>
             </>
           }} />
@@ -474,6 +474,12 @@ function zeroNotice(result: SavingsMutation<unknown>) { const cutoff = (result.r
 const WAITING: SavingsPageOptions = { direction: 'newest', status: 'pending' }
 const CONFIRMED: SavingsPageOptions = { direction: 'newest', status: 'approved' }
 const NEWEST: SavingsPageOptions = { direction: 'newest' }
+// Name a record by what it is, not by its id: "$100.00 set aside on Wed, Oct 21" / "$25.00 withdrawal from Wed, Oct 21".
+function entryWords(signedCents: number, effectiveOn: string, style: 'confirm' | 'fix' = 'confirm') {
+  const amount = savingsDollars(Math.abs(signedCents)), day = formatDay(effectiveOn)
+  if (signedCents < 0) return style === 'fix' ? `${amount} withdrawal from ${day}` : `${amount} taken out on ${day}`
+  return `${amount} set aside on ${day}`
+}
 function statusWord(status: string) { return status === 'pending' ? 'Waiting for you to confirm' : status === 'approved' ? 'Saved' : 'Not used' }
 function wholeDollars(cents: number) { return cents % 100 === 0 ? `$${new Intl.NumberFormat('en-US').format(cents / 100)}` : savingsDollars(cents) }
 function matchWords(version: SavingsEntryVersion) {

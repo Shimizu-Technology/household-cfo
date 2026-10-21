@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { SavingsPlanDraft } from '../lib/savingsChallenge'
+import { savingsDollars, type SavingsPlanDraft } from '../lib/savingsChallenge'
 import { ComfortablePlanSummary } from './ComfortablePlanChoices'
 // autoFocus: after a target is prepared (or the form closes), move focus here so it doesn't fall to the page.
 // It only takes focus when nothing else holds it, so a late load never pulls focus away from the participant.
@@ -16,5 +16,5 @@ export function SavingsPlanApprovalReview({draft,disabled,onApprove,autoFocus,on
   // Runs once when this review appears.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[])
-  return <div><p>Nothing changes until you confirm.</p><ComfortablePlanSummary plan={draft}/>{additional&&<label className="savings-check"><input ref={checkbox} data-plan-confirm type="checkbox" checked={reviewed} disabled={disabled} onChange={event=>setReviewed(event.target.checked)}/>I reviewed this saved target, my spending choices, the 90-day estimates and the spending snapshot’s limits.</label>}<button ref={button} data-plan-confirm={additional?undefined:true} type="button" disabled={disabled||additional&&!reviewed} onClick={onApprove} className="savings-action">Confirm target plan #{draft.id}</button></div>
+  return <div><p>Nothing changes until you confirm.</p><ComfortablePlanSummary plan={draft}/>{additional&&<label className="savings-check"><input ref={checkbox} data-plan-confirm type="checkbox" checked={reviewed} disabled={disabled} onChange={event=>setReviewed(event.target.checked)}/>I reviewed this saved target, my spending choices, the 90-day estimates and the spending snapshot’s limits.</label>}<button ref={button} data-plan-confirm={additional?undefined:true} type="button" disabled={disabled||additional&&!reviewed} onClick={onApprove} className="savings-action">{draft.target_cents === null ? 'Confirm choosing my target later' : `Confirm ${savingsDollars(draft.target_cents)} target`}</button></div>
 }

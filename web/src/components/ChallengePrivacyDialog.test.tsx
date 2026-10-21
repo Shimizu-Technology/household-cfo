@@ -11,9 +11,34 @@ afterEach(cleanup)
 const approve = () => { fireEvent.click(screen.getByRole('checkbox', { name: 'I understand and approve this exact change.' })); fireEvent.click(screen.getByRole('button', { name: 'Approve reviewed change' })) }
 function open(api = syntheticPrivacyApi()) { return render(<ChallengePrivacyDialog actorScope={privacyScope} participant onClose={vi.fn()} documentImportId={500} api={api} />) }
 describe('participant privacy help and reminders', () => {
+  it('names sharing purposes in plain words and keeps each privacy limit', async () => {
+    open()
+    await screen.findByText('You haven’t shared anything.')
+    expect(document.querySelector('.privacy-eyebrow')).toBeNull()
+    const purposes = Array.from((screen.getByLabelText('Purpose') as HTMLSelectElement).options).map((option) => option.textContent)
+    expect(purposes).toEqual(['Your approved totals', 'Specific records you choose', 'Group totals for the bank (no names, groups of 5 or more)'])
+    for (const system of ['monetary', 'Coarse', 'aggregate', 'grant']) expect(document.body.textContent).not.toContain(system)
+    fireEvent.change(screen.getByLabelText('Purpose'), { target: { value: 'sponsor_aggregate' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' }))
+    // The meaning stays: group-only, small groups hidden, nothing individual.
+    expect(document.body.textContent).toContain('fixed group totals in broad ranges only')
+    expect(document.body.textContent).toContain('nothing for groups smaller than 5')
+    expect(document.body.textContent).toContain('cannot open anyone’s records or see any person’s exact result')
+  })
+  it('names existing sharing and revocation in plain words without changing its scope', async () => {
+    const data = structuredClone(privacyFixture)
+    data.grants = [{ id: 91, kind: 'coach_summary', recipient_user_id: 903, granted: true, selected_records: [], expires_at: null, policy_version: data.policy_version, lock_version: 2 }]
+    const api = syntheticPrivacyApi(); api.privacy = vi.fn().mockResolvedValue(data)
+    open(api)
+    await screen.findByText('Your approved totals · Sharing on')
+    fireEvent.click(screen.getByRole('button', { name: 'Review revoke sharing' }))
+    expect(screen.getByText('Purpose: Your approved totals')).toBeTruthy()
+    expect(screen.getByText('Access stops right away. Copies already downloaded can’t be recalled.')).toBeTruthy()
+    expect(screen.getByText('Recipient: Fictional Mel')).toBeTruthy()
+  })
   it('does not consent by default and separately reviews exact recipient before a write', async () => {
     const api = syntheticPrivacyApi(); api.mutate = vi.fn(api.mutate); open(api)
-    await screen.findByText('No sharing grants.'); expect(api.mutate).not.toHaveBeenCalled()
+    await screen.findByText('You haven’t shared anything.'); expect(api.mutate).not.toHaveBeenCalled()
     fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' }))
     expect(screen.getByText('Recipient: Fictional Mel')).toBeTruthy(); expect(api.mutate).not.toHaveBeenCalled(); approve()
     await waitFor(() => expect(api.mutate).toHaveBeenCalledWith(expect.objectContaining({ action: 'consent' }), expect.objectContaining({ granted: true, recipient_user_id: 903, selected_records: [] }), expect.any(AbortSignal)))
@@ -58,6 +83,7 @@ describe('participant privacy help and reminders', () => {
   })
   it('reminder dismissal is distinct from a check-in and email consent remains optional', async () => {
     const api = syntheticPrivacyApi(); api.mutate = vi.fn(api.mutate); open(api); fireEvent.click(await screen.findByText('Daily reminders')); await screen.findByText(/Email delivery is not configured/)
+    expect(screen.getByText(/All times use Guam time/)).toBeTruthy()
     expect((screen.getByRole('checkbox', { name: /I consent to a generic daily email/ }) as HTMLInputElement).checked).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: 'Review dismiss reminder' })); expect(screen.getByText(/Dismissal does not record spending/)).toBeTruthy(); approve()
     await waitFor(() => expect(api.mutate).toHaveBeenCalledWith(expect.objectContaining({ action: 'dismiss' }), { enrollment_id: 100, reminder_id: 800, expected_lock_version: 0 }, expect.anything()))
@@ -88,7 +114,7 @@ describe('participant privacy help and reminders', () => {
   })
   it('an explicitly requested enrollment beyond the first metadata page does not open another program', async () => {
     const api = syntheticPrivacyApi(); const first = await api.controls(); api.controls = vi.fn(async (cursor) => cursor ? { ...first, records: [{ ...first.records[0], id: 101 }], next_cursor: null } : { ...first, next_cursor: 100 }); api.privacy = vi.fn(api.privacy)
-    render(<ChallengePrivacyDialog actorScope={privacyScope} participant initialEnrollmentId={101} onClose={vi.fn()} api={api} />); await screen.findByText('No sharing grants.')
+    render(<ChallengePrivacyDialog actorScope={privacyScope} participant initialEnrollmentId={101} onClose={vi.fn()} api={api} />); await screen.findByText('You haven’t shared anything.')
     expect(api.controls).toHaveBeenCalledTimes(2); expect(api.privacy).toHaveBeenCalledWith(101, null, expect.anything())
   })
   it('owns one program page synchronously and releases it for retry after failure', async () => {
@@ -104,10 +130,10 @@ describe('participant privacy help and reminders', () => {
     expect(screen.getByText('Page unavailable')).toBeTruthy()
     expect(more).toHaveProperty('disabled', false)
     vi.mocked(api.controls).mockResolvedValueOnce({ ...first, records: [{ ...first.records[0], id: 101, program_name: 'Second own program' }], next_cursor: null })
-    fireEvent.click(more); await screen.findByRole('option', { name: 'Second own program · active' })
+    fireEvent.click(more); await screen.findByRole('option', { name: 'Second own program' })
     expect(screen.queryByText('Page unavailable')).toBeNull()
     expect(api.controls).toHaveBeenLastCalledWith(100, expect.any(AbortSignal))
-    expect(screen.getAllByRole('option', { name: 'Second own program · active' })).toHaveLength(1)
+    expect(screen.getAllByRole('option', { name: 'Second own program' })).toHaveLength(1)
     expect(screen.queryByRole('button', { name: 'Load more programs' })).toBeNull()
   })
   it('aborts a pending program page on an actor switch without leaking rows or locking the new actor', async () => {
@@ -170,7 +196,7 @@ describe('privacy request ownership under effect replay', () => {
       queueMicrotask(() => { if (!signal?.aborted) void originalPrivacy(id, cursor, signal).then(resolve, reject) })
     }))
     render(<StrictMode><ChallengePrivacyDialog actorScope={privacyScope} participant onClose={vi.fn()} api={api} /></StrictMode>)
-    await screen.findByText('No sharing grants.')
+    await screen.findByText('You haven’t shared anything.')
     expect(screen.queryByText('Metadata could not reach the API')).toBeNull()
     expect(screen.queryByText('Privacy could not reach the API')).toBeNull()
     expect(api.controls).toHaveBeenCalledTimes(2)
@@ -181,9 +207,9 @@ describe('privacy request ownership under effect replay', () => {
     let rejectEarlier: (error: Error) => void = () => {}
     api.privacy = vi.fn().mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectEarlier = reject })).mockResolvedValue(privacyFixture)
     render(<StrictMode><ChallengePrivacyDialog actorScope={privacyScope} participant onClose={vi.fn()} api={api} /></StrictMode>)
-    await screen.findByText('No sharing grants.')
+    await screen.findByText('You haven’t shared anything.')
     await act(async () => { rejectEarlier(new Error('Earlier request failed after replay')) })
     expect(screen.queryByText('Earlier request failed after replay')).toBeNull()
-    expect(screen.getByText('No sharing grants.')).toBeTruthy()
+    expect(screen.getByText('You haven’t shared anything.')).toBeTruthy()
   })
 })

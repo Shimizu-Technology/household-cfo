@@ -52,7 +52,7 @@ function PanelContent(props: Props) {
   const choose = (message: string) => act(() => props.onChoosePrompt(message))
   return <>
     <header className="mia-assist-header">
-      <div><span className="eyebrow">Ask {props.assistantName}</span><h2 id="mia-assist-title">{props.panel === 'prompts' ? 'What would you like to do?' : 'Context & help'}</h2></div>
+      <div><h2 id="mia-assist-title">{props.panel === 'prompts' ? 'What would you like to do?' : 'Context & help'}</h2></div>
       <button type="button" className="secondary-button" onClick={props.onClose}>Close</button>
     </header>
     <div className="mia-assist-body">
