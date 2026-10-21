@@ -113,4 +113,18 @@ describe('CohortExperienceStudio experience choice', () => {
     expect(screen.getByText(/This group or your program role does not allow publishing/)).toBeTruthy()
   })
 
+  it('explains closed-group restrictions without blaming the owner’s role', async () => {
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue({ ...household, cohort: { ...household.cohort, status: 'completed' }, permissions: { edit: false, review: false, publish: false, rollback: false } })
+    renderStudio()
+    await screen.findByRole('button', { name: 'Publish tool version' })
+    expect(screen.getByText('Read-only group')).toBeTruthy()
+    expect(screen.queryByText('Preview required')).toBeNull()
+    expect(screen.getByText('Completed and archived groups are read-only. Their tools cannot be saved, previewed, or published.')).toBeTruthy()
+    for (const name of ['Save draft', 'Preview navigation', 'Publish tool version']) {
+      expect(screen.getByRole('button', { name })).toHaveProperty('disabled', true)
+      expect(screen.getByRole('button', { name }).getAttribute('aria-describedby')).toBe('experience-closed-help')
+    }
+    expect(screen.queryByText('Your role cannot save changes to these tools.')).toBeNull()
+  })
+
 })

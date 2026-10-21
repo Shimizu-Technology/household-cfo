@@ -89,6 +89,7 @@ export function CohortExperienceStudio({
 
   const dirty = useMemo(() => Boolean(configuration && draft && JSON.stringify(configuration.draft) !== JSON.stringify(draft)), [configuration, draft])
 
+  const closedGroup = Boolean(configuration && ['completed', 'archived'].includes(configuration.cohort.status))
   const previewMatches = Boolean(preview && configuration?.preview?.digest === preview.digest && configuration.draft_revision === preview.draft_revision)
 
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])
@@ -354,17 +355,19 @@ export function CohortExperienceStudio({
           <article className="panel experience-lifecycle">
             <header>
               <div><h3>Review the tools for this group.</h3></div>
-              <span>{dirty ? 'Unsaved changes' : !previewMatches ? 'Preview required' : !configuration.permissions.publish ? 'Owner or reviewer needed' : 'Ready to publish'}</span>
+              <span>{closedGroup ? 'Read-only group' : dirty ? 'Unsaved changes' : !previewMatches ? 'Preview required' : !configuration.permissions.publish ? 'Owner or reviewer needed' : 'Ready to publish'}</span>
             </header>
             <div className="experience-actions">
-              <Button variant="secondary" aria-describedby="experience-save-help" onClick={() => void saveDraft()} disabled={!dirty || pendingAction !== null || !configuration.permissions.edit}>{pendingAction === 'save' ? 'Saving' : 'Save draft'}</Button>
-              <Button variant="secondary" aria-describedby="experience-preview-help" onClick={() => void runPreview()} disabled={dirty || pendingAction !== null || !configuration.permissions.review}>{pendingAction === 'preview' ? 'Previewing' : 'Preview navigation'}</Button>
-              <Button aria-describedby="experience-publish-help" onClick={() => void publishDraft()} disabled={!configuration.permissions.publish || !previewMatches || dirty || pendingAction !== null}>{pendingAction === 'publish' ? 'Publishing' : 'Publish tool version'}</Button>
+              <Button variant="secondary" aria-describedby={closedGroup ? 'experience-closed-help' : 'experience-save-help'} onClick={() => void saveDraft()} disabled={!dirty || pendingAction !== null || !configuration.permissions.edit}>{pendingAction === 'save' ? 'Saving' : 'Save draft'}</Button>
+              <Button variant="secondary" aria-describedby={closedGroup ? 'experience-closed-help' : 'experience-preview-help'} onClick={() => void runPreview()} disabled={dirty || pendingAction !== null || !configuration.permissions.review}>{pendingAction === 'preview' ? 'Previewing' : 'Preview navigation'}</Button>
+              <Button aria-describedby={closedGroup ? 'experience-closed-help' : 'experience-publish-help'} onClick={() => void publishDraft()} disabled={!configuration.permissions.publish || !previewMatches || dirty || pendingAction !== null}>{pendingAction === 'publish' ? 'Publishing' : 'Publish tool version'}</Button>
             </div>
 
+            {closedGroup ? <p id="experience-closed-help" className="experience-action-help">Completed and archived groups are read-only. Their tools cannot be saved, previewed, or published.</p> : <>
             <p id="experience-save-help" className="experience-action-help">{pendingAction ? 'Wait for the current action to finish.' : !configuration.permissions.edit ? 'Your role cannot save changes to these tools.' : !dirty ? 'Tool choices saved. Change a choice to save again.' : 'Save your choices before previewing.'}</p>
             <p id="experience-preview-help" className="experience-action-help">{pendingAction ? 'Wait for the current action to finish.' : !configuration.permissions.review ? 'A program editor, reviewer, or owner must preview these tools.' : dirty ? 'Save your changes before previewing.' : 'Preview the saved choices to check the exact navigation.'}</p>
             <p id="experience-publish-help" className="experience-action-help">{pendingAction ? 'Wait for the current action to finish.' : !configuration.permissions.publish ? 'This group or your program role does not allow publishing. An owner or reviewer can publish tools for an open group.' : dirty ? 'Save and preview your changes before publishing.' : !previewMatches ? 'Preview navigation to enable publishing.' : 'Publish this version, then launch or update the group in Release & rollout. Participants without a release see published tools after refresh.'}</p>
+            </>}
 
             {preview && <ExperiencePreview preview={preview} savingsChallenge={experienceModeOf(draft) === 'savings_challenge'} />}
 
