@@ -37,7 +37,7 @@ export function savingsInputDollars(cents: number): string {
   return `${Math.floor(magnitude / 100)}.${String(magnitude % 100).padStart(2, '0')}`
 }
 export const savingsFundingOptions: { value: SavingsFundingSource; label: string; eligible: boolean }[] = [
-  { value: 'new_money_reserved', label: 'New money reserved after expenses', eligible: true },
+  { value: 'new_money_reserved', label: 'New money I set aside after expenses', eligible: true },
   { value: 'earned_income', label: 'New earned income set aside', eligible: true },
   { value: 'gift', label: 'New gift money set aside', eligible: true },
   { value: 'bonus', label: 'New bonus money set aside', eligible: true },

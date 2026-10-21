@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 test('BOG UI private controls review exact records, metadata erasure and keyboard containment without overflow', async ({ page }, testInfo) => {
   await page.goto('/privacy-qa.html')
   const opener = page.getByRole('button', { name: 'Open private controls' }); await opener.focus(); await opener.press('Enter')
-  const dialog = page.getByRole('dialog'); await expect(dialog).toBeVisible(); await expect(page.getByText('No sharing grants.')).toBeVisible()
+  const dialog = page.getByRole('dialog'); await expect(dialog).toBeVisible(); await expect(page.getByText('You haven’t shared anything.')).toBeVisible()
   await page.getByRole('combobox', { name: 'Purpose', exact: true }).selectOption('selected_details'); await page.getByRole('combobox', { name: 'Exact recipient', exact: true }).selectOption('903')
   await page.getByRole('button', { name: 'Find exact records' }).first().click(); await page.getByRole('checkbox', { name: /Fictional sample statement/ }).check()
   await page.getByRole('button', { name: 'Review sharing choice' }).click(); await expect(page.getByText(/Share ENTIRE selected records/)).toBeVisible(); await expect(page.getByRole('button', { name: 'Approve reviewed change' })).toBeDisabled()

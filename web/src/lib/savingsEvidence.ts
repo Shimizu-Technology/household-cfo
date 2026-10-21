@@ -23,9 +23,9 @@ export function evidenceRecoveryScopeMatches(result: EvidenceMutation | Evidence
 }
 export function evidenceProof(candidate: EvidenceCandidate, amount_cents: number): EvidenceProofInput { return { source_review_version_id: candidate.source_review_version_id, expected_source_digest: candidate.expected_source_digest, expected_account_identity_digest: candidate.expected_account_identity_digest, economic_group_version_id: candidate.economic_group_version_id, expected_group_digest: candidate.expected_group_digest, amount_cents } }
 export function validateEvidenceSelections(selections: Array<{candidate:EvidenceCandidate;amount_cents:number}>, contribution: number) {
- if(selections.length<1||selections.length>20)throw new Error('Select between one and twenty reviewed movements.')
+ if(selections.length<1||selections.length>20)throw new Error('Pick between 1 and 20 statement entries.')
  const events=new Set<number>();let total=0
- for(const {candidate,amount_cents} of selections){if(candidate.movement_kind==='reviewed_asset_transfer'&&candidate.movement_legs?.length!==2)throw new Error('The paired transfer details are unavailable. Refresh and review both accounts before linking proof.');if(!Number.isSafeInteger(amount_cents)||amount_cents<1||amount_cents>candidate.available_cents)throw new Error('Each support amount must fit the available reviewed movement.');for(const id of candidate.canonical_event_ids){if(events.has(id))throw new Error('The same bank movement cannot support this contribution twice.');events.add(id)}total+=amount_cents}
- if(!Number.isSafeInteger(total)||total>contribution)throw new Error('Support cannot exceed this reported contribution.')
+ for(const {candidate,amount_cents} of selections){if(candidate.movement_kind==='reviewed_asset_transfer'&&candidate.movement_legs?.length!==2)throw new Error('We couldn’t load both sides of this transfer. Refresh and check both accounts before matching.');if(!Number.isSafeInteger(amount_cents)||amount_cents<1||amount_cents>candidate.available_cents)throw new Error('Each amount to match must fit what’s available on that statement entry.');for(const id of candidate.canonical_event_ids){if(events.has(id))throw new Error('The same bank entry can’t be matched to this record twice.');events.add(id)}total+=amount_cents}
+ if(!Number.isSafeInteger(total)||total>contribution)throw new Error('You can’t match more than you set aside.')
  return total
 }

@@ -8,16 +8,14 @@ export function ChallengePaused({ joined, children }: { joined: boolean; childre
   const { assistantName } = useBrand()
   return <section className="savings-home screen-grid" aria-label="Savings challenge">
     <div className="screen-heading">
-      <p className="eyebrow">Home</p>
       <h2 data-page-heading tabIndex={-1}>Your savings challenge is paused</h2>
+    </div>
+    <div className="savings-state" role="status">
       <p>{joined
-        ? 'Your program team has paused the challenge for now. Your record is safe and nothing has been lost. You will be able to continue right where you left off when it resumes.'
-        : 'Your program team has paused the challenge for now. You will be able to join and continue when it resumes.'}</p>
+        ? 'Your program team paused it for now. Your record is safe and nothing has been lost. You can continue right where you left off when it resumes.'
+        : 'Your program team paused it for now. You can join and continue when it resumes.'}</p>
+      <p className="savings-caption">While it’s paused, new savings and purchases can’t be added, and {assistantName} can’t record them for the challenge.</p>
     </div>
-    <div className="panel" role="status">
-      <h3>Nothing to do right now</h3>
-      <p>While it is paused, new savings and purchases cannot be added, and {assistantName} cannot record them for the challenge. {joined ? 'Your approved records are kept exactly as they were.' : 'Nothing is counted yet.'}</p>
-    </div>
-    {children}
+    {children && <div className="savings-rows">{children}</div>}
   </section>
 }

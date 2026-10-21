@@ -10,6 +10,7 @@ import {
   type SharedRecordRef,
 } from '../lib/coachChallengeApi'
 import { savingsDollars } from '../lib/savingsChallenge'
+import { formatDay } from '../lib/plainDates'
 import { DisabledReason } from './DisabledReason'
 import './CoachChallengeDashboard.css'
 
@@ -119,15 +120,15 @@ function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: numb
           <li key={row.enrollment_id}>
             <strong>{row.participant.name}</strong>
             <p>
-              {row.participation_status} · {row.setup_status === 'plan_reviewed' ? 'Plan reviewed' : 'Plan pending'}
+              {participationWords(row.participation_status)} · {row.setup_status === 'plan_reviewed' ? 'Target confirmed' : 'Target not confirmed yet'}
             </p>
             <p>
-              {row.check_in.local_on}:{' '}
+              {formatDay(row.check_in.local_on)}:{' '}
               {row.check_in.completed === null
-                ? 'Check-in unavailable'
+                ? 'check-in not shared'
                 : row.check_in.completed
-                  ? 'Daily report completed'
-                  : 'No completed daily report yet'}
+                  ? 'daily check-in done'
+                  : 'no daily check-in yet'}
               .
             </p>
             <button type="button" onClick={() => setSelected(row)}>
@@ -604,7 +605,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
                 })
               }
             >
-              Read sealed Day {row.checkpoint_day} · {row.resolved_cutoff_on}
+              Read sealed Day {row.checkpoint_day} · {formatDay(row.resolved_cutoff_on)}
             </button>
           ))}
           {index.next_cursor !== null && (
@@ -627,7 +628,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
       {report && (
         <section aria-label="Coarse cohort report">
           <h4>
-            Day {report.checkpoint_day} · {report.cutoff_on}
+            Day {report.checkpoint_day} · {formatDay(report.cutoff_on)}
           </h4>
           <p>Active consent denominator: {report.active_consent_count_range}.</p>
           {report.suppressed ? (
@@ -697,6 +698,10 @@ function sealBlocker(checkpoint: { cutoff_on: string | null; sealable?: boolean 
   // The server's own verdict wins over this browser's clock; the cutoff day itself can be sealed.
   const today = serverToday ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Guam' }).format(new Date())
   const blocked = checkpoint.sealable === undefined ? checkpoint.cutoff_on > today : !checkpoint.sealable
-  if (blocked) return `Day ${day} ends on ${checkpoint.cutoff_on}, which has not happened yet. You can seal this report from that date on.`
+  if (blocked) return `Day ${day} hasn’t ended yet. You can seal this report from ${formatDay(checkpoint.cutoff_on, { year: true })}.`
   return null
+}
+
+function participationWords(status: string) {
+  return ({ active: 'Taking part', completed: 'Finished the 90 days', withdrawn: 'Left the challenge' } as Record<string, string>)[status] ?? 'Status unavailable'
 }

@@ -3621,14 +3621,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {budgetYearLoading && <p className="document-alert" role="status">Loading the {pendingBudgetView?.year} plan. Your previous period remains selected; Send and plan changes pause until it loads.</p>}
 
       {activeSection === 'Home' && challengeNotOpen && (data.workspace.challenge_state === 'paused'
-        ? <ChallengePaused joined={data.workspace.challenge_joined === true}>{data.workspace.challenge_joined === true && challengeParticipantScope && data.workspace.cohort?.id && <ChallengeExport scope={challengeParticipantScope} cohortId={data.workspace.cohort.id} />}</ChallengePaused>
+        ? <ChallengePaused joined={data.workspace.challenge_joined === true}>{data.workspace.challenge_joined === true && challengeParticipantScope && data.workspace.cohort?.id && <ChallengeExport scope={challengeParticipantScope} cohortId={data.workspace.cohort.id} variant="row" />}</ChallengePaused>
         : <ChallengeOpensSoon />)}
 
       {activeSection === 'Home' && data.workspace.experience_mode === 'savings_challenge' && !challengeNotOpen && (
         <SavingsChallengeHome key={`${auth.authIdentityId}:${auth.currentUser?.id}:${auth.activeCoachWorkspaceId}:${data.workspace.household_id}:${data.workspace.cohort?.id}:${savingsIntake?.scope===challengeIntakeScope?savingsIntake.nonce:''}`} participantScope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onOptionalDebt={challengeParticipantScope && data.workspace.cohort?.id ? () => setOptionalDebtOpen(true) : undefined} evidenceRefreshToken={evidenceRefreshToken} onReviewEvidence={challengeParticipantScope && data.workspace.cohort?.id ? (entryVersionId) => setEvidenceReview({scope:challengeIntakeScope,entryVersionId}) : undefined} onAskMia={() => switchSection('Ask Mia')} onReviewStatements={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)} initialSavingsIntake={savingsIntake?.scope===challengeIntakeScope?savingsIntake.intake:null} onToday={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => {setDailyIntake(null);setDailyOpen(true)} : undefined} onReviewBaseline={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined} privacyAccess={<ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />} onEnrollmentKnown={handleSavingsEnrollmentKnown} onCheckIn={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? openDailyCheckIn : undefined} />
       )}
-
-      {activeSection === 'Home' && data.workspace.experience_mode === 'savings_challenge' && !challengeNotOpen && savingsJoined && challengeParticipantScope && data.workspace.cohort?.id && <ChallengeExport scope={challengeParticipantScope} cohortId={data.workspace.cohort.id} />}
 
       {activeSection === 'Home' && data.workspace.experience_mode !== 'savings_challenge' && (
         <>
@@ -5107,7 +5105,7 @@ function DocumentImportWorkspace({
           <h3>Upload evidence. Review draft facts. Apply only what is right.</h3>
           <p>Your files stay private. {assistantName} proposes information for review and waits for your approval before changing household numbers.</p>
         </div>
-        <div><span className="document-safe-pill">Private · Review first</span>{onReviewBaseline && <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onReviewBaseline?.() }}>Review spending baseline</button>}</div>
+        <div><span className="document-safe-pill">Private · Review first</span>{onReviewBaseline && <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onReviewBaseline?.() }}>Open your spending snapshot</button>}</div>
       </div>
 
       <div className="document-import-summary-row">
