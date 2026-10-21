@@ -9973,12 +9973,13 @@ test('BOG UI baseline revoked refresh clears private snapshots and controls',asy
 
 async function assertBaselineFits(dialog: ReturnType<Page['getByRole']>) {const size = await dialog.evaluate((root) => ({scroll:root.scrollWidth,client:root.clientWidth,width:root.getBoundingClientRect().width,offenders:[...root.querySelectorAll('*')].filter((node)=>node.getClientRects().length && (node.getBoundingClientRect().right > root.getBoundingClientRect().right-parseFloat(getComputedStyle(root).paddingRight)+1 || node.scrollWidth > node.clientWidth+1)).map((node)=>({tag:node.tagName,text:node.textContent?.slice(0,60),width:node.getBoundingClientRect().width,right:node.getBoundingClientRect().right,scroll:node.scrollWidth,client:node.clientWidth,padding:getComputedStyle(node).padding})).slice(-12)}));expect(size.scroll,JSON.stringify(size)).toBeLessThanOrEqual(size.client+1)}
 
-async function openDaily(page:Page,options:{known?:boolean;source?:boolean;uncertain?:boolean;many?:boolean}={}) {
+async function openDaily(page:Page,options:{known?:boolean;source?:boolean;uncertain?:boolean;many?:boolean;active?:boolean}={}) {
   await openSavingsHome(page)
   let context={...structuredClone(dailyContext),cohort_id:41,enrollment_id:1};let revoked=false
   const purchases:DailyPurchase[]=options.known?[{id:200,current_version_id:400,lock_version:1,current_version:{...dailyVersion,link_kind:options.source?'existing_transaction':'manual_new'}}]:[]
   const drafts:DailyPurchaseDraft[]=[];const reflections:DailyReflection[]=[];const checkpointDrafts:DailyCheckpointDraft[]=[];const checkpoints:DailyCheckpoint[]=[]
   if(options.known)context.day={...context.day!,approved_purchase_count:1,reported_spend_cents:1250,spending_state:'spending'}
+  if(options.active)context.calendar={...context.calendar,local_today:'2026-09-28',phase:'active'}
   const calls:{action:string;key:string;input:DailyInput}[]=[]
   const committed=new Map<string,unknown>()
   await page.route('http://api.test/api/v1/savings_challenge/daily**',async route=>{
@@ -10013,7 +10014,7 @@ async function openDaily(page:Page,options:{known?:boolean;source?:boolean;uncer
   })
   // Native font completion prevents a late layout shift at the mobile navigation click.
   await page.evaluate(() => document.fonts.ready)
-  const trigger=page.getByRole('navigation',{name:'Household CFO participant sections'}).getByRole('button',{name:'Today',exact:true});await trigger.click();const dialog=page.getByRole('dialog',{name:'Today',exact:true});await expect(dialog.getByRole('combobox',{name:'How was this day?',exact:true})).toBeVisible();return{dialog,trigger,calls,revoke:()=>{revoked=true}}
+  const trigger=page.getByRole('navigation',{name:'Household CFO participant sections'}).getByRole('button',{name:'Today',exact:true});const dialog=page.getByRole('dialog',{name:'Today',exact:true});if(options.active)return{dialog,trigger,calls,revoke:()=>{revoked=true}};await trigger.click();await expect(dialog.getByRole('combobox',{name:'How was this day?',exact:true})).toBeVisible();return{dialog,trigger,calls,revoke:()=>{revoked=true}}
 }
 async function dailyManual(dialog:ReturnType<Page['getByRole']>,merchant='Fictional lunch') {await dialog.getByRole('button',{name:'Add a purchase',exact:true}).click();await dialog.getByLabel('Where did you buy it?').fill(merchant);await dialog.getByLabel('Purchase amount (USD)').fill('12.50');await dialog.getByRole('combobox',{name:'Category (optional)',exact:true}).selectOption('20');await expect(dialog.getByRole('checkbox',{name:/I reviewed/})).toHaveCount(0);await dialog.getByRole('button',{name:'Save purchase',exact:true}).click()}
 async function dailyFits(dialog:ReturnType<Page['getByRole']>) {const size=await dialog.evaluate(root=>({scroll:root.scrollWidth,client:root.clientWidth}));expect(size.scroll,JSON.stringify(size)).toBeLessThanOrEqual(size.client+1)}
@@ -10041,11 +10042,30 @@ test('BOG UI daily Mia report card saves every listed purchase once with one tap
   expect(calls.map(row=>row.action)).toEqual(['purchase_stage','purchase_approve','purchase_stage','purchase_approve','check_in_save','reflection_save','reflection_save'])
   expect(calls[0].input).toEqual({amount_cents:800,merchant:'Fictional fuel',purchased_on:'2026-09-28',link_kind:'manual_new',expected_version_id:null,expected_head_lock_version:0});expect(calls[3].input).toMatchObject({accepted:true})
   const fits=await card.evaluate(root=>root.scrollWidth<=root.clientWidth+1);expect(fits).toBe(true)
+  // Leaving Ask Mia and coming back restores the saved summary; it cannot be saved again.
+  await page.getByRole('link',{name:'Savings',exact:true}).click();await page.getByRole('link',{name:'Ask Mia',exact:true}).click()
+  await expect(card.getByRole('heading',{name:'Saved',exact:true})).toBeVisible();await expect(card.getByRole('button',{name:'Save',exact:true})).toHaveCount(0);expect(calls).toHaveLength(7)
+})
+test('BOG UI daily Mia asks how today went until today is checked in',async({page},testInfo)=>{
+  const{trigger,calls}=await openDaily(page,{active:true})
+  const prompt=page.getByRole('group',{name:/asks about today/});const composer=page.getByRole('textbox',{name:'Ask Mia',exact:true})
+  await expect.poll(async()=>{await trigger.click();return page.getByRole('dialog',{name:'Today',exact:true}).count().then(async count=>{if(count)await page.getByRole('button',{name:'Close Today',exact:true}).click();return count})}).toBe(0)
+  await expect(prompt).toBeVisible();await expect(prompt.getByRole('button',{name:'No spending today',exact:true})).toBeVisible()
+  // The keyboard would cover the quick replies on touch screens, so only pointer devices focus the composer.
+  if(testInfo.project.name==='desktop-chrome')await expect(composer).toBeFocused();else await expect(composer).not.toBeFocused()
+  const card=await sendMiaDailyReport(page);await expect(prompt).toHaveCount(0)
+  await card.getByLabel('Place for purchase 2').fill('Fictional lunch');await card.getByRole('button',{name:'Save to today',exact:true}).click()
+  await expect(card.getByRole('heading',{name:'Saved to today',exact:true})).toBeVisible();await card.getByRole('button',{name:'Done',exact:true}).click()
+  await expect(card).toHaveCount(0);await expect(prompt).toHaveCount(0);await expect(page.getByText(/You checked in for today/)).toHaveCount(0)
+  expect(calls.filter(row=>row.action==='purchase_approve')).toHaveLength(2)
 })
 test('BOG UI daily Mia report card hands off to Today prefilled without saving',async({page})=>{
   const{dialog,calls}=await openDaily(page);await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
   const card=await sendMiaDailyReport(page);await card.getByRole('button',{name:'Edit in Today',exact:true}).click()
-  await expect(dialog.getByLabel('Where did you buy it?')).toHaveValue('Fictional fuel');await expect(dialog.getByLabel('Purchase amount (USD)')).toHaveValue('8.00');await expect(dialog.getByRole('combobox',{name:'Category (optional)',exact:true})).toHaveValue('');expect(calls).toHaveLength(0);await expect(card).toHaveCount(0);await dailyFits(dialog)
+  await expect(dialog.getByLabel('Where did you buy it?')).toHaveValue('Fictional fuel');await expect(dialog.getByLabel('Purchase amount (USD)')).toHaveValue('8.00');await expect(dialog.getByRole('combobox',{name:'Category (optional)',exact:true})).toHaveValue('');expect(calls).toHaveLength(0);await dailyFits(dialog)
+  // The other purchase stays in the card, and the card says so.
+  await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
+  await expect(card.getByRole('status')).toHaveText('Moved Fictional fuel to Today. Purchase 2 is still here to save.');await expect(card.getByLabel('Amount for purchase 2')).toHaveValue('12.50');await expect(card.getByLabel('Amount for Fictional fuel')).toHaveCount(0)
 })
 test('BOG UI daily Mia savings note requires new-money confirmation before a draft',async({page})=>{
   const{dialog}=await openDaily(page);await dialog.getByRole('button',{name:'Close Today',exact:true}).click()

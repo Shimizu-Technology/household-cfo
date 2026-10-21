@@ -18,7 +18,7 @@ import { sourceReviewMode } from './lib/sourceReview'
 import { miaWorkspaceStorageKey } from './lib/miaWorkspaceScope'
 import { HomeScreen } from './components/HomeScreen'
 import { checkedDailyReport, checkedSavingsIntake, type DailyReportIntake, type SavingsIntake } from './lib/savingsChallenge'
-import { useTodayCheckIn } from './lib/dailyCheckIn'
+import { dailyCardNeedsAttention, forgetDailyCard, useTodayCheckIn } from './lib/dailyCheckIn'
 import { MiaDailyPrompt, MiaDailyReportCard } from './components/MiaDailyCheckIn'
 import { MiaSavingsReview } from './components/MiaSavingsReview'
 import { ChallengeToday } from './components/ChallengeToday'
@@ -679,9 +679,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [optionalDebtOpen, setOptionalDebtOpen] = useState(false)
   const [miaSavingsNote,setMiaSavingsNote] = useState<{scope:string;intake:SavingsIntake}|null>(null)
   const [dailyIntake,setDailyIntake] = useState<{scope:string;intake:SavingsIntake}|null>(null)
-  const [miaDailyReport,setMiaDailyReport] = useState<{scope:string;report:DailyReportIntake;nonce:string}|null>(null)
+  const [miaDailyReports,setMiaDailyReports] = useState<{scope:string;report:DailyReportIntake;nonce:string}[]>([])
   const [dailyRefreshKey,setDailyRefreshKey] = useState(0)
-  const [dailyPromptRequested,setDailyPromptRequested] = useState(false)
   const [composerHint,setComposerHint] = useState<string|null>(null)
   const [evidenceReview, setEvidenceReview] = useState<{scope:string;entryVersionId:number}|null>(null)
   const [evidenceRefreshToken, setEvidenceRefreshToken] = useState(0)
@@ -697,7 +696,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   useEffect(() => {
     challengeIntakeScopeRef.current = challengeIntakeScope
     let live = true
-    queueMicrotask(() => { if (live) { setMiaSavingsNote(null); setDailyIntake(null); setSavingsIntake(null); setMiaDailyReport(null); setDailyPromptRequested(false) } })
+    queueMicrotask(() => { if (live) { setMiaSavingsNote(null); setDailyIntake(null); setSavingsIntake(null); setMiaDailyReports([]) } })
     return () => { live = false }
   }, [challengeIntakeScope])
   const [pilotGuideOpen, setPilotGuideOpen] = useState(false)
@@ -1797,10 +1796,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => window.cancelAnimationFrame(animationFrame)
   }, [activeSection, manualSetupFocusRequest])
 
-  // The daily check-in lives in Ask Mia: Mia's prompt, then the composer.
+  // The daily check-in lives in Ask Mia: Mia's prompt, then the composer. On
+  // touch screens the keyboard would cover the prompt's buttons, so no focus.
   function openDailyCheckIn() {
     if (!switchSection('Ask Mia', { focusHeading: false })) return
-    setDailyPromptRequested(true)
+    if (window.matchMedia?.('(pointer: coarse)').matches) return
     window.setTimeout(() => composerRef.current?.focus({ preventScroll: true }), 80)
   }
 
@@ -2088,7 +2088,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       assertOriginalWorkspace()
       const reviewedIntake = checkedSavingsIntake(response.savings_intake)
       const dailyReport = checkedDailyReport(response.savings_intake)
-      if (challengeIntakeScopeRef.current === challengeIntakeScope) { setMiaSavingsNote(reviewedIntake ? {scope:challengeIntakeScope,intake:reviewedIntake} : null); setMiaDailyReport(dailyReport ? {scope:challengeIntakeScope,report:dailyReport,nonce:crypto.randomUUID()} : null) }
+      if (challengeIntakeScopeRef.current === challengeIntakeScope) { setMiaSavingsNote(reviewedIntake ? {scope:challengeIntakeScope,intake:reviewedIntake} : null); setMiaDailyReports((current) => [...current.filter((card) => { const keep = dailyCardNeedsAttention(card.nonce); if (!keep) forgetDailyCard(card.nonce); return keep }), ...(dailyReport ? [{scope:challengeIntakeScope,report:dailyReport,nonce:crypto.randomUUID()}] : [])]) }
       if (miaRetryRequestRef.current?.id === miaRequestId) {
         miaRetryRequestRef.current = null
         if (isRealWorkspace) clearMiaRetryRequest(chatStorageKey)
@@ -3734,8 +3734,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   onReviewImportId={openDocumentReview}
                   reviewCount={pendingMiaActionDrafts.length + pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
                   reviewContent={<>
-                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && challengeParticipantScope && miaDailyReport?.scope===challengeIntakeScope && <MiaDailyReportCard key={miaDailyReport.nonce} report={miaDailyReport.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { setMiaDailyReport(null); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase) => { setMiaDailyReport(null); setIsChatExpanded(false); setDailyIntake(purchase ? {scope:challengeIntakeScope,intake:purchase} : null); setDailyOpen(true) }} />}
-                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && !miaLoading && !miaDailyReport && todayCheckIn.checkedIn !== null && (todayCheckIn.checkedIn === false || dailyPromptRequested) && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} checkedIn={todayCheckIn.checkedIn} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
+                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && challengeParticipantScope && miaDailyReports.filter((card) => card.scope===challengeIntakeScope).map((card) => <MiaDailyReportCard key={card.nonce} nonce={card.nonce} report={card.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase, remaining) => { if (!remaining) { forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)) } setIsChatExpanded(false); setDailyIntake({scope:challengeIntakeScope,intake:purchase}); setDailyOpen(true) }} />)}
+                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && !miaLoading && !miaDailyReports.some((card) => card.scope===challengeIntakeScope) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && miaSavingsNote?.scope===challengeIntakeScope && <MiaSavingsReview intake={miaSavingsNote.intake} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack
