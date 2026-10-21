@@ -1,5 +1,6 @@
 import { IncomeForms } from './components/IncomeForms'
 import { useIncomeForm } from './components/incomeFormState'
+import { useMiaEntryAnchor } from './components/useMiaEntryAnchor'
 import './styles/participantFlows.css'
 import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { householdPlanKnown } from './lib/householdMoneyKnown'
@@ -1481,39 +1482,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (miaLoading) chatScrolledAwayRef.current = false
   }, [miaLoading])
 
-  useEffect(() => {
-    if (activeSection !== 'Ask Mia') return
-    const chatCard = chatCardRef.current
-    if (!chatCard) return
-
-    // Images, fonts and review cards keep changing the layout for a moment, so
-    // re-anchor whenever it shifts until the participant scrolls themselves.
-    let settled = false
-    const away = () => { chatScrolledAwayRef.current = true }
-    const reanchor = () => { if (!settled && !chatScrolledAwayRef.current) anchorMiaChat('auto') }
-    chatCard.addEventListener('wheel', away, { passive: true })
-    chatCard.addEventListener('touchmove', away, { passive: true })
-    chatCard.addEventListener('keydown', away)
-    const frame = requestAnimationFrame(() => {
-      if (chatScrolledAwayRef.current) return
-      anchorMiaChat('auto')
-      setShowChatScrollButton(false)
-    })
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(reanchor)
-    observer?.observe(chatCard)
-    Array.from(chatCard.children).forEach((child) => observer?.observe(child))
-    chatCard.addEventListener('load', reanchor, true)
-    const settle = window.setTimeout(() => { settled = true }, 2500)
-    return () => {
-      cancelAnimationFrame(frame)
-      window.clearTimeout(settle)
-      observer?.disconnect()
-      chatCard.removeEventListener('wheel', away)
-      chatCard.removeEventListener('touchmove', away)
-      chatCard.removeEventListener('keydown', away)
-      chatCard.removeEventListener('load', reanchor, true)
-    }
-  }, [activeSection, newestMessageKey, miaLoading, anchorMiaChat])
+  useMiaEntryAnchor({ active: activeSection === 'Ask Mia', messageKey: newestMessageKey, loading: miaLoading, chatRef: chatCardRef, awayRef: chatScrolledAwayRef, anchor: anchorMiaChat, setShowScrollButton: setShowChatScrollButton })
 
   const stopVoiceStream = useCallback(() => {
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
