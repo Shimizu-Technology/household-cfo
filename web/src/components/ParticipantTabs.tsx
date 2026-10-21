@@ -178,7 +178,8 @@ function ParticipantNavigation({ sections, activeSection, onChange, savingsChall
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
 
     event.preventDefault()
-    setMoreOpen(false)
+    if (secondary.includes(section)) closeTools()
+    else setMoreOpen(false)
     onChange(section)
   }
 

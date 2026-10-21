@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ParticipantTabs } from './ParticipantTabs'
 import { useState } from 'react'
@@ -112,4 +112,15 @@ it('shows only staff destinations for a staff-only shell and preserves modified 
   expect(change).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('link', { name: 'Admin' }))
   expect(change).toHaveBeenCalledWith('Admin')
+})
+
+it('returns to More when the parent keeps the current route after a guarded selection', async () => {
+  render(<ParticipantTabs sections={['Home', 'Ask Mia', 'Budget', 'Review', 'My Money']} activeSection="Home" onChange={vi.fn()} />)
+  const more = screen.getByRole('button', { name: 'More' })
+  fireEvent.click(more)
+  const destination = screen.getByRole('link', { name: 'My Money' })
+  destination.focus()
+  fireEvent.click(destination)
+  await waitFor(() => expect(document.activeElement).toBe(more))
+  expect(screen.queryByRole('dialog')).toBeNull()
 })
