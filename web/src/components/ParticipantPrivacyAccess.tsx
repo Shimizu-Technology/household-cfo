@@ -107,7 +107,7 @@ function HouseholdPrivacyDialog({ onClose }: { onClose: () => void }) {
     <header><h2 id="household-privacy-title">Your household privacy</h2><button type="button" aria-label="Close privacy controls" onClick={onClose}>×</button></header>
     <div className="privacy-scroll">
       <p>Your household money, statements and conversations stay in your private workspace.</p>
-      <p>Joining a program does not give your coach access to your financial records. Sharing requires your permission for that purpose.</p>
+      <p>Your coach doesn't see your financial records unless you choose to share them.</p>
       <p>You review financial changes before they are saved. Mia prepares suggestions; you decide.</p>
     </div>
   </section></div>, document.body)

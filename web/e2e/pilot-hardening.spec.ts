@@ -12148,15 +12148,15 @@ test('BOG UI participant navigation groups tools and keeps household privacy rel
   await expect(more).toHaveAttribute('aria-description', 'Current section: Wealth')
   await openSection(page, 'My Money')
   const topics = await page.locator('.money-topics button').evaluateAll(elements => elements.map(element => ({
-    client: element.clientWidth, scroll: element.scrollWidth, height: element.getBoundingClientRect().height,
+    client: element.clientWidth, scroll: element.scrollWidth, width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height,
   })))
   expect(topics).toHaveLength(6)
-  for (const topic of topics) { expect(topic.scroll).toBeLessThanOrEqual(topic.client); expect(topic.height).toBeGreaterThanOrEqual(44) }
+  for (const topic of topics) { expect(topic.scroll).toBeLessThanOrEqual(topic.client); expect(topic.width).toBeGreaterThanOrEqual(140); expect(topic.height).toBeGreaterThanOrEqual(44) }
   await page.getByLabel('Account and help').click()
   await page.getByRole('button', { name: 'Privacy', exact: true }).click()
   const privacy = page.getByRole('dialog', { name: 'Your household privacy' })
   await expect(privacy).toBeVisible()
-  await expect(privacy).not.toContainText(/savings|challenge|enrollment/i)
+  await expect(privacy).not.toContainText(/savings|challenge|enrollment|program/i)
   await page.keyboard.press('Escape')
   await expect(page.getByLabel('Account and help')).toBeFocused()
 })
@@ -12173,6 +12173,22 @@ test('BOG UI Coach Studio uses staff navigation and compact program controls wit
   await expect(select).toBeVisible()
   expect((await select.boundingBox())!.height).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('BOG UI staff without a household seat start in Coach Studio unless a link names a section', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
+  await expect(page).toHaveURL(/#Coach%20Studio$/)
+  await expect(page.getByRole('tab', { name: 'Daily coaching', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('navigation', { name: 'Staff sections' }).getByRole('link', { name: 'Coach Studio', exact: true })).toHaveAttribute('aria-current', 'page')
+  await page.reload()
+  await expect(page).toHaveURL(/#Coach%20Studio$/)
+  await page.goto('/?pilot_e2e_role=admin#Admin')
+  await expect(page).toHaveURL(/#Admin$/)
+  await expect(page.getByRole('navigation', { name: 'Staff sections' }).getByRole('link', { name: 'Admin', exact: true })).toHaveAttribute('aria-current', 'page')
+  await page.goto('/?pilot_e2e_role=participant')
+  await expect(page.locator('.tabs-shell')).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Staff sections' })).toHaveCount(0)
+  expect(page.url()).not.toContain('Coach')
 })
 
 test('BOG UI household unknown money stays unentered with one setup action and a quiet year', async ({ page }) => {
