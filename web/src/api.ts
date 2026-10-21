@@ -870,6 +870,8 @@ export type MiaAnswerPresentation = {
 }
 
 export type MiaMessage = {
+  // Set by the server on crisis and wellbeing-check replies.
+  safety_reply?: boolean
   setup_help?: { available: boolean } | null
   financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
   id?: number

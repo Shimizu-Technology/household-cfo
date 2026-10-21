@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiRequestError, fetchDailyContext, mutateDaily } from '../api'
+import { ApiRequestError, fetchDailyContext, fetchDailyRequestStatus, mutateDaily } from '../api'
 import type { DailyContext, DailyDay, DailyInput } from '../lib/dailyChallenge'
-import { dailyCardNeedsAttention } from '../lib/dailyCheckIn'
+import { dailyCardNeedsAttention, registerDailyCard, restoreDailyCards } from '../lib/dailyCheckIn'
 import { saveDailyRecovery, setDailyExpectedUser } from '../lib/dailyRecovery'
 import type { DailyReportIntake } from '../lib/savingsChallenge'
 import { baselineScope } from '../test/baselineFixtures'
 import { dailyContext, dailyDraft, dailyVersion } from '../test/dailyFixtures'
 import { MiaDailyPrompt, MiaDailyReportCard } from './MiaDailyCheckIn'
 
-vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchDailyContext: vi.fn(), mutateDaily: vi.fn() }))
+vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchDailyContext: vi.fn(), mutateDaily: vi.fn(), fetchDailyRequestStatus: vi.fn() }))
 
 const today = '2026-10-21'
 function contextFor(date: string, day: Partial<DailyDay> = {}): DailyContext {
@@ -38,6 +38,7 @@ beforeEach(() => {
   vi.clearAllMocks(); failures = []; days = {}
   sessionStorage.clear(); setDailyExpectedUser(null); setDailyExpectedUser(baselineScope.user_id)
   vi.mocked(fetchDailyContext).mockImplementation(async (date?: string) => contextFor(date ?? today, days[date ?? today]))
+  vi.mocked(fetchDailyRequestStatus).mockResolvedValue({ actor_scope: baselineScope, state: 'unknown', can_retry: true })
   let draftId = 300
   vi.mocked(mutateDaily).mockImplementation(async (action, input) => {
     const failure = failures.find((item) => item.action === action && item.times > 0 && (!item.merchant || item.merchant === input.merchant))
@@ -123,8 +124,8 @@ describe('Mia daily report card', () => {
     expect(approvals[1].key).toBe(approvals[0].key)
   })
 
-  it('stages afresh after a definite approval refusal instead of retrying a stale draft', async () => {
-    failures = [{ action: 'purchase_approve', status: 409, times: 1 }]
+  it.each([400, 409, 422])('stages afresh after approval refusal %s instead of retrying a stale draft', async (status) => {
+    failures = [{ action: 'purchase_approve', status, times: 1 }]
     const { card } = renderCard({ ...report, purchases: [report.purchases[0]] })
     await ready(card)
     fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
@@ -150,6 +151,82 @@ describe('Mia daily report card', () => {
     const stages = calls().filter((call) => call.action === 'purchase_stage')
     expect(stages).toHaveLength(2)
     expect(stages[1]).toEqual(stages[0])
+  })
+
+  it('after a reload mid-save, checks the interrupted approval by its key before Save and never saves it twice', async () => {
+    const scope = 'reload:901:77:none'
+    const draft = { ...dailyDraft, id: 401, savings_daily_purchase_id: 301, merchant: 'Payless', amount_cents: 2000, purchased_on: today }
+    sessionStorage.setItem(`household-cfo:mia-daily-cards:v1:${scope}`, JSON.stringify([{ nonce: 'reload-card', report: todayOnly, state: {
+      rows: [{ id: 0, amount: '8.00', merchant: 'Shell', purchased_on: today, status: 'saved', purchaseId: 300 }, { id: 1, amount: '20.00', merchant: 'Payless', purchased_on: today, status: 'saving', draft }],
+      feelingThen: 'rushed', feelingNow: '', keys: { 'approve:1:x': 'approve-key' }, phase: 'saving', message: null, switchedToSpending: [], checkedIn: [], noSpendSaved: false,
+      unconfirmed: { action: 'purchase_approve', input: { draft_id: 401 }, key: 'approve-key', rowId: 1 } } }]))
+    let resolveStatus!: (value: unknown) => void
+    vi.mocked(fetchDailyRequestStatus).mockReturnValue(new Promise((done) => { resolveStatus = done }) as never)
+    const [entry] = restoreDailyCards(scope)
+    registerDailyCard(entry)
+    const { card } = renderCard(todayOnly, entry.nonce)
+    expect(within(card).getByText('Checking… Tap Save to confirm.')).toBeTruthy()
+    await waitFor(() => expect(fetchDailyRequestStatus).toHaveBeenCalledWith('purchase_approve', 'approve-key'))
+    expect((within(card).getByRole('button', { name: 'Save to today' }) as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => { resolveStatus({ actor_scope: baselineScope, state: 'committed', record: dailyVersion, replayed: true }) })
+    await within(card).findByText(/\$20\.00/)
+    await ready(card)
+    fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
+    await within(card).findByRole('heading', { name: 'Saved to today' })
+    expect(actions()).toEqual(['check_in_save', 'reflection_save', 'reflection_save'])
+  })
+
+  it.each(['in_flight', 'error'])('keeps new writes blocked after a restored lookup is %s, with a working recheck', async (lookup) => {
+    failures = [{ action: 'purchase_approve', status: 503, times: 1 }]
+    const first = renderCard({ ...report, purchases: [report.purchases[0]] })
+    await ready(first.card)
+    fireEvent.click(within(first.card).getByRole('button', { name: 'Save to today' }))
+    await within(first.card).findByText('Checking… Tap Save to confirm.')
+    first.view.unmount()
+    if (lookup === 'error') vi.mocked(fetchDailyRequestStatus).mockRejectedValueOnce(new Error('offline'))
+    else vi.mocked(fetchDailyRequestStatus).mockResolvedValueOnce({ actor_scope: baselineScope, state: 'in_flight' })
+    const again = renderCard({ ...report, purchases: [report.purchases[0]] }, first.nonce)
+    const check = await within(again.card).findByRole('button', { name: 'Check last save' })
+    expect((within(again.card).getByRole('button', { name: 'Save to today' }) as HTMLButtonElement).disabled).toBe(true)
+    const count = calls().length
+    vi.mocked(fetchDailyRequestStatus).mockResolvedValueOnce({ actor_scope: baselineScope, state: 'committed', record: dailyVersion, replayed: true })
+    fireEvent.click(check)
+    await within(again.card).findByRole('heading', { name: 'Almost done' })
+    await ready(again.card)
+    expect(calls()).toHaveLength(count)
+    fireEvent.click(within(again.card).getByRole('button', { name: 'Save to today' }))
+    await within(again.card).findByRole('heading', { name: 'Saved to today' })
+    expect(actions().filter((action) => action === 'purchase_approve')).toHaveLength(1)
+  })
+
+  it.each(['check_in_save', 'reflection_save'])('reconciles a committed %s after leaving and returning, without another write for it', async (action) => {
+    failures = [{ action, status: 503, times: 1 }]
+    const value = { ...report, purchases: [report.purchases[0]], feelings: { when_spent: 'rushed', now: null } }
+    const first = renderCard(value)
+    await ready(first.card)
+    fireEvent.click(within(first.card).getByRole('button', { name: 'Save to today' }))
+    await within(first.card).findByText('We couldn’t confirm the last save. Tap Save to check — it won’t save twice.')
+    expect(dailyCardNeedsAttention(first.nonce)).toBe(true)
+    first.view.unmount()
+    vi.mocked(fetchDailyRequestStatus).mockResolvedValueOnce({ actor_scope: baselineScope, state: 'committed', record: { id: 1 }, replayed: true })
+    const again = renderCard(value, first.nonce)
+    await ready(again.card)
+    fireEvent.click(within(again.card).getByRole('button', { name: 'Save to today' }))
+    await within(again.card).findByRole('heading', { name: 'Saved to today' })
+    expect(actions().filter((value) => value === action)).toHaveLength(1)
+  })
+
+  it('keeps a failed check-in unfinished and offers a retry without saving purchases again', async () => {
+    failures = [{ action: 'check_in_save', status: 422, times: 1 }]
+    const { card, nonce } = renderCard({ ...report, purchases: [report.purchases[0]] })
+    await ready(card)
+    fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
+    await within(card).findByText('Your purchases are saved. The check-in didn’t save — tap Save to finish it.')
+    expect(within(card).queryByRole('heading', { name: 'Saved to today' })).toBeNull()
+    expect(dailyCardNeedsAttention(nonce)).toBe(true)
+    fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
+    await within(card).findByRole('heading', { name: 'Saved to today' })
+    expect(actions().filter((value) => value === 'purchase_approve')).toHaveLength(1)
   })
 
   it('restores progress after leaving Ask Mia and coming back, and a saved card cannot be saved again', async () => {

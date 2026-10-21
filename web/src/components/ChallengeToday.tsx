@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ApiRequestError, fetchDailyContext } from '../api'
+import { ApiRequestError, fetchDailyContext, fetchDailyPage } from '../api'
 import { type BaselineScope } from '../lib/financialBaseline'
 import { savingsDollars, type SavingsIntake } from '../lib/savingsChallenge'
-import { dailyApproval, dailyContextMatches, type DailyCheckIn, type DailyCheckInVersion, type DailyContext, type DailyDay, type DailyInput, type DailyPurchase, type DailyPurchaseDraft, type DailyPurchaseVersion, type DailyScope } from '../lib/dailyChallenge'
+import { dailyApproval, dailyContextMatches, dailyResponseMatches, type DailyCheckIn, type DailyCheckInVersion, type DailyContext, type DailyDay, type DailyInput, type DailyPurchase, type DailyPurchaseDraft, type DailyPurchaseVersion, type DailyScope } from '../lib/dailyChallenge'
 import { isDailyActor, readDailyRecovery } from '../lib/dailyRecovery'
 import { useDailyMutation, type DailyMutate } from '../lib/useDailyMutation'
 import { usePilotDialog } from '../lib/usePilotDialog'
@@ -136,7 +136,7 @@ function ChallengeTodaySession({scope,cohortId,onClose,onStatements,onBaseline,o
           {!day&&(editing===undefined?<button type="button" disabled={disabled} onClick={()=>setEditing(null)}>Add a purchase</button>:<DailyPurchaseEditor key={editing?.id??'new'} context={context} scope={actor} purchase={editing??undefined} initialInput={editing===null?initialPurchase:undefined} selectedDate={calendar.starts_on} onSave={savePurchase} busy={disabled} onDone={()=>setEditing(undefined)} onStatements={onStatements} onDenied={onDenied}/>)}
           <label className="daily-date">See another day<input type="date" min={calendar.starts_on} max={calendar.local_today<calendar.ends_on?calendar.local_today:calendar.ends_on} value={day?.local_on??''} disabled={disabled||calendar.phase==='upcoming'} onChange={event=>{setLoading(true);setRequestedDate(event.target.value)}}/><span className="daily-hint">Days follow Guam time.</span></label>
           <DailyRecordPage<DailyPurchase> collection="purchases" scope={actor} refresh={attempt} title="Saved purchases" onDenied={onDenied} render={head=><PurchaseRecord key={`${head.id}:${head.current_version_id}`} head={head} context={context} actor={actor} refresh={attempt} busy={disabled} mutate={mutation.mutate} onDenied={onDenied} onEdit={()=>setEditing(head)}/>}/>
-          <DailyHistory title="Unsaved purchases">{()=> <DailyRecordPage<DailyPurchaseDraft> collection="purchase_drafts" scope={actor} refresh={attempt} title="Saved purchase previews" onDenied={onDenied} render={draft=><PurchaseApproval key={`${draft.id}:${draft.lock_version}:${attempt}`} draft={draft} context={context} mutate={mutation.mutate} busy={disabled}/>}/> }</DailyHistory>
+          <PendingPurchases scope={actor} context={context} refresh={attempt} mutate={mutation.mutate} busy={disabled} onDenied={onDenied}/>
           <details><summary>Add your own purchase category (optional)</summary><p>Purchases go under “Everyday spending” unless you pick a category. No budget needed.</p><fieldset disabled={disabled}><legend>New category</legend><label>Category name<input maxLength={80} value={categoryName} onChange={event=>setCategoryName(event.target.value)}/></label><button type="button" disabled={!categoryName.trim()} onClick={()=>void mutation.mutate('category_create',{name:categoryName.trim(),stack_key:'discretionary'}).then(result=>{if(result)setCategoryName('')})}>Create category</button></fieldset></details>
           <button type="button" onClick={onStatements}>Upload or review a receipt in Statements</button>
           <p className="daily-hint">A receipt upload is something to review. It doesn’t add a purchase here by itself.</p>
@@ -146,12 +146,26 @@ function ChallengeTodaySession({scope,cohortId,onClose,onStatements,onBaseline,o
     </>}
   </section></div>
 }
+// Purchases started but not saved (for example a save interrupted by a closed
+// tab), each named with its amount and day and its own Save button.
+function PendingPurchases({scope,context,refresh,mutate,busy,onDenied}:{scope:DailyScope;context:DailyContext;refresh:number;mutate:DailyMutate;busy:boolean;onDenied:()=>void}) {
+  const[drafts,setDrafts]=useState<DailyPurchaseDraft[]>([])
+  const[cursor,setCursor]=useState<number|null>(null);const[history,setHistory]=useState<Array<number|null>>([]);const[next,setNext]=useState<number|null>(null)
+  const[error,setError]=useState(false);const[loading,setLoading]=useState(true);const[attempt,setAttempt]=useState(0)
+  useEffect(()=>{const controller=new AbortController();let live=true
+    fetchDailyPage<DailyPurchaseDraft>('purchase_drafts',cursor,undefined,controller.signal).then(result=>{if(!dailyResponseMatches(result,scope))throw new ApiRequestError('Private workspace changed.',{status:403});if(live){setDrafts(result.records.filter(draft=>draft.status==='pending'));setNext(result.next_cursor);setLoading(false);setError(false)}}).catch(failure=>{if(live){setLoading(false);setError(true);if(failure instanceof ApiRequestError&&[401,403,404].includes(failure.status))onDenied()}})
+    return()=>{live=false;controller.abort()}},[scope,refresh,onDenied,cursor,attempt])
+  if(!drafts.length&&!next&&!history.length&&!error)return null
+  return <section aria-label="Purchases not saved yet" className="daily-pending"><h3>Purchases to check</h3><p className="daily-hint">They don’t count until you save them.</p>{loading?<p role="status">Loading purchases…</p>:error?<p role="alert">Purchases to check are unavailable. <button type="button" onClick={()=>{setLoading(true);setAttempt(value=>value+1)}}>Try again</button></p>:drafts.map(draft=><PurchaseApproval key={`${draft.id}:${draft.lock_version}:${refresh}`} draft={draft} context={context} mutate={mutate} busy={busy}/>)}{(next!==null||history.length>0)&&<div className="daily-actions"><button type="button" disabled={loading||!history.length} onClick={()=>{setLoading(true);setCursor(history.at(-1)!);setHistory(history.slice(0,-1))}}>Previous purchases to check</button><button type="button" disabled={loading||next===null} onClick={()=>{setLoading(true);setHistory([...history,cursor]);setCursor(next)}}>Next purchases to check</button></div>}</section>
+}
 function PurchaseApproval({draft,context,mutate,busy}:{draft:DailyPurchaseDraft;context:DailyContext;mutate:DailyMutate;busy:boolean}) {
   const future=draft.purchased_on>context.calendar.local_today
-  return <article><h4>{draft.status==='approved'?'Saved earlier':'Not saved yet'}</h4><PurchaseFactsView facts={draft} categories={context.categories}/>{draft.reason&&<p>{draft.reason}</p>}{draft.status==='pending'&&<div className="daily-actions">{future&&<p>You can save this on {shortDay(draft.purchased_on)}.</p>}<button type="button" disabled={busy||future} onClick={()=>void mutate('purchase_approve',dailyApproval(draft))}>{draft.disposition==='void'?'Remove purchase':'Save purchase'}</button></div>}</article>
+  return <article>{draft.status==='approved'&&<h4>Saved earlier</h4>}<PurchaseFactsView facts={draft} categories={context.categories}/>{draft.reason&&<p>{draft.reason}</p>}{draft.status==='pending'&&<div className="daily-actions">{future&&<p>You can save this on {shortDay(draft.purchased_on)}.</p>}<button type="button" disabled={busy||future} onClick={()=>void mutate('purchase_approve',dailyApproval(draft))}>{draft.disposition==='void'?'Remove purchase':'Save purchase'}</button></div>}</article>
 }
 function PurchaseRecord({head,context,actor,refresh,busy,mutate,onDenied,onEdit}:{head:DailyPurchase;context:DailyContext;actor:DailyScope;refresh:number;busy:boolean;mutate:DailyMutate;onDenied:()=>void;onEdit:()=>void}) {
   const[feelings,setFeelings]=useState(false);const[history,setHistory]=useState(false)
   const current=head.current_version
+  // A purchase with no saved version is listed, by name, under purchases not saved yet.
+  if(!current)return null
   return <article><h4>{current?(current.disposition==='void'?'Removed purchase':'Saved purchase'):'Not saved yet'}</h4>{current?<><PurchaseFactsView facts={current} categories={context.categories}/>{current.reason&&<p>{current.reason}</p>}{current.disposition!=='void'&&<button type="button" disabled={busy} onClick={onEdit}>Correct {current.merchant}</button>}</>:<p>This purchase isn’t saved yet, so it isn’t counted.</p>}<details onToggle={event=>{if(event.currentTarget.open)setFeelings(true)}}><summary>Optional feelings for this purchase</summary>{feelings&&<DailyReflectionEditor purchaseId={head.id} scope={actor} refresh={refresh} mutate={mutate} busy={busy} onDenied={onDenied}/>}</details><details onToggle={event=>{if(event.currentTarget.open)setHistory(true)}}><summary>Changes to this purchase</summary>{history&&<DailyRecordPage<DailyPurchaseVersion> collection="purchase_versions" parentId={head.id} scope={actor} refresh={refresh} title="Purchase changes" onDenied={onDenied} render={row=><article key={row.id}><p>{row.reason??'Original purchase'}</p><PurchaseFactsView facts={row} categories={context.categories}/></article>}/>}</details></article>
 }

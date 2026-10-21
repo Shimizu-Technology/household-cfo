@@ -8,6 +8,7 @@ import type { AuthProviderName } from '../lib/authConfig'
 import { authIdentityKey, matchesAuthIdentity } from '../lib/authIdentity'
 import { ApiRequestError, fetchCurrentUser, setActiveCoachWorkspaceId, setApiActorIdentity, setAuthTokenGetter } from '../api'
 import type { CurrentUser } from '../api'
+import { clearDailyCards } from '../lib/dailyCheckIn'
 import { AuthContext } from './authContextValue'
 import type { AuthContextValue, AuthSignInOptions } from './authContextValue'
 
@@ -306,7 +307,7 @@ function AuthVerificationBody({ children, session, verificationEnabled = true }:
     authRecoveryRequired: Boolean(sessionError) || authRecoveryRequired,
     refreshCurrentUser: sessionError && session.reloadSession ? async () => { await session.reloadSession!() } : refreshCurrentUser,
     selectCoachWorkspace,
-    signOut: async () => { await signOut() },
+    signOut: async () => { clearDailyCards(); await signOut() },
   }), [activeCoachWorkspaceId, authErrorStatus, effectiveError, sessionError, provider, session.signIn, session.signUp, session.reloadSession, session.sessionErrorStatus, authRecoveryRequired, authIdentityId, currentUser, hasVerifiedIdentity, isApiIdentityPending, isLoaded, isSignedIn, refreshCurrentUser, selectCoachWorkspace, signOut])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

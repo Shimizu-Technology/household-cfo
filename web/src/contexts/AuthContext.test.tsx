@@ -50,6 +50,7 @@ function AuthProbe() {
       <span data-testid="workspace">{auth.activeCoachWorkspaceId ?? 'none'}</span>
       <button onClick={() => auth.selectCoachWorkspace(2)}>Choose workspace</button>
       <button onClick={() => void auth.refreshCurrentUser()}>Refresh account</button>
+      <button onClick={() => void auth.signOut?.()}>Sign out</button>
       <span data-testid="error">{auth.authError ?? 'none'}</span>
       <span data-testid="recovery">{String(Boolean(auth.authRecoveryRequired))}</span>
     </div>
@@ -225,6 +226,19 @@ describe('WorkOS verified identity boundary', () => {
   })
   const workosUser = (overrides: Partial<CurrentUser> = {}): CurrentUser => ({
     ...apiUser('legacy-subject'), auth_provider: 'workos', auth_subject: 'workos-1', ...overrides,
+  })
+  it('clears private daily cards before sign-out redirects the page', async () => {
+    mocks.fetchCurrentUser.mockResolvedValue(workosUser())
+    const key = 'household-cfo:mia-daily-cards:v1:workos:workos-1:1:77:41'
+    sessionStorage.setItem(key, 'private check-in')
+    sessionStorage.setItem('unrelated', 'keep')
+    const signOut = vi.fn(async () => { expect(sessionStorage.getItem(key)).toBeNull() })
+    render(<AuthVerificationBridge session={session({ signOut })}><AuthProbe /></AuthVerificationBridge>)
+    await waitFor(() => expect(screen.getByTestId('name').textContent).toBe('Test Participant'))
+    await act(async () => { screen.getByRole('button', { name: 'Sign out' }).click() })
+    expect(signOut).toHaveBeenCalledOnce()
+    expect(sessionStorage.getItem('unrelated')).toBe('keep')
+    sessionStorage.removeItem('unrelated')
   })
   it('accepts only the verified WorkOS subject and preserves the permanent local user ID', async () => {
     mocks.fetchCurrentUser.mockResolvedValue(workosUser())

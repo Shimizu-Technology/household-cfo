@@ -61,6 +61,10 @@
 .mia-daily-save:disabled { opacity: 0.55; cursor: default; }
 .mia-daily-dismiss { min-height: 44px; padding: 10px 12px; background: transparent; color: var(--muted, #706d66); font-weight: var(--weight-semibold, 600); text-decoration: underline; text-underline-offset: 3px; }
 
+/* The floating "Latest" pill moves to the top of the chat while a card waits
+   to be saved, so it never covers the card's Save button. */
+.mia-chat-shell:has(.mia-daily-card:not(.is-saved)) .chat-scroll-bottom-button { top: 12px; bottom: auto; }
+
 @media (hover: hover) and (pointer: fine) {
   .mia-daily-chip:hover:not(:disabled) { background: #fff; }
   .mia-daily-remove:hover:not(:disabled) { color: var(--status-red, #9d4b45); }

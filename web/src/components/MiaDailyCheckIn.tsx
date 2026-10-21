@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchDailyContext } from '../api'
-import { dailyApproval, dailyContextMatches, type DailyAction, type DailyContext, type DailyInput, type DailyPurchaseDraft, type DailyScope } from '../lib/dailyChallenge'
+import { fetchDailyContext, fetchDailyRequestStatus } from '../api'
+import { dailyApproval, dailyContextMatches, dailyResponseMatches, type DailyAction, type DailyContext, type DailyInput, type DailyPurchaseDraft, type DailyScope } from '../lib/dailyChallenge'
 import { readDailyCard, useDailyCard, writeDailyCard, type DailyCardRow, type DailyCardState } from '../lib/dailyCheckIn'
-import { readDailyRecovery } from '../lib/dailyRecovery'
+import { clearDailyRecovery, readDailyRecovery } from '../lib/dailyRecovery'
 import type { BaselineScope } from '../lib/financialBaseline'
 import { savingsDollars, savingsInputCents, savingsInputDollars, type DailyReportIntake, type SavingsIntake } from '../lib/savingsChallenge'
 import { useDailyMutation } from '../lib/useDailyMutation'
@@ -48,8 +48,10 @@ const locked = (row: DailyCardRow) => row.draft !== undefined || row.status === 
 const open = (row: DailyCardRow) => row.status !== 'saved' && row.status !== 'moved'
 const label = (row: DailyCardRow, index: number) => row.merchant.trim() || `purchase ${index + 1}`
 const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
-// The card is done once nothing is left to save (no-spend: once that is saved).
-const finished = (state: DailyCardState, noSpend: boolean) => noSpend ? state.noSpendSaved : state.rows.length > 0 && !state.rows.some(open) && state.rows.some((row) => row.status === 'saved')
+// The card is done once the whole save finished: purchases, the day's check-in
+// and feelings (no-spend: once that is saved). Saved rows alone are not enough,
+// so a save interrupted after its purchases still finishes the day.
+const finished = (state: DailyCardState, noSpend: boolean) => noSpend ? state.noSpendSaved : state.phase === 'saved'
 
 class Stop extends Error {}
 
@@ -91,6 +93,8 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   const busy = state.phase === 'saving'
   const noSpendBlocked = noSpend && !saved && Boolean(firstDay && firstDay.approved_purchase_count > 0)
   const openRows = state.rows.filter(open)
+  // Purchases saved, but the day's check-in or feelings were left (an interrupted save).
+  const finishing = !noSpend && !saved && openRows.length === 0 && state.rows.some((row) => row.status === 'saved')
   const changesNoSpend = !noSpend && openRows.some((row) => contexts[row.purchased_on]?.day?.spending_state === 'no_spend')
   const allToday = dates.every((date) => date === today)
   const ownKeys = new Set(Object.values(state.keys))
@@ -111,12 +115,12 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   // failure (the guard released it) or unconfirmed (the guard still holds it).
   async function send<T>(action: Exclude<DailyAction, 'reflection_erase'>, input: DailyInput, step: string, rowId?: number): Promise<{ record: T } | { unknown: true } | { failed: true }> {
     const key = keyFor(step, input)
+    // Recorded before sending: if the page closes mid-request, the restored card
+    // checks this request's result before anything new is sent.
+    update((current) => ({ ...current, unconfirmed: { action, input, key, rowId } }))
     const record = await perform(action, input, undefined, key)
     if (record) { update((current) => current.unconfirmed?.key === key ? { ...current, unconfirmed: undefined } : current); return { record: record as T } }
-    if (actor && readDailyRecovery(actor)?.key === key) {
-      update((current) => ({ ...current, unconfirmed: { action, input, key, rowId } }))
-      return { unknown: true }
-    }
+    if (actor && readDailyRecovery(actor)?.key === key) return { unknown: true }
     update((current) => current.unconfirmed?.key === key ? { ...current, unconfirmed: undefined } : current)
     return { failed: true }
   }
@@ -125,17 +129,56 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   // replays it if it already saved, so nothing is saved twice.
   async function settleUnconfirmed() {
     const pending = readDailyCard(nonce)?.unconfirmed
-    if (!pending || !actor || readDailyRecovery(actor)?.key !== pending.key) { update((current) => ({ ...current, unconfirmed: undefined })); return }
+    if (!pending || !actor) return
     const record = await perform(pending.action, pending.input, undefined, pending.key)
     if (!record && readDailyRecovery(actor)?.key === pending.key) throw new Stop('unknown')
     update((current) => ({ ...current, unconfirmed: undefined }))
-    // Apply what the confirmed request did, so it is not sent a third time.
-    const row = pending.rowId === undefined ? undefined : readDailyCard(nonce)?.rows.find((item) => item.id === pending.rowId)
-    if (!record || !row) return
-    if (pending.action === 'purchase_stage') patchRow(row.id, { draft: record as DailyPurchaseDraft })
-    else if (pending.action === 'purchase_approve' && row.draft) patchRow(row.id, { status: 'saved', purchaseId: row.draft.savings_daily_purchase_id })
-    else if (pending.action === 'check_in_save') update((current) => ({ ...current, switchedToSpending: [...current.switchedToSpending, row.purchased_on] }))
+    if (record) applyConfirmed(pending, record)
   }
+
+  // Apply what a confirmed request did, so it is never sent a third time.
+  function applyConfirmed(pending: NonNullable<DailyCardState['unconfirmed']>, record: unknown) {
+    const row = pending.rowId === undefined ? undefined : readDailyCard(nonce)?.rows.find((item) => item.id === pending.rowId)
+    if (pending.action === 'purchase_stage' && row) patchRow(row.id, { draft: record as DailyPurchaseDraft, status: 'pending' })
+    else if (pending.action === 'purchase_approve' && row?.draft) patchRow(row.id, { status: 'saved', purchaseId: row.draft.savings_daily_purchase_id })
+    else if (pending.action === 'check_in_save') {
+      const date = pending.input.local_on as string
+      update((current) => pending.input.spending_state === 'no_spend'
+        ? { ...current, noSpendSaved: true, phase: 'saved' }
+        : { ...current, checkedIn: [...new Set([...current.checkedIn, date])], switchedToSpending: [...new Set([...current.switchedToSpending, date])] })
+    } else if (pending.action === 'reflection_save') {
+      update((current) => ({ ...current, rows: current.rows.map((item) => item.purchaseId === pending.input.purchase_id ? { ...item, reflected: true } : item) }))
+    }
+  }
+
+  // Before offering a new write after remount/reload, look up the interrupted
+  // request. If it is still running or the lookup fails, keep writes blocked
+  // and offer another lookup; an unknown request replays its original body/key.
+  const [reconciling, setReconciling] = useState(() => Boolean(readDailyCard(nonce)?.unconfirmed))
+  const [checking, setChecking] = useState(false)
+  const [statusAttempt, setStatusAttempt] = useState(0)
+  useEffect(() => {
+    const pending = readDailyCard(nonce)?.unconfirmed
+    if (!actor || !pending || readDailyCard(nonce)?.phase === 'saving') { if (!pending) queueMicrotask(() => setReconciling(false)); return }
+    let live = true
+    queueMicrotask(() => { if (live) { setReconciling(true); setChecking(true) } })
+    fetchDailyRequestStatus(pending.action, pending.key).then((status) => {
+      if (!live) return
+      if (!dailyResponseMatches(status, actor)) throw new Error('Private workspace changed')
+      if (status.state === 'in_flight') { update((current) => ({ ...current, message: 'Still checking your last save. Try again in a moment.' })); return }
+      if (status.state === 'committed') {
+        applyConfirmed(pending, status.record)
+        clearDailyRecovery(pending.key)
+        update((current) => ({ ...current, unconfirmed: undefined, message: null }))
+        onSaved()
+      }
+      setReconciling(false)
+    }).catch(() => { if (live) update((current) => ({ ...current, message: 'We couldn’t check your last save. Check again before saving anything else.' })) })
+      .finally(() => { if (live) setChecking(false) })
+    return () => { live = false }
+    // The restored request is stable; writing ordinary progress must not restart this lookup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actor, nonce, statusAttempt])
 
   async function freshDay(date: string) {
     const context = await fetchDailyContext(date)
@@ -195,12 +238,16 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
       days[row.purchased_on] ??= await freshDay(row.purchased_on)
       if (latest.status !== 'saved') await saveRow(latest, days[row.purchased_on])
     }
-    // Saving purchases checks the day in, so reminders treat it as reported.
+    // Saving purchases checks the day in, so reminders treat it as reported,
+    // including days whose purchases were saved before an interruption.
+    for (const row of readDailyCard(nonce)!.rows.filter((item) => item.status === 'saved')) days[row.purchased_on] ??= await freshDay(row.purchased_on)
     for (const [date, day] of Object.entries(days)) {
       const card = readDailyCard(nonce)!
       if (!card.rows.some((row) => row.status === 'saved' && row.purchased_on === date) || card.checkedIn.includes(date) || card.switchedToSpending.includes(date) || day.spending_state === 'spending') continue
       const result = await send('check_in_save', { local_on: date, spending_state: 'spending', accepted: true, expected_version_id: day.check_in_version_id, expected_head_lock_version: day.check_in_lock_version, reason: day.check_in_version_id ? 'Purchases saved in a Mia check-in' : '' }, `checkin:${date}`)
       if ('record' in result) update((value) => ({ ...value, checkedIn: [...value.checkedIn, date] }))
+      else if ('unknown' in result) throw new Stop('unknown')
+      else throw new Stop('Your purchases are saved. The check-in didn’t save — tap Save to finish it.')
     }
     // Optional feelings, kept separately with each purchase saved here.
     const card = readDailyCard(nonce)!
@@ -210,6 +257,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
       for (const row of card.rows.filter((item) => item.status === 'saved' && item.purchaseId && !item.reflected)) {
         const result = await send('reflection_save', { purchase_id: row.purchaseId, expected_version_id: null, expected_head_lock_version: 0, feeling_then: then || null, feeling_now: now || null }, `feelings:${row.purchaseId}`)
         if ('record' in result) patchRow(row.id, { reflected: true })
+        else if ('unknown' in result) throw new Stop('unknown')
         else feelingsSaved = false
       }
     }
@@ -220,7 +268,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
     const rows = card.rows.filter((row) => row.status !== 'moved')
     const savedCount = rows.filter((row) => row.status === 'saved').length
     const failed = rows.filter((row) => row.status !== 'saved')
-    if (!failed.length) return feelingsSaved ? null : 'Your purchases are saved. How you felt didn’t save — you can add it in Today.'
+    if (!failed.length) return feelingsSaved ? null : 'Your purchases are saved. How you felt didn’t save — tap Save to try again, or clear the feelings.'
     const names = failed.map((row, index) => label(row, index))
     const stillSpending = card.switchedToSpending.filter((date) => !rows.some((row) => row.status === 'saved' && row.purchased_on === date))
     const dayNote = stillSpending.length ? ' This day now shows as a spending day.' : ''
@@ -228,7 +276,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   }
 
   async function save() {
-    if (busy || foreignPending) return
+    if (busy || reconciling || foreignPending) return
     const problems: Record<number, string> = {}
     for (const row of state.rows.filter((item) => open(item) && !locked(item))) {
       try { if (savingsInputCents(row.amount) > 2147483647) problems[row.id] = 'Enter a smaller amount.' } catch { problems[row.id] = 'Enter an amount like 8.25.' }
@@ -244,12 +292,13 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
       if (noSpend) await saveNoSpend()
       else feelingsSaved = await savePurchases()
       const card = readDailyCard(nonce)!
-      update((current) => ({ ...current, phase: finished(card, noSpend) ? 'saved' : 'idle', message: noSpend ? null : summary(card, feelingsSaved) }))
+      const complete = noSpend ? card.noSpendSaved : feelingsSaved && !card.unconfirmed && !card.rows.some(open) && card.rows.some((row) => row.status === 'saved')
+      update((current) => ({ ...current, phase: complete ? 'saved' : 'idle', message: noSpend ? null : summary(card, feelingsSaved) }))
     } catch (failure) {
       const text = failure instanceof Stop && failure.message !== 'unknown' ? failure.message : 'We couldn’t confirm the last save. Tap Save to check — it won’t save twice.'
       const card = readDailyCard(nonce)!
       const partial = noSpend ? null : summary(card, true)
-      update((current) => ({ ...current, phase: 'idle', message: failure instanceof Stop && failure.message === 'unknown' ? text : partial && !partial.startsWith('Nothing') ? partial : text }))
+      update((current) => ({ ...current, phase: 'idle', message: failure instanceof Stop ? text : partial && !partial.startsWith('Nothing') ? partial : text }))
     }
     const after = readDailyCard(nonce)
     if (after && (after.noSpendSaved || after.rows.some((row) => row.status === 'saved'))) onSaved()
@@ -289,10 +338,10 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
 
   const dayWord = plainDay(report.local_on, today) === 'Today' ? 'today' : `on ${plainDay(report.local_on, today)}`
   const visibleRows = state.rows.filter((row) => row.status !== 'moved')
-  const title = saved ? (allToday ? 'Saved to today' : 'Saved') : noSpend ? `No spending ${dayWord}` : visibleRows.filter(open).length === 1 ? 'Check this, then save' : 'Check these, then save'
+  const title = saved ? (allToday ? 'Saved to today' : 'Saved') : noSpend ? `No spending ${dayWord}` : finishing ? 'Almost done' : visibleRows.filter(open).length === 1 ? 'Check this, then save' : 'Check these, then save'
   const feelingsOpen = Boolean(report.feelings?.when_spent || report.feelings?.now)
   const setFeeling = (field: 'feelingThen' | 'feelingNow', value: string) => update((current) => ({ ...current, [field]: value }))
-  const statusText = foreignPending ? 'An earlier daily save needs checking first. Nothing new is sent until it is.' : unconfirmed.length && !busy ? `We couldn’t confirm ${unconfirmed.map((row) => label(row, state.rows.indexOf(row))).join(' and ')} saved. Tap Save to check — it won’t save twice.` : state.message ?? ''
+  const statusText = finishing && !busy && !reconciling && !state.message ? `Your purchases are saved. Tap ${allToday ? 'Save to today' : 'Save'} to finish this check-in.` : foreignPending ? 'An earlier daily save needs checking first. Nothing new is sent until it is.' : unconfirmed.length && !busy ? `We couldn’t confirm ${unconfirmed.map((row) => label(row, state.rows.indexOf(row))).join(' and ')} saved. Tap Save to check — it won’t save twice.` : state.message ?? ''
 
   return (
     <section ref={cardRef} className={`mia-daily-card${saved ? ' is-saved' : ''}`} aria-label="Your check-in" aria-busy={busy}>
@@ -320,19 +369,20 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
           {!visibleRows.length && <li className="mia-daily-empty">Nothing left to save here.</li>}
         </ul>
       )}
-      {!noSpend && openRows.length > 0 && !saved && (feelingsOpen
-        ? <fieldset className="mia-daily-feelings" disabled={busy}><legend>How you felt (optional)</legend><FeelingFields then={state.feelingThen} now={state.feelingNow} onThen={(value) => setFeeling('feelingThen', value)} onNow={(value) => setFeeling('feelingNow', value)} /></fieldset>
-        : <details className="mia-daily-feelings"><summary>Add how you felt (optional)</summary><fieldset disabled={busy}><legend className="sr-only">How you felt (optional)</legend><FeelingFields then={state.feelingThen} now={state.feelingNow} onThen={(value) => setFeeling('feelingThen', value)} onNow={(value) => setFeeling('feelingNow', value)} /></fieldset></details>)}
+      {!noSpend && !saved && (feelingsOpen
+        ? <fieldset className="mia-daily-feelings" disabled={busy || Boolean(state.unconfirmed)}><legend>How you felt (optional)</legend><FeelingFields then={state.feelingThen} now={state.feelingNow} onThen={(value) => setFeeling('feelingThen', value)} onNow={(value) => setFeeling('feelingNow', value)} /></fieldset>
+        : <details className="mia-daily-feelings"><summary>Add how you felt (optional)</summary><fieldset disabled={busy || Boolean(state.unconfirmed)}><legend className="sr-only">How you felt (optional)</legend><FeelingFields then={state.feelingThen} now={state.feelingNow} onThen={(value) => setFeeling('feelingThen', value)} onNow={(value) => setFeeling('feelingNow', value)} /></fieldset></details>)}
       {noSpendBlocked && <p className="mia-daily-hint">You already saved a purchase for this day, so it can’t be a no-spend day.</p>}
       {changesNoSpend && !saved && <p className="mia-daily-hint">You saved this day as no spending. Saving a purchase changes it to a spending day.</p>}
       <p className="mia-daily-status" role="status">{statusText}</p>
+      {reconciling && <button type="button" className="secondary-button" disabled={checking} onClick={() => setStatusAttempt((value) => value + 1)}>{checking ? 'Checking last save…' : 'Check last save'}</button>}
       {foreignPending && mutation.checkStatus && <button type="button" className="secondary-button" disabled={foreignPending.working} onClick={() => void mutation.checkStatus?.()}>Check the earlier save first</button>}
       {!saved && <p className="mia-daily-footnote">Nothing is saved until you tap {allToday ? 'Save to today' : 'Save'}.{noSpend ? '' : ' Feelings stay private.'}</p>}
       {!saved ? (
         <div className="mia-daily-actions">
-          <button type="button" className="mia-daily-save" disabled={busy || Boolean(foreignPending) || noSpendBlocked || !actor || (!noSpend && openRows.length === 0)} onClick={() => void save()}>{busy ? 'Saving…' : allToday ? 'Save to today' : 'Save'}</button>
+          <button type="button" className="mia-daily-save" disabled={busy || reconciling || Boolean(foreignPending) || noSpendBlocked || !actor || (!noSpend && openRows.length === 0 && !finishing)} onClick={() => void save()}>{busy ? 'Saving…' : allToday ? 'Save to today' : 'Save'}</button>
           {!noSpend && <button type="button" className="secondary-button" disabled={busy || !movable} onClick={moveToToday}>Edit in Today</button>}
-          <button type="button" className="mia-daily-dismiss" disabled={busy || unconfirmed.length > 0} onClick={onDismiss}>Not right</button>
+          <button type="button" className="mia-daily-dismiss" disabled={busy || Boolean(state.unconfirmed)} onClick={onDismiss}>Not right</button>
         </div>
       ) : <div className="mia-daily-actions"><button type="button" className="mia-daily-dismiss" onClick={onDismiss}>Done</button></div>}
     </section>

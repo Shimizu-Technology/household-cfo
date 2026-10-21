@@ -38,7 +38,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   test "card, loan and hard-day questions get final answers without calling the model" do
     ENV["OPENROUTER_API_KEY"] = "fictional-key"
     with_savings_runtime { debt_approve(debt_stage(debt_terms(label: "Visa", balance_cents: 30_000))) }
-    HouseholdFinance::MiaNarrator.class_eval { alias_method :__orig_openrouter, :openrouter_response; define_method(:openrouter_response) { $model_calls_in_test = $model_calls_in_test.to_i + 1; nil } }
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { $model_calls_in_test = $model_calls_in_test.to_i + 1; nil }
     $model_calls_in_test = 0
     begin
       asks = [ "How much do I owe on my card according to what I approved?", "which card first and how much extra should I pay?",
@@ -61,7 +61,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       assert_operator hard.index("you can skip today"), :<, hard.index("988")
       assert_equal 0, $model_calls_in_test
     ensure
-      HouseholdFinance::MiaNarrator.class_eval { alias_method :openrouter_response, :__orig_openrouter }
+      narrator_stub&.call
     end
   end
 
@@ -114,7 +114,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
 
   test "hopeless language with food or essentials keeps food-first guidance and the 988 line without the model" do
     ENV["OPENROUTER_API_KEY"] = "fictional-key"
-    HouseholdFinance::MiaNarrator.class_eval { alias_method :__orig_openrouter2, :openrouter_response; define_method(:openrouter_response) { $model_calls_in_test2 = $model_calls_in_test2.to_i + 1; nil } }
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { $model_calls_in_test2 = $model_calls_in_test2.to_i + 1; nil }
     $model_calls_in_test2 = 0
     begin
       post "/api/v1/mia/messages", params: { message: "We have no food this week and I give up", request_id: "food-hopeless" }, headers: auth, as: :json
@@ -128,7 +128,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       assert_equal 1, content.scan("988").length, content
       assert_equal 0, $model_calls_in_test2
     ensure
-      HouseholdFinance::MiaNarrator.class_eval { alias_method :openrouter_response, :__orig_openrouter2 }
+      narrator_stub&.call
     end
   end
 
@@ -247,6 +247,23 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     narrator_stub&.call
   end
 
+  test "an ungrounded two-day model report falls back to Mia without a purchase card" do
+    ENV["OPENROUTER_API_KEY"] = "fictional-key"
+    extractor_stub = stub_private_method(SavingsChallenge::DailyReportExtractor, :openrouter_response) do
+      { purchases: [ { amount: "12", merchant: "Kings", day: "today" }, { amount: "15", merchant: "Ross", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "" }.to_json
+    end
+    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { "Tell me which purchase was yesterday and which was today." }
+    assert_no_difference [ "SavingsDailyPurchaseDraft.count", "SavingsDailyPurchaseVersion.count" ] do
+      post "/api/v1/mia/messages", params: { message: "lunch w cousins came to 12 at Kings yesterday and dinner w friends came to 15 at Ross today", request_id: "two-days-invalid" }, headers: auth, as: :json
+      assert_response :created
+      assert_nil response.parsed_body["savings_intake"]
+      assert response.parsed_body.dig("assistant_message", "content").present?
+    end
+  ensure
+    extractor_stub&.call
+    narrator_stub&.call
+  end
+
   test "crisis and wellbeing-check replies carry an explicit safety flag, in replies and in history" do
     [ [ "i dont see the point anymore", "hopeless" ], [ "kms", "crisis" ] ].each_with_index do |(message, kind), index|
       post "/api/v1/mia/messages", params: { message: message, request_id: "safety-#{index}" }, headers: auth, as: :json
@@ -269,7 +286,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
         post "/api/v1/mia/messages", params: { message: message, request_id: "goal-#{index}" }, headers: auth, as: :json
         assert_response :created
         reply = response.parsed_body.dig("assistant_message", "content")
-        assert_includes reply, "open Savings and change your target there", message
+        assert_includes reply, "open Savings, then Your target & spending choices", message
         refute_includes reply, "household plan or your savings challenge", message
         assert_nil response.parsed_body["savings_intake"], message
       end

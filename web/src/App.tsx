@@ -18,7 +18,7 @@ import { sourceReviewMode } from './lib/sourceReview'
 import { miaWorkspaceStorageKey } from './lib/miaWorkspaceScope'
 import { HomeScreen } from './components/HomeScreen'
 import { checkedDailyReport, checkedSavingsIntake, type DailyReportIntake, type SavingsIntake } from './lib/savingsChallenge'
-import { dailyCardNeedsAttention, forgetDailyCard, useTodayCheckIn } from './lib/dailyCheckIn'
+import { clearDailyCards, dailyCardNeedsAttention, forgetDailyCard, latestReplyIsSafety, registerDailyCard, restoreDailyCards, useTodayCheckIn } from './lib/dailyCheckIn'
 import { MiaDailyPrompt, MiaDailyReportCard } from './components/MiaDailyCheckIn'
 import { MiaSavingsReview } from './components/MiaSavingsReview'
 import { ChallengeToday } from './components/ChallengeToday'
@@ -693,12 +693,29 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (data?.workspace.mode === 'real' && (data.workspace.cohort?.id ?? null) === cohortId) setApiFinancialGeneration(data.workspace.financial_generation ?? 0)
   }, [canLoadWorkspace, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, selectedCohortId, data?.workspace.mode, data?.workspace.cohort?.id, data?.workspace.financial_generation])
   const challengeIntakeScopeRef = useRef(challengeIntakeScope)
+  // Daily report cards are kept per participant, household and program in this
+  // tab; a program change clears the previous program's cards, and a complete
+  // scope restores its own (including a save interrupted by a reload).
+  const previousCardScopeRef = useRef<string | null>(null)
   useEffect(() => {
     challengeIntakeScopeRef.current = challengeIntakeScope
+    const complete = !challengeIntakeScope.split(':').some((part) => part === 'undefined' || part === 'null' || part === '')
+    const previous = previousCardScopeRef.current
+    if (complete) {
+      if (previous && previous !== challengeIntakeScope) clearDailyCards(previous)
+      previousCardScopeRef.current = challengeIntakeScope
+    }
     let live = true
-    queueMicrotask(() => { if (live) { setMiaSavingsNote(null); setDailyIntake(null); setSavingsIntake(null); setMiaDailyReports([]) } })
+    queueMicrotask(() => { if (live) { setMiaSavingsNote(null); setDailyIntake(null); setSavingsIntake(null); setMiaDailyReports(complete ? restoreDailyCards(challengeIntakeScope) : []) } })
     return () => { live = false }
   }, [challengeIntakeScope])
+  // Signing out (or another person signing in) clears this tab's daily cards.
+  const cardUserRef = useRef<number | null>(null)
+  useEffect(() => {
+    const userId = auth.currentUser?.id ?? null
+    if (cardUserRef.current !== null && cardUserRef.current !== userId && !auth.isLoading) clearDailyCards()
+    if (userId !== null || !auth.isLoading) cardUserRef.current = userId
+  }, [auth.currentUser?.id, auth.isLoading])
   const [pilotGuideOpen, setPilotGuideOpen] = useState(false)
   const [enterpriseSettingsOpen, setEnterpriseSettingsOpen] = useState(false)
   const [pilotFeedbackOpen, setPilotFeedbackOpen] = useState(false)
@@ -809,6 +826,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (savingsEnrollmentScope) setSavingsEnrollment({ scope: savingsEnrollmentScope, enrolled, source: 'home' })
   }, [savingsEnrollmentScope])
   // Mia's daily "How was today?" prompt and the Today shortcut read today's check-in state.
+  // No money prompt or card under a crisis or wellbeing-check reply (server flag).
+  const safetyHold = latestReplyIsSafety(currentMessages)
   const todayCheckIn = useTodayCheckIn(challengeParticipantScope, savingsCohortId, Boolean(savingsJoined && !auth.activeCoachWorkspaceId), dailyRefreshKey)
   const assistantName = data?.profile.coach.name.trim() || 'your assistant'
   const isFirstSessionSetup = Boolean(isRealWorkspace && data?.workspace.experience_mode !== 'savings_challenge' && !data?.workspace?.setup_complete)
@@ -2088,7 +2107,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       assertOriginalWorkspace()
       const reviewedIntake = checkedSavingsIntake(response.savings_intake)
       const dailyReport = checkedDailyReport(response.savings_intake)
-      if (challengeIntakeScopeRef.current === challengeIntakeScope) { setMiaSavingsNote(reviewedIntake ? {scope:challengeIntakeScope,intake:reviewedIntake} : null); setMiaDailyReports((current) => [...current.filter((card) => { const keep = dailyCardNeedsAttention(card.nonce); if (!keep) forgetDailyCard(card.nonce); return keep }), ...(dailyReport ? [{scope:challengeIntakeScope,report:dailyReport,nonce:crypto.randomUUID()}] : [])]) }
+      if (challengeIntakeScopeRef.current === challengeIntakeScope) { setMiaSavingsNote(reviewedIntake ? {scope:challengeIntakeScope,intake:reviewedIntake} : null); setMiaDailyReports((current) => [...current.filter((card) => { const keep = dailyCardNeedsAttention(card.nonce); if (!keep) forgetDailyCard(card.nonce); return keep }), ...(dailyReport ? [(() => { const entry = {scope:challengeIntakeScope,report:dailyReport,nonce:crypto.randomUUID()}; registerDailyCard(entry); return entry })()] : [])]) }
       if (miaRetryRequestRef.current?.id === miaRequestId) {
         miaRetryRequestRef.current = null
         if (isRealWorkspace) clearMiaRetryRequest(chatStorageKey)
@@ -3733,10 +3752,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
                   onReviewImportId={openDocumentReview}
                   reviewCount={pendingMiaActionDrafts.length + pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
-                  reviewContent={<>
-                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && challengeParticipantScope && miaDailyReports.filter((card) => card.scope===challengeIntakeScope).map((card) => <MiaDailyReportCard key={card.nonce} nonce={card.nonce} report={card.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase, remaining) => { if (!remaining) { forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)) } setIsChatExpanded(false); setDailyIntake({scope:challengeIntakeScope,intake:purchase}); setDailyOpen(true) }} />)}
-                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && !miaLoading && !miaDailyReports.some((card) => card.scope===challengeIntakeScope) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
-                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && miaSavingsNote?.scope===challengeIntakeScope && <MiaSavingsReview intake={miaSavingsNote.intake} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
+                  reviewContent={!safetyHold ? <>
+                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && challengeParticipantScope && !safetyHold && miaDailyReports.filter((card) => card.scope===challengeIntakeScope).map((card) => <MiaDailyReportCard key={card.nonce} nonce={card.nonce} report={card.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase, remaining) => { if (!remaining) { forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)) } setIsChatExpanded(false); setDailyIntake({scope:challengeIntakeScope,intake:purchase}); setDailyOpen(true) }} />)}
+                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && !miaLoading && !safetyHold && !miaDailyReports.some((card) => card.scope===challengeIntakeScope) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
+                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && miaSavingsNote?.scope===challengeIntakeScope && !safetyHold && <MiaSavingsReview intake={miaSavingsNote.intake} today={todayCheckIn.context?.calendar.local_today} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack
                         drafts={pendingMiaActionDrafts}
@@ -3769,7 +3788,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                         onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
                       />
                     )}
-                  </>}
+                  </> : null}
                 />
 
               {(() => { const shownBudgetError = !budgetYearLoading && budgetError ? budgetError : null; return <>{shownBudgetError && <p className="chat-error" role="alert">{shownBudgetError}</p>}{miaError && miaError !== shownBudgetError && <p className="chat-error" role="alert">{miaError}</p>}</> })()}

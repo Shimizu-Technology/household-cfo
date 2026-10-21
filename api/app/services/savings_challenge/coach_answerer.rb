@@ -287,7 +287,7 @@ module SavingsChallenge
     def target_change_answer
       cents = @message[/\$\s*(\d[\d,]*(?:\.\d{1,2})?)/, 1]&.then { |value| HouseholdFinance::Money.chat_cents(value) rescue nil }
       lead = cents&.positive? ? "To make your challenge goal #{money(cents)}" : "To change your challenge goal"
-      "#{lead}, open Savings and change your target there. It changes once you save it there, and nothing has changed yet. A smaller goal is completely fine."
+      "#{lead}, open Savings, then Your target & spending choices. It changes once you save it there, and nothing has changed yet. A smaller goal is completely fine."
     end
 
     def baseline_answer
