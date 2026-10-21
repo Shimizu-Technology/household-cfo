@@ -1,7 +1,27 @@
 import postcss from 'postcss'
 
 const compact = (value) => value.replace(/\s+/g, ' ').trim()
-const fineHover = /\(hover:\s*hover\)\s+and\s+\(pointer:\s*fine\)/
+const fineHover = /\(hover:\s*hover\)\s+and\s+\(pointer:\s*fine\)/i
+const absoluteUnitPx = { px: 1, pt: 96 / 72, pc: 16, in: 96, cm: 96 / 2.54, mm: 96 / 25.4, q: 96 / 101.6 }
+
+function thickSideBorder(prop, value) {
+  const tokens = postcss.list.space(value)
+  const widths = tokens.flatMap((token) => {
+    const match = token.match(/^(\d*\.?\d+)([a-z%]*)$/)
+    return match ? [{ amount: Number(match[1]), unit: match[2] }] : []
+  })
+  if (tokens.some((token) => token === 'medium' || token === 'thick')) return true
+  // Relative units depend on the element/root/viewport. A literal hairline in
+  // absolute units is provable; unresolved positive lengths require review.
+  if (widths.some(({ amount, unit }) => amount > 0 && (!(unit in absoluteUnitPx) || amount * absoluteUnitPx[unit] > 1))) return true
+  if (tokens.some((token) => /^(?:calc|min|max|clamp|calc-size|anchor-size)\(/.test(token))) return true
+  const explicitWidth = widths.length > 0 || tokens.includes('thin')
+  if (explicitWidth) return false
+  // A custom property may be the width in any shorthand position. With no
+  // explicit width, visible border styles default to `medium` (usually 3px).
+  return prop.endsWith('-width') || tokens.some((token) => /^(?:var|env)\(/.test(token)
+    || /^(?:inherit|solid|dashed|dotted|double|groove|ridge|inset|outset)$/.test(token))
+}
 
 // Source-level policy: overridden/dead declarations are checked too. No runtime
 // selector guessing or blanket "card" exception can hide new decoration.
@@ -19,10 +39,10 @@ export function cssPolicyFindings(source, file) {
     findings.push({ key: JSON.stringify([file, kind, ancestry, selector, detail]), file, kind, line: node.source.start.line })
   }
   root.walkRules((rule) => {
-    if (!rule.selector.includes(':hover')) return
+    if (!/:hover\b/i.test(rule.selector)) return
     let gated = false
     for (let parent = rule.parent; parent; parent = parent.parent) {
-      if (parent.type === 'atrule' && parent.name === 'media' && fineHover.test(parent.params) && !parent.params.includes(',') && !/\bnot\b/.test(parent.params)) gated = true
+      if (parent.type === 'atrule' && parent.name.toLowerCase() === 'media' && fineHover.test(parent.params) && !parent.params.includes(',') && !/\b(?:not|or)\b/i.test(parent.params)) gated = true
     }
     if (!gated) record(rule, 'hover')
   })
@@ -36,7 +56,7 @@ export function cssPolicyFindings(source, file) {
     if (prop === 'box-shadow' && value !== 'none') record(decl, 'shadow')
     const side = /^border-(?:left|right|inline(?:-start|-end)?)(?:-width)?$/.test(prop)
     const shorthand = prop === 'border' || prop === 'border-width'
-    if ((side || shorthand) && (/\b(?:medium|thick)\b/.test(value) || /^var\(/.test(value) || [...value.matchAll(/([\d.]+)(px|rem|em)\b/g)].some((match) => Number(match[1]) * (match[2] === 'px' ? 1 : 16) > 1))) record(decl, 'side-border')
+    if ((side || shorthand) && thickSideBorder(prop, value)) record(decl, 'side-border')
   })
   return findings
 }

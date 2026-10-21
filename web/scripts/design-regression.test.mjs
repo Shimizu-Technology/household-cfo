@@ -271,12 +271,19 @@ for (const [sample, kind] of [
   ['.card { box-shadow: var(--shadow-sm) }', 'shadow'],
   ['.card { border-inline-start: 4px solid red }', 'side-border'],
   ['.card { border: 2px solid red }', 'side-border'],
+  ['.card { border-left: 2pt solid red }', 'side-border'],
+  ['.card { border-right: solid red var(--accent-width) }', 'side-border'],
+  ['.card { border-inline-start: solid red }', 'side-border'],
+  ['.card { border-left-width: calc(1px + 1px) }', 'side-border'],
+  ['.card { border-left: 0.1em solid red }', 'side-border'],
   ['.card:hover { color: red }', 'hover'],
+  ['.card:HOVER { color: red }', 'hover'],
   ['@media (hover: hover) { .card:hover { color: red } }', 'hover'],
+  ['@media (width >= 0px) or ((hover: hover) and (pointer: fine)) { .card:hover { color: red } }', 'hover'],
   ['/* gradient(red, blue) */ .card { background: radial-gradient(red, blue) }', 'gradient'],
 ]) assert.ok(cssPolicyFindings(sample, 'fixture.css').some((finding) => finding.kind === kind), `CSS policy must detect ${kind}`)
 assert.deepEqual(cssPolicyFindings(`/* linear-gradient(red, blue) */
-  .card { box-shadow: none; border-left: 1px solid red; backdrop-filter: none }
+  .card { box-shadow: none; border-left: 1px solid var(--line); border-right: solid red 0.75pt; backdrop-filter: none }
   @media (max-width: 600px) { @media (hover: hover) and (pointer: fine) { .card:hover { color: red } } }
 `, 'fixture.css'), [], 'comments, flat surfaces and nested fine-pointer hover are valid')
 const cssPolicyFailures = []
