@@ -1,0 +1,37 @@
+/* W5 participant review and document flow. Keep shared navigation styles separate. */
+.participant-review .transaction-draft-card {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 16px 0;
+}
+.participant-review .transaction-draft-main { min-width: 0; }
+.participant-review .transaction-draft-title-row strong { overflow-wrap: anywhere; }
+.participant-review .transaction-draft-badges { display: none; }
+.participant-review .transaction-draft-main > p { font-variant-numeric: tabular-nums; }
+.participant-review .transaction-draft-actions { justify-content: flex-end; align-items: center; }
+.transaction-review-details > summary { cursor: pointer; padding-block: 8px; font-size: var(--text-sm, 0.875rem); }
+.participant-review .transaction-review-details:not([open]) { margin: 0; }
+.participant-review .transaction-draft-bulk-actions { border: 0; background: transparent; padding-inline: 0; }
+.participant-review [tabindex='-1']:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
+.statements-screen .document-import-workspace { box-shadow: none; }
+.statements-screen .document-upload-card { background: transparent; box-shadow: none; border: 1px solid var(--line); }
+.statements-screen .document-upload-primary .document-upload-card label { padding: 16px; }
+.statements-screen .document-review-layout { grid-template-columns: minmax(0, 1fr); }
+.statements-screen .document-history-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.statements-screen .document-history-card { box-shadow: none; }
+@media (max-width: 600px) {
+  .participant-review .transaction-draft-card { grid-template-columns: 24px minmax(0, 1fr); gap: 8px; }
+  .participant-review .transaction-draft-actions, .participant-review .transaction-draft-editor { grid-column: 1 / -1; }
+  .participant-review .transaction-draft-actions { display: grid; grid-template-columns: 1fr; }
+  .participant-review .transaction-draft-actions [data-review-confirm] { grid-row: 1; }
+  .participant-review .transaction-draft-actions button { width: 100%; min-height: 44px; }
+}
+.transaction-review-facts { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(80px, 1fr) minmax(100px, 2fr); gap: 8px; align-items: baseline; font-variant-numeric: tabular-nums; }
+.transaction-review-facts span { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .transaction-review-facts { grid-template-columns: minmax(0, 1fr) auto; }
+  .transaction-review-facts span { grid-column: 1 / -1; }
+}
