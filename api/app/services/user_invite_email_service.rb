@@ -1,7 +1,7 @@
 require "cgi"
 
 class UserInviteEmailService
-  BRAND_NAME = "Household CFO Method powered by VERA".freeze
+  BRAND_NAME = "Household CFO Method".freeze
 
   class << self
     def send_invite(user:, invited_by:)

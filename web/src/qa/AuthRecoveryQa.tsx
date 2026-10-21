@@ -86,7 +86,7 @@ export function AuthRecoveryQa() {
     isLoaded: mode !== 'sdk-pending', isSignedIn: mode !== 'signed-out', getToken, signOut,
   }), [getToken, mode, signOut])
   const brand = useMemo(() => ({
-    brand: { ...NEUTRAL_BRAND, product_name: 'Household CFO', organization_name: 'Household CFO Method powered by VERA' },
+    brand: { ...NEUTRAL_BRAND, product_name: 'Household CFO', organization_name: 'Household CFO Method' },
     assistantName: 'Mia', hostname: 'localhost', source: 'qa', status: 'ready' as const,
     error: null, retry: () => undefined, isRuntimeBrand: false,
   }), [])

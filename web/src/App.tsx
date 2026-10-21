@@ -39,6 +39,8 @@ import { ParticipantTabs } from './components/ParticipantTabs'
 import { Button } from './components/Button'
 import { ChatHistory } from './components/ChatHistory'
 import { MiaAssistPanels } from './components/MiaAssistPanels'
+import { ChatMoreMenu } from './components/ChatMoreMenu'
+import { MiaDisclaimer } from './components/MiaDisclaimer'
 import { FinancialRestartDialog } from './components/FinancialRestartDialog'
 import { SetupHelpDialog } from './components/SetupHelpDialog'
 import { Metric } from './components/Metric'
@@ -171,8 +173,9 @@ import { type ParticipantPrograms, fetchParticipantPrograms } from './participan
 import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
 import { BrandRuntimeProvider } from './contexts/BrandContext'
-import { useBrand } from './contexts/brandContextValue'
-import { brandByline } from './lib/brandByline'
+import { NEUTRAL_BRAND, useBrand } from './contexts/brandContextValue'
+import { brandByline, brandHeaderByline } from './lib/brandByline'
+import { shortAssistantName } from './lib/assistantName'
 import { BrandFooter, BrandLogo } from './components/BrandChrome'
 import { AuthLanding } from './components/AuthLanding'
 import { BrandDocument } from './components/BrandDocument'
@@ -181,6 +184,7 @@ import { participantErrorMessage } from './lib/participantErrorMessage'
 // Must stay the last import: keyboard-aware dialog sizing overrides component styles.
 import './dialogViewport.css'
 
+const monthNameFormatter = new Intl.DateTimeFormat('en-US', { month: 'long' })
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -517,6 +521,11 @@ function assistantInitial(name: string) {
   return Array.from(name.trim())[0]?.toUpperCase() ?? 'A'
 }
 
+// The chat header shows inline controls on wider screens and a More menu on phones.
+function visibleChatTrigger(...candidates: (HTMLButtonElement | null)[]) {
+  return candidates.find(element => element?.isConnected && element.getClientRects().length > 0) ?? candidates.find(Boolean) ?? null
+}
+
 function App() {
   useDialogViewport()
   const auth = useAuthContext()
@@ -628,9 +637,22 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [spendingReportError, setSpendingReportError] = useState<string | null>(null)
   const [newBudgetCategory, setNewBudgetCategory] = useState<NewBudgetCategoryDraft>(blankBudgetCategoryDraft)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
-  const [assistPanel, setAssistPanel] = useState<'context' | 'prompts' | null>(null)
+  const [assistPanel, setAssistPanel] = useState<'context' | 'prompts' | 'memory' | null>(null)
   const showMiaSuggestions = assistPanel === 'prompts'
   const chatContextTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const chatMoreTriggerRef = useRef<HTMLButtonElement | null>(null)
+  // Opening a companion panel can narrow the chat so its inline trigger folds into
+  // More and loses focus; remember it and hand focus back when the panel closes.
+  const assistTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const closeAssistPanel = useCallback(() => {
+    const trigger = assistTriggerRef.current
+    setAssistPanel(null)
+    window.requestAnimationFrame(() => {
+      const active = document.activeElement
+      if (active && active !== document.body) return
+      visibleChatTrigger(trigger, chatMoreTriggerRef.current)?.focus({ preventScroll: true })
+    })
+  }, [])
   const [financialRestartOpen, setFinancialRestartOpen] = useState(false)
   const [setupHelpOpen, setSetupHelpOpen] = useState(false)
   const [setupRestart, setSetupRestart] = useState<{ requestId?: number } | null>(null)
@@ -829,7 +851,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   // No money prompt or card under a crisis or wellbeing-check reply (server flag).
   const safetyHold = latestReplyIsSafety(currentMessages)
   const todayCheckIn = useTodayCheckIn(challengeParticipantScope, savingsCohortId, Boolean(savingsJoined && !auth.activeCoachWorkspaceId), dailyRefreshKey)
-  const assistantName = data?.profile.coach.name.trim() || 'your assistant'
+  const assistantName = shortAssistantName(data?.profile.coach.name) || 'your assistant'
   const isFirstSessionSetup = Boolean(isRealWorkspace && data?.workspace.experience_mode !== 'savings_challenge' && !data?.workspace?.setup_complete)
   const hasUnsavedProfileChanges = Boolean(
     isProfileEditing && !isFirstSessionSetup && data?.workspace?.setup_complete && setupDraft && profileEditBaseline
@@ -1379,7 +1401,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         return
       }
       if (assistPanel) {
-        setAssistPanel(null)
+        closeAssistPanel()
         return
       }
       setIsChatExpanded(false)
@@ -1387,7 +1409,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [confirmClearChat, isChatExpanded, assistPanel])
+  }, [confirmClearChat, isChatExpanded, assistPanel, closeAssistPanel])
 
   useEffect(() => {
     if (!previewImport && !previewAttachment) return
@@ -3538,6 +3560,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const debtMinimumsKnown = data.wealth.summary.debt_minimums_known !== false
   const runtimeBrand = data.workspace.brand
   const brand = runtimeBrand.config
+  // Plain words for the household plan Mia reads; savings participants don't need it.
+  const miaPlanLabel = `Using your ${monthNameFormatter.format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} ${selectedBudgetYear} plan`
+  const showMiaMemoryAction = !isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant)
 
   const workspace = (
     <main className={`app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}`}>
@@ -3547,7 +3572,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         <div className="shell-brand">
           <BrandLogo brand={brand} />
           <div className="shell-brand-copy">
-            <p className="eyebrow">{brandByline(brand)}</p>
+            {brandHeaderByline(brand) && <p className="eyebrow">{brandHeaderByline(brand)}</p>}
             <h1>{brand.short_name}</h1>
           </div>
           {data.workspace?.cohort && !(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId) && <span className="cohort-brand-chip">{data.workspace.cohort.name}</span>}
@@ -3639,17 +3664,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
       {activeSection === 'Ask Mia' && (
         <section className="screen-grid mia-screen">
-          <div className="mia-page-heading">
-            <div className="mia-page-title">
-              <ScreenHeading
-                eyebrow={`Ask ${assistantName}`}
-                title={`Tell ${assistantName} what changed.`}
-                copy={`Update income, savings, debt, goals, or the plan in plain language. ${assistantName} prepares a review; you approve before anything changes.`}
-              />
-
-              {isFirstSessionSetup && <span className="mia-setup-count">{data.workspace.setup_status.completed_count} of {data.workspace.setup_status.required_count} essentials confirmed</span>}
-            </div>
-            <button ref={chatContextTriggerRef} type="button" className="secondary-button mia-context-trigger" aria-expanded={assistPanel === 'context'} aria-controls="mia-assist-title" onClick={() => setAssistPanel(current => current === 'context' ? null : 'context')}>Context &amp; help</button>
+          {/* The chat header already names the assistant; keep this heading for focus and screen readers only. */}
+          <div className="mia-page-heading sr-only">
+            <ScreenHeading
+              eyebrow={`Ask ${assistantName}`}
+              title={`Tell ${assistantName} what changed.`}
+              copy={`Update income, savings, debt, goals, or the plan in plain language. ${assistantName} prepares a review; you approve before anything changes.`}
+            />
           </div>
 
           <div className={`mia-layout${assistPanel && !isChatExpanded ? ' has-assist-panel' : ''}`}>
@@ -3672,32 +3693,31 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 <span className="message-avatar" aria-hidden="true">{assistantInitial(assistantName)}</span>
                 <div className="chat-shell-copy">
                   <h3 id="mia-chat-title" aria-label={`Ask ${assistantName}`}><span className="chat-heading-verb">Ask </span>{assistantName}</h3>
-                  <p className="chat-period-context"><span className="chat-period-prefix">{isSavingsExperience ? 'Optional plan context' : 'Plan context'}: </span>{selectedBudgetMonth?.label ?? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} {selectedBudgetYear}</p>
+                  {isFirstSessionSetup
+                    ? <p className="mia-setup-count">{data.workspace.setup_status.completed_count} of {data.workspace.setup_status.required_count} essentials confirmed</p>
+                    : !isSavingsExperience && <p className="chat-period-context">{miaPlanLabel}</p>}
                 </div>
                 <div className="chat-actions">
                   {data.workspace.experience_mode === 'savings_challenge' && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <button type="button" className="secondary-button chat-today-button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
-                  {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <button type="button" className="chat-memory-button" onClick={() => {
-                    setIsChatExpanded(false)
-                    switchSection('My Profile')
-                    window.setTimeout(() => { const memory = document.getElementById('mia-memory'); const disclosure = memory?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true; memory?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 80)
-                  }}>Memory</button>}
+                  {showMiaMemoryAction && <button type="button" className="chat-memory-button chat-inline-action" aria-expanded={assistPanel === 'memory'} aria-controls="mia-assist-title" onClick={(event) => { assistTriggerRef.current = event.currentTarget; setAssistPanel(current => current === 'memory' ? null : 'memory') }}>Memory</button>}
                   {currentMessages.length > 0 && (
-                    <button ref={clearChatTriggerRef} type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
+                    <button ref={clearChatTriggerRef} type="button" className="chat-clear-button chat-inline-action" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
                       {miaClearing ? 'Clearing' : 'Clear'}
                     </button>
                   )}
                   <button
                     type="button"
-                    className="chat-suggestions-button"
+                    className="chat-suggestions-button chat-inline-action"
                     aria-expanded={showMiaSuggestions}
                     aria-controls="mia-assist-title"
-                    onClick={() => setAssistPanel(current => current === 'prompts' ? null : 'prompts')}
+                    onClick={(event) => { assistTriggerRef.current = event.currentTarget; setAssistPanel(current => current === 'prompts' ? null : 'prompts') }}
                   >
                     Prompts
                   </button>
+                  <button ref={chatContextTriggerRef} type="button" className="chat-context-button chat-inline-action" aria-expanded={assistPanel === 'context'} aria-controls="mia-assist-title" onClick={(event) => { assistTriggerRef.current = event.currentTarget; setAssistPanel(current => current === 'context' ? null : 'context') }}>Context &amp; help</button>
                   <button
                     type="button"
-                    className="chat-expand-button"
+                    className="chat-expand-button chat-inline-action"
                     aria-label={isChatExpanded ? `Collapse Ask ${assistantName} chat` : `Expand Ask ${assistantName} chat`}
                     aria-pressed={isChatExpanded}
                     title={isChatExpanded ? `Collapse Ask ${assistantName} chat` : `Expand Ask ${assistantName} chat`}
@@ -3708,6 +3728,17 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   >
                     {isChatExpanded ? <CollapseIcon /> : <ExpandIcon />}
                   </button>
+                  <ChatMoreMenu
+                    triggerRef={chatMoreTriggerRef}
+                    note={isFirstSessionSetup || isSavingsExperience ? undefined : miaPlanLabel}
+                    items={[
+                      ...(showMiaMemoryAction ? [{ key: 'memory', label: 'Memory', onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('memory') } }] : []),
+                      { key: 'prompts', label: 'Prompts', onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('prompts') } },
+                      { key: 'context', label: 'Context & help', onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('context') } },
+                      ...(currentMessages.length > 0 ? [{ key: 'clear', label: miaClearing ? 'Clearing' : 'Clear chat', disabled: miaClearing || miaLoading, onSelect: (trigger: HTMLButtonElement) => handleClearMessagesRequest({ currentTarget: trigger }) }] : []),
+                      ...(isChatExpanded ? [] : [{ key: 'expand', label: 'Full screen', onSelect: () => { setAssistPanel(null); setIsChatExpanded(true) } }]),
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -3879,7 +3910,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 </button>
               </form>
             </section>
-            <MiaAssistPanels panel={assistPanel} onClose={() => setAssistPanel(null)} assistantName={assistantName} modal={isChatExpanded} disclaimer={data.mia.disclaimer}
+            <MiaAssistPanels panel={assistPanel} onClose={closeAssistPanel} assistantName={assistantName} modal={isChatExpanded} disclaimer={data.mia.disclaimer}
               contextSummary={isFirstSessionSetup ? 'Your household setup is still incomplete. Share what you know; missing answers stay unknown.' : isSavingsExperience ? 'Your approved challenge records and household plan are separate. A bank movement or upload does not establish new savings.' : `Your saved household plan for ${selectedBudgetMonth?.label ?? 'this month'} ${selectedBudgetYear} is available. Dates and missing values still matter.`}
               setupContent={isFirstSessionSetup ? <FirstSessionSetupProgress status={data.workspace.setup_status} onStartChat={() => { setAssistPanel(null); startChatFirstSession() }} onShareAll={() => { setAssistPanel(null); shareAllFirstSession() }} onManual={() => { setAssistPanel(null); startManualFirstSession() }} /> : undefined}
               pendingCount={pendingImportsCount} processingCount={processingImportsCount}
@@ -3887,7 +3918,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               realWorkspace={isRealWorkspace} uploading={Boolean(uploadingKind)} hasMessages={currentMessages.length > 0} busy={miaLoading || Boolean(budgetAction) || challengeNotOpen}
               onAttach={() => miaAttachmentInputRef.current?.click()} onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
               onGuide={() => setPilotGuideOpen(true)} onFeedback={() => setPilotFeedbackOpen(true)}
-              onClearChat={() => { if (chatContextTriggerRef.current) handleClearMessagesRequest({ currentTarget: chatContextTriggerRef.current }) }}
+              onClearChat={() => { const trigger = visibleChatTrigger(chatContextTriggerRef.current, chatMoreTriggerRef.current); if (trigger) handleClearMessagesRequest({ currentTarget: trigger }) }}
               onHistory={isRealWorkspace && historicalMessageCount > 0 ? () => setEarlierConversationsOpen(true) : undefined}
               onFixSetup={isRealWorkspace ? () => setSetupHelpOpen(true) : undefined}
               onStartOver={isRealWorkspace && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
@@ -3895,7 +3926,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               questionPrompts={(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : data.mia.quick_prompts).map(message => ({ label: message, message }))}
               onChoosePrompt={prepareMiaUpdate} />
           </div>
-          <p className={`disclaimer${data.mia.disclaimer.length > 120 ? ' has-compact-disclaimer' : ''}`}><span className="mia-disclaimer-full">{data.mia.disclaimer}</span><span className="mia-disclaimer-compact">{assistantName} offers coaching and education. Details in Context &amp; help.</span></p>
+          <MiaDisclaimer assistantName={assistantName} fullText={data.mia.disclaimer} />
         </section>
       )}
 
@@ -4568,8 +4599,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {runtimeBrand.available ? workspace : (
         <main className="brand-bootstrap-state">
           <section className="brand-bootstrap-panel">
-            <span className="brand-bootstrap-mark" aria-hidden="true">V</span>
-            <p className="eyebrow">VERA</p>
+            {/* The unverified release brand must not render; show the neutral consumer name. */}
+            <span className="brand-bootstrap-mark" aria-hidden="true">{assistantInitial(NEUTRAL_BRAND.short_name)}</span>
+            <p className="eyebrow">{NEUTRAL_BRAND.short_name}</p>
             <h1>This program is temporarily unavailable.</h1>
             <p role="alert">The active program release could not be verified. Try again or contact your coach.</p>
             <button type="button" onClick={() => setWorkspaceLoadAttempt((attempt) => attempt + 1)}>Try again</button>
