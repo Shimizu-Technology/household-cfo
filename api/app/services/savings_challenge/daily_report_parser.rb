@@ -139,7 +139,8 @@ module SavingsChallenge
       found = []
       masked.scan(/(?<![\w.,])(\$\s*)?(#{NUMBER_SOURCE})(?![\w%]|[.,:\/]\d)/) do
         match = Regexp.last_match
-        next unless match[1] || masked[match.end(0)..].match?(BARE_FOLLOWERS)
+        # "$12", "12 bucks", "12 at", or dollars and cents ("14.25 over at Kings").
+        next unless match[1] || match[2].match?(/\.\d{2}\z/) || masked[match.end(0)..].match?(BARE_FOLLOWERS)
 
         cents = self.class.cents(match[2])
         found << cents if cents

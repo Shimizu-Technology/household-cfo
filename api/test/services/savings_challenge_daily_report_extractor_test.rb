@@ -67,6 +67,7 @@ class SavingsChallengeDailyReportExtractorTest < ActiveSupport::TestCase
     assert_nil one.call("grabbed lunch for my 2 kids at Kings", "2"), "2 from 2 kids"
     assert_nil one.call("grabbed lunch at Kings at 12:30", "12.30"), "a time is not money"
     assert_equal 1200, one.call("grabbed lunch at Kings, 12 bucks", "12")[:purchases].sole[:amount_cents]
+    assert_equal 1425, one.call("lunch w the kids came to 14.25 over at Kings", "14.25")[:purchases].sole[:amount_cents], "dollars and cents are money wherever they sit"
     assert_equal "2026-10-20", extract("grabbed lunch at Kings yesterday, 12 bucks", reply(purchases: [ { amount: "12", merchant: "Kings", day: "yesterday" } ]))[:purchases].sole[:purchased_on]
   end
 
