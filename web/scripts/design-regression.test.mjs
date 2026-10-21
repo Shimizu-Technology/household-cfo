@@ -130,6 +130,8 @@ assert.ok(css.includes('--emerald: #7b4a58'), 'primary brand token should shift 
 assert.ok(css.includes('--emerald-soft: #f1e2e3'), 'soft brand token should use dusty rose')
 assert.ok(!css.includes('#0f4c3a'), 'old masculine green should not remain in main app CSS')
 
+assert.ok(css.includes('background: var(--pending-hatch)') && css.includes('--pending-hatch: url("data:image/svg+xml,'), 'pending money and its legend keep the same non-gradient hatch')
+
 // The first CSS paint and React's safe fallback share every BrandDocument
 // legacy alias. A resolved/persisted release may still supply its own palette.
 const fallbackSource = readFileSync(resolve(__dirname, '../src/contexts/brandContextValue.ts'), 'utf8')

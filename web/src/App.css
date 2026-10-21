@@ -17,6 +17,8 @@
   --brand-on-primary: #ffffff;
   --brand-primary-hover: #683d49;
   --brand-focus: #7b4a58;
+  /* Pending money keeps a flat hatch, distinct from confirmed spending, without a gradient. */
+  --pending-hatch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Cpath fill='%23f2c9ac' d='M0 0h8v8H0z'/%3E%3Cpath stroke='%23b57352' stroke-width='4' d='M-2 2L2-2M0 8L8 0M6 10l4-4'/%3E%3C/svg%3E");
   --font-body: Montserrat, ui-sans-serif, system-ui, sans-serif;
   --status-green: #5f7d61;
   --status-yellow: #a86b34;
@@ -9413,7 +9415,7 @@ h3 {
 .budget-progress-pending {
   inset-inline-start: var(--actual-width);
   width: var(--pending-width);
-  background: var(--gold);
+  background: var(--pending-hatch);
 }
 
 .budget-progress-plan-marker {
@@ -9458,7 +9460,7 @@ h3 {
 }
 
 .pending-swatch {
-  background: var(--gold);
+  background: var(--pending-hatch);
 }
 
 .month-plan-decision-row {
