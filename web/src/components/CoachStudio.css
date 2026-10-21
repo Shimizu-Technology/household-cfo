@@ -51,7 +51,7 @@
 
 .coach-studio-section-tabs button[aria-selected='true'] {
   border-color: var(--mauve);
-  box-shadow: inset 0 0 0 1px var(--mauve);
+  box-shadow: none;
   background: color-mix(in srgb, var(--paper) 88%, var(--mauve));
 }
 
@@ -156,7 +156,7 @@
 .release-rollout-tabs button small { color: var(--muted); }
 .release-rollout-tabs button[aria-selected='true'] {
   border-color: var(--mauve);
-  box-shadow: inset 0 0 0 1px var(--mauve);
+  box-shadow: none;
   background: color-mix(in srgb, var(--paper) 88%, var(--mauve));
 }
 .release-rollout-tabs button[aria-selected='true'] > span { color: var(--paper); background: var(--mauve); }
@@ -257,7 +257,7 @@
   border-radius: var(--radius-sm);
   background: var(--paper-warm);
 }
-.cohort-rollout-roster-readiness dt { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; }
+.cohort-rollout-roster-readiness dt { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: none; }
 .cohort-rollout-roster-readiness dd { margin: 0.2rem 0 0; font-size: var(--text-xl); font-weight: var(--weight-bold); }
 
 .cohort-rollout-status {
@@ -272,8 +272,8 @@
   background: color-mix(in srgb, var(--paper) 92%, var(--gold));
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .cohort-rollout-status.is-active,
 .cohort-rollout-status.is-completed { border-color: color-mix(in srgb, var(--status-green) 45%, var(--line)); color: var(--status-green); background: color-mix(in srgb, var(--paper) 90%, var(--status-green)); }
@@ -302,11 +302,11 @@
   border-radius: var(--radius-md);
   background: var(--paper-warm);
 }
-.cohort-rollout-wave-list section.is-active { border-color: var(--mauve); box-shadow: inset 0 0 0 1px var(--mauve); }
+.cohort-rollout-wave-list section.is-active { border-color: var(--mauve); box-shadow: none; }
 .cohort-rollout-wave-list section.is-complete { border-color: color-mix(in srgb, var(--status-green) 45%, var(--line)); }
 .cohort-rollout-wave-list header div { display: grid; gap: 0.15rem; }
 .cohort-rollout-wave-list header small { color: var(--muted); }
-.cohort-rollout-wave-list header b { color: var(--mauve); font-size: var(--text-xs); text-transform: uppercase; }
+.cohort-rollout-wave-list header b { color: var(--mauve); font-size: var(--text-xs); text-transform: none; }
 .cohort-rollout-wave-list ul { display: grid; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
 .cohort-rollout-wave-list li { display: flex; min-width: 0; justify-content: space-between; gap: 0.75rem; padding-top: 0.35rem; border-top: 1px solid var(--line); }
 .cohort-rollout-wave-list li span { overflow-wrap: anywhere; }
@@ -314,7 +314,7 @@
 
 .cohort-rollout-runtime-note {
   padding: 0.75rem;
-  border-left: 4px solid var(--mauve);
+  border-left: 1px solid var(--line);
   color: var(--muted);
   background: var(--paper-warm);
 }
@@ -379,7 +379,7 @@
   align-items: start;
   padding: 1rem 1.15rem;
   border: 1px solid color-mix(in srgb, var(--mauve) 36%, var(--line));
-  border-left: 5px solid var(--mauve);
+  border-left: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--paper) 88%, var(--emerald-soft));
 }
@@ -480,8 +480,8 @@
   background: color-mix(in srgb, var(--paper) 92%, var(--gold));
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .cohort-release-state.is-ready {
@@ -550,7 +550,7 @@
 .cohort-release-checklist b {
   color: var(--status-yellow);
   font-size: var(--text-xs);
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .cohort-release-checklist .is-ready b {
@@ -596,7 +596,7 @@
   color: var(--muted);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .cohort-release-evidence dd,
@@ -822,7 +822,7 @@
   color: var(--muted);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .experience-preview-device nav {
@@ -1150,7 +1150,12 @@
   cursor: pointer;
 }
 
-.coach-library-list > button:hover,
+@media (hover: hover) and (pointer: fine) {
+  .coach-library-list > button:hover {
+    border-color: color-mix(in srgb, var(--mauve) 55%, var(--line));
+  }
+}
+
 .coach-library-list > button:focus-visible {
   border-color: color-mix(in srgb, var(--mauve) 55%, var(--line));
 }
@@ -1158,7 +1163,7 @@
 .coach-library-list > button.is-selected {
   border-color: var(--mauve);
   background: var(--emerald-soft);
-  box-shadow: inset 3px 0 0 var(--mauve);
+  box-shadow: none;
 }
 
 .coach-library-list > button > span {
@@ -1210,7 +1215,7 @@
 }
 
 .coach-editor-header h3 {
-  font-size: clamp(1.6rem, 3vw, 2.25rem);
+  font-size: var(--text-xl);
   overflow-wrap: anywhere;
 }
 
@@ -1238,9 +1243,9 @@
   font-family: var(--number-font);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   line-height: 1.2;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .coach-status.is-green {
@@ -1291,7 +1296,7 @@
 .coach-mode-switch button.is-active {
   border-color: var(--mauve);
   background: var(--emerald-soft);
-  box-shadow: inset 0 0 0 1px var(--mauve);
+  box-shadow: none;
 }
 
 .coach-mode-switch small {
@@ -1416,9 +1421,9 @@
 .persona-proposal-change header span { font-size: var(--text-xs); color: var(--muted); }
 .persona-proposal-change dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; margin: 0.6rem 0; }
 .persona-proposal-change dl > div { min-width: 0; background: var(--surface-muted, #f6f6f4); border-radius: var(--radius-sm); padding: 0.6rem; }
-.persona-proposal-change dt { font-size: var(--text-xs); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.persona-proposal-change dt { font-size: var(--text-xs); color: var(--muted); text-transform: none; letter-spacing: 0; }
 .persona-proposal-change dd { margin: 0.25rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.persona-proposal-change blockquote { margin: 0.5rem 0 0; padding-left: 0.65rem; border-left: 3px solid var(--brand, #145c46); color: var(--muted); overflow-wrap: anywhere; }
+.persona-proposal-change blockquote { margin: 0.5rem 0 0; padding-left: 0.65rem; border-left: 1px solid var(--line); color: var(--muted); overflow-wrap: anywhere; }
 .persona-setup-review-actions { justify-content: flex-start; margin-top: 1rem; }
 
 .coach-step-tabs {
@@ -1477,7 +1482,7 @@
 .coach-fieldset > legend {
   padding: 0 0.35rem;
   color: var(--plum);
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
 }
@@ -1559,7 +1564,7 @@
 .coach-culture-boundary,
 .coach-read-only {
   padding: 0.85rem 1rem;
-  border-left: 4px solid var(--gold);
+  border-left: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--paper) 90%, var(--gold));
 }
@@ -1750,9 +1755,9 @@
   padding: 0.8rem 1rem;
   border: 1px solid color-mix(in srgb, var(--mauve) 35%, var(--line));
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--paper) 92%, transparent);
-  box-shadow: 0 0.5rem 1.4rem rgb(63 41 48 / 12%);
-  backdrop-filter: blur(10px);
+  background: var(--paper);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .coach-save-bar.is-floating {
@@ -1792,13 +1797,13 @@
   gap: 0.75rem;
   padding: 1rem;
   border: 1px solid var(--line);
-  border-left: 5px solid var(--status-yellow);
+  border-left: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--paper-warm);
 }
 
 .coach-preview-result.is-ready {
-  border-left-color: var(--status-green);
+  border-left-color: var(--line);
 }
 
 .coach-preview-result p,
@@ -1808,7 +1813,7 @@
 
 .coach-preview-result blockquote {
   padding: 0.9rem 1rem;
-  border-left: 4px solid var(--mauve);
+  border-left: 1px solid var(--line);
   background: var(--paper);
 }
 
@@ -2126,7 +2131,7 @@
   .coach-library-list > button,
   .coach-mode-switch button,
   .coach-step-tabs button {
-    transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+    transition: none;
   }
 }
 
@@ -2279,7 +2284,7 @@
 }
 
 .persona-release-step h4 {
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-size: var(--text-xl);
 }
 
@@ -2295,8 +2300,8 @@
   background: color-mix(in srgb, var(--paper) 92%, var(--gold));
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .persona-release-state.is-complete {
@@ -2353,7 +2358,7 @@
   flex: 0 0 auto;
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .persona-release-custom-list {
@@ -2489,7 +2494,7 @@
 .persona-release-case summary small {
   color: var(--muted);
   font-size: var(--text-xs);
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .persona-release-case > div,
@@ -2546,7 +2551,7 @@
 
 .persona-release-preview-evidence blockquote {
   padding: 0.75rem;
-  border-left: 3px solid var(--mauve);
+  border-left: 1px solid var(--line);
   background: var(--paper-warm);
 }
 
@@ -2568,7 +2573,7 @@
   color: var(--muted);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .persona-release-preview-evidence dd {
@@ -2614,7 +2619,7 @@
 .persona-release-result blockquote {
   margin: 0.35rem 0 0;
   padding: 0.75rem;
-  border-left: 3px solid var(--mauve);
+  border-left: 1px solid var(--line);
   background: var(--paper-warm);
   white-space: pre-wrap;
 }
@@ -2667,8 +2672,8 @@
   color: var(--muted);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .persona-release-audience dd,
@@ -2778,7 +2783,7 @@
 
 /* Staff screens lead with the current task rather than a repeated introduction. */
 .coach-studio-heading { gap: 1rem; align-items: start; }
-.coach-studio-heading h2 { font-size: clamp(1.7rem, 3vw, 2.4rem); }
+.coach-studio-heading h2 { font-size: var(--text-2xl); }
 .coach-workspace-heading-tools { max-width: 34rem; }
 .coach-workspace-heading-tools > p { margin: 0 0 .65rem; }
 .coach-studio-section-tabs { display: flex; flex-wrap: wrap; gap: .45rem; }

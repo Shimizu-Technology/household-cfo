@@ -17,9 +17,9 @@ export const NEUTRAL_BRAND: BrandConfig = {
   support: { label: null, email: null, url: null },
   colors: {
     background: '#f7f2ea', surface: '#fffdf8', surface_muted: '#fbf7ef', text: '#1f2421', text_muted: '#706d66', border: '#e2d9cb',
-    primary: '#536a63', primary_hover: '#3f524c', primary_soft: '#e5ece9', accent: '#9a7457', on_primary: '#ffffff', focus: '#536a63',
+    primary: '#7b4a58', primary_hover: '#683d49', primary_soft: '#f1e2e3', accent: '#b97352', on_primary: '#ffffff', focus: '#7b4a58',
   },
-  typography: { display: 'system_serif', body: 'system_sans' },
+  typography: { display: 'cormorant_garamond', body: 'montserrat' },
   footer: { text: null, privacy_url: null, terms_url: null },
 }
 
