@@ -197,6 +197,8 @@ jobs:
         run: npm run ${{ matrix.script }} -- --shard=${{ matrix.shard }} --workers=1 --reporter=github,blob,json
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: playwright-results.json
+          # WebKit's 1/1 and Chromium's 1/4 would both default to report-1.zip and overwrite each other when merged.
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.target }}.zip
 
       - name: Preserve browser reports and retry traces
         if: ${{ !cancelled() }}
