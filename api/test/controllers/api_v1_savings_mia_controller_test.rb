@@ -26,7 +26,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_includes answer, "$200.01"
     assert_includes answer, "$500.00"
     assert_includes answer, "90-day"
-    assert_includes answer, "approved reported"
+    assert_includes answer, "So far you've saved"
     assert_nil response.parsed_body.fetch("budget")
     assert_nil response.parsed_body.fetch("transaction_draft")
     count = ChatMessage.count
@@ -247,6 +247,39 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     narrator_stub&.call
   end
 
+  test "crisis and wellbeing-check replies carry an explicit safety flag, in replies and in history" do
+    [ [ "i dont see the point anymore", "hopeless" ], [ "kms", "crisis" ] ].each_with_index do |(message, kind), index|
+      post "/api/v1/mia/messages", params: { message: message, request_id: "safety-#{index}" }, headers: auth, as: :json
+      assert_response :created
+      assert_equal true, response.parsed_body.dig("assistant_message", "safety_reply"), kind
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "988", kind
+      assert_nil response.parsed_body["savings_intake"], kind
+    end
+    post "/api/v1/mia/messages", params: { message: "No spending today", request_id: "safety-after" }, headers: auth, as: :json
+    assert_equal false, response.parsed_body.dig("assistant_message", "safety_reply")
+    get "/api/v1/mia/messages", headers: auth
+    assert_response :success
+    flags = response.parsed_body.fetch("messages").select { |row| row["role"] == "assistant" }.map { |row| row["safety_reply"] }
+    assert_equal [ true, true, false ], flags.last(3)
+  end
+
+  test "goal changes in the challenge point to the challenge target, and saved money gets a plain reply" do
+    assert_no_difference [ "SavingsPlanDraft.count", "MiaActionDraft.count", "SavingsEntryDraft.count" ] do
+      [ "Change my goal to $300", "Update my goal to $700" ].each_with_index do |message, index|
+        post "/api/v1/mia/messages", params: { message: message, request_id: "goal-#{index}" }, headers: auth, as: :json
+        assert_response :created
+        reply = response.parsed_body.dig("assistant_message", "content")
+        assert_includes reply, "open Savings and change your target there", message
+        refute_includes reply, "household plan or your savings challenge", message
+        assert_nil response.parsed_body["savings_intake"], message
+      end
+      post "/api/v1/mia/messages", params: { message: "Picked up an extra shift and saved $50 today", request_id: "plain-contribution" }, headers: auth, as: :json
+      assert_equal "contribution", response.parsed_body.dig("savings_intake", "kind")
+      assert_equal "Got it: $50.00 set aside today. I've put it below — check it, then save it to your challenge. Only new money you set aside counts, and nothing is saved until you do.",
+        response.parsed_body.dig("assistant_message", "content")
+    end
+  end
+
   test "household category chat prepares an explicit review and applies once without changing savings" do
     assert_no_difference [ "SavingsEntryVersion.count", "SavingsPlanVersion.count", "SavingsDebtVersion.count", "HouseholdTransaction.count" ] do
       post "/api/v1/mia/messages", params: { message: "Create a new household discretionary category called Books with $25 for November 2026", year: 2026, month: 11, request_id: "household-category" }, headers: auth, as: :json
@@ -272,7 +305,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "ambiguous goal and debt edits ask which records without creating annual setup" do
-    [ "Update my goal to $700", "Change my card balance to $900", "Update household debt and my challenge target" ].each_with_index do |message, index|
+    [ "Change my card balance to $900", "Update household debt and my challenge target" ].each_with_index do |message, index|
       assert_no_difference [ "BudgetYear.count", "MiaActionDraft.count", "SavingsPlanDraft.count", "SavingsDebtDraft.count" ] do
         post "/api/v1/mia/messages", params: { message: message, request_id: "scope-#{index}" }, headers: auth, as: :json
         assert_response :created

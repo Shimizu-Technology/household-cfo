@@ -42,6 +42,8 @@ class ChatMessage < ApplicationRecord
       role: role,
       author: author || (role == "assistant" ? assistant_author.presence || "Mia" : "You"),
       content: content,
+      # A crisis or wellbeing-check reply: no money prompt or card belongs under it.
+      safety_reply: role == "assistant" && ::Mia::CrisisBoundary.safety_reply?(content),
       financial_restart: financial_restart.presence,
       setup_help: setup_help.presence,
       attachments: attachments,

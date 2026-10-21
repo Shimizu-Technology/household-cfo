@@ -177,7 +177,12 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
     const approved = await send('purchase_approve', dailyApproval(draft), `approve:${row.id}`, row.id)
     if ('unknown' in approved) { patchRow(row.id, { status: 'unknown' }); throw new Stop('unknown') }
     // A definite refusal (stale versions) did not save; the next Save stages afresh.
-    if ('failed' in approved) { patchRow(row.id, { status: 'failed', draft: undefined, error: 'This one didn’t save. Try again.' }); return }
+    if ('failed' in approved) {
+      // Drop the stage key with the draft, or the next Save would replay that stale draft.
+      update((current) => ({ ...current, keys: Object.fromEntries(Object.entries(current.keys).filter(([id]) => !id.startsWith(`stage:${row.id}:`))) }))
+      patchRow(row.id, { status: 'failed', draft: undefined, error: 'This one didn’t save. Try again.' })
+      return
+    }
     patchRow(row.id, { status: 'saved', purchaseId: draft.savings_daily_purchase_id })
   }
 

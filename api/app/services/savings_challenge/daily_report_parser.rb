@@ -150,8 +150,13 @@ module SavingsChallenge
 
     # The one day the message names, or nil when it names none or several.
     def date_reading
-      dates = date_tokens(@message).map { |token| token[:date] }.uniq
+      dates = named_dates
       dates.one? ? dates.first : nil
+    end
+
+    # Every day the message names (nil marks a day that could not be resolved).
+    def named_dates
+      date_tokens(@message).map { |token| token[:date] }.uniq
     end
 
     private

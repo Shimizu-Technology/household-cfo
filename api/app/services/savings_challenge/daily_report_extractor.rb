@@ -56,8 +56,10 @@ module SavingsChallenge
       return unless purchases.any? || no_spend
 
       feelings = { when_spent: feeling(parsed["feeling_when_spent"]), now: feeling(parsed["feeling_now"]) }
-      date = purchases.first&.fetch(:purchased_on)
-      return unless purchases.all? { |row| row[:purchased_on] == date }
+      # A message naming several days needs every named day used, and no other.
+      named = @reading.named_dates
+      return if named.include?(nil)
+      return if named.length > 1 && purchases.map { |row| row[:purchased_on] }.uniq.sort != named.map(&:iso8601).sort
       { kind: "daily_report", local_on: today.iso8601, purchases: purchases, no_spend: no_spend,
         feelings: purchases.any? && feelings.values.any? ? feelings : nil, counted: false, approval_state: "unreviewed_input" }
     end
@@ -82,14 +84,26 @@ module SavingsChallenge
       @message.match?(/(?<![[:alnum:]])#{Regexp.escape(merchant)}(?![[:alnum:]])/i) ? merchant : ""
     end
 
-    # The day comes from the participant's own words, never the model: the one
-    # day the message names, else today. It must be inside the window. The
-    # model's day field is only checked to be a string.
+    # The day comes from the participant's own words: the one day the message
+    # names, else today. When it names several, the model's day must be one of
+    # them; otherwise the purchase (and so the report) is rejected, never today.
     def day(value)
       return unless value.is_a?(String)
 
-      date = @reading.date_reading || today
-      date if date >= @enrollment.starts_on && date <= [ @enrollment.ends_on, today ].min
+      named = @reading.named_dates
+      date = if named.length > 1
+        proposed = case value.strip.downcase
+        when "today" then today
+        when "yesterday" then today - 1
+        when /\A\d{4}-\d{2}-\d{2}\z/ then Date.iso8601(value.strip)
+        end
+        proposed if named.include?(proposed)
+      else
+        named.first || today
+      end
+      date if date && date >= @enrollment.starts_on && date <= [ @enrollment.ends_on, today ].min
+    rescue Date::Error
+      nil
     end
 
     # Feelings are kept only in the participant's own words.

@@ -40,17 +40,17 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
       savings_plan(30_000)
       savings_draft(10_000)
       unknown = answer("What is my savings progress?")
-      assert_includes unknown, "progress is unknown"
+      assert_includes unknown, "progress isn't known yet"
       refute_includes unknown, "progress is $0"
       contribution = savings_approve(savings_draft(10_000))
       savings_approve(savings_draft(-2500, funding: "withdrawal"))
       savings_draft(20_000, entry: contribution.savings_entry)
       response = answer("What is my savings progress?")
-      assert_includes response, "reported progress is $75.00"
-      assert_includes response, "subset is $0.00"
+      assert_includes response, "So far you've saved $75.00 to your challenge."
+      refute_includes response, "matches a statement"
       assert_includes response, "goal is $300.00"
-      assert_includes response, "Open Home"
-      assert_includes response, "pending until you approve"
+      assert_includes response, "open Savings"
+      assert_includes response, "2 savings records are waiting for you to save in Savings"
       assert_equal 2, SavingsEntryVersion.count
     end
   end
@@ -95,7 +95,7 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
       savings_enroll
       [ "Transferred $100 to my challenge account", "Put $40 cash in my savings yesterday" ].each do |message|
         response = answer(message)
-        assert_includes response, "Open Home to review a contribution", message
+        assert_includes response, "open Savings and save it there", message
         refute_includes response, "For a purchase, enter the amount", message
       end
       [ "I spent $100 on crypto yesterday", "Bought $200 worth of bitcoin" ].each do |message|

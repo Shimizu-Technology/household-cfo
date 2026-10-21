@@ -67,7 +67,7 @@ class ApiV1SavingsDailyControllerTest < ActionDispatch::IntegrationTest
       assert_equal 1, @savings_household.household_transactions.count
       assert_equal 2500, @savings_household.household_transactions.sole.total_amount_cents
       get daily_path, headers: auth_headers
-      assert_equal true, response.parsed_body.dig("day", "checked_in"), "an approved purchase checks in the day"
+      assert_equal false, response.parsed_body.dig("day", "checked_in"), "a purchase alone does not finish the day's report"
       get "#{daily_path}/request_status", params: { review_action: "purchase_approve" }, headers: auth_headers("purchase-approve")
       assert_response :success
       assert_equal "committed", response.parsed_body.fetch("state")
@@ -77,6 +77,10 @@ class ApiV1SavingsDailyControllerTest < ActionDispatch::IntegrationTest
         expected_version_id: nil, expected_head_lock_version: 0, reason: "" }, "conflicting-no-spend")
       assert_response :unprocessable_entity
       assert_empty SavingsDailyCheckInVersion.where(savings_enrollment: @savings_enrollment)
+      daily_post("check_in_save", { local_on: "2026-11-01", spending_state: "spending", accepted: true, expected_version_id: nil, expected_head_lock_version: 0, reason: "" }, "spending-check-in")
+      assert_response :success
+      get daily_path, headers: auth_headers
+      assert_equal true, response.parsed_body.dig("day", "checked_in"), "the saved check-in finishes it"
     end
   end
 

@@ -72,6 +72,13 @@ class SavingsChallengeDailyReportExtractorTest < ActiveSupport::TestCase
     # The participant's own day wins when the model disagrees.
     assert_equal "2026-10-20", extract("lunch w my cousins came to 12 at Kings yesterday", reply(purchases: [ { amount: "12", merchant: "Kings", day: "today" } ]))[:purchases].sole[:purchased_on]
     assert_nil extract("lunch w my cousins came to 12 at Kings yesterday", reply(purchases: [ { amount: "12", merchant: "Kings", day: 20 } ])), "a malformed day field is rejected"
+    # A message naming two days: each purchase must take one of those days, and both must be used.
+    two_days = "lunch w cousins came to 12 at Kings yesterday and dinner w friends came to 15 at Ross today"
+    both = extract(two_days, reply(purchases: [ { amount: "12", merchant: "Kings", day: "yesterday" }, { amount: "15", merchant: "Ross", day: "today" } ]))
+    assert_equal [ [ 1200, "2026-10-20" ], [ 1500, "2026-10-21" ] ], both[:purchases].map { |row| [ row[:amount_cents], row[:purchased_on] ] }
+    assert_nil extract(two_days, reply(purchases: [ { amount: "12", merchant: "Kings", day: "today" }, { amount: "15", merchant: "Ross", day: "today" } ])), "never defaults a two-day message to today"
+    assert_nil extract(two_days, reply(purchases: [ { amount: "12", merchant: "Kings", day: "2026-10-19" }, { amount: "15", merchant: "Ross", day: "today" } ])), "a day the message never named"
+    assert_nil extract(two_days, reply(purchases: [ { amount: "12", merchant: "Kings", day: "yesterday" } ])), "every named day must be used"
   end
 
   test "invalid JSON, provider errors and timeouts fall back to nothing" do

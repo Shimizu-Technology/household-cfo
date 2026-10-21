@@ -133,6 +133,9 @@ describe('Mia daily report card', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
     await within(card).findByRole('heading', { name: 'Saved to today' })
     expect(actions().filter((action) => action.startsWith('purchase'))).toEqual(['purchase_stage', 'purchase_approve', 'purchase_stage', 'purchase_approve'])
+    const stages = calls().filter((call) => call.action === 'purchase_stage')
+    expect(stages[1].input).toEqual(stages[0].input)
+    expect(stages[1].key).not.toBe(stages[0].key)
   })
 
   it('never re-stages an edited purchase whose staging result is unknown', async () => {
