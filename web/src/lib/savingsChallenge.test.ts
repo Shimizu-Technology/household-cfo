@@ -38,7 +38,8 @@ describe('chat daily report card input', () => {
     for (const unsafe of [{ counted: true }, { approval_state: 'approved' }, { purchases: [] }, { no_spend: true }, { local_on: '2026-02-30' },
       { purchases: [{ amount_cents: 0, merchant: 'Shell', purchased_on: '2026-10-21' }] }, { purchases: [{ amount_cents: 12.5, merchant: 'Shell', purchased_on: '2026-10-21' }] },
       { purchases: [{ amount_cents: 800, merchant: 'x'.repeat(121), purchased_on: '2026-10-21' }] }, { purchases: Array(11).fill(report.purchases[0]) },
-      { feelings: { when_spent: 'x'.repeat(141), now: null } }]) {
+      { feelings: { when_spent: 'x'.repeat(141), now: null } }, { local_on: '2026-13-05' }, { local_on: '2026-10-45' },
+      { purchases: [{ amount_cents: 800, merchant: 'Shell', purchased_on: '2026-02-31' }] }, { purchases: [{ amount_cents: 800, merchant: 'Shell', purchased_on: '2026-13-05' }] }]) {
       expect(checkedDailyReport({ ...report, ...unsafe })).toBeNull()
     }
     expect(checkedDailyReport(null)).toBeNull()

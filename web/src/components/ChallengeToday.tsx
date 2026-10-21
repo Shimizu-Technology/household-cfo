@@ -3,7 +3,7 @@ import { ApiRequestError, fetchDailyContext } from '../api'
 import { type BaselineScope } from '../lib/financialBaseline'
 import { savingsDollars, type SavingsIntake } from '../lib/savingsChallenge'
 import { dailyApproval, dailyContextMatches, type DailyCheckIn, type DailyCheckInVersion, type DailyContext, type DailyDay, type DailyInput, type DailyPurchase, type DailyPurchaseDraft, type DailyPurchaseVersion, type DailyScope } from '../lib/dailyChallenge'
-import { isDailyActor } from '../lib/dailyRecovery'
+import { isDailyActor, readDailyRecovery } from '../lib/dailyRecovery'
 import { useDailyMutation, type DailyMutate } from '../lib/useDailyMutation'
 import { usePilotDialog } from '../lib/usePilotDialog'
 import { DailyHistory, DailyRecordPage } from './DailyRecordPage'
@@ -94,7 +94,12 @@ function ChallengeTodaySession({scope,cohortId,onClose,onStatements,onBaseline,o
     // A future date stays a preview until that day comes.
     if(draft.purchased_on>calendar.local_today)return true
     const approved=await mutation.mutate('purchase_approve',dailyApproval(draft))
-    if(!approved)return false
+    if(!approved){
+      // An unconfirmed result keeps the draft so the same approval is replayed;
+      // a definite refusal (stale versions) means the next Save stages afresh.
+      if(!actor||!readDailyRecovery(actor))staged.current=null
+      return false
+    }
     staged.current=null
     if(purchase&&sameDay&&!day.check_in_version_id)await mutation.mutate('check_in_save',{local_on:date,spending_state:'spending',accepted:true,expected_version_id:null,expected_head_lock_version:0,reason:''})
     return true

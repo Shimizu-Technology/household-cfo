@@ -82,18 +82,14 @@ module SavingsChallenge
       @message.match?(/(?<![[:alnum:]])#{Regexp.escape(merchant)}(?![[:alnum:]])/i) ? merchant : ""
     end
 
-    # The model's day counts only if it is the day the message itself names;
-    # otherwise the report is for today. Either way it must be inside the window.
+    # The day comes from the participant's own words, never the model: the one
+    # day the message names, else today. It must be inside the window. The
+    # model's day field is only checked to be a string.
     def day(value)
-      proposed = case value.to_s.strip.downcase
-      when "today" then today
-      when "yesterday" then today - 1
-      when /\A\d{4}-\d{2}-\d{2}\z/ then Date.iso8601(value.to_s.strip)
-      end
-      date = proposed && proposed == @reading.date_reading ? proposed : today
+      return unless value.is_a?(String)
+
+      date = @reading.date_reading || today
       date if date >= @enrollment.starts_on && date <= [ @enrollment.ends_on, today ].min
-    rescue Date::Error
-      nil
     end
 
     # Feelings are kept only in the participant's own words.

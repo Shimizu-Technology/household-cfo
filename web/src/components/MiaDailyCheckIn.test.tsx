@@ -123,6 +123,18 @@ describe('Mia daily report card', () => {
     expect(approvals[1].key).toBe(approvals[0].key)
   })
 
+  it('stages afresh after a definite approval refusal instead of retrying a stale draft', async () => {
+    failures = [{ action: 'purchase_approve', status: 409, times: 1 }]
+    const { card } = renderCard({ ...report, purchases: [report.purchases[0]] })
+    await ready(card)
+    fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
+    await within(card).findByText('This one didn’t save. Try again.')
+    expect((within(card).getByLabelText('Amount for Shell') as HTMLInputElement).disabled).toBe(false)
+    fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
+    await within(card).findByRole('heading', { name: 'Saved to today' })
+    expect(actions().filter((action) => action.startsWith('purchase'))).toEqual(['purchase_stage', 'purchase_approve', 'purchase_stage', 'purchase_approve'])
+  })
+
   it('never re-stages an edited purchase whose staging result is unknown', async () => {
     failures = [{ action: 'purchase_stage', status: 503, times: 1 }]
     const { card } = renderCard({ ...report, purchases: [report.purchases[0]] })

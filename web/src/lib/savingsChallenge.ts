@@ -81,7 +81,12 @@ export function checkedSavingsIntake(value: SavingsIntake | DailyReportIntake | 
 // until the participant taps Save on the card that lists every item.
 export type DailyReportPurchase = { amount_cents: number; merchant: string; purchased_on: string }
 export type DailyReportIntake = { kind: 'daily_report'; local_on: string; purchases: DailyReportPurchase[]; no_spend: boolean; feelings: { when_spent: string | null; now: string | null } | null; approval_state: 'unreviewed_input'; counted: false }
-const isoDay = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+const isoDay = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(`${value}T00:00:00Z`)
+  // An impossible date ("2026-13-05") is rejected, never thrown.
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
+}
 const shortText = (value: unknown, limit: number) => value === null || (typeof value === 'string' && value.length <= limit)
 export function checkedDailyReport(value: unknown): DailyReportIntake | null {
   if (!value || typeof value !== 'object') return null

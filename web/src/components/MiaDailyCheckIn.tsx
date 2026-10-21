@@ -176,7 +176,8 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
     }
     const approved = await send('purchase_approve', dailyApproval(draft), `approve:${row.id}`, row.id)
     if ('unknown' in approved) { patchRow(row.id, { status: 'unknown' }); throw new Stop('unknown') }
-    if ('failed' in approved) { patchRow(row.id, { status: 'failed', error: 'This one didn’t save. Try again.' }); return }
+    // A definite refusal (stale versions) did not save; the next Save stages afresh.
+    if ('failed' in approved) { patchRow(row.id, { status: 'failed', draft: undefined, error: 'This one didn’t save. Try again.' }); return }
     patchRow(row.id, { status: 'saved', purchaseId: draft.savings_daily_purchase_id })
   }
 

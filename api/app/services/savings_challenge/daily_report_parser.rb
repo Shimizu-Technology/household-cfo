@@ -61,7 +61,7 @@ module SavingsChallenge
     BARE_PATTERN = Regexp.new("(?<![\\w.$#,:/-])(#{NUMBER_SOURCE})(?![\\w%.:,/]|\\.\\d)", Regexp::IGNORECASE).freeze
     # "Shell $8", "Payless: 20", "K-Mart - 15.99" on its own line or clause.
     LIST_ITEM = Regexp.new("\\A(?<place>[a-z][^$\\d\\n]{0,60}?)\\s*(?:[:\\-–—]\\s*)?(?<dollar>\\$)?\\s*(?<amount>#{NUMBER_SOURCE})\\s*(?:dollars?|bucks)?\\s*\\z", Regexp::IGNORECASE).freeze
-    MERCHANT_STOP = "(?=\\s+(?:today|tonight|yesterday|this\\s+(?:morning|afternoon|evening)|last\\s+night|earlier|on\\s+(?:#{MONTH_SOURCE}|#{WEEKDAY_SOURCE}|\\d+|my|the|a|an|gas|food|groceries|lunch|dinner|breakfast|coffee|snacks)\\b" \
+    MERCHANT_STOP = "(?=\\s+(?:today|tonight|yesterday|this\\s+(?:morning|afternoon|evening)|last\\s+(?:night|#{WEEKDAY_SOURCE})|#{WEEKDAY_SOURCE}|earlier|on\\s+(?:#{MONTH_SOURCE}|#{WEEKDAY_SOURCE}|\\d+|my|the|a|an|gas|food|groceries|lunch|dinner|breakfast|coffee|snacks)\\b" \
       "|for\\s+(?:\\$|\\d+|my|the|a|an|some|lunch|dinner|breakfast|coffee|gas|food|groceries|snacks|kids?|me|us)" \
       "|at|because|since|cause|cuz|when|while|but|so|with|and|felt|feel|feeling|which|that|after|before)\\b|\\s+\\$|[.,;!?\\n]|\\z)"
     MERCHANT_PATTERN = Regexp.new("(?:\\bat|\\bfrom|@)\\s+(?:the\\s+)?(?<merchant>[a-z0-9][^\\n]*?)#{MERCHANT_STOP}", Regexp::IGNORECASE).freeze
@@ -351,12 +351,17 @@ module SavingsChallenge
       return today - 1 if match[:yesterday]
       if match[:weekday]
         index = WEEKDAYS.index { |name| name.start_with?(match[:weekday].downcase[0, 3]) }
-        return today - ((today.wday - index) % 7)
+        back = (today.wday - index) % 7
+        # "last Monday" said on a Monday is a week ago, not today.
+        back = 7 if back.zero? && match[0].match?(/\Alast\s/i)
+        return today - back
       end
       month = MONTHS.fetch(match[:month].downcase[0, 3])
       year = match[:year]&.to_i || today.year
       date = Date.new(year, month, match[:day].to_i)
-      match[:year] || date <= today ? date : Date.new(year - 1, month, match[:day].to_i)
+      return date if match[:year] || date <= today
+      # A month/day shortly ahead is a future day (rejected as such), not last year.
+      date - today <= 31 ? date : Date.new(year - 1, month, match[:day].to_i)
     rescue Date::Error, ArgumentError
       nil
     end

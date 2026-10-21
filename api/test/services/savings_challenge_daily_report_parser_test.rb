@@ -143,6 +143,16 @@ class SavingsChallengeDailyReportParserTest < ActiveSupport::TestCase
     assert_nil parse("spent $9 last week at Shell").reason, "an unclear day is not explained as a window problem"
   end
 
+  test "weekday and month-day dates resolve to the day the participant meant" do
+    @enrollment.local_today = Date.new(2026, 10, 19) # a Monday
+    assert_equal [ [ 900, "Shell", Date.new(2026, 10, 12) ] ], purchases("spent $9 at Shell last Monday"), "last Monday said on a Monday is a week ago"
+    assert_equal [ [ 900, "Shell", Date.new(2026, 10, 19) ] ], purchases("spent $9 at Shell on Monday")
+    @enrollment.local_today = TODAY
+    soon = parse("spent $9 at Shell on Oct 22")
+    assert_equal({ kind: :future, date: Date.new(2026, 10, 22) }, soon.reason.slice(:kind, :date), "a day just ahead is the future, not last year")
+    assert_equal({ kind: :before_start, date: Date.new(2025, 12, 20) }, parse("spent $9 at Shell on Dec 20").reason.slice(:kind, :date))
+  end
+
   test "merchant is bounded, never an amount, and blank when no place is named" do
     assert_equal "", SavingsChallenge::DailyReportParser.merchant("x" * 121)
     assert_equal "", SavingsChallenge::DailyReportParser.merchant("$8 Shell")

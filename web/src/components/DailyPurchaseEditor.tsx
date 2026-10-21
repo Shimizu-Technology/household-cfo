@@ -31,14 +31,15 @@ export function DailyPurchaseEditor({ context, scope, purchase, selectedDate, on
   async function stage() {
     setError(null)
     try {
+      // Linking needs a chosen statement transaction; its amount and place come from it.
+      if(mode==='existing_transaction' && !candidate && !voiding)throw new Error('Choose the matching statement transaction first.')
       const cents = voiding ? 0 : candidate ? candidate.amount_cents : savingsInputCents(amount)
       if(cents>2147483647)throw new Error('Enter an amount within the supported exact-cent limit.')
       // A new purchase needs no category: leaving it blank files it under "Everyday spending".
       const defaultCategory = !previous && !voiding && !candidate && mode==='manual_new' && parts.length===1 && !parts[0].category
       const splits = voiding ? [] : candidate ? candidate.splits : defaultCategory ? undefined : parts.map(part=>({budget_category_id:Number(part.category),amount_cents:parts.length===1 ? cents : savingsInputCents(part.amount)}))
       if(splits && !voiding && (!splits.every(part=>context.categories.some(category=>category.id===part.budget_category_id)) || splits.reduce((sum,part)=>sum+part.amount_cents,0)!==cents))throw new Error('Choose each category and make the category amounts equal the purchase total.')
-      if(!voiding && !candidate && !merchant.trim())throw new Error('Add where you bought it.')
-      if(mode==='existing_transaction' && !candidate && !voiding)throw new Error('Choose the matching statement transaction first.')
+      if(mode==='manual_new' && !voiding && !merchant.trim())throw new Error('Add where you bought it.')
       if(previous && !reason.trim())throw new Error('Add a short note about what changed.')
       const input:DailyInput={amount_cents:cents,merchant:voiding?previous!.merchant:candidate?.merchant ?? merchant,purchased_on:voiding?previous!.purchased_on:date,...(splits?{splits}:{}),link_kind:voiding?'manual_new':mode,disposition:voiding?'void':'purchase',expected_version_id:purchase?.current_version_id ?? null,expected_head_lock_version:purchase?.lock_version ?? 0,reason}
       if(purchase)input.purchase_id=purchase.id

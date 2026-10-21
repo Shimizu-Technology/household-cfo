@@ -69,6 +69,9 @@ class SavingsChallengeDailyReportExtractorTest < ActiveSupport::TestCase
     assert_equal 1200, one.call("grabbed lunch at Kings, 12 bucks", "12")[:purchases].sole[:amount_cents]
     assert_equal 1425, one.call("lunch w the kids came to 14.25 over at Kings", "14.25")[:purchases].sole[:amount_cents], "dollars and cents are money wherever they sit"
     assert_equal "2026-10-20", extract("grabbed lunch at Kings yesterday, 12 bucks", reply(purchases: [ { amount: "12", merchant: "Kings", day: "yesterday" } ]))[:purchases].sole[:purchased_on]
+    # The participant's own day wins when the model disagrees.
+    assert_equal "2026-10-20", extract("lunch w my cousins came to 12 at Kings yesterday", reply(purchases: [ { amount: "12", merchant: "Kings", day: "today" } ]))[:purchases].sole[:purchased_on]
+    assert_nil extract("lunch w my cousins came to 12 at Kings yesterday", reply(purchases: [ { amount: "12", merchant: "Kings", day: 20 } ])), "a malformed day field is rejected"
   end
 
   test "invalid JSON, provider errors and timeouts fall back to nothing" do
