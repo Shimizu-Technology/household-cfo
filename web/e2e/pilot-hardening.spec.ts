@@ -9067,13 +9067,14 @@ test('BOG UI partially reviewed statements keep their remaining coverage visible
   await expect(page.locator('.document-history-card').filter({ hasText: source.filename })).toBeVisible()
 })
 
-test('BOG UI Home defers source-only review until Statements is requested', async ({ page }) => {
+test('BOG UI Home links a file waiting for review without loading statements first', async ({ page }) => {
   const current = realWorkspaceData(true)
   current.dashboard.action_center.total_review_count = 0
   current.dashboard.action_center.transaction_review_count = 0
   current.dashboard.action_center.mia_action_review_count = 0
   current.budget.annual_plan.pending_transaction_drafts = []
   current.budget.annual_plan.pending_mia_action_drafts = []
+  current.dashboard.action_center.document_review_count = 1
   const source = {
     id: 1202, household_id: 77, document_kind: 'statement', status: 'partially_applied', filename: 'QA-source-only.pdf', content_type: 'application/pdf', byte_size: 50,
     document_date: null, period_start_on: null, period_end_on: null, extracted_summary: 'Source review remains incomplete.', extraction_error: null,
@@ -9081,13 +9082,18 @@ test('BOG UI Home defers source-only review until Statements is requested', asyn
     uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [], attempts: [], transaction_drafts: [],
   }
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: current }))
-  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
+  let importReads = 0
+  await page.route('http://api.test/api/v1/document_imports', (route) => { importReads += 1; return route.fulfill({ json: { document_imports: [source] } }) })
   await page.goto('/?pilot_e2e_role=participant#Home')
   // No purchases wait, so the one filled action stays on Mia; the file is its own quiet link.
   await expect(page.locator('.home-next-action').getByRole('button')).toHaveText(/^Tell .+ what changed$/)
   await expect(page.getByRole('button', { name: /Review .* purchase/ })).toHaveCount(0)
-  await expect(page.locator('.home-other-reviews')).toHaveCount(0)
-  await openSection(page, 'Statements')
+  // The workspace's count names the file; Statements loads only when asked.
+  const others = page.locator('.home-other-reviews')
+  await expect(others).toContainText('1 file waiting for review')
+  expect(importReads).toBe(0)
+  await others.getByRole('button', { name: '1 file waiting for review', exact: true }).click()
+  await expect(page).toHaveURL(/#Statements$/)
   await expect(page.getByRole('heading', { name: 'QA-source-only.pdf', exact: true })).toBeVisible()
   await expect(page.locator('.document-workspace-heading')).toContainText('1')
 })

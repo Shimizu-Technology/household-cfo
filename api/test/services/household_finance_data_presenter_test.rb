@@ -554,6 +554,31 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal Date.current.month - 1, action_center.fetch(:current_month_index)
   end
 
+  test "action center counts statement files waiting for review in the current picture" do
+    household, user = create_household
+    import = lambda do |status, **attributes|
+      household.financial_document_imports.create!(uploaded_by_user: user, document_kind: "statement", status: status,
+        filename: "#{status}-#{SecureRandom.hex(3)}.pdf", content_type: "application/pdf", byte_size: 10, s3_key: "household-cfo/test/#{SecureRandom.hex(4)}.pdf", **attributes)
+    end
+    import.call("needs_review")
+    import.call("partially_applied")
+    import.call("applied", metadata: { source_accounting_review_pending: true })
+    with_purchase = import.call("applied")
+    household.transaction_drafts.create!(financial_document_import: with_purchase, occurred_on: Date.current, merchant: "Payless",
+      total_amount_cents: 1_000, status: "pending", source_type: "statement", raw_input: "Payless $10.00")
+    import.call("applied")
+    import.call("failed")
+    # A file from before a financial restart belongs to an older picture.
+    import.call("needs_review").update_column(:financial_generation, household.financial_generation + 1)
+
+    action_center = HouseholdFinance::DataPresenter.new(household, user: user).dashboard.fetch(:action_center)
+
+    assert_equal 4, action_center.fetch(:document_review_count)
+    # Files stay separate from the purchase count Home already shows.
+    assert_equal 1, action_center.fetch(:transaction_review_count)
+    assert_equal 1, action_center.fetch(:total_review_count)
+  end
+
   test "action center counts a year-independent action plan from another year" do
     household, user = create_household
     draft = household.mia_action_drafts.create!(

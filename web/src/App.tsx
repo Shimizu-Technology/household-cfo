@@ -750,6 +750,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [voiceTranscribing, setVoiceTranscribing] = useState(false)
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null)
   const [documentImports, setDocumentImports] = useState<FinancialDocumentImport[]>([])
+  // Imports load only where files are shown; until then Home uses the workspace's count.
+  const [documentImportsLoaded, setDocumentImportsLoaded] = useState(false)
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
   const [transactionNotice, setTransactionNotice] = useState<string | null>(null)
@@ -1136,6 +1138,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     try {
       const imports = await fetchDocumentImports()
       setDocumentImports((current) => mergeImportSummariesWithDetails(imports, current))
+      setDocumentImportsLoaded(true)
     } catch (caught) {
       if (!quiet) {
         setDocumentsError(participantErrorMessage(caught, 'Document imports could not be loaded.'))
@@ -3738,7 +3741,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onAskMia={() => switchSection('Ask Mia')}
               onReviewTransactions={() => switchSection('Review')}
               onReviewMiaActions={() => switchSection('Ask Mia')}
-              pendingImportCount={pendingImportsCount}
+              pendingImportCount={documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0}
               onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
               onOpenDebt={isRealWorkspace ? () => handleProfileSectionEdit('debt') : undefined}
               onOpenBudget={() => switchSection('Budget')}
