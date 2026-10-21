@@ -303,7 +303,6 @@ function PlanBuilder({ studio, releaseChanges, draft, validationErrors, pending,
         </header>
         <h4>Who should receive this update first?</h4>
         <p>{studio.current_roster.total_count} participants are included. Update everyone together, or choose smaller groups below.</p>
-        {studio.latest_release && <p><strong>Prepared appearance:</strong> {brandEvidenceLabel(studio.latest_release)}. The version also includes the reviewed Mia voice and participant tools.</p>}
         {releaseChanges === null ? <p>To see which settings changed, review the version details in Review settings.</p> : releaseChanges.length > 0 ? <div><strong>What changes in this update</strong><ul>{releaseChanges.map((label) => <li key={label}>{label}</li>)}</ul></div> : <p>This version contains the same appearance, Mia voice, tools, and controls.</p>}
         <p>Planning saves your choice. Participants change only when you review and start the update.</p>
         {studio.active_release && studio.latest_release && (

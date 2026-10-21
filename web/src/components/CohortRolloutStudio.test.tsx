@@ -355,6 +355,7 @@ describe('CohortRolloutStudio', () => {
     const review = await screen.findByRole('button', { name: 'Review group update' })
     expect(screen.getByText('Update in stages').closest('details')).toHaveProperty('open', false)
     expect(screen.getByText(/2 participants are included/)).toBeTruthy()
+    expect(screen.queryByText('Brand version 9')).toBeNull()
     await user.click(review)
     expect(screen.getByRole('dialog', { name: 'Review this group update?' })).toBeTruthy()
     expect(screen.getByText('All participants · 2 participants')).toBeTruthy()
