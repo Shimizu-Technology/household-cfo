@@ -135,9 +135,10 @@ async function closeChatAssistPanel(page: Page) {
   await expect(chatAssistPanel(page)).toHaveCount(0)
 }
 
-async function showLibraryArea(page: Page, area: 'Private sources' | 'Teaching items' | 'Published collections') {
+async function showLibraryArea(page: Page, area: 'Private sources' | 'Teaching items' | 'Collections') {
   const step = page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: area, exact: true })
   if (await step.getAttribute('aria-pressed') !== 'true') await step.click()
+  if (area === 'Private sources' && await page.locator('.coach-source-add').getAttribute('open') === null) await page.getByText('Add file or link', { exact: true }).click()
 }
 
 async function showAssistantStage(page: Page, stage: 'Draft' | 'Sources' | 'Evaluate & publish' | 'History' | 'Assign') {
@@ -149,6 +150,7 @@ async function completePersonaReleaseChecks(page: Page) {
   await showAssistantStage(page, 'Evaluate & publish')
   // A late font swap can move the mobile click target after scrolling it into view.
   await page.evaluate(() => document.fonts.ready)
+  if (await page.locator('.persona-release-review').getAttribute('open') === null) await page.getByText('Safety checks and approval', { exact: true }).click()
   await page.getByRole('button', { name: /Run checks for this draft|Run checks again/ }).click()
   await expect(page.getByRole('region', { name: 'Release check results' })).toContainText('All release checks passed')
   const phraseApprovalButtons = page.getByRole('button', { name: 'Approve for this audience' })
@@ -5416,6 +5418,7 @@ test('Coach Studio preserves coach-authored community context through preview, p
   const preview = page.getByRole('region', { name: 'Sealed behavioral preview evidence' })
   await expect(preview).toContainText('Saved live-model preview')
   await expect(preview).toContainText('openai/gpt-test')
+  await preview.getByText('Preview evidence details', { exact: true }).click()
   await expect(preview).toContainText('gen-preview-123')
   await expect(preview).toContainText('No saved participant or household data was used.')
   await showAssistantStage(page, 'History')
@@ -5639,10 +5642,11 @@ test('Coach Studio platform administrator deliberately switches between global a
   await expect(createAssistant).toBeDisabled()
 
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
   await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
   await page.getByRole('button', { name: 'New item' }).click()
-  await expect(page.getByLabel('Owner').first()).toHaveValue('platform')
-  await expect(page.getByLabel('Owner').first().locator('option[value="coach"]')).toHaveCount(0)
+  await expect(page.locator('.coach-content-owner')).toContainText('Platform library')
+  await expect(page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Your teaching' }) }).getByLabel('Owner')).toHaveCount(0)
 
   await workspacePicker.selectOption('1')
   await expect(workspacePicker).toHaveValue('1')
@@ -5704,14 +5708,16 @@ test('Coach Studio content controls follow independent editor and reviewer permi
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
   await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
   await page.getByRole('button', { name: /Editor content draft/ }).click()
-  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Your teaching' }) })
   await expect(itemPanel.getByLabel('Draft wording')).toBeEnabled()
   await expect(itemPanel.getByRole('button', { name: /Approve/ })).toHaveCount(0)
 
   await page.getByLabel('Coach workspace').selectOption('2')
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
   await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
   await page.getByRole('button', { name: /Reviewer content draft/ }).click()
   await expect(itemPanel.getByLabel('Draft wording')).toBeDisabled()
@@ -6045,7 +6051,9 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
   await expect(page.getByRole('heading', { name: 'Build reusable coaching material' })).toBeVisible()
+  await page.getByText('How teaching reaches participants', { exact: true }).click()
   await expect(page.getByText('Location labels never create slang, accents, or cultural assumptions.')).toBeVisible()
   await page.evaluate(() => document.fonts.ready)
 
@@ -6053,7 +6061,7 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await teachingItems.click()
   await expect(teachingItems).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'New item' }).click()
-  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Your teaching' }) })
   await itemPanel.getByLabel('Title').fill('Guam family context')
   await itemPanel.getByLabel('Type').selectOption('culture')
   await itemPanel.getByLabel('Draft wording').fill('Mention extended-family obligations only after the participant raises them.')
@@ -6074,31 +6082,29 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await itemPanel.getByRole('button', { name: 'Approve new version' }).click()
   await expect(page.getByRole('status')).toContainText('immutable version')
 
-  await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Published collections' }).click()
-  await page.getByRole('button', { name: 'New pack' }).click()
+  await page.getByRole('button', { name: 'Choose a collection' }).click()
+  await page.getByRole('button', { name: 'New collection' }).click()
   const packPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Publish a reusable collection' }) })
-  await packPanel.getByLabel('Pack name').fill('Mrs. Mel Guam context')
+  await packPanel.getByLabel('Collection name').fill('Mrs. Mel Guam context')
   await packPanel.getByLabel('Purpose').selectOption('voice_culture')
   await packPanel.getByLabel(/Guam family context/).check()
-  await packPanel.getByRole('button', { name: 'Create pack draft' }).click()
-  await expect(page.getByRole('status')).toContainText('Content pack draft created')
-  await packPanel.getByLabel('Pack name').fill('  Mrs.   Mel Guam   context  ')
-  await expect(packPanel.getByRole('button', { name: 'Save pack', exact: true })).toBeDisabled()
+  await packPanel.getByRole('button', { name: 'Create collection draft' }).click()
+  await expect(page.getByRole('status')).toContainText('Collection draft created')
+  await packPanel.getByLabel('Collection name').fill('  Mrs.   Mel Guam   context  ')
+  await expect(packPanel.getByRole('button', { name: 'Save collection', exact: true })).toBeDisabled()
   await packPanel.getByLabel('Description').fill('Reviewed Guam family context for participant-led conversations.')
-  await expect(packPanel.getByRole('button', { name: 'Save pack before publishing' })).toBeDisabled()
-  await packPanel.getByRole('button', { name: 'Save pack', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('Pack draft saved')
+  await expect(packPanel.getByRole('button', { name: 'Save collection before publishing' })).toBeDisabled()
+  await packPanel.getByRole('button', { name: 'Save collection', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Collection draft saved')
   await packPanel.getByRole('button', { name: 'Publish exact version' }).click()
   await expect(page.getByRole('status')).toContainText('immutable version')
 
+  await page.getByRole('button', { name: 'Use with Mia', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Saved to Mia’s draft' })).toBeDisabled()
+  await expect(page.getByLabel('Collection name')).toHaveValue('Mrs. Mel Guam context')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
-  const sourcePanel = page.locator('.persona-content-packs')
   await showAssistantStage(page, 'Sources')
-  await sourcePanel.getByLabel(/Mrs. Mel Guam context/).check()
-  await showAssistantStage(page, 'Sources')
-  await sourcePanel.getByRole('button', { name: 'Save source selection' }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'fresh preview' })).toBeVisible()
-  await expect(sourcePanel).toContainText('v1')
+  await expect(page.locator('.persona-content-packs')).toContainText('v1')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
@@ -6125,9 +6131,10 @@ test('Coach Studio locks workspace selection through a delayed Coaching Library 
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
   await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
   await page.getByRole('button', { name: 'New item' }).click()
-  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Your teaching' }) })
   await itemPanel.getByLabel('Title').fill('Delayed library draft')
   await itemPanel.getByLabel('Draft wording').fill('Keep the workspace fixed until this save returns.')
   await itemPanel.getByRole('button', { name: 'Create draft' }).click()
@@ -6166,6 +6173,8 @@ test('Coach Studio locks workspace selection across private-source presign and c
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
+  await showLibraryArea(page, 'Private sources')
   await page.getByLabel('Private source file').setInputFiles({ name: 'delayed-source.txt', mimeType: 'text/plain', buffer: Buffer.from('Private coaching text.') })
   await page.getByRole('button', { name: 'Upload and read' }).click()
 
@@ -6281,18 +6290,20 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
-  await expect(page.getByRole('heading', { name: 'Turn private material into reviewable drafts' })).toBeVisible()
+  await showLibraryArea(page, 'Private sources')
+  await showLibraryArea(page, 'Private sources')
+  await expect(page.getByRole('heading', { name: 'Review private sources' })).toBeVisible()
   await expect(page.getByLabel('Private source file')).toBeDisabled()
   releaseSourceList()
   await expect(page.getByLabel('Private source file')).toBeEnabled()
-  await expect(page.getByText(/no-data-collection routing setting/i)).toBeVisible()
+  await expect(page.getByText(/text is sent to the configured AI provider/i)).toBeVisible()
   await expect(page.getByText('Private source → Review candidates')).toHaveCount(0)
-  await expect(page.locator('.coach-source-trust li')).toHaveCount(6)
+  await expect(page.locator('.coach-source-trust')).toHaveCount(0)
   await page.getByRole('button', { name: /long-private-filename/ }).click()
   await page.getByRole('button', { name: /One calm next step/ }).click()
 
   if ((page.viewportSize()?.width ?? 1_000) <= 390) {
-    for (const [area, action] of [['Private sources', 'Delete source'], ['Teaching items', 'New item'], ['Published collections', 'New pack']] as const) {
+    for (const [area, action] of [['Private sources', 'Delete source'], ['Teaching items', 'New item'], ['Collections', 'New collection']] as const) {
       await showLibraryArea(page, area)
       const height = await page.getByRole('button', { name: action, exact: true }).evaluate((element) => element.getBoundingClientRect().height)
       expect(height).toBeGreaterThanOrEqual(44)
@@ -6314,7 +6325,7 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await page.getByRole('button', { name: 'Keep editing' }).click()
   await expect(editor.getByLabel('Draft wording')).toHaveValue('Choose one calm, practical next step and review it together.')
 
-  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Your teaching' }) })
   await showLibraryArea(page, 'Teaching items')
   await itemPanel.getByRole('button', { name: 'New item' }).click()
   await itemPanel.getByLabel('Title').fill('Unsaved manual lesson')
@@ -6391,8 +6402,10 @@ test('Coach Studio imports, retries, and redacts a secure web snapshot without b
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
-  await expect(page.getByRole('heading', { name: 'Add a secure web source' })).toBeVisible()
-  await expect(page.getByText(/Mia never browses the live site or sees the address/)).toBeVisible()
+  await showLibraryArea(page, 'Private sources')
+  await showLibraryArea(page, 'Private sources')
+  await expect(page.getByRole('heading', { name: 'Add a web source' })).toBeVisible()
+  await expect(page.getByText(/Mia never visits the live site or sees its address/)).toBeVisible()
 
   await page.getByLabel('HTTPS address').fill(privateTarget)
   await page.getByRole('button', { name: 'Import private snapshot' }).click()
@@ -6407,7 +6420,8 @@ test('Coach Studio imports, retries, and redacts a secure web snapshot without b
 
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({ width, height: 900 })
-    await expect(page.getByRole('heading', { name: 'Add a secure web source' })).toBeVisible()
+    await showLibraryArea(page, 'Private sources')
+  await expect(page.getByRole('heading', { name: 'Add a web source' })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   }
 
@@ -6517,6 +6531,7 @@ test('Coach Studio promotes only an attested source phrase and keeps it locked a
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
   await page.getByRole('button', { name: /private-workshop\.txt/ }).click()
   await expect(page.getByRole('heading', { name: /Review exact wording/i })).toBeVisible()
   await expect(page.locator('.coach-phrase-review')).not.toContainText('PRIVATE-EVIDENCE-CANARY')
@@ -6526,7 +6541,7 @@ test('Coach Studio promotes only an attested source phrase and keeps it locked a
   await expect(page.getByRole('status')).toContainText('locked reviewed artifact')
 
   const packPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Publish a reusable collection' }) })
-  await showLibraryArea(page, 'Published collections')
+  await showLibraryArea(page, 'Collections')
   await packPanel.getByRole('button', { name: /Legacy voice pack/ }).click()
   await expect(packPanel.getByRole('checkbox', { name: /Decision guide/ })).toBeVisible()
   await expect(packPanel.getByRole('checkbox', { name: /Legacy phrase/ })).toHaveCount(0)
@@ -6607,6 +6622,7 @@ test('Coach Studio preserves candidate edits through conflicts and server safety
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
   await page.getByRole('button', { name: /review-guide.txt/ }).click()
   const editor = page.locator('.coach-candidate-editor')
   await editor.getByLabel('Candidate title').fill('Exact local title')
@@ -6654,6 +6670,7 @@ test('administrators can see and retry terminal private upload cleanup', async (
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
   await expect(page.getByText('Upload cleanup needs admin retry')).toBeVisible()
   await page.getByRole('button', { name: 'Retry failed cleanup' }).click()
   await expect(page.getByRole('status')).toContainText('queued to retry')
@@ -6698,6 +6715,7 @@ test('Coach Studio keeps failed library drafts and read-only sources do not trig
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
   await showLibraryArea(page, 'Teaching items')
   await page.getByRole('button', { name: /Platform baseline/ }).click()
   let unexpectedPrompt = false
@@ -6709,7 +6727,8 @@ test('Coach Studio keeps failed library drafts and read-only sources do not trig
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
-  await showLibraryArea(page, 'Published collections')
+  await showLibraryArea(page, 'Private sources')
+  await showLibraryArea(page, 'Collections')
   await page.getByRole('button', { name: /Platform safeguards/ }).click()
   await page.getByRole('tab', { name: /Participant tools/ }).click()
   await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
@@ -6717,9 +6736,10 @@ test('Coach Studio keeps failed library drafts and read-only sources do not trig
   expect(unexpectedPrompt).toBe(false)
 
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
   await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
   await page.getByRole('button', { name: 'New item' }).click()
-  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Your teaching' }) })
   await itemPanel.getByLabel('Title').fill('  Keep   this failed title  ')
   await itemPanel.getByLabel('Draft wording').fill('Preserve this exact draft after the server rejects it.')
   await itemPanel.getByRole('button', { name: 'Create draft' }).click()
@@ -6729,16 +6749,16 @@ test('Coach Studio keeps failed library drafts and read-only sources do not trig
   await expect(itemPanel.getByLabel('Draft wording')).toHaveValue('Preserve this exact draft after the server rejects it.')
   await expect(itemPanel.getByRole('button', { name: 'Create draft' })).toBeVisible()
 
-  await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Published collections' }).click()
-  await page.getByRole('button', { name: 'New pack' }).click()
+  await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Collections' }).click()
+  await page.getByRole('button', { name: 'New collection' }).click()
   const packPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Publish a reusable collection' }) })
-  await packPanel.getByLabel('Pack name').fill('  Keep   this failed pack  ')
+  await packPanel.getByLabel('Collection name').fill('  Keep   this failed pack  ')
   await packPanel.getByLabel(/Platform baseline/).check()
-  await packPanel.getByRole('button', { name: 'Create pack draft' }).click()
+  await packPanel.getByRole('button', { name: 'Create collection draft' }).click()
   await expect(page.getByRole('alert')).toContainText('The pack draft could not be saved.')
-  await expect(packPanel.getByLabel('Pack name')).toHaveValue('  Keep   this failed pack  ')
+  await expect(packPanel.getByLabel('Collection name')).toHaveValue('  Keep   this failed pack  ')
   await expect(packPanel.getByLabel(/Platform baseline/)).toBeChecked()
-  await expect(packPanel.getByRole('button', { name: 'Create pack draft' })).toBeVisible()
+  await expect(packPanel.getByRole('button', { name: 'Create collection draft' })).toBeVisible()
 })
 
 test('Coach Studio protects unsaved assistant source selections across tabs and global navigation', async ({ page }, testInfo) => {
@@ -6855,6 +6875,7 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
 
   page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await showLibraryArea(page, 'Private sources')
   await expect(page.getByRole('heading', { name: 'Build reusable coaching material' })).toBeVisible()
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await expect(page.getByLabel(/Mrs. Mel Guam context/)).not.toBeChecked()
@@ -7034,7 +7055,7 @@ test('Coach Studio publishes only the exact reviewed release evidence', async ({
   const publishInput = (await publishRequest).postDataJSON().publish
   await showAssistantStage(page, 'Evaluate & publish')
   await expect(page.getByRole('button', { name: 'Publish next version' })).toBeDisabled()
-  await expect(page.getByText(/already published/i)).toBeVisible()
+  await expect(page.locator('#preview-reason')).toContainText('already published')
 
   expect(publishInput).toMatchObject({
     draft_revision: 1,
@@ -7060,6 +7081,7 @@ test('Coach Studio appends opposite phrase audience decisions across responsive 
   await expect(page.getByRole('status').filter({ hasText: 'Draft saved' })).toBeVisible()
 
   await showAssistantStage(page, 'Evaluate & publish')
+  if (await page.locator('.persona-release-review').getAttribute('open') === null) await page.getByText('Safety checks and approval', { exact: true }).click()
   await page.getByRole('button', { name: 'Approve for this audience' }).click()
   await expect(page.getByText(/Earlier attestations remain in the audit history/i)).toBeVisible()
   const rejectAfterReview = page.getByRole('button', { name: 'Record rejection after re-review' })
@@ -7081,6 +7103,8 @@ test('Coach Studio manages typed live-model scenarios across responsive layouts'
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await showAssistantStage(page, 'Evaluate & publish')
+  if (await page.locator('.persona-release-review').getAttribute('open') === null) await page.getByText('Safety checks and approval', { exact: true }).click()
+  await page.getByText('Additional live-model scenarios', { exact: true }).click()
   await page.getByRole('button', { name: 'Add live-model scenario' }).click()
   await page.getByLabel('Scenario name').fill('Explains an event tradeoff')
   await page.getByLabel(/Fictional prompt/).fill('I have $200 left. How should I decide about a fictional event?')
@@ -7097,6 +7121,7 @@ test('Coach Studio manages typed live-model scenarios across responsive layouts'
   await expect(scenario).toContainText('includes at least one')
   await expect(scenario).toContainText('1200 characters')
 
+  if (await page.locator('.persona-release-review').getAttribute('open') === null) await page.getByText('Safety checks and approval', { exact: true }).click()
   await page.getByRole('button', { name: /Run checks for this draft|Run checks again/ }).click()
   const liveResult = page.getByRole('region', { name: 'Release check results' }).locator('.persona-release-result').filter({ hasText: 'Explains an event tradeoff' })
   await liveResult.getByText('Explains an event tradeoff').click()

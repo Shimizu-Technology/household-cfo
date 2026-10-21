@@ -74,15 +74,17 @@ describe('PersonaReleasePanel', () => {
     apiMocks.fetchAdminPersonaEvaluationRuns.mockResolvedValue([run])
     apiMocks.fetchAdminPersonaEvaluationRun.mockResolvedValue(run)
   })
-  afterEach(() => { cleanup(); vi.clearAllMocks() })
+  afterEach(() => { cleanup(); vi.resetAllMocks() })
 
   it('shows a truthful staged release and publishes only with exact evidence', async () => {
     const onPublish = vi.fn(); renderPanel({ onPublish })
     expect((await screen.findAllByText('Digital assistant disclosure')).length).toBeGreaterThan(0)
     expect(screen.getByText(/required system checks inspect the saved configuration/i)).toBeTruthy()
+    await userEvent.click(screen.getByText('Additional live-model scenarios', { exact: true }))
     expect(screen.getByRole('button', { name: 'Add live-model scenario' })).toBeTruthy()
     expect(screen.getByText('Women building a steadier household plan.')).toBeTruthy()
     expect(screen.getByText('Island shipping costs')).toBeTruthy()
+    await userEvent.click(screen.getByText('Preview evidence details', { exact: true }))
     expect(screen.getByText('gen-preview-123')).toBeTruthy()
     const publish = screen.getByRole('button', { name: 'Publish first version' }) as HTMLButtonElement
     expect(publish.disabled).toBe(false); await userEvent.click(publish)
@@ -294,7 +296,7 @@ describe('PersonaReleasePanel', () => {
     const restrictedPermissions = { ...permissions, manage_cases: false, run_evaluation: false, review_evaluations: false, review_phrase_audiences: false, publish: false }
     const restricted = makeReadiness({ permissions: restrictedPermissions })
     apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValue(restricted)
-    renderPanel({ persona: { ...persona, release_readiness: restricted } })
+    renderPanel({ persona: { ...persona, permissions: { ...persona.permissions, publish: false }, release_readiness: restricted } })
     expect(await screen.findByText(/owner or editor can add and retire/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Add live-model scenario' })).toBeNull()
     expect(screen.getByText(/owner or editor must run these checks/i)).toBeTruthy()
@@ -305,7 +307,7 @@ describe('PersonaReleasePanel', () => {
     const editorPermissions = { ...permissions, publish: false }
     const editorReadiness = makeReadiness({ permissions: editorPermissions })
     apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValue(editorReadiness)
-    renderPanel({ persona: { ...persona, release_readiness: editorReadiness } })
+    renderPanel({ persona: { ...persona, permissions: { ...persona.permissions, publish: false }, release_readiness: editorReadiness } })
     expect((await screen.findByRole('button', { name: 'Run exact preview' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Run checks again' }) as HTMLButtonElement).disabled).toBe(false)
     expect(screen.getByText(/authorized publisher must run and save behavioral preview evidence/i)).toBeTruthy()
@@ -316,6 +318,34 @@ describe('PersonaReleasePanel', () => {
     const publish = await screen.findByRole('button', { name: 'Publish first version' }) as HTMLButtonElement
     expect(publish.disabled).toBe(true)
     expect(screen.getAllByText('Published', { exact: true }).length).toBeGreaterThan(0)
-    expect(screen.getByText(/already published/i)).toBeTruthy()
+    expect(screen.getAllByText(/already published/i).length).toBeGreaterThan(0)
   })
+  it('explains a current publication to its owner without inventing a role denial', async () => {
+    const current = makeReadiness({ permissions: { ...permissions, publication_needed: false, publish: false } })
+    apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValue(current)
+    renderPanel({ persona: { ...persona, has_unpublished_changes: false, release_readiness: current } })
+    const button = await screen.findByRole('button', { name: 'Run exact preview' })
+    expect(button).toHaveProperty('disabled', true)
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toMatch(/already published/)
+    expect(screen.queryByText(/Only a program owner/)).toBeNull()
+    expect(screen.queryByText(/authorized publisher must run and save/)).toBeNull()
+  })
+
+  it('does not allow the previous draft preview to authorize a newly saved draft', async () => {
+    const changed = makeReadiness({ ready: false, candidate: { ...baseReadiness.candidate!, manifest_digest: 'new-candidate', draft_revision: 5 }, behavioral_preview_evidence: null })
+    apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValue(changed)
+    renderPanel({ persona: { ...persona, draft_revision: 5, release_readiness: changed } })
+    const button = await screen.findByRole('button', { name: 'Publish first version' })
+    expect(button).toHaveProperty('disabled', true)
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toMatch(/exact preview/)
+  })
+
+  it('preserves a viewer role denial even when nothing new is published', async () => {
+    const current = makeReadiness({ permissions: { ...permissions, publication_needed: false, publish: false } })
+    apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValue(current)
+    renderPanel({ persona: { ...persona, permissions: { ...persona.permissions, publish: false, edit: false }, has_unpublished_changes: false, release_readiness: current } })
+    const button = await screen.findByRole('button', { name: 'Run exact preview' })
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toMatch(/owner or authorized publisher/)
+  })
+
 })

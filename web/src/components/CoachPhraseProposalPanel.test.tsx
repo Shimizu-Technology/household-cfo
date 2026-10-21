@@ -97,7 +97,7 @@ function renderPanel(props: Partial<Parameters<typeof CoachPhraseProposalPanel>[
 }
 
 describe('CoachPhraseProposalPanel', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => vi.resetAllMocks())
   afterEach(cleanup)
 
   it('shows the accepted phrase waiting stage before its content version is approved', () => {
@@ -111,7 +111,7 @@ describe('CoachPhraseProposalPanel', () => {
     })
 
     expect(screen.getByRole('heading', { name: 'Approve the content draft first' })).toBeTruthy()
-    expect(screen.getByText(/Approve its exact version below/i)).toBeTruthy()
+    expect(screen.getByText(/review the exact wording in Teaching items/i)).toBeTruthy()
     expect(apiMocks.fetchAdminContentSourcePhraseProposals).not.toHaveBeenCalled()
   })
 
