@@ -172,29 +172,37 @@ describe('participant savings Home', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Review target plan' })).toBeNull())
     expect(api.stageSavingsPlan).toHaveBeenCalledTimes(2)
   })
-  it('opens on the entry waiting to be confirmed when it is past the first page, and says more exist', async () => {
+  it('fetches waiting entries directly and lists confirmed entries newest first, one request each', async () => {
     const fixture = savingsFixture(); fixture.pending_entry_count = 1; fetchChallenge.mockResolvedValue(fixture)
     const saved = (id: number) => ({ ...savingsEntryDraft(), id, status: 'approved' })
-    fetchPage.mockImplementation(async (collection, cursor) => collection !== 'entry_drafts' ? { records: [], next_cursor: null } : cursor === null
-      ? { records: Array.from({ length: 10 }, (_, index) => saved(index + 1)), next_cursor: 10 }
-      : { records: [saved(11), { ...savingsEntryDraft(), id: 12 }], next_cursor: null })
+    // The waiting entry (#3) is older than every entry on the latest confirmed page.
+    fetchPage.mockImplementation(async (collection, cursor, _signal, options) => collection !== 'entry_drafts' ? { records: [], next_cursor: null }
+      : options?.status === 'pending' ? { records: [{ ...savingsEntryDraft(), id: 3 }], next_cursor: null }
+      : cursor === null ? { records: Array.from({ length: 10 }, (_, index) => saved(14 - index)), next_cursor: 5 } : { records: [saved(4)], next_cursor: null })
     render(view())
     fireEvent.click(await screen.findByRole('button', { name: 'I set money aside · 1 to confirm' }))
+    const waiting = await screen.findByRole('region', { name: 'Waiting for you to confirm' })
+    expect(await within(waiting).findByRole('button', { name: 'Confirm savings record #3' })).toBeTruthy()
     const entries = await screen.findByRole('region', { name: 'Your entries' })
-    expect(await within(entries).findByRole('button', { name: 'Confirm savings record #12' })).toBeTruthy()
-    expect(within(entries).getByText('Use Previous records to see older ones.')).toBeTruthy()
-    expect(fetchPage).toHaveBeenCalledWith('entry_drafts', 10, expect.any(AbortSignal))
+    await waitFor(() => expect(within(entries).getAllByRole('listitem')).toHaveLength(10))
+    expect(within(entries).getAllByRole('listitem')[0].textContent).toContain('Saved')
+    expect(within(entries).queryByRole('button', { name: /^Confirm savings record/ })).toBeNull()
+    expect(within(entries).getByText('More records are available. Use Older records to see them.')).toBeTruthy()
+    const draftCalls = fetchPage.mock.calls.filter(([collection]) => collection === 'entry_drafts')
+    expect(draftCalls).toEqual([['entry_drafts', null, expect.any(AbortSignal), { direction: 'newest', status: 'pending' }], ['entry_drafts', null, expect.any(AbortSignal), { direction: 'newest', status: 'approved' }]])
+    fireEvent.click(within(entries).getByRole('button', { name: 'Older records' }))
+    await waitFor(() => expect(fetchPage).toHaveBeenCalledWith('entry_drafts', 5, expect.any(AbortSignal), { direction: 'newest', status: 'approved' }))
+    expect(await within(entries).findByRole('button', { name: 'Newer records' })).toBeTruthy()
   })
-  it('opens the newest entries when nothing is waiting', async () => {
+  it('makes one request for the newest confirmed entries when nothing is waiting', async () => {
     const saved = (id: number) => ({ ...savingsEntryDraft(), id, status: 'approved' })
-    fetchPage.mockImplementation(async (collection, cursor) => collection !== 'entry_drafts' ? { records: [], next_cursor: null } : cursor === null
-      ? { records: Array.from({ length: 10 }, (_, index) => saved(index + 1)), next_cursor: 10 }
-      : { records: [saved(11)], next_cursor: null })
+    fetchPage.mockImplementation(async (collection) => collection !== 'entry_drafts' ? { records: [], next_cursor: null } : { records: [saved(11), saved(10)], next_cursor: null })
     render(view())
     fireEvent.click(await screen.findByRole('button', { name: 'I set money aside' }))
     const entries = await screen.findByRole('region', { name: 'Your entries' })
-    await waitFor(() => expect(within(entries).getAllByRole('listitem')).toHaveLength(1))
-    expect(within(entries).getByText(/Saved/)).toBeTruthy()
+    await waitFor(() => expect(within(entries).getAllByRole('listitem')).toHaveLength(2))
+    expect(screen.queryByRole('region', { name: 'Waiting for you to confirm' })).toBeNull()
+    expect(fetchPage.mock.calls.filter(([collection]) => collection === 'entry_drafts')).toEqual([['entry_drafts', null, expect.any(AbortSignal), { direction: 'newest', status: 'approved' }]])
   })
   it('shows a confirmed zero as $0.00 with its date, and links straight to it from the unknown caption', async () => {
     render(view())

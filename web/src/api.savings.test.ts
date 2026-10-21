@@ -44,4 +44,23 @@ describe('participant challenge HTTP helpers', () => {
     await expect(fetchSavingsPage('entries')).rejects.toThrow('could not be verified')
     await expect(fetchSavingsPage('entries', 31)).rejects.toThrow('could not be verified')
   })
+  it('asks for newest-first pages and waiting drafts in one request each, and checks they really go backward', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ records: [{ id: 14 }, { id: 13 }], next_cursor: 13 }))
+      .mockResolvedValueOnce(response({ records: [{ id: 12 }], next_cursor: null }))
+      .mockResolvedValueOnce(response({ records: [{ id: 3 }, { id: 9 }], next_cursor: null }))
+      .mockResolvedValueOnce(response({ records: [{ id: 20 }], next_cursor: null }))
+      .mockResolvedValueOnce(response({ records: [{ id: 12 }], next_cursor: 13 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(fetchSavingsPage('entry_drafts', null, undefined, { direction: 'newest', status: 'pending' })).resolves.toMatchObject({ next_cursor: 13 })
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/entry_drafts\?limit=10&direction=newest&status=pending$/)
+    await fetchSavingsPage('entries', 13, undefined, { direction: 'newest' })
+    expect(String(fetchMock.mock.calls[1][0])).toMatch(/entries\?limit=10&cursor=13&direction=newest$/)
+    await expect(fetchSavingsPage('entry_drafts', null, undefined, { direction: 'newest' })).rejects.toThrow('could not be verified') // ascending
+    await expect(fetchSavingsPage('entry_drafts', 13, undefined, { direction: 'newest' })).rejects.toThrow('could not be verified') // not before the cursor
+    await expect(fetchSavingsPage('entry_drafts', 13, undefined, { direction: 'newest' })).rejects.toThrow('could not be verified') // next cursor not moving back
+    await expect(fetchSavingsPage('entries', null, undefined, { status: 'pending' })).rejects.toThrow('Invalid savings history page')
+    await expect(fetchSavingsPage('entry_drafts', null, undefined, { direction: 'sideways' as 'newest' })).rejects.toThrow('Invalid savings history page')
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+  })
 })

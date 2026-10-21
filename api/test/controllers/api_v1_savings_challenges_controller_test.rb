@@ -192,6 +192,55 @@ class ApiV1SavingsChallengesControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "history pages newest first on request, filters entry drafts by status and rejects unknown values" do
+    with_savings_runtime do
+      savings_enroll
+      drafts = 5.times.map { savings_draft(100) }
+      savings_approve(drafts.first)
+      ids = drafts.map(&:id)
+
+      get "#{path}/entry_drafts", params: { direction: "newest", limit: 2 }, headers: headers
+      assert_response :success
+      assert_equal ids.last(2).reverse, response.parsed_body["records"].pluck("id")
+      assert_equal ids[3], response.parsed_body["next_cursor"]
+      get "#{path}/entry_drafts", params: { direction: "newest", limit: 2, cursor: ids[3] }, headers: headers
+      assert_equal [ ids[2], ids[1] ], response.parsed_body["records"].pluck("id")
+      assert_equal ids[1], response.parsed_body["next_cursor"]
+      get "#{path}/entry_drafts", params: { direction: "newest", limit: 2, cursor: ids[1] }, headers: headers
+      assert_equal [ ids[0] ], response.parsed_body["records"].pluck("id")
+      assert_nil response.parsed_body["next_cursor"]
+      # Exactly a full last page still ends with a nil cursor; a cursor at the oldest id returns nothing.
+      get "#{path}/entry_drafts", params: { direction: "newest", limit: 5 }, headers: headers
+      assert_equal ids.reverse, response.parsed_body["records"].pluck("id")
+      assert_nil response.parsed_body["next_cursor"]
+      get "#{path}/entry_drafts", params: { direction: "newest", cursor: ids[0] }, headers: headers
+      assert_empty response.parsed_body["records"]
+
+      # The default stays oldest first, so existing callers are unchanged.
+      get "#{path}/entry_drafts", params: { limit: 2 }, headers: headers
+      assert_equal ids.first(2), response.parsed_body["records"].pluck("id")
+      get "#{path}/entry_drafts", params: { direction: "oldest", limit: 2, cursor: ids[1] }, headers: headers
+      assert_equal ids[2, 2], response.parsed_body["records"].pluck("id")
+
+      get "#{path}/entry_drafts", params: { direction: "newest", status: "pending" }, headers: headers
+      assert_equal ids.drop(1).reverse, response.parsed_body["records"].pluck("id")
+      assert_equal %w[pending], response.parsed_body["records"].pluck("status").uniq
+      get "#{path}/entry_drafts", params: { status: "approved" }, headers: headers
+      assert_equal [ ids[0] ], response.parsed_body["records"].pluck("id")
+
+      get "#{path}/entries", params: { direction: "newest" }, headers: headers
+      assert_response :success
+      get "#{path}/entry_drafts", params: { direction: "sideways" }, headers: headers
+      assert_response :unprocessable_entity
+      get "#{path}/entry_drafts", params: { direction: "DESC" }, headers: headers
+      assert_response :unprocessable_entity
+      get "#{path}/entry_drafts", params: { status: "superseded" }, headers: headers
+      assert_response :unprocessable_entity
+      get "#{path}/entry_drafts", params: { direction: "newest", cursor: "0" }, headers: headers
+      assert_response :unprocessable_entity
+    end
+  end
+
   test "private status recovers an exact plan proposal without changing totals or trusting client scope" do
     with_savings_runtime do
       savings_enroll

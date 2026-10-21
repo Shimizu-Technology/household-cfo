@@ -5001,11 +5001,21 @@ export async function fetchSavingsChallenge(signal?: AbortSignal): Promise<Savin
   return checkedSavingsChallenge(await fetchJson<SavingsChallenge>('/api/v1/savings_challenge', { signal, cache: 'no-store' }))
 }
 export type SavingsCollection = 'entries' | 'entry_drafts' | 'entry_versions' | 'plan_drafts' | 'plan_versions' | 'zero_attestations'
-export async function fetchSavingsPage<T extends SavingsEntry | SavingsEntryDraft | SavingsEntryVersion | SavingsPlanDraft | SavingsPlanVersion>(collection: SavingsCollection, cursor: number | null = null, signal?: AbortSignal): Promise<SavingsPage<T>> {
+// Pages are oldest first unless `direction: 'newest'`. In either direction the
+// cursor is the last id seen and next_cursor continues in the same direction.
+// `status` filters entry drafts only (waiting vs already confirmed).
+export type SavingsPageOptions = { direction?: 'oldest' | 'newest'; status?: 'pending' | 'approved' }
+export async function fetchSavingsPage<T extends SavingsEntry | SavingsEntryDraft | SavingsEntryVersion | SavingsPlanDraft | SavingsPlanVersion>(collection: SavingsCollection, cursor: number | null = null, signal?: AbortSignal, options: SavingsPageOptions = {}): Promise<SavingsPage<T>> {
   const allowed: SavingsCollection[] = ['entries', 'entry_drafts', 'entry_versions', 'plan_drafts', 'plan_versions', 'zero_attestations']
-  if (!allowed.includes(collection) || (cursor !== null && (!Number.isSafeInteger(cursor) || cursor < 1))) throw new Error('Invalid savings history page.')
-  const page = await fetchJson<SavingsPage<T>>(`/api/v1/savings_challenge/${collection}?limit=10${cursor === null ? '' : `&cursor=${cursor}`}`, { signal, cache: 'no-store' })
-  if (!Array.isArray(page.records) || page.records.length > 10 || page.records.some((record) => !Number.isSafeInteger(record.id) || record.id < 1) || new Set(page.records.map((record) => record.id)).size !== page.records.length || (page.next_cursor !== null && (!Number.isSafeInteger(page.next_cursor) || page.next_cursor < 1 || page.next_cursor <= (cursor ?? 0)))) throw new Error('Savings history could not be verified. Retry this page.')
+  const newest = options.direction === 'newest'
+  if (!allowed.includes(collection) || (cursor !== null && (!Number.isSafeInteger(cursor) || cursor < 1)) || (options.direction && !['oldest', 'newest'].includes(options.direction)) || (options.status && (collection !== 'entry_drafts' || !['pending', 'approved'].includes(options.status)))) throw new Error('Invalid savings history page.')
+  const query = `limit=10${cursor === null ? '' : `&cursor=${cursor}`}${newest ? '&direction=newest' : ''}${options.status ? `&status=${options.status}` : ''}`
+  const page = await fetchJson<SavingsPage<T>>(`/api/v1/savings_challenge/${collection}?${query}`, { signal, cache: 'no-store' })
+  const ids = Array.isArray(page.records) ? page.records.map((record) => record.id) : []
+  // Newest-first pages must really be descending and before the cursor; the default keeps its existing checks.
+  const ordered = !newest || (ids.every((id, index) => index === 0 || id < ids[index - 1]) && (cursor === null || ids.every((id) => id < cursor)))
+  const nextOk = page.next_cursor === null || (Number.isSafeInteger(page.next_cursor) && page.next_cursor >= 1 && (newest ? cursor === null || page.next_cursor < cursor : page.next_cursor > (cursor ?? 0)))
+  if (!Array.isArray(page.records) || page.records.length > 10 || page.records.some((record) => !Number.isSafeInteger(record.id) || record.id < 1) || new Set(ids).size !== ids.length || !ordered || !nextOk) throw new Error('Savings history could not be verified. Retry this page.')
   return page
 }
 async function savingsMutation<T>(path: string, values: object, requestId: string, signal?: AbortSignal): Promise<SavingsMutation<T>> {

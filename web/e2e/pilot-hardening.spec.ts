@@ -9241,9 +9241,11 @@ async function openSavingsHome(page: Page, options: { enrolled?: boolean; uncert
     if (request.method() === 'GET') {
       if (!path) return route.fulfill({ json: challenge })
       const records = path === '/plan_drafts' ? plans : path === '/entry_drafts' ? drafts : path === '/entries' ? entries : []
-      const cursor = Number(url.searchParams.get('cursor') ?? 0)
+      // Mirrors the API: oldest first by default, or direction=newest with a "before" cursor; entry drafts filter by status.
+      const cursor = url.searchParams.get('cursor'); const newest = url.searchParams.get('direction') === 'newest'; const status = url.searchParams.get('status')
       expect(url.searchParams.get('limit')).toBe('10')
-      const remaining = records.filter((record) => record.id > cursor)
+      const filtered = status ? records.filter((record) => (record as { status?: string }).status === status) : records
+      const remaining = newest ? [...filtered].sort((a, b) => b.id - a.id).filter((record) => cursor === null || record.id < Number(cursor)) : filtered.filter((record) => record.id > Number(cursor ?? 0))
       const visible = remaining.slice(0, 10)
       return route.fulfill({ json: { actor_scope: baselineScope, cohort_id: 41, enrollment_id: challenge.enrollment?.id ?? null, records: visible, next_cursor: remaining.length > 10 ? visible.at(-1)!.id : null } })
     }
@@ -9398,16 +9400,18 @@ test('BOG UI savings Home recovers uncertain submission with the same idempotenc
 test('BOG UI savings Home pages history preserves composer on refresh and clears revoked private data', async ({ page }) => {
   const { home, revoke } = await openSavingsHome(page, { manyDrafts: true })
   await openSetAside(page)
-  const reviews = home.getByRole('region', { name: 'Your entries', exact: true })
+  // Waiting entries come newest first; "Older records" pages backward.
+  const reviews = home.getByRole('region', { name: 'Waiting for you to confirm', exact: true })
   await expect(reviews.getByRole('button', { name: /^Confirm savings record/ })).toHaveCount(10)
-  await reviews.getByRole('button', { name: 'Next records' }).click()
-  await expect(reviews.getByRole('button', { name: 'Confirm savings record #11' })).toBeVisible()
+  await expect(reviews.getByRole('button', { name: 'Confirm savings record #25' })).toBeVisible()
+  await reviews.getByRole('button', { name: 'Older records' }).click()
+  await expect(reviews.getByRole('button', { name: 'Confirm savings record #6', exact: true })).toBeVisible()
   await expect(reviews.getByRole('button', { name: /^Confirm savings record/ })).toHaveCount(10)
   await openSetAside(page)
   await home.getByLabel('Amount in US dollars').fill('31.75')
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect(home.getByLabel('Amount in US dollars')).toHaveValue('31.75')
-  await expect(reviews.getByRole('button', { name: 'Confirm savings record #11' })).toBeVisible()
+  await expect(reviews.getByRole('button', { name: 'Confirm savings record #6', exact: true })).toBeVisible()
   revoke(); await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   // Challenge and paged-history reads can deny access concurrently. Either
   // denial must remove private data, regardless of which response arrives first.
@@ -9493,14 +9497,15 @@ test('BOG UI savings Home requires refreshed acceptance after a stale offer conf
 test('BOG UI savings Home opens a new draft review directly after many older records', async ({ page }) => {
   const { home } = await openSavingsHome(page, { manyDrafts: true })
   await openSetAside(page)
-  const reviews = home.getByRole('region', { name: 'Your entries', exact: true })
+  const reviews = home.getByRole('region', { name: 'Waiting for you to confirm', exact: true })
   await expect(reviews.getByRole('button', { name: /^Confirm savings record/ })).toHaveCount(10)
   await openSetAside(page)
   await home.getByLabel('Amount in US dollars').fill('1.25')
   await home.getByRole('button', { name: 'Review savings record' }).click()
   await expect(reviews.getByRole('button', { name: 'Confirm savings record #56' })).toBeVisible()
   await expect(home).toContainText('26 to confirm')
-  await reviews.getByRole('button', { name: 'Previous records' }).click()
+  await reviews.getByRole('button', { name: 'Older records' }).click()
+  await reviews.getByRole('button', { name: 'Older records' }).click()
   await expect(reviews.getByRole('button', { name: 'Confirm savings record #1', exact: true })).toBeVisible()
 })
 
