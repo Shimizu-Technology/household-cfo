@@ -35,3 +35,8 @@
   .transaction-review-facts { grid-template-columns: minmax(0, 1fr) auto; }
   .transaction-review-facts span { grid-column: 1 / -1; }
 }
+.document-workspace-heading .text-button { background: transparent; color: var(--brand); border: 0; padding: 8px 0; text-align: left; text-decoration: underline; box-shadow: none; }
+@media (max-width: 600px) {
+  .income-source-form-actions, .income-schedule-form-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .income-source-form-actions button, .income-schedule-form-actions button { width: 100%; min-height: 44px; white-space: normal; }
+}
