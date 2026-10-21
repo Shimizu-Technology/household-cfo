@@ -36,12 +36,23 @@ export function formatDay(iso: string | null | undefined, options: { year?: bool
   return (options.year ? withYear : withoutYear).format(date)
 }
 
+// Approval timestamps are instants. Resolve their calendar day in Guam before
+// passing it to formatDay; date-only fields above must never be shifted.
+export function formatGuamTimestamp(value: string, options: { year?: boolean } = {}): string {
+  const instant = new Date(value)
+  if (!Number.isFinite(instant.getTime())) return 'Date unavailable'
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Pacific/Guam', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(instant)
+  const part = (type: string) => parts.find(row => row.type === type)?.value ?? ''
+  return formatDay(`${part('year')}-${part('month')}-${part('day')}`, options)
+}
+
 // formatRange('2026-10-17', '2027-01-14') -> 'Sat, Oct 17 – Thu, Jan 14, 2027'.
-// The year is shown only when the range crosses into another year.
+// The end year identifies every financial period, including same-year ranges.
 export function formatRange(start: string | null | undefined, end: string | null | undefined): string {
-  if (!start || !end) return [formatDay(start), formatDay(end)].filter(Boolean).join(' – ')
-  const crosses = start.slice(0, 4) !== end.slice(0, 4)
-  return `${formatDay(start)} – ${formatDay(end, { year: crosses })}`
+  if (!start || !end) return [formatDay(start, { year: true }), formatDay(end, { year: true })].filter(Boolean).join(' – ')
+  return `${formatDay(start)} – ${formatDay(end, { year: true })}`
 }
 
 // 'Pacific/Guam' -> 'Guam time'; 'America/Los_Angeles' -> 'Los Angeles time'.

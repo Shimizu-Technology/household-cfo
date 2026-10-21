@@ -38,8 +38,23 @@ describe('optional private card review', () => {
     const candidates = next.candidates; next.candidates = async (...args) => ({ ...await candidates(...args), actor_scope: { ...debtEnvelope.actor_scope, user_id: 999 } })
     const householdCandidates = next.householdCandidates; next.householdCandidates = async (...args) => ({ ...await householdCandidates(...args), actor_scope: { ...debtEnvelope.actor_scope, user_id: 999 } })
     view.rerender(<OptionalDebtReview actorScope={{ ...debtFixtureScope, user_id: 999 }} cohortId={701} onClose={vi.fn()} api={next}/>)
-    await screen.findByText('No cards added yet. Having no debt is a fine starting point.'); release()
+    await screen.findByText('No optional card reviews added yet. Household cards, if any, appear under Saved household cards.'); release()
     await waitFor(() => expect(screen.queryByText('Fictional paid-off card')).toBeNull())
+  })
+  it('separates empty optional reviews from saved household cards', async () => {
+    open(syntheticDebtApi({ empty: true }))
+    const comparison = await screen.findByRole('region', { name: 'Qualified card comparison' })
+    expect(within(comparison).getByText('No optional card reviews added yet. Household cards, if any, appear under Saved household cards.')).toBeTruthy()
+    expect(comparison.textContent).not.toContain('no debt')
+    fireEvent.click(screen.getByRole('button', { name: 'Saved household cards' }))
+    expect(await screen.findByText('Fictional saved household card')).toBeTruthy()
+  })
+  it('shows the Guam approval day in optional card history', async () => {
+    const api = syntheticDebtApi(); const original = api.records
+    api.records = (async (...args: Parameters<typeof original>) => { const page = await original(...args); return args[1] === 'versions' ? { ...page, records: page.records.map(row => ({ ...row, approved_at: '2026-10-05T18:00:00-05:00' })) } : page }) as typeof original
+    open(api); await screen.findByRole('region', { name: 'Qualified card comparison' })
+    fireEvent.click(screen.getByRole('button', { name: 'History' }))
+    expect((await screen.findByRole('region', { name: 'Approved card history' })).textContent).toContain('Confirmed Tue, Oct 6, 2026')
   })
   it('blocks fresh malformed decimals and paid-off unknowns before network writes', async () => { const api = syntheticDebtApi(); api.mutate = vi.fn(api.mutate); open(api); await enterProposal(); fireEvent.click(screen.getByRole('button', { name: 'Back to terms' })); fireEvent.change(screen.getByLabelText('Balance in US dollars'), { target: { value: '1.001' } }); fireEvent.click(screen.getByRole('button', { name: 'Review pending proposal' })); expect(screen.getByText(/at most two decimal places/)).toBeTruthy(); expect(api.mutate).not.toHaveBeenCalled() })
   it('does not abandon an original unknown approval when a recovered submission conflicts', async () => { saveDebtIdentity({ scope: debtFixtureScope, action: 'approve', draftId: 300, key: 'cold-conflict' }); const api = syntheticDebtApi({ pending: true }); api.mutate = vi.fn().mockRejectedValue(new ApiRequestError('Original request conflicts', { status: 409 })); open(api); fireEvent.click(await screen.findByRole('button', { name: 'Check earlier card result' })); fireEvent.click(await screen.findByRole('checkbox', { name: 'I will re-review this same action using its original request key.' })); fireEvent.click(screen.getByRole('button', { name: 'Prepare original request review' })); await screen.findByRole('heading', { name: 'Check before confirming' }); fireEvent.click(screen.getByRole('checkbox', { name: 'I accept these exact reviewed card terms and mapping.' })); fireEvent.click(screen.getByRole('button', { name: 'Confirm card details' })); await screen.findByText('Original request conflicts'); expect(sessionStorage.getItem(debtRecoveryKey)).toContain('cold-conflict'); expect(screen.getByRole('button', { name: 'Check earlier card result' })).toBeTruthy() })
@@ -55,7 +70,7 @@ it('program A/B/A retains uncertain new-card stage identity and cannot start a d
   b.candidates = async (...args) => ({ ...await candidates(...args), cohort_id: 702, enrollment_id: 802 })
   const householdCandidates = b.householdCandidates; b.householdCandidates = async (...args) => ({ ...await householdCandidates(...args), cohort_id: 702, enrollment_id: 802 })
   view.rerender(<OptionalDebtReview actorScope={debtFixtureScope} cohortId={702} onClose={vi.fn()} api={b}/>)
-  await screen.findByText('No cards added yet. Having no debt is a fine starting point.'); expect(screen.queryByRole('button', { name: 'Check earlier card result' })).toBeNull()
+  await screen.findByText('No optional card reviews added yet. Household cards, if any, appear under Saved household cards.'); expect(screen.queryByRole('button', { name: 'Check earlier card result' })).toBeNull()
   view.rerender(<OptionalDebtReview actorScope={debtFixtureScope} cohortId={701} onClose={vi.fn()} api={a}/>)
   await screen.findByRole('button', { name: 'Check earlier card result' }); expect(sessionStorage.getItem(debtRecoveryKey)).toContain(originalKey)
   expect((screen.getByRole('button', { name: 'Add a card' }) as HTMLButtonElement).disabled).toBe(true); expect(a.mutate).toHaveBeenCalledOnce(); expect(screen.queryByDisplayValue('Private fictional label')).toBeNull()
