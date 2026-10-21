@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { act,cleanup,fireEvent,render,screen,waitFor,within } from '@testing-library/react'
 import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest'
-import { ApiRequestError, fetchDailyContext, fetchDailyPage, mutateDaily, fetchDailyRequestStatus } from '../api'
+import { ApiRequestError, fetchDailyContext, fetchDailyPage, mutateDaily, fetchDailyRequestStatus, fetchDailyCandidates } from '../api'
 import { dailyContext,dailyDraft,dailyVersion } from '../test/dailyFixtures'
 import { baselineScope } from '../test/baselineFixtures'
 import { setDailyExpectedUser } from '../lib/dailyRecovery'
 import { ChallengeToday } from './ChallengeToday'
-vi.mock('../api',async(original)=>({...await original<typeof import('../api')>(),fetchDailyContext:vi.fn(),fetchDailyPage:vi.fn(),mutateDaily:vi.fn(),fetchDailyRequestStatus:vi.fn()}))
+vi.mock('../api',async(original)=>({...await original<typeof import('../api')>(),fetchDailyContext:vi.fn(),fetchDailyPage:vi.fn(),mutateDaily:vi.fn(),fetchDailyRequestStatus:vi.fn(),fetchDailyCandidates:vi.fn()}))
 function open(){return render(<ChallengeToday scope={baselineScope} onClose={vi.fn()} onStatements={vi.fn()} onBaseline={vi.fn()}/>)}
 const actions=()=>vi.mocked(mutateDaily).mock.calls.map(call=>call[0])
 async function clickReady(control: HTMLElement) {
@@ -15,7 +15,7 @@ async function clickReady(control: HTMLElement) {
 }
 async function addPurchase(merchant:string,amount:string){await clickReady(await screen.findByRole('button',{name:'Add a purchase'}));fireEvent.change(screen.getByLabelText('Where did you buy it?'),{target:{value:merchant}});fireEvent.change(screen.getByLabelText('Purchase amount (USD)'),{target:{value:amount}})}
 afterEach(cleanup)
-beforeEach(()=>{vi.resetAllMocks();sessionStorage.clear();setDailyExpectedUser(null);setDailyExpectedUser(901);vi.mocked(fetchDailyContext).mockResolvedValue(structuredClone(dailyContext));vi.mocked(fetchDailyPage).mockImplementation(async()=>({actor_scope:baselineScope,records:[],next_cursor:null}));vi.mocked(fetchDailyRequestStatus).mockResolvedValue({actor_scope:baselineScope,state:'unknown',can_retry:true});vi.mocked(mutateDaily).mockResolvedValue({actor_scope:baselineScope,record:dailyDraft,replayed:false})})
+beforeEach(()=>{vi.resetAllMocks();vi.mocked(fetchDailyCandidates).mockResolvedValue({actor_scope:baselineScope,records:[],next_cursor:null});sessionStorage.clear();setDailyExpectedUser(null);setDailyExpectedUser(901);vi.mocked(fetchDailyContext).mockResolvedValue(structuredClone(dailyContext));vi.mocked(fetchDailyPage).mockImplementation(async()=>({actor_scope:baselineScope,records:[],next_cursor:null}));vi.mocked(fetchDailyRequestStatus).mockResolvedValue({actor_scope:baselineScope,state:'unknown',can_retry:true});vi.mocked(mutateDaily).mockResolvedValue({actor_scope:baselineScope,record:dailyDraft,replayed:false})})
 describe('participant daily reporting',()=>{
  it('keeps missing spending unknown and saves an explicit no-spend day in one tap',async()=>{open();await screen.findByText('Not checked in yet',{selector:'.daily-figure'},{timeout:3000});expect(screen.queryByText(/\$0\.00/)).toBeNull();expect((screen.getByRole('button',{name:'Save day'}) as HTMLButtonElement).disabled).toBe(true);fireEvent.change(screen.getByLabelText('How was this day?'),{target:{value:'no_spend'}});await clickReady(screen.getByRole('button',{name:'Save day'}));await waitFor(()=>expect(mutateDaily).toHaveBeenCalledWith('check_in_save',{local_on:'2026-09-28',spending_state:'no_spend',accepted:true,expected_version_id:null,expected_head_lock_version:0,reason:''},expect.any(String)))},15000)
  it('uses plain dates and states the day number instead of ISO dates or the time zone on every line',async()=>{open();await screen.findByText('Mon, Sep 28 · Day 90 of 90');await screen.findByRole('button',{name:'Add a purchase'});const text=screen.getByRole('dialog').textContent??'';expect(text).not.toMatch(/\d{4}-\d{2}-\d{2}/);expect(text).not.toContain('Pacific/Guam');expect(text).toContain('Days follow Guam time.');expect(screen.queryByText('Private challenge journal')).toBeNull()})
