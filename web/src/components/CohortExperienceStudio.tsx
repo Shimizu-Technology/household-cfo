@@ -16,6 +16,7 @@ import type {
   ExperienceMode,
 } from '../api'
 import { Button } from './Button'
+import './ProgramSettingsFlow.css'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
 const coreModules = [
@@ -87,6 +88,9 @@ export function CohortExperienceStudio({
   const loadAbortControllerRef = useRef<AbortController | null>(null)
 
   const dirty = useMemo(() => Boolean(configuration && draft && JSON.stringify(configuration.draft) !== JSON.stringify(draft)), [configuration, draft])
+
+  const closedGroup = Boolean(configuration && ['completed', 'archived'].includes(configuration.cohort.status))
+  const previewMatches = Boolean(preview && configuration?.preview?.digest === preview.digest && configuration.draft_revision === preview.draft_revision)
 
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
@@ -283,12 +287,11 @@ export function CohortExperienceStudio({
     <div className="experience-studio" aria-busy={pendingAction !== null}>
       <article className="panel experience-cohort-picker">
         <div>
-          <p className="eyebrow">Cohort experience</p>
           <h3>Choose what participants can open.</h3>
-          <p>The essential financial controls stay available. Preview and publish optional tools, then include them in the cohort release participants will use.</p>
+          <p>Prepare the tools for this group. After publishing, use Release & rollout to launch or update the group. People already using a release keep their current tools until that update.</p>
         </div>
         <label>
-          <span>Cohort</span>
+          <span>Group</span>
           <select value={selectedCohortId ?? ''} disabled={pendingAction !== null && pendingAction !== 'load'} onChange={(event) => chooseCohort(Number(event.target.value))}>
             {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name} · {cohort.status}</option>)}
           </select>
@@ -302,7 +305,7 @@ export function CohortExperienceStudio({
         <>
           <article className="panel experience-mode-picker">
             <fieldset disabled={!configuration.permissions.edit || pendingAction !== null}>
-              <legend><span className="eyebrow">Experience</span><strong>What experience will participants get?</strong></legend>
+              <legend><strong>What experience will participants get?</strong></legend>
               <div className="experience-mode-options">
                 {experienceModes.map((option) => (
                   <label key={option.mode} className={`experience-mode-option${experienceModeOf(draft) === option.mode ? ' is-selected' : ''}`}>
@@ -315,18 +318,8 @@ export function CohortExperienceStudio({
             <NavigationSummary draft={draft} />
           </article>
           <div className="experience-module-grid">
-            <article className="panel experience-module-group">
-              <header><div><p className="eyebrow">Always included</p><h3>Financial control and transparency</h3></div><span>Locked on</span></header>
-              {coreModules.map(([label, description]) => (
-                <div className="experience-module-row is-core" key={label}>
-                  <span><strong>{label}</strong><small>{description}</small></span>
-                  <span aria-label={`${label} always included`}>Always on</span>
-                </div>
-              ))}
-            </article>
-
             {experienceModeOf(draft) === 'household_cfo' ? <article className="panel experience-module-group">
-              <header><div><p className="eyebrow">Coach controlled</p><h3>Optional teaching tools</h3></div><span>{Object.values(draft.optional_modules).filter(Boolean).length} enabled</span></header>
+              <header><div><h3>Optional teaching tools</h3></div><span>{Object.values(draft.optional_modules).filter(Boolean).length} enabled</span></header>
               {optionalModules.map(([key, label, description]) => (
                 <label className="experience-module-row" key={key}>
                   <span><strong>{label}</strong><small>{description}</small></span>
@@ -342,21 +335,39 @@ export function CohortExperienceStudio({
               ))}
               {!configuration.permissions.edit && <p className="coach-read-only" role="note">{['completed', 'archived'].includes(configuration.cohort.status) ? 'Completed and archived cohorts are read-only.' : configuration.permissions.review ? 'Your workspace role can review the saved draft but cannot change these tools.' : 'Your workspace role can view these tools but cannot change or publish them.'}</p>}
             </article> : <article className="panel experience-module-group">
-              <header><div><p className="eyebrow">Focused toolset</p><h3>Optional teaching tools are off</h3></div><span>Challenge</span></header>
+              <header><div><h3>Optional teaching tools are off</h3></div><span>Challenge</span></header>
               <p>The Savings Challenge keeps participants on the challenge. CFO Filter and Optionality are not included.</p>
             </article>}
           </div>
 
+            <details className="panel experience-module-group">
+              <summary>Included tools and financial controls</summary>
+              <p>These controls are always included.</p>
+              {coreModules.map(([label, description]) => (
+                <div className="experience-module-row is-core" key={label}>
+                  <span><strong>{label}</strong><small>{description}</small></span>
+                  <span aria-label={`${label} always included`}>Always on</span>
+                </div>
+              ))}
+            </details>
+
+
           <article className="panel experience-lifecycle">
             <header>
-              <div><p className="eyebrow">Save, preview, publish</p><h3>Review the exact participant experience.</h3></div>
-              <span>{dirty ? 'Unsaved changes' : configuration.preview_required ? 'Preview required' : 'Ready to publish'}</span>
+              <div><h3>Review the tools for this group.</h3></div>
+              <span>{closedGroup ? 'Read-only group' : dirty ? 'Unsaved changes' : !previewMatches ? 'Preview required' : !configuration.permissions.publish ? 'Owner or reviewer needed' : 'Ready to publish'}</span>
             </header>
             <div className="experience-actions">
-              <Button onClick={() => void saveDraft()} disabled={!dirty || pendingAction !== null || !configuration.permissions.edit}>{pendingAction === 'save' ? 'Saving' : 'Save draft'}</Button>
-              <Button variant="secondary" onClick={() => void runPreview()} disabled={dirty || pendingAction !== null || !configuration.permissions.review}>{pendingAction === 'preview' ? 'Previewing' : 'Preview navigation'}</Button>
-              <Button onClick={() => void publishDraft()} disabled={!configuration.permissions.publish || !preview || dirty || pendingAction !== null || preview.digest !== configuration.preview?.digest}>{pendingAction === 'publish' ? 'Publishing' : 'Publish to cohort'}</Button>
+              <Button variant="secondary" aria-describedby={closedGroup ? 'experience-closed-help' : 'experience-save-help'} onClick={() => void saveDraft()} disabled={!dirty || pendingAction !== null || !configuration.permissions.edit}>{pendingAction === 'save' ? 'Saving' : 'Save draft'}</Button>
+              <Button variant="secondary" aria-describedby={closedGroup ? 'experience-closed-help' : 'experience-preview-help'} onClick={() => void runPreview()} disabled={dirty || pendingAction !== null || !configuration.permissions.review}>{pendingAction === 'preview' ? 'Previewing' : 'Preview navigation'}</Button>
+              <Button aria-describedby={closedGroup ? 'experience-closed-help' : 'experience-publish-help'} onClick={() => void publishDraft()} disabled={!configuration.permissions.publish || !previewMatches || dirty || pendingAction !== null}>{pendingAction === 'publish' ? 'Publishing' : 'Publish tool version'}</Button>
             </div>
+
+            {closedGroup ? <p id="experience-closed-help" className="experience-action-help">Completed and archived groups are read-only. Their tools cannot be saved, previewed, or published.</p> : <>
+            <p id="experience-save-help" className="experience-action-help">{pendingAction ? 'Wait for the current action to finish.' : !configuration.permissions.edit ? 'Your role cannot save changes to these tools.' : !dirty ? 'Tool choices saved. Change a choice to save again.' : 'Save your choices before previewing.'}</p>
+            <p id="experience-preview-help" className="experience-action-help">{pendingAction ? 'Wait for the current action to finish.' : !configuration.permissions.review ? 'A program editor, reviewer, or owner must preview these tools.' : dirty ? 'Save your changes before previewing.' : 'Preview the saved choices to check the exact navigation.'}</p>
+            <p id="experience-publish-help" className="experience-action-help">{pendingAction ? 'Wait for the current action to finish.' : !configuration.permissions.publish ? 'This group or your program role does not allow publishing. An owner or reviewer can publish tools for an open group.' : dirty ? 'Save and preview your changes before publishing.' : !previewMatches ? 'Preview navigation to enable publishing.' : 'Publish this version, then launch or update the group in Release & rollout. Participants without a release see published tools after refresh.'}</p>
+            </>}
 
             {preview && <ExperiencePreview preview={preview} savingsChallenge={experienceModeOf(draft) === 'savings_challenge'} />}
 
