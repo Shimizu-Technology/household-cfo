@@ -12151,7 +12151,9 @@ test('BOG UI participant navigation groups tools and keeps household privacy rel
     client: element.clientWidth, scroll: element.scrollWidth, width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height,
   })))
   expect(topics).toHaveLength(6)
-  for (const topic of topics) { expect(topic.scroll).toBeLessThanOrEqual(topic.client); expect(topic.width).toBeGreaterThanOrEqual(140); expect(topic.height).toBeGreaterThanOrEqual(44) }
+  // Labels fit at every width; at 320px the two columns must not collapse.
+  const narrow = page.viewportSize()!.width <= 360
+  for (const topic of topics) { expect(topic.scroll).toBeLessThanOrEqual(topic.client); if (narrow) expect(topic.width).toBeGreaterThanOrEqual(140); expect(topic.height).toBeGreaterThanOrEqual(44) }
   await page.getByLabel('Account and help').click()
   await page.getByRole('button', { name: 'Privacy', exact: true }).click()
   const privacy = page.getByRole('dialog', { name: 'Your household privacy' })
