@@ -204,7 +204,10 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: browser-${{ matrix.target }}-${{ github.run_attempt }}
+          # Stable per-partition name: "Re-run failed jobs" overwrites only the rerun
+          # partitions, so the gate always sees the newest report for every partition.
+          name: browser-${{ matrix.target }}
+          overwrite: true
           path: |
             web/test-results/
             web/blob-report/
@@ -233,15 +236,15 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/download-artifact@v4
         with:
-          pattern: browser-*-${{ github.run_attempt }}
+          pattern: browser-*
           path: browser-evidence
 
       - name: Check every partition produced a report
         if: ${{ !cancelled() }}
         run: |
           for target in mobile-webkit chromium-1 chromium-2 chromium-3 chromium-4; do
-            test -s "browser-evidence/browser-$target-${{ github.run_attempt }}/playwright-results.json"
-            compgen -G "browser-evidence/browser-$target-${{ github.run_attempt }}/blob-report/*.zip" > /dev/null
+            test -s "browser-evidence/browser-$target/playwright-results.json"
+            compgen -G "browser-evidence/browser-$target/blob-report/*.zip" > /dev/null
           done
 
       - name: Set up Node
@@ -265,6 +268,8 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: browser-report-${{ github.run_attempt }}
+          # Named outside the browser-* download pattern; overwritten on reruns.
+          name: merged-browser-report
+          overwrite: true
           path: web/playwright-report/
           retention-days: 7

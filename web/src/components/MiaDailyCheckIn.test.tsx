@@ -207,6 +207,9 @@ describe('Mia daily report card', () => {
     expect((within(again.card).getByRole('button', { name: 'Save to today' }) as HTMLButtonElement).disabled).toBe(true)
     await waitFor(() => expect(settleLookup).toBeTypeOf('function'), { timeout: 3000 })
     const count = calls().length
+    // While the automatic lookup is pending, a Save tap must not send anything.
+    fireEvent.click(within(again.card).getByRole('button', { name: 'Save to today' }))
+    expect(calls()).toHaveLength(count)
     await act(async () => { settleLookup() })
     expect(calls()).toHaveLength(count)
     const check = await within(again.card).findByRole('button', { name: 'Check last save' }, { timeout: 3000 })
