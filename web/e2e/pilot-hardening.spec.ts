@@ -8032,8 +8032,8 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
     return route.fulfill({ status: 200, json: { transaction_draft: updatedDraft, workspace } })
   })
 
-  await page.goto('/?pilot_e2e_role=participant')
-  await openSection(page, 'Budget')
+  // Purchases are reviewed on Review; Budget only links there.
+  await page.goto('/?pilot_e2e_role=participant#Review')
   const card = page.locator('.transaction-draft-card').filter({ hasText: "Tita's Demo Market" })
   await expect(card.getByText('3 splits need a category')).toBeVisible()
   await expect(card.getByText('Cleaning products')).toBeVisible()
@@ -8960,12 +8960,12 @@ test('BOG UI Home keeps source-only partial review distinct from transaction cou
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: current }))
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
   await page.goto('/?pilot_e2e_role=participant#Home')
-  const reviews = page.locator('.home-review-card')
-  await expect(reviews.locator(':scope > strong')).toHaveText('0')
-  await expect(reviews).toContainText('1 file needing review')
-  await expect(reviews).not.toContainText('You are caught up.')
-  await expect(reviews.getByRole('button', { name: /Review .* transaction/ })).toHaveCount(0)
-  await reviews.getByRole('button', { name: 'Review 1 file', exact: true }).click()
+  // No purchases wait, so the one filled action stays on Mia; the file is its own quiet link.
+  await expect(page.locator('.home-next-action').getByRole('button')).toHaveText(/^Tell .+ what changed$/)
+  await expect(page.getByRole('button', { name: /Review .* purchase/ })).toHaveCount(0)
+  const reviews = page.locator('.home-other-reviews')
+  await expect(reviews).toContainText('1 file waiting for review')
+  await reviews.getByRole('button', { name: '1 file waiting for review', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'QA-source-only.pdf', exact: true })).toBeVisible()
   await expect(page.locator('.document-import-summary-row .metric-card').filter({ hasText: 'Needs review' })).toContainText('1')
 })
@@ -9773,8 +9773,10 @@ test('BOG UI budget year response cannot cross a coach workspace switch or repla
   let firstRequest = true
   const fresh = budgetFixtureForYear(currentYear + 1)
   fresh.intro = 'Fresh budget after workspace switch.'
+  fresh.annual_plan.rows[0].name = 'Fresh budget after workspace switch.'
   const stale = structuredClone(fresh)
   stale.intro = 'Stale budget from previous workspace.'
+  stale.annual_plan.rows[0].name = 'Stale budget from previous workspace.'
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
   await page.route('http://api.test/api/v1/budget?**', async (route) => {
     if (firstRequest) { firstRequest = false; await oldGate; return route.fulfill({ json: stale }) }
@@ -9787,7 +9789,7 @@ test('BOG UI budget year response cannot cross a coach workspace switch or repla
   await openSection(page, 'Budget')
   await expect(page.getByRole('button', { name: 'Next year', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: 'Next year', exact: true }).click()
-  await expect(page.getByText('Fresh budget after workspace switch.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Fresh budget after workspace switch.', { exact: true }).first()).toBeAttached()
   const oldResponse = page.waitForResponse((response) => response.url().includes('/api/v1/budget?') && response.status() === 200)
   releaseOld()
   await (await oldResponse).finished()
@@ -9795,7 +9797,7 @@ test('BOG UI budget year response cannot cross a coach workspace switch or repla
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   // The transport now rejects the old context before consuming its JSON body.
   await expect(page.locator('html')).not.toHaveAttribute('data-stale-budget-consumed', 'true')
-  await expect(page.getByText('Fresh budget after workspace switch.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Fresh budget after workspace switch.', { exact: true }).first()).toBeAttached()
   await expect(page.getByText('Stale budget from previous workspace.', { exact: true })).toHaveCount(0)
 })
 

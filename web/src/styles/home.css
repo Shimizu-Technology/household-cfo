@@ -28,7 +28,4 @@
   .home-next-action button { width: 100%; }
   .home-welcome-panel { padding: 12px 0; }
 }
-/* Long coach support labels must fit when Home is the active surface. */
-.app:has(.home-screen, .home-welcome-panel) .pilot-support-bar > div { min-width: 0; flex-shrink: 1; }
-.app:has(.home-screen, .home-welcome-panel) .pilot-support-bar a { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .home-welcome-actions .button { box-shadow: none; }

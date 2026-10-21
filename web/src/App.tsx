@@ -4832,7 +4832,7 @@ function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => v
     <aside className="pilot-support-bar" aria-label="Pilot help and feedback">
       <span><ShieldIcon /> <span>Private workspace</span></span>
       <div>
-        {supportHref && <a className="button button--ghost button--compact" href={supportHref} target={brand.support.url ? '_blank' : undefined} rel={brand.support.url ? 'noreferrer' : undefined}>{brand.support.label ?? 'Support'}</a>}
+        {supportHref && <a className="button button--ghost button--compact" href={supportHref} title={brand.support.label ?? undefined} target={brand.support.url ? '_blank' : undefined} rel={brand.support.url ? 'noreferrer' : undefined}><span className="pilot-support-label">{brand.support.label ?? 'Support'}</span></a>}
         <Button variant="ghost" size="compact" onClick={onOpenGuide}><GuideIcon /> Guide</Button>
         <Button variant="ghost" size="compact" onClick={onOpenFeedback}><FeedbackIcon /> Feedback</Button>
       </div>
@@ -9518,7 +9518,7 @@ export function AnnualBudgetPlanner({
       </div>
 
       {plan.pending_transaction_drafts.length > 0 && <p className="budget-review-link">{plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length} purchase{(plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length) === 1 ? '' : 's'} waiting for review · <button type="button" className="text-button" onClick={onReviewTransactions}>Review</button></p>}
-      {(plan.pending_mia_action_drafts ?? []).length > 0 && <p className="budget-review-link">{(plan.pending_mia_action_drafts ?? []).length} plan change{(plan.pending_mia_action_drafts ?? []).length === 1 ? '' : 's'} from {assistantName} waiting for you · <button type="button" className="text-button" onClick={onAskMia}>Review in {assistantName}</button></p>}
+      {(plan.pending_mia_action_drafts ?? []).length > 0 && <p className="budget-mia-review-link">{(plan.pending_mia_action_drafts ?? []).length} plan change{(plan.pending_mia_action_drafts ?? []).length === 1 ? '' : 's'} from {assistantName} waiting for you · <button type="button" className="text-button" onClick={onAskMia}>Review in {assistantName}</button></p>}
 
       {planKnown && <details className="budget-detail-disclosure">
         <summary>
