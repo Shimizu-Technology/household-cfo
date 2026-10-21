@@ -11,8 +11,8 @@ import './WorkspaceCollaborators.css'
 
 const roles: WorkspaceCollaboratorRole[] = ['viewer', 'editor', 'reviewer', 'owner']
 const roleDescriptions: Record<WorkspaceCollaboratorRole, string> = {
-  viewer: 'View coaching configuration.', editor: 'Prepare drafts and previews.',
-  reviewer: 'Review, publish, assign, and release approved configuration.', owner: 'All coach tools, program settings, and team access.',
+  viewer: 'View program settings.', editor: 'Prepare drafts and previews.',
+  reviewer: 'Review and publish settings, choose Mia, and launch or update groups.', owner: 'All coach tools, program settings, and team access.',
 }
 
 type Props = {
@@ -108,7 +108,7 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
       if (!isCurrent()) return
       replaceMember(result.member)
       setEmail('')
-      setNotice(result.added ? `Workspace access saved for ${result.member.email}. ${deliveryNotice(result.delivery)}` : 'This person already has the same workspace access. No new email was sent.')
+      setNotice(result.added ? `Program access saved for ${result.member.email}. ${deliveryNotice(result.delivery)}` : 'This person already has the same program access. No new email was sent.')
     })
   }
 
@@ -125,12 +125,12 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
   }
 
   function remove(member: WorkspaceCollaborator) {
-    if (!window.confirm(`Remove ${member.email} from this coaching workspace and its staff cohort assignments? Their participant enrollments and access to other programs will stay intact.${member.platform_admin ? ' Platform administrators retain platform access.' : ''}`)) return
+    if (!window.confirm(`Remove ${member.email} from this program and its staff group assignments? Their participant enrollments and access to other programs will stay intact.${member.platform_admin ? ' Platform administrators retain platform access.' : ''}`)) return
     void mutate(`remove:${member.id}`, async (isCurrent) => {
       const result = await removeWorkspaceCollaborator(workspaceId, member)
       if (!isCurrent()) return
       setData((current) => current ? { ...current, members: current.members.filter((item) => item.id !== member.id) } : current)
-      setNotice(`Workspace membership removed.${result.platform_admin ? ' This platform administrator retains platform access.' : ''}`)
+      setNotice(`Program team access removed.${result.platform_admin ? ' This platform administrator retains platform access.' : ''}`)
     })
   }
 
@@ -153,9 +153,9 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
   const signInUrl = shareableSignInUrl(data?.sign_in_url)
   const activeOwnerCount = data?.members.filter((member) => member.role === 'owner' && member.status === 'accepted').length ?? 0
   return <article className="panel workspace-collaborators" aria-busy={Boolean(pending) || loading}>
-    <header><div><p className="eyebrow">Your team</p><h3>Give collaborators the access they need.</h3><p>Team access controls coaching configuration. It does not share participant financial records.</p></div></header>
+    <header><div><h3>Who can help you run this program?</h3><p>Team access controls coaching configuration. It does not share participant financial records.</p></div></header>
     {loading && <p role="status">Loading team access…</p>}
-    {unavailable && <p>Workspace owners and platform administrators manage collaborators.</p>}
+    {unavailable && <p>Program owners and platform administrators manage collaborators.</p>}
     {error && <p className="coach-studio-alert is-error" role="alert">{error}</p>}
     {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
     {data?.permissions.manage && <>
@@ -163,8 +163,9 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
         <label><span>Collaborator email</span><input type="email" autoComplete="email" maxLength={254} required value={email} disabled={Boolean(pending)} onChange={(event) => setEmail(event.target.value)} /></label>
         <label><span>Access role</span><select aria-label="Access role" aria-describedby={roleHelpId} value={role} disabled={Boolean(pending)} onChange={(event) => setRole(event.target.value as WorkspaceCollaboratorRole)}>{roles.map((item) => <option key={item} value={item}>{item[0].toUpperCase() + item.slice(1)}</option>)}</select><small id={roleHelpId}>{roleDescriptions[role]}</small></label>
         <label className="workspace-collaborator-email"><input type="checkbox" checked={sendEmail} disabled={Boolean(pending)} onChange={(event) => setSendEmail(event.target.checked)} /><span>Send an access email</span></label>
-        <Button type="submit" disabled={Boolean(pending) || !email.trim()}>{pending === 'add' ? 'Saving access' : 'Add collaborator'}</Button>
+        <Button aria-describedby="team-add-help" type="submit" disabled={Boolean(pending) || !email.trim()}>{pending === 'add' ? 'Saving access' : 'Add collaborator'}</Button>
       </form>
+      <p id="team-add-help" className="workspace-collaborator-help">{pending ? 'Wait for the current team change to finish.' : !email.trim() ? 'Enter an email and choose what this person can do before adding them.' : 'Add this person with the access described above.'}</p>
       <p className="workspace-collaborator-help">New coaches sign in with their invited email. Existing coaches keep their account and other programs. An invited owner must sign in before they can replace your last active owner.</p>
       {signInUrl && <p className="workspace-collaborator-help">Sign-in link to share: <a href={signInUrl} target="_blank" rel="noreferrer">{signInUrl}</a></p>}
       <div className="workspace-collaborator-list">{data.members.map((member) => {
@@ -177,7 +178,9 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
             <Button size="compact" variant="secondary" disabled={Boolean(pending) || member.status === 'revoked'} onClick={() => sendAccessEmail(member)}>Send access email</Button>
             <Button size="compact" variant="danger" disabled={Boolean(pending) || protectedOwner || member.is_self} onClick={() => remove(member)}>Remove</Button>
           </div>
-          {protectedOwner && <small>Your own owner access and the last active owner are protected.</small>}
+          {protectedOwner ? <small>Your own owner access and the last active owner are protected.</small> : (!draftRoles[member.id] || draftRoles[member.id] === member.role) && <small>Choose a different role to enable Save role.</small>}
+          {member.status === 'revoked' && <small>Access emails are unavailable while this account is revoked.</small>}
+          {pending && <small>Wait for the current team change to finish.</small>}
         </section>
       })}</div>
     </>}

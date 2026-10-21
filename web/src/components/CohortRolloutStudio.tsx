@@ -5,6 +5,7 @@ import {
   cancelCohortRollout,
   createCohortRolloutRequestId,
   fetchCohortRolloutStudio,
+  fetchCohortReleaseStudio,
   pauseCohortRollout,
   planCohortRollout,
   resumeCohortRollout,
@@ -19,6 +20,7 @@ import {
   type CohortRolloutPlanDraft,
 } from '../lib/cohortRolloutPlan'
 import { Button } from './Button'
+import './ProgramSettingsFlow.css'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
 type Action = 'plan' | 'advance' | 'pause' | 'resume' | 'cancel' | 'rollback'
@@ -30,6 +32,7 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
   onDirtyChange: (dirty: boolean) => void
 }) {
   const [studio, setStudio] = useState<CohortRolloutStudioData | null>(null)
+  const [releaseChanges, setReleaseChanges] = useState<string[] | null>(null)
   const [draft, setDraft] = useState<CohortRolloutPlanDraft | null>(null)
   const [pendingAction, setPendingAction] = useState<'load' | Action | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -52,9 +55,20 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
     setPendingAction('load')
     setError(null)
     try {
-      const next = await fetchCohortRolloutStudio(selectedCohortId, abortController.signal)
+      const [next, versions] = await Promise.all([
+        fetchCohortRolloutStudio(selectedCohortId, abortController.signal),
+        fetchCohortReleaseStudio(selectedCohortId, abortController.signal).catch(() => null),
+      ])
       if (requestId !== loadRequestRef.current || abortController.signal.aborted) return false
       if (next.cohort.id !== selectedCohortId) throw new Error('Rollout records returned the wrong cohort. Reload and try again.')
+      const previous = versions?.releases.find((release) => release.id === next.active_release?.id && release.bundle_digest === next.active_release.bundle_digest)
+      const target = versions?.releases.find((release) => release.id === next.latest_release?.id && release.bundle_digest === next.latest_release.bundle_digest)
+      setReleaseChanges(previous && target ? [
+        previous.brand_snapshot_digest !== target.brand_snapshot_digest ? 'Program appearance' : null,
+        previous.persona_version_id !== target.persona_version_id ? 'Mia voice' : null,
+        previous.experience_version_id !== target.experience_version_id ? 'Participant tools' : null,
+        previous.registry_digest !== target.registry_digest ? 'System controls' : null,
+      ].filter((label): label is string => label !== null) : null)
       setStudio(next)
       setDraft(next.open_rollout ? null : defaultCohortRolloutPlan(next))
       setValidationErrors([])
@@ -225,10 +239,12 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
     <section ref={studioRootRef} className="cohort-rollout-studio" aria-busy={pendingAction !== null || mutationLifecycle.pending}>
       {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><button type="button" onClick={() => void loadStudio(cohortId)}>Reload</button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
+      <Button variant="ghost" disabled={pendingAction !== null || mutationLifecycle.pending} onClick={() => { if (!dirty || window.confirm('Discard the unsaved update plan and reload?')) void loadStudio(cohortId) }}>Refresh update state</Button>
 
       {rollout ? <ActiveRollout rollout={rollout} studio={studio} pending={pendingAction !== null || mutationLifecycle.pending} onAction={requestAction} /> : (
         <PlanBuilder
           studio={studio}
+          releaseChanges={releaseChanges}
           draft={draft}
           validationErrors={validationErrors}
           pending={pendingAction !== null || mutationLifecycle.pending}
@@ -241,7 +257,7 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
         />
       )}
 
-      <RolloutHistory studio={studio} />
+      <details className="panel"><summary>Update history ({studio.history.total_count})</summary><RolloutHistory studio={studio} /></details>
       {confirmation && (
         <RolloutConfirmationDialog
           confirmation={confirmation}
@@ -258,8 +274,9 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
   )
 }
 
-function PlanBuilder({ studio, draft, validationErrors, pending, onWaveNameChange, onAddWave, onRemoveWave, onAssignParticipant, onReset, onPlan }: {
+function PlanBuilder({ studio, releaseChanges, draft, validationErrors, pending, onWaveNameChange, onAddWave, onRemoveWave, onAssignParticipant, onReset, onPlan }: {
   studio: CohortRolloutStudioData
+  releaseChanges: string[] | null
   draft: CohortRolloutPlanDraft | null
   validationErrors: string[]
   pending: boolean
@@ -271,14 +288,23 @@ function PlanBuilder({ studio, draft, validationErrors, pending, onWaveNameChang
   onPlan: (event: MouseEvent<HTMLButtonElement>) => void
 }) {
   if (!draft) return null
+  const noChange = Boolean(studio.latest_release && studio.active_release?.id === studio.latest_release.id)
+  if (noChange || !studio.permissions.plan) return <article className="panel">
+    <h3 tabIndex={-1} data-rollout-focus-target>{noChange ? 'Your group is up to date' : 'Before you update this group'}</h3>
+    <p>{noChange ? 'There is no new prepared version to apply. Change and publish your settings, then prepare a version in Review settings.' : 'Complete the requirements below, then reload to review an update.'}</p>
+    {[...new Set([...studio.permissions.blockers, ...studio.permissions.plan_blockers])].length > 0 && <ul>{[...new Set([...studio.permissions.blockers, ...studio.permissions.plan_blockers])].map((item) => <li key={item}>{item}</li>)}</ul>}
+  </article>
   return (
     <div className="cohort-rollout-plan-layout">
       <article className="panel cohort-rollout-plan">
         <header>
-          <div><p className="eyebrow">Plan rollout</p><h3 tabIndex={-1} data-rollout-focus-target>{studio.latest_release ? `Release #${studio.latest_release.release_number}` : 'Release required'}</h3></div>
+          <div><h3 tabIndex={-1} data-rollout-focus-target>{studio.latest_release ? `Release #${studio.latest_release.release_number}` : 'Release required'}</h3></div>
           <span className={`cohort-release-state ${studio.permissions.plan ? 'is-ready' : ''}`}>{studio.permissions.plan ? 'Ready' : 'Blocked'}</span>
         </header>
-        <p>Start with everyone together, or add waves for a smaller first group. Each participant must belong to exactly one wave.</p>
+        <h4>Who should receive this update first?</h4>
+        <p>{studio.current_roster.total_count} participants are included. Update everyone together, or choose smaller groups below.</p>
+        {releaseChanges === null ? <p>To see which settings changed, review the version details in Review settings.</p> : releaseChanges.length > 0 ? <div><strong>What changes in this update</strong><ul>{releaseChanges.map((label) => <li key={label}>{label}</li>)}</ul></div> : <p>This version contains the same appearance, Mia voice, tools, and controls.</p>}
+        <p>Planning saves your choice. Participants change only when you review and start the update.</p>
         {studio.active_release && studio.latest_release && (
           <p className="cohort-rollout-runtime-summary"><strong>Active now:</strong> Release #{studio.active_release.release_number} <span aria-hidden="true">→</span> <strong>Rollout target:</strong> Release #{studio.latest_release.release_number}</p>
         )}
@@ -287,6 +313,8 @@ function PlanBuilder({ studio, draft, validationErrors, pending, onWaveNameChang
         )}
         {validationErrors.length > 0 && <div className="coach-studio-alert is-error" role="alert"><span>{validationErrors.join(' ')}</span></div>}
 
+        <details className="cohort-update-options"><summary>Update in stages</summary>
+        <p>Start with a smaller group, then move the rest when you are ready. Each person must belong to one stage.</p>
         <div className="cohort-rollout-wave-editor">
           <div className="cohort-rollout-wave-heading"><div><strong>Waves</strong><small>Up to 25 ordered waves</small></div><Button variant="secondary" size="compact" onClick={onAddWave} disabled={pending || draft.waves.length >= 25}>Add wave</Button></div>
           {draft.waves.map((wave, index) => (
@@ -306,12 +334,13 @@ function PlanBuilder({ studio, draft, validationErrors, pending, onWaveNameChang
             </div>
           ))}
         </div>
+        </details>
         <div className="cohort-rollout-plan-actions">
-          <Button onClick={onPlan} disabled={pending || !studio.permissions.plan}>Review rollout plan</Button>
-          <Button variant="ghost" onClick={onReset} disabled={pending}>Reset to one wave</Button>
+          <Button onClick={onPlan} disabled={pending || !studio.permissions.plan}>Review group update</Button>
+          {draft.waves.length > 1 && <Button variant="ghost" onClick={onReset} disabled={pending}>Update everyone together</Button>}
         </div>
       </article>
-      <RosterReadiness studio={studio} />
+      <details className="panel"><summary>Participant readiness</summary><RosterReadiness studio={studio} /></details>
     </div>
   )
 }
@@ -435,7 +464,7 @@ function transitionInput(rollout: CohortRolloutRecord) {
 }
 
 function confirmationCopy(action: Action, rollout: CohortRolloutRecord | null, studio: CohortRolloutStudioData) {
-  if (action === 'plan') return { title: 'Record this rollout plan?', body: `This locks the wave assignments for release #${studio.latest_release?.release_number}. Planning does not change participant runtime; the first wave changes when you start it.`, confirm: 'Record rollout plan', danger: false }
+  if (action === 'plan') return { title: 'Review this group update?', body: `This saves who receives version #${studio.latest_release?.release_number} first. No participant settings change until you review and start the update.`, confirm: 'Save update plan', danger: false }
   const legacy = rollout?.runtime_mode !== 'release_runtime_v2'
   if (action === 'advance') {
     const wave = rollout?.waves.find((candidate) => candidate.position === rollout.next_wave_position)

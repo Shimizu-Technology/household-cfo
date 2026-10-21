@@ -16,7 +16,7 @@ const editor: WorkspaceCollaborator = { ...owner, id: 2, user_id: 11, email: 'ed
 const payload = (): WorkspaceCollaboratorsPayload => ({ workspace_id: 1, permissions: { manage: true }, members: [owner, editor], sign_in_url: 'https://coach.example.test' })
 const lifecycle = { pending: false, begin: vi.fn(() => ({ id: 1, workspaceId: 1 })), isCurrent: vi.fn(() => true), finish: vi.fn() }
 
-beforeEach(() => { vi.clearAllMocks(); lifecycle.isCurrent.mockReturnValue(true); vi.mocked(fetchWorkspaceCollaborators).mockResolvedValue(payload()) })
+beforeEach(() => { vi.resetAllMocks(); lifecycle.begin.mockReturnValue({ id: 1, workspaceId: 1 }); lifecycle.isCurrent.mockReturnValue(true); vi.mocked(fetchWorkspaceCollaborators).mockResolvedValue(payload()) })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('WorkspaceCollaborators', () => {
@@ -126,7 +126,7 @@ describe('WorkspaceCollaborators', () => {
     await screen.findByRole('region', { name: 'owner@example.test team access' })
     vi.mocked(fetchWorkspaceCollaborators).mockRejectedValue(new ApiRequestError('Unavailable', { status: 404 }))
     await input.click(screen.getByRole('button', { name: 'Refresh team' }))
-    await screen.findByText('Workspace owners and platform administrators manage collaborators.')
+    await screen.findByText('Program owners and platform administrators manage collaborators.')
     expect(screen.queryByText('owner@example.test')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Add collaborator' })).toBeNull()
   })
@@ -134,7 +134,7 @@ describe('WorkspaceCollaborators', () => {
   it('does not expose team details to a role denied by the server', async () => {
     vi.mocked(fetchWorkspaceCollaborators).mockRejectedValue(new ApiRequestError('Unavailable', { status: 404 }))
     render(<WorkspaceCollaborators workspaceId={1} mutationLifecycle={lifecycle} />)
-    await screen.findByText('Workspace owners and platform administrators manage collaborators.')
+    await screen.findByText('Program owners and platform administrators manage collaborators.')
     expect(screen.queryByRole('textbox', { name: 'Collaborator email' })).toBeNull()
     expect(screen.queryByText('owner@example.test')).toBeNull()
   })
