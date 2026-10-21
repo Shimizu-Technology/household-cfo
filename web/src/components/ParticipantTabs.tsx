@@ -1,27 +1,30 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useBrand } from '../contexts/brandContextValue'
-import { partitionParticipantSections } from '../lib/participantNavigation'
+import { partitionParticipantSections, PARTICIPANT_TOOL_SECTIONS } from '../lib/participantNavigation'
 
-type ParticipantTabsProps = {
+import '../styles/participantNavigation.css'
+
+export type ParticipantTabsProps = {
   sections: string[]
   activeSection: string
   onChange: (section: string) => void
+  staffOnly?: boolean
   savingsChallenge?: boolean
   onToday?: () => void
 }
 
 
 const sectionDescriptions: Record<string, string> = {
-  'My Profile': 'Household setup, memory, and bank connections.',
+  'My Profile': 'Your household details and preferences.',
   'My Money': 'Find and update income, spending, debt, accounts, goals, and statements.',
   Statements: 'Upload privately and review accounts, periods, and statement rows.',
   Review: 'Review and confirm transactions.',
-  Budget: 'Optional monthly and annual planning.',
+  Budget: 'Plan your money across the year.',
   Wealth: 'See debt, assets, and long-range capacity.',
   'CFO Filter': 'Pressure-test a purchase before money moves.',
   Optionality: 'Compare choices against stability and runway.',
-  'Coach Studio': 'Build, preview, publish, and assign approved coaching voices.',
+  'Coach Studio': 'Daily coaching and program settings.',
   Admin: 'Manage pilot access and cohort operations.',
 }
 
@@ -76,7 +79,23 @@ function sectionHref(section: string) {
   return `#${encodeURIComponent(section)}`
 }
 
-export function ParticipantTabs({ sections, activeSection, onChange, savingsChallenge = false, onToday }: ParticipantTabsProps) {
+export function ParticipantTabs(props: ParticipantTabsProps) {
+  return props.staffOnly ? <StaffNavigation sections={props.sections} activeSection={props.activeSection} onChange={props.onChange} /> : <ParticipantNavigation {...props} />
+}
+
+/** W5 supplies role-filtered routes and the initial staff route; this component only renders navigation. */
+export function StaffNavigation({ sections, activeSection, onChange }: Pick<ParticipantTabsProps, 'sections' | 'activeSection' | 'onChange'>) {
+  const destinations = sections.filter(section => section === 'Coach Studio' || section === 'Admin')
+  return <nav className="staff-navigation" aria-label="Staff sections">
+    {destinations.map(section => <a key={section} href={sectionHref(section)} aria-current={activeSection === section ? 'page' : undefined} onClick={event => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      event.preventDefault()
+      onChange(section)
+    }}>{section}</a>)}
+  </nav>
+}
+
+function ParticipantNavigation({ sections, activeSection, onChange, savingsChallenge = false, onToday }: ParticipantTabsProps) {
   const { assistantName, brand } = useBrand()
   const [moreOpen, setMoreOpen] = useState(false)
   const [toolsPosition, setToolsPosition] = useState({ top: 0, right: 16 })
@@ -85,6 +104,8 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
   const secondaryRef = useRef<HTMLDivElement | null>(null)
   const { primary, secondary } = partitionParticipantSections(sections, savingsChallenge)
   const secondaryIsActive = secondary.includes(activeSection)
+  const tools = secondary.filter(section => PARTICIPANT_TOOL_SECTIONS.includes(section))
+  const destinations = secondary.filter(section => !PARTICIPANT_TOOL_SECTIONS.includes(section))
 
   const closeTools = useCallback(() => {
     setMoreOpen(false)
@@ -116,7 +137,7 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
       if (event.key !== 'Tab') return
 
       const dialog = secondaryRef.current
-      const focusable = Array.from(dialog?.querySelectorAll<HTMLElement>('a[href], button:not(:disabled)') ?? [])
+      const focusable = Array.from(dialog?.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), summary') ?? []).filter(element => !element.closest('details:not([open])') || element.matches('summary'))
       const first = focusable[0]
       const last = focusable.at(-1)
       if (!first || !last) {
@@ -150,7 +171,7 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
   useEffect(() => {
     if (!moreOpen) return
 
-    window.requestAnimationFrame(() => secondaryRef.current?.querySelector<HTMLAnchorElement>('.tabs-tools-list a')?.focus())
+    window.requestAnimationFrame(() => secondaryRef.current?.querySelector<HTMLElement>('.tabs-tools-list > a, .tabs-tools-list summary')?.focus())
   }, [moreOpen])
 
   const chooseSection = (event: MouseEvent<HTMLAnchorElement>, section: string) => {
@@ -202,12 +223,15 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
             ref={moreButtonRef}
             type="button"
             className={`tabs-more-toggle${secondaryIsActive ? ' active' : ''}`}
+            aria-label="More"
+            aria-description={secondaryIsActive ? `Current section: ${sectionLabel(activeSection)}` : undefined}
             aria-expanded={moreOpen}
             aria-controls="participant-more-sections"
             onClick={toggleTools}
           >
             <SectionIcon section="More" />
             <span className="tabs-label">More</span>
+
           </button>
         )}
       </nav>
@@ -246,7 +270,7 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
               </button>
             </header>
             <div className="tabs-tools-list">
-              {secondary.map((section) => (
+              {destinations.map((section) => (
                 <a
                   key={section}
                   href={sectionHref(section)}
@@ -262,6 +286,12 @@ export function ParticipantTabs({ sections, activeSection, onChange, savingsChal
                   <ArrowIcon />
                 </a>
               ))}
+              {tools.length > 0 && <details className="tabs-tools-group" open={tools.includes(activeSection) || undefined}>
+                <summary>Tools</summary>
+                {tools.map(section => <a key={section} href={sectionHref(section)} aria-label={sectionLabel(section)} aria-current={activeSection === section ? 'page' : undefined} className={activeSection === section ? 'active' : ''} onClick={event => chooseSection(event, section)}>
+                  <span><strong>{sectionLabel(section)}</strong><small>{sectionDescriptions[section]}</small></span><ArrowIcon />
+                </a>)}
+              </details>}
             </div>
           </div>
         </>,

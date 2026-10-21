@@ -219,3 +219,11 @@ describe('privacy request ownership under effect replay', () => {
     expect(screen.getByText('You haven’t shared anything.')).toBeTruthy()
   })
 })
+
+it('uses a program-neutral empty state when no enrollment controls exist', async () => {
+  const api = syntheticPrivacyApi()
+  api.controls = vi.fn().mockResolvedValue({ actor_scope: privacyScope, records: [], next_cursor: null })
+  open(api)
+  await screen.findByText(/No sharing or reminder controls are available/)
+  expect(document.body.textContent).not.toMatch(/No savings enrollment|accept a challenge/)
+})
