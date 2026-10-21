@@ -45,7 +45,7 @@ class SavingsChallengeDailyReportParserTest < ActiveSupport::TestCase
     [ "spent $22 at Kmart because I was bored", [ [ 2200, "Kmart", TODAY ] ] ],
     [ "i got 3 shirts at Ross for 30", [ [ 3000, "Ross", TODAY ] ] ],
     [ "3 for $10 at Ross", [ [ 1000, "Ross", TODAY ] ] ],
-    [ "Got 2 for 1 at Jamba, paid $6", [ [ 600, "", TODAY ] ] ],
+    [ "Got 2 for 1 at Jamba, paid $6", [ [ 600, "Jamba", TODAY ] ] ],
     [ "lunch 12.50 at Kings", [ [ 1250, "Kings", TODAY ] ] ],
     [ "Coffee 4.75", [ [ 475, "Coffee", TODAY ] ] ],
     [ "Spent $8 at Shell and $20 at Payless, $28 total", [ [ 800, "Shell", TODAY ], [ 2000, "Payless", TODAY ] ] ],
@@ -54,7 +54,8 @@ class SavingsChallengeDailyReportParserTest < ActiveSupport::TestCase
     [ "Spent $50 at Costco, saved $10 with coupons", [ [ 5000, "Costco", TODAY ] ] ],
     [ "Spent $20 at Payless instead of $40", [ [ 2000, "Payless", TODAY ] ] ],
     [ "$20 at Ross. I feel calm now", [ [ 2000, "Ross", TODAY ] ] ],
-    [ "I feel stressed, spent $60 at Ross", [ [ 6000, "Ross", TODAY ] ] ]
+    [ "I feel stressed, spent $60 at Ross", [ [ 6000, "Ross", TODAY ] ] ],
+    [ "grabbed lunch at Kings, 14.25, kids with me", [ [ 1425, "Kings", TODAY ] ] ]
   ].freeze
 
   test "reads real daily report phrasings into unreviewed purchases" do

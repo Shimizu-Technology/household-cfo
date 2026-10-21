@@ -196,6 +196,7 @@ module SavingsChallenge
       rows = []
       skipped = false
       verb_seen = false
+      spoken_place = nil
       segments.each_with_index do |segment, index|
         own_verb = segment.match?(SPEND_VERB)
         if segment.match?(NOT_PURCHASE_CLAUSE) || segment.match?(NOT_SPENDING_CLAUSE) || (segment.match?(AMOUNT_ASIDE_CLAUSE) && !own_verb)
@@ -205,14 +206,24 @@ module SavingsChallenge
         end
         counted = own_verb || verb_seen || (listed[index] && list_ok)
         verb_seen ||= own_verb
-        next unless counted
+        unless counted
+          place = merchant_for(segment)
+          spoken_place = place if place.present?
+          next
+        end
 
         dates = date_tokens(segment)
         amounts = segment_amounts(segment, dates, verb: verb, list_like: list_like)
-        next if amounts.empty?
+        if amounts.empty?
+          # "grabbed lunch at Kings, 14.25": a place in the clause just before the amount.
+          place = merchant_for(segment)
+          spoken_place = place if place.present?
+          next
+        end
         return result(:rejected) if dates.map { |token| token[:date] }.uniq.length > 1 || dates.any? { |token| token[:date].nil? }
 
         merchant = amounts.length == 1 ? merchant_for(segment) : ""
+        merchant, spoken_place = spoken_place, nil if merchant.blank? && amounts.length == 1 && spoken_place
         amounts.each { |cents| rows << { amount_cents: cents, merchant: merchant, date: dates.first&.fetch(:date) } }
       end
       # A card payment or savings move alone is not an unread purchase.
