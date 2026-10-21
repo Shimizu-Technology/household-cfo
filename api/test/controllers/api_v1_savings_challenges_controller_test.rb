@@ -334,6 +334,19 @@ class ApiV1SavingsChallengesControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "first summary before workspace creation returns the offer through a read only snapshot" do
+    with_savings_runtime do
+      @savings_household.destroy!
+      assert_difference("Household.count", 1) { get path, headers: headers }
+      assert_response :success
+      assert_nil response.parsed_body["enrollment"]
+      assert response.parsed_body.dig("offer", "acceptance_digest").present?
+      assert_empty @savings_user.households.sole.budget_years
+      assert_no_difference("Household.count") { get path, headers: headers }
+      assert_response :success
+    end
+  end
+
   private
 
   def path = "/api/v1/savings_challenge"

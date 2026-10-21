@@ -35,6 +35,60 @@ module Api
 
       private
 
+      # Readers need one committed picture, not the household's mutation lock.
+      # Recheck access outside the snapshot so a revocation/program change that
+      # committed while serializing cannot release an already unauthorized body.
+      def with_private_read_snapshot(authorize:)
+        # A first-use household must be provisioned by the normal authorized
+        # path before entering READ ONLY. Existing households only need a SELECT.
+        @current_household ||= current_user.households.order("household_memberships.created_at ASC").first
+        send(authorize) unless @current_household
+        ApplicationRecord.connection.clear_query_cache
+        nested = ApplicationRecord.connection.transaction_open?
+        options = nested ? { requires_new: true } : { requires_new: true, isolation: :repeatable_read }
+        scope = nil
+        result = ApplicationRecord.transaction(**options) do
+          ApplicationRecord.connection.execute("SET TRANSACTION READ ONLY") unless nested
+          refresh_private_read_context!
+          send(authorize)
+          scope = private_read_scope
+          yield
+        end
+        # Discard the snapshot's cache, then reuse only results from this fresh
+        # authorization pass. No pre-snapshot or in-snapshot result is trusted.
+        ApplicationRecord.connection.clear_query_cache
+        ApplicationRecord.cache do
+          refresh_private_read_context!
+          send(authorize)
+          unless private_read_scope == scope
+            raise ::Mia::EffectiveCohortResolver::InvalidSelection, "Your coaching program or financial picture changed. Reload before continuing."
+          end
+        end
+        result
+      rescue ChallengePrivacy::PrivateFinanceAccess::Denied, SavingsChallenge::AccessPolicy::Unavailable,
+        ::Mia::EffectiveCohortResolver::InvalidSelection, ActiveRecord::RecordNotFound
+        self.response_body = nil
+        # Rails' nil setter clears the Rack body but retains the render marker.
+        @_response_body = nil
+        raise
+      end
+
+      def private_snapshot_read?
+        (request.get? || request.head?) && action_name != "request_status"
+      end
+
+      def private_read_scope
+        [ current_household.id, current_household.financial_generation,
+          current_cohort_membership&.id, current_participant_runtime.release&.id ]
+      end
+
+      def refresh_private_read_context!
+        @current_household&.reload
+        %i[@current_participant_runtime @current_persona @current_experience_capabilities @current_brand @savings_program_selected].each do |name|
+          remove_instance_variable(name) if instance_variable_defined?(name)
+        end
+      end
+
       def financial_picture_request
         return yield unless financial_picture_controller?
         # Crisis guidance reads and changes no financial picture. Keep its existing
@@ -276,12 +330,13 @@ module Api
         current_data_presenter.app_data
       end
 
-      def current_data_presenter(household: current_household, annual_plan: nil, ensure_plan: true)
+      def current_data_presenter(household: current_household, annual_plan: nil, ensure_plan: !(request.get? || request.head?))
         HouseholdFinance::DataPresenter.new(
           household,
           user: current_user,
           annual_plan: annual_plan,
           ensure_plan: ensure_plan,
+          initialize_missing_plan: annual_plan.nil? && (request.get? || request.head?),
           persona: current_persona,
           cohort_membership: current_cohort_membership,
           experience_capabilities: current_experience_capabilities,
