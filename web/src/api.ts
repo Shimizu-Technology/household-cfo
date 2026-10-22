@@ -4847,6 +4847,7 @@ export type CoachWorkspaceSettingsInput = {
   revision?: number
   /** Create only: the coach who will own the program (an existing or newly invited coach). */
   owner_email?: string
+  send_invitation_email?: boolean
   coach_profile: { display_name: string; title: string; bio: string }
 }
 export type WorkspaceBrandVersion = {

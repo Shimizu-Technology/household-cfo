@@ -55,7 +55,7 @@ module CohortReleases
     def ambiguity_blockers
       count = ambiguous_participant_count
       count = CandidateBuilder.new(cohort: cohort, strict: false).call.ambiguous_participant_count if count.nil?
-      count.positive? ? [ "#{count} participant(s) have conflicting active cohort configurations." ] : []
+      count.positive? ? ParticipantConflicts.new(cohort: cohort).messages : []
     end
   end
 end

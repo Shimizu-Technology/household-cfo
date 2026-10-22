@@ -28,7 +28,7 @@ module SavingsChallenge
       state = state_for(cohort, blockers)
       {
         state: state,
-        label: LABELS.fetch(state),
+        label: state == "open" && blockers.any? ? "Setup needed" : LABELS.fetch(state),
         enabled: cohort.savings_challenge_enabled,
         on_hold: cohort.savings_challenge_release_hold,
         capacity: cohort.savings_challenge_capacity,
@@ -133,6 +133,7 @@ module SavingsChallenge
       elsif !SavingsChallenge::AccessPolicy.release_supports_challenge?(release)
         blockers << "The launched release is not the Savings Challenge experience. Choose Savings Challenge in Participant tools, publish, seal, and launch again."
       end
+      blockers << "Set a start date in Group details & dates before opening. Each participant gets 90 days from their start." unless cohort.starts_on
       blockers << "Set the cohort status to Enrolling or Active first." unless cohort.status.in?(OPEN_STATUSES)
       blockers
     end

@@ -543,6 +543,7 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_equal false, body.fetch("invitation_sent")
     assert_equal "skipped", body.fetch("invitation_status")
+    assert_equal "Invitation saved. No email was sent.", body.fetch("invitation_error")
   end
 
   test "admin create invite reactivates a revoked existing user instead of failing uniqueness" do
@@ -1186,6 +1187,25 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_not_includes response.body, household.name
     assert_not_includes response.body, "profile_completeness"
     assert_not_includes response.body, "readiness_label"
+  end
+
+  test "adding an existing household participant to a savings draft is refused without saving membership" do
+    admin = create_user(email: "compat-admin@example.test", role: "admin")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(admin)
+    first = Cohort.create!(name: "Mel household", status: "active", created_by_user: admin, coach_workspace: workspace)
+    second = Cohort.create!(name: "BOG savings", status: "enrolling", created_by_user: admin, coach_workspace: workspace)
+    second.cohort_experience_configuration.update!(draft_config: CohortExperience::Schema::PILOT_SAVINGS_CONFIG)
+    participant = create_user(email: "compat-participant@example.test", role: "participant")
+    participant.cohort_memberships.create!(cohort: first, role: "participant")
+    assert_no_difference "CohortMembership.count" do
+      post "/api/v1/admin/users", params: { user: { email: participant.email, role: "participant", cohort_id: second.id, send_invitation_email: false } },
+        headers: workspace_auth_headers(admin, workspace), as: :json
+      assert_response :conflict
+    end
+    assert_includes response.parsed_body.fetch("error"), first.name
+    assert_includes response.parsed_body.fetch("error"), second.name
+    assert_includes response.parsed_body.fetch("error"), "Keep them in one group"
+    assert_equal [ first.id ], participant.reload.cohort_memberships.pluck(:cohort_id)
   end
 
   private

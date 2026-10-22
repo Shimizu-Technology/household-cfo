@@ -128,7 +128,7 @@ module Api
               )
             else
               if cohort_role_for(user.role) == "participant"
-                Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: compatibility_cohort_ids)
+                Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: compatibility_cohort_ids, visible_workspace_id: current_user.admin? ? nil : (current_coach_workspace&.id || -1))
               end
               membership_scope = user.cohort_memberships
               membership_scope = membership_scope.where(cohort_id: manageable_cohort_ids_for_request) if workspace_scoped_mode?
@@ -208,7 +208,7 @@ module Api
               guard_error = "This participant could not be added. Ask a platform administrator to check their account."
               raise ActiveRecord::Rollback
             end
-            Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: target_cohort_ids)
+            Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: target_cohort_ids, visible_workspace_id: current_user.admin? ? nil : (current_coach_workspace&.id || -1))
             add_cohort_memberships(user, cohort_ids, role: "participant")
           end
           return render_forbidden(guard_error) if guard_error
@@ -262,7 +262,7 @@ module Api
               raise ActiveRecord::Rollback if workspace_guard_error
 
               if cohort_role_for(role) == "participant"
-                Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: compatibility_cohort_ids)
+                Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: compatibility_cohort_ids, visible_workspace_id: current_user.admin? ? nil : (current_coach_workspace&.id || -1))
               end
               add_cohort_memberships(user, cohort_ids, role: cohort_role_for(role))
             end
@@ -509,7 +509,7 @@ module Api
         def sync_cohort_memberships(user, cohort_ids, role:)
           if role == "participant"
             Mia::PersonaAssignmentCompatibility.lock_participants!(user_ids: [ user.id ])
-            Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: cohort_ids)
+            Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: cohort_ids, visible_workspace_id: current_user.admin? ? nil : (current_coach_workspace&.id || -1))
           end
           user.cohort_memberships.where.not(cohort_id: cohort_ids).destroy_all
           cohort_ids.each do |cohort_id|
@@ -525,7 +525,7 @@ module Api
 
           if role == "participant"
             Mia::PersonaAssignmentCompatibility.lock_participants!(user_ids: [ user.id ])
-            Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: compatibility_cohort_ids)
+            Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: compatibility_cohort_ids, visible_workspace_id: current_user.admin? ? nil : (current_coach_workspace&.id || -1))
           end
           user.cohort_memberships.where(cohort_id: manageable_cohort_ids_for_request).where.not(cohort_id: cohort_ids).destroy_all
           add_cohort_memberships(user, cohort_ids, role: role)
@@ -703,12 +703,12 @@ module Api
         end
 
         def skipped_invitation_email_result
-          Rails.logger.info("[InviteEmail] Invite email skipped by admin for #{params.dig(:user, :email)}")
+          Rails.logger.info("[InviteEmail] Invite email skipped for #{params.dig(:user, :email)}")
           {
             sent: false,
             status: "skipped",
             provider_message_id: nil,
-            error: "Email delivery skipped by admin"
+            error: "Invitation saved. No email was sent."
           }
         end
 

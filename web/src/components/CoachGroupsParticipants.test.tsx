@@ -26,6 +26,22 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 describe('Coach group essentials', () => {
+  it('explains required savings start dates and uses actor-neutral skipped invitation wording', async () => {
+    const user = userEvent.setup()
+    mocks.createAdminUser.mockResolvedValue({ invitation_status: 'skipped', invitation_error: 'Invitation saved. No email was sent.' })
+    harness()
+    await screen.findByText('Participants in Tuesday group')
+    await user.click(screen.getByText('Group details & dates', { selector: 'summary', exact: true }))
+    expect(screen.getByLabelText('Start date')).toBeTruthy()
+    expect(screen.queryByLabelText('Start date (optional)')).toBeNull()
+    expect(screen.getByText(/A savings challenge needs a start date/)).toBeTruthy()
+    await user.click(screen.getByText('Add a participant', { selector: 'summary', exact: true }))
+    await user.type(screen.getByLabelText('Participant email'), 'new@example.test')
+    await user.click(screen.getByRole('checkbox', { name: 'Send an invitation email when eligible' }))
+    await user.click(screen.getByRole('button', { name: 'Add to Tuesday group' }))
+    expect((await screen.findByRole('status')).textContent).toContain('Invitation saved. No email was sent.')
+  })
+
   it('uses the latest controlled cohort when the initial roster request resolves', async () => {
     const second = { ...group, id: 11, name: 'Second group' }
     let completeObsolete!: (value: AdminCohort[]) => void

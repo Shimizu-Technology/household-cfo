@@ -659,7 +659,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     end
   end
 
-  test "provider rejects assistant messages that falsely claim restricted actions completed" do
+  test "provider replaces completion claims with truthful review wording without trusting the narrative" do
     operations = [ operation("identity.assistant_name", "Lina", evidence: "Lina") ]
     [
       "I've published the persona.",
@@ -731,10 +731,10 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       )
       resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
 
-      error = assert_raises(Mia::PersonaSetup::ProposalResolver::Error, message) do
-        resolver.call(context: {}, user_message: "Call the assistant Lina.")
-      end
-      assert_equal "persona_setup_invalid", error.code
+      result = resolver.call(context: {}, user_message: "Call the assistant Lina.")
+      assert_includes result.assistant_message, "Nothing has been saved.", message
+      refute_equal message, result.assistant_message
+      assert_equal operations, result.operations
     end
 
     [
@@ -785,6 +785,23 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
 
       assert_equal message, resolver.call(context: {}, user_message: "Call the assistant Lina.").assistant_message
     end
+  end
+
+  test "a fresh descriptive voice request produces a reviewed proposal despite a name recap" do
+    message = "Her name is Mia, Mrs. Mel’s digital coaching assistant. Use a warm, direct tone and ask one practical question at a time. The participant is the household CFO."
+    operations = [ operation("identity.assistant_name", "Mia", evidence: "Mia"),
+      operation("coaching.do", [ "ask one practical question at a time" ], evidence: "ask one practical question at a time") ]
+    response = provider_response(model: "exact/model", content: JSON.generate(
+      "assistant_message" => "The assistant name is Mia. Here are proposed changes for review. Nothing has been saved.",
+      "operations" => operations))
+    resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
+    before = @persona.draft_config.deep_dup
+    result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver: resolver)
+      .call(user_message: message, idempotency_key: "descriptive-first-request")
+    assert_equal "ready", result.turn.status
+    assert_equal "pending", result.proposal.status
+    assert_includes result.turn.assistant_message, "Nothing has been saved."
+    assert_equal before, @persona.reload.draft_config
   end
 
   test "provider usage retains only bounded nonnegative integer token counts" do
@@ -872,6 +889,44 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     assert_equal "persona_setup_resolution_conflict", error.code
   end
 
+  [
+    [ "All set.", "Nothing has been saved. Tell me what you would like to change, and I will propose it for you to review." ],
+    [ "Which part of Mia's voice would you like to change?", "Which part of Mia's voice would you like to change?" ]
+  ].each do |provider_message, expected_message|
+    test "full turn preserves clarification and metadata without a proposal for #{provider_message}" do
+      response = provider_response(model: "exact/model", content: JSON.generate("assistant_message" => provider_message, "operations" => []))
+      resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
+      original_revision = @persona.draft_revision
+      original_config = @persona.draft_config.deep_dup
+      original_activity = 1.hour.ago
+      @session.update!(last_activity_at: original_activity)
+      runner = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
+
+      result = nil
+      assert_no_difference "CoachPersonaSetupProposal.count" do
+        result = runner.call(user_message: "Make Mia warmer.", idempotency_key: "clarification-key-123")
+      end
+      turn = result.turn.reload
+      assert_equal "ready", turn.status
+      assert_equal expected_message, turn.assistant_message
+      assert_nil result.proposal
+      assert_nil turn.proposal
+      assert_nil turn.error_code
+      assert_equal "test", turn.provider
+      assert_equal "exact/model", turn.model
+      assert_equal Mia::PersonaSetup::ProposalBuilder::PROMPT_VERSION, turn.prompt_version
+      assert_equal Mia::PersonaSetup::ProposalBuilder::SCHEMA_VERSION, turn.schema_version
+      assert_equal({ "total_tokens" => 10 }, turn.usage)
+      assert_operator @session.reload.last_activity_at, :>, original_activity
+      assert_equal original_revision, @persona.reload.draft_revision
+      assert_equal original_config, @persona.draft_config
+      replay = runner.call(user_message: "Make Mia warmer.", idempotency_key: "clarification-key-123")
+      assert replay.replayed
+      assert_equal turn.id, replay.turn.id
+      assert_nil replay.proposal
+    end
+  end
+
   private
 
   def operation(path, value, source: "coach_quote", evidence:)
@@ -926,5 +981,15 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       "usage" => usage
     )
     response
+  end
+
+  test "a completion claim with no proposed operations never says there is something to review" do
+    response = provider_response(model: "exact/model", content: JSON.generate("assistant_message" => "All set.", "operations" => []))
+    resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
+
+    result = resolver.call(context: {}, user_message: "Make Mia warmer.")
+    assert_equal [], result.operations
+    assert_includes result.assistant_message, "Nothing has been saved."
+    refute_includes result.assistant_message, "Review these proposed draft changes"
   end
 end

@@ -345,7 +345,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
         <div className="savings-actions">
           {checkIn && checkInOpen && (checkedInToday ? <>
             <p className="savings-caption">You checked in today</p>
-            <button type="button" className="savings-secondary" onClick={(event) => { event.currentTarget.focus(); checkIn() }}>Add more</button>
+            <button type="button" className="savings-secondary" onClick={(event) => { event.currentTarget.focus(); (onToday ?? checkIn)() }}>Open today’s saved items</button>
           </> : <button type="button" className="savings-primary" onClick={(event) => { event.currentTarget.focus(); checkIn() }}>Check in for today</button>)}
           <button type="button" className="savings-secondary" aria-expanded={entryOpen} aria-controls={asideId} onClick={() => { if (entryOpen) setEntryOpen(false); else openAside() }}>I set money aside{pendingEntries > 0 && <span className="savings-badge"> · {pendingEntries} to confirm</span>}</button>
         </div>

@@ -25,7 +25,7 @@ class ApiV1AdminPersonaMembershipCompatibilityTest < ActionDispatch::Integration
 
     assert_response :conflict
     assert_equal "persona_assignment_conflict", response.parsed_body.fetch("code")
-    assert_equal "This participant would receive different personas from their cohorts.", response.parsed_body.fetch("error")
+    assert_match(/cannot join .+ together because the groups use different assistants or participant tools/, response.parsed_body.fetch("error"))
     assert_nil User.find_by(email: "conflicting-invite@example.com")
   end
 

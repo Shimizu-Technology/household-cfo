@@ -99,11 +99,11 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged, onDirtyCh
         <span className={`admin-badge ${tone}`} role="status">{challenge.label}</span>
       </div>
       <p className="challenge-access-places">{places}</p>
-      <p>{stateCopy[challenge.state]}</p>
+      <p>{challenge.state === 'open' && !challenge.participants_can_join ? 'Participants cannot join until these steps are finished:' : stateCopy[challenge.state]}</p>
       {challenge.blockers.length > 0 && challenge.state !== 'paused' && (
         <ul className="challenge-access-blockers">{challenge.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>
       )}
-      {challenge.state === 'open' && challenge.blockers.length > 0 && <p role="alert">Participants may be unable to join until the items above are fixed.</p>}
+      {challenge.state === 'open' && challenge.blockers.length > 0 && <p role="alert">Finish the items above so participants can join.</p>}
       {challenge.participant_count > challenge.capacity && <p role="alert">This cohort has more invited participants than the challenge has places.</p>}
       {notice && <p className="challenge-access-notice" role="status">{notice}</p>}
       {error && <p className="challenge-access-error" role="alert">{error}</p>}

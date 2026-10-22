@@ -26,6 +26,12 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('SavingsChallengeAccessPanel', () => {
+  it('does not promise joining when an already open group needs a start date', () => {
+    render(<SavingsChallengeAccessPanel cohort={cohortWith({ state: 'open', label: 'Setup needed', participants_can_join: false, can_open: false, can_pause: true, blockers: ['Set a start date in Group details & dates before opening.'] })} busy={false} onChanged={vi.fn()} />)
+    expect(screen.getByText('Participants cannot join until these steps are finished:')).toBeTruthy()
+    expect(screen.queryByText('Participants can read the terms, join, and record money they set aside.')).toBeNull()
+    expect(screen.getByRole('button', { name: /Pause/ })).toBeTruthy()
+  })
   it('shows status and capacity plainly', () => {
     render(<SavingsChallengeAccessPanel cohort={cohortWith({})} busy={false} onChanged={vi.fn()} />)
     expect(screen.getByRole('status').textContent).toBe('Ready to open')

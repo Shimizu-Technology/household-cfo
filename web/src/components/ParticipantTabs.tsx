@@ -31,6 +31,7 @@ const sectionDescriptions: Record<string, string> = {
 const compactLabels: Record<string, string> = {
   'My Profile': 'Profile',
   'My Money': 'Money',
+  Statements: 'Files',
 }
 
 const sectionIconPaths: Record<string, string> = {

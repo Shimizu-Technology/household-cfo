@@ -41,7 +41,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
   const coachWorkspaces = currentUser.coach_workspaces ?? []
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
-  const [area, setArea] = useState<'participants' | 'cohorts' | 'feedback' | 'programs' | 'health'>('participants')
+  const [area, setArea] = useState<'participants' | 'cohorts' | 'feedback' | 'programs' | 'health'>(currentUser.is_admin && coachWorkspaces.length === 0 ? 'programs' : 'participants')
   const [supportView, setSupportView] = useState<'problems' | 'setup'>('problems')
   const [supportBusy, setSupportBusy] = useState(false)
   const [feedbackBusy, setFeedbackBusy] = useState(false)
@@ -479,7 +479,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
       {adminMutationPending && <p className="admin-muted" role="status">{loading ? 'Loading program data…' : 'Please wait for the current change to finish before continuing.'}</p>}
 
       <div hidden={area !== 'programs'}>
-      {currentUser.is_admin && <CreateCoachProgram key={activeCoachWorkspaceId ?? 'platform'} disabled={adminMutationPending || adminDraftsDirty} onDirtyChange={setProgramCreateDirty} onPendingChange={setProgramCreating} />}
+      {currentUser.is_admin && <CreateCoachProgram firstProgram={coachWorkspaces.length === 0} key={activeCoachWorkspaceId ?? 'platform'} disabled={adminMutationPending || adminDraftsDirty} onDirtyChange={setProgramCreateDirty} onPendingChange={setProgramCreating} />}
 
       {adminDraftsDirty && <p className="admin-muted">Save or discard your access, invitation or cohort changes before creating a program.</p>}
       <RoleMatrix open={roleMatrixOpen} onToggle={setRoleMatrixOpen} />
@@ -983,7 +983,7 @@ function inviteActionNotice(response: AdminUserMutationResponse) {
 function inviteDeliveryNotice(response: AdminUserMutationResponse) {
   if (response.invitation_sent) return 'Invite email sent.'
   if (response.invitation_status === 'failed') return `Invite saved, but email delivery failed${response.invitation_error ? `: ${response.invitation_error}` : '.'}`
-  if (response.invitation_status === 'skipped') return 'Invite saved; email delivery was skipped by admin.'
+  if (response.invitation_status === 'skipped') return 'Invitation saved. No email was sent.'
 
   return 'Invite saved.'
 }

@@ -36,7 +36,8 @@ module Mia
         finalize_turn!(turn_id: turn.id, provider_result:)
       rescue ProposalResolver::Error => error
         failed_result = fail_turn!(turn&.id, error.code)
-        raise Error.new(error.message, code: error.code, status: :service_unavailable, result: failed_result)
+        raise Error.new("Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.",
+          code: error.code, status: :service_unavailable, result: failed_result)
       rescue OperationContract::ContractError => error
         failed_result = fail_turn!(turn&.id, error.code)
         raise Error.new(error.message, code: error.code, status: :unprocessable_entity, result: failed_result)
@@ -125,27 +126,30 @@ module Mia
             return Result.new(session:, turn:, proposal: nil, replayed: false)
           end
 
-          built = ProposalBuilder.new(
-            persona: authorization.persona,
-            actor: authorization.actor,
-            user_message: turn.user_message
-          ).call(provider_result.operations)
-          session.proposals.where(status: "pending").order(:id).lock.each do |proposal|
-            proposal.resolve!(status: "superseded", actor: authorization.actor)
+          proposal = nil
+          if provider_result.operations.any?
+            built = ProposalBuilder.new(
+              persona: authorization.persona,
+              actor: authorization.actor,
+              user_message: turn.user_message
+            ).call(provider_result.operations)
+            session.proposals.where(status: "pending").order(:id).lock.each do |proposal|
+              proposal.resolve!(status: "superseded", actor: authorization.actor)
+            end
+            proposal = CoachPersonaSetupProposal.create!(
+              session:,
+              turn:,
+              status: "pending",
+              base_draft_revision: built.fetch(:base_draft_revision),
+              base_config_digest: built.fetch(:base_config_digest),
+              operations: built.fetch(:operations),
+              before_state: built.fetch(:before_state),
+              after_state: built.fetch(:after_state),
+              proposal_digest: built.fetch(:proposal_digest),
+              prompt_version: built.fetch(:prompt_version),
+              schema_version: built.fetch(:schema_version)
+            )
           end
-          proposal = CoachPersonaSetupProposal.create!(
-            session:,
-            turn:,
-            status: "pending",
-            base_draft_revision: built.fetch(:base_draft_revision),
-            base_config_digest: built.fetch(:base_config_digest),
-            operations: built.fetch(:operations),
-            before_state: built.fetch(:before_state),
-            after_state: built.fetch(:after_state),
-            proposal_digest: built.fetch(:proposal_digest),
-            prompt_version: built.fetch(:prompt_version),
-            schema_version: built.fetch(:schema_version)
-          )
           metadata = provider_result.metadata
           turn.update!(
             status: "ready",
