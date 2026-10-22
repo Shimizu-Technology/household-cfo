@@ -131,7 +131,7 @@ describe('imported income without a pay frequency', () => {
     expect(screen.getByText('Choose how often first')).toBeTruthy()
     expect(screen.getByRole('note').textContent).toContain('does not say how often you are paid')
     fireEvent.click(screen.getByRole('button', { name: 'Edit value' }))
-    const cadence = screen.getByLabelText('Cadence') as HTMLSelectElement
+    const cadence = screen.getByLabelText("How often you're paid") as HTMLSelectElement
     expect(cadence.value).toBe('')
     expect(screen.getByRole('option', { name: 'Choose how often' })).toBeTruthy()
     fireEvent.change(cadence, { target: { value: 'biweekly' } })

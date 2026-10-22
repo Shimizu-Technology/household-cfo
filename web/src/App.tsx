@@ -1,3 +1,10 @@
+import { IncomeForms } from './components/IncomeForms'
+import { useIncomeForm } from './components/incomeFormState'
+import { useMiaEntryAnchor } from './components/useMiaEntryAnchor'
+import { useMiaHistoryPosition } from './components/useMiaHistoryPosition'
+import type { CurrentUser } from './api'
+import './styles/participantFlows.css'
+import { scheduleFirstSessionComposerFocus } from './components/firstSessionComposerFocus'
 import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { householdPlanKnown } from './lib/householdMoneyKnown'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
@@ -257,7 +264,7 @@ function clearPlaidOAuthStateFromUrl(section: string) {
 }
 
 function sectionFromLocation() {
-  if (hasPendingPlaidOAuthReturn()) return 'My Profile'
+  if (hasPendingPlaidOAuthReturn()) return 'My Money'
 
   try {
     const hashSection = decodeURIComponent(window.location.hash.replace(/^#/, ''))
@@ -369,7 +376,7 @@ const documentUploadCards: Array<{
     eyebrow: 'Fresh balances',
     accepts: '.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
     formats: 'PDF, Excel, CSV or photos',
-    helper: 'Upload a PDF, CSV, spreadsheet, or statement screenshot to stage transaction rows, propose matches, and reconcile actuals by month.',
+    helper: 'Choose a PDF, spreadsheet, or photo of your statement.',
     sizeGuidance: 'Images and PDFs up to 12 MB · CSV and Excel up to 20 MB',
   },
   {
@@ -473,7 +480,7 @@ const profileExcludedSetupKeys = new Set<keyof WorkspaceSetupValues>(['primary_i
 // editable profile field once setup is complete (income and debt have their own editors).
 function submittableWorkspaceSetupValues(draft: WorkspaceSetupDraft, setupComplete: boolean): Partial<WorkspaceSetupValues> {
   return Object.fromEntries(Object.entries(workspaceSetupValuesFromDraft(draft)).filter(([key]) => (
-    setupComplete ? !profileExcludedSetupKeys.has(key as keyof WorkspaceSetupValues) : firstSessionSetupKeys.has(key as keyof WorkspaceSetupValues)
+    (setupComplete ? !profileExcludedSetupKeys.has(key as keyof WorkspaceSetupValues) : firstSessionSetupKeys.has(key as keyof WorkspaceSetupValues)) && (!(workspaceSetupMoneyKeys as string[]).includes(key) || draft[key as WorkspaceSetupMoneyKey].trim() !== '' || nullableWorkspaceSetupMoneyKeys.has(key as WorkspaceSetupMoneyKey))
   ))) as Partial<WorkspaceSetupValues>
 }
 
@@ -492,7 +499,7 @@ const setupMoneyFieldLabels: Partial<Record<WorkspaceSetupMoneyKey, string>> = {
 }
 
 // Plain-language checks that replace the browser's validation bubbles. Blank
-// money is allowed and saves as $0 (or unknown for optional balances).
+// money stays unknown until the participant enters an amount.
 function workspaceSetupDraftProblem(draft: WorkspaceSetupDraft, fields: Iterable<string>, firstSession: boolean): { field: string; message: string } | null {
   for (const field of fields) {
     if (field === 'household_name' && !draft.household_name.trim()) return { field, message: 'Enter a household name, such as the Cruz Household.' }
@@ -508,7 +515,7 @@ function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSet
   const values = { ...draft } as unknown as WorkspaceSetupValues
   const moneyValues = values as unknown as Record<WorkspaceSetupMoneyKey, number | null>
   workspaceSetupMoneyKeys.forEach((key) => {
-    if (nullableWorkspaceSetupMoneyKeys.has(key) && draft[key].trim() === '') {
+    if (draft[key].trim() === '') {
       moneyValues[key] = null
       return
     }
@@ -533,9 +540,86 @@ function App() {
   const [restartNonce, setRestartNonce] = useState(0)
   const [restartNotice, setRestartNotice] = useState<string | null>(null)
   const identity = `${auth.authProvider}:${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
+  if (auth.currentUser?.is_staff && !auth.currentUser.is_participant) return <StaffWorkspaceApp key={identity} currentUser={auth.currentUser} />
   return <ParticipantProgramSession identity={identity} authIdentityId={auth.authProvider === 'workos' ? `${auth.authProvider}:${auth.authIdentityId}` : auth.authIdentityId} legacyAuthIdentityId={auth.authProvider === 'workos' ? auth.currentUser?.clerk_id : undefined} actorId={auth.currentUser?.id} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)}>
     {selection => <WorkspaceApp key={`${identity}:${selection.selectedCohortId ?? 'default'}:${restartNonce}`} {...selection} restartNotice={restartNotice} onDismissRestartNotice={() => setRestartNotice(null)} onFinancialRestart={message => { setRestartNotice(message); setRestartNonce(value => value + 1) }} />}
   </ParticipantProgramSession>
+}
+
+/** Staff without a participant seat never mount the household loader or its tools. */
+export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser }) {
+  const auth = useAuthContext()
+  const { brand } = useBrand()
+  const sections = useMemo(() => currentUser.is_admin ? [COACH_STUDIO_SECTION, ADMIN_SECTION] : [COACH_STUDIO_SECTION], [currentUser.is_admin])
+  const requestedSection = useCallback(() => {
+    try { return decodeURIComponent(window.location.hash.slice(1)) } catch { return '' }
+  }, [])
+  const [active, setActive] = useState(() => sections.includes(requestedSection()) ? requestedSection() : COACH_STUDIO_SECTION)
+  const activeSection = sections.includes(active) ? active : COACH_STUDIO_SECTION
+  const [dirty, setDirty] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [guideOpen, setGuideOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [enterpriseOpen, setEnterpriseOpen] = useState(false)
+  const accountRef = useRef<HTMLDetailsElement>(null)
+  const ready = !auth.isVerifyingApi && !auth.isLoading && !auth.authError && (!auth.isAuthEnabled || auth.isSignedIn)
+  useLayoutEffect(() => { setActiveParticipantCohortId(null) }, [])
+  const canonicalUrl = useCallback((section: string) => hasPendingPlaidOAuthReturn() ? clearPlaidOAuthStateFromUrl(section) : `${window.location.pathname}${window.location.search}${sectionHash(section)}`, [])
+  const focusHeading = useCallback(() => requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll: true })), [])
+  const navigate = useCallback((section: string, browserNavigation = false) => {
+    // A hash traversal can dispatch both popstate and hashchange. The second
+    // event must not erase the explanation after an unavailable route is fixed.
+    if (browserNavigation && section === activeSection && window.location.hash === sectionHash(activeSection) && !hasPendingPlaidOAuthReturn()) return
+    const target = sections.includes(section) ? section : COACH_STUDIO_SECTION
+    if (target !== activeSection && dirty && !window.confirm('Discard your unsaved Coach Studio changes and leave this screen?')) {
+      window.history.replaceState({ section: activeSection }, '', canonicalUrl(activeSection))
+      return
+    }
+    if (target !== activeSection) setDirty(false)
+    setActive(target)
+    const unavailable = Boolean(section && !sections.includes(section))
+    setNotice(unavailable ? 'Household money is not available in this staff workspace.' : `${target} screen loaded.`)
+    if (browserNavigation || target === activeSection) window.history.replaceState({ section: target }, '', canonicalUrl(target))
+    else window.history.pushState({ section: target }, '', canonicalUrl(target))
+    focusHeading()
+  }, [activeSection, canonicalUrl, dirty, focusHeading, sections])
+  useLayoutEffect(() => {
+    if (!ready) return
+    const follow = () => navigate(requestedSection(), true)
+    if (window.location.hash !== sectionHash(activeSection) || !sections.includes(active) || hasPendingPlaidOAuthReturn()) follow()
+    window.addEventListener('popstate', follow)
+    window.addEventListener('hashchange', follow)
+    return () => { window.removeEventListener('popstate', follow); window.removeEventListener('hashchange', follow) }
+  }, [active, activeSection, navigate, ready, requestedSection, sections])
+  useEffect(() => {
+    if (!dirty) return
+    const leave = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', leave)
+    return () => window.removeEventListener('beforeunload', leave)
+  }, [dirty])
+  const closeHelp = (close: () => void) => { close(); requestAnimationFrame(() => accountRef.current?.querySelector<HTMLElement>('summary')?.focus()) }
+
+  if (auth.isAuthEnabled && auth.authRecoveryRequired && auth.authError) return <AuthAccessPanel title={auth.authErrorStatus === 503 ? 'Secure access is temporarily unavailable.' : auth.authErrorStatus === 401 ? 'Sign in again to continue.' : 'We couldn’t finish checking your access.'} copy={auth.authError} recovering onRetry={!auth.isLoading && auth.authErrorStatus !== 401 && (auth.authIdentityId || auth.authProvider === 'workos' && (auth.authErrorStatus === 503 || auth.authErrorStatus === 409)) ? auth.refreshCurrentUser : undefined} onSignIn={auth.authErrorStatus === 401 ? auth.signIn : undefined} onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
+  if (auth.isLoading || auth.isVerifyingApi) return <WorkspaceOpening status="Signing you in securely…" onRetry={() => window.location.reload()} recovery={!auth.isLoading && auth.isSignedIn ? <SignOutButton /> : undefined} />
+  if (auth.isAuthEnabled && !auth.isSignedIn) return <AuthLanding />
+  if (auth.authError) return <AccessDenied message={auth.authError} onSignOut={auth.signOut} onRetry={auth.refreshCurrentUser} />
+  return <main className="app staff-app">
+    <SeoManager section={activeSection} />
+    <header className="shell-header"><div className="shell-brand"><BrandLogo brand={brand} /><div className="shell-brand-copy"><h1>{brand.short_name}</h1></div></div>
+      <AccountMenu menuRef={accountRef}>
+        <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setGuideOpen(true) }}>Guide</Button>
+        <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFeedbackOpen(true) }}>Report a problem</Button>
+        {(currentUser.is_admin || currentUser.enterprise_access?.organizations.some(org => org.it_admin)) && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setEnterpriseOpen(true) }}>Organization access</Button>}
+      </AccountMenu>
+    </header>
+    <ParticipantTabs staffOnly sections={sections} activeSection={activeSection} onChange={navigate} />
+    {notice && <p role="status" className={notice.includes('Household money') ? 'document-alert' : 'sr-only'}>{notice}</p>}
+    {activeSection === ADMIN_SECTION && currentUser.is_admin ? <AdminConsole currentUser={currentUser} /> : <CoachStudio currentUser={currentUser} onDirtyChange={setDirty} />}
+    <BrandFooter />
+    {guideOpen && <PilotGuideDialog staffOnly onClose={() => closeHelp(() => setGuideOpen(false))} />}
+    {feedbackOpen && <PilotFeedbackDialog initialWorkflow={activeSection === ADMIN_SECTION ? 'admin' : 'other'} onClose={() => closeHelp(() => setFeedbackOpen(false))} onSubmit={submitPilotFeedback} />}
+    {enterpriseOpen && <EnterpriseSettings currentUser={currentUser} onClose={() => setEnterpriseOpen(false)} />}
+  </main>
 }
 
 function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onProgramUnavailable, selectionNotice, onFinancialRestart, restartNotice, onDismissRestartNotice}: {onFinancialRestart: (message: string) => void; restartNotice: string | null; onDismissRestartNotice: () => void; selectedCohortId?: number; onChooseProgram: (cohortId: number) => void; onProgramVerified: (cohortId: number) => void; onProgramUnavailable: () => void; selectionNotice: string | null}) {
@@ -559,7 +643,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [profileEditBaseline, setProfileEditBaseline] = useState<WorkspaceSetupValues | null>(null)
   const profileEditingRef = useRef(isProfileEditing)
   profileEditingRef.current = isProfileEditing
-  const [moneyTopic, setMoneyTopic] = useState<MoneyTopic>('income')
+  const [moneyTopic, setMoneyTopic] = useState<MoneyTopic>(() => hasPendingPlaidOAuthReturn() ? 'accounts' : 'income')
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
@@ -609,6 +693,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     budgetActionRef.current = name
     setBudgetAction(name)
     setBudgetNotice(null)
+    setTransactionResult(null)
     return true
   }
   const endBudgetAction = () => {
@@ -666,8 +751,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [voiceTranscribing, setVoiceTranscribing] = useState(false)
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null)
   const [documentImports, setDocumentImports] = useState<FinancialDocumentImport[]>([])
+  // Imports load only where files are shown; until then Home uses the workspace's count.
+  const [documentImportsLoaded, setDocumentImportsLoaded] = useState(false)
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
+  // A review result belongs to the screen where it happened and clears on the next money action.
+  const [transactionResult, setTransactionResult] = useState<{ section: string; text: string } | null>(null)
+  const setTransactionNotice = (text: string) => setTransactionResult({ section: activeSectionRef.current, text })
   const [documentsNotice, setDocumentsNotice] = useState<string | null>(null)
   const [uploadingKind, setUploadingKind] = useState<DocumentImportKind | null>(null)
   const [pendingMiaAttachments, setPendingMiaAttachments] = useState<PendingMiaAttachment[]>([])
@@ -824,29 +914,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [savingsEnrollment, setSavingsEnrollment] = useState<{ scope: string; enrolled: boolean; source: 'read' | 'home' } | null>(null)
   const [savingsEnrollmentRetry, setSavingsEnrollmentRetry] = useState(0)
   const savingsCohortId = data?.workspace.cohort?.id
-  useEffect(() => {
-    if (!savingsEnrollmentScope) return
-    const controller = new AbortController()
-    let retryOnFocus: (() => void) | null = null
-    fetchSavingsChallenge(controller.signal)
-      .then((challenge) => {
-        const receivedCohort = (challenge as typeof challenge & { cohort_id?: number }).cohort_id ?? challenge.enrollment?.cohort_id
-        if (receivedCohort !== undefined && receivedCohort !== savingsCohortId) return
-        // Savings Home's own reads and joins are fresher than this one; never overwrite them.
-        setSavingsEnrollment((current) => current?.scope === savingsEnrollmentScope && current.source === 'home'
-          ? current
-          : { scope: savingsEnrollmentScope, enrolled: Boolean(challenge.enrollment), source: 'read' })
-      })
-      .catch(() => {
-        if (controller.signal.aborted) return
-        retryOnFocus = () => setSavingsEnrollmentRetry((value) => value + 1)
-        window.addEventListener('focus', retryOnFocus, { once: true })
-      })
-    return () => {
-      controller.abort()
-      if (retryOnFocus) window.removeEventListener('focus', retryOnFocus)
-    }
-  }, [savingsCohortId, savingsEnrollmentRetry, savingsEnrollmentScope])
   const savingsJoined = Boolean(savingsEnrollmentScope && savingsEnrollment?.scope === savingsEnrollmentScope && savingsEnrollment.enrolled)
   const handleSavingsEnrollmentKnown = useCallback((enrolled: boolean) => {
     if (savingsEnrollmentScope) setSavingsEnrollment({ scope: savingsEnrollmentScope, enrolled, source: 'home' })
@@ -916,7 +983,31 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return [...participantSections, ...staffSections, ...adminSections]
   }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff, data])
   const activeSection = !visibleSections.includes(active) ? sections[0] : active
+  useEffect(() => {
+    if (!savingsEnrollmentScope || activeSection === 'Home' || savingsEnrollment?.scope === savingsEnrollmentScope) return
+    const controller = new AbortController()
+    let retryOnFocus: (() => void) | null = null
+    fetchSavingsChallenge(controller.signal)
+      .then((challenge) => {
+        const receivedCohort = (challenge as typeof challenge & { cohort_id?: number }).cohort_id ?? challenge.enrollment?.cohort_id
+        if (receivedCohort !== undefined && receivedCohort !== savingsCohortId) return
+        // Savings Home's own reads and joins are fresher than this one; never overwrite them.
+        setSavingsEnrollment((current) => current?.scope === savingsEnrollmentScope && current.source === 'home'
+          ? current
+          : { scope: savingsEnrollmentScope, enrolled: Boolean(challenge.enrollment), source: 'read' })
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return
+        retryOnFocus = () => setSavingsEnrollmentRetry((value) => value + 1)
+        window.addEventListener('focus', retryOnFocus, { once: true })
+      })
+    return () => {
+      controller.abort()
+      if (retryOnFocus) window.removeEventListener('focus', retryOnFocus)
+    }
+  }, [activeSection, savingsCohortId, savingsEnrollmentRetry, savingsEnrollmentScope, savingsEnrollment?.scope])
   const activeSectionRef = useRef(activeSection)
+  const transactionNotice = transactionResult?.section === activeSection ? transactionResult.text : null
   activeSectionRef.current = activeSection
   // Name the staff starting section in the address so reload and back agree.
   useLayoutEffect(() => {
@@ -1041,6 +1132,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       return
     }
 
+    if (!['Statements', 'Ask Mia'].includes(activeSectionRef.current) && !firstSessionUploadOpen) return
+
     if (!quiet) {
       setDocumentsLoading(true)
       setDocumentsError(null)
@@ -1049,6 +1142,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     try {
       const imports = await fetchDocumentImports()
       setDocumentImports((current) => mergeImportSummariesWithDetails(imports, current))
+      setDocumentImportsLoaded(true)
     } catch (caught) {
       if (!quiet) {
         setDocumentsError(participantErrorMessage(caught, 'Document imports could not be loaded.'))
@@ -1056,7 +1150,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     } finally {
       if (!quiet) setDocumentsLoading(false)
     }
-  }, [isRealWorkspace])
+  }, [firstSessionUploadOpen, isRealWorkspace])
 
   const replaceMiaHistory = useCallback((mia: MiaMessagesData) => {
     setMessagesStorageKey(chatStorageKey)
@@ -1094,6 +1188,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       return
     }
 
+    if (!['Review', 'Budget'].includes(activeSectionRef.current)) return
     const requestId = ++spendingReportRequestRef.current
 
     if (!quiet) {
@@ -1218,8 +1313,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => window.removeEventListener('beforeunload', preventUnsavedNavigation)
   }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedProfileChanges, hasUnsavedFirstSetupChanges])
 
+  const documentsVisible = activeSection === 'Statements' || activeSection === 'Ask Mia' || isFirstSessionUpload
+  const spendingVisible = activeSection === 'Review' || activeSection === 'Budget'
+
   useEffect(() => {
-    if (!workspaceLoadKey) return
+    if (!workspaceLoadKey || !documentsVisible) return
 
     let cancelled = false
     queueMicrotask(() => {
@@ -1229,10 +1327,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => {
       cancelled = true
     }
-  }, [refreshDocumentImports, workspaceLoadKey])
+  }, [documentsVisible, refreshDocumentImports, workspaceLoadKey])
 
   useEffect(() => {
-    if (!isRealWorkspace || !selectedImport || selectedImport.details_included) return
+    if (!isRealWorkspace || !documentsVisible || !selectedImport || selectedImport.details_included) return
 
     let cancelled = false
     const importId = selectedImport.id
@@ -1248,10 +1346,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => {
       cancelled = true
     }
-  }, [isRealWorkspace, selectedImport])
+  }, [documentsVisible, isRealWorkspace, selectedImport])
 
   useEffect(() => {
-    if (!isRealWorkspace) return
+    if (!isRealWorkspace || activeSection !== 'Ask Mia') return
 
     function refreshIfVisible() {
       if (document.visibilityState === 'hidden') return
@@ -1270,17 +1368,17 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [activeSection, isRealWorkspace, refreshMiaMessages])
 
   useEffect(() => {
-    if (!isRealWorkspace || !documentStatusSignature) return
+    if (!isRealWorkspace || !documentsVisible || !documentStatusSignature) return
 
     const intervalId = window.setInterval(() => {
       void refreshDocumentImports({ quiet: true })
     }, 3500)
 
     return () => window.clearInterval(intervalId)
-  }, [documentStatusSignature, isRealWorkspace, refreshDocumentImports])
+  }, [documentsVisible, documentStatusSignature, isRealWorkspace, refreshDocumentImports])
 
   useEffect(() => {
-    if (!isRealWorkspace || !importDraftSignature || miaLoading) return
+    if (!isRealWorkspace || !documentsVisible || !importDraftSignature || miaLoading) return
     if (lastWorkspaceDraftSignatureRef.current === importDraftSignature) return
 
     const signature = importDraftSignature
@@ -1304,10 +1402,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => {
       cancelled = true
     }
-  }, [chatStorageKey, importDraftSignature, isFirstSessionSetup, isRealWorkspace, miaLoading, replaceMiaHistory, setData])
+  }, [documentsVisible, chatStorageKey, importDraftSignature, isFirstSessionSetup, isRealWorkspace, miaLoading, replaceMiaHistory, setData])
 
   useEffect(() => {
-    if (!isRealWorkspace || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return
+    if (!isRealWorkspace || !spendingVisible || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return
 
     const startsOn = selectedBudgetMonthStartsOn
     const endsOn = selectedBudgetMonthEndsOn
@@ -1332,7 +1430,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => {
       cancelled = true
     }
-  }, [isRealWorkspace, selectedBudgetMonthStartsOn, selectedBudgetMonthEndsOn])
+  }, [spendingVisible, isRealWorkspace, selectedBudgetMonthStartsOn, selectedBudgetMonthEndsOn])
 
   useEffect(() => {
     if (!data || isRealWorkspace) return
@@ -1480,39 +1578,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (miaLoading) chatScrolledAwayRef.current = false
   }, [miaLoading])
 
-  useEffect(() => {
-    if (activeSection !== 'Ask Mia') return
-    const chatCard = chatCardRef.current
-    if (!chatCard) return
-
-    // Images, fonts and review cards keep changing the layout for a moment, so
-    // re-anchor whenever it shifts until the participant scrolls themselves.
-    let settled = false
-    const away = () => { chatScrolledAwayRef.current = true }
-    const reanchor = () => { if (!settled && !chatScrolledAwayRef.current) anchorMiaChat('auto') }
-    chatCard.addEventListener('wheel', away, { passive: true })
-    chatCard.addEventListener('touchmove', away, { passive: true })
-    chatCard.addEventListener('keydown', away)
-    const frame = requestAnimationFrame(() => {
-      if (chatScrolledAwayRef.current) return
-      anchorMiaChat('auto')
-      setShowChatScrollButton(false)
-    })
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(reanchor)
-    observer?.observe(chatCard)
-    Array.from(chatCard.children).forEach((child) => observer?.observe(child))
-    chatCard.addEventListener('load', reanchor, true)
-    const settle = window.setTimeout(() => { settled = true }, 2500)
-    return () => {
-      cancelAnimationFrame(frame)
-      window.clearTimeout(settle)
-      observer?.disconnect()
-      chatCard.removeEventListener('wheel', away)
-      chatCard.removeEventListener('touchmove', away)
-      chatCard.removeEventListener('keydown', away)
-      chatCard.removeEventListener('load', reanchor, true)
-    }
-  }, [activeSection, newestMessageKey, miaLoading, anchorMiaChat])
+  useMiaEntryAnchor({ active: activeSection === 'Ask Mia', messageKey: newestMessageKey, loading: miaLoading, chatRef: chatCardRef, awayRef: chatScrolledAwayRef, anchor: anchorMiaChat, setShowScrollButton: setShowChatScrollButton })
+  const queueHistoryPosition = useMiaHistoryPosition({ chatRef: chatCardRef, visibleMessageCount, olderMessageCount: olderServerMessageCount, scope: chatStorageKey })
 
   const stopVoiceStream = useCallback(() => {
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
@@ -1659,8 +1726,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       if (!window.confirm('Discard your unsaved Coach Studio changes and leave this screen?')) return false
       setHasUnsavedCoachChanges(false)
     }
-    if (canResumePlaidOAuthReturn && targetSection !== 'My Profile') {
-      setRouteAnnouncement('Finish the bank connection before leaving My Profile.')
+    if (canResumePlaidOAuthReturn && targetSection !== 'My Money') {
+      setRouteAnnouncement('Finish the bank connection before leaving My Money.')
       return false
     }
     if (hasPendingPlaidOAuthReturn() && data && !canResumePlaidOAuthReturn) {
@@ -1719,10 +1786,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     if (hasPendingPlaidOAuthReturn() && data && auth.currentUser) {
       const callbackUrl = canResumePlaidOAuthReturn
-        ? `${window.location.pathname}${window.location.search}${sectionHash('My Profile')}`
-        : clearPlaidOAuthStateFromUrl('My Profile')
+        ? `${window.location.pathname}${window.location.search}${sectionHash('My Money')}`
+        : clearPlaidOAuthStateFromUrl('My Money')
       window.history.replaceState(
-        { section: 'My Profile' },
+        { section: 'My Money' },
         '',
         callbackUrl,
       )
@@ -1731,7 +1798,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const followBrowserLocation = () => {
       if (!data) {
         if (hasPendingPlaidOAuthReturn()) {
-          const targetSection = 'My Profile'
+          const targetSection = 'My Money'
           const targetHash = sectionHash(targetSection)
           if (window.location.hash !== targetHash) {
             window.history.replaceState(
@@ -1749,6 +1816,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       if (lastHandledLocationRef.current === locationKey) return
 
       const requestedSection = sectionFromLocation()
+      if (hasPendingPlaidOAuthReturn()) setMoneyTopic('accounts')
       if (requestedSection === ADMIN_SECTION && auth.isAuthEnabled && !auth.currentUser) return
       lastHandledLocationRef.current = locationKey
       const unavailableCapability = data.workspace.capabilities.modules.find((module) => module.id === sectionCapabilityIds[requestedSection] && !module.enabled)
@@ -1972,6 +2040,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   function focusProfileSetupField(fieldName: string, payload: Record<string, unknown>) {
+    if (!['household_name', 'primary_goal'].includes(fieldName) && data?.workspace.setup_complete) {
+      if (!switchSection('My Money', { focusHeading: false })) return
+      setMoneyTopic('spending')
+    }
     const origin = document.activeElement
     const sequence = ++profileFocusSequenceRef.current
     setSetupDraft((current) => current ? workspaceSetupDraftWithProposal(current, payload) : current)
@@ -2027,11 +2099,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   function openFirstSessionChat(prompt: string) {
-    switchSection('Ask Mia')
+    switchSection('Ask Mia', { focusHeading: false })
     setQuestion(prompt)
     setMiaError(null)
     setVoiceNotice(null)
-    window.setTimeout(() => composerRef.current?.focus({ preventScroll: true }), 80)
+    scheduleFirstSessionComposerFocus(() => composerRef.current, () => activeSectionRef.current === 'Ask Mia')
   }
 
   function openDocumentReview(documentImportId?: number) {
@@ -2253,15 +2325,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   async function handleLoadEarlierMessages() {
     // Reading older history: keep the restored position, never re-anchor.
     chatScrolledAwayRef.current = true
-    const chatCard = chatCardRef.current
-    const previousHeight = chatCard?.scrollHeight ?? 0
-    const previousTop = chatCard?.scrollTop ?? 0
-
     if (hiddenMessageCount > 0) {
+      if (!queueHistoryPosition()) return
       setVisibleMessageCount((count) => count + CHAT_HISTORY_PAGE_SIZE)
-      requestAnimationFrame(() => {
-        if (chatCard) chatCard.scrollTop = previousTop + (chatCard.scrollHeight - previousHeight)
-      })
       return
     }
 
@@ -2273,6 +2339,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     historyExpandedRef.current = true
     try {
       const page = await fetchMiaMessages(true, beforeId)
+      // A discarded page leaves history as it was, so later refreshes keep paging normally.
+      if (!queueHistoryPosition()) { historyExpandedRef.current = historyWasExpanded; return }
       setMessages((current) => {
         const existingIds = new Set(current.map((message) => message.id).filter(Boolean))
         const olderMessages = page.messages.filter((message) => !message.id || !existingIds.has(message.id))
@@ -2281,9 +2349,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setVisibleMessageCount((count) => count + page.messages.length)
       setOldestServerMessageId(page.oldest_message_id ?? beforeId)
       setOlderServerMessageCount(page.older_message_count)
-      requestAnimationFrame(() => {
-        if (chatCard) chatCard.scrollTop = previousTop + (chatCard.scrollHeight - previousHeight)
-      })
     } catch (caught) {
       historyExpandedRef.current = historyWasExpanded
       setMiaError(participantErrorMessage(caught, `Earlier ${assistantName} messages could not be loaded.`))
@@ -2852,6 +2917,22 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
   }
 
+  function restoreHelpFocus() {
+    requestAnimationFrame(() => {
+      const active = document.activeElement as HTMLElement | null
+      if (!active || active === document.body || active.getClientRects().length === 0) shellAccountMenuRef.current?.querySelector<HTMLElement>('summary')?.focus()
+    })
+  }
+
+  function recoverReviewFocus() {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (document.activeElement && document.activeElement !== document.body) return
+      const target = document.querySelector<HTMLElement>('.transaction-draft-stack [data-review-confirm]:not(:disabled)')
+        ?? document.querySelector<HTMLElement>('.transaction-draft-stack [role="status"], [data-review-result], [data-page-heading]')
+      target?.focus()
+    }))
+  }
+
   async function handleConfirmTransactionDraft(draft: TransactionDraft) {
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
@@ -2869,6 +2950,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
+      const confirmedMonth = workspace.budget.annual_plan?.months[draftMonthIndex]
+      const total = workspace.budget.annual_plan?.rows.reduce((sum, row) => sum + (row.months[draftMonthIndex]?.actual ?? 0), 0)
+      setTransactionNotice(`Confirmed ${draft.merchant} for ${currency.format(exactMoneyNumber(draft.amount, draft.amount_cents))}.${total !== undefined ? ` ${confirmedMonth?.label ?? 'Month'} confirmed spending: ${currency.format(total)}.` : ''}`)
       captureAnalyticsEvent('transaction_draft_confirmed', {
         source_type: draft.source_type ?? 'manual_chat',
       })
@@ -2880,6 +2964,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentsError(message)
     } finally {
       endBudgetAction()
+      recoverReviewFocus()
     }
   }
 
@@ -2900,6 +2985,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
+      setTransactionNotice(`Ignored ${draft.merchant}. It is not counted as spending.`)
       captureAnalyticsEvent('transaction_draft_ignored', {
         source_type: draft.source_type ?? 'manual_chat',
       })
@@ -2911,6 +2997,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentsError(message)
     } finally {
       endBudgetAction()
+      recoverReviewFocus()
     }
   }
 
@@ -2945,6 +3032,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
+      setTransactionNotice(`${ids.length} transactions ${resolution === 'confirm' ? 'confirmed' : 'ignored'}.`)
       captureAnalyticsEvent(`transaction_drafts_bulk_${resolution}`, {
         draft_count: ids.length,
       })
@@ -2957,6 +3045,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setMiaError(message)
     } finally {
       endBudgetAction()
+      recoverReviewFocus()
     }
   }
 
@@ -2986,6 +3075,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentsError(message)
     } finally {
       endBudgetAction()
+      recoverReviewFocus()
     }
   }
 
@@ -3009,6 +3099,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
+      setTransactionNotice(`Reopened ${draft.merchant}. It is waiting for your review and is not counted as spending.`)
       captureAnalyticsEvent('transaction_draft_reopened', {
         previous_status: draft.status,
         source_type: draft.source_type ?? 'manual_chat',
@@ -3347,7 +3438,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     setSetupSaving(true)
     setSetupError(null)
     try {
-      const allSetupValues = submittableWorkspaceSetupValues(setupDraft, wasSetupComplete)
+      const setupValues = submittableWorkspaceSetupValues(setupDraft, wasSetupComplete)
+      const allSetupValues = activeSection === 'My Profile' && wasSetupComplete ? { household_name: setupValues.household_name, primary_goal: setupValues.primary_goal } : setupValues
       // A profile edit sends only what the person changed. Re-sending untouched
       // totals would ask the API to flatten detailed monthly category amounts.
       const submittedSetupValues = wasSetupComplete && profileEditBaseline
@@ -3616,12 +3708,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         </div>
       </header>
 
+      {transactionNotice && ['Ask Mia', 'Statements'].includes(activeSection) && <p data-review-result tabIndex={-1} role="status" className="document-alert success">{transactionNotice}</p>}
       {selectionNotice && <p className="document-alert" role="status">{selectionNotice}</p>}
       {restartNotice && <div className="document-alert financial-restart-notice" role="status"><p>{restartNotice}</p><button type="button" className="secondary-button" onClick={onDismissRestartNotice}>Dismiss</button></div>}
       <ParticipantTabs staffOnly={staffOnly} sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} onToday={isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => { if (todayCheckIn.checkedIn === false) { openDailyCheckIn(); return } setDailyIntake(null); setDailyOpen(true) } : undefined} />
 
       {isRealWorkspace && !isSavingsExperience && activeSection !== ADMIN_SECTION && activeSection !== COACH_STUDIO_SECTION && activeSection !== 'Ask Mia' && (
-        <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
+        <PilotSupportBar />
       )}
 
       {!workspaceRefreshNotice && (homeBudgetStale || dataBudgetStale) && <p className="document-alert" role="status">Your records just changed. Totals will update in a moment.</p>}
@@ -3653,7 +3746,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onAskMia={() => switchSection('Ask Mia')}
               onReviewTransactions={() => switchSection('Review')}
               onReviewMiaActions={() => switchSection('Ask Mia')}
-              pendingImportCount={pendingImportsCount}
+              pendingImportCount={documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0}
               onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
               onOpenDebt={isRealWorkspace ? () => handleProfileSectionEdit('debt') : undefined}
               onOpenBudget={() => switchSection('Budget')}
@@ -3936,8 +4029,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         <section className="screen-grid activity-screen">
           <ScreenHeading
             eyebrow="Review"
-            title="Review what changed before it counts."
-            copy="Review transactions and recent changes in one place. You always control what becomes an official budget actual."
+            title="Review your purchases"
+            copy="Add a purchase, check it, then confirm. Only confirmed purchases count as spent."
           />
 
           {isRealWorkspace && auth.currentUser ? (
@@ -3948,10 +4041,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   categories={activeBudgetPlan?.rows ?? []}
                   busy={budgetAction === 'create-transaction-draft'}
                   locked={Boolean(budgetAction)}
+                  resolutionNotice={transactionNotice}
                   onCreate={handleCreateTransactionDraft}
                 />
                 </fieldset>
-                {pendingTransactionDrafts.length > 0 && (
+                {(
                   <TransactionDraftReviewStack
                     drafts={pendingTransactionDrafts}
                     isRealWorkspace
@@ -3961,8 +4055,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     plan={activeBudgetPlan}
                     queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
                     eyebrow="Household review"
-                    title="Review every transaction before it becomes an actual"
-                    description={`${assistantName}, manual entries, bank activity, and uploads share this queue. Check the source, merchant, amount, category, and splits before confirming.`}
+                    title="Purchases to review"
+                    description="Check the date, amount and category before confirming."
                     onUpdate={handleUpdateTransactionDraft}
                     onMatch={handleMatchTransactionDraft}
                     onConfirm={handleConfirmTransactionDraft}
@@ -4015,6 +4109,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           <nav className="money-topics" aria-label="My Money topics">
             {moneyTopics.map(topic => (
               <button type="button" key={topic.id} aria-pressed={moneyTopic === topic.id} aria-controls="money-topic-content" onClick={() => {
+                if (canResumePlaidOAuthReturn && topic.id !== 'accounts') { setRouteAnnouncement('Finish the bank connection before switching money topics.'); return }
                 if (topic.id !== moneyTopic && blockFinancialTransition('switching money topics')) return
                 setMoneyTopic(topic.id)
                 setRouteAnnouncement(`${topic.label} tools loaded.`)
@@ -4031,6 +4126,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       <strong>{selectedBudgetYear} income schedule</strong>
                       <button type="button" className="secondary-button budget-year-arrow" aria-label="Next income year" onClick={() => handleBudgetViewChange(selectedBudgetYear + 1, selectedBudgetMonthIndex)}>›</button>
                     </div>
+                    <IncomeForms locked={hasUnsavedIncomeChanges || incomeMutationPending}>
                     <IncomeSourceManager
                       sectionRef={incomeSourcesRef}
                       sources={data.workspace.income_sources ?? budgetForView.annual_plan.income_sources}
@@ -4055,6 +4151,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       onFocusRequestHandled={() => setBudgetFocusRequest(null)}
                       onUnsavedChangesChange={handleIncomeScheduleDirtyChange} />
                     </article>
+                    </IncomeForms>
                   </fieldset>
                 ) : budgetView ? <article className="panel empty-state"><strong>The {budgetView.year} income plan needs a refresh.</strong><p>Your saved income records are still available. Reload the selected year before editing its schedule.</p><Button variant="secondary" onClick={() => handleBudgetViewChange(budgetView.year, budgetView.monthIndex)}>Reload selected year</Button><Button variant="secondary" onClick={() => handleBudgetViewChange(data.dashboard.action_center.current_year, new Date().getMonth())}>Use current year</Button></article> : <article className="panel empty-state"><strong>Your income sources will appear here.</strong><p>Add starting household numbers to create your income plan.</p><Button variant="secondary" onClick={startManualFirstSession}>Set up my household</Button></article>}
               </>
@@ -4083,6 +4180,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 {isSavingsExperience && <p className="annual-edit-hint">These are household budget categories. Changes to an approved statement spending baseline require a separate review.</p>}
               </article>
             )}
+            {moneyTopic === 'spending' && isRealWorkspace && setupDraft && <ProfileDisclosure label="Starting household numbers" forceOpen={isProfileEditing}>
+              <WorkspaceSetupForm formRef={setupFormRef} values={setupDraft} editing={isProfileEditing} saving={setupSaving} error={setupError} firstSession={false} onBeginEdit={beginProfileEditing} onCancel={cancelProfileEditing} onChange={updateSetupDraft} onSubmit={handleSetupSubmit} monthPlan={profileMonthPlan} />
+            </ProfileDisclosure>}
             {moneyTopic === 'debt' && (
               <>
                 {isSavingsExperience && <article className="panel money-scope-note"><strong>Household debt and optional card review</strong><p>This household plan tracks balances and minimums used in your budget. The challenge card review separately holds approved statement terms and comparisons; changes here do not update it.</p>{challengeParticipantScope && data.workspace.cohort?.id && <Button variant="secondary" onClick={() => setOptionalDebtOpen(true)}>Open optional card review</Button>}</article>}
@@ -4105,6 +4205,18 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       focusRequest={accountFocusRequest}
                       onFocusRequestHandled={() => setAccountFocusRequest(null)}
                     onUnsavedChangesChange={handleAccountDirtyChange} /> : <article className="panel empty-state"><p>Sign in to manage your accounts.</p></article>)}
+            {moneyTopic === 'accounts' && (<>
+          <ProfileDisclosure label="Optional bank connections" forceOpen={canResumePlaidOAuthReturn}>
+          {isRealWorkspace && auth.currentUser && (
+            <PlaidConnections
+              householdId={data.workspace.household_id}
+              userId={String(auth.currentUser.id)}
+              variant="connections"
+              onDraftsCreated={refreshWorkspaceAfterPlaidDrafts}
+            />
+          )}
+          </ProfileDisclosure>
+            </>)}
             {moneyTopic === 'goals' && (isRealWorkspace ? <GoalManager
                       sectionRef={goalManagerRef}
                       goals={data.workspace.goals ?? []}
@@ -4133,17 +4245,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           )}
 
           {!isFirstSessionSetup && <article className="panel profile-money-link"><h3>Looking for your money details?</h3><p>Find income, spending categories, debt, accounts, and goals together in My Money.</p><Button variant="secondary" onClick={() => switchSection('My Money')}>Open My Money</Button></article>}
-          {!isFirstSessionSetup && (
-            <article className="panel completeness-card">
-              <div>
-                <span>Profile completeness</span>
-                <strong>{data.profile.completeness}%</strong>
-              </div>
-              <div className="progress-track"><span style={{ width: `${data.profile.completeness}%` }} /></div>
-              <p>{isRealWorkspace ? `These are your saved household numbers. Update them anytime and ${assistantName} will use the new context.` : 'Add details by hand anytime, or upload a spreadsheet, statement, or pay stub to fill them in faster.'}</p>
-            </article>
-          )}
-
           {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <ProfileDisclosure label="Memory & personalization"><MiaMemoryPanel enabled={Boolean(isRealWorkspace)} /></ProfileDisclosure>}
 
           {isRealWorkspace && setupDraft && !isFirstSessionUpload && (
@@ -4158,84 +4259,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
               firstSession={isFirstSessionSetup}
+              personalOnly={!isFirstSessionSetup}
               monthPlan={profileMonthPlan}
             />
           )}
 
-          <ProfileDisclosure label="Income sources and schedule" forceOpen={Boolean(incomeFocusRequest)}>
-          {isRealWorkspace && !isFirstSessionSetup && data.budget.annual_plan && (
-            <fieldset className="budget-loading-boundary" disabled={budgetYearLoading}><legend className="sr-only">Income plan controls</legend>
-            <IncomeSourceManager
-              sectionRef={incomeSourcesRef}
-              sources={data.workspace.income_sources ?? data.budget.annual_plan.income_sources}
-              action={budgetContextAction}
-              error={setupError}
-              onSave={handleSaveIncomeSource}
-              onArchive={handleArchiveIncomeSource}
-              onRestore={handleRestoreIncomeSource}
-              focusRequest={incomeFocusRequest}
-              onFocusRequestHandled={() => setIncomeFocusRequest(null)}
-                      onUnsavedChangesChange={handleIncomeSourceDirtyChange}
-            />
-            </fieldset>
-          )}
-          </ProfileDisclosure>
 
-          <ProfileDisclosure label="Accounts and assets" forceOpen={Boolean(accountFocusRequest)}>
-          {isRealWorkspace && !isFirstSessionSetup && (
-            <AccountManager
-              sectionRef={accountManagerRef}
-              accounts={data.workspace.accounts}
-              portfolio={data.workspace.asset_portfolio}
-              onChanged={refreshWorkspaceAfterDebtChange}
-              focusRequest={accountFocusRequest}
-              onFocusRequestHandled={() => setAccountFocusRequest(null)}
-                    onUnsavedChangesChange={handleAccountDirtyChange}
-            />
-          )}
-          </ProfileDisclosure>
 
-          <ProfileDisclosure label="Household goals" forceOpen={Boolean(goalFocusRequest)}>
-          {isRealWorkspace && !isFirstSessionSetup && (
-            <GoalManager
-              sectionRef={goalManagerRef}
-              goals={data.workspace.goals ?? []}
-              portfolio={data.workspace.goal_portfolio ?? { active_count: 0, archived_count: 0, target_total: 0, progress_total: 0, target_known_count: 0, progress_known_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] }}
-              onChanged={refreshWorkspaceAfterDebtChange}
-              focusRequest={goalFocusRequest}
-              onFocusRequestHandled={() => setGoalFocusRequest(null)}
-                    onUnsavedChangesChange={handleGoalDirtyChange}
-            />
-          )}
-          </ProfileDisclosure>
-
-          <ProfileDisclosure label="Optional household debt plan" forceOpen={Boolean(debtFocusRequest)}>
-          {isRealWorkspace && !isFirstSessionSetup && (
-            <DebtManager
-              sectionRef={debtManagerRef}
-              key={`${data.workspace?.debt_portfolio?.mode}:${data.workspace?.debt_portfolio?.total_balance}:${data.workspace?.debt_portfolio?.monthly_minimum}:${data.workspace?.debt_portfolio?.balance_known}:${data.workspace?.debt_portfolio?.minimum_payment_known}:${data.workspace?.debt_portfolio?.active_count}:${data.workspace?.debt_portfolio?.archived_count}`}
-              debts={data.workspace?.debts ?? []}
-              portfolio={data.workspace?.debt_portfolio ?? { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 }}
-              onChanged={refreshWorkspaceAfterDebtChange}
-              focusRequest={debtFocusRequest}
-              onFocusRequestHandled={() => setDebtFocusRequest(null)}
-                    onUnsavedChangesChange={handleDebtDirtyChange}
-            />
-          )}
-          </ProfileDisclosure>
-
-          <ProfileDisclosure label="Optional bank connections" forceOpen={canResumePlaidOAuthReturn}>
-          {isRealWorkspace && auth.currentUser && !isFirstSessionSetup && (
-            <PlaidConnections
-              householdId={data.workspace.household_id}
-              userId={String(auth.currentUser.id)}
-              variant="connections"
-              onDraftsCreated={refreshWorkspaceAfterPlaidDrafts}
-            />
-          )}
-          </ProfileDisclosure>
-
-          {!isFirstSessionSetup && <article className="panel profile-statements-link"><h3>Your private statements</h3><p>Upload statements, check each account and line, and approve changes in Statements.</p><Button variant="secondary" onClick={() => openDocumentReview()}>Open Statements</Button></article>}
           {isFirstSessionUpload && <DocumentImportWorkspace
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             sectionRef={documentImportsRef}
@@ -4271,28 +4301,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             onOpenSource={handleOpenDocumentSource}
           />}
 
-          {!isFirstSessionSetup && <details className="profile-disclosure"><summary>Saved household summary</summary><div className="profile-section-grid">
-            {data.profile.sections.map((section) => (
-              <article className="panel profile-section" key={section.label}>
-                <div className="row-between">
-                  <h3>{section.label}</h3>
-                  <button type="button" aria-label={`Edit ${section.label}`} onClick={() => handleProfileSectionEdit(section.label)}>Edit</button>
-                </div>
-                <p>{section.summary}</p>
-                {section.items.map((item) => (
-                  <div className="money-row" key={item.label}>
-                    <span>{item.label}</span>
-                    <strong className={item.amount < 0 ? 'negative' : ''}>{currency.format(item.amount)}</strong>
-                  </div>
-                ))}
-              </article>
-            ))}
-          </div></details>}
+
         </section>
       )}
 
       {activeSection === 'Statements' && <section className="screen-grid statements-screen">
-        <ScreenHeading eyebrow="Statements" title="Your statements, one review at a time." copy="Upload privately, check the account and period, then review what each row means. Nothing changes your numbers until you approve it." />
+        <ScreenHeading eyebrow="Statements" title="Statements" copy="Upload your statement and check each account and line. Your numbers change only after you approve." />
         {isFirstSessionSetup && <div className="first-session-upload-return"><Button variant="secondary" onClick={startManualFirstSession}>Return to starting numbers</Button></div>}
         <DocumentImportWorkspace
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
@@ -4559,12 +4573,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind ? 'Save or cancel your open edits and let current requests finish before preparing a restart review.' : null}
         onClose={() => setFinancialRestartOpen(false)} onApplied={finishFinancialRestart} />}
       {enterpriseSettingsOpen && auth.currentUser && <EnterpriseSettings key={`${auth.authProvider}:${auth.authIdentityId}:${auth.currentUser.id}`} currentUser={auth.currentUser} onClose={() => setEnterpriseSettingsOpen(false)} />}
-      {pilotGuideOpen && <PilotGuideDialog savingsChallenge={isSavingsExperience} onClose={() => setPilotGuideOpen(false)} />}
+      {pilotGuideOpen && <PilotGuideDialog savingsChallenge={isSavingsExperience} onClose={() => { setPilotGuideOpen(false); restoreHelpFocus() }} />}
       {pilotFeedbackOpen && (
         <PilotFeedbackDialog
           key={`${auth.authIdentityId}:${auth.currentUser?.id}:${data.workspace.household_id}`}
           initialWorkflow={pilotFeedbackWorkflowForSection(activeSection)}
-          onClose={() => setPilotFeedbackOpen(false)}
+          onClose={() => { setPilotFeedbackOpen(false); restoreHelpFocus() }}
           onSubmit={submitPilotFeedback}
         />
       )}
@@ -4762,10 +4776,9 @@ function AccessDenied({ message, onSignOut, onRetry }: { message: string; onSign
   )
 }
 
-function ScreenHeading({ eyebrow, title, copy }: { eyebrow: string; title: string; copy: string }) {
+function ScreenHeading({ title, copy }: { eyebrow: string; title: string; copy: string }) {
   return (
     <div className="screen-heading">
-      <p className="eyebrow">{eyebrow}</p>
       <h2 data-page-heading tabIndex={-1}>{title}</h2>
       <p>{copy}</p>
     </div>
@@ -4800,7 +4813,7 @@ function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }
       <div className="first-session-progress-heading">
         <div>
           <span className="eyebrow">Starting picture</span>
-          <strong id="first-session-progress-title">{status.completed_count} of {status.required_count} essentials confirmed</strong>
+          <strong id="first-session-progress-title">{status.completed_count} of {status.required_count} answers saved</strong>
         </div>
         <span>{Math.round((status.completed_count / Math.max(status.required_count, 1)) * 100)}%</span>
       </div>
@@ -4834,7 +4847,7 @@ function ProfileDisclosure({ label, forceOpen = false, children }: { label: stri
   return <details ref={ref} className="profile-disclosure"><summary>{label}</summary>{children}</details>
 }
 
-function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => void; onOpenFeedback: () => void }) {
+function PilotSupportBar() {
   const { brand } = useBrand()
   const supportHref = brand.support.url ?? (brand.support.email ? `mailto:${brand.support.email}` : null)
   return (
@@ -4842,8 +4855,7 @@ function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => v
       <span><ShieldIcon /> <span>Private workspace</span></span>
       <div>
         {supportHref && <a className="button button--ghost button--compact" href={supportHref} title={brand.support.label ?? undefined} target={brand.support.url ? '_blank' : undefined} rel={brand.support.url ? 'noreferrer' : undefined}><span className="pilot-support-label">{brand.support.label ?? 'Support'}</span></a>}
-        <Button variant="ghost" size="compact" onClick={onOpenGuide}><GuideIcon /> Guide</Button>
-        <Button variant="ghost" size="compact" onClick={onOpenFeedback}><FeedbackIcon /> Feedback</Button>
+
       </div>
     </aside>
   )
@@ -4861,7 +4873,7 @@ function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow
   return 'other'
 }
 
-function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () => void; savingsChallenge?: boolean }) {
+function PilotGuideDialog({ onClose, savingsChallenge = false, staffOnly = false }: { onClose: () => void; savingsChallenge?: boolean; staffOnly?: boolean }) {
   const { assistantName } = useBrand()
   const dialogRef = usePilotDialog(onClose)
 
@@ -4872,24 +4884,29 @@ function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () =
         <header>
           <div>
             <p className="eyebrow">Quick guide</p>
-            <h2 id="pilot-guide-title">{savingsChallenge ? 'Your 90-day challenge in three simple moves.' : <>A clear first {assistantName} session in three moves.</>}</h2>
+            <h2 id="pilot-guide-title">{staffOnly ? 'Your coaching workspace.' : savingsChallenge ? 'Your 90-day challenge in three simple moves.' : 'Your household money, day to day.'}</h2>
           </div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
         <div className="pilot-dialog-body">
         <ol className="pilot-guide-steps">
-          {savingsChallenge ? <>
+          {staffOnly ? <>
+            <li><span>1</span><div><strong>Start in Daily coaching.</strong><p>Choose a group and review who needs help.</p></div></li>
+            <li><span>2</span><div><strong>Open a participant with permission.</strong><p>Use only the information that participant has shared for coaching.</p></div></li>
+            <li><span>3</span><div><strong>Use the program tools when needed.</strong><p>Program settings, Assistant voice and Coaching Library stay in Coach Studio.</p></div></li>
+          </> : savingsChallenge ? <>
             <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested $500 over 90 days is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
             <li><span>2</span><div><strong>Use Today for a quick check-in.</strong><p>Report purchases when useful, distinguish no spending from unknown spending, and return for your Day 30, 60 and 90 checkpoints. Feelings are optional.</p></div></li>
             <li><span>3</span><div><strong>Report money you actually set aside.</strong><p>On Home, choose Report savings, check its date and funding source, then approve your reviewed record. A plan or pending proposal does not count as savings. Ask {assistantName} for a comfortable next step.</p></div></li>
-          </> : <><li><span>1</span><div><strong>Give {assistantName} the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Enter 0 when an amount does not apply; you can refine everything later.</p></div></li>
-          <li><span>2</span><div><strong>Tell {assistantName} what changed.</strong><p>Use your own words—for example, “My take-home pay is now $6,200” or “My card balance is $3,100.” Your assistant can also coach from the context you approved.</p></div></li>
-          <li><span>3</span><div><strong>Review before applying.</strong><p>{assistantName} can draft household-number, future-income, and budget-plan changes. Check every before-and-after value; pending drafts change nothing until you explicitly apply them.</p></div></li></>}
+          </> : <><li><span>1</span><div><strong>Log your purchases.</strong><p>Add a transaction in Review or tell {assistantName} what you spent.</p></div></li>
+          <li><span>2</span><div><strong>Check your month.</strong><p>Confirm the date, amount and category in Review. Budget shows your confirmed spending against the plan.</p></div></li>
+          <li><span>3</span><div><strong>Compare with your statement.</strong><p>Upload in Statements, check each line and approve the changes you want.</p></div></li></>}
+
         </ol>
-        <div className="pilot-guide-power-path">
+        {!staffOnly && <div className="pilot-guide-power-path">
           <strong>Optional upload check</strong>
           <p>{savingsChallenge ? "Statements can help you understand spending, but they are optional. Use Statements to upload and review. A credit card, full budget and bank connection are not required. Uploading does not grant your coach access to your private statements." : <>If a file would save time, try one budget, statement, receipt, or pay stub. Review extracted setup values before applying them and report any failed read from Ask {assistantName} or Statements.</>}</p>
-        </div>
+        </div>}
         <footer>
           <ShieldIcon />
           <p>Use Report a problem if you get stuck. Avoid typing account numbers or financial values into the report, and crop screenshots to the problem area.</p>
@@ -4983,8 +5000,6 @@ function DocumentImportWorkspace({
 }) {
   const { assistantName } = useBrand()
   const pendingCount = imports.filter(documentNeedsReview).length
-  const latestApplied = latestAppliedImport(imports)
-  const currentImports = imports.filter(documentImport => !documentImport.context_paused_by_restart)
 
   if (!isRealWorkspace) {
     return (
@@ -5013,22 +5028,7 @@ function DocumentImportWorkspace({
 
   return (
     <section ref={sectionRef} className="panel document-import-workspace" aria-label="Private financial document imports">
-      <div className="document-workspace-heading">
-        <div>
-          <p className="eyebrow">Private document import</p>
-          <h3>Upload evidence. Review draft facts. Apply only what is right.</h3>
-          <p>Your files stay private. {assistantName} proposes information for review and waits for your approval before changing household numbers.</p>
-        </div>
-        <div><span className="document-safe-pill">Private · Review first</span>{onReviewBaseline && <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onReviewBaseline?.() }}>Open your spending snapshot</button>}</div>
-      </div>
-
-      <div className="document-import-summary-row">
-        <Metric label="Needs review" value={String(pendingCount)} />
-        <Metric label="Total imports" value={String(imports.length)} />
-        <Metric label="Approved source" value={latestApplied ? documentKindLabel(latestApplied.document_kind) : currentImports.length > 0 ? 'Not approved yet' : 'None yet'} />
-        <Metric label="Freshness" value={latestApplied ? importPeriodLabel(latestApplied) : currentImports.length > 0 ? 'Review pending' : 'Manual'} />
-      </div>
-
+        <div className="document-workspace-heading"><h3>{pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? 'upload needs' : 'uploads need'} review` : 'Upload a statement'}</h3>{onReviewBaseline && <button type="button" className="text-button" onClick={onReviewBaseline}>Open your spending snapshot</button>}</div>
       <details className="document-upload-secondary"><summary>Other files &amp; budget template</summary><div className="document-import-guide">
         <div>
           <strong>Not sure what to upload?</strong>
@@ -5111,12 +5111,12 @@ function DocumentUploadCard({
         }}
       />
       <label htmlFor={inputId} aria-disabled={disabled}>
-        <span>{card.eyebrow}</span>
+
         <h4>{card.label}</h4>
         <p>{card.helper}</p>
         <small>{card.formats}</small>
         <small>{card.sizeGuidance}</small>
-        <strong>{uploading ? 'Uploading privately' : 'Choose file'}</strong>
+        <strong>{uploading ? 'Uploading' : 'Choose file'}</strong>
       </label>
     </article>
   )
@@ -5178,10 +5178,11 @@ function DocumentImportHistory({
   return (
     <aside className="document-history" aria-label="Document import history">
       <div className="document-history-heading">
-        <h4>Import history</h4>
+        <h4>Your uploads</h4>
         <span>{loading ? 'Refreshing' : `${imports.length} total`}</span>
       </div>
       {imports.length > 0 && (
+        <details className="document-history-search-options"><summary>Find an upload</summary>
         <div className="document-history-controls" aria-label="Import history filters">
           <label className="document-history-search">
             <span className="sr-only">Search imports</span>
@@ -5221,6 +5222,7 @@ function DocumentImportHistory({
             </select>
           </label>
         </div>
+        </details>
       )}
       {imports.length === 0 ? (
         <div className="document-empty-state">
@@ -5251,20 +5253,20 @@ function DocumentImportHistory({
               </button>
             ))}
           </div>
-          <div className="document-history-pagination" aria-label="Import history pagination">
+          {filteredImports.length > pageSize && <div className="document-history-pagination" aria-label="Import history pagination">
             <span>{filteredImports.length === 0 ? '0 shown' : `${safePage * pageSize + 1}-${Math.min((safePage + 1) * pageSize, filteredImports.length)} of ${filteredImports.length}`}</span>
             <div>
               <button type="button" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(current - 1, 0))}>Previous</button>
               <button type="button" disabled={safePage >= totalPages - 1} onClick={() => setPage((current) => Math.min(current + 1, totalPages - 1))}>Next</button>
             </div>
-          </div>
+          </div>}
         </>
       )}
     </aside>
   )
 }
 
-function DocumentReviewPanel({
+export function DocumentReviewPanel({
   documentImport,
   categories,
   annualPlan,
@@ -5314,37 +5316,14 @@ function DocumentReviewPanel({
   uploading: boolean
 }) {
   const { assistantName } = useBrand()
-  if (!documentImport) {
-    const inputId = 'document-empty-upload'
-
-    return (
-      <article className="document-review-panel document-empty-state">
-        <AttachmentIcon />
-        <h4>Upload a document to begin</h4>
-        <p>Choose one of the upload cards above, or start here with a budget, statement, PDF, Excel file, Word doc, pay stub, or receipt. {assistantName} will never apply extracted numbers until you approve them.</p>
-        <input
-          id={inputId}
-          className="sr-only"
-          type="file"
-          accept={SUPPORTED_DOCUMENT_ACCEPTS}
-          disabled={uploading}
-          onChange={(event) => {
-            const file = event.target.files?.[0]
-            if (file) onUpload(inferDocumentKind(file), file, 'profile')
-            event.currentTarget.value = ''
-          }}
-        />
-        <label className="document-empty-upload-button" htmlFor={inputId} aria-disabled={uploading}>{uploading ? 'Uploading privately' : 'Choose a document'}</label>
-      </article>
-    )
-  }
+  if (!documentImport) return <article className="document-review-panel empty-state"><h4>Select an upload to review</h4><p>Your uploads will appear here.</p></article>
 
   if (!documentImport.details_included) {
     return (
       <article className="document-review-panel document-empty-state" aria-label={`Loading ${documentImportDisplayName(documentImport)}`}>
         <AttachmentIcon />
         <h4>Loading review details</h4>
-        <p>{assistantName} is opening the extracted values, transaction drafts, split lines, and matches for {documentImportDisplayName(documentImport)}.</p>
+        <p>{assistantName} is opening the accounts and purchases from {documentImportDisplayName(documentImport)}.</p>
       </article>
     )
   }
@@ -5379,22 +5358,19 @@ function DocumentReviewPanel({
     <article className="document-review-panel" aria-label={`Review ${documentImportDisplayName(documentImport)}`}>
       <div className="document-review-header">
         <div>
-          <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
           <h4>{documentImportDisplayName(documentImport)}</h4>
           <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
         </div>
         <div className="document-review-controls">
           <div className="document-review-actions">
-            <button type="button" onClick={(event) => { event.currentTarget.focus(); onOpenSource(documentImport) }} disabled={!documentImport.source_available || actionForImport('source-url')}>
+            <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onOpenSource(documentImport) }} disabled={!documentImport.source_available || actionForImport('source-url')}>
               {actionForImport('source-url') ? 'Opening' : 'Preview original'}
             </button>
+          </div>
+          <details className="document-file-options"><summary>File options</summary>
+          <div className="document-review-actions">
             {fullyApplied ? (
-              <>
-                <span className="document-action-hint">Upload a new copy to reprocess</span>
-                <button type="button" className="subtle" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
-                  {appliedDetailsOpen ? 'Hide saved values' : 'Edit saved values'}
-                </button>
-              </>
+              <span className="document-action-hint">Upload a new copy to reprocess</span>
             ) : (
               <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
                 {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
@@ -5408,10 +5384,11 @@ function DocumentReviewPanel({
             </button>
           </div>
           <p className="document-retention-help" id={retentionHelpId}>{retentionHelp}</p>
+          </details>
         </div>
       </div>
 
-      <div className="document-summary-box">
+      {(documentImport.extracted_summary || documentImport.extraction_error) && <div className="document-summary-box">
         <strong>{assistantName} read</strong>
         <p>{documentImport.extracted_summary || statusExplainer(documentImport)}</p>
         {(documentImport.metadata.extraction_page_count || documentImport.metadata.transaction_draft_count) && (
@@ -5422,9 +5399,9 @@ function DocumentReviewPanel({
           </div>
         )}
         {documentImport.extraction_error && <p className="document-error-copy">{documentImport.extraction_error}</p>}
-      </div>
+      </div>}
 
-      <DocumentRoutingSummary documentImport={documentImport} />
+      {documentImport.metadata.routing_requires_confirmation ? <DocumentRoutingSummary documentImport={documentImport} /> : documentImport.metadata.routing_source && <details className="document-reading-details"><summary>How this file was read</summary><DocumentRoutingSummary documentImport={documentImport} /></details>}
 
       {warnings.length > 0 && (
         <div className="document-warning-list" role="note" aria-label="Extraction warnings">
@@ -5435,7 +5412,7 @@ function DocumentReviewPanel({
       {processing && (
         <div className="document-processing-state" role="status">
           <span />
-          <p>{assistantName} is extracting draft values and transaction rows. This panel refreshes automatically.</p>
+          <p>{assistantName} is reading the accounts and purchases. This panel refreshes automatically.</p>
         </div>
       )}
 
@@ -5453,19 +5430,17 @@ function DocumentReviewPanel({
       )}
       {sourceMode === 'unsupported' && <p className="document-alert error" role="alert">This file was read by a newer version of the app. Refresh the page, or contact support if this keeps happening. Nothing has been marked reviewed.</p>}
       {fallbackDrafts.length > 0 && (
-        <section className="document-transaction-drafts" aria-label="Extracted transaction drafts">
-          <div className="document-item-group-heading">
-            <h5>{sourceMode === 'typed' ? 'Additional expense reviews' : 'Transaction drafts'}</h5>
-            <span>{sourceMode === 'typed' ? fallbackCoverage.total : coverage.total} {sourceMode === 'typed' ? 'loaded additional' : 'proposed'} row{(sourceMode === 'typed' ? fallbackCoverage.total : coverage.total) === 1 ? '' : 's'}</span>
-          </div>
+        <section className="document-transaction-drafts" aria-label="Purchases from this upload">
           {sourceMode === 'typed' && <p>Expenses that aren’t tied to a statement line stay here. Confirming one updates your spending; it doesn’t approve the statement.</p>}
-          <p className="document-review-coverage" role="status">{sourceMode === 'typed' ? `${fallbackCoverage.pending} loaded expense reviews remaining · ${fallbackCoverage.resolved} resolved. Statement source review remains separate.` : `${coverage.pending} transaction review${coverage.pending === 1 ? '' : 's'} remaining · ${coverage.resolved} resolved. ${coverage.pending > 0 ? 'This source still needs review; pending rows do not change actuals.' : 'All transaction rows have a review decision.'}`}</p>
+          <p className="document-review-coverage" role="status">{sourceMode === 'typed' ? `${fallbackCoverage.pending} loaded expense reviews remaining · ${fallbackCoverage.resolved} resolved. Statement line review remains separate.` : `${coverage.pending} transaction review${coverage.pending === 1 ? '' : 's'} remaining · ${coverage.resolved} resolved.`}</p>
           <TransactionDraftReviewStack
             drafts={fallbackDrafts}
             selectionEnabled={sourceMode !== 'typed'}
             isRealWorkspace
             action={draftAction}
             compact
+            title={sourceMode === 'typed' ? 'Additional purchases to review' : 'Purchases to review'}
+            description=""
             categories={categories}
             plan={annualPlan}
             onUpdate={onUpdateDraft}
@@ -5489,7 +5464,7 @@ function DocumentReviewPanel({
             <section className="document-item-group" key={targetType}>
               <div className="document-item-group-heading">
                 <h5>{targetTypeLabel(targetType)}</h5>
-                <span>{items.length} draft value{items.length === 1 ? '' : 's'}</span>
+                <span>{items.length} value{items.length === 1 ? '' : 's'} to review</span>
               </div>
               <div className="document-item-list">
                 {items.map((item) => (
@@ -5507,10 +5482,10 @@ function DocumentReviewPanel({
         </div>
       )}
 
-      <div className={`document-apply-bar ${fullyApplied ? 'applied' : ''}`}>
+      {documentImport.items.length > 0 && (!fullyApplied || appliedDetailsOpen) && <div className={`document-apply-bar ${fullyApplied ? 'applied' : ''}`}>
         <div>
           <strong>{fullyApplied ? 'Saved household numbers' : `${selectedCount} selected`}</strong>
-          <span>{fullyApplied ? (appliedDetailsOpen ? `Correcting a saved value updates ${assistantName} and the dashboard immediately.` : 'This source is already applied. Expand only when you need to correct source-backed details.') : reviewable ? 'Approve only values you recognize.' : 'This import is not currently reviewable.'}</span>
+          <span>{fullyApplied ? `Saving a correction updates your household numbers immediately.` : reviewable ? 'Approve only values you recognize.' : 'This upload is not ready for review.'}</span>
         </div>
         {fullyApplied ? (
           <button type="button" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
@@ -5521,7 +5496,7 @@ function DocumentReviewPanel({
             {actionForImport('apply') ? 'Applying' : 'Apply selected'}
           </button>
         )}
-      </div>
+      </div>}
     </article>
   )
 }
@@ -5559,7 +5534,7 @@ function documentReviewResult(documentImport: FinancialDocumentImport) {
   if (values > 0) return `${values} household value${values === 1 ? '' : 's'}`
   if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Checking file contents'
   if (documentImport.transaction_drafts.length > 0 || documentImport.items.length > 0) return 'Review complete'
-  return 'No draft values found'
+  return 'No values found'
 }
 
 function documentReviewDestination(documentImport: FinancialDocumentImport, resolvedKind: DocumentImportKind) {
@@ -5593,10 +5568,10 @@ function routingResultExplanation(documentImport: FinancialDocumentImport, resol
 
 function routingConflictExplanation(metadata: FinancialDocumentImport['metadata'], resolvedKind: DocumentImportKind, assistantName: string) {
   if (metadata.routing_conflict_reason === 'participant_signals') {
-    return `Your message described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but the selected type was ${documentKindLabel(metadata.declared_document_kind ?? 'other').toLowerCase()}. ${assistantName} used your message; verify the draft before approving anything.`
+    return `Your message described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but the selected type was ${documentKindLabel(metadata.declared_document_kind ?? 'other').toLowerCase()}. ${assistantName} used your message; check the values before approving anything.`
   }
 
-  return `You described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but ${assistantName} detected ${documentKindLabel(metadata.routing_detected_kind ?? 'other').toLowerCase()}. Your description was preserved; verify the draft before approving anything.`
+  return `You described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but ${assistantName} detected ${documentKindLabel(metadata.routing_detected_kind ?? 'other').toLowerCase()}. Your description was preserved; check the values before approving anything.`
 }
 
 function routingDestinationLabel(destination: FinancialDocumentImport['metadata']['routing_destination'], kind: DocumentImportKind) {
@@ -5630,7 +5605,7 @@ function AppliedImportSummary({ documentImport, onEdit }: { documentImport: Fina
       <div className="document-applied-summary-copy">
         <span className="document-status green">Applied household budget</span>
         <h5>{appliedItems.length} saved value{appliedItems.length === 1 ? '' : 's'} already feed {assistantName}</h5>
-        <p>The detailed correction cards are tucked away so the profile stays scannable. Open them only when a source-backed number needs a correction.</p>
+        <p>These values are saved. Open them to make a correction.</p>
       </div>
       <div className="document-applied-summary-grid" aria-label="Applied import value groups">
         {groupSummary.map((group) => (
@@ -5775,7 +5750,7 @@ export function DocumentImportItemEditor({
         ))}
         {(draft.target_type === 'income_source' || draft.target_type === 'expense_item') && (
           <label className="document-field">
-            <span>Cadence</span>
+            <span>{draft.target_type === 'income_source' ? "How often you're paid" : 'How often'}</span>
             <select value={draft.cadence} disabled={fieldsDisabled} onChange={(event) => updateDraft({ cadence: event.currentTarget.value })}>
               {draft.cadence === '' && <option value="">Choose how often</option>}
               {cadenceOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
@@ -5829,7 +5804,7 @@ export function DocumentImportItemEditor({
           Click Correct value before changing saved household numbers. Nothing updates until you press Save.
         </p>
       )}
-      {!applied && canEditDraft && <p className="document-evidence applied-note">Draft fields are locked until you click Edit value, then Save.</p>}
+      {!applied && canEditDraft && <p className="document-evidence applied-note">Click Edit value to make a correction, then Save.</p>}
     </article>
   )
 }
@@ -6341,14 +6316,14 @@ function replaceImportTransactionDraft(imports: FinancialDocumentImport[], draft
 }
 
 function statusExplainer(documentImport: FinancialDocumentImport) {
-  if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Extraction is in progress. Draft values will appear here when your assistant finishes reading the source.'
-  if (documentImport.status === 'failed') return 'Your assistant could not extract reliable draft values from this upload. You can delete it or reprocess if the source is still available.'
-  if (documentImport.status === 'source_deleted') return 'The private source file has been deleted. Existing extracted metadata remains for audit context.'
+  if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Your assistant is reading this file. The accounts and purchases will appear here when it finishes.'
+  if (documentImport.status === 'failed') return 'Your assistant could not read reliable values from this upload. Try reading it again from File options, or upload a clearer copy.'
+  if (documentImport.status === 'source_deleted') return 'The original file has been removed. This upload history and its results remain.'
   if (documentImport.status === 'applied') return 'All selected values from this document were approved and applied to the household workspace.'
   if (documentImport.status === 'partially_applied') return 'Some values were applied. Unapplied values remain available for review.'
   if (documentImport.status === 'nothing_applied') return 'Review is finished and nothing from this document was saved. Your household numbers did not change.'
 
-  return 'Review each draft value before applying it to your official household numbers.'
+  return 'Check the values before saving them to your household numbers.'
 }
 
 function setupFocusFieldForSection(sectionLabel: string): keyof WorkspaceSetupValues {
@@ -6409,6 +6384,7 @@ export function WorkspaceSetupForm({
   saving,
   error,
   firstSession,
+  personalOnly = false,
   monthPlan,
   onBeginEdit,
   onCancel,
@@ -6421,6 +6397,7 @@ export function WorkspaceSetupForm({
   saving: boolean
   error: string | null
   firstSession: boolean
+  personalOnly?: boolean
   monthPlan?: { label: string; fixed: number; flexible: number } | null
   onBeginEdit: () => void
   onCancel: () => void
@@ -6430,19 +6407,19 @@ export function WorkspaceSetupForm({
   const { assistantName } = useBrand()
   return (
     // noValidate: the save handler explains problems in plain words instead of
-    // browser bubbles, and blank money fields save as $0.
+    // browser bubbles. Blank amounts stay unknown.
     <form ref={formRef} noValidate className={`panel setup-form${firstSession ? ' first-session-setup-form' : ''}`} onSubmit={onSubmit}>
       <div className="row-between setup-form-heading">
         <div>
-          <p className="eyebrow">{firstSession ? 'Five quick fields' : 'Household profile'}</p>
-          <h3>{firstSession ? 'Start with what you know today.' : editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
-          <p>{firstSession ? 'Use your best monthly estimates. Enter 0 when an amount does not apply, and you can refine everything later.' : editing ? `Save when the changes are intentional. ${assistantName} will use the updated context after you confirm.` : `Review first. Click Edit profile before changing the numbers ${assistantName} uses as context.`}</p>
+
+          <h3>{firstSession ? 'Start with what you know today.' : personalOnly ? 'Household details' : editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
+          <p>{firstSession ? 'Use your best monthly estimates. Enter 0 when an amount does not apply, and you can refine everything later.' : personalOnly ? `Your household name and the goal ${assistantName} helps you work toward.` : editing ? `Save when the changes are intentional. ${assistantName} will use the updated context after you confirm.` : `Review first. Click Edit profile before changing the numbers ${assistantName} uses as context.`}</p>
         </div>
         {!firstSession && <div className="setup-form-actions">
           {editing ? (
             <>
               <button type="button" className="secondary-button" disabled={saving} onClick={onCancel}>Cancel</button>
-              <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save numbers'}</button>
+              <button type="submit" disabled={saving}>{saving ? 'Saving' : personalOnly ? 'Save details' : 'Save numbers'}</button>
             </>
           ) : (
             <button type="button" onClick={onBeginEdit}>Edit profile</button>
@@ -6450,7 +6427,7 @@ export function WorkspaceSetupForm({
         </div>}
       </div>
 
-      {!firstSession && monthPlan && (() => {
+      {!firstSession && !personalOnly && monthPlan && (() => {
         const differs = (field: string, planned: number) => values[field as keyof WorkspaceSetupValues] !== '' && Math.abs(Number(values[field as keyof WorkspaceSetupValues]) - planned) >= 0.005
         const fixedDiffers = differs('fixed_expenses', monthPlan.fixed)
         const flexibleDiffers = differs('flexible_spend', monthPlan.flexible)
@@ -6463,8 +6440,8 @@ export function WorkspaceSetupForm({
       })()}
 
       <fieldset className="setup-fieldset">
-        <legend>Essential first-session information</legend>
-        <p>Use your best monthly estimate. Saving these five fields is enough to begin; details below can wait. Enter your best estimate, or 0 if none. Leave optional unknown amounts blank; cents are fine.</p>
+        <legend>{personalOnly ? 'Personal details' : 'Starting household numbers'}</legend>
+        {!personalOnly && <p>Enter what you know. Leave unknown amounts blank; enter 0 only when none applies.</p>}
         <div className="setup-field-grid">
           <label className="setup-field text-wide" title={`The household name ${assistantName} should use in this workspace.`}>
             <span>Household name</span>
@@ -6476,13 +6453,15 @@ export function WorkspaceSetupForm({
             <textarea name="primary_goal" rows={3} value={values.primary_goal} required={firstSession} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
             <small>Write the goal, worry, or decision {assistantName} should coach around.</small>
           </label>
+          {!personalOnly && <>
           <MoneyInput disabled={!editing || !firstSession} name="primary_income" label={firstSession ? 'Primary monthly income' : 'Job income total (calculated)'} value={values.primary_income} help={firstSession ? 'Regular take-home income from jobs or steady paychecks, after taxes if possible.' : 'Edit individual income sources below. The total updates automatically without redistributing money across hidden records.'} onChange={(value) => onChange('primary_income', value)} />
           <MoneyInput disabled={!editing} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
           <MoneyInput disabled={!editing} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
+          </>}
         </div>
       </fieldset>
 
-      {!firstSession && <details className="setup-optional-fields">
+      {!firstSession && !personalOnly && <details className="setup-optional-fields">
         <summary><span>Add details for a stronger CFO read</span><small>Business income, sinking funds, emergency savings, assets, and runway target</small></summary>
         <p>Enter zero when a category does not apply. Do not delay your first session to find perfect numbers.</p>
         <div className="setup-field-grid">
@@ -6493,7 +6472,7 @@ export function WorkspaceSetupForm({
           <MoneyInput disabled={!editing} name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
           <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
             <span>Target runway months</span>
-            <input type="number" inputMode="decimal" min="0" step="0.5" name="target_runway_months" placeholder="0" value={!editing && values.target_runway_months === '' ? '0' : values.target_runway_months} disabled={!editing} onChange={(event) => onChange('target_runway_months', event.target.value)} />
+            <input type="number" inputMode="decimal" min="0" step="0.5" name="target_runway_months" placeholder="0" value={values.target_runway_months} disabled={!editing} onChange={(event) => onChange('target_runway_months', event.target.value)} />
             <small>How many months of expenses you want protected before bigger moves.</small>
           </label>
         </div>
@@ -6514,7 +6493,7 @@ function MoneyInput({ disabled = false, name, label, value, help, onChange }: { 
       <span>{label}</span>
       <span className="money-input-shell">
         <span aria-hidden="true">$</span>
-        <input name={name} type="number" inputMode="decimal" min="0" step="any" placeholder="0" value={disabled && value === '' ? '0' : value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+        <input name={name} type="number" inputMode="decimal" min="0" step="any" placeholder="Not entered" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
       </span>
       <small>{help}</small>
     </label>
@@ -7197,9 +7176,11 @@ export function ManualTransactionCapture({
   busy,
   locked = busy,
   onCreate,
+  resolutionNotice,
 }: {
   categories: BudgetCategoryRow[]
   busy: boolean
+  resolutionNotice?: string | null
   locked?: boolean
   onCreate: (values: TransactionDraftCreateInput) => Promise<void>
 }) {
@@ -7254,15 +7235,13 @@ export function ManualTransactionCapture({
     <section className="manual-transaction-capture" aria-labelledby="manual-transaction-heading" onKeyDown={closeOnEscape}>
       <div className="manual-transaction-heading">
         <div>
-          <p className="eyebrow">Quick capture</p>
           <h3 id="manual-transaction-heading">Add a transaction</h3>
-          <p>Create a review card now. Your budget actuals stay unchanged until you confirm it.</p>
         </div>
         <button ref={toggleRef} type="button" className="secondary-button" aria-expanded={open} onClick={() => { setOpen((current) => !current); setFormError(null); setAdded(null) }}>
           {open ? 'Close' : 'Add transaction'}
         </button>
       </div>
-      {added && !open && <p className="document-alert success" role="status">{added}</p>}
+      {(resolutionNotice || added) && !open && <p className="document-alert success" role="status">{resolutionNotice || added}</p>}
       {open && (
         <form className="manual-transaction-form" onSubmit={(event) => void submit(event)}>
           <label><span>Date</span><input type="date" required max={guamTodayIso()} value={occurredOn} onChange={(event) => setOccurredOn(event.currentTarget.value)} /></label>
@@ -7298,7 +7277,6 @@ export function TransactionDraftReviewStack({
   onReopen,
   onBulkConfirm,
   onBulkIgnore,
-  eyebrow = 'Review before applying',
   title,
   description,
 }: {
@@ -7349,11 +7327,31 @@ export function TransactionDraftReviewStack({
   const visiblePendingDrafts = visibleDrafts.filter((draft) => draft.status === 'pending')
   const selectedDrafts = filteredPendingDrafts.filter((draft) => selectedIds.has(draft.id))
   const selectedDraftsNeedingCategory = selectedDrafts.filter(transactionDraftNeedsCategory)
-  const filteredDraftsNeedingCategory = filteredPendingDrafts.filter(transactionDraftNeedsCategory)
   const confirmableDrafts = filteredPendingDrafts.filter((draft) => !transactionDraftNeedsCategory(draft))
   const allVisibleSelected = visiblePendingDrafts.length > 0 && visiblePendingDrafts.every((draft) => selectedIds.has(draft.id))
   const anyActionBusy = Boolean(action)
   const bulkBusy = action?.startsWith('bulk-') ?? false
+
+  const reviewStackRef = useRef<HTMLDivElement>(null)
+  const reviewStatusRef = useRef<HTMLHeadingElement>(null)
+  const focusedReviewId = useRef<string | null>(null)
+  const previousReviewIds = useRef(drafts.filter((draft) => draft.status === 'pending').map((draft) => String(draft.id)))
+  useLayoutEffect(() => {
+    if (action) return
+    const pendingIds = drafts.filter((draft) => draft.status === 'pending').map((draft) => String(draft.id))
+    const previous = previousReviewIds.current
+    previousReviewIds.current = pendingIds
+    const removed = focusedReviewId.current
+    if (!removed || pendingIds.includes(removed) || !previous.includes(removed)) return
+    focusedReviewId.current = null
+    // Do not steal focus if the participant already moved elsewhere.
+    const active = document.activeElement
+    if (active && active !== document.body && !reviewStackRef.current?.contains(active)) return
+    const nextId = previous.slice(previous.indexOf(removed) + 1).find((id) => pendingIds.includes(id)) ?? pendingIds[0]
+    const row = nextId ? reviewStackRef.current?.querySelector<HTMLElement>(`[data-review-item="${nextId}"]`) : null
+    const next = row?.querySelector<HTMLElement>('[data-review-confirm]:not(:disabled)') ?? row?.querySelector<HTMLElement>('button:not(:disabled)')
+    ;(next ?? reviewStatusRef.current)?.focus()
+  }, [action, drafts])
 
   function toggleDraftSelection(draftId: number, selected: boolean) {
     setSelectedIds((current) => {
@@ -7376,12 +7374,11 @@ export function TransactionDraftReviewStack({
   }
 
   return (
-    <div className={`transaction-draft-stack ${compact ? 'compact' : ''}`}>
+    <div ref={reviewStackRef} className={`transaction-draft-stack participant-review ${compact ? 'compact' : ''}`} onFocusCapture={(event) => { focusedReviewId.current = (event.target as HTMLElement).closest<HTMLElement>('[data-review-item]')?.dataset.reviewItem ?? null }}>
       <div className="transaction-draft-stack-heading">
         <div>
-          <p className="eyebrow">{eyebrow}</p>
-          <h4>{resolvedTitle}</h4>
-          {(compact || description) && <p>{description ?? 'Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.'}</p>}
+          <h4 ref={reviewStatusRef} tabIndex={-1} role={drafts.length === 0 ? 'status' : undefined}>{drafts.length === 0 ? 'All caught up' : resolvedTitle}</h4>
+          {(description || (compact && description !== '')) && <p>{description ?? 'Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.'}</p>}
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
         <strong>{queueMeta?.total_count ?? drafts.length} review{(queueMeta?.total_count ?? drafts.length) === 1 ? '' : 's'}</strong>
@@ -7429,6 +7426,7 @@ export function TransactionDraftReviewStack({
             />
             <span>Select this page</span>
           </label>
+          {selectedDrafts.length > 0 && <>
           <span>{selectedDrafts.length} selected</span>
           <button type="button" className="secondary-button" title={selectedDraftsNeedingCategory.length > 0 ? 'Choose a category for every selected transaction first.' : undefined} disabled={anyActionBusy || selectedDrafts.length === 0 || selectedDraftsNeedingCategory.length > 0} onClick={() => onBulkConfirm(selectedDrafts)}>
             Confirm selected
@@ -7444,21 +7442,16 @@ export function TransactionDraftReviewStack({
               Clear selection
             </button>
           )}
-          <button type="button" disabled={anyActionBusy || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>
-            Confirm categorized {confirmableDrafts.length}
-          </button>
-          <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>
-            Ignore all {filteredPendingDrafts.length}{queueMeta?.truncated ? ' loaded' : ''}
-          </button>
-          {filteredDraftsNeedingCategory.length > 0 && (
-            <p className="transaction-draft-bulk-warning" role="status">
-              {filteredDraftsNeedingCategory.length} {filteredDraftsNeedingCategory.length === 1 ? 'review needs' : 'reviews need'} categorizing before bulk confirmation.
-            </p>
-          )}
+
+          <details><summary>More bulk options</summary>
+            <button type="button" disabled={anyActionBusy || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>Confirm categorized {confirmableDrafts.length}</button>
+            <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>Ignore all {filteredPendingDrafts.length}{queueMeta?.truncated ? ' loaded' : ''}</button>
+          </details>
+          </>}
         </div>
       )}
 
-      {visibleDrafts.length === 0 ? (
+      {visibleDrafts.length === 0 && drafts.length > 0 ? (
         <div className="transaction-draft-empty-filter">
           <strong>No transaction reviews match that search.</strong>
           <button type="button" className="secondary-button" onClick={() => { setQuery(''); setPage(0) }}>Clear search</button>
@@ -7659,7 +7652,7 @@ function TransactionDraftReviewCard({
   }
 
   return (
-    <div className={`transaction-draft-card${selected ? ' is-selected' : ''}`}>
+    <div data-review-item={draft.id} className={`transaction-draft-card${selected ? ' is-selected' : ''}`}>
       {isPending && selectionEnabled && (
         <label className="transaction-draft-select" aria-label={`Select ${draft.merchant} for a bulk action`}>
           <input type="checkbox" checked={selected} disabled={!isRealWorkspace || draftActionsDisabled || Boolean(action)} onChange={(event) => onSelectedChange(event.currentTarget.checked)} />
@@ -7674,7 +7667,8 @@ function TransactionDraftReviewCard({
             <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
           </div>
         </div>
-        <p>{formatShortDate(draft.occurred_on)} · {currency.format(displayAmount)} · {(draft.splits ?? []).length > 1 ? `${draft.splits?.length} splits` : (draft.category_name ?? 'Needs category')}</p>
+        <div className="transaction-review-facts"><time dateTime={draft.occurred_on}>{formatShortDate(draft.occurred_on)}</time><strong>{currency.format(displayAmount)}</strong><span>{(draft.splits ?? []).length > 1 ? `${draft.splits?.length} splits` : (draft.category_name ?? 'Needs category')}</span></div>
+        <details className="transaction-review-details" open={editing || undefined}><summary>Splits &amp; budget impact</summary><p>{transactionDraftSourceLabel(draft.source_type, assistantName)}</p>
         {(draft.splits ?? []).length > 0 && (
           <div className="transaction-draft-splits">
             {(draft.splits ?? []).map((split) => (
@@ -7690,6 +7684,10 @@ function TransactionDraftReviewCard({
             ))}
           </div>
         )}
+        {isPending && plan && budgetImpacts.length > 0 && (
+          <TransactionDraftBudgetImpactPanel occurredOn={impactDraft.occurred_on} impacts={budgetImpacts} editing={editing} />
+        )}
+        </details>
         {isPending && needsCategoryReview && (
           <section className="transaction-draft-category-warning" id={categoryWarningId} role="status">
             <div>
@@ -7701,9 +7699,6 @@ function TransactionDraftReviewCard({
               window.requestAnimationFrame(() => window.requestAnimationFrame(() => firstMissingCategoryRef.current?.focus()))
             }}>Review categories</button>}
           </section>
-        )}
-        {isPending && plan && budgetImpacts.length > 0 && (
-          <TransactionDraftBudgetImpactPanel occurredOn={impactDraft.occurred_on} impacts={budgetImpacts} editing={editing} />
         )}
         {proposedMatches.length > 0 && (
           <div className="transaction-match-suggestions">
@@ -7778,7 +7773,7 @@ function TransactionDraftReviewCard({
         <div className="transaction-draft-actions">
           {needsCategoryReview && <span className="transaction-draft-disabled-reason">Choose a category before confirming this as a budget actual.</span>}
           {onUpdate && <button type="button" className="secondary-button" aria-label={`${editing ? 'Close edit' : 'Edit'} ${itemName}`} disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Edit'}</button>}
-          <button type="button" aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+          <button type="button" data-review-confirm aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
           </button>
           <button type="button" className="secondary-button" aria-label={`${action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'} ${itemName}`} disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
@@ -8274,12 +8269,12 @@ function nextIncomeChange(source: IncomeTimelineSource) {
 function incomeSourceEffectiveInMonth(source: IncomeTimelineSource, value: string) {
   const month = value.slice(0, 7)
   if (!month) return false
-  if (source.active === false && !source.ends_on) return false
+  if (source.active === false && !source.ends_on && source.timeline_status !== 'future') return false
   return (!source.starts_on || source.starts_on.slice(0, 7) <= month)
     && (!source.ends_on || source.ends_on.slice(0, 7) > month)
 }
 
-function IncomeSourceManager({
+export function IncomeSourceManager({
   sectionRef,
   sources,
   action,
@@ -8302,6 +8297,8 @@ function IncomeSourceManager({
   onFocusRequestHandled?: () => void
   onUnsavedChangesChange?: (dirty: boolean) => void
 }) {
+  const { open: formOpen, setOpen: setFormOpen, blocked: editorBlocked } = useIncomeForm('source')
+  const { setOpen: setEndingOpen } = useIncomeForm('ending')
   const [draft, setDraft] = useState<IncomeSourceDraft>(() => blankIncomeSourceDraft())
   const [draftBaseline, setDraftBaseline] = useState<IncomeSourceDraft>(() => blankIncomeSourceDraft())
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -8327,12 +8324,16 @@ function IncomeSourceManager({
     const source = sources.find((candidate) => candidate.id === focusRequest.sourceId)
     requestAnimationFrame(() => {
       if (focusRequest.actionType === 'create_income_source') {
+        setFormOpen(true)
         setDraftBaseline(blankIncomeSourceDraft()); setDraft(incomeSourceDraftWithProposal(blankIncomeSourceDraft(), focusRequest.payload)); setEditingId(null); setEndingId(null); setFormError(null); lastActionTriggerRef.current = null
         requestAnimationFrame(() => sourceNameRef.current?.focus())
       } else if (focusRequest.actionType === 'update_income_source' && source) {
+        setFormOpen(true)
         setEndingId(null); setEditingId(source.id); setDraftBaseline(incomeSourceDraftFor(source)); setDraft(incomeSourceDraftWithProposal(incomeSourceDraftFor(source), focusRequest.payload)); setFormError(null)
         requestAnimationFrame(() => { sourceFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); sourceNameRef.current?.focus({ preventScroll: true }); sourceNameRef.current?.select() })
       } else if (focusRequest.actionType === 'archive_income_source' && source) {
+        setFormOpen(false)
+        setEndingOpen(true)
         const blank = blankIncomeSourceDraft()
         setDraftBaseline(blank); setDraft(blank); setEditingId(null); setEndingId(source.id); setEndingMonth(''); setFormError(null)
         requestAnimationFrame(() => endMonthRef.current?.focus())
@@ -8344,7 +8345,7 @@ function IncomeSourceManager({
       }
       onFocusRequestHandled?.()
     })
-  }, [focusRequest, onFocusRequestHandled, sources])
+  }, [focusRequest, onFocusRequestHandled, sources, setFormOpen, setEndingOpen])
 
   function focusSourceCard(sourceId: number) {
     requestAnimationFrame(() => sourceCardRefs.current.get(sourceId)?.focus())
@@ -8355,12 +8356,15 @@ function IncomeSourceManager({
     setDraftBaseline(blank)
     setDraft(blank)
     setEditingId(null)
+    setFormOpen(false)
     setFormError(null)
     lastActionTriggerRef.current = null
   }
 
   function beginEdit(source: IncomeTimelineSource, trigger?: HTMLButtonElement) {
+    if (editorBlocked) return
     if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before editing another source.'); return }
+    setFormOpen(true)
     lastActionTriggerRef.current = trigger ?? null
     setEndingId(null)
     setEditingId(source.id)
@@ -8381,12 +8385,15 @@ function IncomeSourceManager({
   }
 
   function beginEnd(sourceId: number, trigger?: HTMLButtonElement) {
+    if (editorBlocked) return
     if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before ending a source.'); return }
     const blank = blankIncomeSourceDraft()
     setDraftBaseline(blank)
     setDraft(blank)
     lastActionTriggerRef.current = trigger ?? null
     setEditingId(null)
+    setFormOpen(false)
+    setEndingOpen(true)
     setEndingId(sourceId)
     setEndingMonth('')
     setFormError(null)
@@ -8396,6 +8403,7 @@ function IncomeSourceManager({
   function cancelEnd() {
     const trigger = lastActionTriggerRef.current
     setEndingId(null)
+    setEndingOpen(false)
     setEndingMonth('')
     setFormError(null)
     requestAnimationFrame(() => trigger?.focus())
@@ -8437,6 +8445,7 @@ function IncomeSourceManager({
     try {
       await onArchive(source, `${endingMonth.slice(0, 7)}-01`)
       setEndingId(null)
+      setEndingOpen(false)
       setEndingMonth('')
       lastActionTriggerRef.current = null
       focusSourceCard(source.id)
@@ -8529,8 +8538,8 @@ function IncomeSourceManager({
                     </div>
                   ) : (
                     <>
-                      <button type="button" className="secondary-button" aria-label={`Edit ${source.label}`} onClick={(event) => beginEdit(source, event.currentTarget)}>Edit</button>
-                      <button type="button" className="secondary-button" aria-label={`End ${source.label}`} onClick={(event) => beginEnd(source.id, event.currentTarget)}>End source</button>
+                      <button type="button" className="secondary-button" aria-label={`Edit ${source.label}`} disabled={incomeOperationPending || editorBlocked} onClick={(event) => beginEdit(source, event.currentTarget)}>Edit</button>
+                      <button type="button" className="secondary-button" aria-label={`End ${source.label}`} disabled={incomeOperationPending || editorBlocked} onClick={(event) => beginEnd(source.id, event.currentTarget)}>End source</button>
                     </>
                   )}
                 </div>
@@ -8540,7 +8549,8 @@ function IncomeSourceManager({
         </div>
       )}
 
-      <form ref={sourceFormRef} className="income-source-form" onSubmit={(event) => void submit(event)}>
+      {!formOpen && <button type="button" disabled={incomeOperationPending || editorBlocked} className="secondary-button" onClick={() => { setFormOpen(true); requestAnimationFrame(() => sourceNameRef.current?.focus()) }}>Add income source</button>}
+      {formOpen && <form ref={sourceFormRef} className="income-source-form" onSubmit={(event) => void submit(event)}>
         <div className="income-source-form-heading">
           <div>
             <span>{editingId === null ? 'Add income source' : 'Edit income source'}</span>
@@ -8567,7 +8577,7 @@ function IncomeSourceManager({
             </div>
           </label>
           <label>
-            <span>Cadence</span>
+            <span>How often you're paid</span>
             <select value={draft.cadence} onChange={(event) => updateSourceDraft({ cadence: event.currentTarget.value })}>
               {cadenceOptions.filter((cadence) => cadence !== 'one_time').map((cadence) => <option value={cadence} key={cadence}>{titleize(cadence)}</option>)}
             </select>
@@ -8579,10 +8589,10 @@ function IncomeSourceManager({
         </fieldset>
         {formError && <p className="setup-error" role="alert">{formError}</p>}
         <div className="income-source-form-actions">
-          {(editingId !== null || hasUnsavedChanges) && endingId === null && <button type="button" className="secondary-button" disabled={incomeOperationPending} onClick={cancelEdit}>Cancel</button>}
+          {endingId === null && <button type="button" className="secondary-button" disabled={incomeOperationPending} onClick={cancelEdit}>Cancel</button>}
           <button type="submit" disabled={incomeOperationPending}>{saving ? 'Saving' : editingId === null ? 'Add source' : 'Save source'}</button>
         </div>
-      </form>
+      </form>}
     </section>
   )
 }
@@ -8625,7 +8635,7 @@ function incomeScheduleDraftFor(sourceId: number, entry: IncomeScheduleEntry): I
   }
 }
 
-function AnnualIncomePlanner({
+export function AnnualIncomePlanner({
   plan,
   isRealWorkspace,
   action,
@@ -8645,6 +8655,7 @@ function AnnualIncomePlanner({
   onUnsavedChangesChange?: (dirty: boolean) => void
 }) {
   const { assistantName } = useBrand()
+  const { open: formOpen, setOpen: setFormOpen, blocked: editorBlocked } = useIncomeForm('schedule')
   const [draft, setDraft] = useState<IncomeScheduleDraft>(() => blankIncomeScheduleDraft(plan))
   const [draftBaseline, setDraftBaseline] = useState<IncomeScheduleDraft>(() => blankIncomeScheduleDraft(plan))
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -8680,6 +8691,7 @@ function AnnualIncomePlanner({
       const amountCents = Number(payload.amount_cents ?? 0)
       const fallback = blankIncomeScheduleDraft(plan)
       requestAnimationFrame(() => {
+        setFormOpen(true)
         setRemovingId(null)
         setEditingId(null)
         setFormError(null)
@@ -8701,6 +8713,7 @@ function AnnualIncomePlanner({
       const baseEntryType = located.entry.entry_type
       const entryType = proposedChoice(payload, 'entry_type', baseEntryType, ['one_time', 'recurring_change'] as const)
       requestAnimationFrame(() => {
+        setFormOpen(true)
         setRemovingId(null)
         setEditingId(located.entry.id)
         setDraftBaseline(incomeScheduleDraftFor(located.source.id, located.entry))
@@ -8727,10 +8740,12 @@ function AnnualIncomePlanner({
     } else {
       onFocusRequestHandled?.()
     }
-  }, [focusRequest, onFocusRequestHandled, plan])
+  }, [focusRequest, onFocusRequestHandled, plan, setFormOpen])
 
   function editEntry(sourceId: number, entry: IncomeScheduleEntry) {
+    if (editorBlocked) return
     if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before editing another change.'); return }
+    setFormOpen(true)
     setRemovingId(null)
     setEditingId(entry.id)
     setFormError(null)
@@ -8740,6 +8755,7 @@ function AnnualIncomePlanner({
   }
 
   function cancelEdit() {
+    setFormOpen(false)
     setRemovingId(null)
     setEditingId(null)
     setFormError(null)
@@ -8792,7 +8808,7 @@ function AnnualIncomePlanner({
       ? `${selectedSource.label} will add ${currency.format(numericAmount)} once in ${previewMonth}.`
       : numericAmount === 0
         ? `${selectedSource.label} will end beginning ${previewMonth}.`
-        : `${selectedSource.label} will change to ${currency.format(numericAmount)} ${titleize(draft.cadence).toLowerCase()} beginning ${previewMonth}.`
+        : `Starting ${previewMonth}, pay changes to ${currency.format(numericAmount)} ${titleize(draft.cadence).toLowerCase()}.`
   const submitLabel = saving
     ? 'Saving'
     : editingId !== null
@@ -8848,8 +8864,8 @@ function AnnualIncomePlanner({
                               </>
                             ) : (
                               <>
-                                <button type="button" className="secondary-button" aria-label={`Edit ${source.label} income change from ${formatMonthYear(entry.effective_on)}`} onClick={() => editEntry(source.id, entry)}>Edit</button>
-                                <button type="button" data-income-entry-action="remove" className="secondary-button" onClick={() => { if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before removing a change.'); return }; cancelEdit(); setRemovingId(entry.id) }}>Remove</button>
+                                <button type="button" className="secondary-button" aria-label={`Edit ${source.label} income change from ${formatMonthYear(entry.effective_on)}`} disabled={incomeOperationPending || editorBlocked} onClick={() => editEntry(source.id, entry)}>Edit</button>
+                                <button type="button" data-income-entry-action="remove" disabled={incomeOperationPending || editorBlocked} className="secondary-button" onClick={() => { if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before removing a change.'); return }; cancelEdit(); setRemovingId(entry.id) }}>Remove</button>
                               </>
                             )}
                           </div>
@@ -8862,7 +8878,8 @@ function AnnualIncomePlanner({
             ))}
           </div>
 
-          {isRealWorkspace && (
+          {isRealWorkspace && !formOpen && <button type="button" disabled={incomeOperationPending || editorBlocked} className="secondary-button" onClick={() => { setFormOpen(true); requestAnimationFrame(() => amountInputRef.current?.focus()) }}>Plan an income change</button>}
+          {isRealWorkspace && formOpen && (
             <form className="income-schedule-form" onSubmit={(event) => void submit(event)}>
               <div className="income-schedule-form-heading">
                 <div>
@@ -8908,7 +8925,7 @@ function AnnualIncomePlanner({
                 </label>
                 {draft.entry_type === 'recurring_change' ? (
                   <label>
-                    <span>Cadence</span>
+                    <span>How often you're paid</span>
                     <select value={draft.cadence} onChange={(event) => updateIncomeDraft({ cadence: event.currentTarget.value })}>
                       {cadenceOptions.filter((cadence) => cadence !== 'one_time').map((cadence) => <option value={cadence} key={cadence}>{titleize(cadence)}</option>)}
                     </select>
@@ -8944,7 +8961,7 @@ function AnnualIncomePlanner({
                   <strong>{previewCopy}</strong>
                 </div>
                 <div className="income-schedule-form-actions">
-                  {(editingId !== null || hasUnsavedChanges) && <button type="button" className="secondary-button" disabled={incomeOperationPending} onClick={cancelEdit}>Cancel</button>}
+                  {<button type="button" className="secondary-button" disabled={incomeOperationPending} onClick={cancelEdit}>Cancel</button>}
                   <button type="submit" className="income-schedule-submit" disabled={incomeOperationPending || eligibleSources.length === 0}>{submitLabel}</button>
                 </div>
               </div>

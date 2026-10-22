@@ -31,7 +31,7 @@ function sameSetupValue(left: unknown, right: unknown) {
 
 /**
  * Plain-language check for a typed money amount. Blank is allowed (the form
- * saves it as $0, or as unknown for optional balances). Returns null when the
+ * keeps it unknown until an amount is entered). Returns null when the
  * text is acceptable.
  */
 export function moneyInputProblem(label: string, text: string): string | null {

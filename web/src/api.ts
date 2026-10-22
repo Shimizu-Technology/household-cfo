@@ -452,6 +452,8 @@ export type DashboardData = {
     transaction_review_count: number
     mia_action_review_count: number
     total_review_count: number
+    /** Statement files waiting for review; Home links to them without loading every import. */
+    document_review_count?: number
     current_month_label: string
     current_month_index: number
     current_year: number
