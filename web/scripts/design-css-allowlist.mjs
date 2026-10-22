@@ -2,14 +2,6 @@
 // Remaining component debt belongs to other slices; shared overlays and focus
 // rings are intentional. Remove each exception when its owner retires the rule.
 export const cssPolicyAllowlist = new Set([
-  // Existing component-owned hover; outside W7 stylesheet ownership: .plaid-transaction:hover.
-  "[\"src/components/PlaidConnections.css\",\"hover\",[],\".plaid-transaction:hover\",\".plaid-transaction:hover { border-color: color-mix(in srgb, var(--berry) 38%, var(--line)); }\"]",
-  // Existing component-owned hover; outside W7 stylesheet ownership: .statement-source-review button:hover:not(:disabled).
-  "[\"src/components/StatementSourceReview.css\",\"hover\",[],\".statement-source-review button:hover:not(:disabled)\",\".statement-source-review button:hover:not(:disabled) { border-color: var(--action-primary, #7b4a58); }\"]",
-  // Existing component-owned hover; outside W7 stylesheet ownership: .statement-source-review button[type=submit]:hover:not(:disabled), .statement-source-review .source-review-primary:hover:not(:disabled).
-  "[\"src/components/StatementSourceReview.css\",\"hover\",[],\".statement-source-review button[type=submit]:hover:not(:disabled), .statement-source-review .source-review-primary:hover:not(:disabled)\",\".statement-source-review button[type=submit]:hover:not(:disabled), .statement-source-review .source-review-primary:hover:not(:disabled) { background: var(--action-primary-hover, #613845); }\"]",
-  // Existing component-owned hover; outside W7 stylesheet ownership: .workos-sign-in-dialog > header .workos-sign-in-close:hover.
-  "[\"src/components/WorkosSignInDialog.css\",\"hover\",[],\".workos-sign-in-dialog > header .workos-sign-in-close:hover\",\".workos-sign-in-dialog > header .workos-sign-in-close:hover { background: var(--paper-warm); color: var(--ink); }\"]",
   // Existing component-owned hover; outside W7 stylesheet ownership: .cash-flow-month-trigger:hover.
   "[\"src/styles/charts.css\",\"hover\",[],\".cash-flow-month-trigger:hover\",\".cash-flow-month-trigger:hover { outline: none; background: transparent; }\"]",
   // Intentional floating surface or focus ring: .participant-private-access > p.

@@ -78,9 +78,11 @@
  background: var(--action-primary, #7b4a58);
  color: var(--action-on-primary, #fffdf8);
 }
-.statement-source-review button:hover:not(:disabled) { border-color: var(--action-primary, #7b4a58); }
-.statement-source-review button[type=submit]:hover:not(:disabled),
-.statement-source-review .source-review-primary:hover:not(:disabled) { background: var(--action-primary-hover, #613845); }
+@media (hover: hover) and (pointer: fine) {
+  .statement-source-review button:hover:not(:disabled) { border-color: var(--action-primary, #7b4a58); }
+  .statement-source-review button[type=submit]:hover:not(:disabled),
+  .statement-source-review .source-review-primary:hover:not(:disabled) { background: var(--action-primary-hover, #613845); }
+}
 .statement-source-review :is(button,input,select,textarea):disabled { opacity: .6; cursor: not-allowed; }
 .source-review-boundary, .source-review-counts, .source-review-limitation,
 .source-review-toolbar label, .source-review-toolbar > span, .source-review-page-status,
