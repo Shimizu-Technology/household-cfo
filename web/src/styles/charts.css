@@ -190,3 +190,8 @@
 .activity-preview { border: 0; border-radius: 0; background: none; box-shadow: none; }
 .month-plan-values .plan-value strong.is-empty { max-inline-size: 145px; white-space: normal; overflow-wrap: normal; font-size: 14px; }
 .budget-setup-prompt .button { box-shadow: none; }
+
+/* Keep the full year visible; the native picker supplies a full-size target for every month. */
+.cash-flow-month-picker { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.cash-flow-month-picker select { min-width: 120px; min-height: 44px; padding: 8px 12px; font: inherit; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); background: var(--paper); }
+.cash-flow-month-trigger[aria-hidden="true"] { cursor: default; }

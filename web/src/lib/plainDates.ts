@@ -48,6 +48,15 @@ export function formatGuamTimestamp(value: string, options: { year?: boolean } =
   return formatDay(`${part('year')}-${part('month')}-${part('day')}`, options)
 }
 
+// Audit labels need the time too: 'Sat, Oct 17, 2026, 9:14 AM' in Guam.
+export function formatGuamDateTime(value: string): string {
+  const instant = new Date(value)
+  if (!Number.isFinite(instant.getTime())) return 'Date unavailable'
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Pacific/Guam', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  }).format(instant)
+}
+
 // formatRange('2026-10-17', '2027-01-14') -> 'Sat, Oct 17 – Thu, Jan 14, 2027'.
 // The end year identifies every financial period, including same-year ranges.
 export function formatRange(start: string | null | undefined, end: string | null | undefined): string {

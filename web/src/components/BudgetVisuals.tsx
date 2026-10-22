@@ -1,4 +1,4 @@
-import { useId, useState, type CSSProperties } from 'react'
+import { useId, useState, useRef, useEffect, type CSSProperties } from 'react'
 import type { AnnualBudgetPlan, BudgetStackKey } from '../api'
 import { budgetPositionTotals, type BudgetPosition } from '../lib/budgetPosition'
 import { addMoney, subtractMoney } from '../lib/moneyMath'
@@ -181,6 +181,15 @@ export function AnnualCashFlowChart({
   moneyKnown?: boolean
 }) {
   const titleId = useId()
+  const chart = useRef<HTMLDivElement>(null)
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const element = chart.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < 620))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
   const months = plan.annual_outlook.months
   const reportMonthIndex = Math.max(0, Math.min(months.length - 1, selectedMonthIndex))
   const reportPeriodId = months[reportMonthIndex]?.period_id ?? null
@@ -234,28 +243,30 @@ export function AnnualCashFlowChart({
         <span><i className="surplus-swatch" /> Left after the plan</span>
         <span><i className="shortfall-swatch" /> Short of the plan</span>
       </div>
-      <div className="annual-cash-flow-scroll" role="region" aria-label={`${plan.year} monthly income and planned outflow chart`} tabIndex={0}>
+      <div ref={chart} className="annual-cash-flow-scroll" role="region" aria-label={`${plan.year} monthly income and planned outflow chart`} tabIndex={0}>
         <div className={`annual-cash-flow-chart${moneyKnown ? '' : ' is-unknown'}`} style={{ '--cash-flow-rows': chartRows } as CSSProperties}>
           {months.map((month) => {
             const rowMaximum = month.baseline_surplus >= 0 ? largestSurplus : largestShortfall
             const surplusHeight = rowMaximum === 0 ? 0 : (Math.abs(month.baseline_surplus) / rowMaximum) * 100
             const style = { '--surplus-height': `${surplusHeight}%` } as CSSProperties
+            const MonthTarget = narrow ? 'div' : 'button'
             return (
               <article className={`cash-flow-month${month.baseline_surplus < 0 ? ' negative' : ''}${month.period_id === reportPeriodId ? ' is-report-month' : ''}${pinnedPeriodId === month.period_id ? ' is-pinned' : ''}`} style={style} key={month.period_id}>
-                <button
-                  type="button"
+                <MonthTarget
+                  type={narrow ? undefined : 'button'}
                   className="cash-flow-month-trigger"
-                  aria-pressed={pinnedPeriodId === month.period_id}
+                  aria-hidden={narrow || undefined}
+                  aria-pressed={narrow ? undefined : pinnedPeriodId === month.period_id}
                   aria-current={month.period_id === reportPeriodId ? 'date' : undefined}
                   aria-label={!moneyKnown ? `${month.label} ${plan.year}: Not entered` : `${month.label} ${plan.year}: ${currency.format(month.income)} income, ${currency.format(month.planned_outflow)} planned outflow, and ${currency.format(Math.abs(month.baseline_surplus))} ${month.baseline_surplus < 0 ? 'short' : 'left over'}`}
-                  onMouseEnter={(event) => {
+                  onMouseEnter={narrow ? undefined : (event) => {
                     // Focusing a month can scroll another bar beneath a stationary
                     // pointer. Keep the keyboard user's detail on the focused month.
                     const keyboardFocusedMonth = event.currentTarget.closest('.annual-cash-flow-chart')?.querySelector('.cash-flow-month-trigger:focus-visible')
                     if (!keyboardFocusedMonth && (pinnedPeriodId === null || !pinnedPeriodExists)) previewPeriod(month.period_id)
                   }}
-                  onFocus={() => previewPeriod(month.period_id)}
-                  onClick={() => togglePinnedPeriod(month.period_id)}
+                  onFocus={narrow ? undefined : () => previewPeriod(month.period_id)}
+                  onClick={narrow ? undefined : () => togglePinnedPeriod(month.period_id)}
                 >
                   <div className="cash-flow-bars" aria-hidden="true">
                     <span className="cash-flow-bar-above">{moneyKnown && month.baseline_surplus > 0 && <i />}</span>
@@ -266,12 +277,20 @@ export function AnnualCashFlowChart({
                     <b>{moneyKnown ? compactCurrency.format(Math.abs(month.baseline_surplus)) : '—'}</b>
                     {moneyKnown && <small>{month.baseline_surplus < 0 ? 'short' : 'left'}</small>}
                   </span>
-                </button>
+                </MonthTarget>
               </article>
             )
           })}
         </div>
       </div>
+      {narrow && activeMonth && <label className="cash-flow-month-picker">View month
+        <select value={activeMonth.period_id} onChange={(event) => {
+          const periodId = Number(event.target.value)
+          setChartFocus({ reportFocusKey, activePeriodId: periodId, pinnedPeriodId: periodId })
+        }}>
+          {months.map((month) => <option key={month.period_id} value={month.period_id}>{month.label} {plan.year}</option>)}
+        </select>
+      </label>}
       {moneyKnown && activeMonth && (
         <div className="cash-flow-detail-panel" aria-live="polite">
           <div className="cash-flow-detail-summary">

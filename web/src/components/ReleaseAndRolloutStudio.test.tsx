@@ -50,7 +50,7 @@ describe('ReleaseAndRolloutStudio', () => {
     await user.click(screen.getByRole('tab', { name: /Update group Choose who goes first/ }))
     await user.type(screen.getByLabelText('Plan note'), 'Keep this')
     fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: '13' } })
-    expect(confirm).toHaveBeenCalledWith('Discard the rollout plan you have not recorded and switch cohorts?')
+    expect(confirm).toHaveBeenCalledWith('Discard the update plan you have not saved and switch groups?')
     expect(changeCohort).not.toHaveBeenCalled()
     expect((screen.getByRole('combobox', { name: 'Group' }) as HTMLSelectElement).value).toBe('12')
   })

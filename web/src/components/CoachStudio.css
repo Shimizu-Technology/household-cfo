@@ -2836,3 +2836,18 @@
   .coach-studio-screen header.coach-studio-heading h2 { font-size: var(--text-md); }
   .coach-studio-screen label.coach-workspace-picker { font-size: var(--text-sm); }
 }
+
+.coach-single-workspace { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+@media (max-width: 620px) {
+  .coach-studio-screen .coach-studio-heading { display: flex; flex-direction: row; }
+  .coach-studio-screen .coach-studio-heading > div:first-child:has(h2.sr-only) { position: absolute; }
+  .coach-studio-screen .coach-workspace-heading-tools { min-width: 0; width: auto; flex: 1; }
+  .coach-studio-screen .coach-workspace-picker > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .coach-studio-screen label.coach-workspace-picker { grid-template-columns: minmax(0, 1fr); }
+  .coach-studio-screen .coach-studio-heading h2 { white-space: nowrap; }
+  .coach-studio-screen:has(#coach-studio-panel-groups) { gap: .4rem; }
+  .coach-studio-screen label.coach-group-context { gap: .3rem; }
+  .coach-group-context > span { font-size: var(--text-sm); max-width: 6rem; }
+  #coach-studio-panel-groups .coach-challenge { padding: 0; border: 0; }
+  #coach-studio-panel-groups .coach-daily-list > label { margin-block: .25rem; }
+}

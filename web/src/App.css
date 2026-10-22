@@ -10617,3 +10617,11 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 .bulk-confirm-field input[aria-invalid="true"] {
   border-color: #a14b3d;
 }
+
+/* Compact participant controls still need a complete finger target. */
+/* Control-like links count; links inside running text keep their line height. */
+.app:not(.staff-app) :is(button, select, textarea, summary, a.button, a[role="button"], nav a[href]):not(.cash-flow-month-trigger):not(.sr-only) { min-height: 44px; min-width: 44px; }
+.app:not(.staff-app) summary { box-sizing: border-box; align-content: center; }
+.app:not(.staff-app) :is(a.button, a[role="button"], nav a[href]) { display: inline-flex; align-items: center; }
+/* Safari's native select ignores min-height unless height is explicit. */
+.app:not(.staff-app) select { box-sizing: border-box; height: 44px; font-size: max(16px, 1em); }

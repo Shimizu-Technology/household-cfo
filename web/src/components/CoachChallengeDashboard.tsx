@@ -34,11 +34,11 @@ function Dashboard({ userId, workspaceId, cohorts, selectedCohortId }: Props) {
         <option value="">Choose a group</option>
         {cohorts.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
       </select></label>}
-      {cohortId ? <Group key={cohortId} scope={{ user_id: userId, coach_workspace_id: workspaceId }} cohortId={cohortId} /> : <p>Choose a group to see who needs you.</p>}
+      {cohortId ? <Group key={cohortId} scope={{ user_id: userId, coach_workspace_id: workspaceId }} cohortId={cohortId} showHeading={selectedCohortId === undefined} /> : <p>Choose a group to see who needs you.</p>}
     </section>
   )
 }
-function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: number }) {
+function Group({ scope, cohortId, showHeading }: { scope: CoachChallengeScope; cohortId: number; showHeading: boolean }) {
   const [page, setPage] = useState<CoachDailyPage | null>(null)
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<CoachDailyPerson | null>(null)
@@ -89,7 +89,7 @@ function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: numb
     ? [['all', 'Everyone'], ['needs_help', 'Need you'], ['checked_in', 'Checked in'], ['not_checked_in', 'No check-in']]
     : [['all', 'Everyone'], ['needs_help', 'Need you'], ['invited', 'Invited'], ['joined', 'Joined'], ['setup_done', 'Setup done']]
   return <>
-    <header className="coach-daily-heading"><h2>Who needs me today?</h2></header>
+    {showHeading && <header className="coach-daily-heading"><h2>Who needs me today?</h2></header>}
     {error && <div><p role="alert">{error}</p><button onClick={refresh} disabled={busy}>Refresh</button></div>}
     {busy && <p role="status">Loading people…</p>}
     <div className={`coach-daily-layout${selected ? ' has-detail' : ''}`}>

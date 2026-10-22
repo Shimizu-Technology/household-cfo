@@ -107,3 +107,5 @@
 .plaid-source-strip { flex-wrap: wrap; }
 .plaid-source-strip > div { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
 .plaid-source-strip > button { max-width: 100%; white-space: normal; }
+
+.plaid-transaction-select { display: grid; place-items: center; min-width: 44px; min-height: 44px; margin: 0; cursor: pointer; }

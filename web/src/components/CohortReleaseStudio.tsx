@@ -240,7 +240,7 @@ export function CohortReleaseStudio({
   }
 
   if (cohorts.length === 0) {
-    return <article className="panel coach-empty coach-empty-main"><h3>No manageable cohorts yet.</h3><p>Assign this coach to a cohort before reviewing release evidence.</p></article>
+    return <article className="panel coach-empty coach-empty-main"><h3>No groups available yet.</h3><p>Assign this coach to a group before reviewing version details.</p></article>
   }
 
   return (
@@ -257,7 +257,7 @@ export function CohortReleaseStudio({
       {!embedded && <article className="panel cohort-release-picker">
         <div>
           <p className="eyebrow">Cohort releases</p>
-          <h3>Review and seal the brand, assistant, and tools together</h3>
+          <h3>Review the appearance, Mia voice, and tools together</h3>
           <p>Choose a cohort to check the exact published versions and preserve an immutable record.</p>
         </div>
         <label>
@@ -277,9 +277,9 @@ export function CohortReleaseStudio({
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
 
       {pendingAction === 'load' && !studio ? (
-        <article className="panel cohort-release-loading" role="status">Checking the exact release evidence…</article>
+        <article className="panel cohort-release-loading" role="status">Checking the saved version details…</article>
       ) : studio && !studio.permissions.view ? (
-        <article className="panel cohort-release-empty"><h3>Release records are unavailable.</h3><p>Your role does not have access to this cohort's release evidence.</p></article>
+        <article className="panel cohort-release-empty"><h3>Version records are unavailable.</h3><p>Your role does not have access to this group’s version details.</p></article>
       ) : studio ? (
         <div className="cohort-release-layout">
           <article className="panel cohort-release-readiness">
@@ -311,7 +311,7 @@ export function CohortReleaseStudio({
             )}
             {studio.candidate?.warnings && studio.candidate.warnings.length > 0 && (
               <div className="cohort-release-warnings" role="note">
-                <strong>Review before sealing</strong>
+                <strong>Review before saving this version</strong>
                 <ul>{studio.candidate.warnings.map((warning) => <li key={warning}>{coachVersionGuidance(warning)}</li>)}</ul>
               </div>
             )}
@@ -335,7 +335,7 @@ export function CohortReleaseStudio({
                 >
                   {pendingAction === 'seal' ? 'Preparing version' : studio.latest_release_match || !studio.candidate?.seal_needed ? 'Settings already prepared' : 'Review and prepare version'}
                 </Button>
-              ) : <p className="coach-read-only">You can review release evidence, but this cohort or your role does not allow sealing records.</p>}
+              ) : <p className="coach-read-only">You can review version details, but this group or your role does not allow preparing versions.</p>}
               {(studio.latest_release_match || studio.candidate?.seal_needed === false) && <p className="cohort-release-noop" role="status">The latest version already includes these settings. Use the launch review above, or choose Update group to check for a pending update.</p>}
             </div>
           </article>
@@ -366,7 +366,7 @@ export function CohortReleaseStudio({
                     {release.restore_allowed && studio.permissions.restore && restoreExpectedLatestReleaseId !== null ? (
                       <Button size="compact" variant="secondary" onClick={(event) => requestRestore(event, release)} disabled={pendingAction !== null || mutationLifecycle.pending}>Review restore record</Button>
                     ) : release.restore_allowed && studio.permissions.restore ? (
-                      <small className="cohort-release-restore-reason">Restore unavailable: latest release evidence is unavailable. Reload the cohort and try again.</small>
+                      <small className="cohort-release-restore-reason">Restore unavailable: the latest version details are unavailable. Reload the group and try again.</small>
                     ) : index !== 0 && release.restore_reason ? (
                       <small className="cohort-release-restore-reason">Restore unavailable: {coachVersionGuidance(release.restore_reason)}</small>
                     ) : null}

@@ -105,3 +105,5 @@
 .source-review-form .source-review-check input, .source-coverage-details .source-review-check input {
  width: 20px; min-height: 20px; height: 20px; padding: 0;
 }
+/* Inline labels ignore min-height; make the entire statement selection label tappable. */
+.source-review-check { display: flex; align-items: center; gap: .6rem; box-sizing: border-box; }
