@@ -18,7 +18,9 @@ module CohortReleases
       :bundle_digest,
       :blockers,
       :warnings,
-      :ambiguous_participant_count
+      :ambiguous_participant_count,
+      # Which part each blocker belongs to, so readiness never depends on wording.
+      :blockers_by_component
     )
 
     def initialize(cohort:, strict:)
@@ -44,6 +46,7 @@ module CohortReleases
 
       ambiguous_count = ambiguous_participant_count
       ambiguity_message = "#{ambiguous_count} participant(s) have conflicting active cohort configurations."
+      tool_blockers = tool_contract_blockers(registry)
       Candidate.new(
         cohort: cohort,
         assignment: assignment,
@@ -58,11 +61,12 @@ module CohortReleases
         tool_registry_snapshot: registry,
         bundle: release_bundle,
         bundle_digest: Contract.digest(release_bundle),
-        blockers: persona_blockers + experience_blockers + brand_blockers + tool_contract_blockers(registry) +
+        blockers: persona_blockers + experience_blockers + brand_blockers + tool_blockers +
           (strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
         warnings: persona_warnings + experience_warnings + brand_warnings +
           (!strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
-        ambiguous_participant_count: ambiguous_count
+        ambiguous_participant_count: ambiguous_count,
+        blockers_by_component: { persona: persona_blockers, experience: experience_blockers, brand: brand_blockers, tools: tool_blockers }
       )
     end
 
