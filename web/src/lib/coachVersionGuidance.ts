@@ -5,6 +5,8 @@ export function coachVersionGuidance(message: string) {
     .replaceAll('Activate the cohort\'s current release before planning a runtime rollout.', 'Launch the group’s current version before planning an update.')
     .replace(/Seal a new release before planning a rollout; the latest release is already active\./g, 'Prepare a new version before updating this group; the latest version is already in use.')
     .replace(/Seal a cohort release before planning a rollout\./g, 'Prepare a version before updating this group.')
+    .replace(/\bSeal\b/g, 'Prepare')
+    .replace(/\bseal\b/g, 'prepare')
     .replace(/sealed release/g, 'saved version')
     .replace(/participant release runtime/g, 'participant settings')
     .replace(/runtime rollout/g, 'group update')

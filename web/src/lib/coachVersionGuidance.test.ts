@@ -10,5 +10,6 @@ it('keeps readiness and safety requirements while explaining older API release t
 })
 
 it('explains an already active version without release-engine instructions', () => {
+  expect(coachVersionGuidance('The published settings changed. Seal their new release before launching.')).toBe('The published settings changed. Prepare their new version before launching.')
   expect(coachVersionGuidance('Seal a new release before planning a rollout; the latest release is already active.')).toBe('Prepare a new version before updating this group; the latest version is already in use.')
 })

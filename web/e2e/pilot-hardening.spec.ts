@@ -5970,7 +5970,7 @@ test('Coach Studio shows participant cohorts loading before an empty state', asy
   await page.getByRole('tab', { name: /Participant tools/ }).click()
 
   await expect(page.getByRole('status').filter({ hasText: 'Loading manageable cohorts…' })).toBeVisible()
-  await expect(page.getByText('No manageable cohorts yet.')).toHaveCount(0)
+  await expect(page.getByText(/No (manageable cohorts|groups available) yet\./)).toHaveCount(0)
   releaseCohorts?.()
   await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
 })
@@ -8600,7 +8600,7 @@ test('Coach Studio first launch requires impact review and stays usable on phone
   await page.getByRole('tab', { name: /Release & rollout/ }).click()
   await openDetails(page, 'Version history (1)')
   await expect(page.getByText('Latest saved version', { exact: true })).toBeVisible()
-  await expect(page.getByText('Checking the exact release evidence…', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Checking the saved version details…', { exact: true })).toHaveCount(0)
   const card = page.locator('.initial-cohort-launch')
   await expect(card.getByText('Checking launch readiness…', { exact: true })).toHaveCount(0)
   await card.getByRole('button', { name: 'Review first launch' }).click()

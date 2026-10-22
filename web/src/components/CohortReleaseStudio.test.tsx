@@ -220,7 +220,7 @@ describe('CohortReleaseStudio', () => {
     })
     renderStudio()
 
-    expect(await screen.findByText(/Restore unavailable: latest release evidence is unavailable/)).toBeTruthy()
+    expect(await screen.findByText(/Restore unavailable: the latest version details are unavailable/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Review restore record' })).toBeNull()
     expect(apiMocks.restoreCohortRelease).not.toHaveBeenCalled()
   })
@@ -233,7 +233,7 @@ describe('CohortReleaseStudio', () => {
     renderStudio()
 
     expect(await screen.findByRole('heading', { name: 'Ready to prepare' })).toBeTruthy()
-    expect(screen.getByText(/does not allow sealing records/)).toBeTruthy()
+    expect(screen.getByText(/does not allow preparing versions/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /seal record/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /restore record/i })).toBeNull()
   })

@@ -50,12 +50,12 @@ export function ReleaseAndRolloutStudio({
     return <article className="panel coach-empty coach-empty-main" role="status">Loading manageable cohorts…</article>
   }
   if (cohorts.length === 0) {
-    return <article className="panel coach-empty coach-empty-main"><h3>No manageable cohorts yet.</h3><p>Assign this coach to a cohort before preparing a release or rollout.</p></article>
+    return <article className="panel coach-empty coach-empty-main"><h3>No groups available yet.</h3><p>Assign this coach to a group before preparing a version or planning an update.</p></article>
   }
 
   const chooseCohort = (cohortId: number) => {
     if (cohortId === selectedCohortId || mutationLifecycle.pending) return
-    if (rolloutDirty && !window.confirm('Discard the rollout plan you have not recorded and switch cohorts?')) return
+    if (rolloutDirty && !window.confirm('Discard the update plan you have not saved and switch groups?')) return
     onSelectedCohortIdChange(cohortId)
     setRolloutDirty(false)
     onDirtyChange(false)
@@ -96,10 +96,10 @@ export function ReleaseAndRolloutStudio({
         cohortId={selectedCohortId}
         mutationLifecycle={mutationLifecycle}
         onLaunch={handleLaunchChange}
-        beforeLaunchAction={() => !rolloutDirty || window.confirm('Launching will discard the rollout plan you have not recorded. Continue?')}
+        beforeLaunchAction={() => !rolloutDirty || window.confirm('Launching will discard the update plan you have not saved. Continue?')}
       />
 
-      <div className="release-rollout-tabs" role="tablist" aria-label="Release and rollout steps">
+      <div className="release-rollout-tabs" role="tablist" aria-label="Version and update steps">
         <button type="button" role="tab" id="release-rollout-tab-release" aria-controls="release-rollout-panel-release" aria-selected={view === 'release'} tabIndex={view === 'release' ? 0 : -1} onKeyDown={handleViewKeyDown} onClick={() => setView('release')} disabled={mutationLifecycle.pending}>
           <span>1</span><strong>Review settings</strong><small>Prepare a version</small>
         </button>
