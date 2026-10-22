@@ -66,3 +66,10 @@
   .document-history-search-options > summary, .document-file-options > summary, .document-reading-details > summary { min-height: 44px; align-content: center; }
   .document-history-controls input, .document-history-controls select { min-height: 44px; height: 44px; }
 }
+@media (max-width: 600px) {
+  .transaction-draft-queue-controls { grid-template-columns: minmax(0, 1fr); }
+  .transaction-draft-queue-controls label, .transaction-draft-queue-controls input { min-width: 0; }
+  .transaction-draft-queue-controls input { height: 44px; }
+}
+
+.transaction-draft-pagination button, .transaction-draft-empty-filter button { min-height: 44px; }

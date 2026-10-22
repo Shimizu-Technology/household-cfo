@@ -283,7 +283,7 @@ describe('CohortRolloutStudio', () => {
     await user.click(await screen.findByRole('button', { name: 'Review pause' }))
     await user.click(screen.getByRole('button', { name: 'Pause rollout' }))
     expect((await screen.findByRole('alert')).textContent).toContain('Rollout evidence changed')
-    expect(screen.getByText(/Starting a stage changes its participants’ settings immediately/)).toBeTruthy()
+    expect(screen.getByText(/Starting a stage can change participant settings immediately/)).toBeTruthy()
     expect(apiMocks.fetchCohortRolloutStudio).toHaveBeenCalledTimes(2)
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Version 4' })))
   })
@@ -374,4 +374,27 @@ describe('CohortRolloutStudio', () => {
     expect(screen.queryByText('Program appearance', { selector: 'li' })).toBeNull()
   })
 
+})
+
+
+it('explains incomplete stage exposure without implying everyone received the version', async () => {
+  const studio = activeRolloutStudio('active')
+  const wave = studio.open_rollout!.waves[0]
+  wave.exposure_complete = false
+  wave.exposed_count = 0
+  wave.participants[0].exposed = false
+  renderStudio(studio)
+  expect(await screen.findByText('Some participants have not received this version')).toBeTruthy()
+  expect(screen.getByText(/Some participants may not receive it; check each participant’s status/)).toBeTruthy()
+})
+
+it('describes a cancelled update as unchanged in history', async () => {
+  const studio = studioFixture()
+  studio.history = { limit: 25, total_count: 1, truncated: false }
+  studio.rollouts = [{ ...activeRolloutStudio('planned').rollouts[0], status: 'cancelled' }]
+  renderStudio(studio)
+  await screen.findByText('Update history (1)')
+  const history = screen.getByText('Update history (1)').closest('details')!
+  expect(within(history).getByText(/Participant settings unchanged/)).toBeTruthy()
+  expect(within(history).queryByText(/Ready to update participants/)).toBeNull()
 })

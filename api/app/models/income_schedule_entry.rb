@@ -27,7 +27,7 @@ class IncomeScheduleEntry < ApplicationRecord
 
   def unique_recurring_change_date
     return if effective_on.blank? || income_source_id.blank?
-    return unless self.class.where(income_source_id: income_source_id, effective_on: effective_on).where.not(id: id).exists?
+    return unless self.class.where(income_source_id: income_source_id, effective_on: effective_on, entry_type: "recurring_change").where.not(id: id).exists?
 
     errors.add(:base, "You already have a pay change starting #{effective_on.strftime("%b %-d, %Y")}. Edit that change instead.")
   end

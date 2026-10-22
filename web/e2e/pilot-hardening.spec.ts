@@ -12592,3 +12592,42 @@ test('Coach Studio final acceptance identity save retains Program settings throu
   await expect(page.getByLabel('Program name', { exact: true })).toHaveValue('Unsaved program')
   await expect(page.getByRole('tab', { name: /Program settings/ })).toHaveAttribute('aria-selected', 'true')
 })
+
+for (const previousStatus of ['confirmed', 'ignored'] as const) {
+  test(`BOG UI final acceptance hidden restored ${previousStatus} purchase focuses its result instead of another purchase`, async ({ page }, testInfo) => {
+    const workspace = realWorkspaceData(true)
+    const template = workspace.budget.annual_plan.pending_transaction_drafts[0]
+    const draft = { ...template, id: 999, merchant: 'Hidden grocery' }
+    const earlier = Array.from({ length: 6 }, (_, index) => ({ ...template, id: 2000 + index, merchant: `Earlier purchase ${index + 1}` }))
+    workspace.budget.annual_plan.pending_transaction_drafts = earlier
+    workspace.budget.annual_plan.pending_transaction_drafts_meta = { total_count: earlier.length, returned_count: earlier.length, limit: 500, truncated: false }
+    let reopened = false
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+    await page.route('http://api.test/api/v1/spending_report**', route => route.fulfill({ json: { spending_report: {
+      period_label: `${currentMonth} ${currentYear}`, start_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`, end_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-28`, totals: { planned: 100, actual: 0, pending: 0, remaining: 100 }, categories: [], pending_drafts: [],
+      transactions: !reopened && previousStatus === 'confirmed' ? [{ ...draft, transaction_draft_id: draft.id, categories: ['Dining out'], splits: [] }] : [],
+      ignored_drafts: !reopened && previousStatus === 'ignored' ? [{ ...draft, status: 'ignored' }] : [],
+    } } }))
+    await page.route(`http://api.test/api/v1/transaction_drafts/${draft.id}/reopen`, route => {
+      reopened = true
+      workspace.budget.annual_plan.pending_transaction_drafts = [...earlier, draft]
+      workspace.budget.annual_plan.pending_transaction_drafts_meta = { total_count: earlier.length + 1, returned_count: earlier.length + 1, limit: 500, truncated: false }
+      return route.fulfill({ json: { workspace } })
+    })
+    await page.goto('/?pilot_e2e_role=participant#Review')
+    if (previousStatus === 'ignored') await page.getByRole('searchbox', { name: 'Search transaction reviews' }).fill('Earlier')
+    const action = page.getByRole('button', { name: new RegExp(`^${previousStatus === 'confirmed' ? 'Reopen' : 'Restore'} Hidden grocery`) })
+    await expect(action).toBeEnabled()
+    page.once('dialog', dialog => dialog.accept())
+    await action.focus(); await action.press('Enter')
+    await expect(page.getByRole('status').filter({ hasText: 'Reopened Hidden grocery.' })).toBeFocused()
+    await expect(page.getByRole('button', { name: /^Confirm Earlier purchase 1/ })).not.toBeFocused()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    for (const control of (page.viewportSize()!.width <= 600 ? await page.locator('.transaction-draft-queue-controls input, .transaction-draft-queue-controls select, .transaction-draft-pagination button').all() : [])) {
+      const box = await control.boundingBox()
+      expect(box?.width).toBeGreaterThanOrEqual(44)
+      expect(box?.height).toBeGreaterThanOrEqual(44)
+    }
+    await page.screenshot({ path: testInfo.outputPath('hidden-restored-focus.png'), fullPage: true })
+  })
+}

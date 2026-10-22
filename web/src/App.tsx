@@ -2931,10 +2931,15 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (document.activeElement && document.activeElement !== document.body && document.activeElement !== previousAction) return
       const restoredRow = restoredDraftId === undefined ? null : document.querySelector<HTMLElement>(`[data-review-item="${restoredDraftId}"]`)
-      const target = restoredRow?.querySelector<HTMLElement>('[data-review-confirm]:not(:disabled)')
-        ?? restoredRow?.querySelector<HTMLElement>('button:not(:disabled)')
-        ?? document.querySelector<HTMLElement>('.transaction-draft-stack [data-review-confirm]:not(:disabled)')
-        ?? document.querySelector<HTMLElement>('.transaction-draft-stack [role="status"], [data-review-result], [data-page-heading]')
+      const result = document.querySelector<HTMLElement>('[data-review-result]')
+        ?? document.querySelector<HTMLElement>('[data-page-heading]')
+      const target = restoredDraftId !== undefined
+        ? restoredRow?.querySelector<HTMLElement>('[data-review-confirm]:not(:disabled)')
+          ?? restoredRow?.querySelector<HTMLElement>('button:not(:disabled)')
+          ?? result
+        : document.querySelector<HTMLElement>('.transaction-draft-stack [data-review-confirm]:not(:disabled)')
+          ?? document.querySelector<HTMLElement>('.transaction-draft-stack [role="status"]')
+          ?? result
       target?.focus()
     }))
   }
@@ -7252,7 +7257,7 @@ export function ManualTransactionCapture({
           {open ? 'Close' : 'Add transaction'}
         </button>
       </div>
-      {(resolutionNotice || added) && !open && <p className="document-alert success" role="status">{resolutionNotice || added}</p>}
+      {(resolutionNotice || added) && !open && <p data-review-result tabIndex={-1} className="document-alert success" role="status">{resolutionNotice || added}</p>}
       {open && (
         <form className="manual-transaction-form" onSubmit={(event) => void submit(event)}>
           <label><span>Date</span><input type="date" required max={guamTodayIso()} value={occurredOn} onChange={(event) => setOccurredOn(event.currentTarget.value)} /></label>
