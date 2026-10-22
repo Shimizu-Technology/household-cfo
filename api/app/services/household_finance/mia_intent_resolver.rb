@@ -46,7 +46,7 @@ module HouseholdFinance
     UNSUPPORTED_TIMING_PATTERN = /\b(?:(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:on|by|before|after)\s+(?:(?:this|next)\s+)?(?:my\s+|our\s+|the\s+)?(?:pay\s*day|paycheck|deadline|due\s+date)|(?:by|before|after|around)\s+(?:christmas|new year(?:'s)?|thanksgiving|easter|the holidays?)|(?:when|once)\s+(?:i|we|my|our|the)?\s*(?:get\s+paid|paycheck\s+(?:arrives|hits)|pay\s*day\s+(?:arrives|comes)))\b/i.freeze
     ISO_DATE_PATTERN = /\b(20\d{2}-\d{2}-\d{2})\b/.freeze
     MONEY_TEXT_PATTERN = Money::CHAT_DOLLAR_AMOUNT_PATTERN
-    NUMBER_TEXT_PATTERN = /(?<![\w$,])(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)(?!\w|,\d)/.freeze
+    NUMBER_TEXT_PATTERN = /(?<![\w$,.])(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)(?!\w|,\d)/.freeze
     BUDGET_RECURRING_SCOPE_PATTERN = /\b(?:per month|monthly|every month|all year|for the (?:whole )?year|annual(?:ly)?)\b/i.freeze
     BUDGET_ALL_YEAR_SCOPE_PATTERN = /\b(?:every month|all year|for the (?:whole )?year|annual(?:ly)?)\b/i.freeze
     EXPLICIT_ZERO_PATTERN = /(?<![\d,])\$?\s*0(?:\.0{1,2})?(?![\d,])|\bzero\b/i.freeze
@@ -217,7 +217,7 @@ module HouseholdFinance
 
       setup_result = deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
       return setup_result if setup_result
-      return read_only_request ? explicit_read_only_result : nil if api_key.blank? && transport.nil?
+      return read_only_request ? explicit_read_only_result : deterministic_purchase_result if api_key.blank? && transport.nil?
 
       parsed = JSON.parse(response_content.to_s).deep_symbolize_keys
       result = build_result(parsed)
@@ -252,6 +252,44 @@ module HouseholdFinance
         topic: { type: "coaching", title: "Read-only household question", subject: "Household picture" },
         action: { type: "none" }, read_only_plan: {}, source: "deterministic"
       )
+    end
+
+    # Use the challenge reader when no structured provider is configured.
+    # This path only proposes reviews. Corrections keep the existing draft router.
+    def deterministic_purchase_result
+      return if user_message.match?(/\b(?:actually|instead|correct|change|update|split)\b/i)
+      return if TransactionDraftBuilder.non_expense_movement?(user_message)
+      return if one_purchase_in_parts?(user_message)
+
+      day = Date.iso8601(context.dig(:calendar, :today).presence || Date.current.iso8601)
+      calendar = PurchaseReportParser::Calendar.new(Date.new(1900, 1, 1), day, day)
+      parsed = PurchaseReportParser.new(calendar, message: raw_user_message).call
+      common = { confidence: 1.0, continuation: false, resolved_message: user_message,
+        topic: { type: "transaction_draft", title: "Reported spending", subject: "Reported spending" },
+        read_only_plan: {}, source: "deterministic" }
+      if (parsed.status == :rejected || parsed.reason&.dig(:kind) == :unbound_purchase) && PurchaseReportText.purchase_details?(raw_user_message)
+        question = parsed.reason&.dig(:question) || (parsed.reason&.dig(:kind) == :future ? "Which past day did you make the purchase?" : "When did you make the purchase?")
+        return Result.new(**common, intent: "clarification", needs_clarification: true,
+          clarification: question, action: { type: "none" })
+      end
+      return unless parsed.found? && !parsed.report[:no_spend]
+
+      rows = parsed.report[:purchases]
+      return unless rows.length <= MAX_TRANSACTION_REPORTS
+      return unless rows.all? { |row| row[:merchant].present? && row[:amount_cents] <= Money::MAX_AMOUNT_CENTS }
+
+      actions = rows.map do |row|
+        { type: "create_transaction_draft", merchant: row[:merchant],
+          amount: format("%.2f", BigDecimal(row[:amount_cents].to_s) / 100),
+          occurred_on: row[:purchased_on], splits: [] }
+      end
+      if actions.one?
+        Result.new(**common, intent: "transaction_report", needs_clarification: false, clarification: "", action: actions.sole)
+      else
+        Result.new(**common, intent: "action_plan", needs_clarification: false, clarification: "", action: { type: "none" },
+          write_plan: { title: "Reported purchases", kind: "transaction_reports",
+            actions: actions.each_with_index.map { |action, index| { source_text: parsed.source_texts.fetch(index), depends_on: [], action: action } } })
+      end
     end
 
     # This deliberately accepts a complete current fact, not arbitrary debt prose.
@@ -2243,6 +2281,7 @@ module HouseholdFinance
     end
 
     def money_cents_from_participant_text(text)
+      text = PurchaseReportText.normalize(text)
       currency = text.to_s.scan(MONEY_TEXT_PATTERN).flatten.filter_map { |value| chat_cents_or_nil(value) }
       plain = text.to_s.to_enum(:scan, NUMBER_TEXT_PATTERN).filter_map do
         match = Regexp.last_match

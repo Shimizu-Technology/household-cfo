@@ -6,7 +6,7 @@ module SavingsChallenge
       @household, @user, @enrollment, @message, @attachments = household, user, enrollment, message.to_s, attachments
       @savings_intake = savings_intake if savings_intake.is_a?(Hash) && savings_intake[:kind].in?(%w[contribution withdrawal])
       @daily_report = daily_report if daily_report.is_a?(Hash) && daily_report[:kind] == "daily_report"
-      @daily_rejection = daily_rejection if daily_rejection.is_a?(Hash) && daily_rejection[:date]
+      @daily_rejection = daily_rejection if daily_rejection.is_a?(Hash) && (daily_rejection[:date] || daily_rejection[:question])
     end
 
     LOAN_TOPIC = /\b(?:loans?|mortgage|lending|lender|credit score|credit report|borrow(?:ing)?)\b/i
@@ -227,6 +227,7 @@ module SavingsChallenge
     # A clearly reported day outside the personal window: say which and why.
     def daily_rejection_answer
       reason = @daily_rejection
+      return "#{reason[:question]} Nothing was saved." if reason[:question]
       date, today = reason[:date], reason[:today]
       label = ->(day) { day.strftime("%a, %b %-d") }
       spending = date == today - 1 ? "yesterday's spending" : "spending from #{label.call(date)}"

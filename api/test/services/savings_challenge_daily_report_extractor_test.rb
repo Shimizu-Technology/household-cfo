@@ -81,6 +81,20 @@ class SavingsChallengeDailyReportExtractorTest < ActiveSupport::TestCase
     assert_nil extract(two_days, reply(purchases: [ { amount: "12", merchant: "Kings", day: "yesterday" } ])), "every named day must be used"
   end
 
+  test "spoken exact cents ground the extractor and one occurrence cannot become two purchases" do
+    message = "I spent eighteen dollars and forty-seven cents at Payless yesterday"
+    report = extract(message, reply(purchases: [ { amount: "18.47", merchant: "Payless", day: "yesterday" } ]))
+    assert_equal 1847, report[:purchases].sole[:amount_cents]
+    assert_nil extract(message, reply(purchases: [ { amount: "18", merchant: "Payless", day: "yesterday" } ]))
+    assert_nil extract("spent $5 at Shell", reply(purchases: Array.new(2) { { amount: "5", merchant: "Shell", day: "today" } }))
+    assert_nil extract("spent $5 at Shell and $8 at Kings", reply(purchases: [ { amount: "5", merchant: "Shell", day: "today" } ]))
+    unbound = "I spent $8 at Shell and a backpack 12 at Kings"
+    assert_nil extract(unbound, reply(purchases: [ { amount: "8", merchant: "Shell", day: "today" } ]))
+    complete = extract(unbound, reply(purchases: [ { amount: "8", merchant: "Shell", day: "today" }, { amount: "12", merchant: "Kings", day: "today" } ]))
+    assert_equal [ 800, 1200 ], complete[:purchases].map { |row| row[:amount_cents] }
+    assert_nil extract("should I spend twelve dollars at Kings?", reply(purchases: [ { amount: "12", merchant: "Kings", day: "today" } ]))
+  end
+
   test "invalid JSON, provider errors and timeouts fall back to nothing" do
     message = "grabbed stuff at Payless for 20"
     assert_nil extract(message, "not json")

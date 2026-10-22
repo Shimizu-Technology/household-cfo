@@ -397,6 +397,27 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     end
   end
 
+  test "provider purchase proposals ground spoken cents and reject either component alone" do
+    travel_to Date.new(2026, 10, 16) do
+      message = "I spent eighteen dollars and forty-seven cents at Payless yesterday"
+      good = resolve(message, transport: provider(intent: "transaction_report",
+        action: action(type: "create_transaction_draft", merchant: "Payless", amount: "18.47", occurred_on: "2026-10-15")))
+      assert good.actionable?, good.to_h.inspect
+      assert_equal "18.47", good.action[:amount]
+      %w[18 47 65].each do |amount|
+        wrong = resolve(message, transport: provider(intent: "transaction_report",
+          action: action(type: "create_transaction_draft", merchant: "Payless", amount: amount, occurred_on: "2026-10-15")))
+        assert_not wrong.actionable?, amount
+      end
+      second = "I spent five dollars at Shell"
+      multi = resolve("#{message} and #{second}", transport: provider(intent: "action_plan", action: action(type: "none"), write_plan: {
+        title: "Purchases", actions: [ expense(message, "Payless", "18.47"), expense(second, "Shell", "5") ]
+      }))
+      assert multi.transaction_report_plan?, multi.to_h.inspect
+      assert_equal %w[18.47 5], multi.write_plan[:actions].map { |entry| entry.dig(:action, :amount) }
+    end
+  end
+
   private
 
   def resolve(message, context: intent_context, transport: nil, api_key: :default)
