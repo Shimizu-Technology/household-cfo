@@ -2814,3 +2814,25 @@
   margin: 0.25rem 0 0;
   color: var(--muted, #5f5a55);
 }
+
+/* Daily work leads; context stays available in compact native controls. */
+.coach-studio-screen { gap: .75rem; }
+.coach-studio-screen .coach-studio-heading { display: flex; max-width: none; align-items: center; justify-content: space-between; gap: .5rem; }
+.coach-studio-screen header.coach-studio-heading h2 { font-size: var(--text-lg); margin: 0; }
+.coach-studio-screen label.coach-workspace-picker { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .5rem; width: 100%; }
+.coach-workspace-heading-tools { width: min(100%, 30rem); }
+.coach-workspace-picker select { padding-block: .5rem; }
+.coach-workspace-picker small { grid-column: 1 / -1; }
+.coach-studio-section-tabs { flex-wrap: nowrap; overflow-x: auto; gap: .25rem; }
+.coach-studio-section-tabs button { white-space: nowrap; flex: 0 0 auto; padding: .5rem .65rem; }
+.coach-studio-screen label.coach-group-context { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .5rem; max-width: 30rem; }
+.coach-studio-tab-panel { gap: .5rem; }
+@media (max-width: 900px) {
+  .coach-studio-screen .coach-studio-heading { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .coach-workspace-heading-tools { width: 100%; }
+}
+@media (max-width: 620px) {
+  .coach-studio-section-tabs button { flex: 0 0 auto; }
+  .coach-studio-screen header.coach-studio-heading h2 { font-size: var(--text-md); }
+  .coach-studio-screen label.coach-workspace-picker { font-size: var(--text-sm); }
+}

@@ -52,3 +52,11 @@
   .coach-challenge-card button { margin: .25rem 0; }
 }
 @media (prefers-reduced-motion: reduce) { .coach-challenge button:active:not(:disabled) { transform: none; } }
+
+.coach-challenge .coach-daily-list > label { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .5rem; }
+.coach-challenge-actions { margin-top: .75rem; }
+@media (max-width: 620px) {
+  .coach-challenge .coach-daily-list > label { font-size: var(--text-sm); }
+}
+/* Compact labels must not make Safari zoom when the search field receives focus. */
+.coach-challenge .coach-daily-list > label input { font-size: max(16px, 1em); }
