@@ -12259,6 +12259,10 @@ test('BOG UI participant navigation groups tools and keeps household privacy rel
   await page.locator('.tabs-tools-group > summary').click()
   await page.getByRole('link', { name: 'Wealth', exact: true }).click()
   await expect(more).toHaveAttribute('aria-description', 'Current section: Wealth')
+  // Every milestone says its status in words, not only by color.
+  const milestones = page.locator('.milestone-card')
+  await expect(milestones.first()).toBeVisible()
+  for (const card of await milestones.all()) await expect(card.locator('.milestone-status')).toHaveText(/^(Reached|In progress|Needs attention)$/)
   await openSection(page, 'My Money')
   const topics = await page.locator('.money-topics button').evaluateAll(elements => elements.map(element => ({
     client: element.clientWidth, scroll: element.scrollWidth, width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height,
