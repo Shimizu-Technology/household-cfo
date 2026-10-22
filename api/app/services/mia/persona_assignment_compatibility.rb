@@ -35,19 +35,17 @@ module Mia
 
       def ensure_participant_can_join!(cohort_ids:, visible_workspace_id: nil)
         groups = Cohort.where(id: cohort_ids, status: RELEVANT_COHORT_STATUSES)
-          .includes(:cohort_persona_assignment, cohort_experience_configuration: :current_published_version).order(:id).to_a
-        personas = groups.map do |group|
-          assignment = group.cohort_persona_assignment
-          [ assignment&.coach_persona_id, assignment&.coach_persona_version_id ]
-        end
-        tools = groups.map do |group|
-          configuration = group.cohort_experience_configuration
-          # Include the saved draft: otherwise an intended savings group can
-          # accept a household participant until its tools are published.
-          configuration&.draft_config
-        end
-        published_ids = groups.map { |group| group.cohort_experience_configuration&.current_published_version_id }
-        return if personas.uniq.length <= 1 && tools.uniq.length <= 1 && published_ids.uniq.length <= 1
+          .includes(:cohort_persona_assignment, :cohort_experience_configuration).order(:id).to_a
+        # Same rule as before for the assistant: one coaching persona. Versions may
+        # differ between groups; a release reconciles them later.
+        personas = groups.filter_map { |group| group.cohort_persona_assignment&.coach_persona_id }.uniq
+        # Tools follow the release-time rule: groups must share the same published
+        # tools version (a published group and an unprepared one differ). The saved
+        # draft also states the intended experience, so an unpublished savings group
+        # can't hide beside a household one; no setting means Household CFO.
+        published = groups.map { |group| group.cohort_experience_configuration&.current_published_version_id }.uniq
+        modes = groups.map { |group| experience_mode(group) }.uniq
+        return if personas.length <= 1 && published.length <= 1 && modes.length <= 1
 
         names = groups.map do |group|
           visible_workspace_id.nil? || group.coach_workspace_id == visible_workspace_id ? "“#{group.name}”" : "a group in another program"
@@ -56,6 +54,11 @@ module Mia
       end
 
       private
+
+      def experience_mode(group)
+        config = group.cohort_experience_configuration&.draft_config || {}
+        config["experience_mode"].presence || "household_cfo"
+      end
 
       def conflicting_cohorts(cohort:, persona:)
         participant_ids = participant_ids_for(cohort: cohort)
