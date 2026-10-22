@@ -41,7 +41,7 @@ function incomeSourceDraftWithProposal(base: IncomeSourceDraft, payload: MiaActi
     label: proposedText(payload, 'label', base.label),
     source_type: proposedChoice(payload, 'source_type', base.source_type, incomeSourceTypeOptions),
     amount: proposedMoney(payload, 'amount_cents', base.amount),
-    cadence: proposedChoice(payload, 'cadence', base.cadence, ['weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual']),
+    cadence: proposedChoice(payload, 'cadence', base.cadence, cadenceOptions),
     starts_on: proposedText(payload, 'starts_on', base.starts_on),
   }
 }
@@ -356,7 +356,7 @@ export function IncomeSourceManager({
           <label>
             <span>How often you're paid</span>
             <select value={draft.cadence} onChange={(event) => updateSourceDraft({ cadence: event.currentTarget.value })}>
-              {cadenceOptions.filter((cadence) => cadence !== 'one_time').map((cadence) => <option value={cadence} key={cadence}>{titleize(cadence)}</option>)}
+              {cadenceOptions.map((cadence) => <option value={cadence} key={cadence}>{titleize(cadence)}</option>)}
             </select>
           </label>
           <label>

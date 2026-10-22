@@ -9,6 +9,7 @@ import { cssPolicyAllowlist } from './design-css-allowlist.mjs'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = readFileSync(resolve(__dirname, '../src/App.tsx'), 'utf8')
 const incomePlanner = readFileSync(resolve(__dirname, '../src/components/AnnualIncomePlanner.tsx'), 'utf8')
+const incomeSources = readFileSync(resolve(__dirname, '../src/components/IncomeSourceManager.tsx'), 'utf8')
 const adminConsole = readFileSync(resolve(__dirname, '../src/components/AdminConsole.tsx'), 'utf8')
 const css = readFileSync(resolve(__dirname, '../src/App.css'), 'utf8')
 const api = readFileSync(resolve(__dirname, '../src/api.ts'), 'utf8')
@@ -248,7 +249,7 @@ assert.ok(css.includes('.budget-progress-pending'), 'pending budget amounts shou
 assert.ok(css.includes('.annual-cash-flow-scroll'), 'annual cash-flow charts should have an intentional mobile scroll region')
 assert.ok(incomePlanner.includes('function updateIncomeDraft(values: Partial<IncomeScheduleDraft>)'), 'annual income edits should copy input values before React releases the event')
 assert.ok(
-  !/setDraft\(\(current\)[^\n]*event\.currentTarget/.test(app + incomePlanner),
+  !/setDraft\(\(current\)[^\n]*event\.currentTarget/.test(app + incomePlanner + incomeSources),
   'React event values must not be read from a deferred annual-income state updater',
 )
 

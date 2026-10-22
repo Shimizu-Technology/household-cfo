@@ -144,7 +144,7 @@ export function AnnualIncomePlanner({
           entry_type: entryType,
           label: proposedText(payload, 'label', located.entry.label ?? ''),
           amount: proposedMoney(payload, 'amount_cents', String(located.entry.amount)),
-          cadence: entryType === 'one_time' ? 'one_time' : proposedChoice(payload, 'cadence', located.entry.cadence, ['weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual']),
+          cadence: entryType === 'one_time' ? 'one_time' : proposedChoice(payload, 'cadence', located.entry.cadence, cadenceOptions),
           effective_on: proposedText(payload, 'effective_on', located.entry.effective_on),
           retained_after_transition: proposedBoolean(payload, 'retained_after_transition', located.entry.retained_after_transition === true),
         })
