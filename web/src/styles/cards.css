@@ -76,3 +76,9 @@
   font-weight: var(--weight-semibold);
   letter-spacing: 0;
 }
+
+.milestone-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.milestone-heading h3 { margin: 0; }
+.milestone-status { padding: 4px 8px; border-radius: var(--radius-pill); background: rgba(184, 135, 22, 0.12); color: #70401f; font-size: var(--text-xs); font-weight: var(--weight-bold); }
+.milestone-status.green { background: rgba(74, 131, 105, 0.12); color: #285d46; }
+.milestone-status.red { background: color-mix(in srgb, var(--status-red) 12%, transparent); color: var(--status-red); }

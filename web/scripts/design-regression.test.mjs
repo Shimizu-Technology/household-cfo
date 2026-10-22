@@ -66,7 +66,8 @@ for (const rejectedCopy of [
 }
 assert.ok(home.includes('data-page-heading') && home.includes('Home</h2>'), 'Home should retain its focusable page heading')
 assert.ok(home.includes('Review ${purchaseCount}') && home.includes('Tell ${assistantName} what changed'), 'Home should choose one next action')
-assert.ok(budgetVisuals.includes('Money in') && budgetVisuals.includes('Spent so far (confirmed)') && budgetVisuals.includes('Left in the plan'), 'the money answer should lead')
+assert.ok(budgetVisuals.includes('Money in') && budgetVisuals.includes('Planned out') && budgetVisuals.includes('Spent so far'), 'the money answer should lead: money in, money out')
+assert.ok(!budgetVisuals.includes('Left in the plan'), 'planned spending not yet used must not read as money left over')
 assert.ok(home.includes('home-readiness-details'), 'readiness explanation should remain reachable')
 assert.ok(home.includes('<AnnualCashFlowChart') && home.includes('selectedMonthIndex={monthIndex}'), 'Home should expose the year with the current month selected')
 assert.ok(budgetVisuals.includes('cash-flow-detail-panel'), 'shared cash-flow charts should expose a readable exact-value panel')

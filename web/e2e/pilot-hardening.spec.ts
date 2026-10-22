@@ -2071,9 +2071,14 @@ test('BOG UI household Home leads with money, a visible year and one purchase re
   const home = page.locator('.home-screen')
   await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
   const monthSummary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
-  await expect(monthSummary.getByText('Spent so far (confirmed)', { exact: true }).locator('..')).toContainText('$3,475.00')
+  await expect(monthSummary.getByText('Spent so far', { exact: true }).locator('..')).toContainText('$3,475.00')
   await expect(monthSummary).toContainText('$115.00 pending review · not counted as spent')
-  await expect(monthSummary.getByText('Left in the plan').locator('..')).toContainText('$1,825.00')
+  await expect(monthSummary.getByText('Planned out', { exact: true }).locator('..')).toContainText('$5,500.00')
+  // The sentence states money in minus planned out, choosing the right branch.
+  const cents = async (name: string) => Math.round(Number((await monthSummary.getByText(name, { exact: true }).locator('..').locator('strong').innerText()).replace(/[$,]/g, '')) * 100)
+  const balanceCents = (await cents('Money in')) - (await cents('Planned out'))
+  const money = (value: number) => `$${(Math.abs(value) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  await expect(monthSummary.locator('.month-plan-balance').first()).toHaveText(balanceCents < 0 ? `This month’s plan is ${money(balanceCents)} more than money in.` : balanceCents === 0 ? 'Your plan uses all of your money in.' : `Your plan leaves ${money(balanceCents)} after planned spending.`)
   await expect(home.locator('.cash-flow-month')).toHaveCount(12)
   await expect(home.locator('details .annual-cash-flow-chart')).toHaveCount(0)
   await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(0)
@@ -2140,7 +2145,8 @@ test('BOG UI household penny-level plans never show a false over-budget warning'
   await page.goto('/')
 
   const monthSummary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
-  await expect(monthSummary.getByText('Left in the plan').locator('..')).toContainText('$0.20')
+  await expect(monthSummary.getByText('Planned out', { exact: true }).locator('..')).toContainText('$0.30')
+  await expect(monthSummary).not.toContainText('over the plan')
   await expect(monthSummary).toContainText('$0.20 pending review · not counted as spent')
   await expect(monthSummary).not.toContainText('over plan if all pending items are approved')
 })
@@ -3678,7 +3684,7 @@ test('BOG UI household Budget explains scheduled income changes and upcoming ann
   await expect(outflowBreakdown).toContainText('$5,300.00')
   await expect(outflowBreakdown).toContainText('Debt minimums')
   await expect(outflowBreakdown).toContainText('$200.00')
-  await expect(outflowBreakdown).toContainText('Total money out')
+  await expect(outflowBreakdown).toContainText('Planned out')
   await expect(outflowBreakdown).toContainText('$5,500.00')
   const annualMoneyOut = page.getByLabel('Annual money out breakdown')
   await expect(annualMoneyOut).toContainText('Annual category plan$66,600.00')
@@ -4047,10 +4053,10 @@ test('BOG UI household Budget keeps headline, cockpit, and chart on the selected
   await reportMonth.selectOption('11')
   await expect(headline.getByRole('heading', { name: `Dec ${currentYear}` })).toBeVisible()
   await expect(headline).toContainText('Money in$15,000.00')
-  await expect(headline).toContainText('Total money out $8,500.00')
+  await expect(headline).toContainText('Planned out $8,500.00')
   await expect(chartDetail).toContainText('Left over each month$6,500.00')
   await expect(cockpit).toContainText(`Dec ${currentYear}`)
-  await expect(cockpit.getByRole('group', { name: 'Monthly money out breakdown' })).toContainText('Total money out $8,500.00')
+  await expect(cockpit.getByRole('group', { name: 'Monthly money out breakdown' })).toContainText('Planned out $8,500.00')
   await expect(chartDetail).toContainText(`Report monthDec ${currentYear}`)
   await expect(chartDetail).toContainText('Planned outflow$8,500.00')
 
@@ -4370,7 +4376,7 @@ test('signed-in route recovery waits for participant authorization before canoni
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Wealth')
-  const debtCard = page.getByRole('heading', { name: 'Debt payoff' }).locator('..')
+  const debtCard = page.locator('.milestone-card').filter({ has: page.getByRole('heading', { name: 'Debt payoff' }) })
   await expect(debtCard.getByText('$5,400.00 remaining')).toBeVisible()
   await expect(debtCard.locator('.progress-track')).toHaveCount(0)
   await expect(debtCard).not.toContainText('0 / 5,400')
@@ -8326,9 +8332,9 @@ test('BOG UI household a late spending report cannot overwrite the refresh trigg
   await openSection(page, 'Budget')
 
   const monthSummary = page.getByRole('region', { name: `${currentShortMonth} ${currentYear} plan position` })
-  await expect(monthSummary.getByText('Spent so far (confirmed)', { exact: true }).locator('..')).toContainText('$4,000.00')
+  await expect(monthSummary.getByText('Spent so far', { exact: true }).locator('..')).toContainText('$4,000.00')
   await page.waitForTimeout(600)
-  await expect(monthSummary.getByText('Spent so far (confirmed)', { exact: true }).locator('..')).toContainText('$4,000.00')
+  await expect(monthSummary.getByText('Spent so far', { exact: true }).locator('..')).toContainText('$4,000.00')
   expect(requestCount).toBeGreaterThanOrEqual(2)
 })
 
@@ -8449,7 +8455,7 @@ test('BOG UI household a same-month Mia response cannot undo a newer transaction
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
   await openSection(page, 'Budget')
   const monthSummary = page.getByRole('region', { name: `${currentShortMonth} ${currentYear} plan position` })
-  await expect(monthSummary.getByText('Spent so far (confirmed)', { exact: true }).locator('..')).toContainText('$4,000.00')
+  await expect(monthSummary.getByText('Spent so far', { exact: true }).locator('..')).toContainText('$4,000.00')
   await expect(monthSummary.locator('.month-plan-pending')).toHaveCount(0)
 })
 
@@ -9023,8 +9029,8 @@ test('BOG UI Home and current review survive a future Budget year', async ({ pag
   await expect(page.locator('.chat-period-context')).toHaveText(`Using your ${longMonths[new Date().getMonth()]} ${currentYear + 1} plan`)
   await openSection(page, 'Home')
   const summary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
-  await expect(summary.getByText('Spent so far (confirmed)', { exact: true }).locator('..')).toContainText('$3,475.00')
-  await expect(summary.getByText('Left in the plan').locator('..')).toContainText('$1,825.00')
+  await expect(summary.getByText('Spent so far', { exact: true }).locator('..')).toContainText('$3,475.00')
+  await expect(summary.getByText('Planned out', { exact: true }).locator('..')).toContainText('$5,500.00')
   await page.getByRole('button', { name: 'Review 2 purchases', exact: true }).click()
   await expect(page.getByText('Dinner with friends', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Storm supplies', { exact: true }).first()).toBeVisible()
@@ -12257,6 +12263,10 @@ test('BOG UI participant navigation groups tools and keeps household privacy rel
   await page.locator('.tabs-tools-group > summary').click()
   await page.getByRole('link', { name: 'Wealth', exact: true }).click()
   await expect(more).toHaveAttribute('aria-description', 'Current section: Wealth')
+  // Every milestone says its status in words, not only by color.
+  const milestones = page.locator('.milestone-card')
+  await expect(milestones.first()).toBeVisible()
+  for (const card of await milestones.all()) await expect(card.locator('.milestone-status')).toHaveText(/^(Reached|In progress|Needs attention)$/)
   await openSection(page, 'My Money')
   const topics = await page.locator('.money-topics button').evaluateAll(elements => elements.map(element => ({
     client: element.clientWidth, scroll: element.scrollWidth, width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height,

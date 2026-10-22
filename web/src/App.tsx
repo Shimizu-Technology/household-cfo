@@ -4427,7 +4427,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           <div className="milestone-list">
             {data.wealth.milestones.map((milestone) => (
               <article className={`milestone-card ${milestone.status}`} key={milestone.label}>
-                <h3>{milestone.label}</h3>
+                <div className="milestone-heading"><h3>{milestone.label}</h3>{milestoneStatusLabels[milestone.status] && <b className={`milestone-status ${milestone.status}`}>{milestoneStatusLabels[milestone.status]}</b>}</div>
                 {milestone.kind === 'progress' && milestone.target > 0 && (
                   <div className="progress-track">
                     <span style={{ width: milestoneProgressWidth(milestone.current, milestone.target) }} />
@@ -4923,6 +4923,9 @@ function milestoneProgressWidth(current: number, target: number) {
 
   return `${Math.min((current / target) * 100, 100)}%`
 }
+
+// Status is said in words, not only by color.
+const milestoneStatusLabels: Record<string, string> = { green: 'Reached', yellow: 'In progress', red: 'Needs attention' }
 
 function milestoneSummary(milestone: WealthData['milestones'][number]) {
   if (milestone.kind === 'progress') return `${milestone.current.toLocaleString()} / ${milestone.target.toLocaleString()} ${milestone.unit}`

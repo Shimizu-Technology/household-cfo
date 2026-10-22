@@ -31,10 +31,18 @@ it('keeps unknown income and plan distinct from confirmed zero and from missing 
   expect(screen.getByText('No confirmed transactions yet')).toBeTruthy()
 })
 
-it('reconciles confirmed spending and plan left without subtracting pending purchases', () => {
+it('reads money in, planned out and spent so far, without subtracting pending purchases', () => {
   render(<MonthPlanSummary {...summary} />)
-  for (const amount of ['$6,200.00', '$229.92', '$3,670.08']) expect(screen.getByText(amount)).toBeTruthy()
+  for (const amount of ['$6,200.00', '$3,900.00', '$229.92']) expect(screen.getByText(amount)).toBeTruthy()
+  expect(screen.getByText('Your plan leaves $2,300.00 after planned spending.')).toBeTruthy()
   expect(screen.getByText('$135.90 pending review · not counted as spent')).toBeTruthy()
+})
+
+it('says plainly when the plan spends more than comes in, counting debt minimums', () => {
+  render(<MonthPlanSummary {...summary} income={3000} debtMinimums={200} />)
+  expect(screen.getByText('Planned out').parentElement?.textContent).toContain('$4,100.00')
+  expect(screen.getByText('This month’s plan is $1,100.00 more than money in.')).toBeTruthy()
+  expect(screen.queryByText(/over the plan/)).toBeNull()
 })
 
 it('makes Home money and the visible year lead, with one recommended review action', () => {

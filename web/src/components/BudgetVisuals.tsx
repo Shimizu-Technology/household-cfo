@@ -42,20 +42,26 @@ export function MonthPlanSummary({
   planKnown?: boolean
   compact?: boolean
 }) {
-  const remaining = subtractMoney(planned, actual)
+  // Money in, money out: planned out includes debt minimums, matching the year chart.
+  const plannedOut = planKnown && debtMinimumsKnown ? addMoney(planned, debtMinimums) : null
+  const balance = incomeKnown && plannedOut !== null ? subtractMoney(income, plannedOut) : null
+  const overPlan = planKnown ? subtractMoney(actual, planned) : 0
   return (
     <section className="month-plan-summary" aria-label={`${label} plan position`}>
       <h3 className={compact ? 'sr-only' : undefined}>{label}</h3>
       <div className="month-plan-values">
         <PlanValue label="Money in" value={incomeKnown ? income : null} />
-        <PlanValue label="Spent so far (confirmed)" value={actual > 0 ? actual : null} emptyText="No confirmed transactions yet" />
-        <PlanValue label={remaining < 0 && planKnown ? 'Over the plan' : 'Left in the plan'} value={planKnown ? Math.abs(remaining) : null} tone={remaining < 0 ? 'negative' : undefined} />
+        <PlanValue label="Planned out" value={plannedOut} />
+        <PlanValue label="Spent so far" value={actual > 0 ? actual : null} emptyText="No confirmed transactions yet" />
       </div>
-      {planKnown && !compact && <p className="month-plan-note">{currency.format(planned)} planned for purchases. What’s left excludes pending purchases and debt payments.</p>}
+      {balance !== null && <p className={`month-plan-balance${balance < 0 ? ' is-short' : ''}`}>{balance < 0
+        ? `This month’s plan is ${currency.format(-balance)} more than money in.`
+        : balance === 0 ? 'Your plan uses all of your money in.' : `Your plan leaves ${currency.format(balance)} after planned spending.`}</p>}
+      {overPlan > 0 && <p className="month-plan-balance is-short">Spending is {currency.format(overPlan)} over the plan.</p>}
       {pending > 0 && <p className="month-plan-pending"><i className="pending-swatch" aria-hidden="true" /> {currency.format(pending)} pending review · not counted as spent</p>}
       {planKnown && !compact && <BudgetProgressTrack planned={planned} actual={actual} pending={pending} label={`${label}: ${currency.format(actual)} confirmed, ${currency.format(pending)} pending, against ${currency.format(planned)} planned`} />}
       {planKnown && !compact && (debtMinimums > 0 || !debtMinimumsKnown) && <p className="month-plan-note" role="group" aria-label="Monthly money out breakdown">
-        Category plan {currency.format(planned)} + Debt minimums {debtMinimumsKnown ? currency.format(debtMinimums) : 'Not entered'} = Total money out {debtMinimumsKnown ? currency.format(addMoney(planned, debtMinimums)) : 'Not available'}
+        Category plan {currency.format(planned)} + Debt minimums {debtMinimumsKnown ? currency.format(debtMinimums) : 'Not entered'} = Planned out {debtMinimumsKnown ? currency.format(addMoney(planned, debtMinimums)) : 'Not available'}
       </p>}
     </section>
   )
