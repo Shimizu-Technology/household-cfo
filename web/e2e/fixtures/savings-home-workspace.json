@@ -1,0 +1,742 @@
+{
+  "workspace": {
+    "mode": "real",
+    "experience_mode": "savings_challenge",
+    "challenge_open": true,
+    "challenge_state": "open",
+    "challenge_joined": true,
+    "household_id": 1,
+    "financial_generation": 0,
+    "setup_complete": false,
+    "setup_status": {
+      "complete": false,
+      "completed_count": 0,
+      "required_count": 5,
+      "required_fields": [
+        {
+          "key": "household_name",
+          "label": "Household name",
+          "confirmed": false
+        },
+        {
+          "key": "primary_goal",
+          "label": "Primary goal",
+          "confirmed": false
+        },
+        {
+          "key": "primary_income",
+          "label": "Primary monthly income",
+          "confirmed": false
+        },
+        {
+          "key": "fixed_expenses",
+          "label": "Fixed essentials",
+          "confirmed": false
+        },
+        {
+          "key": "flexible_spend",
+          "label": "Flexible spending",
+          "confirmed": false
+        }
+      ],
+      "confirmed_fields": [],
+      "missing_fields": [
+        {
+          "key": "household_name",
+          "label": "Household name",
+          "confirmed": false
+        },
+        {
+          "key": "primary_goal",
+          "label": "Primary goal",
+          "confirmed": false
+        },
+        {
+          "key": "primary_income",
+          "label": "Primary monthly income",
+          "confirmed": false
+        },
+        {
+          "key": "fixed_expenses",
+          "label": "Fixed essentials",
+          "confirmed": false
+        },
+        {
+          "key": "flexible_spend",
+          "label": "Flexible spending",
+          "confirmed": false
+        }
+      ]
+    },
+    "setup_values": {
+      "household_name": "savings-f0204fdbff7cc1f0's Household",
+      "primary_goal": "Build a clear monthly money rhythm.",
+      "primary_income": 0.0,
+      "business_income": 0.0,
+      "fixed_expenses": 0.0,
+      "flexible_spend": 0.0,
+      "expected_sinking_fund": 0.0,
+      "unexpected_sinking_fund": 0.0,
+      "emergency_fund": null,
+      "other_assets": null,
+      "credit_card_debt": null,
+      "debt_payment": null,
+      "target_runway_months": 6.0
+    },
+    "income_sources": [],
+    "accounts": [],
+    "asset_portfolio": {
+      "liquid_balance": 0.0,
+      "nonliquid_balance": 0.0,
+      "total_balance": 0.0,
+      "liquid_balance_known": false,
+      "nonliquid_balance_known": false,
+      "total_balance_known": false,
+      "active_count": 0,
+      "archived_count": 0,
+      "liquid_known_count": 0,
+      "nonliquid_known_count": 0,
+      "total_known_count": 0,
+      "unknown_balance_account_ids": []
+    },
+    "debts": [],
+    "debt_portfolio": {
+      "mode": "individual",
+      "total_balance": 0.0,
+      "monthly_minimum": 0.0,
+      "balance_known": false,
+      "minimum_payment_known": false,
+      "active_count": 0,
+      "archived_count": 0
+    },
+    "goals": [],
+    "goal_portfolio": {
+      "active_count": 0,
+      "archived_count": 0,
+      "target_total": 0.0,
+      "progress_total": 0.0,
+      "target_known_count": 0,
+      "progress_known_count": 0,
+      "unknown_target_goal_ids": [],
+      "unknown_progress_goal_ids": []
+    },
+    "cohort": {
+      "id": 1,
+      "name": "Fictional BOG savings challenge",
+      "role": "participant",
+      "status": "enrolling"
+    },
+    "capabilities": {
+      "schema_version": 3,
+      "source": "cohort_release",
+      "cohort_id": 1,
+      "cohort_release": {
+        "id": 1,
+        "number": 1
+      },
+      "experience_version": {
+        "id": 1,
+        "number": 1
+      },
+      "modules": [
+        {
+          "id": "home",
+          "core": true,
+          "label": "Home",
+          "enabled": true
+        },
+        {
+          "id": "review",
+          "core": true,
+          "label": "Review",
+          "enabled": true
+        },
+        {
+          "id": "ask_mia",
+          "core": true,
+          "label": "Ask Mia",
+          "enabled": true
+        },
+        {
+          "id": "budget",
+          "core": true,
+          "label": "Budget",
+          "enabled": true
+        },
+        {
+          "id": "profile",
+          "core": true,
+          "label": "My Profile",
+          "enabled": true
+        },
+        {
+          "id": "wealth",
+          "core": true,
+          "label": "Wealth",
+          "enabled": true
+        },
+        {
+          "id": "cfo_filter",
+          "core": false,
+          "label": "CFO Filter",
+          "unavailable_message": "CFO Filter is not included in this cohort right now. You can still ask Mia about this decision.",
+          "enabled": false
+        },
+        {
+          "id": "optionality",
+          "core": false,
+          "label": "Optionality",
+          "unavailable_message": "Optionality is not included in this cohort right now. You can still ask Mia about your choices.",
+          "enabled": false
+        }
+      ],
+      "experience_mode": "savings_challenge"
+    },
+    "brand": {
+      "source": "cohort_release_v2",
+      "mode": "published_version",
+      "version_id": 1,
+      "digest": "f0596112976e1037cdf396676e7d05d0f52711e029551fcb94ce1bde8eea7711",
+      "available": true,
+      "config": {
+        "schema_version": 1,
+        "product_name": "Household CFO",
+        "short_name": "Household CFO",
+        "organization_name": "Household CFO Method",
+        "participant_role_term": "household CFO",
+        "powered_by_name": null,
+        "powered_by_placement": "hidden",
+        "tagline": "Your household finance command center",
+        "welcome_heading": "Your household money, in one clear place",
+        "welcome_description": "Plan the month, understand what changed, and make confident decisions with your coach's guidance.",
+        "logo_url": null,
+        "favicon_url": null,
+        "support": {
+          "label": "Contact your coach",
+          "email": null,
+          "url": null
+        },
+        "colors": {
+          "background": "#f7f2ea",
+          "surface": "#fffdf8",
+          "surface_muted": "#fbf7ef",
+          "text": "#1f2421",
+          "text_muted": "#706d66",
+          "border": "#e2d9cb",
+          "primary": "#7b4a58",
+          "primary_hover": "#633944",
+          "primary_soft": "#f1e2e3",
+          "accent": "#b97352",
+          "on_primary": "#ffffff",
+          "focus": "#7b4a58"
+        },
+        "typography": {
+          "display": "cormorant_garamond",
+          "body": "montserrat"
+        },
+        "footer": {
+          "text": "Household CFO provides educational guidance and is not a substitute for individualized legal, tax, investment, or accounting advice.",
+          "privacy_url": null,
+          "terms_url": null
+        }
+      }
+    }
+  },
+  "profile": {
+    "household": {
+      "name": "Fictional participant household",
+      "stage": "First cohort",
+      "location": "Guam",
+      "primary_goal": "Build a clear monthly money rhythm."
+    },
+    "coach": {
+      "name": "Mia",
+      "role": "neutral AI household finance coaching assistant",
+      "voice": "clear, calm, practical, and respectful"
+    },
+    "members": [
+      {
+        "name": "Ana Cruz",
+        "role": "Owner",
+        "age_range": ""
+      }
+    ],
+    "priorities": [
+      "Know what is safe to spend",
+      "Protect the emergency fund",
+      "Plan the next big move",
+      "Reduce debt without losing momentum"
+    ],
+    "completeness": 29,
+    "uploads": [
+      {
+        "label": "Upload spreadsheet",
+        "kind": "spreadsheet",
+        "status": "Private extraction with review before apply",
+        "accepts": ".xlsx, .xls, .csv"
+      },
+      {
+        "label": "Upload statement",
+        "kind": "statement",
+        "status": "Transactions draft into the correct months for review",
+        "accepts": ".pdf, .csv, .png, .jpg"
+      },
+      {
+        "label": "Upload pay stub",
+        "kind": "paystub",
+        "status": "Income facts stay pending until you approve them",
+        "accepts": ".pdf, .png, .jpg"
+      }
+    ],
+    "sections": [
+      {
+        "label": "Income",
+        "summary": "Current recurring monthly income. One-time bonuses stay in the month where they belong in the annual plan.",
+        "items": []
+      },
+      {
+        "label": "Expenses",
+        "summary": "Bills, choices, and the things life always seems to throw at you.",
+        "items": []
+      },
+      {
+        "label": "Savings & Debt",
+        "summary": "Runway, cash, credit cards, loans, and the next stability target.",
+        "items": []
+      }
+    ]
+  },
+  "dashboard": {
+    "summary": {
+      "monthly_income": 0.0,
+      "fixed_expenses": 0.0,
+      "flexible_spend": 0.0,
+      "debt_payments": 0.0,
+      "monthly_surplus_rate_percent": 0,
+      "runway_months": null,
+      "next_safe_to_spend_amount": 0,
+      "readiness_available": false,
+      "readiness_tone": "red",
+      "readiness_label": "Setup incomplete \u2014 finish your starting picture"
+    },
+    "action_center": {
+      "transaction_review_count": 0,
+      "mia_action_review_count": 0,
+      "total_review_count": 0,
+      "document_review_count": 0,
+      "current_month_label": "October",
+      "current_month_index": 9,
+      "current_year": 2026
+    },
+    "coach_read": {
+      "title": "Finish your starting picture.",
+      "body": "Complete these setup details first: Household name, Primary goal, Primary monthly income, Fixed essentials, and Flexible spending. Mia will calculate readiness and safe-to-spend after you review and confirm those details."
+    },
+    "readiness_path": {
+      "available": false,
+      "unavailable_reason": "Enter every required monthly debt minimum, or confirm a $0 household summary, before using cash guidance.",
+      "current_runway_months": null,
+      "target_runway_months": 6.0,
+      "protected_liquid_amount": 0.0,
+      "monthly_surplus": null,
+      "yellow": {
+        "tone": "yellow",
+        "runway_months": 3.0,
+        "protected_liquid_target": 0.0,
+        "protected_liquid_gap": 0.0,
+        "cash_flow_requirement": "Nonnegative monthly cash flow",
+        "reached": false
+      },
+      "green": {
+        "tone": "green",
+        "runway_months": 6.0,
+        "protected_liquid_target": 0.0,
+        "protected_liquid_gap": 0.0,
+        "cash_flow_requirement": "Positive monthly cash flow",
+        "reached": false
+      }
+    },
+    "accounts": [],
+    "alerts": [
+      {
+        "tone": "yellow",
+        "title": "Finish your starting picture",
+        "body": "Complete these setup details first: Household name, Primary goal, Primary monthly income, Fixed essentials, and Flexible spending."
+      }
+    ],
+    "next_steps": [
+      "Complete these setup details first: Household name, Primary goal, Primary monthly income, Fixed essentials, and Flexible spending.",
+      "Tell Mia the missing details for review, or enter them in Manual setup. Use 0 when an amount does not apply.",
+      "Review and confirm the setup before relying on readiness or safe-to-spend."
+    ]
+  },
+  "budget": {
+    "household_id": 1,
+    "financial_generation": 0,
+    "framework": "Expense Stack",
+    "intro": "Most budgets collapse life into bills versus fun. Household CFO separates the expenses that surprise you before they turn into emergencies.",
+    "monthly_income": 0.0,
+    "total_monthly_outflow": 0.0,
+    "baseline_surplus": 0.0,
+    "stacks": [
+      {
+        "label": "Non-discretionary",
+        "color": "green",
+        "amount": 0.0,
+        "description": "Fixed, non-negotiable monthly obligations.",
+        "examples": [
+          "Mortgage/rent",
+          "utilities",
+          "insurance",
+          "minimum debt payments"
+        ]
+      },
+      {
+        "label": "Discretionary",
+        "color": "yellow",
+        "amount": 0.0,
+        "description": "Choices that still matter, but can be shaped.",
+        "examples": [
+          "groceries",
+          "coffee",
+          "eating out",
+          "subscriptions"
+        ]
+      },
+      {
+        "label": "Sinking Fund \u2014 Expected",
+        "color": "gold",
+        "amount": 0.0,
+        "description": "Known irregular expenses that should stop feeling like surprises.",
+        "examples": [
+          "car registration",
+          "back to school",
+          "holidays"
+        ]
+      },
+      {
+        "label": "Sinking Fund \u2014 Unexpected",
+        "color": "red",
+        "amount": 0.0,
+        "description": "Life-happens money for repairs, medical, and family support.",
+        "examples": [
+          "car repair",
+          "clinic visit",
+          "appliance replacement"
+        ]
+      }
+    ],
+    "custom_categories_note": "Rename these into the language of your household. The stack matters more than perfect accounting labels.",
+    "annual_plan": {
+      "year": 2026,
+      "household_id": 1,
+      "financial_generation": 0,
+      "months": [
+        {
+          "id": 1,
+          "label": "Jan",
+          "starts_on": "2026-01-01",
+          "ends_on": "2026-01-31",
+          "status": "open"
+        },
+        {
+          "id": 2,
+          "label": "Feb",
+          "starts_on": "2026-02-01",
+          "ends_on": "2026-02-28",
+          "status": "open"
+        },
+        {
+          "id": 3,
+          "label": "Mar",
+          "starts_on": "2026-03-01",
+          "ends_on": "2026-03-31",
+          "status": "open"
+        },
+        {
+          "id": 4,
+          "label": "Apr",
+          "starts_on": "2026-04-01",
+          "ends_on": "2026-04-30",
+          "status": "open"
+        },
+        {
+          "id": 5,
+          "label": "May",
+          "starts_on": "2026-05-01",
+          "ends_on": "2026-05-31",
+          "status": "open"
+        },
+        {
+          "id": 6,
+          "label": "Jun",
+          "starts_on": "2026-06-01",
+          "ends_on": "2026-06-30",
+          "status": "open"
+        },
+        {
+          "id": 7,
+          "label": "Jul",
+          "starts_on": "2026-07-01",
+          "ends_on": "2026-07-31",
+          "status": "open"
+        },
+        {
+          "id": 8,
+          "label": "Aug",
+          "starts_on": "2026-08-01",
+          "ends_on": "2026-08-31",
+          "status": "open"
+        },
+        {
+          "id": 9,
+          "label": "Sep",
+          "starts_on": "2026-09-01",
+          "ends_on": "2026-09-30",
+          "status": "open"
+        },
+        {
+          "id": 10,
+          "label": "Oct",
+          "starts_on": "2026-10-01",
+          "ends_on": "2026-10-31",
+          "status": "open"
+        },
+        {
+          "id": 11,
+          "label": "Nov",
+          "starts_on": "2026-11-01",
+          "ends_on": "2026-11-30",
+          "status": "open"
+        },
+        {
+          "id": 12,
+          "label": "Dec",
+          "starts_on": "2026-12-01",
+          "ends_on": "2026-12-31",
+          "status": "open"
+        }
+      ],
+      "rows": [],
+      "monthly_income": {
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0,
+        "4": 0.0,
+        "5": 0.0,
+        "6": 0.0,
+        "7": 0.0,
+        "8": 0.0,
+        "9": 0.0,
+        "10": 0.0,
+        "11": 0.0,
+        "12": 0.0
+      },
+      "monthly_debt_minimums": 0.0,
+      "monthly_debt_minimums_known": false,
+      "income_sources": [],
+      "annual_outlook": {
+        "typical_monthly_outflow": 0.0,
+        "months": [
+          {
+            "period_id": 1,
+            "label": "Jan",
+            "starts_on": "2026-01-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          },
+          {
+            "period_id": 2,
+            "label": "Feb",
+            "starts_on": "2026-02-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          },
+          {
+            "period_id": 3,
+            "label": "Mar",
+            "starts_on": "2026-03-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          },
+          {
+            "period_id": 4,
+            "label": "Apr",
+            "starts_on": "2026-04-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          },
+          {
+            "period_id": 5,
+            "label": "May",
+            "starts_on": "2026-05-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          },
+          {
+            "period_id": 6,
+            "label": "Jun",
+            "starts_on": "2026-06-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          },
+          {
+            "period_id": 7,
+            "label": "Jul",
+            "starts_on": "2026-07-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          },
+          {
+            "period_id": 8,
+            "label": "Aug",
+            "starts_on": "2026-08-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          },
+          {
+            "period_id": 9,
+            "label": "Sep",
+            "starts_on": "2026-09-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          },
+          {
+            "period_id": 10,
+            "label": "Oct",
+            "starts_on": "2026-10-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          },
+          {
+            "period_id": 11,
+            "label": "Nov",
+            "starts_on": "2026-11-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          },
+          {
+            "period_id": 12,
+            "label": "Dec",
+            "starts_on": "2026-12-01",
+            "income": 0.0,
+            "category_plan": 0.0,
+            "debt_minimums": 0.0,
+            "planned_outflow": 0.0,
+            "baseline_surplus": 0.0,
+            "expected_irregular": 0.0,
+            "expected_contributors": []
+          }
+        ],
+        "upcoming_spikes": [],
+        "next_irregular_month": null
+      },
+      "pending_transaction_drafts": [],
+      "pending_transaction_drafts_meta": {
+        "total_count": 0,
+        "returned_count": 0,
+        "limit": 500,
+        "truncated": false
+      },
+      "pending_mia_action_drafts": [],
+      "recent_transactions": [],
+      "archived_categories": [],
+      "plan_available": true
+    }
+  },
+  "wealth": {
+    "summary": {
+      "net_worth": null,
+      "liquid_net_worth": null,
+      "liquid_net_worth_available": false,
+      "debt_balance_known": false,
+      "total_assets_known": false,
+      "liquid_assets_known": false,
+      "debt_minimums_known": false,
+      "ten_year_surplus_capacity": null,
+      "monthly_surplus_available": null
+    },
+    "milestones": [
+      {
+        "kind": "status",
+        "label": "Debt details needed",
+        "current": 0,
+        "target": 0,
+        "unit": "Add debt balances and monthly minimums under My Profile",
+        "status": "yellow"
+      }
+    ],
+    "guidance": "Wealth here is not about looking rich. It is about buying back options, lowering panic, and making the next right move visible."
+  },
+  "mia": {
+    "messages": [],
+    "oldest_message_id": null,
+    "older_message_count": 0,
+    "has_older_messages": false,
+    "historical_message_count": 0,
+    "picture": "current",
+    "read_only": false,
+    "quick_prompts": [
+      "Help me finish my household setup",
+      "What setup details are still missing?",
+      "I want to enter my starting household numbers",
+      "How do I confirm my starting picture?"
+    ],
+    "disclaimer": "Mia is a coaching and education tool inside Household CFO Method. She does not replace legal, tax, investment, accounting, therapeutic, or financial advice."
+  }
+}
