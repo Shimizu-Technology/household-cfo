@@ -20,10 +20,12 @@ module HouseholdFinance
     module_function
 
     # A purchase question ("How much was it?", "When was it?") only makes sense
-    # when the message states an amount or names a store. A reflection such as
-    # "I ordered takeout again tonight" is conversation, and coaching answers it.
+    # when the message states an amount, names a store, or reports a no-spend
+    # day. A reflection such as "I ordered takeout again tonight" is
+    # conversation, and coaching answers it.
     def purchase_details?(value)
-      stated_amount?(value) || value.to_s.match?(PurchaseReportParser::MERCHANT_PATTERN)
+      text = value.to_s
+      stated_amount?(text) || text.match?(PurchaseReportParser::MERCHANT_PATTERN) || text.match?(PurchaseReportParser::NO_SPEND_PATTERN)
     end
 
     def stated_amount?(value)
