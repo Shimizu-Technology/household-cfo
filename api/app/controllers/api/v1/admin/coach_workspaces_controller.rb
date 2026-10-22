@@ -31,7 +31,7 @@ module Api
           current_user.with_lock do
             validate_creation_authority!
             existing = replay_created(key, fingerprint)
-            return render json: { coach_workspace: detail(existing) } if existing
+            return render json: { coach_workspace: detail(existing), owner_invitation: existing.creation_owner_invitation } if existing
 
             record = CoachWorkspace.create!(
               name: attributes[:name],
@@ -55,7 +55,7 @@ module Api
             existing = replay_created(key, fingerprint)
             raise unless existing
 
-            render json: { coach_workspace: detail(existing) }
+            render json: { coach_workspace: detail(existing), owner_invitation: existing.creation_owner_invitation }
           end
         end
 
@@ -114,13 +114,17 @@ module Api
         def owner_invitation(record, invited)
           return nil unless invited
 
-          collaborators = CoachWorkspaces::Collaborators.new(workspace: record, actor: current_user)
-          delivery = CoachWorkspaces::CollaboratorInviteEmail.send_invite(user: invited, workspace: record, role: "owner",
-            invited_by: current_user, sign_in_url: collaborators.sign_in_url, requested: send_owner_invitation_email?)
-          { email: invited.email, delivery: delivery }
-        rescue StandardError => e
-          Rails.logger.warn("[CoachWorkspaces] owner invitation email failed: #{e.class}")
-          { email: invited.email, delivery: { sent: false, status: "failed" } }
+          delivery = begin
+            collaborators = CoachWorkspaces::Collaborators.new(workspace: record, actor: current_user)
+            CoachWorkspaces::CollaboratorInviteEmail.send_invite(user: invited, workspace: record, role: "owner",
+              invited_by: current_user, sign_in_url: collaborators.sign_in_url, requested: send_owner_invitation_email?)
+          rescue StandardError => e
+            Rails.logger.warn("[CoachWorkspaces] owner invitation email failed: #{e.class}")
+            { sent: false, status: "failed" }
+          end
+          result = { email: invited.email, delivery: delivery }
+          record.update!(creation_owner_invitation: result)
+          result
         end
 
         def render_owner_invalid(error)

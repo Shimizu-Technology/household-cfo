@@ -889,6 +889,44 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     assert_equal "persona_setup_resolution_conflict", error.code
   end
 
+  [
+    [ "All set.", "Nothing has been saved. Tell me what you would like to change, and I will propose it for you to review." ],
+    [ "Which part of Mia's voice would you like to change?", "Which part of Mia's voice would you like to change?" ]
+  ].each do |provider_message, expected_message|
+    test "full turn preserves clarification and metadata without a proposal for #{provider_message}" do
+      response = provider_response(model: "exact/model", content: JSON.generate("assistant_message" => provider_message, "operations" => []))
+      resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
+      original_revision = @persona.draft_revision
+      original_config = @persona.draft_config.deep_dup
+      original_activity = 1.hour.ago
+      @session.update!(last_activity_at: original_activity)
+      runner = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
+
+      result = nil
+      assert_no_difference "CoachPersonaSetupProposal.count" do
+        result = runner.call(user_message: "Make Mia warmer.", idempotency_key: "clarification-key-123")
+      end
+      turn = result.turn.reload
+      assert_equal "ready", turn.status
+      assert_equal expected_message, turn.assistant_message
+      assert_nil result.proposal
+      assert_nil turn.proposal
+      assert_nil turn.error_code
+      assert_equal "test", turn.provider
+      assert_equal "exact/model", turn.model
+      assert_equal Mia::PersonaSetup::ProposalBuilder::PROMPT_VERSION, turn.prompt_version
+      assert_equal Mia::PersonaSetup::ProposalBuilder::SCHEMA_VERSION, turn.schema_version
+      assert_equal({ "total_tokens" => 10 }, turn.usage)
+      assert_operator @session.reload.last_activity_at, :>, original_activity
+      assert_equal original_revision, @persona.reload.draft_revision
+      assert_equal original_config, @persona.draft_config
+      replay = runner.call(user_message: "Make Mia warmer.", idempotency_key: "clarification-key-123")
+      assert replay.replayed
+      assert_equal turn.id, replay.turn.id
+      assert_nil replay.proposal
+    end
+  end
+
   private
 
   def operation(path, value, source: "coach_quote", evidence:)

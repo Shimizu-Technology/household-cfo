@@ -94,7 +94,7 @@ function Harness({
 
 describe('PersonaSetupChat', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
     apiMocks.createAdminPersonaSetupSession.mockResolvedValue(session())
   })
   afterEach(cleanup)
@@ -192,6 +192,63 @@ describe('PersonaSetupChat', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))
     await screen.findByText('Human coach name')
     expect(apiMocks.createAdminPersonaSetupTurn.mock.calls[1][3]).not.toBe(apiMocks.createAdminPersonaSetupTurn.mock.calls[0][3])
+  })
+
+  it('shows a ready clarification as a reply without errors or empty Apply controls', async () => {
+    const clarification = 'Which part of the voice would you like to change?'
+    apiMocks.createAdminPersonaSetupTurn.mockResolvedValue(session({
+      turns: [{ id: 94, position: 1, status: 'ready', user_message: 'Make Mia warmer.', assistant_message: clarification, error_code: null, created_at: '2026-10-02T00:00:00Z' }],
+    }))
+    render(<Harness />)
+    const composer = await screen.findByLabelText('Message Mia') as HTMLTextAreaElement
+    await userEvent.type(composer, 'Make Mia warmer.')
+    await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))
+
+    expect(await screen.findByText(clarification)).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Apply to saved draft' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Review in form' })).toBeNull()
+    expect(screen.getByText('No proposal yet.')).toBeTruthy()
+    expect(composer.value).toBe('')
+    expect(screen.queryByRole('button', { name: 'Retry message' })).toBeNull()
+    await userEvent.type(composer, 'Ask one short question at a time.')
+    expect(screen.getByRole('button', { name: 'Send to Mia' })).toHaveProperty('disabled', false)
+  })
+
+  it('explains a closed chat when replacement creation fails and retries only the new session', async () => {
+    apiMocks.createAdminPersonaSetupSession
+      .mockResolvedValueOnce(session())
+      .mockRejectedValueOnce(new ApiRequestError('HTTP 500: internal failure', { status: 500 }))
+      .mockResolvedValueOnce(session({ id: 52 }))
+    apiMocks.abandonAdminPersonaSetupSession.mockResolvedValue(session({ status: 'abandoned' }))
+    render(<Harness />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Start a fresh setup chat' }))
+    const explanation = await screen.findByText(/The old chat was closed, but a new chat could not be started/)
+    expect(explanation.textContent).not.toContain('Nothing changed')
+    expect(explanation.textContent).not.toContain('500')
+    const retry = await screen.findByRole('button', { name: 'Open a fresh chat' })
+    await vi.waitFor(() => expect(retry).toHaveProperty('disabled', false))
+    await userEvent.click(retry)
+    await vi.waitFor(() => expect(apiMocks.createAdminPersonaSetupSession).toHaveBeenCalledTimes(3))
+    await vi.waitFor(() => expect(screen.getByLabelText('Message Mia')).toHaveProperty('disabled', false))
+    expect(apiMocks.abandonAdminPersonaSetupSession).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('uses close-specific wording when abandoning the chat fails', async () => {
+    apiMocks.abandonAdminPersonaSetupSession.mockRejectedValue(new ApiRequestError('HTTP 500', { status: 500 }))
+    render(<Harness />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Start a fresh setup chat' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('The setup chat could not be closed. Try again.')
+    expect(apiMocks.createAdminPersonaSetupSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses action-specific wording for an unconfirmed proposal apply error', async () => {
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
+    apiMocks.resolveAdminPersonaSetupProposal.mockRejectedValue(new ApiRequestError('HTTP 500', { status: 500 }))
+    render(<Harness />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Apply to saved draft' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('The proposal could not be applied.')
   })
 
   it('reuses a proposal action key after a lost response', async () => {

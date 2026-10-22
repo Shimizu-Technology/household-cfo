@@ -30,13 +30,77 @@ class ApiV1AdminCoachWorkspacesControllerTest < ActionDispatch::IntegrationTest
     assert_equal "pending", owner.invitation_status
     assert_equal "skipped", response.parsed_body.dig("owner_invitation", "delivery", "status")
     assert_equal "skipped", owner.invitation_email_attempts.last.status
-    assert_no_difference "CoachWorkspace.count" do
+    original_invitation = response.parsed_body.fetch("owner_invitation")
+    assert_no_difference [ "CoachWorkspace.count", "InvitationEmailAttempt.count" ] do
       post "/api/v1/admin/coach_workspaces", params: payload, headers: request_headers, as: :json
       assert_response :success
     end
+    assert_equal original_invitation, response.parsed_body["owner_invitation"]
+    assert_equal owner.email, response.parsed_body.dig("owner_invitation", "email")
     payload[:coach_workspace][:send_invitation_email] = true
     post "/api/v1/admin/coach_workspaces", params: payload, headers: request_headers, as: :json
     assert_response :conflict
+  end
+
+  %w[sent failed].each do |delivery_status|
+    test "creation replay preserves original #{delivery_status} delivery without sending again" do
+      admin = user("admin")
+      payload = with_owner(settings("Delivery replay"), "#{delivery_status}-owner@example.test")
+      request_headers = headers(admin).merge("Idempotency-Key" => SecureRandom.uuid)
+      sender = CoachWorkspaces::CollaboratorInviteEmail
+      original = sender.method(:send_invite)
+      sends = 0
+      sender.define_singleton_method(:send_invite) do |**|
+        sends += 1
+        { sent: delivery_status == "sent", status: delivery_status, provider_message_id: "original-result" }
+      end
+      post "/api/v1/admin/coach_workspaces", params: payload, headers: request_headers, as: :json
+      assert_response :created
+      original_invitation = response.parsed_body.fetch("owner_invitation")
+      post "/api/v1/admin/coach_workspaces", params: payload, headers: request_headers, as: :json
+      assert_response :success
+      assert_equal original_invitation, response.parsed_body["owner_invitation"]
+      assert_equal delivery_status, response.parsed_body.dig("owner_invitation", "delivery", "status")
+      assert_equal 1, sends
+    ensure
+      sender.define_singleton_method(:send_invite, original) if original
+    end
+  end
+
+  test "unique creation race replays the workspace original invitation without another send" do
+    admin = user("admin")
+    request_headers = headers(admin).merge("Idempotency-Key" => SecureRandom.uuid)
+    payload = with_owner(settings("Original invitation"), "original-owner@example.test")
+    payload[:coach_workspace][:send_invitation_email] = false
+    post "/api/v1/admin/coach_workspaces", params: payload, headers: request_headers, as: :json
+    assert_response :created
+    original_invitation = response.parsed_body.fetch("owner_invitation")
+    workspace_id = response.parsed_body.dig("coach_workspace", "id")
+    owner = User.find_by!(email: "original-owner@example.test")
+    # Later account-wide sends must not overwrite this workspace's creation result.
+    owner.invitation_email_attempts.create!(status: "sent", provider: "test", attempted_at: Time.current, sent_at: Time.current)
+    controller = Api::V1::Admin::CoachWorkspacesController
+    original = controller.instance_method(:replay_created)
+    lookups = 0
+    controller.define_method(:replay_created) do |*args|
+      lookups += 1
+      lookups == 1 ? nil : original.bind_call(self, *args)
+    end
+    controller.send(:private, :replay_created)
+
+    assert_no_difference [ "CoachWorkspace.count", "User.count", "InvitationEmailAttempt.count" ] do
+      post "/api/v1/admin/coach_workspaces", params: payload, headers: request_headers, as: :json
+      assert_response :success
+    end
+    assert_equal 2, lookups
+    assert_equal workspace_id, response.parsed_body.dig("coach_workspace", "id")
+    assert_equal original_invitation, response.parsed_body["owner_invitation"]
+    assert_equal "skipped", response.parsed_body.dig("owner_invitation", "delivery", "status")
+  ensure
+    if original
+      controller.define_method(:replay_created, original)
+      controller.send(:private, :replay_created)
+    end
   end
 
   test "workspace creation replays without duplication and rejects changed input" do

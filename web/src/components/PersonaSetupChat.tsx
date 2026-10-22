@@ -116,7 +116,7 @@ export function PersonaSetupChat({
       if (!isCurrent(sequence, personaId, ticket)) return
       setSession(next)
       const latestTurn = next.turns[next.turns.length - 1]
-      if (!latestTurn || latestTurn.status !== 'ready' || !next.proposal) {
+      if (!latestTurn || latestTurn.status !== 'ready') {
         if (latestTurn?.status !== 'processing') setRetryKey(null)
         setError(latestTurn?.assistant_message || (latestTurn?.status === 'processing'
           ? 'Mia is still preparing this proposal. Retry shortly with the same request.'
@@ -125,8 +125,8 @@ export function PersonaSetupChat({
       }
       setMessage('')
       setRetryKey(null)
-      setAnnouncement('Mia prepared a proposal for your review.')
-      window.requestAnimationFrame(() => proposalHeadingRef.current?.focus())
+      setAnnouncement(next.proposal ? 'Mia prepared a proposal for your review.' : 'Mia replied. Keep chatting to clarify your changes.')
+      window.requestAnimationFrame(() => next.proposal ? proposalHeadingRef.current?.focus() : composerRef.current?.focus())
     } catch (caught) {
       if (isCurrent(sequence, personaId, ticket)) {
         const returnedSession = setupSessionFromError(caught, session.id)
@@ -135,7 +135,10 @@ export function PersonaSetupChat({
           const latestTurn = returnedSession.turns[returnedSession.turns.length - 1]
           if (latestTurn?.status !== 'processing') setRetryKey(null)
         }
-        setError(setupErrorMessage(caught, 'Mia could not prepare this proposal. Try again.'))
+        const latestTurn = returnedSession?.turns.at(-1)
+        setError(latestTurn?.status === 'failed'
+          ? 'Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.'
+          : setupErrorMessage(caught, 'Mia could not prepare this proposal. Try again.'))
       }
     } finally {
       if (isCurrent(sequence, personaId, ticket)) setPending(null)
@@ -190,12 +193,14 @@ export function PersonaSetupChat({
     const personaId = persona.id
     setPending(action)
     setError(null)
+    let oldChatClosed = session.status !== 'active'
     try {
       if (action === 'abandon') {
         if (session.status === 'active') {
           const abandoned = await abandonAdminPersonaSetupSession(personaId, session.id)
           if (!isCurrent(sequence, personaId, ticket)) return
           setSession(abandoned)
+          oldChatClosed = true
         }
         const replacement = await createAdminPersonaSetupSession(personaId)
         if (!isCurrent(sequence, personaId, ticket)) return
@@ -210,7 +215,14 @@ export function PersonaSetupChat({
         setAnnouncement('Setup chat rebased onto the latest saved draft.')
       }
     } catch (caught) {
-      if (isCurrent(sequence, personaId, ticket)) setError(setupErrorMessage(caught, 'The setup chat could not be updated.'))
+      if (isCurrent(sequence, personaId, ticket)) {
+        const fallback = action === 'rebase'
+          ? 'The setup chat could not be rebased. Try again.'
+          : oldChatClosed
+            ? 'The old chat was closed, but a new chat could not be started. Select Open a fresh chat to try again.'
+            : 'The setup chat could not be closed. Try again.'
+        setError(setupErrorMessage(caught, fallback))
+      }
     } finally {
       if (isCurrent(sequence, personaId, ticket)) setPending(null)
       finishMutation(ticket)
@@ -346,7 +358,7 @@ function requestKey() {
 }
 
 function setupErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiRequestError && error.status >= 500) return 'Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.'
+  if (error instanceof ApiRequestError && error.status >= 500) return fallback
   return error instanceof Error && error.message ? error.message : fallback
 }
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_17_130000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_23_120000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -1399,6 +1399,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_17_130000) do
   create_table "coach_workspaces", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
+    t.jsonb "creation_owner_invitation"
     t.string "creation_request_fingerprint"
     t.string "creation_request_key"
     t.integer "lock_version", default: 0, null: false
