@@ -32,7 +32,41 @@ class MiaPersonaAssignmentCompatibilityTest < ActiveSupport::TestCase
       Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: [ first.id, second.id ])
     end
 
-    assert_equal "This participant would receive different personas from their cohorts.", error.message
+    assert_includes error.message, first.name
+    assert_includes error.message, second.name
+    assert_includes error.message, "Keep them in one group"
+  end
+
+  test "unpublished savings tools cannot be combined with household tools" do
+    admin = persona_user(role: "admin")
+    first = cohort_for(admin, name: "Household group")
+    second = cohort_for(admin, name: "Savings group")
+    second.cohort_experience_configuration.update!(draft_config: CohortExperience::Schema::PILOT_SAVINGS_CONFIG)
+    error = assert_raises(Mia::PersonaAssignmentCompatibility::Conflict) do
+      Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: [ first.id, second.id ])
+    end
+    assert_includes error.message, "Household group"
+    assert_includes error.message, "Savings group"
+    assert_includes error.message, "participant tools"
+    error = assert_raises(Mia::PersonaAssignmentCompatibility::Conflict) do
+      Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: [ first.id, second.id ], visible_workspace_id: -1)
+    end
+    refute_includes error.message, first.name
+    refute_includes error.message, second.name
+    assert_includes error.message, "another program"
+  end
+
+  test "a published tools group cannot hide a conflicting unprepared group behind identical drafts" do
+    admin = persona_user(role: "admin")
+    first = cohort_for(admin, name: "Published tools")
+    second = cohort_for(admin, name: "Unprepared tools")
+    configuration = first.cohort_experience_configuration
+    publisher = CohortExperience::Publisher.new(configuration: configuration, actor: admin)
+    digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
+    publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: nil)
+    assert_raises(Mia::PersonaAssignmentCompatibility::Conflict) do
+      Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: [ first.id, second.id ])
+    end
   end
 
   test "stale persona associations cannot pin a cohort to a superseded version" do

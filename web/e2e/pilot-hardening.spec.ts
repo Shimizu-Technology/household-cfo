@@ -5280,6 +5280,7 @@ test('Admin UI keeps the selected challenge first, guards review drafts and expl
 test('Admin UI cohort rows show only safe pilot progress signals', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin')
   await openSection(page, 'Admin')
+  await page.getByRole('button', { name: 'Participants & access', exact: true }).click()
   await page.getByText('Invite a participant or staff member', { exact: true }).click()
 
   const inviteForm = page.locator('.admin-form').filter({ has: page.getByLabel('Email') }).first()

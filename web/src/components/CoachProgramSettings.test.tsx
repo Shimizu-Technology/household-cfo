@@ -109,6 +109,23 @@ describe('program settings', () => {
     expect(vi.mocked(api.createCoachWorkspace).mock.calls[0][0]).toMatchObject({ owner_email: 'mel@example.test' })
   })
 
+  it('lets a first admin invite the owner without sending email and resets the choice', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.createCoachWorkspace).mockResolvedValue({ ...workspace, owner_invitation: { email: 'mel@example.test', delivery: { sent: false, status: 'skipped' } } })
+    render(<CreateCoachProgram firstProgram />)
+    expect(screen.getByRole('heading', { name: 'Create your first program' })).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Create program' }))
+    await user.type(screen.getByLabelText('Program name'), 'Island program')
+    await user.type(screen.getByLabelText('Coach display name'), 'Mrs. Mel')
+    await user.type(screen.getByLabelText(/Program owner email/), 'mel@example.test')
+    await user.click(screen.getByRole('checkbox', { name: 'Send invite email now' }))
+    await user.click(screen.getByRole('button', { name: 'Create program' }))
+    expect((await screen.findByRole('status')).textContent).toContain('No email was sent')
+    expect(api.createCoachWorkspace).toHaveBeenCalledWith(expect.objectContaining({ send_invitation_email: false }), expect.any(String))
+    await user.click(screen.getByRole('button', { name: 'Create program' }))
+    expect(screen.getByRole('checkbox', { name: 'Send invite email now' })).toHaveProperty('checked', true)
+  })
+
   it('retries an uncertain program creation with the same key', async () => {
     const user = userEvent.setup()
     vi.mocked(api.createCoachWorkspace).mockRejectedValueOnce(new Error('Request timed out')).mockResolvedValueOnce(workspace)

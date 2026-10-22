@@ -23,11 +23,10 @@ module Api
         def create
           attributes = settings_params
           key = request_idempotency_key
-          fingerprint = Digest::SHA256.hexdigest(JSON.generate([
-            attributes[:name].to_s.squish,
-            profile_attributes(attributes).sort.to_h,
-            owner_email
-          ]))
+          fingerprint_values = [ attributes[:name].to_s.squish, profile_attributes(attributes).sort.to_h, owner_email ]
+          # Keep older default-send requests replayable across this release.
+          fingerprint_values << { "send_invitation_email" => false } unless send_owner_invitation_email?
+          fingerprint = Digest::SHA256.hexdigest(JSON.generate(fingerprint_values))
           invited_owner = nil
           current_user.with_lock do
             validate_creation_authority!
@@ -84,6 +83,11 @@ module Api
           params.dig(:coach_workspace, :owner_email).to_s.strip.downcase
         end
 
+        def send_owner_invitation_email?
+          value = params.dig(:coach_workspace, :send_invitation_email)
+          value.nil? || ActiveModel::Type::Boolean.new.cast(value)
+        end
+
         def resolve_owner!
           email = owner_email
           return [ current_user, nil ] if email.blank? || email == current_user.email.to_s.downcase
@@ -112,7 +116,7 @@ module Api
 
           collaborators = CoachWorkspaces::Collaborators.new(workspace: record, actor: current_user)
           delivery = CoachWorkspaces::CollaboratorInviteEmail.send_invite(user: invited, workspace: record, role: "owner",
-            invited_by: current_user, sign_in_url: collaborators.sign_in_url, requested: true)
+            invited_by: current_user, sign_in_url: collaborators.sign_in_url, requested: send_owner_invitation_email?)
           { email: invited.email, delivery: delivery }
         rescue StandardError => e
           Rails.logger.warn("[CoachWorkspaces] owner invitation email failed: #{e.class}")

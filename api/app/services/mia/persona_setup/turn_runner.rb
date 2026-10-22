@@ -36,7 +36,8 @@ module Mia
         finalize_turn!(turn_id: turn.id, provider_result:)
       rescue ProposalResolver::Error => error
         failed_result = fail_turn!(turn&.id, error.code)
-        raise Error.new(error.message, code: error.code, status: :service_unavailable, result: failed_result)
+        raise Error.new("Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.",
+          code: error.code, status: :service_unavailable, result: failed_result)
       rescue OperationContract::ContractError => error
         failed_result = fail_turn!(turn&.id, error.code)
         raise Error.new(error.message, code: error.code, status: :unprocessable_entity, result: failed_result)

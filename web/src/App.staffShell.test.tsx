@@ -93,3 +93,14 @@ it('preserves Studio position and dirty guards across a same-account refresh whi
   view.rerender(<App />)
   expect(screen.queryByRole('button', { name: 'Program settings' })).toBeNull()
 })
+
+it('opens a first admin with no programs on Admin while preserving explicit Studio links', () => {
+  state.auth.currentUser = { ...user(true), coach_workspaces: [] }
+  const view = render(<App />)
+  expect(window.location.hash).toBe('#Admin')
+  expect(screen.getByRole('heading', { name: 'Program operations' })).toBeTruthy()
+  view.unmount()
+  window.history.replaceState({}, '', '/#Coach%20Studio')
+  render(<App />)
+  expect(screen.getByText('Daily coaching')).toBeTruthy()
+})

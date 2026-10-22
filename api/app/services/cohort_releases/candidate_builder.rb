@@ -44,8 +44,9 @@ module CohortReleases
         tool_registry_snapshot: registry
       )
 
-      ambiguous_count = ambiguous_participant_count
-      ambiguity_message = "#{ambiguous_count} participant(s) have conflicting active cohort configurations."
+      conflicts = ParticipantConflicts.new(cohort: cohort)
+      ambiguous_count = conflicts.entries.length
+      ambiguity_messages = conflicts.messages
       tool_blockers = tool_contract_blockers(registry)
       Candidate.new(
         cohort: cohort,
@@ -62,9 +63,9 @@ module CohortReleases
         bundle: release_bundle,
         bundle_digest: Contract.digest(release_bundle),
         blockers: persona_blockers + experience_blockers + brand_blockers + tool_blockers +
-          (strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
+          (strict && ambiguous_count.positive? ? ambiguity_messages : []),
         warnings: persona_warnings + experience_warnings + brand_warnings +
-          (!strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
+          (!strict && ambiguous_count.positive? ? ambiguity_messages : []),
         ambiguous_participant_count: ambiguous_count,
         blockers_by_component: { persona: persona_blockers, experience: experience_blockers, brand: brand_blockers, tools: tool_blockers }
       )
@@ -150,25 +151,6 @@ module CohortReleases
         strict ? [ message ] : [],
         strict ? [] : [ "Branding currently uses the historical Household CFO identity." ]
       ]
-    end
-
-    def ambiguous_participant_count
-      participant_ids = cohort.cohort_memberships.where(role: "participant").select(:user_id)
-      return 0 unless participant_ids.exists?
-
-      rows = CohortMembership
-        .joins(:cohort)
-        .left_joins(cohort: %i[cohort_persona_assignment cohort_experience_configuration])
-        .where(user_id: participant_ids, role: "participant", cohorts: { status: Mia::PersonaResolver::ASSIGNABLE_COHORT_STATUSES })
-        .pluck(
-          :user_id,
-          "cohort_persona_assignments.coach_persona_id",
-          "cohort_persona_assignments.coach_persona_version_id",
-          "cohort_experience_configurations.current_published_version_id"
-        )
-      rows.group_by(&:first).count do |_user_id, entries|
-        entries.map { |entry| entry.drop(1) }.uniq.length > 1
-      end
     end
   end
 end

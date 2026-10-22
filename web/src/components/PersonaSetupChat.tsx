@@ -346,6 +346,7 @@ function requestKey() {
 }
 
 function setupErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiRequestError && error.status >= 500) return 'Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.'
   return error instanceof Error && error.message ? error.message : fallback
 }
 

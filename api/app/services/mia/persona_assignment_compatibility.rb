@@ -33,15 +33,26 @@ module Mia
         )
       end
 
-      def ensure_participant_can_join!(cohort_ids:)
-        persona_ids = CohortPersonaAssignment
-          .joins(:cohort)
-          .where(cohort_id: cohort_ids, cohorts: { status: RELEVANT_COHORT_STATUSES })
-          .distinct
-          .pluck(:coach_persona_id)
-        return if persona_ids.length <= 1
+      def ensure_participant_can_join!(cohort_ids:, visible_workspace_id: nil)
+        groups = Cohort.where(id: cohort_ids, status: RELEVANT_COHORT_STATUSES)
+          .includes(:cohort_persona_assignment, cohort_experience_configuration: :current_published_version).order(:id).to_a
+        personas = groups.map do |group|
+          assignment = group.cohort_persona_assignment
+          [ assignment&.coach_persona_id, assignment&.coach_persona_version_id ]
+        end
+        tools = groups.map do |group|
+          configuration = group.cohort_experience_configuration
+          # Include the saved draft: otherwise an intended savings group can
+          # accept a household participant until its tools are published.
+          configuration&.draft_config
+        end
+        published_ids = groups.map { |group| group.cohort_experience_configuration&.current_published_version_id }
+        return if personas.uniq.length <= 1 && tools.uniq.length <= 1 && published_ids.uniq.length <= 1
 
-        raise Conflict, "This participant would receive different personas from their cohorts."
+        names = groups.map do |group|
+          visible_workspace_id.nil? || group.coach_workspace_id == visible_workspace_id ? "“#{group.name}”" : "a group in another program"
+        end.uniq.to_sentence
+        raise Conflict, "This person cannot join #{names} together because the groups use different assistants or participant tools. Keep them in one group. Remove the extra membership in Participant access before trying again."
       end
 
       private

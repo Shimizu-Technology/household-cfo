@@ -5,7 +5,7 @@ import { dailyContext } from '../src/test/dailyFixtures'
 
 // Synthetic Rails workspace captured from an isolated, system-sealed savings cohort.
 // Every endpoint remains observable; no private read is silently supplied by a cache.
-async function mockSavingsHome(page: Page) {
+async function mockSavingsHome(page: Page, checkedIn = false) {
   const challenge = { ...savingsFixture(), cohort_id: 1, accepted_plan: savingsPlanVersion() }
   challenge.enrollment!.cohort_id = 1
   challenge.enrollment!.current_accepted_plan_version_id = 21
@@ -16,7 +16,7 @@ async function mockSavingsHome(page: Page) {
     if (path === '/api/v1/auth/me') return route.fulfill({ json: { user: { id: 901, clerk_id: 'e2e_participant', email: 'participant@pilot.test', first_name: 'Test', last_name: 'Participant', full_name: 'Test Participant', role: 'participant', is_participant: true, is_staff: false, is_admin: false, is_coach: false, invitation_status: 'accepted', coach_workspaces: [], active_coach_workspace: null } } })
     if (path === '/api/v1/workspace') return route.fulfill({ json: workspace })
     if (path === '/api/v1/savings_challenge') return route.fulfill({ json: challenge })
-    if (path === '/api/v1/savings_challenge/daily') return route.fulfill({ json: { ...dailyContext, actor_scope: actor, cohort_id: 1, enrollment_id: 1, calendar: challenge.calendar } })
+    if (path === '/api/v1/savings_challenge/daily') return route.fulfill({ json: { ...dailyContext, day: { ...dailyContext.day, local_on: challenge.calendar!.local_today, check_in_id: checkedIn ? 7 : null, check_in_version_id: checkedIn ? 8 : null, spending_state: checkedIn ? 'no_spend' : 'unknown', completed_at: checkedIn ? '2026-10-04T01:00:00Z' : null }, actor_scope: actor, cohort_id: 1, enrollment_id: 1, calendar: challenge.calendar } })
     if (/\/savings_challenge\/(entry_drafts|entries|plan_drafts|entry_versions)$/.test(path)) return route.fulfill({ json: { actor_scope: actor, cohort_id: 1, enrollment_id: 1, records: [], next_cursor: null } })
     return route.fulfill({ status: 404, json: { errors: ['Unexpected fixture read'] } })
   })
@@ -57,4 +57,24 @@ test('BOG UI savings Home loads each read once and opens hidden histories on dem
   await openDetails(page, /^Your target & spending choices/)
   await expect.poll(() => reads.filter(path => path.endsWith('/plan_drafts')).length).toBe(1)
   expect(reads.filter(path => path === '/api/v1/savings_challenge')).toHaveLength(1)
+})
+
+
+test('BOG UI walkthrough saved-day shortcut and short Statements label fit phone targets', async ({ page }) => {
+  await mockSavingsHome(page, true)
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  const home = page.getByRole('region', { name: 'Savings challenge', exact: true })
+  await expect(home.getByText('You checked in today')).toBeVisible()
+  const statements = page.getByRole('navigation').getByRole('link', { name: 'Statements', exact: true })
+  const compact = statements.locator('.tabs-label-short')
+  if (await compact.isVisible()) {
+    await expect(compact).toHaveText('Files')
+    expect(await compact.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+  }
+  const box = await statements.boundingBox()
+  expect(box!.width).toBeGreaterThanOrEqual(44)
+  expect(box!.height).toBeGreaterThanOrEqual(44)
+  await home.getByRole('button', { name: 'Open today’s saved items', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Today', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })

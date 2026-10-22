@@ -558,7 +558,8 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
   const requestedSection = useCallback(() => {
     try { return decodeURIComponent(window.location.hash.slice(1)) } catch { return '' }
   }, [])
-  const [active, setActive] = useState(() => sections.includes(requestedSection()) ? requestedSection() : COACH_STUDIO_SECTION)
+  const defaultSection = currentUser.is_admin && currentUser.coach_workspaces?.length === 0 ? ADMIN_SECTION : COACH_STUDIO_SECTION
+  const [active, setActive] = useState(() => sections.includes(requestedSection()) ? requestedSection() : defaultSection)
   const activeSection = sections.includes(active) ? active : COACH_STUDIO_SECTION
   const [dirty, setDirty] = useState(false)
   const [notice, setNotice] = useState('')
@@ -574,7 +575,7 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
     // A hash traversal can dispatch both popstate and hashchange. The second
     // event must not erase the explanation after an unavailable route is fixed.
     if (browserNavigation && section === activeSection && window.location.hash === sectionHash(activeSection) && !hasPendingPlaidOAuthReturn()) return
-    const target = sections.includes(section) ? section : COACH_STUDIO_SECTION
+    const target = sections.includes(section) ? section : defaultSection
     if (target !== activeSection && dirty && !window.confirm('Discard your unsaved Coach Studio changes and leave this screen?')) {
       window.history.replaceState({ section: activeSection }, '', canonicalUrl(activeSection))
       return
@@ -586,7 +587,7 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
     if (browserNavigation || target === activeSection) window.history.replaceState({ section: target }, '', canonicalUrl(target))
     else window.history.pushState({ section: target }, '', canonicalUrl(target))
     focusHeading()
-  }, [activeSection, canonicalUrl, dirty, focusHeading, sections])
+  }, [activeSection, canonicalUrl, defaultSection, dirty, focusHeading, sections])
   useLayoutEffect(() => {
     if (!ready) return
     const follow = () => navigate(requestedSection(), true)
@@ -5624,7 +5625,7 @@ function AppliedImportSummary({ documentImport, onEdit }: { documentImport: Fina
     <div className="document-applied-summary">
       <div className="document-applied-summary-copy">
         <span className="document-status green">Applied household budget</span>
-        <h5>{appliedItems.length} saved value{appliedItems.length === 1 ? '' : 's'} already feed {assistantName}</h5>
+        <h5>{appliedItems.length} saved value{appliedItems.length === 1 ? ' already feeds' : 's already feed'} {assistantName}</h5>
         <p>These values are saved. Open them to make a correction.</p>
       </div>
       <div className="document-applied-summary-grid" aria-label="Applied import value groups">

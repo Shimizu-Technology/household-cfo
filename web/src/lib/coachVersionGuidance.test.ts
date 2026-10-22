@@ -21,3 +21,8 @@ it('translates every form of the older seal wording, including -ing and cohort',
     expect(coachVersionGuidance(text)).not.toMatch(/seal|cohort|runtime|rollout/i)
   }
 })
+
+it('preserves names and emails in personalized group conflict guidance', () => {
+  const message = 'Release Santos (release@cohort.example) has different assistant or tools settings in “October cohort” and “Fresh release”. Remove them from the extra group in Participant access before preparing this version.'
+  expect(coachVersionGuidance(message)).toBe(message)
+})

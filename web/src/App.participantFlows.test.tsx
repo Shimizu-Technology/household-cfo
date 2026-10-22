@@ -177,7 +177,10 @@ it('keeps approval explicit when a statement includes a selected account value',
   expect(actions.onDeleteImport).not.toHaveBeenCalled()
   const applied = { ...source, status: 'applied' as const, applied_at: '2026-10-22T00:00:00Z', items: source.items.map(item => ({ ...item, applied_at: '2026-10-22T00:00:00Z' })) }
   view.rerender(<DocumentReviewPanel {...actions} documentImport={applied} />)
+  expect(screen.getByRole('heading', { name: '1 saved value already feeds your assistant' })).toBeTruthy()
   expect(screen.getAllByRole('button', { name: 'Edit saved values' })).toHaveLength(1)
   fireEvent.click(screen.getByText('File options'))
   expect(screen.getByRole('button', { name: 'Delete upload & record' }).hasAttribute('disabled')).toBe(true)
+  view.rerender(<DocumentReviewPanel {...actions} documentImport={{ ...applied, items: [...applied.items, { ...applied.items[0], id: 6, label: 'Other checking' }] }} />)
+  expect(screen.getByRole('heading', { name: '2 saved values already feed your assistant' })).toBeTruthy()
 })

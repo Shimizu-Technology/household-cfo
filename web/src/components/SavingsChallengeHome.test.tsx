@@ -44,7 +44,7 @@ describe('participant savings Home', () => {
     expect(page).toContain('Dates follow Guam time.')
   })
 
-  it('replaces the primary action after check-in and opens Mia to add more', async () => {
+  it('opens the saved day after check-in instead of starting a disconnected chat', async () => {
     const checkIn = vi.fn(), today = vi.fn()
     const props = { onAskMia: vi.fn(), onReviewStatements: vi.fn(), onToday: today, onCheckIn: checkIn }
     const { rerender } = render(<SavingsChallengeHome {...props} checkedInToday={false} />)
@@ -54,14 +54,14 @@ describe('participant savings Home', () => {
     expect(within(summary).getByText('You checked in today')).toBeTruthy()
     expect(within(summary).queryByRole('button', { name: 'Check in for today' })).toBeNull()
     expect(summary.querySelectorAll('.savings-primary')).toHaveLength(0)
-    const addMore = within(summary).getByRole('button', { name: 'Add more' })
+    const addMore = within(summary).getByRole('button', { name: 'Open today’s saved items' })
     expect(addMore.className).toBe('savings-secondary')
     fireEvent.click(addMore)
-    expect(checkIn).toHaveBeenCalledTimes(1)
-    expect(today).not.toHaveBeenCalled()
+    expect(today).toHaveBeenCalledTimes(1)
+    expect(checkIn).not.toHaveBeenCalled()
     rerender(<SavingsChallengeHome {...props} checkedInToday={false} />)
     expect(within(summary).queryByText('You checked in today')).toBeNull()
-    expect(within(summary).queryByRole('button', { name: 'Add more' })).toBeNull()
+    expect(within(summary).queryByRole('button', { name: 'Open today’s saved items' })).toBeNull()
     expect(summary.querySelectorAll('.savings-primary')).toHaveLength(1)
   })
 
@@ -306,7 +306,7 @@ describe('participant savings Home', () => {
       render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} onToday={vi.fn()} onCheckIn={vi.fn()} checkedInToday={checkedInToday} />)
       const summary = await screen.findByRole('article', { name: 'Approved savings progress' })
       expect(within(summary).queryByRole('button', { name: 'Check in for today' })).toBeNull()
-      expect(within(summary).queryByRole('button', { name: 'Add more' })).toBeNull()
+      expect(within(summary).queryByRole('button', { name: 'Open today’s saved items' })).toBeNull()
       expect(within(summary).queryByText('You checked in today')).toBeNull()
       expect(summary.querySelector('.savings-primary')).toBeNull()
       expect(summary.textContent).toContain(phase === 'upcoming' ? 'Your 90 days start Thu, Oct 1' : 'Your 90 days ended Tue, Dec 29')

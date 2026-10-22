@@ -27,6 +27,41 @@ class ApiV1AdminCohortChallengeAccessesControllerTest < ActionDispatch::Integrat
     end
   end
 
+  test "missing start date blocks readiness and opening on the server but group end is optional" do
+    with_savings_runtime do
+      @cohort.update!(starts_on: nil, ends_on: nil)
+      status = status_for(@admin)
+      assert_equal "not_set_up", status.fetch("state")
+      refute status.fetch("can_open")
+      assert_includes status.fetch("blockers").join, "Set a start date in Group details & dates"
+      assert_no_difference -> { @cohort.cohort_challenge_access_events.count } do
+        post open_path, params: body("Pilot kickoff approved", "not_set_up"), headers: headers("no-date"), as: :json
+        assert_response :unprocessable_entity
+      end
+      refute @cohort.reload.savings_challenge_enabled
+      @cohort.update!(starts_on: Date.current, ends_on: nil)
+      assert status_for(@admin).fetch("can_open")
+      post open_path, params: body("Pilot kickoff approved", "ready"), headers: headers("with-start"), as: :json
+      assert_response :created
+      offer = SavingsChallenge::EnrollmentOffer.call(cohort: @cohort.reload, user: @savings_user, membership: @savings_membership)
+      assert offer.fetch(:accepting_enrollments)
+      assert_equal offer.fetch(:personal_starts_on) + 89, offer.fetch(:personal_ends_on)
+    end
+  end
+
+  test "an already open group missing its date reports setup needed and can still be paused" do
+    with_savings_runtime do
+      @cohort.update!(savings_challenge_enabled: true, savings_challenge_release_hold: false, starts_on: nil)
+      status = status_for(@admin)
+      assert_equal "Setup needed", status.fetch("label")
+      refute status.fetch("participants_can_join")
+      assert status.fetch("can_pause")
+      post pause_path, params: body("Pause until dates are set"), headers: headers("pause-missing-date"), as: :json
+      assert_response :created
+      assert @cohort.reload.savings_challenge_release_hold
+    end
+  end
+
   test "admin opens with a reason, participants then pass the real access policy, and the change is audited" do
     with_savings_runtime do
       assert_raises(SavingsChallenge::AccessPolicy::Unavailable) { policy_call }

@@ -99,7 +99,11 @@ module Mia
           raise Error.new("Mia returned an invalid setup message.", code: "persona_setup_invalid")
         end
         if assistant_message_claims_completion?(assistant_message)
-          raise Error.new("Mia returned a setup message that claimed an action it cannot perform.", code: "persona_setup_invalid")
+          # Narrative is not the proposal contract. A descriptive recap can look
+          # like a completed write (for example, "The assistant name is Mia").
+          # Replace it with truthful review wording; operations still pass the
+          # full evidence/allowlist validation before a proposal can be saved.
+          assistant_message = "Review these proposed draft changes. Nothing has been saved. Apply them only if they match what you want."
         end
 
         Result.new(

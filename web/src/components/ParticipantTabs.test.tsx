@@ -14,6 +14,7 @@ it('keeps the challenge’s core tasks visible and finance tools secondary', () 
   fireEvent.click(within(nav).getByRole('button', { name: 'Today' })); expect(today).toHaveBeenCalledOnce()
   expect(within(nav).getByRole('link', { name: 'Savings' })).toBeTruthy()
   expect(within(nav).getByRole('link', { name: 'Statements' }).getAttribute('aria-current')).toBe('page')
+  expect(within(nav).getByRole('link', { name: 'Statements' }).querySelector('.tabs-label-short')?.textContent).toBe('Files')
   expect(within(nav).queryByRole('link', { name: 'Budget' })).toBeNull()
   expect(within(nav).queryByRole('link', { name: 'My Money' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'More' }))
@@ -74,7 +75,7 @@ it('uses a short Mia label in the tab bar and keeps visible and accessible names
     const nav = screen.getByRole('navigation')
     expect(within(nav).getByRole('link', { name: 'Ask Mia for Mrs. Mel BOG (QA)' }).querySelector('.tabs-label-short')?.textContent).toBe('Mia')
     const statements = within(nav).getByRole('link', { name: 'Statements' })
-    expect(statements.querySelector('.tabs-label-short')?.textContent).toBe('Statements')
+    expect(statements.querySelector('.tabs-label-short')?.textContent).toBe('Files')
   } finally {
     brandState.assistantName = 'Mia'
   }

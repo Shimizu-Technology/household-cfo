@@ -1,5 +1,8 @@
 /** Older API deployments still return release-engine terms in readiness guidance. */
 export function coachVersionGuidance(message: string) {
+  // Personalized conflict guidance is already plain language. Preserve literal
+  // person/group names and emails, even when they contain release-engine words.
+  if (message.includes(' has different assistant or tools settings in ')) return message
   return message
     .replaceAll('Seal a release before launching this cohort.', 'Prepare a version before launching this group.')
     .replaceAll('Activate the cohort\'s current release before planning a runtime rollout.', 'Launch the group’s current version before planning an update.')

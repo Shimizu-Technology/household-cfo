@@ -510,7 +510,7 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
       Mia::PersonaResolver.new(user: participant, cohort_membership: participant.cohort_memberships.find_by!(cohort: cohort)).call.id
     candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
     assert_equal 1, candidate.ambiguous_participant_count
-    assert candidate.blockers.any? { |value| value.include?("conflicting active cohort configurations") }
+    assert candidate.blockers.any? { |value| value.include?(participant.email) && value.include?(cohort.name) && value.include?(second_cohort.name) && value.include?("Remove them from the extra group") }
     restore_error = assert_raises(CohortReleases::Sealer::Incomplete) do
       CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
         request_key: "restore-with-ambiguity",
@@ -519,7 +519,7 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
         source_release: source_release
       )
     end
-    assert restore_error.blockers.any? { |value| value.include?("conflicting active cohort configurations") }
+    assert restore_error.blockers.any? { |value| value.include?(participant.email) && value.include?(cohort.name) && value.include?(second_cohort.name) && value.include?("Remove them from the extra group") }
     counts = CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
     assert_equal 1, counts.fetch(:ambiguous_cohorts)
     assert_equal 1, counts.fetch(:ambiguous_participants)

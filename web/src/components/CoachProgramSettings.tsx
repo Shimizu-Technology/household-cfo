@@ -20,7 +20,8 @@ function identityValues(workspace: CoachWorkspaceSettings): CoachWorkspaceSettin
 }
 function message(error: unknown) { return error instanceof Error ? error.message : 'Program settings could not be saved. Try again.' }
 
-export function CreateCoachProgram({ disabled = false, onDirtyChange, onPendingChange, onCreated }: {
+export function CreateCoachProgram({ firstProgram = false, disabled = false, onDirtyChange, onPendingChange, onCreated }: {
+  firstProgram?: boolean
   disabled?: boolean
   onDirtyChange?: (dirty: boolean) => void
   onPendingChange?: (pending: boolean) => void
@@ -30,13 +31,14 @@ export function CreateCoachProgram({ disabled = false, onDirtyChange, onPendingC
   const [open, setOpen] = useState(false)
   const [values, setValues] = useState<CoachWorkspaceSettingsInput>(blankIdentity)
   const [ownerEmail, setOwnerEmail] = useState('')
+  const [sendEmail, setSendEmail] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const creationKeys = useRef(new Map<string, string>())
-  const dirty = open && (JSON.stringify(values) !== JSON.stringify(blankIdentity) || ownerEmail !== '')
+  const dirty = open && (JSON.stringify(values) !== JSON.stringify(blankIdentity) || ownerEmail !== '' || !sendEmail)
   useEffect(() => { onDirtyChange?.(dirty || busy) }, [busy, dirty, onDirtyChange])
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
   useEffect(() => { onPendingChange?.(busy) }, [busy, onPendingChange])
@@ -47,16 +49,16 @@ export function CreateCoachProgram({ disabled = false, onDirtyChange, onPendingC
     if (busy || disabled) return
     setBusy(true); setError(null); setNotice(null)
     try {
-      const payload: CoachWorkspaceSettingsInput = ownerEmail.trim() ? { ...values, owner_email: ownerEmail.trim() } : values
+      const payload: CoachWorkspaceSettingsInput = ownerEmail.trim() ? { ...values, owner_email: ownerEmail.trim(), send_invitation_email: sendEmail } : values
       const fingerprint = JSON.stringify(payload)
       let requestKey = creationKeys.current.get(fingerprint)
       if (!requestKey) { requestKey = crypto.randomUUID(); creationKeys.current.set(fingerprint, requestKey) }
       const created = await createCoachWorkspace(payload, requestKey)
       if (!mounted.current) return
       creationKeys.current.clear()
-      setValues(blankIdentity); setOwnerEmail(''); setOpen(false)
+      setValues(blankIdentity); setOwnerEmail(''); setSendEmail(true); setOpen(false)
       const ownerNote = created.owner_invitation
-        ? ` ${created.owner_invitation.email} was invited as its owner${created.owner_invitation.delivery?.sent ? ' and emailed' : ', but the invitation email did not send, so share their sign-in link yourself'}.`
+        ? ` ${created.owner_invitation.email} was invited as its owner${created.owner_invitation.delivery?.sent ? ' and emailed' : created.owner_invitation.delivery?.status === 'skipped' ? '. No email was sent; share their sign-in link yourself' : ', but the invitation email did not send, so share their sign-in link yourself'}.`
         : ''
       const savedNotice = `${created.name} was created.${ownerNote} Choose it in the program selector to finish its assistant and branding.`
       setNotice(savedNotice)
@@ -68,7 +70,7 @@ export function CreateCoachProgram({ disabled = false, onDirtyChange, onPendingC
   }
 
   return <article className="panel program-create">
-    <header><div><p className="eyebrow">Coach programs</p><h3>Create a program</h3><p>Give each coach a separate workspace for their assistant, branding, and groups.</p></div>
+    <header><div><p className="eyebrow">Coach programs</p><h3>{firstProgram ? 'Create your first program' : 'Create a program'}</h3><p>Give each coach a separate workspace for their assistant, branding, and groups.</p></div>
       {!open && <Button variant="secondary" disabled={disabled || busy} onClick={() => setOpen(true)}>Create program</Button>}
     </header>
     {error && <p role="alert" className="coach-studio-alert is-error">{error}</p>}
@@ -76,7 +78,8 @@ export function CreateCoachProgram({ disabled = false, onDirtyChange, onPendingC
     {open && <form onSubmit={(event) => void submit(event)}>
       <fieldset disabled={busy || disabled}><IdentityFields values={values} onChange={setValues} />
         <div className="program-fields"><label className="program-wide">Program owner email (the coach who runs this program)<input type="email" autoComplete="off" maxLength={254} value={ownerEmail} onChange={(event) => setOwnerEmail(event.target.value)} aria-describedby="program-owner-help" placeholder="coach@example.com" /><small id="program-owner-help">This coach becomes the owner and can publish their assistant, assign it, publish participant tools, and see the roster. If they have no account yet they are invited as a coach. Double-check this email: the owner will see this program's participant roster once they sign in. Leave blank to own the program yourself. You keep full platform admin access either way.</small></label></div>
-        <div className="program-actions"><Button type="submit">{busy ? 'Creating…' : 'Create program'}</Button><Button variant="ghost" onClick={() => { setOpen(false); setValues(blankIdentity); setOwnerEmail('') }}>Cancel</Button></div>
+        <label className="program-invite-check"><input type="checkbox" checked={sendEmail} onChange={event => setSendEmail(event.target.checked)} />Send invite email now</label>
+        <div className="program-actions"><Button type="submit">{busy ? 'Creating…' : 'Create program'}</Button><Button variant="ghost" onClick={() => { setOpen(false); setValues(blankIdentity); setOwnerEmail(''); setSendEmail(true) }}>Cancel</Button></div>
       </fieldset>
       <p className="program-help">{ownerEmail.trim() ? 'The coach you named will own this workspace.' : 'You will own this workspace.'} Creating it does not launch a participant program.</p>
     </form>}

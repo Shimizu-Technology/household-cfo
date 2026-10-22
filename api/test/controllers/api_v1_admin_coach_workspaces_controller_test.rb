@@ -11,9 +11,32 @@ class ApiV1AdminCoachWorkspacesControllerTest < ActionDispatch::IntegrationTest
     end
     record = CoachWorkspace.find(response.parsed_body.dig("coach_workspace", "id"))
     assert_equal "owner", record.membership_for(admin).role
+    assert_equal Digest::SHA256.hexdigest(JSON.generate([ "Island Money", { display_name: "Mrs. Mel", title: "Financial coach", bio: "Clear next steps." }.sort.to_h, "" ])), record.creation_request_fingerprint
     assert_equal "Mrs. Mel", record.coach_profile.display_name
     assert record.workspace_brand_configuration.current_published_version
     assert_equal true, response.parsed_body.dig("coach_workspace", "permissions", "manage")
+  end
+
+  test "program owner invitation can skip email and the preference is part of the retry contract" do
+    admin = user("admin")
+    request_headers = headers(admin).merge("Idempotency-Key" => SecureRandom.uuid)
+    payload = with_owner(settings("No email program"), "no-email-owner@example.test")
+    payload[:coach_workspace][:send_invitation_email] = false
+    post "/api/v1/admin/coach_workspaces", params: payload, headers: request_headers, as: :json
+    assert_response :created
+    owner = User.find_by!(email: "no-email-owner@example.test")
+    record = CoachWorkspace.find(response.parsed_body.dig("coach_workspace", "id"))
+    assert_equal "owner", record.membership_for(owner).role
+    assert_equal "pending", owner.invitation_status
+    assert_equal "skipped", response.parsed_body.dig("owner_invitation", "delivery", "status")
+    assert_equal "skipped", owner.invitation_email_attempts.last.status
+    assert_no_difference "CoachWorkspace.count" do
+      post "/api/v1/admin/coach_workspaces", params: payload, headers: request_headers, as: :json
+      assert_response :success
+    end
+    payload[:coach_workspace][:send_invitation_email] = true
+    post "/api/v1/admin/coach_workspaces", params: payload, headers: request_headers, as: :json
+    assert_response :conflict
   end
 
   test "workspace creation replays without duplication and rejects changed input" do

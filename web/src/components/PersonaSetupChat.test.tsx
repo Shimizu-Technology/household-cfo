@@ -173,7 +173,7 @@ describe('PersonaSetupChat', () => {
       }],
     })
     apiMocks.createAdminPersonaSetupTurn
-      .mockRejectedValueOnce(new ApiRequestError('Nothing changed. Try again.', {
+      .mockRejectedValueOnce(new ApiRequestError('HTTP 503: model unavailable', {
         status: 503,
         code: 'persona_setup_unavailable',
         payload: { session: failedSession },
@@ -186,7 +186,8 @@ describe('PersonaSetupChat', () => {
 
     expect(await screen.findByRole('button', { name: 'Send to Mia' })).toBeTruthy()
     expect(composer.value).toBe('Use a calm voice.')
-    expect(screen.getByRole('alert').textContent).toContain('Nothing changed. Try again.')
+    expect(screen.getByRole('alert').textContent).toContain('Nothing changed. Try again or use Guided setup.')
+    expect(screen.getByRole('alert').textContent).not.toContain('503')
 
     await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))
     await screen.findByText('Human coach name')
