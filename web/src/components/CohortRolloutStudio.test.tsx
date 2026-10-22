@@ -340,7 +340,7 @@ describe('CohortRolloutStudio', () => {
     const studio = studioFixture()
     studio.latest_release = studio.active_release
     studio.permissions.plan = false
-    studio.permissions.plan_blockers = ['Seal a new release before planning a rollout; the latest release is already active.']
+    studio.permissions.plan_blockers = ['Prepare a new version before updating this group; the latest version is already in use.']
     renderStudio(studio)
     await screen.findByRole('heading', { name: 'Your group is up to date' })
     expect(screen.getByText('Prepare a new version before updating this group; the latest version is already in use.')).toBeTruthy()

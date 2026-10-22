@@ -248,7 +248,7 @@ export function CohortReleaseStudio({
       {!embedded && <div className="cohort-release-truth" role="note">
         <span className="cohort-release-truth-icon" aria-hidden="true"><EvidenceIcon /></span>
         <div>
-          <strong>Release records are audit evidence.</strong>
+          <strong>Saved versions are kept as a record.</strong>
           <p>Preparing or restoring a version does not change the appearance, assistant, or tools participants use.</p>
           <small>Continue to publish the brand, assign the assistant, and publish participant tools in their existing areas.</small>
         </div>

@@ -17,7 +17,7 @@ class ApiV1AdminCohortChallengeAccessesControllerTest < ActionDispatch::Integrat
 
   test "status is not set up until a savings release is launched, then ready" do
     assert_equal "not_set_up", status_for(@admin).fetch("state")
-    assert_includes status_for(@admin).fetch("blockers").join, "Seal and launch"
+    assert_includes status_for(@admin).fetch("blockers").join, "Prepare and launch a version"
     with_savings_runtime do
       status = status_for(@admin)
       assert_equal "ready", status.fetch("state")
@@ -103,7 +103,7 @@ class ApiV1AdminCohortChallengeAccessesControllerTest < ActionDispatch::Integrat
   test "opening is refused with a plain reason unless a savings release is launched and the cohort is enrolling or active" do
     post open_path, params: body("Try to open early", "not_set_up"), headers: headers("early"), as: :json
     assert_response :unprocessable_entity
-    assert_includes response.parsed_body.fetch("error"), "Seal and launch a release first"
+    assert_includes response.parsed_body.fetch("error"), "Prepare and launch a version first"
     refute @cohort.reload.savings_challenge_enabled
 
     with_savings_runtime do

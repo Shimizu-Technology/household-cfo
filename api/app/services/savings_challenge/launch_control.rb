@@ -129,7 +129,7 @@ module SavingsChallenge
       blockers = []
       release = cohort.active_cohort_release
       if release.nil?
-        blockers << "Seal and launch a release first."
+        blockers << "Prepare and launch a version first."
       elsif !SavingsChallenge::AccessPolicy.release_supports_challenge?(release)
         blockers << "The launched release is not the Savings Challenge experience. Choose Savings Challenge in Participant tools, publish, seal, and launch again."
       end

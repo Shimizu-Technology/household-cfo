@@ -13,3 +13,11 @@ it('explains an already active version without release-engine instructions', () 
   expect(coachVersionGuidance('The published settings changed. Seal their new release before launching.')).toBe('The published settings changed. Prepare their new version before launching.')
   expect(coachVersionGuidance('Seal a new release before planning a rollout; the latest release is already active.')).toBe('Prepare a new version before updating this group; the latest version is already in use.')
 })
+
+it('translates every form of the older seal wording, including -ing and cohort', () => {
+  expect(coachVersionGuidance('Publish the workspace brand before sealing a cohort release.')).toBe('Publish the workspace brand before preparing a version for this group.')
+  expect(coachVersionGuidance('The latest sealed record changed; reload before sealing')).toBe('The latest saved record changed; reload before preparing')
+  for (const text of ['Sealing or restoring a release record does not change the brand.', 'Each advanced wave receives the sealed brand.']) {
+    expect(coachVersionGuidance(text)).not.toMatch(/seal|cohort|runtime|rollout/i)
+  }
+})

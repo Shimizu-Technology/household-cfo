@@ -38,7 +38,7 @@ export function serializeCohortRolloutPlan(
 ): CohortRolloutPlanValidation {
   const errors: string[] = []
   const target = studio.latest_release
-  if (!target) errors.push('Seal a cohort release before planning a rollout.')
+  if (!target) errors.push('Prepare a version before updating this group.')
   if (draft.waves.length === 0) errors.push('Add at least one rollout wave.')
 
   const names = draft.waves.map((wave) => wave.name.trim())

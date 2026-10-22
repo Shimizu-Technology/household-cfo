@@ -198,7 +198,7 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
       .dig(:open_rollout, :permissions)
 
     assert_equal false, permissions.fetch(:rollback)
-    assert_equal [ "No earlier sealed release is available for rollback." ],
+    assert_equal [ "No earlier saved version is available to go back to." ],
       permissions.fetch(:rollback_blockers)
   end
 
@@ -291,7 +291,7 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
     missing_release = CohortRollouts::StudioSerializer.new(cohort: no_release, actor: @owner).call
     assert_equal false, missing_release.dig(:permissions, :plan)
     assert_includes missing_release.dig(:permissions, :plan_blockers),
-      "Seal a cohort release before planning a rollout."
+      "Prepare a version before updating this group."
 
     @cohort.cohort_memberships.where(role: "participant").delete_all
     empty_roster = CohortRollouts::StudioSerializer.new(cohort: @cohort.reload, actor: @owner).call
@@ -312,7 +312,7 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
 
     assert_equal false, payload.dig(:permissions, :plan)
     assert_includes payload.dig(:permissions, :plan_blockers),
-      "The latest sealed release is not compatible with the current runtime."
+      "The latest saved version doesn’t work with the current app. Prepare a new version."
   end
 
   test "studio uses transition IDs as canonical order when wall clock moves backward" do

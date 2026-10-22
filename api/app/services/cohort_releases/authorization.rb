@@ -23,7 +23,7 @@ module CohortReleases
       )
       permissions = CoachWorkspace::PERMISSIONS.fetch(membership&.role, [])
       unless permissions.include?(:publish) && permissions.include?(:assign)
-        raise NotAuthorized, "Only a workspace owner or reviewer can seal a cohort release"
+        raise NotAuthorized, "Only a program owner or reviewer can prepare a version for this group"
       end
 
       [ persisted_actor, membership.role ]

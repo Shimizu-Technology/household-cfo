@@ -17,7 +17,7 @@ class ApiV1AdminCohortRolloutsControllerTest < ActionDispatch::IntegrationTest
     owner_studio = response.parsed_body.fetch("cohort_rollout_studio")
     assert owner_studio.dig("permissions", "manage")
     assert_equal false, owner_studio.dig("runtime_truth", "participant_runtime_changed")
-    assert_includes owner_studio.dig("runtime_truth", "message"), "sealed brand, assistant, and participant tools"
+    assert_includes owner_studio.dig("runtime_truth", "message"), "saved look, assistant, and tools together"
     refute_includes owner_studio.dig("runtime_truth", "message"), "Mia"
     assert_equal participants.map(&:id).sort,
       owner_studio.dig("current_roster", "participants").pluck("user_id").sort

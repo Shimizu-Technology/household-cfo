@@ -58,7 +58,7 @@ describe('InitialCohortLaunch', () => {
   })
 
   it('shows concrete readiness blockers and keeps unauthorized users from launch controls', async () => {
-    apiMocks.fetchCohortInitialLaunch.mockResolvedValue({ ...ready, can_launch: false, blockers: ['Seal a release before launching this cohort.'] })
+    apiMocks.fetchCohortInitialLaunch.mockResolvedValue({ ...ready, can_launch: false, blockers: ['Prepare a version before launching this group.'] })
     render(<InitialCohortLaunch cohortId={12} mutationLifecycle={lifecycle()} onLaunch={vi.fn()} />)
     await screen.findByText('Prepare a version before launching this group.')
     expect(screen.queryByRole('button', { name: 'Review first launch' })).toBeNull()

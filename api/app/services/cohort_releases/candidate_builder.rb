@@ -18,7 +18,9 @@ module CohortReleases
       :bundle_digest,
       :blockers,
       :warnings,
-      :ambiguous_participant_count
+      :ambiguous_participant_count,
+      # Which part each blocker belongs to, so readiness never depends on wording.
+      :blockers_by_component
     )
 
     def initialize(cohort:, strict:)
@@ -44,6 +46,7 @@ module CohortReleases
 
       ambiguous_count = ambiguous_participant_count
       ambiguity_message = "#{ambiguous_count} participant(s) have conflicting active cohort configurations."
+      tool_blockers = tool_contract_blockers(registry)
       Candidate.new(
         cohort: cohort,
         assignment: assignment,
@@ -58,11 +61,12 @@ module CohortReleases
         tool_registry_snapshot: registry,
         bundle: release_bundle,
         bundle_digest: Contract.digest(release_bundle),
-        blockers: persona_blockers + experience_blockers + brand_blockers + tool_contract_blockers(registry) +
+        blockers: persona_blockers + experience_blockers + brand_blockers + tool_blockers +
           (strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
         warnings: persona_warnings + experience_warnings + brand_warnings +
           (!strict && ambiguous_count.positive? ? [ ambiguity_message ] : []),
-        ambiguous_participant_count: ambiguous_count
+        ambiguous_participant_count: ambiguous_count,
+        blockers_by_component: { persona: persona_blockers, experience: experience_blockers, brand: brand_blockers, tools: tool_blockers }
       )
     end
 
@@ -95,7 +99,7 @@ module CohortReleases
 
       blockers = []
       if strict && !(version.sealed? && version.release_gate_version == "gate_v2" && version.release_evidence_valid?)
-        blockers << "Publish the selected persona through the governed release checks before sealing a cohort release."
+        blockers << "Publish Mia’s voice, with its safety checks, before preparing a version for this group."
       end
       [ assignment, persona, version, snapshot, blockers, [] ]
     end
@@ -118,7 +122,7 @@ module CohortReleases
         return [ configuration, version, Contract.experience_snapshot(configuration: configuration, version: version), [], [] ]
       end
 
-      message = "Publish participant tools before sealing a cohort release."
+      message = "Publish participant tools before preparing a version for this group."
       [
         configuration,
         nil,
@@ -139,7 +143,7 @@ module CohortReleases
         return [ version, Contract.published_brand_snapshot(version: version), [], [] ]
       end
 
-      message = "Publish the workspace brand before sealing a cohort release."
+      message = "Publish the program’s look before preparing a version for this group."
       [
         nil,
         Contract.legacy_brand_snapshot,

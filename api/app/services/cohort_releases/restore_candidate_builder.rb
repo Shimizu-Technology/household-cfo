@@ -34,7 +34,8 @@ module CohortReleases
         bundle_digest: Contract.digest(release_bundle),
         blockers: [],
         warnings: [],
-        ambiguous_participant_count: 0
+        ambiguous_participant_count: 0,
+        blockers_by_component: { persona: [], experience: [], brand: [], tools: [] }
       )
     end
 

@@ -4064,7 +4064,7 @@ function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
     runtime_truth: {
       changes_participant_runtime: false,
       message: releaseString(rawRuntimeTruth.message)
-        || 'Release records are audit evidence in this phase. Sealing or restoring a record does not change the brand, assistant, or tools participants use.',
+        || 'Saved versions are kept as a record. Preparing or restoring one does not change the look, assistant, or tools participants use until you launch or update their group.',
     },
     permissions: {
       view: releaseBoolean(rawPermissions.view, true),

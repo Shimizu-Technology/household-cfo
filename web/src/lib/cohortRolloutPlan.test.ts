@@ -79,7 +79,7 @@ describe('cohort rollout plan builder', () => {
     const result = serializeCohortRolloutPlan(studio, draft)
     expect(result.input).toBeNull()
     expect(result.errors).toEqual(expect.arrayContaining([
-      'Seal a cohort release before planning a rollout.',
+      'Prepare a version before updating this group.',
       'The participant list changed. Reload the cohort before planning.',
       'Later must include at least one participant.',
     ]))

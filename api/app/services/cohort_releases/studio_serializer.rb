@@ -25,7 +25,7 @@ module CohortReleases
         ]
       }
     ].freeze
-    RUNTIME_TRUTH = "Sealing or restoring a release record does not change the brand, assistant, or tools participants use.".freeze
+    RUNTIME_TRUTH = "Preparing or restoring a saved version does not change the look, assistant, or tools participants use until you launch or update their group.".freeze
 
     def initialize(cohort:, actor:)
       @cohort = cohort
@@ -246,7 +246,7 @@ module CohortReleases
           id: "workspace_brand",
           label: "Workspace brand",
           ready: candidate.brand_snapshot.fetch("mode") == "published_version" &&
-            candidate.blockers.none? { |value| value.match?(/brand/i) },
+            candidate.blockers_by_component.fetch(:brand).empty?,
           evidence: {
             mode: candidate.brand_snapshot.fetch("mode"),
             brand_version_id: candidate.brand_version&.id,
@@ -257,7 +257,7 @@ module CohortReleases
           id: "assistant_voice",
           label: "Assistant voice",
           ready: candidate.persona_snapshot.fetch("mode") == "published_version" &&
-            candidate.blockers.none? { |value| value.match?(/persona/i) },
+            candidate.blockers_by_component.fetch(:persona).empty?,
           evidence: {
             mode: candidate.persona_snapshot.fetch("mode"),
             persona_version_id: candidate.persona_version&.id,
@@ -268,7 +268,7 @@ module CohortReleases
           id: "participant_tools",
           label: "Participant tools",
           ready: candidate.experience_snapshot.fetch("mode") == "published_version" &&
-            candidate.blockers.none? { |value| value.match?(/participant tools/i) },
+            candidate.blockers_by_component.fetch(:experience).empty?,
           evidence: {
             mode: candidate.experience_snapshot.fetch("mode"),
             experience_version_id: candidate.experience_version&.id,
@@ -278,7 +278,7 @@ module CohortReleases
         {
           id: "system_controls",
           label: "System controls",
-          ready: candidate.blockers.none? { |value| value.match?(/tool contract/i) },
+          ready: candidate.blockers_by_component.fetch(:tools).empty?,
           evidence: {
             registry_version: candidate.tool_registry_snapshot.fetch("schema_version"),
             registry_digest: Contract.digest(candidate.tool_registry_snapshot),
