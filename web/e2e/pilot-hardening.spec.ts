@@ -1733,14 +1733,14 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await page.setViewportSize(regularViewport)
   await expect(page.getByRole('heading', { name: 'Version 5' })).toBeFocused()
   await expect(page.getByText('Planned', { exact: true }).first()).toBeVisible()
-  await page.getByRole('button', { name: 'Review and start rollout' }).click()
-  const startDialog = page.getByRole('dialog', { name: 'Start this rollout?' })
+  await page.getByRole('button', { name: 'Review and start update' }).click()
+  const startDialog = page.getByRole('dialog', { name: 'Start this update?' })
   await expect(startDialog.getByText('1. Wave 1', { exact: true })).toBeVisible()
   await expect(startDialog.getByText('Target brand', { exact: true })).toBeVisible()
   await expect(startDialog.getByText('Brand version 9', { exact: true })).toBeVisible()
   await expect(startDialog.getByText('1', { exact: true }).last()).toBeVisible()
   await expect(startDialog.getByText('This wave changes immediately', { exact: true })).toBeVisible()
-  await startDialog.getByRole('button', { name: 'Start rollout' }).click()
+  await startDialog.getByRole('button', { name: 'Start update' }).click()
   await expect(page.getByText('Active', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Wave 1 is now using Version 5. 1 participant changed immediately.')).toBeVisible()
   await expect(page.getByText(/Ready · Updated · Version 5/)).toBeVisible()
@@ -2088,13 +2088,20 @@ test('BOG UI household Home leads with money, a visible year and one purchase re
   await expect(home.locator('.cash-flow-month')).toHaveCount(12)
   await expect(home.locator('details .annual-cash-flow-chart')).toHaveCount(0)
   await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(0)
-  const january = home.getByRole('button', { name: new RegExp(`Jan ${currentYear}:`) })
-  const nextControlKey = browserName === 'webkit' ? 'Alt+Tab' : 'Tab'
-  await page.getByRole('region', { name: `${currentYear} monthly income and planned outflow chart` }).focus()
-  await page.keyboard.press(nextControlKey)
-  await expect(january).toBeFocused()
-  await expect(home.locator('.cash-flow-detail-panel')).toContainText(`Jan ${currentYear}`)
-  for (let index = 0; index < 11; index += 1) await page.keyboard.press(nextControlKey)
+  const picker = home.getByRole('combobox', { name: 'Chart month' })
+  if (await picker.isVisible()) {
+    await picker.selectOption({ label: `Jan ${currentYear}` })
+    await expect(home.locator('.cash-flow-detail-panel')).toContainText(`Jan ${currentYear}`)
+    await picker.selectOption({ label: `Dec ${currentYear}` })
+  } else {
+    const january = home.getByRole('button', { name: new RegExp(`Jan ${currentYear}:`) })
+    const nextControlKey = browserName === 'webkit' ? 'Alt+Tab' : 'Tab'
+    await page.getByRole('region', { name: `${currentYear} monthly income and planned outflow chart` }).focus()
+    await page.keyboard.press(nextControlKey)
+    await expect(january).toBeFocused()
+    await expect(home.locator('.cash-flow-detail-panel')).toContainText(`Jan ${currentYear}`)
+    for (let index = 0; index < 11; index += 1) await page.keyboard.press(nextControlKey)
+  }
   await expect(home.locator('.cash-flow-detail-panel')).toContainText('Holiday travel')
   await page.getByText('Readiness details', { exact: true }).click()
   await expect(home).toContainText('Yellow: build your cash cushion.')
@@ -4073,7 +4080,9 @@ test('BOG UI household Budget keeps headline, cockpit, and chart on the selected
   await expect(chartDetail).toContainText(`Report monthDec ${currentYear}`)
   await expect(chartDetail).toContainText('Planned outflow$8,500.00')
 
-  await page.locator('.annual-outlook .cash-flow-month-trigger').first().click()
+  const chartPicker = page.locator('.annual-outlook').getByRole('combobox', { name: 'Chart month' })
+  if (await chartPicker.isVisible()) await chartPicker.selectOption({ label: `Jan ${currentYear}` })
+  else await page.locator('.annual-outlook .cash-flow-month-trigger').first().click()
   await expect(chartDetail).toContainText(`Chart previewJan ${currentYear}`)
   await expect(reportMonth).toHaveValue('11')
 
@@ -9184,7 +9193,7 @@ test('BOG UI typed statements keep 137 source rows paginated and account coverag
   await review.getByText('Account balances, period & extraction coverage', { exact: true }).click()
   await expect(review).toContainText('Incomplete page coverage')
   await expect(review).toContainText('Asset account · outflows reduce this balance; inflows increase it.')
-  await expect(review).toContainText('2026-09-01 — 2026-09-30')
+  await expect(review).toContainText('Tue, Sep 1, 2026 — Wed, Sep 30, 2026')
   await review.getByRole('button', { name: 'Next rows', exact: true }).click()
   await expect(review).toContainText('Rows 51–100 of 137')
   await expect(review.getByText('Fictional entry 1', { exact: true })).toHaveCount(0)
@@ -10203,7 +10212,7 @@ test('BOG UI daily two purchases each save with one tap and the day reads as spe
 test('BOG UI daily canonical candidate paging links exact existing facts once',async({page})=>{const{dialog,calls}=await openDaily(page,{many:true});await dialog.getByRole('button',{name:'Add a purchase',exact:true}).click();await dialog.getByLabel('Purchase source').selectOption('existing_transaction');await expect(dialog.getByRole('radio',{name:/Fictional existing expense 50 ·/})).toBeVisible();await expect(dialog.getByRole('radio',{name:/Fictional existing expense 51 ·/})).toHaveCount(0);await dialog.getByRole('button',{name:'Next existing expenses',exact:true}).click();await dialog.getByRole('radio',{name:/Fictional existing expense 51 ·/}).check();await dialog.getByRole('button',{name:'Save purchase',exact:true}).click();await expect.poll(()=>calls.map(row=>row.action)).toEqual(['purchase_stage','purchase_approve','check_in_save']);expect(calls[0].input).toMatchObject({amount_cents:1250,merchant:'Fictional existing expense 51',purchased_on:'2026-09-28',linked_transaction_id:550,expected_canonical_digest:'a'.repeat(64),splits:[{budget_category_id:20,amount_cents:1250}],link_kind:'existing_transaction'});await expect(dialog).toContainText('Posted Tue, Sep 29; bought Mon, Sep 28.');await dailyFits(dialog)})
 test('BOG UI daily source-owned correction directs canonical review and forbids manual void',async({page})=>{const{dialog}=await openDaily(page,{known:true,source:true});await dialog.getByRole('button',{name:'Correct Fictional lunch',exact:true}).click();await expect(dialog).toContainText('Manual editing and voiding are unavailable for this link');await expect(dialog.getByRole('checkbox',{name:/Void this participant-entered/})).toHaveCount(0);await expect(dialog.getByLabel('Where did you buy it?')).toHaveCount(0);await expect(dialog.getByRole('button',{name:'Open Statements',exact:true})).toBeVisible();await dailyFits(dialog)})
 test('BOG UI daily optional feelings and all-version erase leave financial totals intact',async({page})=>{const{dialog,calls}=await openDaily(page,{known:true});await dialog.getByText('Optional feelings for this purchase',{exact:true}).click();await dialog.getByLabel('How did you feel then?').fill('Fictional tired moment');await dialog.getByLabel('How do you feel now?').fill('Fictional calmer now');await dialog.getByRole('checkbox',{name:/Save these optional feelings separately/}).check();await dialog.getByRole('button',{name:'Save optional feelings',exact:true}).click();await expect(dialog.getByRole('button',{name:'Erase all versions of these feelings',exact:true})).toBeDisabled();await dialog.getByRole('checkbox',{name:/Erase my feelings from every version/}).check();await dialog.getByRole('button',{name:'Erase all versions of these feelings',exact:true}).click();await expect(dialog).toContainText('Feelings erased');await expect(dialog).toContainText('$12.50 spent');expect(calls.map(row=>row.action)).toEqual(['reflection_save','reflection_erase']);expect(calls[0].input).not.toHaveProperty('amount_cents');await dailyFits(dialog)})
-test('BOG UI daily checkpoint known savings stay separate from pending final confirmation',async({page})=>{const{dialog,calls}=await openDaily(page);await dialog.getByRole('button',{name:'Checkpoints',exact:true}).click();await dialog.getByRole('button',{name:'Review Day 90 · 2026-09-28',exact:true}).click();await dialog.getByRole('checkbox',{name:/Prepare this exact milestone/}).check();await dialog.getByRole('button',{name:'Save Day 90 checkpoint preview',exact:true}).click();const previews=dialog.getByRole('region',{name:'Saved checkpoint previews',exact:true});await expect(previews).toContainText('$550.00');await expect(previews).toContainText('Pending — known approved savings remain counted');await expect(previews.getByRole('button',{name:'Approve Day 90 checkpoint',exact:true})).toBeDisabled();await previews.getByRole('checkbox',{name:/I reviewed this exact as-of date/}).check();await previews.getByRole('button',{name:'Approve Day 90 checkpoint',exact:true}).click();await expect(dialog.getByRole('region',{name:'Approved checkpoints',exact:true})).toContainText('Target reached');expect(calls[0].input.final_confirmation_accepted).toBe(false);expect(calls[0].input).not.toHaveProperty('reported_cents');await dailyFits(dialog)})
+test('BOG UI daily checkpoint known savings stay separate from pending final confirmation',async({page})=>{const{dialog,calls}=await openDaily(page);await dialog.getByRole('button',{name:'Checkpoints',exact:true}).click();await dialog.getByRole('button',{name:'Review Day 90 · Mon, Sep 28, 2026',exact:true}).click();await dialog.getByRole('checkbox',{name:/Prepare this exact milestone/}).check();await dialog.getByRole('button',{name:'Save Day 90 checkpoint preview',exact:true}).click();const previews=dialog.getByRole('region',{name:'Saved checkpoint previews',exact:true});await expect(previews).toContainText('$550.00');await expect(previews).toContainText('Pending — known approved savings remain counted');await expect(previews.getByRole('button',{name:'Approve Day 90 checkpoint',exact:true})).toBeDisabled();await previews.getByRole('checkbox',{name:/I reviewed this exact as-of date/}).check();await previews.getByRole('button',{name:'Approve Day 90 checkpoint',exact:true}).click();await expect(dialog.getByRole('region',{name:'Approved checkpoints',exact:true})).toContainText('Target reached');expect(calls[0].input.final_confirmation_accepted).toBe(false);expect(calls[0].input).not.toHaveProperty('reported_cents');await dailyFits(dialog)})
 test('BOG UI daily uncertain approval retains exact body and key across close reopen',async({page})=>{const{dialog,trigger,calls}=await openDaily(page,{uncertain:true});await dialog.getByRole('combobox',{name:'How was this day?',exact:true}).selectOption('spending');await dialog.getByRole('button',{name:'Save day',exact:true}).click();await expect(dialog.getByRole('button',{name:'Retry the same daily request',exact:true})).toBeVisible();const stored=await page.evaluate(()=>sessionStorage.getItem('daily-request-identities-v1'));expect(stored).toBeTruthy();expect(stored).not.toContain('spending_state');await dialog.getByRole('button',{name:'Close Today',exact:true}).click();await trigger.click();await dialog.getByRole('button',{name:'Retry the same daily request',exact:true}).click();await expect.poll(()=>calls.length).toBe(2);expect(calls[1]).toEqual(calls[0]);await dailyFits(dialog)})
 test('BOG UI daily revoked context hides personal reports and purchase controls',async({page})=>{const{dialog,revoke}=await openDaily(page,{known:true});revoke();await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(dialog).toContainText('Private daily access is no longer available');await expect(dialog.getByRole('region',{name:'Current personal daily report',exact:true})).toHaveCount(0);await expect(dialog.getByRole('button',{name:'Add a purchase',exact:true})).toHaveCount(0)})
 
@@ -12689,8 +12698,15 @@ for (const role of ['coach', 'admin']) {
         needs_help: true, setup_help: [], shared_items: [], help_requests: [{ id: 1, status: 'open', issue_kind: 'coaching' }], more_help_requests: false,
         check_in: { local_on: '2026-10-22', completed: false, availability: 'available' } }], next_offset: 20,
     } }))
-    await page.goto(`/?pilot_e2e_role=${role}&pilot_e2e_coach_workspaces=true#Coach%20Studio`)
-    await page.getByLabel('Coach workspace').selectOption('1')
+    await page.route('http://api.test/api/v1/auth/me', route => route.fulfill({ json: { user: { ...pilotAdminUser, id: role === 'coach' ? 902 : 900, clerk_id: `e2e_${role}`, role, is_admin: role === 'admin', is_coach: role === 'coach', is_staff: true, is_participant: false, coach_workspaces: [{ id: 1, name: 'Mrs. Mel coaching workspace', slug: 'mrs-mel', membership_role: role === 'admin' ? 'platform_admin' : 'owner', coach_profile: { display_name: 'Mrs. Mel', title: 'Financial coach', bio: '' } }], active_coach_workspace: { id: 1 } } } }))
+    await page.goto(`/?pilot_e2e_role=${role}&pilot_e2e_live_api=true#Coach%20Studio`)
+    const workspacePicker = page.getByLabel('Coach workspace')
+    if (await workspacePicker.count()) {
+      await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
+      await expect(workspacePicker).toBeEnabled()
+      await workspacePicker.selectOption('1')
+      await expect(workspacePicker).toHaveValue('1')
+    }
     const first = page.locator('.coach-challenge-roster > li').first()
     await expect(first).toContainText('Carla Reyes')
     const top = (await first.boundingBox())!.y
@@ -12703,5 +12719,74 @@ for (const role of ['coach', 'admin']) {
       expect(await control.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16)
     }
     await page.screenshot({ path: info.outputPath(`daily-density-${role}.png`) })
+    await page.setViewportSize({ width: 390, height: 664 })
+    await expect.poll(async () => (await first.boundingBox())!.y).toBeLessThanOrEqual(398.4)
+    await page.screenshot({ path: info.outputPath(`daily-density-short-${role}.png`) })
   })
 }
+
+async function expectPhoneTargets(page: Page) {
+  await page.evaluate(() => document.fonts.ready)
+  const small = await page.locator('button:visible, a[href]:visible, input:visible, select:visible, textarea:visible, summary:visible, [role="button"]:visible').evaluateAll(elements => elements.flatMap(element => {
+    if (element.matches('.sr-only, [type="hidden"], [type="file"]')) return []
+    // A native checkbox/radio is reached through its complete associated label.
+    const labels = element instanceof HTMLInputElement ? Array.from(element.labels ?? []) : []
+    const target = labels.find(label => { const box = label.getBoundingClientRect(); return box.width >= 44 && box.height >= 44 }) ?? element
+    const box = target.getBoundingClientRect()
+    return box.width < 43.99 || box.height < 43.99 ? [{ name: element.getAttribute('aria-label') ?? element.textContent?.trim().slice(0, 80), tag: element.tagName, className: element.className, width: box.width, height: box.height }] : []
+  }))
+  expect(small, JSON.stringify(small)).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320)
+  expect(await page.locator('body').innerText()).not.toMatch(/\b\d{4}-\d{2}-\d{2}\b/)
+}
+
+for (const section of ['Home', 'Budget', 'Review', 'Statements', 'My Money', 'Ask Mia']) {
+  test(`BOG UI participant 320px targets and plain dates on ${section}`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 664 })
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+    await page.goto('/?pilot_e2e_role=participant')
+    if (section !== 'Home') await openSection(page, section)
+    await expectPhoneTargets(page)
+    if (section === 'Home' || section === 'Budget') {
+      const picker = page.getByRole('combobox', { name: 'Chart month' })
+      await expect(picker).toBeVisible()
+      await expect(picker.locator('option')).toHaveCount(12)
+      for (const label of months) {
+        await picker.selectOption({ label: `${label} ${currentYear}` })
+        await expect(page.locator('.cash-flow-detail-panel')).toContainText(`${label} ${currentYear}`)
+      }
+      await expectPhoneTargets(page)
+    }
+    if (section === 'My Money') {
+      for (const topic of ['Income', 'Spending', 'Debt', 'Accounts', 'Goals']) {
+        await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: topic, exact: true }).click()
+        await expectPhoneTargets(page)
+      }
+    }
+  })
+}
+
+test('BOG UI statement source rows have plain dates and 44px controls at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 664 })
+  const review = await openTypedStatementReview(page)
+  await expect(review.locator('.source-event').first()).toBeVisible()
+  await expectPhoneTargets(page)
+  await review.getByRole('button', { name: 'Inspect statement line 1', exact: true }).click()
+  await expectPhoneTargets(page)
+})
+
+test('BOG UI bank activity dates and selection targets fit 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 664 })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/plaid/items', route => route.fulfill({ json: { configured: true, environment: 'sandbox', consent_policy_version: '2026-08-17', items: [{ id: 1, institution_name: 'QA Bank', status: 'active', environment: 'sandbox', consented_at: '2026-10-22T00:00:00Z', last_synced_at: null, health: { state: 'healthy', label: 'Current', message: 'Current bank activity', requires_attention: false }, error_message: null, disconnected_at: null, auto_confirm_trusted_merchants: false, accounts: [{ id: 1, name: 'Checking', mask: '1234', type: 'depository', subtype: 'checking', active: true, currency: 'USD', current_balance_cents: null, available_balance_cents: null }] }] } }))
+  await page.route('http://api.test/api/v1/plaid/transactions**', route => route.fulfill({ json: {
+    transactions: [{ id: 7, account_id: 1, account_name: 'Checking', account_mask: '1234', name: 'QA Island Market', merchant_name: null, occurred_on: '2026-10-22', authorized_on: '2026-10-21', amount_cents: 4200, pending: false, direction: 'outflow', primary_category: null, detailed_category: null, review_status: 'unreviewed', stageable: true, transaction_draft_id: null, transaction_draft_status: null, confirmed_transaction_id: null, confirmed_amount_cents: null, category_names: [], trust_state: 'bank_observed', removed: false, source_changed_after_draft: false }],
+    pagination: { page: 1, per_page: 100, total: 1, has_more: false }, summary: { ...emptyPlaidSummary, all_count: 1, posted_outflow_count: 1, posted_outflow_cents: 4200, needs_review_count: 1, needs_review_cents: 4200 },
+  } }))
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  await expect(page.locator('.plaid-transaction')).toContainText('Oct 22, 2026')
+  await expectPhoneTargets(page)
+  await page.getByRole('checkbox', { name: 'Select QA Island Market' }).check()
+  await expect(page.getByRole('button', { name: 'Prepare 1 for review' })).toBeVisible()
+  await expectPhoneTargets(page)
+})

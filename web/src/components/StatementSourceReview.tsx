@@ -1,3 +1,4 @@
+import { formatDay } from '../lib/plainDates'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { fetchDocumentSourceReview, type TransactionDraft } from '../api'
 import { sourceAccountLabel, sourceEventLabel, sourceEventTitle, sourceLocator, sourceMoney, validateSourceReview, type SourceReview, type SourceReviewFilter } from '../lib/sourceReview'
@@ -87,7 +88,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, render
               <h6>{sourceAccountLabel(account, account.id)}</h6>
               <p>{account.account_basis === 'asset' ? 'Asset account · outflows reduce this balance; inflows increase it.' : account.account_basis === 'liability' ? 'Liability account · outflows increase the amount owed; inflows reduce it.' : 'Account basis unknown · balance direction cannot be verified.'}</p>
               <dl className="source-coverage-facts">
-                <div><dt>Statement period</dt><dd>{account.period_start_on ?? 'Unknown start'} — {account.period_end_on ?? 'unknown end'}</dd></div>
+                <div><dt>Statement period</dt><dd>{account.period_start_on ? formatDay(account.period_start_on, { year: true }) : 'Unknown start'} — {account.period_end_on ? formatDay(account.period_end_on, { year: true }) : 'unknown end'}</dd></div>
                 <div><dt>Opening / closing</dt><dd>{sourceMoney(account.opening_balance_cents)} / {sourceMoney(account.closing_balance_cents)}</dd></div>
                 <div><dt>Balance residual</dt><dd>{sourceMoney(check?.balance_residual_cents)} · {check?.arithmetic_balanced === true ? 'Arithmetic balanced; classification review still pending' : 'Not verified as balanced'}</dd></div>
                 <div><dt>Printed debits / credits</dt><dd>{sourceMoney(account.printed_debit_cents)} / {sourceMoney(account.printed_credit_cents)}</dd></div>
@@ -120,10 +121,10 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, render
             const linkedDraft = event.expense_projection_eligible ? event.transaction_draft : null
             return <li key={event.id} className={`source-event source-event-${event.row_kind}`}>
               {reviewed && <label className="source-review-check"><input type="checkbox" disabled={mutation.busy} checked={batchSelected.includes(event.id)} onChange={(change) => setBatchSelected(change.target.checked ? [...batchSelected, event.id] : batchSelected.filter((id) => id !== event.id))} />Select statement line {event.position + 1} for explicit batch review</label>}
-              {reviewed && <p className="source-row-review-status">{reviewed.pending ? 'Pending proposal' : reviewed.approved ? `Approved${reviewed.approved.current === false ? ' · account changed; review needed' : ''}` : 'Needs participant review'}{reviewed.approved && ` · Current reviewed facts: ${reviewed.approved.facts.merchant ?? 'No merchant'} · ${reviewed.approved.facts.event_type.replaceAll('_', ' ')} · ${sourceMoney(reviewed.approved.facts.signed_amount_cents, true)} · ${reviewed.approved.facts.posted_on ?? 'Date unknown'}`}</p>}
+              {reviewed && <p className="source-row-review-status">{reviewed.pending ? 'Pending proposal' : reviewed.approved ? `Approved${reviewed.approved.current === false ? ' · account changed; review needed' : ''}` : 'Needs participant review'}{reviewed.approved && ` · Current reviewed facts: ${reviewed.approved.facts.merchant ?? 'No merchant'} · ${reviewed.approved.facts.event_type.replaceAll('_', ' ')} · ${sourceMoney(reviewed.approved.facts.signed_amount_cents, true)} · ${reviewed.approved.facts.posted_on ? formatDay(reviewed.approved.facts.posted_on, { year: true }) : 'Date unknown'}`}</p>}
               <div className="source-event-main" aria-label="Original extracted facts"><div><strong>{sourceEventTitle(event)}</strong><span>{sourceEventLabel(event)}</span></div><strong className="source-event-amount">{event.row_kind === 'informational' ? `${sourceMoney(event.evidence?.displayed_amount_cents)} (information)` : sourceMoney(event.signed_amount_cents, true)}</strong></div>
-              <p>{event.posted_on ?? 'Posted date unknown'} · {sourceAccountLabel(account, event.financial_source_account_id)} · {sourceLocator(event)}</p>
-              {event.authorized_on && event.authorized_on !== event.posted_on && <p>Authorized {event.authorized_on}</p>}
+              <p>{event.posted_on ? formatDay(event.posted_on, { year: true }) : 'Posted date unknown'} · {sourceAccountLabel(account, event.financial_source_account_id)} · {sourceLocator(event)}</p>
+              {event.authorized_on && event.authorized_on !== event.posted_on && <p>Authorized {formatDay(event.authorized_on, { year: true })}</p>}
               {!event.evidence_available && <p>Row description evidence unavailable.</p>}
               {event.limitations.length > 0 && <p className="source-review-limitation">{event.limitations.map((item) => item.replaceAll('_', ' ')).join(' · ')}</p>}
               {event.funding_components.length > 0 && <p>Funding split: {event.funding_components.map((part) => `${data.accounts.some((candidate) => candidate.source_key === part.source_key) ? sourceAccountLabel(data.accounts.find((candidate) => candidate.source_key === part.source_key), event.financial_source_account_id) : 'Unidentified funding account'} ${sourceMoney(part.amount_cents)}`).join(' + ')}. Funding is not additional spending.</p>}

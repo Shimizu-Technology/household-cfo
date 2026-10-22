@@ -1,3 +1,4 @@
+import { formatDay } from '../lib/plainDates'
 import type { FinancialDocumentImport } from '../api'
 import './PausedDocumentImportPanel.css'
 
@@ -22,7 +23,7 @@ export function PausedDocumentImportPanel({ documentImport, uploading, opening, 
     <details className="document-paused-history"><summary>View earlier extracted information</summary>
       {documentImport.extracted_summary && <p>{documentImport.extracted_summary}</p>}
       {documentImport.items.length > 0 && <ul aria-label="Earlier extracted values">{documentImport.items.map(item => <li key={item.id}><strong>{item.label}</strong><span>{[['Amount', item.amount], ['Balance', item.balance], ['Payment', item.payment]].filter(([, value]) => typeof value === 'number').map(([label, value]) => `${label}: ${money.format(value as number)}`).join(' · ') || 'Amount not entered'}</span>{item.evidence && <small>{item.evidence}</small>}</li>)}</ul>}
-      {documentImport.transaction_drafts.length > 0 && <ul aria-label="Earlier extracted transactions">{documentImport.transaction_drafts.map(draft => <li key={draft.id}><strong>{draft.merchant}</strong><span>{draft.occurred_on} · {money.format(draft.amount)} · Earlier {draft.status.replaceAll('_', ' ')}</span></li>)}</ul>}
+      {documentImport.transaction_drafts.length > 0 && <ul aria-label="Earlier extracted transactions">{documentImport.transaction_drafts.map(draft => <li key={draft.id}><strong>{draft.merchant}</strong><span>{formatDay(draft.occurred_on, { year: true })} · {money.format(draft.amount)} · Earlier {draft.status.replaceAll('_', ' ')}</span></li>)}</ul>}
       {documentImport.items.length === 0 && documentImport.transaction_drafts.length === 0 && <p>No earlier extracted rows are available.</p>}
     </details>
   </article>

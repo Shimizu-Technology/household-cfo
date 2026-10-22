@@ -61,7 +61,7 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
         fetchCohortReleaseStudio(selectedCohortId, abortController.signal).catch(() => null),
       ])
       if (requestId !== loadRequestRef.current || abortController.signal.aborted) return false
-      if (next.cohort.id !== selectedCohortId) throw new Error('Rollout records returned the wrong cohort. Reload and try again.')
+      if (next.cohort.id !== selectedCohortId) throw new Error('Update records returned the wrong cohort. Reload and try again.')
       const previous = versions?.releases.find((release) => release.id === next.active_release?.id && release.bundle_digest === next.active_release.bundle_digest)
       const target = versions?.releases.find((release) => release.id === next.latest_release?.id && release.bundle_digest === next.latest_release.bundle_digest)
       setReleaseChanges(previous && target ? [
@@ -78,7 +78,7 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
       if (requestId !== loadRequestRef.current || abortController.signal.aborted) return false
       setStudio(null)
       setDraft(null)
-      setError(errorMessage(caught, 'Cohort rollout records could not be loaded.'))
+      setError(errorMessage(caught, 'Cohort update records could not be loaded.'))
       return false
     } finally {
       if (requestId === loadRequestRef.current) {
@@ -182,25 +182,25 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
       let result: CohortRolloutMutationResponse | null = null
       if (action === 'plan') {
         if (!planValidation?.input) {
-          setValidationErrors(planValidation?.errors ?? ['The rollout plan is incomplete.'])
+          setValidationErrors(planValidation?.errors ?? ['The update plan is incomplete.'])
           setConfirmation(null)
           return
         }
         result = await planCohortRollout(cohortId, planValidation.input, confirmation.requestId)
       } else {
-        if (!rollout || rollout.latest_transition_id === null) throw new Error('The latest rollout evidence is unavailable. Reload and try again.')
+        if (!rollout || rollout.latest_transition_id === null) throw new Error('The latest update evidence is unavailable. Reload and try again.')
         const compare = transitionInput(rollout)
         if (action === 'advance') result = await advanceCohortRollout(cohortId, rollout.id, { ...compare, readiness_digest: rollout.next_wave_readiness_digest }, confirmation.requestId)
         else if (action === 'pause') result = await pauseCohortRollout(cohortId, rollout.id, compare, confirmation.requestId)
         else if (action === 'resume') result = await resumeCohortRollout(cohortId, rollout.id, compare, confirmation.requestId)
         else if (action === 'cancel') result = await cancelCohortRollout(cohortId, rollout.id, compare, confirmation.requestId)
         if (action === 'rollback') {
-          if (!rollout.rollback_candidate) throw new Error('No verified rollback release is available. Reload and review the blockers.')
+          if (!rollout.rollback_candidate) throw new Error('No verified previous version is available. Reload and review the blockers.')
           result = await rollbackCohortRollout(cohortId, rollout.id, { ...compare, rollback_release_id: rollout.rollback_candidate.id }, confirmation.requestId)
         }
       }
       if (!mutationLifecycle.isCurrent(mutation)) return
-      if (!result) throw new Error('The rollout action did not return a result. Reload and try again.')
+      if (!result) throw new Error('The update action did not return a result. Reload and try again.')
       setConfirmation(null)
       setNotice(successMessage(action, result, rollout))
       await loadStudio(cohortId)
@@ -212,18 +212,18 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
         const refreshed = await loadStudio(cohortId)
         if (refreshed) {
           setError(caught.status === 409
-            ? 'Rollout evidence changed before this action completed. Review the refreshed state before trying again.'
-            : 'Your rollout permission changed. Review the refreshed state before trying again.')
+            ? 'Update evidence changed before this action completed. Review the refreshed state before trying again.'
+            : 'Your update permission changed. Review the refreshed state before trying again.')
           focusCurrentState()
         } else {
           window.requestAnimationFrame(() => loadFailureRetryRef.current?.focus())
         }
       } else if (caught instanceof ApiRequestError && caught.status >= 400 && caught.status < 500) {
         setConfirmation(null)
-        setError(errorMessage(caught, 'The rollout action was rejected. Review the plan and try again.'))
+        setError(errorMessage(caught, 'The update action was rejected. Review the plan and try again.'))
         window.requestAnimationFrame(() => restoreFocusRef.current?.focus())
       } else {
-        setActionError(errorMessage(caught, 'The rollout action could not be completed.'))
+        setActionError(errorMessage(caught, 'The update action could not be completed.'))
       }
     } finally {
       if (mutationLifecycle.isCurrent(mutation)) setPendingAction(null)
@@ -232,7 +232,7 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
   }
 
   if (!cohortId) return null
-  if (pendingAction === 'load' && !studio) return <article className="panel cohort-release-loading" role="status">Checking rollout evidence and participant readiness…</article>
+  if (pendingAction === 'load' && !studio) return <article className="panel cohort-release-loading" role="status">Checking update evidence and participant readiness…</article>
   if (error && !studio) return <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><button ref={loadFailureRetryRef} type="button" onClick={() => void loadStudio(cohortId)}>Retry</button></div>
   if (!studio) return null
 
@@ -299,7 +299,7 @@ function PlanBuilder({ studio, releaseChanges, draft, validationErrors, pending,
     <div className="cohort-rollout-plan-layout">
       <article className="panel cohort-rollout-plan">
         <header>
-          <div><h3 tabIndex={-1} data-rollout-focus-target>{studio.latest_release ? `Version ${studio.latest_release.release_number}` : 'Release required'}</h3></div>
+          <div><h3 tabIndex={-1} data-rollout-focus-target>{studio.latest_release ? `Version ${studio.latest_release.release_number}` : 'Version required'}</h3></div>
           <span className={`cohort-release-state ${studio.permissions.plan ? 'is-ready' : ''}`}>{studio.permissions.plan ? 'Ready' : 'Blocked'}</span>
         </header>
         <h4>Who should receive this update first?</h4>
@@ -307,7 +307,7 @@ function PlanBuilder({ studio, releaseChanges, draft, validationErrors, pending,
         {releaseChanges === null ? <p>To see which settings changed, review the version details in Review settings.</p> : releaseChanges.length > 0 ? <div><strong>What changes in this update</strong><ul>{releaseChanges.map((label) => <li key={label}>{label}</li>)}</ul></div> : <p>This version contains the same appearance, Mia voice, tools, and controls.</p>}
         <p>Planning saves your choice. Participants change only when you review and start the update.</p>
         {studio.active_release && studio.latest_release && (
-          <p className="cohort-rollout-runtime-summary"><strong>Active now:</strong> Version {studio.active_release.release_number} <span aria-hidden="true">→</span> <strong>Rollout target:</strong> Version {studio.latest_release.release_number}</p>
+          <p className="cohort-rollout-runtime-summary"><strong>Active now:</strong> Version {studio.active_release.release_number} <span aria-hidden="true">→</span> <strong>Prepared update:</strong> Version {studio.latest_release.release_number}</p>
         )}
         {(studio.permissions.plan_blockers.length > 0 || studio.permissions.blockers.length > 0) && (
           <div className="cohort-release-blockers" role="note"><strong>What needs attention</strong><ul>{[...studio.permissions.blockers, ...studio.permissions.plan_blockers].map((item) => <li key={item}>{coachVersionGuidance(item)}</li>)}</ul></div>
@@ -355,16 +355,16 @@ function ActiveRollout({ rollout, pending, onAction }: {
   const nextPosition = rollout.next_wave_position
   const runtimeModeSupported = rollout.runtime_mode === 'release_runtime_v2' || rollout.runtime_mode === 'legacy_record_only_v1'
   const legacy = rollout.runtime_mode === 'legacy_record_only_v1'
-  const advanceLabel = rollout.status === 'planned' ? 'Review and start rollout' : nextPosition ? `Review wave ${nextPosition}` : 'Review and complete rollout'
+  const advanceLabel = rollout.status === 'planned' ? 'Review and start update' : nextPosition ? `Review wave ${nextPosition}` : 'Review and complete update'
   return <div className="cohort-rollout-active-layout">
     <article className="panel cohort-rollout-current">
-      <header><div><p className="eyebrow">Current rollout</p><h3 tabIndex={-1} data-rollout-focus-target>Version {rollout.target_release.release_number}</h3></div><span className={`cohort-rollout-status is-${rollout.status}`}>{status}</span></header>
+      <header><div><p className="eyebrow">Current update</p><h3 tabIndex={-1} data-rollout-focus-target>Version {rollout.target_release.release_number}</h3></div><span className={`cohort-rollout-status is-${rollout.status}`}>{status}</span></header>
       {!runtimeModeSupported ? (
-        <div className="cohort-rollout-legacy" role="alert"><strong>Update required before rollout changes</strong><p>This app needs an update before it can manage this group update. Reload after updating the app; changes are unavailable from this screen.</p></div>
+        <div className="cohort-rollout-legacy" role="alert"><strong>Update the app before changing this group</strong><p>This app needs an update before it can manage this group update. Reload after updating the app; changes are unavailable from this screen.</p></div>
       ) : legacy ? (
         <div className="cohort-rollout-legacy" role="note"><strong>Earlier update · history only</strong><p>This earlier update cannot change participant settings. Close it before planning a new group update.</p></div>
       ) : (
-        <div className="cohort-rollout-runtime-summary" role="status"><strong>Captured baseline:</strong> {releaseLabel(rollout.baseline_release)} · {brandEvidenceLabel(rollout.baseline_release)} <span aria-hidden="true">→</span> <strong>Target:</strong> Version {rollout.target_release.release_number} · {brandEvidenceLabel(rollout.target_release)}</div>
+        <div className="cohort-rollout-runtime-summary" role="status"><strong>Version before this update:</strong> {releaseLabel(rollout.baseline_release)} · {brandEvidenceLabel(rollout.baseline_release)} <span aria-hidden="true">→</span> <strong>Target:</strong> Version {rollout.target_release.release_number} · {brandEvidenceLabel(rollout.target_release)}</div>
       )}
       <div className="cohort-rollout-progress" aria-label={rolloutProgressLabel(rollout)}>
         {rollout.waves.map((wave) => <span key={wave.id} className={wave.completed ? 'is-complete' : wave.active ? 'is-active' : ''}><i />Wave {wave.position}</span>)}
@@ -404,8 +404,8 @@ function RosterReadiness({ studio }: { studio: CohortRolloutStudioData }) {
 
 function RolloutHistory({ studio }: { studio: CohortRolloutStudioData }) {
   return <article className="panel cohort-rollout-history">
-    <header><div><p className="eyebrow">Rollout history</p><h3>{historyLabel(studio.history.total_count, studio.rollouts.length, studio.history.truncated, 'rollout')}</h3></div></header>
-    {studio.rollouts.length === 0 ? <div className="cohort-release-empty"><strong>No rollout records yet.</strong><p>A reviewed plan will appear here.</p></div> : <ol>{studio.rollouts.map((rollout) => <li key={rollout.id}><div><strong>Version {rollout.target_release.release_number}</strong><small>{formatDate(rollout.planned_at)} · {rollout.planned_by?.full_name ?? 'System record'}</small></div><span className={`cohort-rollout-status is-${rollout.status}`}>{titleize(rollout.status)}</span><p>{rollout.wave_count} wave{rollout.wave_count === 1 ? '' : 's'} · {rollout.participant_count} participant{rollout.participant_count === 1 ? '' : 's'} · {rollout.runtime_mode === 'release_runtime_v2' ? rollout.status === 'cancelled' ? 'Participant settings unchanged' : rollout.participant_runtime_changed ? 'Participant update recorded' : 'Ready to update participants' : rollout.runtime_mode === 'legacy_record_only_v1' ? 'History only' : 'Update unavailable'}</p></li>)}</ol>}
+    <header><div><p className="eyebrow">Update history</p><h3>{historyLabel(studio.history.total_count, studio.rollouts.length, studio.history.truncated, 'update')}</h3></div></header>
+    {studio.rollouts.length === 0 ? <div className="cohort-release-empty"><strong>No update records yet.</strong><p>A reviewed plan will appear here.</p></div> : <ol>{studio.rollouts.map((rollout) => <li key={rollout.id}><div><strong>Version {rollout.target_release.release_number}</strong><small>{formatDate(rollout.planned_at)} · {rollout.planned_by?.full_name ?? 'System record'}</small></div><span className={`cohort-rollout-status is-${rollout.status}`}>{titleize(rollout.status)}</span><p>{rollout.wave_count} wave{rollout.wave_count === 1 ? '' : 's'} · {rollout.participant_count} participant{rollout.participant_count === 1 ? '' : 's'} · {rollout.runtime_mode === 'release_runtime_v2' ? rollout.status === 'cancelled' ? 'Participant settings unchanged' : rollout.participant_runtime_changed ? 'Participant update recorded' : 'Ready to update participants' : rollout.runtime_mode === 'legacy_record_only_v1' ? 'History only' : 'Update unavailable'}</p></li>)}</ol>}
   </article>
 }
 
@@ -474,14 +474,14 @@ function confirmationCopy(action: Action, rollout: CohortRolloutRecord | null, s
       : completing
         ? `Completing makes version ${rollout?.target_release.release_number} the cohort default immediately.`
         : `This immediately moves ${wave.participant_count} participant${wave.participant_count === 1 ? '' : 's'} in ${wave.name} to version ${rollout?.target_release.release_number}.`
-    return { title: rollout?.status === 'planned' ? 'Start this rollout?' : wave ? `Advance to wave ${wave.position}?` : 'Complete this rollout?', body, confirm: rollout?.status === 'planned' ? 'Start rollout' : wave ? `Advance to wave ${wave.position}` : 'Complete rollout', danger: false }
+    return { title: rollout?.status === 'planned' ? 'Start this update?' : wave ? `Advance to wave ${wave.position}?` : 'Complete this update?', body, confirm: rollout?.status === 'planned' ? 'Start update' : wave ? `Advance to wave ${wave.position}` : 'Complete update', danger: false }
   }
-  if (action === 'pause') return { title: 'Pause this rollout?', body: 'Pausing does not change anyone’s current release. The rollout stays paused until an authorized owner or reviewer resumes or rolls it back.', confirm: 'Pause rollout', danger: false }
-  if (action === 'resume') return { title: 'Resume this rollout?', body: 'Resuming does not change anyone’s current release. Readiness is checked again before the next wave advances.', confirm: 'Resume rollout', danger: false }
-  if (action === 'cancel') return { title: 'Cancel this rollout plan?', body: 'Cancellation is final for this unstarted plan and does not change participant settings. Its audit history remains available.', confirm: 'Cancel rollout plan', danger: true }
+  if (action === 'pause') return { title: 'Pause this update?', body: 'Pausing does not change anyone’s current version. The update stays paused until an authorized owner or reviewer resumes or rolls it back.', confirm: 'Pause update', danger: false }
+  if (action === 'resume') return { title: 'Resume this update?', body: 'Resuming does not change anyone’s current version. Readiness is checked again before the next wave advances.', confirm: 'Resume update', danger: false }
+  if (action === 'cancel') return { title: 'Cancel this update plan?', body: 'Cancellation is final for this unstarted plan and does not change participant settings. Its audit history remains available.', confirm: 'Cancel update plan', danger: true }
   return legacy
-    ? { title: 'Close this pre-cutover rollout?', body: 'This records a legacy rollback and closes the pre-cutover rollout without changing participant settings.', confirm: 'Record legacy rollback', danger: true }
-    : { title: `Roll back to version ${rollout?.rollback_candidate?.release_number}?`, body: `This immediately restores captured baseline version ${rollout?.baseline_release?.release_number} for everyone who received this update and is still enrolled.`, confirm: 'Restore participants’ previous settings', danger: true }
+    ? { title: 'Close this pre-cutover update?', body: 'This records a legacy rollback and closes the pre-cutover update without changing participant settings.', confirm: 'Record legacy rollback', danger: true }
+    : { title: `Roll back to version ${rollout?.rollback_candidate?.release_number}?`, body: `This immediately restores the version saved before this update, version ${rollout?.baseline_release?.release_number} for everyone who received this update and is still enrolled.`, confirm: 'Restore participants’ previous settings', danger: true }
 }
 
 function confirmationDetails(action: Action, rollout: CohortRolloutRecord | null, studio: CohortRolloutStudioData, plan: CohortRolloutPlanInput | null) {
@@ -507,7 +507,7 @@ function confirmationDetails(action: Action, rollout: CohortRolloutRecord | null
       { label: 'Target brand', value: brandEvidenceLabel(rollout.target_release) },
       { label: 'Effect on participants', value: rollout.runtime_mode === 'release_runtime_v2' ? 'This wave changes immediately' : 'History only · no participant settings change' },
     ] : [
-      { label: 'Decision', value: 'Complete rollout' },
+      { label: 'Decision', value: 'Complete update' },
       { label: 'Completed waves', value: `${rollout.wave_count}` },
       { label: 'Target version', value: `Version ${rollout.target_release.release_number}` },
       { label: 'Target brand', value: brandEvidenceLabel(rollout.target_release) },
@@ -547,23 +547,23 @@ function successMessage(action: Action, result: CohortRolloutMutationResponse, p
   const transition = result.transition
   const rollout = result.rollout
   const runtimeEnabled = rollout.runtime_mode === 'release_runtime_v2'
-  if (transition.event_type === 'planned') return `Rollout plan recorded for Version ${rollout.target_release.release_number}. Participant settings did not change.`
+  if (transition.event_type === 'planned') return `Update plan recorded for Version ${rollout.target_release.release_number}. Participant settings did not change.`
   if (transition.event_type === 'activated' || transition.event_type === 'advanced') {
     const wave = rollout.waves.find((candidate) => candidate.position === transition.to_wave_position)
     if (runtimeEnabled && transition.participant_runtime_changed && wave) return `${wave.name} is now using Version ${rollout.target_release.release_number}. ${wave.exposed_count} participant${wave.exposed_count === 1 ? '' : 's'} changed immediately.`
-    return `Legacy rollout progress recorded${wave ? ` for ${wave.name}` : ''}. Participant settings did not change.`
+    return `Legacy update progress recorded${wave ? ` for ${wave.name}` : ''}. Participant settings did not change.`
   }
   if (transition.event_type === 'completed') {
     return runtimeEnabled && transition.participant_runtime_changed
-      ? `Rollout completed. Version ${rollout.target_release.release_number} is now the cohort default.`
-      : 'Legacy rollout completed. Participant settings did not change.'
+      ? `Update completed. Version ${rollout.target_release.release_number} is now the cohort default.`
+      : 'Legacy update completed. Participant settings did not change.'
   }
   if (transition.event_type === 'rolled_back') {
     return runtimeEnabled && transition.participant_runtime_changed
       ? `Rollback completed. Participants who received this update and are still enrolled now use ${releaseLabel(rollout.baseline_release)}.`
       : 'Legacy rollback record completed. Participant settings did not change.'
   }
-  const actionName = action === 'pause' ? 'Rollout paused' : action === 'resume' ? 'Rollout resumed' : action === 'cancel' ? 'Rollout cancelled' : titleize(transition.event_type)
+  const actionName = action === 'pause' ? 'Update paused' : action === 'resume' ? 'Update resumed' : action === 'cancel' ? 'Update cancelled' : titleize(transition.event_type)
   const target = previousRollout?.target_release.release_number ?? rollout.target_release.release_number
   return `${actionName} for Version ${target}. Participant settings did not change.`
 }

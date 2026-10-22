@@ -1,3 +1,4 @@
+import { formatDay } from '../lib/plainDates'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePlaidLink, type PlaidLinkOnExit, type PlaidLinkOnSuccess } from 'react-plaid-link'
 import {
@@ -725,11 +726,11 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
               {transactions.map((transaction) => (
                 <article className={`plaid-transaction is-${transaction.trust_state}`} key={transaction.id}>
                   {picture === 'current' && transaction.stageable && !transaction.context_paused_by_restart ? (
-                    <input aria-label={`Select ${transaction.merchant_name || transaction.name}`} type="checkbox" checked={selected.includes(transaction.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, transaction.id] : current.filter((id) => id !== transaction.id))} />
+                    <label className="plaid-transaction-select"><input aria-label={`Select ${transaction.merchant_name || transaction.name}`} type="checkbox" checked={selected.includes(transaction.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, transaction.id] : current.filter((id) => id !== transaction.id))} /><span className="sr-only">Select {transaction.merchant_name || transaction.name}</span></label>
                   ) : <span className="plaid-state-mark" aria-hidden="true" />}
                   <span className="plaid-transaction-copy">
                     <strong>{transaction.merchant_name || transaction.name}</strong>
-                    <small>{transaction.occurred_on} · {transaction.account_name}{transaction.account_mask ? ` ••${transaction.account_mask}` : ''}</small>
+                    <small>{formatDay(transaction.occurred_on, { year: true })} · {transaction.account_name}{transaction.account_mask ? ` ••${transaction.account_mask}` : ''}</small>
                     {transaction.category_names.length > 0 && <small>{transaction.category_names.join(' + ')}</small>}
                     {transaction.trust_state === 'not_spending' && transaction.movement_type && <small>{sourceTypeLabel(transaction.movement_type)} · No spending is recorded for this row.</small>}
                     {transaction.review_note && <small>{transaction.review_note}</small>}

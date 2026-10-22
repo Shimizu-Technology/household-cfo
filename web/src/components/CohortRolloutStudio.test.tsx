@@ -204,11 +204,11 @@ describe('CohortRolloutStudio', () => {
   it('states the immediate runtime decision before start and reports the returned exposure result', async () => {
     const user = userEvent.setup()
     renderStudio(activeRolloutStudio('planned'), activeRolloutStudio('active'))
-    await user.click(await screen.findByRole('button', { name: 'Review and start rollout' }))
-    const dialog = screen.getByRole('dialog', { name: 'Start this rollout?' })
+    await user.click(await screen.findByRole('button', { name: 'Review and start update' }))
+    const dialog = screen.getByRole('dialog', { name: 'Start this update?' })
     expect(within(dialog).getByText('This immediately moves 1 participant in Pilot to version 4.')).toBeTruthy()
     expect(within(dialog).getByText('This wave changes immediately')).toBeTruthy()
-    await user.click(within(dialog).getByRole('button', { name: 'Start rollout' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Start update' }))
     expect(await screen.findByText('Pilot is now using Version 4. 1 participant changed immediately.')).toBeTruthy()
     expect(screen.getByText(/Ready · Updated · Version 4/)).toBeTruthy()
     expect(screen.getByText(/Ready · Not updated · Using Version 3/)).toBeTruthy()
@@ -225,12 +225,12 @@ describe('CohortRolloutStudio', () => {
     apiMocks.advanceCohortRollout.mockResolvedValue(completed)
     renderStudio(initial, studioFixture())
 
-    await user.click(await screen.findByRole('button', { name: 'Review and complete rollout' }))
-    const dialog = screen.getByRole('dialog', { name: 'Complete this rollout?' })
+    await user.click(await screen.findByRole('button', { name: 'Review and complete update' }))
+    const dialog = screen.getByRole('dialog', { name: 'Complete this update?' })
     expect(within(dialog).getByText('Completing makes version 4 the cohort default immediately.')).toBeTruthy()
     expect(within(dialog).getByText('Becomes the cohort default immediately')).toBeTruthy()
-    await user.click(within(dialog).getByRole('button', { name: 'Complete rollout' }))
-    expect(await screen.findByText('Rollout completed. Version 4 is now the cohort default.')).toBeTruthy()
+    await user.click(within(dialog).getByRole('button', { name: 'Complete update' }))
+    expect(await screen.findByText('Update completed. Version 4 is now the cohort default.')).toBeTruthy()
   })
 
   it('marks a pre-cutover rollout as record only and never presents exposure as live', async () => {
@@ -256,7 +256,7 @@ describe('CohortRolloutStudio', () => {
     rollout.waves.forEach((wave) => wave.participants.forEach((participant) => { participant.exposed = true }))
     renderStudio(studio)
 
-    expect(await screen.findByText('Update required before rollout changes')).toBeTruthy()
+    expect(await screen.findByText('Update the app before changing this group')).toBeTruthy()
     expect(screen.getByText(/This app needs an update before it can manage this group update/)).toBeTruthy()
     expect(screen.queryByText('Live now')).toBeNull()
     expect(screen.queryByText(/Updated · Version/)).toBeNull()
@@ -281,8 +281,8 @@ describe('CohortRolloutStudio', () => {
     apiMocks.pauseCohortRollout.mockRejectedValue(new ApiRequestError('stale', { status: 409, code: 'cohort_rollout_conflict', errors: [], conflicts: [] }))
     renderStudio(activeRolloutStudio('active'))
     await user.click(await screen.findByRole('button', { name: 'Review pause' }))
-    await user.click(screen.getByRole('button', { name: 'Pause rollout' }))
-    expect((await screen.findByRole('alert')).textContent).toContain('Rollout evidence changed')
+    await user.click(screen.getByRole('button', { name: 'Pause update' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('Update evidence changed')
     expect(screen.getByText(/Starting a stage can change participant settings immediately/)).toBeTruthy()
     expect(apiMocks.fetchCohortRolloutStudio).toHaveBeenCalledTimes(2)
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Version 4' })))
@@ -297,7 +297,7 @@ describe('CohortRolloutStudio', () => {
     render(<CohortRolloutStudio cohortId={12} mutationLifecycle={{ pending: false, begin: vi.fn(() => ({ id: 1, workspaceId: 2 })), isCurrent: vi.fn(() => true), finish: vi.fn() }} onDirtyChange={vi.fn()} />)
 
     await user.click(await screen.findByRole('button', { name: 'Review pause' }))
-    await user.click(screen.getByRole('button', { name: 'Pause rollout' }))
+    await user.click(screen.getByRole('button', { name: 'Pause update' }))
 
     expect((await screen.findByRole('alert')).textContent).toContain('Refresh connection failed.')
     const retry = screen.getByRole('button', { name: 'Retry' })
@@ -326,7 +326,7 @@ describe('CohortRolloutStudio', () => {
 
   it.each([
     { name: 'plan', initial: studioFixture(), next: activeRolloutStudio('planned'), trigger: 'Review group update', confirm: 'Save update plan' },
-    { name: 'cancel', initial: activeRolloutStudio('planned'), next: studioFixture(), trigger: 'Review cancellation', confirm: 'Cancel rollout plan' },
+    { name: 'cancel', initial: activeRolloutStudio('planned'), next: studioFixture(), trigger: 'Review cancellation', confirm: 'Cancel update plan' },
     { name: 'rollback', initial: activeRolloutStudio('active'), next: studioFixture(), trigger: 'Review rollback', confirm: 'Restore participants’ previous settings' },
   ])('moves focus to the stable new state heading after $name', async ({ initial, next, trigger, confirm }) => {
     const user = userEvent.setup()
@@ -343,6 +343,8 @@ describe('CohortRolloutStudio', () => {
     studio.permissions.plan_blockers = ['Seal a new release before planning a rollout; the latest release is already active.']
     renderStudio(studio)
     await screen.findByRole('heading', { name: 'Your group is up to date' })
+    expect(screen.getByText('Prepare a new version before updating this group; the latest version is already in use.')).toBeTruthy()
+    expect(screen.queryByText(/Seal a new release|Captured baseline|Rollout target/)).toBeNull()
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Review group update' })).toBeNull()
     expect(screen.queryByText('Update in stages')).toBeNull()
