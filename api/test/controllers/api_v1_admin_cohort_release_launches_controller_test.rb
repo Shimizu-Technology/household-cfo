@@ -133,7 +133,7 @@ class ApiV1AdminCohortReleaseLaunchesControllerTest < ActionDispatch::Integratio
     unsealed = Cohort.create!(name: "No sealed release", status: "draft", created_by_user: owner, coach_workspace: cohort.coach_workspace)
     state = review(owner, unsealed)
     refute state.fetch("can_launch")
-    assert_includes state.fetch("blockers"), "Seal a release before launching this cohort."
+    assert_includes state.fetch("blockers"), "Prepare a version before launching this group."
     assert_nil cohort.reload.active_cohort_release_id
   end
 

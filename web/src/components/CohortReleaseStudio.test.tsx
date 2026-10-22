@@ -115,7 +115,7 @@ describe('CohortReleaseStudio', () => {
     renderStudio()
 
     expect(await screen.findByRole('heading', { name: 'Ready to prepare' })).toBeTruthy()
-    expect(screen.getByText('Release records are audit evidence.')).toBeTruthy()
+    expect(screen.getByText('Saved versions are kept as a record.')).toBeTruthy()
     expect(screen.getByText(/does not change the appearance, assistant, or tools participants use/)).toBeTruthy()
     for (const label of ['Program appearance', 'Assistant voice', 'Participant tools', 'System controls', 'Group membership']) {
       expect(screen.getByText(label)).toBeTruthy()

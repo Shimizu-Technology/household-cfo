@@ -95,7 +95,7 @@ module CohortReleases
 
       blockers = []
       if strict && !(version.sealed? && version.release_gate_version == "gate_v2" && version.release_evidence_valid?)
-        blockers << "Publish the selected persona through the governed release checks before sealing a cohort release."
+        blockers << "Publish Mia’s voice, with its safety checks, before preparing a version for this group."
       end
       [ assignment, persona, version, snapshot, blockers, [] ]
     end
@@ -118,7 +118,7 @@ module CohortReleases
         return [ configuration, version, Contract.experience_snapshot(configuration: configuration, version: version), [], [] ]
       end
 
-      message = "Publish participant tools before sealing a cohort release."
+      message = "Publish participant tools before preparing a version for this group."
       [
         configuration,
         nil,
@@ -139,7 +139,7 @@ module CohortReleases
         return [ version, Contract.published_brand_snapshot(version: version), [], [] ]
       end
 
-      message = "Publish the workspace brand before sealing a cohort release."
+      message = "Publish the program’s look before preparing a version for this group."
       [
         nil,
         Contract.legacy_brand_snapshot,

@@ -81,8 +81,8 @@ describe('SavingsChallengeAccessPanel', () => {
   })
 
   it('shows blockers and hides controls for people who cannot change it', () => {
-    render(<SavingsChallengeAccessPanel cohort={cohortWith({ state: 'not_set_up', label: 'Not set up', can_open: false, can_change: false, blockers: ['Seal and launch a release first.'] })} busy={false} onChanged={vi.fn()} />)
-    expect(screen.getByText('Seal and launch a release first.')).toBeTruthy()
+    render(<SavingsChallengeAccessPanel cohort={cohortWith({ state: 'not_set_up', label: 'Not set up', can_open: false, can_change: false, blockers: ['Prepare and launch a version first.'] })} busy={false} onChanged={vi.fn()} />)
+    expect(screen.getByText('Prepare and launch a version first.')).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()
     expect(screen.getByText(/Only a platform administrator/)).toBeTruthy()
   })

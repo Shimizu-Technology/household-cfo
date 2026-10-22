@@ -25,7 +25,7 @@ module CohortReleases
         ]
       }
     ].freeze
-    RUNTIME_TRUTH = "Sealing or restoring a release record does not change the brand, assistant, or tools participants use.".freeze
+    RUNTIME_TRUTH = "Preparing or restoring a saved version does not change the look, assistant, or tools participants use until you launch or update their group.".freeze
 
     def initialize(cohort:, actor:)
       @cohort = cohort

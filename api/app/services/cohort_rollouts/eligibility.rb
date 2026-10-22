@@ -95,7 +95,7 @@ module CohortRollouts
         blockers << "The #{label} release does not belong to this coach workspace."
       end
       if require_latest && release.id != cohort.cohort_releases.order(release_number: :desc).pick(:id)
-        blockers << "The rollout must target the latest sealed release."
+        blockers << "The update must use the latest saved version."
       end
       integrity = release.integrity_report
       blockers << "The #{label} release failed its immutable evidence check." unless integrity.fetch(:valid)

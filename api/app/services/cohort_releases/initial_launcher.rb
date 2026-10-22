@@ -23,13 +23,13 @@ module CohortReleases
       candidate = CandidateBuilder.new(cohort: cohort, strict: true).call
       release = cohort.cohort_releases.order(release_number: :desc).first
       blockers = candidate.blockers.dup
-      blockers << "Seal a release before launching this cohort." unless release
+      blockers << "Prepare a version before launching this group." unless release
       blockers << "This cohort is already launched. Use a rollout for later changes." if cohort.active_cohort_release_id
       blockers << "Completed and archived cohorts are read-only." unless cohort.status.in?(CohortRelease::USER_RELEASE_COHORT_STATUSES)
       blockers << "Finish or cancel the open rollout before launching this cohort." if cohort.cohort_rollouts.where(status: CohortRollout::OPEN_STATUSES).exists?
       if release
         integrity = release.integrity_report
-        blockers << "The sealed release failed its integrity or runtime compatibility checks." unless integrity.fetch(:valid) && integrity.fetch(:runtime_compatible)
+        blockers << "The saved version failed its safety or compatibility checks. Prepare a new version." unless integrity.fetch(:valid) && integrity.fetch(:runtime_compatible)
         blockers << "The published settings changed. Seal their new release before launching." unless SemanticParity.new(candidate: candidate, release: release).equivalent?
       end
       experience = CohortExperience::Schema.mode_payload(release&.experience_snapshot.to_h.fetch("config", {}))
@@ -61,7 +61,7 @@ module CohortReleases
       key = request_key.to_s.strip
       raise Invalid, "Idempotency-Key must be between 1 and 100 characters" unless key.length.between?(1, 100)
       id = Integer(release_id.to_s, exception: false)
-      raise Invalid, "Select a sealed release and reload its launch review." unless id&.positive? && preview_digest.to_s.match?(/\A[0-9a-f]{64}\z/)
+      raise Invalid, "Choose a saved version and reload its launch review." unless id&.positive? && preview_digest.to_s.match?(/\A[0-9a-f]{64}\z/)
 
       cohort.with_lock do
         locked_actor, actor_role = Authorization.new(cohort: cohort, actor: actor).call!

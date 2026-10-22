@@ -4,7 +4,7 @@ module CohortRollouts
   class StudioSerializer
     HISTORY_LIMIT = 25
     ROLLBACK_SEARCH_BATCH_SIZE = 25
-    RUNTIME_TRUTH = "Each advanced wave receives the sealed brand, assistant, and participant tools together. Completing the rollout makes that release the cohort default; rollback restores the captured baseline.".freeze
+    RUNTIME_TRUTH = "Each update step gives its participants the saved look, assistant, and tools together. Finishing the update makes that version the group's default; going back restores the version they had before.".freeze
 
     def initialize(cohort:, actor:)
       @cohort = cohort
@@ -286,7 +286,7 @@ module CohortRollouts
 
       if rollout.target_cohort_release.release_number <= 1 ||
           cohort.cohort_releases.where("release_number < ?", rollout.target_cohort_release.release_number).none?
-        [ "No earlier sealed release is available for rollback." ]
+        [ "No earlier saved version is available to go back to." ]
       else
         [ "No earlier release passed integrity and runtime compatibility checks." ]
       end
@@ -492,18 +492,18 @@ module CohortRollouts
       blockers << "Another rollout is already open for this cohort." if current
       release = latest_release
       if release.nil?
-        blockers << "Seal a cohort release before planning a rollout."
+        blockers << "Prepare a version before updating this group."
       else
         integrity = release_integrity(release)
-        blockers << "The latest sealed release failed its immutable evidence check." unless integrity.fetch(:valid)
+        blockers << "The latest saved version failed its safety check. Prepare a new version." unless integrity.fetch(:valid)
         unless integrity.fetch(:runtime_compatible)
-          blockers << "The latest sealed release is not compatible with the current runtime."
+          blockers << "The latest saved version doesn’t work with the current app. Prepare a new version."
         end
       end
       if cohort.active_cohort_release.nil?
         blockers << "Activate the cohort's current release before planning a runtime rollout."
       elsif release && cohort.active_cohort_release_id == release.id
-        blockers << "Seal a new release before planning a rollout; the latest release is already active."
+        blockers << "Prepare a new version before updating this group; the latest version is already in use."
       end
       blockers << "Add at least one participant before planning a rollout." if current_participant_ids.empty?
       if current && current.baseline_cohort_release_id.nil?
