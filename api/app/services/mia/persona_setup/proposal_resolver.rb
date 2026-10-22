@@ -103,7 +103,11 @@ module Mia
           # like a completed write (for example, "The assistant name is Mia").
           # Replace it with truthful review wording; operations still pass the
           # full evidence/allowlist validation before a proposal can be saved.
-          assistant_message = "Review these proposed draft changes. Nothing has been saved. Apply them only if they match what you want."
+          assistant_message = if parsed.fetch("operations").any?
+            "Review these proposed draft changes. Nothing has been saved. Apply them only if they match what you want."
+          else
+            "Nothing has been saved. Tell me what you would like to change, and I will propose it for you to review."
+          end
         end
 
         Result.new(

@@ -944,4 +944,14 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     )
     response
   end
+
+  test "a completion claim with no proposed operations never says there is something to review" do
+    response = provider_response(model: "exact/model", content: JSON.generate("assistant_message" => "All set.", "operations" => []))
+    resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
+
+    result = resolver.call(context: {}, user_message: "Make Mia warmer.")
+    assert_equal [], result.operations
+    assert_includes result.assistant_message, "Nothing has been saved."
+    refute_includes result.assistant_message, "Review these proposed draft changes"
+  end
 end
