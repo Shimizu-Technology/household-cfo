@@ -4372,7 +4372,7 @@ test('signed-in route recovery waits for participant authorization before canoni
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Wealth')
-  const debtCard = page.getByRole('heading', { name: 'Debt payoff' }).locator('..')
+  const debtCard = page.locator('.milestone-card').filter({ has: page.getByRole('heading', { name: 'Debt payoff' }) })
   await expect(debtCard.getByText('$5,400.00 remaining')).toBeVisible()
   await expect(debtCard.locator('.progress-track')).toHaveCount(0)
   await expect(debtCard).not.toContainText('0 / 5,400')
