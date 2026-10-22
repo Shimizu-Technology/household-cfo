@@ -57,3 +57,7 @@
   .income-schedule-form-actions > .income-schedule-submit,
   .income-source-form-actions > .income-schedule-submit { grid-row: 1; }
 }
+
+/* A long income name must never squeeze the amount into a sliver: the amount sits on its own line. */
+.income-source-manager-card-heading { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.income-source-manager-card-heading b { white-space: nowrap; justify-self: start; }

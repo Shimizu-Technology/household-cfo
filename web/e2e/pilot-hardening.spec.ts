@@ -3849,7 +3849,7 @@ test('My Money manages explicit income sources with stable keys on desktop and m
   expect(requests[0].key).toBeTruthy()
   expect(requests[0].body).toMatchObject({ income_source: { label: 'Side consulting', source_type: 'business', amount: '1200' } })
 
-  await consulting.getByText('More options for Side consulting').click()
+  await consulting.getByLabel('More options for Side consulting').click()
   await consulting.getByRole('button', { name: 'Edit Side consulting' }).click()
   await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toBeFocused()
   await page.locator('.income-source-form').getByRole('button', { name: 'Cancel' }).click()
@@ -12470,7 +12470,7 @@ test('BOG UI ending income replaces a pristine schedule with one explicit confir
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
   await page.getByRole('button', { name: 'Plan an income change', exact: true }).click()
   await expect(page.locator('.income-schedule-form')).toBeVisible()
-  await page.locator('.income-source-manager').getByText(`More options for ${source.label}`, { exact: true }).click()
+  await page.locator('.income-source-manager').getByLabel(`More options for ${source.label}`, { exact: true }).click()
   await page.locator('.income-source-manager').getByRole('button', { name: `End ${source.label}`, exact: true }).click()
   await expect(page.locator('.income-schedule-form')).toHaveCount(0)
   await expect(page.locator('.income-source-form')).toHaveCount(0)

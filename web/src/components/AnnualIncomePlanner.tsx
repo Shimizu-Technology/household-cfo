@@ -294,7 +294,7 @@ export function AnnualIncomePlanner({
             {plan.income_sources.filter(source => source.schedule_entries.length > 0).map((source) => (
               <article className="income-source-card" key={source.id}>
                 <div>
-                  <span>{source.source_type}</span>
+                  <span>{titleize(source.source_type)}</span>
                   <strong>{source.label}</strong>
                 </div>
                   <div className="income-schedule-list">

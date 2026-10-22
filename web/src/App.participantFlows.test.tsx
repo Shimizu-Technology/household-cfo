@@ -39,7 +39,7 @@ it('opens only the end-source confirmation from a pristine schedule and requires
   const view = render(<Managers />)
   fireEvent.click(screen.getByRole('button', { name: 'Plan an income change' }))
   expect(view.container.querySelector('.income-schedule-form')).toBeTruthy()
-  fireEvent.click(screen.getByText('More options for Primary pay'))
+  fireEvent.click(screen.getByLabelText('More options for Primary pay'))
   fireEvent.click(screen.getByRole('button', { name: 'End Primary pay' }))
   expect(view.container.querySelector('.income-schedule-form')).toBeNull()
   expect(view.container.querySelector('.income-source-form')).toBeNull()

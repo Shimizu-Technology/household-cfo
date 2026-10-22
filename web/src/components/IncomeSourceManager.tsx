@@ -311,7 +311,7 @@ export function IncomeSourceManager({
                   ) : (
                     <>
                       <details className="income-advanced">
-                        <summary>More options for {source.label}</summary>
+                        <summary aria-label={`More options for ${source.label}`}>More options</summary>
                         <div className="income-source-advanced-actions">
                       <button type="button" className="secondary-button" aria-label={`Edit ${source.label}`} disabled={incomeOperationPending || editorBlocked} onClick={(event) => beginEdit(source, event.currentTarget)}>Edit</button>
                       <button type="button" className="secondary-button" aria-label={`End ${source.label}`} disabled={incomeOperationPending || editorBlocked} onClick={(event) => beginEnd(source.id, event.currentTarget)}>End source</button>
