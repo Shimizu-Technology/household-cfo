@@ -8,6 +8,7 @@ import { cssPolicyAllowlist } from './design-css-allowlist.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = readFileSync(resolve(__dirname, '../src/App.tsx'), 'utf8')
+const incomePlanner = readFileSync(resolve(__dirname, '../src/components/AnnualIncomePlanner.tsx'), 'utf8')
 const adminConsole = readFileSync(resolve(__dirname, '../src/components/AdminConsole.tsx'), 'utf8')
 const css = readFileSync(resolve(__dirname, '../src/App.css'), 'utf8')
 const api = readFileSync(resolve(__dirname, '../src/api.ts'), 'utf8')
@@ -101,10 +102,10 @@ assert.ok(css.includes('.tabs-shell {\n  position: sticky;'), 'the participant n
 assert.ok(css.includes('.income-schedule-form :where(input, select)'), 'income schedule controls should share the application input styling')
 assert.ok(css.includes('.income-schedule-submit'), 'income timeline changes should use an intentional primary action style')
 assert.ok(css.includes('.income-schedule-form-footer'), 'income timeline actions should sit in a balanced full-width footer')
-assert.ok(app.includes('Plan preview'), 'income timeline edits should explain their effect before saving')
+assert.ok(incomePlanner.includes('income-schedule-preview') && incomePlanner.includes('{previewCopy}'), 'income timeline edits should explain their effect before saving')
 assert.ok(app.includes("current_runway_months ?? 'Not available'") && app.includes("current_runway_months === null ? '' : ' months'"), 'optionality must render an unavailable runway without null copy')
 assert.ok(app.includes('const trackingDirty =') && app.includes('disabled={saving || formDirty || !trackingDirty}'), 'debt tracking save state should include both mode and summary edits')
-assert.ok(app.includes('Schedule income change'), 'recurring income timeline actions should use a specific action label')
+assert.ok(incomePlanner.includes('Schedule income change'), 'recurring income timeline actions should use a specific action label')
 assert.ok(app.includes('Budget impact if approved'), 'transaction review cards should show the pending category impact before confirmation')
 assert.ok(css.includes('white-space: nowrap'), 'financial values should stay intact instead of breaking digits across lines')
 
@@ -245,9 +246,9 @@ assert.ok(css.includes('.transaction-draft-queue-controls'), 'transaction review
 assert.ok(css.includes('.transaction-draft-bulk-actions'), 'bulk transaction controls should have intentional styling')
 assert.ok(css.includes('.budget-progress-pending'), 'pending budget amounts should have a visually separate progress treatment')
 assert.ok(css.includes('.annual-cash-flow-scroll'), 'annual cash-flow charts should have an intentional mobile scroll region')
-assert.ok(app.includes('function updateIncomeDraft(values: Partial<IncomeScheduleDraft>)'), 'annual income edits should copy input values before React releases the event')
+assert.ok(incomePlanner.includes('function updateIncomeDraft(values: Partial<IncomeScheduleDraft>)'), 'annual income edits should copy input values before React releases the event')
 assert.ok(
-  !/setDraft\(\(current\)[^\n]*event\.currentTarget/.test(app),
+  !/setDraft\(\(current\)[^\n]*event\.currentTarget/.test(app + incomePlanner),
   'React event values must not be read from a deferred annual-income state updater',
 )
 
