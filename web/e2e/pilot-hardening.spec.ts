@@ -3720,7 +3720,9 @@ test('BOG UI household Budget explains scheduled income changes and upcoming ann
 
   await expect(page.getByRole('heading', { name: `What’s left each month in ${currentYear}` })).toBeVisible()
   await expect(page.getByText(/Dec spending spike:/)).toBeVisible()
-  await page.getByRole('button', { name: new RegExp(`Dec ${currentYear}:`) }).click()
+  const decemberPicker = page.getByRole('combobox', { name: 'Chart month' })
+  if (await decemberPicker.isVisible()) await decemberPicker.selectOption({ label: `Dec ${currentYear}` })
+  else await page.getByRole('button', { name: new RegExp(`Dec ${currentYear}:`) }).click()
   await expect(page.getByText('Holiday travel')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Where the money goes' })).toBeVisible()
   await expect(page.locator('.expense-stack-row')).toHaveCount(4)
