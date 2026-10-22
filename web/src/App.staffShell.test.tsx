@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { useState } from 'react'
 import type { CurrentUser } from './api'
 
 const state = vi.hoisted(() => ({ auth: {
@@ -9,7 +10,10 @@ const state = vi.hoisted(() => ({ auth: {
   authProvider: 'test', authIdentityId: 'staff', activeCoachWorkspaceId: null, signOut: vi.fn(), signIn: vi.fn(), refreshCurrentUser: vi.fn(),
 } }))
 vi.mock('./contexts/authContextValue', () => ({ useAuthContext: () => state.auth }))
-vi.mock('./components/CoachStudio', () => ({ CoachStudio: ({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) => <><h2 data-page-heading tabIndex={-1}>Coach Studio</h2><button onClick={() => onDirtyChange(true)}>Edit coaching</button><p>Daily coaching</p></> }))
+vi.mock('./components/CoachStudio', () => ({ CoachStudio: ({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) => {
+  const [settings, setSettings] = useState(false)
+  return <><h2 data-page-heading tabIndex={-1}>Coach Studio</h2><button onClick={() => onDirtyChange(true)}>Edit coaching</button><button onClick={() => setSettings(true)}>Program settings</button><p>{settings ? 'Program identity saved' : 'Daily coaching'}</p></>
+} }))
 vi.mock('./components/AdminConsole', () => ({ AdminConsole: () => <h2 data-page-heading tabIndex={-1}>Program operations</h2> }))
 vi.mock('./components/ParticipantProgramPicker', () => ({ ParticipantProgramPicker: () => null }))
 vi.mock('./components/ParticipantProgramSession', () => ({ ParticipantProgramSession: () => <p>Participant session mounted</p> }))
@@ -62,10 +66,30 @@ it('keeps authentication verification closed and preserves participant seats on 
   state.auth.isVerifyingApi = true
   state.auth.isAuthEnabled = false
   const view = render(<App />)
-  expect(screen.queryByText('Daily coaching')).toBeNull()
+  expect(screen.queryByRole('navigation', { name: 'Staff sections' })).toBeNull()
   state.auth.isVerifyingApi = false
   state.auth.currentUser = { ...user(true), is_participant: true }
   view.rerender(<App />)
   expect(screen.getByText('Participant session mounted')).toBeTruthy()
   expect(screen.queryByRole('navigation', { name: 'Staff sections' })).toBeNull()
+})
+
+it('preserves Studio position and dirty guards across a same-account refresh while hiding access until it settles', () => {
+  state.auth.currentUser = user(true)
+  const view = render(<App />)
+  fireEvent.click(screen.getByRole('button', { name: 'Program settings' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Edit coaching' }))
+  state.auth.isVerifyingApi = true
+  view.rerender(<App />)
+  expect(screen.queryByRole('button', { name: 'Program settings' })).toBeNull()
+  state.auth.isVerifyingApi = false
+  view.rerender(<App />)
+  expect(screen.getByText('Program identity saved')).toBeTruthy()
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  fireEvent.click(screen.getByRole('link', { name: 'Admin' }))
+  expect(confirm).toHaveBeenCalled()
+  expect(window.location.hash).toBe('#Coach%20Studio')
+  state.auth.authError = 'Program access ended'
+  view.rerender(<App />)
+  expect(screen.queryByRole('button', { name: 'Program settings' })).toBeNull()
 })

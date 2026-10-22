@@ -62,7 +62,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
         as: :json
     end
     assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors"), "Effective on has already been taken"
+    assert_includes JSON.parse(response.body).fetch("errors"), "You already have a pay change starting Aug 1, 2026. Edit that change instead."
   end
 
   test "participants explicitly approve and revoke continuing transition salary on an income change" do

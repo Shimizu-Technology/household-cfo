@@ -20,7 +20,7 @@ vi.mock('../api', async (importOriginal) => ({
 
 const studioFixture: CohortReleaseStudioData = {
   cohort: { id: 12, name: 'Tuesday cohort', status: 'active' },
-  runtime_truth: { changes_participant_runtime: false, message: 'Release records preserve audit evidence without changing participant runtime.' },
+  runtime_truth: { changes_participant_runtime: false, message: 'Release records preserve audit evidence without changing participant settings.' },
   permissions: { view: true, seal: true, restore: true },
   candidate: {
     manifest_schema: 'cohort_release_manifest_v2',
@@ -116,13 +116,13 @@ describe('CohortReleaseStudio', () => {
 
     expect(await screen.findByRole('heading', { name: 'Ready to prepare' })).toBeTruthy()
     expect(screen.getByText('Release records are audit evidence.')).toBeTruthy()
-    expect(screen.getByText(/without changing participant runtime/)).toBeTruthy()
+    expect(screen.getByText(/does not change the appearance, assistant, or tools participants use/)).toBeTruthy()
     for (const label of ['Program appearance', 'Assistant voice', 'Participant tools', 'System controls', 'Group membership']) {
       expect(screen.getByText(label)).toBeTruthy()
     }
     expect(screen.getAllByText('Brand version')).toHaveLength(2)
-    expect(screen.getByText('9')).toBeTruthy()
-    expect(screen.getByText('Latest sealed record')).toBeTruthy()
+    expect(screen.getByText('Version 9')).toBeTruthy()
+    expect(screen.getByText('Latest saved version')).toBeTruthy()
     for (const control of screen.getAllByRole('button')) {
       expect(control.textContent).not.toMatch(/\b(Current|Live|Activate|Deploy|Publish)\b/i)
     }
@@ -136,7 +136,7 @@ describe('CohortReleaseStudio', () => {
 
     const dialog = screen.getByRole('dialog', { name: 'Prepare this version?' })
     expect(within(dialog).getByText('Brand version')).toBeTruthy()
-    expect(within(dialog).getByText('9')).toBeTruthy()
+    expect(within(dialog).getByText('Version 9')).toBeTruthy()
     const cancel = within(dialog).getByRole('button', { name: 'Cancel' })
     const confirm = within(dialog).getByRole('button', { name: 'Prepare version' })
     expect(document.activeElement).toBe(dialog)
@@ -171,9 +171,9 @@ describe('CohortReleaseStudio', () => {
     const user = userEvent.setup()
     renderStudio()
     await user.click(await screen.findByRole('button', { name: 'Review restore record' }))
-    const dialog = screen.getByRole('dialog', { name: 'Restore record #4' })
+    const dialog = screen.getByRole('dialog', { name: 'Restore version 4' })
     expect(document.activeElement).toBe(dialog)
-    await user.click(within(dialog).getByRole('button', { name: 'Seal restore record' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save restored version' }))
 
     await waitFor(() => expect(apiMocks.restoreCohortRelease).toHaveBeenCalledWith(12, 44, {
       expected_latest_release_id: 44,
@@ -201,10 +201,10 @@ describe('CohortReleaseStudio', () => {
 
     expect(await screen.findByText('Household CFO legacy brand')).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Review restore record' }))
-    const dialog = screen.getByRole('dialog', { name: 'Restore record #4' })
+    const dialog = screen.getByRole('dialog', { name: 'Restore version 4' })
     expect(within(dialog).getByText('Historical brand')).toBeTruthy()
     expect(within(dialog).getByText('Household CFO legacy brand')).toBeTruthy()
-    await user.click(within(dialog).getByRole('button', { name: 'Seal restore record' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save restored version' }))
     await waitFor(() => expect(apiMocks.restoreCohortRelease).toHaveBeenCalledWith(12, 44, expect.objectContaining({
       source_brand_version_id: null,
     }), 'release-request-1'))
@@ -255,7 +255,7 @@ describe('CohortReleaseStudio', () => {
     })
     renderStudio()
 
-    expect(await screen.findByRole('heading', { name: '1 of 100 sealed records' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '1 of 100 saved versions' })).toBeTruthy()
   })
   it('shows the changed settings without treating an already-prepared version as a new task', async () => {
     apiMocks.fetchCohortReleaseStudio.mockResolvedValue({ ...studioFixture, latest_release_match: true, candidate: { ...studioFixture.candidate!, seal_needed: false } })

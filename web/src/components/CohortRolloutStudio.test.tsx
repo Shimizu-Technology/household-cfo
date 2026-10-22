@@ -75,7 +75,7 @@ function legacyRolloutStudio(): CohortRolloutStudioData {
   const studio = activeRolloutStudio('active')
   const rollout = studio.open_rollout!
   rollout.runtime_mode = 'legacy_record_only_v1'
-  rollout.runtime_blocker = 'Finish or roll back this pre-cutover rollout before activating participant runtime.'
+  rollout.runtime_blocker = 'This earlier update cannot change participant settings. Close it before planning a new group update.'
   rollout.target_release = {
     ...rollout.target_release,
     manifest_schema: 'cohort_release_manifest_v1',
@@ -148,7 +148,7 @@ describe('CohortRolloutStudio', () => {
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true))
     await user.click(screen.getByRole('button', { name: 'Review group update' }))
     const dialog = screen.getByRole('dialog', { name: 'Review this group update?' })
-    expect(within(dialog).getByText('Release #4')).toBeTruthy()
+    expect(within(dialog).getByText('Version 4')).toBeTruthy()
     expect(within(dialog).getByText('Brand version 9')).toBeTruthy()
     expect(within(dialog).getByText('Wave 1 · 1 participant')).toBeTruthy()
     expect(within(dialog).getByText('Later group · 1 participant')).toBeTruthy()
@@ -194,8 +194,8 @@ describe('CohortRolloutStudio', () => {
     apiMocks.fetchCohortRolloutStudio.mockResolvedValue(activeRolloutStudio('active'))
     await screen.findByRole('button', { name: 'Review rollback' })
     await user.click(screen.getByRole('button', { name: 'Review rollback' }))
-    expect(within(screen.getByRole('dialog', { name: 'Roll back to release #3?' })).getByText('Brand version 8')).toBeTruthy()
-    await user.click(screen.getByRole('button', { name: 'Roll back participant runtime' }))
+    expect(within(screen.getByRole('dialog', { name: 'Roll back to version 3?' })).getByText('Brand version 8')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Restore participants’ previous settings' }))
     await waitFor(() => expect(apiMocks.rollbackCohortRollout).toHaveBeenCalledWith(12, 90, {
       expected_status: 'active', expected_current_wave_position: 1, expected_latest_transition_id: 101, rollback_release_id: 43,
     }, 'rollout-request-1'))
@@ -206,12 +206,12 @@ describe('CohortRolloutStudio', () => {
     renderStudio(activeRolloutStudio('planned'), activeRolloutStudio('active'))
     await user.click(await screen.findByRole('button', { name: 'Review and start rollout' }))
     const dialog = screen.getByRole('dialog', { name: 'Start this rollout?' })
-    expect(within(dialog).getByText('This immediately moves 1 participant in Pilot to release #4.')).toBeTruthy()
+    expect(within(dialog).getByText('This immediately moves 1 participant in Pilot to version 4.')).toBeTruthy()
     expect(within(dialog).getByText('This wave changes immediately')).toBeTruthy()
     await user.click(within(dialog).getByRole('button', { name: 'Start rollout' }))
-    expect(await screen.findByText('Pilot is now using Release #4. 1 participant changed immediately.')).toBeTruthy()
-    expect(screen.getByText(/Ready · Exposed · Release #4/)).toBeTruthy()
-    expect(screen.getByText(/Ready · Not exposed · Using Release #3/)).toBeTruthy()
+    expect(await screen.findByText('Pilot is now using Version 4. 1 participant changed immediately.')).toBeTruthy()
+    expect(screen.getByText(/Ready · Updated · Version 4/)).toBeTruthy()
+    expect(screen.getByText(/Ready · Not updated · Using Version 3/)).toBeTruthy()
   })
 
   it('explains and completes the cohort-default promotion from returned transition evidence', async () => {
@@ -227,25 +227,25 @@ describe('CohortRolloutStudio', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Review and complete rollout' }))
     const dialog = screen.getByRole('dialog', { name: 'Complete this rollout?' })
-    expect(within(dialog).getByText('Completing makes release #4 the cohort default immediately.')).toBeTruthy()
+    expect(within(dialog).getByText('Completing makes version 4 the cohort default immediately.')).toBeTruthy()
     expect(within(dialog).getByText('Becomes the cohort default immediately')).toBeTruthy()
     await user.click(within(dialog).getByRole('button', { name: 'Complete rollout' }))
-    expect(await screen.findByText('Rollout completed. Release #4 is now the cohort default.')).toBeTruthy()
+    expect(await screen.findByText('Rollout completed. Version 4 is now the cohort default.')).toBeTruthy()
   })
 
   it('marks a pre-cutover rollout as record only and never presents exposure as live', async () => {
     const user = userEvent.setup()
     renderStudio(legacyRolloutStudio())
-    expect(await screen.findByText('Pre-cutover rollout · record only')).toBeTruthy()
-    expect(screen.getByText('Finish or roll back this pre-cutover rollout before activating participant runtime.')).toBeTruthy()
-    expect(screen.getAllByText(/Legacy record · Using Release/)).toHaveLength(2)
-    expect(screen.queryByText(/Exposed · Release/)).toBeNull()
+    expect(await screen.findByText('Earlier update · history only')).toBeTruthy()
+    expect(screen.getByText('This earlier update cannot change participant settings. Close it before planning a new group update.')).toBeTruthy()
+    expect(screen.getAllByText(/Earlier history · Using Version/)).toHaveLength(2)
+    expect(screen.queryByText(/Updated · Version/)).toBeNull()
 
     await user.click(screen.getByRole('button', { name: 'Review wave 2' }))
     const dialog = screen.getByRole('dialog', { name: 'Advance to wave 2?' })
     expect(within(dialog).getByText('Household CFO legacy brand')).toBeTruthy()
-    expect(within(dialog).getByText('This pre-cutover action only advances the legacy record. It does not change participant runtime.')).toBeTruthy()
-    expect(within(dialog).getByText('Legacy record only · no runtime change')).toBeTruthy()
+    expect(within(dialog).getByText('This pre-cutover action only advances the earlier history. It does not change participant settings.')).toBeTruthy()
+    expect(within(dialog).getByText('History only · no participant settings change')).toBeTruthy()
   })
 
   it('fails an unknown future runtime mode closed without live-runtime claims or controls', async () => {
@@ -257,13 +257,13 @@ describe('CohortRolloutStudio', () => {
     renderStudio(studio)
 
     expect(await screen.findByText('Update required before rollout changes')).toBeTruthy()
-    expect(screen.getByText(/does not recognize runtime mode “future_mode”/)).toBeTruthy()
+    expect(screen.getByText(/This app needs an update before it can manage this group update/)).toBeTruthy()
     expect(screen.queryByText('Live now')).toBeNull()
-    expect(screen.queryByText(/Exposed · Release/)).toBeNull()
-    expect(screen.queryByText('Runtime changed')).toBeNull()
-    expect(screen.getByText(/Active · Wave 1 · Runtime mode unavailable/)).toBeTruthy()
-    expect(screen.getAllByText(/Runtime unavailable · Using Release/)).toHaveLength(2)
-    expect(screen.getByText('Lifecycle changes are blocked until this app understands the returned runtime mode.')).toBeTruthy()
+    expect(screen.queryByText(/Updated · Version/)).toBeNull()
+    expect(screen.queryByText('Participant settings changed')).toBeNull()
+    expect(screen.getByText(/Active · Wave 1 · Update unavailable/)).toBeTruthy()
+    expect(screen.getAllByText(/Update unavailable · Using Version/)).toHaveLength(2)
+    expect(screen.getByText('Changes are unavailable until this app is updated to support this group update.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Review|rollout/i })).toBeNull()
   })
 
@@ -283,9 +283,9 @@ describe('CohortRolloutStudio', () => {
     await user.click(await screen.findByRole('button', { name: 'Review pause' }))
     await user.click(screen.getByRole('button', { name: 'Pause rollout' }))
     expect((await screen.findByRole('alert')).textContent).toContain('Rollout evidence changed')
-    expect(screen.getByText('Advanced waves receive the target release immediately.')).toBeTruthy()
+    expect(screen.getByText(/Starting a stage changes its participants’ settings immediately/)).toBeTruthy()
     expect(apiMocks.fetchCohortRolloutStudio).toHaveBeenCalledTimes(2)
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Release #4' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Version 4' })))
   })
 
   it('preserves a failed conflict refresh error and focuses its retry control', async () => {
@@ -327,13 +327,13 @@ describe('CohortRolloutStudio', () => {
   it.each([
     { name: 'plan', initial: studioFixture(), next: activeRolloutStudio('planned'), trigger: 'Review group update', confirm: 'Save update plan' },
     { name: 'cancel', initial: activeRolloutStudio('planned'), next: studioFixture(), trigger: 'Review cancellation', confirm: 'Cancel rollout plan' },
-    { name: 'rollback', initial: activeRolloutStudio('active'), next: studioFixture(), trigger: 'Review rollback', confirm: 'Roll back participant runtime' },
+    { name: 'rollback', initial: activeRolloutStudio('active'), next: studioFixture(), trigger: 'Review rollback', confirm: 'Restore participants’ previous settings' },
   ])('moves focus to the stable new state heading after $name', async ({ initial, next, trigger, confirm }) => {
     const user = userEvent.setup()
     renderStudio(initial, next)
     await user.click(await screen.findByRole('button', { name: trigger }))
     await user.click(screen.getByRole('button', { name: confirm }))
-    const heading = await screen.findByRole('heading', { name: 'Release #4' })
+    const heading = await screen.findByRole('heading', { name: 'Version 4' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
   })
   it('hides planning for a live group with no new version', async () => {

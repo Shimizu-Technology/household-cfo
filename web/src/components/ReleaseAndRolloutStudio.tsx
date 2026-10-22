@@ -32,7 +32,7 @@ export function ReleaseAndRolloutStudio({
     onDirtyChange(dirty)
   }, [onDirtyChange])
   const allowReleaseAction = useCallback(() => (
-    !rolloutDirty || window.confirm('Recording a new release will reset the rollout plan you have not recorded. Continue and discard that plan after the release is sealed?')
+    !rolloutDirty || window.confirm('Preparing a new version will reset the update plan you have not saved. Continue and discard that plan after the version is saved?')
   ), [rolloutDirty])
   const handleReleaseChange = useCallback(() => {
     setRolloutDirty(false)

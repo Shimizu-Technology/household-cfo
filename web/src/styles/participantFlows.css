@@ -12,7 +12,7 @@
 .participant-review .transaction-draft-badges { display: none; }
 .participant-review .transaction-draft-main > p { font-variant-numeric: tabular-nums; }
 .participant-review .transaction-draft-actions { justify-content: flex-end; align-items: center; }
-.transaction-review-details > summary { cursor: pointer; padding-block: 8px; font-size: var(--text-sm, 0.875rem); }
+.transaction-review-details > summary { cursor: pointer; min-height: 44px; align-content: center; padding-block: 8px; font-size: var(--text-sm, 0.875rem); }
 .participant-review .transaction-review-details:not([open]) { margin: 0; }
 .participant-review .transaction-draft-bulk-actions { border: 0; background: transparent; padding-inline: 0; }
 .participant-review [tabindex='-1']:focus-visible { outline: 2px solid var(--focus-color, #7b4a58); outline-offset: 4px; }
@@ -23,7 +23,7 @@
 .statements-screen .document-history-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
 .statements-screen .document-history-card { box-shadow: none; }
 @media (max-width: 600px) {
-  .participant-review .transaction-draft-card { grid-template-columns: 24px minmax(0, 1fr); gap: 8px; }
+  .participant-review .transaction-draft-card { grid-template-columns: 44px minmax(0, 1fr); gap: 8px; }
   .participant-review .transaction-draft-actions, .participant-review .transaction-draft-editor { grid-column: 1 / -1; }
   .participant-review .transaction-draft-actions { display: grid; grid-template-columns: 1fr; }
   .participant-review .transaction-draft-actions [data-review-confirm] { grid-row: 1; }
@@ -47,3 +47,22 @@
 .document-review-header .document-review-actions > button { white-space: nowrap; }
 .document-review-panel .document-review-actions > .secondary-button { border: 1px solid var(--line); background: transparent; color: var(--action-primary, #7b4a58); box-shadow: none; }
 .document-review-panel .document-review-actions button, .document-review-panel .document-apply-bar button { min-height: 44px; }
+
+/* The checkbox label is the touch target, including its surrounding space. */
+.transaction-draft-select, .transaction-draft-select-page { min-width: 44px; min-height: 44px; padding: 0; }
+.transaction-draft-select { justify-content: center; align-self: start; }
+.manual-transaction-actions button { min-height: 44px; }
+
+.staff-app[hidden] { display: none; }
+@media (max-width: 600px) {
+  .shell-account-panel button, .shell-account-panel a, .app .pilot-support-bar a.button { min-height: 44px; }
+  .statements-screen .document-workspace-heading .text-button { min-height: 44px; }
+  .transaction-draft-bulk-actions button, .transaction-draft-bulk-actions summary { min-height: 44px; align-content: center; }
+  .transaction-draft-editor input:not([type='checkbox']), .transaction-draft-editor select { min-height: 44px; height: 44px; }
+  .transaction-draft-editor button { min-height: 44px; }
+  /* WebKit's native select/search controls need an explicit height as well. */
+  .manual-transaction-form select, .participant-review select, .money-screen select { min-height: 44px; height: 46px; }
+  .statements-screen input[type='search'] { min-height: 44px; height: 44px; }
+  .document-history-search-options > summary, .document-file-options > summary, .document-reading-details > summary { min-height: 44px; align-content: center; }
+  .document-history-controls input, .document-history-controls select { min-height: 44px; height: 44px; }
+}

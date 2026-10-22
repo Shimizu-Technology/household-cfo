@@ -10,7 +10,7 @@ class IncomeScheduleEntry < ApplicationRecord
   validates :cadence, inclusion: { in: IncomeSource::CADENCES }
   validates :amount_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :effective_on, presence: true
-  validates :effective_on, uniqueness: { scope: :income_source_id }, if: :recurring_change?
+  validate :unique_recurring_change_date, if: :recurring_change?
   validates :label, length: { maximum: 80 }, allow_blank: true
   validate :one_time_cadence
   validate :one_time_amount
@@ -23,6 +23,13 @@ class IncomeScheduleEntry < ApplicationRecord
 
   def recurring_change?
     entry_type == "recurring_change"
+  end
+
+  def unique_recurring_change_date
+    return if effective_on.blank? || income_source_id.blank?
+    return unless self.class.where(income_source_id: income_source_id, effective_on: effective_on).where.not(id: id).exists?
+
+    errors.add(:base, "You already have a pay change starting #{effective_on.strftime("%b %-d, %Y")}. Edit that change instead.")
   end
 
   def one_time_cadence

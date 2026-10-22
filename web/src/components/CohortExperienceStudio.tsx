@@ -223,7 +223,7 @@ export function CohortExperienceStudio({
     if (!configuration || !preview || pendingAction || dirty || !configuration.permissions.publish) return
     const impact = configuration.cohort.participant_count
     if (configuration.cohort.status === 'active' && !window.confirm(
-      `Publish these participant tools for ${configuration.cohort.name}? Its ${impact} participant${impact === 1 ? '' : 's'} will keep the tools in their current sealed release until a new release is activated or rolled out. Participants without a sealed release will see the published tools after refresh.`,
+      `Publish these participant tools for ${configuration.cohort.name}? Its ${impact} participant${impact === 1 ? '' : 's'} will keep their group’s current tools until you launch or update their group. Participants without a saved group version will see the published tools after refresh.`,
     )) return
     const ticket = mutationLifecycle.begin()
     setPendingAction('publish')

@@ -1,3 +1,4 @@
+import { coachVersionGuidance } from '../lib/coachVersionGuidance'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ApiRequestError, createCohortReleaseRequestId, fetchCohortInitialLaunch, launchCohortRelease, type CohortInitialLaunch } from '../api'
 import { Button } from './Button'
@@ -110,14 +111,14 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
     {notice && <p className="initial-launch-notice" role="status">{notice}</p>}
     {error && <p role="alert">{error}</p>}
     {state && !state.active_release_id && <>
-      {state.blockers.length > 0 && <ul>{state.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>}
+      {state.blockers.length > 0 && <ul>{state.blockers.map((blocker) => <li key={blocker}>{coachVersionGuidance(blocker)}</li>)}</ul>}
       {!state.can_launch && state.blockers.length === 0 && <p>A program owner or reviewer can launch this group.</p>}
       {review ? <section className="initial-launch-review" aria-label="Review first group launch">
         <h4 ref={reviewHeadingRef} tabIndex={-1}>Review first group launch</h4>
-        <p><strong>{state.cohort.name} · Release {state.release?.release_number}</strong></p>
+        <p><strong>{state.cohort.name} · Version {state.release?.release_number}</strong></p>
         <p>{state.participant_experience ? `${state.participant_experience.label} experience` : 'The reviewed appearance, Mia voice, and tools become available to this group together.'}</p>
         {state.participant_experience?.mode === 'savings_challenge' && <p>Launching does not open the challenge. Participants see it only after an administrator opens it from Admin &gt; Cohorts.</p>}
-        <p>{state.cohort.participant_count} current {state.cohort.participant_count === 1 ? 'participant' : 'participants'} will use this release. New participants will use it too.</p>
+        <p>{state.cohort.participant_count} current {state.cohort.participant_count === 1 ? 'participant' : 'participants'} will use this version. New participants will use it too.</p>
         <div className="initial-launch-actions">
           <Button disabled={mutationLifecycle.pending || !state.can_launch} onClick={() => void launch()}>{mutationLifecycle.pending ? 'Launching…' : 'Launch group now'}</Button>
           <Button variant="secondary" disabled={mutationLifecycle.pending} onClick={() => setReview(null)}>Cancel</Button>
@@ -134,5 +135,5 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
 }
 
 function messageFor(error: unknown, fallback: string) {
-  return error instanceof ApiRequestError || error instanceof Error ? error.message : fallback
+  return coachVersionGuidance(error instanceof ApiRequestError || error instanceof Error ? error.message : fallback)
 }

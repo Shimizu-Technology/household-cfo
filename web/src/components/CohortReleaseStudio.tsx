@@ -1,3 +1,4 @@
+import { coachVersionGuidance } from '../lib/coachVersionGuidance'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   ApiRequestError,
@@ -123,8 +124,8 @@ export function CohortReleaseStudio({
   )), [studio])
   const historyTotal = studio?.history.total_count ?? releases.length
   const historyLabel = studio?.history.truncated
-    ? `${releases.length} of ${historyTotal} sealed records`
-    : `${historyTotal} sealed record${historyTotal === 1 ? '' : 's'}`
+    ? `${releases.length} of ${historyTotal} saved versions`
+    : `${historyTotal} saved version${historyTotal === 1 ? '' : 's'}`
   const alreadyPrepared = Boolean(studio?.latest_release_match || studio?.candidate?.seal_needed === false)
   const latest = releases[0]
   const changes = studio?.candidate && latest ? [
@@ -203,7 +204,7 @@ export function CohortReleaseStudio({
       setConfirmation(null)
       setNotice(action === 'seal'
         ? 'Version prepared. Participant settings did not change. Launch or update the group next.'
-        : 'Restore record sealed. Participant runtime did not change.')
+        : 'Previous settings saved as a new version. Participant settings did not change.')
       await loadStudio(cohortId)
       onReleaseChange?.()
       setFocusVersion((version) => version + 1)
@@ -212,7 +213,7 @@ export function CohortReleaseStudio({
       if (caught instanceof ApiRequestError && caught.status === 409) {
         setConfirmation(null)
         await loadStudio(cohortId)
-        setError('Release readiness changed before the record was sealed. Review the latest cohort evidence before trying again.')
+        setError('Readiness changed before the version was saved. Review the latest cohort evidence before trying again.')
         window.requestAnimationFrame(() => restoreFocusRef.current?.focus())
       } else if (caught instanceof ApiRequestError && caught.status === 403) {
         setConfirmation(null)
@@ -221,12 +222,12 @@ export function CohortReleaseStudio({
         window.requestAnimationFrame(() => restoreFocusRef.current?.focus())
       } else if (caught instanceof ApiRequestError && caught.status >= 400 && caught.status < 500) {
         setConfirmation(null)
-        const message = releaseErrorMessage(caught, 'The release record could not be sealed. Review the latest evidence and try again.')
+        const message = releaseErrorMessage(caught, 'The version could not be saved. Review the latest evidence and try again.')
         await loadStudio(cohortId)
         setError(message)
         window.requestAnimationFrame(() => restoreFocusRef.current?.focus())
       } else {
-        setActionError(releaseErrorMessage(caught, 'The release record could not be sealed.'))
+        setActionError(releaseErrorMessage(caught, 'The version could not be saved.'))
       }
     } finally {
       if (mutationLifecycle.isCurrent(mutation)) setPendingAction(null)
@@ -248,7 +249,7 @@ export function CohortReleaseStudio({
         <span className="cohort-release-truth-icon" aria-hidden="true"><EvidenceIcon /></span>
         <div>
           <strong>Release records are audit evidence.</strong>
-          <p>{studio?.runtime_truth.message ?? 'Sealing or restoring a record does not change the brand, assistant, or tools participants use.'}</p>
+          <p>Preparing or restoring a version does not change the appearance, assistant, or tools participants use.</p>
           <small>Continue to publish the brand, assign the assistant, and publish participant tools in their existing areas.</small>
         </div>
       </div>}
@@ -296,7 +297,7 @@ export function CohortReleaseStudio({
               {displayedChecks.map((check) => (
                 <li key={check.key} className={check.ready ? 'is-ready' : ''}>
                   <span aria-hidden="true">{check.ready ? <CheckIcon /> : <PendingIcon />}</span>
-                  <div><strong>{check.label}</strong><small>{check.detail ?? (check.ready ? 'Exact evidence is ready.' : 'Complete this requirement before sealing.')}</small></div>
+                  <div><strong>{check.label}</strong><small>{coachVersionGuidance(check.detail ?? (check.ready ? 'The reviewed settings are ready.' : 'Complete this requirement before preparing a version.'))}</small></div>
                   <b>{check.ready ? 'Ready' : 'Needed'}<span className="sr-only">: {check.label}</span></b>
                 </li>
               ))}
@@ -305,21 +306,21 @@ export function CohortReleaseStudio({
             {studio.candidate?.blockers && studio.candidate.blockers.length > 0 && (
               <div className="cohort-release-blockers" role="note">
                 <strong>What needs attention</strong>
-                <ul>{studio.candidate.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>
+                <ul>{studio.candidate.blockers.map((blocker) => <li key={blocker}>{coachVersionGuidance(blocker)}</li>)}</ul>
               </div>
             )}
             {studio.candidate?.warnings && studio.candidate.warnings.length > 0 && (
               <div className="cohort-release-warnings" role="note">
                 <strong>Review before sealing</strong>
-                <ul>{studio.candidate.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+                <ul>{studio.candidate.warnings.map((warning) => <li key={warning}>{coachVersionGuidance(warning)}</li>)}</ul>
               </div>
             )}
 
             {studio.candidate && (
               <details><summary>Version details</summary><dl className="cohort-release-evidence">
                 <div><dt>Brand version</dt><dd>{brandEvidenceLabel(studio.candidate.brand_mode, studio.candidate.brand_version_id)}</dd></div>
-                <div><dt>Assistant version</dt><dd>{studio.candidate.persona_version_id ?? 'Neutral built-in voice'}</dd></div>
-                <div><dt>Participant tools version</dt><dd>{studio.candidate.experience_version_id ?? 'Safe default tools'}</dd></div>
+                <div><dt>Assistant version</dt><dd>{studio.candidate.persona_version_id === null ? 'Neutral built-in voice' : `Version ${studio.candidate.persona_version_id}`} </dd></div>
+                <div><dt>Participant tools version</dt><dd>{studio.candidate.experience_version_id === null ? 'Safe default tools' : `Version ${studio.candidate.experience_version_id}`} </dd></div>
                 <div className="is-wide"><dt>Bundle fingerprint</dt><dd>{shortDigest(studio.candidate.bundle_digest)}</dd></div>
               </dl></details>
             )}
@@ -344,30 +345,30 @@ export function CohortReleaseStudio({
               <div><h3>{historyLabel}</h3></div>
             </header>
             {releases.length === 0 ? (
-              <div className="cohort-release-empty"><strong>No release records yet.</strong><p>Seal the ready evidence to create this cohort's first record.</p></div>
+              <div className="cohort-release-empty"><strong>No saved versions yet.</strong><p>Prepare the reviewed settings to save this group’s first version.</p></div>
             ) : (
               <ol>
                 {releases.map((release, index) => (
                   <li key={release.id}>
                     <header>
                       <div>
-                        <strong>{index === 0 ? 'Latest sealed record' : `Release record ${release.release_number}`}</strong>
+                        <strong>{index === 0 ? 'Latest saved version' : `Version ${release.release_number}`}</strong>
                         <small>{formatReleaseEvent(release)} · {formatReleaseDate(release.released_at)}</small>
                       </div>
-                      <span>#{release.release_number}</span>
+                      <span>Version {release.release_number}</span>
                     </header>
                     <dl>
-                      <div><dt>Sealed by</dt><dd>{release.actor?.full_name ?? (release.actor_user_id ? `Authorized user #${release.actor_user_id}` : 'System record')}</dd></div>
+                      <div><dt>Saved by</dt><dd>{release.actor?.full_name ?? (release.actor_user_id ? `Authorized user #${release.actor_user_id}` : 'System record')}</dd></div>
                       <div><dt>Brand version</dt><dd>{brandEvidenceLabel(release.brand_mode, release.brand_version_id)}</dd></div>
                       <div><dt>Fingerprint</dt><dd>{shortDigest(release.bundle_digest)}</dd></div>
                     </dl>
-                    {release.source_release_id && <p>Restored from release record #{release.source_release_id}.</p>}
+                    {release.source_release_id && <p>Restored from saved record {release.source_release_id}.</p>}
                     {release.restore_allowed && studio.permissions.restore && restoreExpectedLatestReleaseId !== null ? (
                       <Button size="compact" variant="secondary" onClick={(event) => requestRestore(event, release)} disabled={pendingAction !== null || mutationLifecycle.pending}>Review restore record</Button>
                     ) : release.restore_allowed && studio.permissions.restore ? (
                       <small className="cohort-release-restore-reason">Restore unavailable: latest release evidence is unavailable. Reload the cohort and try again.</small>
                     ) : index !== 0 && release.restore_reason ? (
-                      <small className="cohort-release-restore-reason">Restore unavailable: {release.restore_reason}</small>
+                      <small className="cohort-release-restore-reason">Restore unavailable: {coachVersionGuidance(release.restore_reason)}</small>
                     ) : null}
                   </li>
                 ))}
@@ -454,7 +455,7 @@ function ReleaseConfirmationDialog({
     <div className="cohort-release-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !pending) onCancel() }}>
       <section ref={dialogRef} className="cohort-release-modal" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="cohort-release-modal-title" aria-describedby="cohort-release-modal-copy" onKeyDown={trapFocus}>
         <p className="eyebrow">Final review</p>
-        <h3 id="cohort-release-modal-title">{restoring ? `Restore record #${confirmation.release?.release_number}` : 'Prepare this version?'}</h3>
+        <h3 id="cohort-release-modal-title">{restoring ? `Restore version ${confirmation.release?.release_number}` : 'Prepare this version?'}</h3>
         <p id="cohort-release-modal-copy">This saves a fixed version of the reviewed settings for {cohortName}. Participants keep their current settings until you launch or update the group.</p>
         <dl className="cohort-rollout-confirmation-summary">
           <div><dt>Cohort</dt><dd>{cohortName}</dd></div>
@@ -465,7 +466,7 @@ function ReleaseConfirmationDialog({
         {error && <p className="coach-studio-alert is-error" role="alert">{error}</p>}
         <div className="cohort-release-modal-actions">
           <button ref={cancelRef} type="button" className="button button--ghost button--default" onClick={onCancel} disabled={pending}>Cancel</button>
-          <Button onClick={onConfirm} disabled={pending}>{pending ? 'Preparing version' : restoring ? 'Seal restore record' : 'Prepare version'}</Button>
+          <Button onClick={onConfirm} disabled={pending}>{pending ? 'Preparing version' : restoring ? 'Save restored version' : 'Prepare version'}</Button>
         </div>
       </section>
     </div>
@@ -483,13 +484,13 @@ function normalizeCheckKey(value: string) {
 }
 
 function brandEvidenceLabel(mode: string, versionId: number | null) {
-  if (versionId !== null) return versionId
+  if (versionId !== null) return `Version ${versionId}`
   if (mode === 'legacy_household_cfo_builtin') return 'Household CFO legacy brand'
   return 'Built-in brand'
 }
 
 function releaseErrorMessage(caught: unknown, fallback: string) {
-  return caught instanceof Error && caught.message ? caught.message : fallback
+  return coachVersionGuidance(caught instanceof Error && caught.message ? caught.message : fallback)
 }
 
 function titleize(value: string) {
