@@ -1,3 +1,4 @@
+import type { MiaActionItem } from '../api'
 import { createContext, useCallback, useContext, useState } from 'react'
 
 export type Editor = 'source' | 'schedule' | 'ending'
@@ -11,4 +12,20 @@ export function useIncomeForm(editor: Editor) {
     else setLocalOpen(open)
   }, [editor, sharedSet])
   return { open: shared ? shared.active === editor : localOpen, setOpen, blocked: Boolean(shared?.locked && shared.active !== editor) }
+}
+export type IncomeSourceFocusRequest = {
+  key: number
+  actionType: 'create_income_source' | 'update_income_source' | 'archive_income_source' | 'restore_income_source'
+  sourceId: number | null
+  payload: MiaActionItem['payload']
+}
+
+export type BudgetFocusRequest = {
+  key: number
+  operationKey: string
+  actionType: MiaActionItem['action_type']
+  categoryId: number | null
+  months: number[]
+  incomeScheduleEntryId: number | null
+  payload: MiaActionItem['payload']
 }

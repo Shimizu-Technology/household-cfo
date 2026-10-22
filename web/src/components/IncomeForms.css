@@ -1,0 +1,63 @@
+/* Income questions stay local to these editors. */
+.income-source-manager, .annual-income-planner { min-width: 0; }
+.income-source-manager h3, .annual-income-planner h4 { letter-spacing: normal; text-transform: none; }
+.income-source-manager-card, .income-source-card { box-shadow: none; }
+.income-source-manager strong, .income-source-manager b, .annual-income-planner strong, .annual-income-planner small { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.income-schedule-form .income-question { margin: 0; font-size: 1.5rem; }
+.income-question:focus { outline: none; }
+.income-question:focus-visible { outline: 2px solid var(--action-primary, #7b4a58); outline-offset: 4px; }
+.income-schedule-form [hidden] { display: none !important; }
+.income-questions { border: 0; padding: 0; margin: 0; min-width: 0; }
+.income-change-choices, .income-question-fields { display: grid; gap: 16px; }
+.income-change-choice { display: flex; align-items: center; gap: 12px; padding: 14px; min-height: 52px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.income-change-choice:has(:checked) { border-color: var(--action-primary, #7b4a58); background: var(--bg-warm, #fffdf8); }
+.income-change-choice input { flex: 0 0 20px; width: 20px; height: 20px; margin: 0; accent-color: var(--action-primary, #7b4a58); }
+.income-question-fields label { display: grid; gap: 8px; min-width: 0; }
+.income-question-fields p { margin: 0; }
+.income-advanced { width: 100%; margin-top: 12px; }
+.income-advanced > summary { min-height: 44px; align-content: center; cursor: pointer; overflow-wrap: anywhere; }
+.income-advanced p { margin: 8px 0 16px; }
+.income-source-advanced-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.income-source-manager button, .annual-income-planner button, .income-source-manager input:not([type='checkbox']), .annual-income-planner input:not([type='checkbox']):not([type='radio']), .income-source-manager select, .annual-income-planner select { min-height: 44px; }
+.income-source-manager button, .annual-income-planner button { white-space: normal; }
+.income-source-manager button:active, .annual-income-planner button:active { transform: scale(0.97); }
+.income-source-end-confirmation label { display: grid; gap: 8px; min-width: 0; }
+.income-source-end-confirmation { width: 100%; }
+.income-schedule-form .income-schedule-preview { margin-top: 16px; }
+.income-schedule-form .income-schedule-preview strong { font-size: 1rem; }
+.income-schedule-form .income-schedule-preview p { margin: 8px 0 0; }
+@media (min-width: 601px) {
+  .income-question-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .income-question-fields > p { grid-column: 1 / -1; }
+}
+@media (max-width: 600px) {
+  .income-source-advanced-actions, .income-source-end-confirmation, .income-source-manager-actions, .income-schedule-row > div:last-child { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .income-source-advanced-actions button, .income-source-end-confirmation button { width: 100%; }
+  .income-source-manager select, .annual-income-planner select { height: 46px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .income-source-manager button:active, .annual-income-planner button:active { transform: none; }
+}
+.income-schedule-form label.income-change-choice { display: flex; gap: 12px; }
+.income-schedule-form .income-change-choice input { min-height: 20px; padding: 0; }
+.income-schedule-form .income-change-choice > span { font: inherit; color: var(--ink); }
+.income-source-manager-card-heading b { font-family: inherit; }
+.income-source-fields :where(input, select), .income-source-end-confirmation input {
+  width: 100%; min-width: 0; min-height: 46px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: white; color: var(--ink); font: inherit; font-size: 16px;
+}
+.income-source-fields .income-schedule-money-input input { border: 0; padding-left: 5px; background: transparent; }
+.income-source-fields .income-schedule-money-input input:focus { outline: none; }
+.income-source-manager .income-schedule-submit { border: 0; }
+.income-schedule-form .income-question-fields :where(input, select) { font-size: 16px; }
+/* The surrounding My Money/manual-tools panel already supplies the surface. */
+.annual-income-planner { padding: 0; border: 0; background: transparent; }
+@media (max-width: 600px) {
+  .income-schedule-form-actions > .income-schedule-submit,
+  .income-source-form-actions > .income-schedule-submit { grid-row: 1; }
+}
+
+/* A long income name must never squeeze the amount into a sliver: the amount sits on its own line. */
+.income-source-manager-card-heading { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.income-source-manager-card-heading b { white-space: nowrap; justify-self: start; }
