@@ -1,5 +1,9 @@
 module ChallengePrivacy
   class SharedReader
+    def self.daily_batch(cohort, user:)
+      DailyBatch.new(cohort, user: user).call
+    end
+
     def initialize(enrollment, user:) = (@enrollment, @user = enrollment, user)
     def basic
       guarded do

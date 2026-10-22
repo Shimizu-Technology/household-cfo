@@ -12672,3 +12672,30 @@ test('BOG UI guided income edit preserves a saved mid-month effective date', asy
   expect((await saved).postDataJSON().income_schedule_entry).toMatchObject({ amount: '6600.25', effective_on: `${currentYear}-11-15` })
   await expect(form).toHaveCount(0)
 })
+
+for (const role of ['coach', 'admin']) {
+  test(`BOG UI Coach Studio daily density puts people first for ${role}`, async ({ page }, info) => {
+    if (info.project.name === 'desktop-chrome') await page.setViewportSize({ width: 1366, height: 900 })
+    await page.route('http://api.test/api/v1/challenge_cohorts/*/participants?*', route => route.fulfill({ json: {
+      actor_scope: { user_id: role === 'coach' ? 902 : 900, coach_workspace_id: 1 }, cohort_id: 41,
+      program_type: 'savings', can_invite: true, counts: { all: 30, needs_help: 1, checked_in: 10, not_checked_in: 20, invited: 0, joined: 30, setup_done: 0 },
+      records: [{ participant: { id: 10, name: 'Carla Reyes' }, enrollment_id: 1, membership_status: 'joined', participation_status: 'active', setup_status: 'plan_reviewed',
+        needs_help: true, setup_help: [], shared_items: [], help_requests: [{ id: 1, status: 'open', issue_kind: 'coaching' }], more_help_requests: false,
+        check_in: { local_on: '2026-10-22', completed: false, availability: 'available' } }], next_offset: 20,
+    } }))
+    await page.goto(`/?pilot_e2e_role=${role}&pilot_e2e_coach_workspaces=true#Coach%20Studio`)
+    await page.getByLabel('Coach workspace').selectOption('1')
+    const first = page.locator('.coach-challenge-roster > li').first()
+    await expect(first).toContainText('Carla Reyes')
+    const top = (await first.boundingBox())!.y
+    if (['desktop-chrome', 'mobile-chrome', 'mobile-webkit'].includes(info.project.name)) expect(top).toBeLessThanOrEqual(page.viewportSize()!.height * .6)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    for (const control of await page.locator('.coach-workspace-picker select, .coach-group-context select, .coach-challenge-summary button').all()) {
+      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    }
+    for (const control of await page.locator('.coach-workspace-picker select, .coach-group-context select, .coach-daily-list input').all()) {
+      expect(await control.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16)
+    }
+    await page.screenshot({ path: info.outputPath(`daily-density-${role}.png`) })
+  })
+}
