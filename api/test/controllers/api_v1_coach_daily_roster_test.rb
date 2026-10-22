@@ -104,6 +104,105 @@ class ApiV1CoachDailyRosterTest < ActionDispatch::IntegrationTest
     assert_empty response.parsed_body["records"], "An old request cannot follow a replacement membership"
   end
 
+  test "roster query count stays fixed for 1, 10 and 30 enrolled people with approved check-ins" do
+    counts = []
+    [ 1, 10, 30 ].each do |size|
+      while @savings_cohort.cohort_memberships.where(role: "participant").count < size
+        person = add_person("Person #{SecureRandom.hex(3)}")
+        household = HouseholdFinance::WorkspaceResolver.new(person).household
+        membership = @savings_cohort.cohort_memberships.find_by!(user: person)
+        enrollment = SavingsEnrollment.create!(@savings_enrollment.attributes.except("id", "created_at", "updated_at", "current_accepted_plan_version_id").merge(
+          "user_id" => person.id, "household_id" => household.id, "accepted_cohort_membership_id" => membership.id, "membership_started_at" => membership.created_at))
+        SavingsDailyLedger.create!(savings_enrollment: enrollment, sequence: 1)
+        head = SavingsDailyCheckIn.create!(savings_enrollment: enrollment, local_on: enrollment.local_today)
+        version = SavingsDailyCheckInVersion.create!(savings_daily_check_in: head, savings_enrollment: enrollment,
+          daily_sequence: 1, version_number: 1, spending_state: "no_spend", approved_by_user: person, approved_at: Time.current)
+        head.update!(current_version: version)
+      end
+      # Warm immutable release integrity, not an individual participant's data.
+      ChallengePrivacy::CoachDailyRoster.new(@savings_cohort.reload, user: @savings_owner).call
+      queries = []
+      callback = ->(*args) { p = args.last; queries << p[:sql] unless p[:name].in?(%w[SCHEMA TRANSACTION]) || p[:cached] }
+      result = nil
+      ActiveRecord::Base.uncached do
+        ActiveSupport::Notifications.subscribed(callback, "sql.active_record") do
+          result = ChallengePrivacy::CoachDailyRoster.new(@savings_cohort.reload, user: @savings_owner).call
+        end
+      end
+      assert_equal size, result[:counts]["checked_in"]
+      counts << queries.length
+    end
+    assert_equal [ counts.first ] * 3, counts, "queries at 1/10/30: #{counts.inspect}"
+    assert_operator counts.max, :<=, 30
+    puts "W14 enrolled roster queries 1/10/30: #{counts.inspect}"
+  end
+
+  test "batch metadata matches single basic read and only hints at currently shared scopes" do
+    single = ChallengePrivacy::SharedReader.new(@savings_enrollment, user: @savings_owner)
+    batch = -> { ChallengePrivacy::SharedReader.daily_batch(@savings_cohort.reload, user: @savings_owner).fetch(@savings_user.id) }
+    assert_equal single.basic, batch.call.except(:shared_items)
+    assert_empty batch.call[:shared_items], "No grant cannot expose an item"
+    grant = ChallengePrivacyGrant.create!(savings_enrollment: @savings_enrollment, household: @savings_household,
+      participant_user: @savings_user, recipient_user: @savings_owner, kind: "selected_details", granted: true, policy_version: "1", expires_at: 1.hour.from_now,
+      selected_records: [ { record_type: "savings_plan_version", record_id: @savings_enrollment.reload.current_accepted_plan_version_id } ])
+    assert_equal single.shared_scopes[:selected_records].map { |r| r.fetch("record_type") }, batch.call[:shared_items]
+    grant.update!(expires_at: 1.minute.ago)
+    assert_empty batch.call[:shared_items], "Expired consent cannot expose an item"
+    grant.update!(expires_at: 1.hour.from_now, granted: false)
+    assert_empty batch.call[:shared_items], "Revoked consent cannot expose an item"
+    ChallengePrivacyGrant.create!(savings_enrollment: @savings_enrollment, household: @savings_household,
+      participant_user: @savings_user, recipient_user: nil, kind: "sponsor_aggregate", granted: true, policy_version: "1", selected_records: [])
+    assert_empty batch.call[:shared_items], "Another grant kind cannot expose a private item"
+    outsider = User.create!(clerk_id: SecureRandom.uuid, email: "other-batch@example.invalid", role: "coach", invitation_status: "accepted")
+    other = Cohort.create!(name: "Other workspace", created_by_user: outsider, status: "enrolling")
+    assert_raises(ChallengePrivacy::Access::Denied) { ChallengePrivacy::SharedReader.daily_batch(@savings_cohort, user: outsider) }
+    assert_empty ChallengePrivacy::SharedReader.daily_batch(other, user: outsider), "Another workspace cannot return this participant"
+  end
+
+  test "batch attendance matches the single reader for canonical spending and changed links" do
+    with_daily_operations do
+      @daily_category = @savings_household.budget_categories.create!(name: "Reviewed Food", stack_key: "discretionary", sort_order: 1)
+      daily_check_in("spending")
+      purchase = daily_approve(daily_stage).subject
+      reader = ChallengePrivacy::SharedReader.new(@savings_enrollment, user: @savings_owner)
+      assert_equal reader.basic[:check_in], ChallengePrivacy::SharedReader.daily_batch(@savings_cohort, user: @savings_owner).fetch(@savings_user.id)[:check_in]
+      purchase.household_transaction.update!(merchant: "Independently changed")
+      assert_equal false, reader.basic.dig(:check_in, :completed)
+      assert_equal reader.basic[:check_in], ChallengePrivacy::SharedReader.daily_batch(@savings_cohort, user: @savings_owner).fetch(@savings_user.id)[:check_in]
+    end
+  end
+
+  test "batch rechecks withdrawn, paused and replacement membership states" do
+    batch = -> { ChallengePrivacy::SharedReader.daily_batch(@savings_cohort.reload, user: @savings_owner) }
+    Cohort.find(@savings_cohort.id).update!(savings_challenge_release_hold: true)
+    stale = ChallengePrivacy::SharedReader.daily_batch(@savings_cohort, user: @savings_owner)
+    assert_equal "unavailable", stale.fetch(@savings_user.id).dig(:check_in, :availability)
+    assert_equal ChallengePrivacy::SharedReader.new(@savings_enrollment, user: @savings_owner).basic[:check_in], batch.call.fetch(@savings_user.id)[:check_in]
+    @savings_cohort.update!(savings_challenge_release_hold: false)
+    @savings_enrollment.update!(status: "withdrawn")
+    assert_equal ChallengePrivacy::SharedReader.new(@savings_enrollment, user: @savings_owner).basic[:check_in], batch.call.fetch(@savings_user.id)[:check_in]
+    @savings_membership.destroy!
+    @savings_cohort.cohort_memberships.create!(user: @savings_user, role: "participant")
+    assert_empty batch.call
+  end
+
+  test "batch refuses a release pointing to another persona than its sealed version" do
+    version = Struct.new(:id, :coach_persona_id).new(123, 456)
+    release = Struct.new(:id, :cohort_id, :coach_workspace_id, :persona_mode, :coach_persona_id, :coach_persona_version).new(
+      123, @savings_cohort.id, @savings_cohort.coach_workspace_id, "published_version", 789, version)
+    batch = ChallengePrivacy::SharedReader::DailyBatch.new(@savings_cohort, user: @savings_owner)
+    batch.instance_variable_set(:@runtime_valid, {})
+    policy = SavingsChallenge::AccessPolicy
+    original_policy = policy.method(:release_supports_challenge?)
+    original_persona = Mia::RuntimePersona.method(:new)
+    policy.define_singleton_method(:release_supports_challenge?) { |_| true }
+    Mia::RuntimePersona.define_singleton_method(:new) { |_| Object.new }
+    assert_equal false, batch.send(:valid_release?, release)
+  ensure
+    policy.define_singleton_method(:release_supports_challenge?, original_policy) if original_policy
+    Mia::RuntimePersona.define_singleton_method(:new, original_persona) if original_persona
+  end
+
   private
   def route = "/api/v1/challenge_cohorts/#{@savings_cohort.id}/participants"
   def auth(user) = { "Authorization" => "Bearer test_token_#{user.id}" }

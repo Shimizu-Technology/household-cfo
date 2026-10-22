@@ -12,7 +12,13 @@ module ChallengePrivacy
       raise ArgumentError, "Choose a people filter" unless FILTERS.include?(filter)
       offset = offset.present? ? Integer(offset, 10) : 0
       raise ArgumentError, "Choose a valid page" if offset.negative?
-      rows = @cohort.cohort_memberships.where(role: "participant").includes(user: { household_memberships: :household }).map { |membership| person(membership) }
+      @daily = @cohort.savings_challenge_enabled? ? SharedReader.daily_batch(@cohort, user: @user) : {}
+      @setup_requests = SetupSupportRequest.where(cohort: @cohort, status: SetupSupportRequest::ACTIVE).includes(:household).order(:id).to_a.group_by(&:requested_by_user_id)
+      memberships = @cohort.cohort_memberships.where(role: "participant").eager_load(user: { household_memberships: :household }).to_a
+      # The same authoritative identity predicate as invitation_accepted?, in
+      # one query for this display snapshot. Authorization remains fresh/locked.
+      @joined_ids = User.accepted_linked_identity.where(id: memberships.map(&:user_id)).pluck(:id).to_set
+      rows = memberships.map { |membership| person(membership) }
       rows.sort_by! { |row| [ row[:needs_help] ? 0 : 1, row[:participant][:name].downcase, row[:participant][:id] ] }
       counts = FILTERS.index_with { |key| rows.count { |row| matches?(row, key) } }
       query = search.to_s.strip.downcase
@@ -26,12 +32,12 @@ module ChallengePrivacy
     def person(membership)
       user = membership.user
       base = { participant: { id: user.id, name: user.full_name.presence || user.email }, enrollment_id: nil,
-        membership_status: user.revoked? ? "revoked" : user.invitation_accepted? ? "joined" : "invited",
+        membership_status: user.revoked? ? "revoked" : @joined_ids.include?(user.id) ? "joined" : "invited",
         participation_status: "not_enrolled", setup_status: "not_started", check_in: nil, help_requests: [], more_help_requests: false, setup_help: [], shared_items: [] }
       # Never create or resolve a staff financial workspace just to read a roster.
       household = user.household_memberships.min_by { |item| [ item.created_at, item.id ] }&.household
       base[:setup_status] = "complete" if household && HouseholdFinance::SetupStatus.new(household).complete?
-      SetupSupportRequest.where(cohort: @cohort, requested_by_user: user, status: SetupSupportRequest::ACTIVE).order(:id).each do |request|
+      Array(@setup_requests[user.id]).each do |request|
         request.household.with_lock do
           SetupHelp::Access.staff!(request, user: @user)
           base[:setup_help] << { id: request.id, reason: request.reason, status: request.status }
@@ -39,27 +45,7 @@ module ChallengePrivacy
       rescue SetupHelp::Denied
         next
       end
-      enrollment = SavingsEnrollment.find_by(cohort: @cohort, user: user) if @cohort.savings_challenge_enabled?
-      if enrollment
-        begin
-          reader = SharedReader.new(enrollment, user: @user)
-          basic = reader.basic
-          base.merge!(basic)
-          # Open help must not disappear behind the first page of resolved requests.
-          base[:help_requests] = ChallengeSupportTicket.where(savings_enrollment: enrollment, recipient_user: @user).where.not(status: "resolved")
-            .order(:id).map { |ticket| { id: ticket.id, status: ticket.status, issue_kind: ticket.issue_kind } }
-          # A sharing hint contains only its kind, never record identities or
-          # contents. The focused panel still rechecks the full release and grant
-          # policy through SharedReader before offering any private read.
-          grants = ChallengePrivacyGrant.where(savings_enrollment: enrollment, recipient_user: @user).select(&:active?)
-          supports = ChallengeSupportAccess.where(savings_enrollment: enrollment, recipient_user: @user).select(&:active?)
-          refs = grants.select { |grant| grant.kind == "selected_details" }.flat_map(&:selected_records) + supports.flat_map(&:selected_records)
-          base[:shared_items] = refs.map { |ref| ref.fetch("record_type") }.uniq
-          base[:shared_items] << "summary" if grants.any? { |grant| grant.kind == "coach_summary" }
-        rescue Access::Denied, SavingsChallenge::AccessPolicy::Unavailable
-          # Stale enrollment or unavailable sharing never bypasses its existing guard.
-        end
-      end
+      base.merge!(@daily.fetch(user.id, {}))
       base[:needs_help] = base.values_at(:setup_help, :help_requests, :shared_items).any?(&:any?)
       base
     end

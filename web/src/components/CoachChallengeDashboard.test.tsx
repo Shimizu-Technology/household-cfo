@@ -51,6 +51,18 @@ async function open() {
   fireEvent.click(screen.getByRole('button', { name: 'View Synthetic participant' }))
 }
 describe('coach challenge permission boundaries', () => {
+  it('puts the people before secondary invitation and refresh actions', async () => {
+    vi.mocked(coachChallengeApi.daily).mockResolvedValueOnce({
+      actor_scope: scope, cohort_id: 1, records: [row], program_type: 'savings', can_invite: true,
+      counts: { all: 1, needs_help: 0, checked_in: 1, not_checked_in: 0, invited: 0, joined: 1, setup_done: 0 }, next_offset: null,
+    })
+    render(<CoachChallengeDashboard {...props} selectedCohortId={1} />)
+    const person = await screen.findByText('Synthetic participant')
+    const invite = screen.getByRole('button', { name: 'Invite someone' })
+    const refresh = screen.getByRole('button', { name: 'Refresh' })
+    expect(person.compareDocumentPosition(invite) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(person.compareDocumentPosition(refresh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
   it('shows each daily check-in with a plain date and plain status', async () => {
     render(<CoachChallengeDashboard {...props} selectedCohortId={1} />)
     await screen.findByText('Synthetic participant')

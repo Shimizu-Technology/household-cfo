@@ -89,11 +89,8 @@ function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: numb
     ? [['all', 'Everyone'], ['needs_help', 'Need you'], ['checked_in', 'Checked in'], ['not_checked_in', 'No check-in']]
     : [['all', 'Everyone'], ['needs_help', 'Need you'], ['invited', 'Invited'], ['joined', 'Joined'], ['setup_done', 'Setup done']]
   return <>
-    <header className="coach-daily-heading"><h2>Who needs me today?</h2><div>
-      {page?.can_invite && <button className="coach-daily-primary" onClick={(event) => { if (!openCoachInvitation(event.currentTarget)) setError('Open Group invitations & access to invite someone.') }}>Invite someone</button>}
-      <button onClick={refresh} disabled={busy}>Refresh</button>
-    </div></header>
-    {error && <p role="alert">{error}</p>}
+    <header className="coach-daily-heading"><h2>Who needs me today?</h2></header>
+    {error && <div><p role="alert">{error}</p><button onClick={refresh} disabled={busy}>Refresh</button></div>}
     {busy && <p role="status">Loading people…</p>}
     <div className={`coach-daily-layout${selected ? ' has-detail' : ''}`}>
       <div className="coach-daily-list" ref={list}>
@@ -107,6 +104,10 @@ function Group({ scope, cohortId }: { scope: CoachChallengeScope; cohortId: numb
             </div>
             <button aria-label={`${row.needs_help ? 'View help for' : 'View'} ${row.participant.name}`} aria-pressed={selected?.participant.id === row.participant.id} onClick={(event) => { returnTo.current = { top: window.scrollY, button: event.currentTarget }; setSelected(row) }}>{row.needs_help ? 'View help' : 'View person'}</button>
           </li>)}</ul>
+          <div className="coach-challenge-actions">
+            {page.can_invite && <button className="coach-daily-primary" onClick={(event) => { if (!openCoachInvitation(event.currentTarget)) setError('Open Group invitations & access to invite someone.') }}>Invite someone</button>}
+            <button onClick={refresh} disabled={busy}>Refresh</button>
+          </div>
           {(offset > 0 || page.next_offset !== null) && <nav className="coach-challenge-actions" aria-label="People pages">
             <button disabled={busy || offset === 0} onClick={() => { setBusy(true); setOffset(Math.max(0, offset - 20)) }}>Previous people</button>
             <button disabled={busy || page.next_offset === null} onClick={() => { setBusy(true); setOffset(page.next_offset!) }}>More people</button>

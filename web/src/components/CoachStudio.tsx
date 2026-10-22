@@ -750,9 +750,6 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       <header className="screen-heading coach-studio-heading">
         <div>
           <h2 data-page-heading tabIndex={-1}>Coach Studio</h2>
-          {currentUser.is_admin && <p className="coach-active-program">{activeWorkspaceId === null
-            ? 'Viewing all programs. Choose one below to work in it.'
-            : <>Working in <strong>{workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.name ?? 'the selected program'}</strong></>}</p>}
         </div>
         <div className="coach-workspace-heading-tools">
           {workspaceOptions.length > 0 && (
@@ -764,9 +761,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                   <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
                 ))}
               </select>
-              <small>{activeWorkspaceId === null
+              {studioSection !== 'groups' && <small>{activeWorkspaceId === null
                 ? 'Platform administrator · all workspaces'
-                : `${workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.coach_profile?.display_name ?? 'Coach identity'} · ${formatWorkspaceRole(workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role)}`}</small>
+                : `${workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.coach_profile?.display_name ?? 'Coach identity'} · ${formatWorkspaceRole(workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role)}`}</small>}
             </label>
           )}
         </div>
