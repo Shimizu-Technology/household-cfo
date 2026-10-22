@@ -52,7 +52,7 @@ describe('program settings', () => {
     await screen.findByRole('heading', { name: 'Welcome screen preview' })
     await user.click(screen.getByRole('button', { name: 'Publish branding' }))
     await waitFor(() => expect(api.publishWorkspaceBrand).toHaveBeenCalledWith({ draft_revision: 2, preview_digest: 'exact', expected_published_version_id: 1 }, expect.any(String)))
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Participants on a sealed release keep its brand'))
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Participants keep the appearance saved for their group'))
   })
 
   it('reviewers can preview but cannot edit program identity or brand fields', async () => {

@@ -506,7 +506,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       return
     }
     if (selectedPersona.assignments.length > 0 && !window.confirm(
-      `Publish this assistant version? Cohorts using a sealed release keep their current voice until you launch a new release or rollout. Assigned cohorts without a sealed release use the published version for future messages.`,
+      `Publish this assistant version? Groups with a saved version keep their current voice until you launch or update their group. Assigned groups without a saved version use the published voice for future messages.`,
     )) return
     const mutation = beginMutation('publish')
     setError(null)
@@ -635,7 +635,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setConflict('Save or discard your unsaved changes before changing cohort assignments.')
       return
     }
-    if (!window.confirm(`Remove the assistant assignment from ${cohort.name}? Participants using a sealed release keep its voice until a new release or rollout. Cohorts without a sealed release use the neutral voice.`)) return
+    if (!window.confirm(`Remove the assistant assignment from ${cohort.name}? Participants with a saved group version keep its voice until you launch or update their group. Groups without a saved version use the neutral voice.`)) return
     const mutation = beginMutation('assignment')
     setError(null)
     try {
@@ -1340,7 +1340,7 @@ function AssignmentPanel({ persona, cohorts, pending, dirty, onAssign, onRemove 
 }) {
   return (
     <article className="panel coach-assignments">
-      <header><div><p className="eyebrow">Cohort assignments</p><h3>Choose the assistant for each cohort.</h3><p>Assignments prepare the next release. Participants using a sealed release keep its assistant until you launch a new release or rollout. Cohorts without a sealed release use the current published assignment.</p></div><span>{persona.assignments.length} visible assignment{persona.assignments.length === 1 ? '' : 's'}</span></header>
+      <header><div><p className="eyebrow">Cohort assignments</p><h3>Choose the assistant for each cohort.</h3><p>Assignments prepare the next group version. Participants with a saved group version keep its assistant until you launch or update their group. Groups without a saved version use the current published assignment.</p></div><span>{persona.assignments.length} visible assignment{persona.assignments.length === 1 ? '' : 's'}</span></header>
       {!persona.published_version ? (
         <p className="coach-empty">Publish the first version before assigning this assistant to a cohort.</p>
       ) : cohorts.length === 0 ? (

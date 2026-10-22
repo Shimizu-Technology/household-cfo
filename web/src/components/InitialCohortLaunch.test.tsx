@@ -37,7 +37,7 @@ describe('InitialCohortLaunch', () => {
     render(<InitialCohortLaunch cohortId={12} mutationLifecycle={mutationLifecycle} onLaunch={onLaunch} />)
     await user.click(await screen.findByRole('button', { name: 'Review first launch' }))
     expect(screen.getByText('Your settings are ready. Review who will receive them, then launch.')).toBeTruthy()
-    expect(screen.getByText(/6 current participants will use this release/)).toBeTruthy()
+    expect(screen.getByText(/6 current participants will use this version/)).toBeTruthy()
     expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Review first group launch' }))
     expect(apiMocks.launchCohortRelease).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: 'Launch group now' }))

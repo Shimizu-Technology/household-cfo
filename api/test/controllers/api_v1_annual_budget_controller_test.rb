@@ -62,7 +62,28 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
         as: :json
     end
     assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors"), "Effective on has already been taken"
+    assert_includes JSON.parse(response.body).fetch("errors"), "You already have a pay change starting Aug 1, 2026. Edit that change instead."
+  end
+
+  test "a one-time entry does not block a recurring pay change on the same date" do
+    user = create_user(email: "income-bonus-date@example.com")
+    source = HouseholdFinance::WorkspaceResolver.new(user).household.income_sources.create!(label: "Primary", source_type: "job", amount_cents: 100_000, cadence: "monthly")
+    post "/api/v1/income_schedule_entries?year=2026",
+      params: { income_schedule_entry: { income_source_id: source.id, entry_type: "one_time", amount: 500, effective_on: "2026-11-01" } },
+      headers: auth_headers(user), as: :json
+    assert_response :created
+    assert_difference "IncomeScheduleEntry.count", 1 do
+      post "/api/v1/income_schedule_entries?year=2026",
+        params: { income_schedule_entry: { income_source_id: source.id, entry_type: "recurring_change", amount: 1_200, cadence: "monthly", effective_on: "2026-11-01" } },
+        headers: auth_headers(user), as: :json
+      assert_response :created
+    end
+    post "/api/v1/income_schedule_entries?year=2026",
+      params: { income_schedule_entry: { income_source_id: source.id, entry_type: "recurring_change", amount: 1_300, cadence: "monthly", effective_on: "2026-11-01" } },
+      headers: auth_headers(user), as: :json
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors"), "You already have a pay change starting Nov 1, 2026. Edit that change instead."
+    assert_equal 2, source.income_schedule_entries.count
   end
 
   test "participants explicitly approve and revoke continuing transition salary on an income change" do

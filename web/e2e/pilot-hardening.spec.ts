@@ -1502,7 +1502,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   const releaseStudio = () => ({
     cohort_release_studio: {
       cohort: { id: 41, name: 'Household CFO pilot', status: 'active' },
-      runtime_truth: { changes_participant_runtime: false, message: 'Release records are audit evidence. They do not change participant runtime.' },
+      runtime_truth: { changes_participant_runtime: false, message: 'Release records are audit evidence. They do not change participant settings.' },
       permissions: { view: true, seal: true, restore: true },
       readiness: {
         ready: true,
@@ -1594,7 +1594,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   })
   const rolloutStudio = () => ({ cohort_rollout_studio: {
     cohort: { id: 41, name: 'Household CFO pilot', status: 'active', participant_count: 2 },
-    runtime_truth: { changes_participant_runtime: true, participant_runtime_changed: rolloutStatus === 'active', message: 'Advancing a wave changes participant runtime immediately. Completing the rollout makes the target release the cohort default. Rollback restores the captured baseline for still-current exposed enrollments.' },
+    runtime_truth: { changes_participant_runtime: true, participant_runtime_changed: rolloutStatus === 'active', message: 'Advancing a wave changes participant settings immediately. Completing the rollout makes the target release the cohort default. Rollback restores the captured baseline for still-current exposed enrollments.' },
     permissions: { view: true, manage: true, plan: rolloutStatus === 'none', actor_role: 'owner', blockers: [], plan_blockers: rolloutStatus === 'none' ? [] : ['Another rollout is already open for this cohort.'] },
     current_roster: { digest: 'roster-digest', readiness_digest: 'roster-ready', total_count: 2, counts: { ready: 2, awaiting_acceptance: 0, revoked: 0, removed: 0 }, participants: [{ user_id: 701, full_name: 'Ana Cruz', readiness: 'ready', exposed: rolloutStatus === 'active', effective_release: rolloutStatus === 'active' ? rolloutRelease() : activeRelease }, { user_id: 702, full_name: 'Ben Santos', readiness: 'ready', exposed: false, effective_release: activeRelease }] },
     active_release: activeRelease, latest_release: rolloutRelease(), release_history: { limit: 25, total_count: releaseNumber, truncated: false }, releases: [rolloutRelease()],
@@ -1637,10 +1637,10 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await expect(page.getByRole('heading', { name: 'Your group is live' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Ready to prepare' })).toBeVisible()
   await openDetails(page, 'Version history (1)')
-  await expect(page.getByText('Latest sealed record')).toBeVisible()
+  await expect(page.getByText('Latest saved version')).toBeVisible()
   await expect(page.getByText('Program appearance', { exact: true })).toBeVisible()
   await openDetails(page, 'Version details')
-  await expect(page.locator('.cohort-release-evidence').first().getByText('9', { exact: true })).toBeVisible()
+  await expect(page.locator('.cohort-release-evidence').first().getByText('Version 9', { exact: true })).toBeVisible()
 
   const tabs = page.locator('.coach-studio-section-tabs [role="tab"]')
   await expect(tabs).toHaveCount(6)
@@ -1685,7 +1685,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await page.keyboard.press('Tab')
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   await expect(dialog.getByText('Brand version', { exact: true })).toBeVisible()
-  await expect(dialog.getByText('9', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('Version 9', { exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: 'Prepare version' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Participant settings did not change.' })).toBeVisible()
   await page.setViewportSize(regularViewport)
@@ -1699,7 +1699,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await releaseStepTab.press('ArrowRight')
   await expect(rolloutTab).toBeFocused()
   await expect(rolloutTab).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByRole('heading', { name: 'Release #5' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Version 5' })).toBeVisible()
   await expect(page.locator('details').filter({ has: page.getByText('Update in stages', { exact: true }) })).not.toHaveAttribute('open', '')
   await expect(page.getByText(/2 participants are included/)).toBeVisible()
   await openDetails(page, 'Update in stages')
@@ -1717,7 +1717,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await expect(planDialog).toHaveJSProperty('scrollTop', 0)
   await page.keyboard.press('Tab')
   await expect(planDialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
-  await expect(planDialog.getByText('Release #5', { exact: true })).toBeVisible()
+  await expect(planDialog.getByText('Version 5', { exact: true })).toBeVisible()
   await expect(planDialog.getByText('Target brand', { exact: true })).toBeVisible()
   await expect(planDialog.getByText('Brand version 9', { exact: true })).toBeVisible()
   await expect(planDialog.getByText('Wave 1 · 1 participant', { exact: true })).toBeVisible()
@@ -1725,7 +1725,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await expect(planDialog.getByText('None until the first wave starts', { exact: true })).toBeVisible()
   await planDialog.getByRole('button', { name: 'Save update plan' }).click()
   await page.setViewportSize(regularViewport)
-  await expect(page.getByRole('heading', { name: 'Release #5' })).toBeFocused()
+  await expect(page.getByRole('heading', { name: 'Version 5' })).toBeFocused()
   await expect(page.getByText('Planned', { exact: true }).first()).toBeVisible()
   await page.getByRole('button', { name: 'Review and start rollout' }).click()
   const startDialog = page.getByRole('dialog', { name: 'Start this rollout?' })
@@ -1736,9 +1736,9 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await expect(startDialog.getByText('This wave changes immediately', { exact: true })).toBeVisible()
   await startDialog.getByRole('button', { name: 'Start rollout' }).click()
   await expect(page.getByText('Active', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('Wave 1 is now using Release #5. 1 participant changed immediately.')).toBeVisible()
-  await expect(page.getByText(/Ready · Exposed · Release #5/)).toBeVisible()
-  await expect(page.getByText(/Ready · Not exposed · Using Release #4/)).toBeVisible()
+  await expect(page.getByText('Wave 1 is now using Version 5. 1 participant changed immediately.')).toBeVisible()
+  await expect(page.getByText(/Ready · Updated · Version 5/)).toBeVisible()
+  await expect(page.getByText(/Ready · Not updated · Using Version 4/)).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
@@ -5812,8 +5812,8 @@ test('Coach Studio participant tools preview publish and restore the exact cohor
   await expect(preview).toContainText('Not included: CFO Filter')
 
   page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('1 participant will keep the tools in their current sealed release')
-    expect(dialog.message()).toContain('until a new release is activated or rolled out')
+    expect(dialog.message()).toContain('1 participant will keep their group’s current tools')
+    expect(dialog.message()).toContain('until you launch or update their group')
     await dialog.accept()
   })
   await page.getByRole('button', { name: 'Publish tool version' }).click()
@@ -7230,7 +7230,7 @@ test('Coach Studio confirms immediate assigned-cohort impact before publishing a
   await expect(page.getByText('Publishing updates future participant messages', { exact: false })).toBeVisible()
 
   page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Cohorts using a sealed release keep their current voice')
+    expect(dialog.message()).toContain('Groups with a saved version keep their current voice')
     await dialog.accept()
   })
   await showAssistantStage(page, 'Evaluate & publish')
@@ -8559,7 +8559,7 @@ test('Coach Studio first launch requires impact review and stays usable on phone
     }
     return route.fulfill({ status: 200, json: { launch: preview() } })
   })
-  // A first launch requires an existing sealed record; release evidence loads
+  // A first launch requires an existing saved version; release evidence loads
   // alongside the independent launch preview in this combined panel.
   await page.route('http://api.test/api/v1/admin/cohorts/41/releases', route => route.fulfill({ json: {
     cohort_release_studio: {
@@ -8575,13 +8575,13 @@ test('Coach Studio first launch requires impact review and stays usable on phone
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await page.getByRole('tab', { name: /Release & rollout/ }).click()
   await openDetails(page, 'Version history (1)')
-  await expect(page.getByText('Latest sealed record', { exact: true })).toBeVisible()
+  await expect(page.getByText('Latest saved version', { exact: true })).toBeVisible()
   await expect(page.getByText('Checking the exact release evidence…', { exact: true })).toHaveCount(0)
   const card = page.locator('.initial-cohort-launch')
   await expect(card.getByText('Checking launch readiness…', { exact: true })).toHaveCount(0)
   await card.getByRole('button', { name: 'Review first launch' }).click()
   await expect(card.getByRole('heading', { name: 'Review first group launch' })).toBeFocused()
-  await expect(card.getByText(/6 current participants will use this release/)).toBeVisible()
+  await expect(card.getByText(/6 current participants will use this version/)).toBeVisible()
   expect(launchRequests).toBe(0)
   await card.getByRole('button', { name: 'Cancel' }).click()
   await expect(card.getByRole('button', { name: 'Review first launch' })).toBeFocused()
@@ -8736,7 +8736,7 @@ test('Coach Studio program settings preserve draft review before exact brand pub
   await expect(page.getByRole('heading', { name: 'Welcome screen preview' })).toBeVisible()
   await expect(page.locator('.program-preview')).toContainText('Mel Island Money')
   await assertProgramFits(page)
-  page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('Participants on a sealed release keep its brand'); await dialog.accept() })
+  page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('Participants keep the appearance saved for their group'); await dialog.accept() })
   await page.getByRole('button', { name: 'Publish branding' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Brand version 2 published' })).toBeVisible()
   await page.getByText('Brand version history (2)', { exact: true }).click()
@@ -12470,3 +12470,164 @@ test('BOG UI ending income replaces a pristine schedule with one explicit confir
   await expect(page.locator('.income-schedule-form')).toBeVisible()
   expect(writes).toEqual([])
 })
+
+for (const width of [1366, 320]) {
+  test(`BOG UI final acceptance Reopen and Restore recover purchase focus at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const workspace = realWorkspaceData(true)
+    const draft = workspace.budget.annual_plan.pending_transaction_drafts[0]
+    const month = String(new Date().getMonth() + 1).padStart(2, '0')
+    let state: 'pending' | 'confirmed' | 'ignored' = 'pending'
+    const report = () => ({
+      period_label: `${currentMonth} ${currentYear}`, start_on: `${currentYear}-${month}-01`, end_on: `${currentYear}-${month}-28`,
+      totals: { planned: 100, actual: state === 'confirmed' ? 75 : 0, pending: state === 'pending' ? 75 : 0, remaining: 100 }, categories: [],
+      transactions: state === 'confirmed' ? [{ id: 901, transaction_draft_id: draft.id, occurred_on: draft.occurred_on, merchant: draft.merchant, amount: 75, amount_cents: 7500, categories: ['Dining out'], category_name: 'Dining out', source_type: 'manual_ui', splits: [] }] : [],
+      pending_drafts: [], ignored_drafts: state === 'ignored' ? [{ ...draft, status: 'ignored' }] : [],
+    })
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+    await page.route('http://api.test/api/v1/spending_report**', route => route.fulfill({ json: { spending_report: report() } }))
+    await page.route(`http://api.test/api/v1/transaction_drafts/${draft.id}/*`, route => {
+      const operation = new URL(route.request().url()).pathname.split('/').at(-1)
+      state = operation === 'confirm' ? 'confirmed' : operation === 'ignore' ? 'ignored' : 'pending'
+      workspace.budget.annual_plan.pending_transaction_drafts = state === 'pending' ? [draft] : []
+      return route.fulfill({ json: { workspace } })
+    })
+    await page.goto('/?pilot_e2e_role=participant#Review')
+    const confirm = page.getByRole('button', { name: /^Confirm Dinner with friends/ })
+    await confirm.focus()
+    await confirm.press('Enter')
+    const reopen = page.getByRole('button', { name: /^Reopen Dinner with friends/ })
+    await expect(reopen).toBeVisible()
+    page.once('dialog', dialog => dialog.accept())
+    await reopen.focus(); await reopen.press('Enter')
+    await expect(confirm).toBeFocused()
+    const ignore = page.getByRole('button', { name: /^Ignore Dinner with friends/ })
+    await ignore.focus(); await ignore.press('Enter')
+    const restore = page.getByRole('button', { name: /^Restore Dinner with friends/ })
+    await expect(restore).toBeVisible()
+    page.once('dialog', dialog => dialog.accept())
+    await restore.focus(); await restore.press('Enter')
+    await expect(confirm).toBeFocused()
+  })
+}
+
+test('BOG UI final acceptance duplicate income date keeps values and gives a dated next step', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const guidance = `You already have a pay change starting Nov 1, ${currentYear}. Edit that change instead.`
+  workspace.budget.annual_plan.income_sources[0].schedule_entries = [{ id: 331, entry_type: 'recurring_change', amount: 6500, cadence: 'monthly', effective_on: `${currentYear}-11-01`, label: null, retained_after_transition: false }]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/income_schedule_entries**', route => route.fulfill({ status: 422, json: { errors: [guidance] } }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await page.getByRole('button', { name: 'Plan an income change', exact: true }).click()
+  const form = page.locator('.income-schedule-form')
+  await form.getByLabel('Starting month').fill(`${currentYear}-11`)
+  await form.getByLabel('Amount', { exact: true }).fill('7000')
+  await form.getByRole('button', { name: 'Schedule income change', exact: true }).click()
+  await expect(page.getByRole('alert').filter({ hasText: guidance }).first()).toBeVisible()
+  await expect(form.getByLabel('Amount', { exact: true })).toHaveValue('7000')
+  await expect(form.getByLabel('Starting month')).toHaveValue(`${currentYear}-11`)
+})
+
+test('BOG UI final acceptance phone targets cover Review Statements and My Money at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: [{ id: 910, household_id: 77, document_kind: 'statement', status: 'applied', filename: 'Fictional monthly statement.pdf', content_type: 'application/pdf', byte_size: 1024, document_date: null, period_start_on: null, period_end_on: null, extracted_summary: null, extraction_error: null, processed_at: null, applied_at: null, source_deleted_at: null, updated_at: `${currentYear}-10-01T00:00:00Z`, source_available: false, details_included: false, uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [], transaction_drafts: [], attempts: [] }] } }))
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  await page.getByRole('button', { name: 'Add transaction', exact: true }).click()
+  async function assertTargets() {
+    await page.evaluate(() => document.fonts.ready)
+    const small = await page.locator('button, a[href], summary, input:not([type="hidden"]), select, textarea').evaluateAll(nodes => nodes.flatMap(node => {
+      const element = node as HTMLElement
+      if (!element.getClientRects().length || getComputedStyle(element).visibility === 'hidden') return []
+      for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        if (parent instanceof HTMLDetailsElement && !parent.open && !parent.querySelector(':scope > summary')?.contains(element)) return []
+      }
+      const target = element instanceof HTMLInputElement && ['checkbox', 'radio', 'file'].includes(element.type) ? element.labels?.[0] ?? element.closest('label') ?? element : element
+      const rect = target.getBoundingClientRect()
+      return rect.width < 44 || rect.height < 44 ? [{ text: element.getAttribute('aria-label') ?? element.textContent?.trim().slice(0, 70) ?? element.tagName, width: rect.width, height: rect.height }] : []
+    }))
+    expect(small).toEqual([])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+  await assertTargets()
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'Select Dinner with friends for a bulk action' }).check()
+  await assertTargets()
+  await openDetails(page, 'More bulk options'); await assertTargets()
+  await page.getByRole('button', { name: /^Edit Dinner with friends/ }).click()
+  await assertTargets()
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await openSection(page, 'Statements'); await assertTargets()
+  await openDetails(page, 'Upload a receipt, pay stub or budget file'); await assertTargets()
+  await openDetails(page, 'Find an upload'); await assertTargets()
+  await openSection(page, 'My Money'); await assertTargets()
+  for (const topic of ['Spending', 'Debt', 'Accounts', 'Goals', 'Income']) {
+    await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: topic, exact: true }).click()
+    await assertTargets()
+  }
+  await page.getByRole('button', { name: 'Plan an income change', exact: true }).click()
+  await assertTargets()
+})
+
+test('Coach Studio final acceptance identity save retains Program settings through live account refresh and unsaved guards', async ({ page }) => {
+  await mockProgramSettings(page)
+  await mockProgramTeam(page)
+  let reads = 0
+  await page.route('http://api.test/api/v1/auth/me', async route => {
+    reads++
+    if (reads > 1) await new Promise(resolve => setTimeout(resolve, 250))
+    return route.fulfill({ json: { user: { ...pilotAdminUser, id: 902, clerk_id: 'e2e_coach', role: 'coach', is_admin: false, is_coach: true, is_staff: true, is_participant: false, coach_workspaces: [{ id: 1, name: 'Mrs. Mel coaching workspace', slug: 'mrs-mel', membership_role: 'owner', coach_profile: { display_name: 'Mrs. Mel', title: 'Financial coach', bio: '' } }], active_coach_workspace: { id: 1 } } } })
+  })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_live_api=true#Coach%20Studio')
+  await page.getByRole('tab', { name: /Program settings/ }).click()
+  await page.getByLabel('Program name', { exact: true }).fill('Mel’s saved program')
+  await page.getByRole('button', { name: 'Save program identity' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Program identity saved.' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /Program settings/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByLabel('Program name', { exact: true })).toHaveValue('Mel’s saved program')
+  expect(reads).toBe(2)
+  await page.getByLabel('Program name', { exact: true }).fill('Unsaved program')
+  page.once('dialog', dialog => dialog.dismiss())
+  await page.getByRole('tab', { name: /Daily coaching/ }).click()
+  await expect(page.getByLabel('Program name', { exact: true })).toHaveValue('Unsaved program')
+  await expect(page.getByRole('tab', { name: /Program settings/ })).toHaveAttribute('aria-selected', 'true')
+})
+
+for (const previousStatus of ['confirmed', 'ignored'] as const) {
+  test(`BOG UI final acceptance hidden restored ${previousStatus} purchase focuses its result instead of another purchase`, async ({ page }, testInfo) => {
+    const workspace = realWorkspaceData(true)
+    const template = workspace.budget.annual_plan.pending_transaction_drafts[0]
+    const draft = { ...template, id: 999, merchant: 'Hidden grocery' }
+    const earlier = Array.from({ length: 6 }, (_, index) => ({ ...template, id: 2000 + index, merchant: `Earlier purchase ${index + 1}` }))
+    workspace.budget.annual_plan.pending_transaction_drafts = earlier
+    workspace.budget.annual_plan.pending_transaction_drafts_meta = { total_count: earlier.length, returned_count: earlier.length, limit: 500, truncated: false }
+    let reopened = false
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+    await page.route('http://api.test/api/v1/spending_report**', route => route.fulfill({ json: { spending_report: {
+      period_label: `${currentMonth} ${currentYear}`, start_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`, end_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-28`, totals: { planned: 100, actual: 0, pending: 0, remaining: 100 }, categories: [], pending_drafts: [],
+      transactions: !reopened && previousStatus === 'confirmed' ? [{ ...draft, transaction_draft_id: draft.id, categories: ['Dining out'], splits: [] }] : [],
+      ignored_drafts: !reopened && previousStatus === 'ignored' ? [{ ...draft, status: 'ignored' }] : [],
+    } } }))
+    await page.route(`http://api.test/api/v1/transaction_drafts/${draft.id}/reopen`, route => {
+      reopened = true
+      workspace.budget.annual_plan.pending_transaction_drafts = [...earlier, draft]
+      workspace.budget.annual_plan.pending_transaction_drafts_meta = { total_count: earlier.length + 1, returned_count: earlier.length + 1, limit: 500, truncated: false }
+      return route.fulfill({ json: { workspace } })
+    })
+    await page.goto('/?pilot_e2e_role=participant#Review')
+    if (previousStatus === 'ignored') await page.getByRole('searchbox', { name: 'Search transaction reviews' }).fill('Earlier')
+    const action = page.getByRole('button', { name: new RegExp(`^${previousStatus === 'confirmed' ? 'Reopen' : 'Restore'} Hidden grocery`) })
+    await expect(action).toBeEnabled()
+    page.once('dialog', dialog => dialog.accept())
+    await action.focus(); await action.press('Enter')
+    await expect(page.getByRole('status').filter({ hasText: 'Reopened Hidden grocery.' })).toBeFocused()
+    await expect(page.getByRole('button', { name: /^Confirm Earlier purchase 1/ })).not.toBeFocused()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    for (const control of (page.viewportSize()!.width <= 600 ? await page.locator('.transaction-draft-queue-controls input, .transaction-draft-queue-controls select, .transaction-draft-pagination button').all() : [])) {
+      const box = await control.boundingBox()
+      expect(box?.width).toBeGreaterThanOrEqual(44)
+      expect(box?.height).toBeGreaterThanOrEqual(44)
+    }
+    await page.screenshot({ path: testInfo.outputPath('hidden-restored-focus.png'), fullPage: true })
+  })
+}

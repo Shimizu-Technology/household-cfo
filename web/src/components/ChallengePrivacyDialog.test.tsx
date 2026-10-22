@@ -7,7 +7,7 @@ import { privacyFixture, privacyScope, syntheticPrivacyApi } from '../test/priva
 import { savePrivacyRecovery } from '../lib/privacyRecovery'
 import { ApiRequestError } from '../api'
 beforeEach(() => { sessionStorage.clear(); HTMLDialogElement.prototype.showModal = function () { this.open = true }; HTMLDialogElement.prototype.close = function () { this.open = false } })
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.resetAllMocks() })
 const approve = () => { fireEvent.click(screen.getByRole('checkbox', { name: 'I understand and approve this exact change.' })); fireEvent.click(screen.getByRole('button', { name: 'Approve reviewed change' })) }
 function open(api = syntheticPrivacyApi()) { return render(<ChallengePrivacyDialog actorScope={privacyScope} participant onClose={vi.fn()} documentImportId={500} api={api} />) }
 describe('participant privacy help and reminders', () => {
@@ -15,6 +15,8 @@ describe('participant privacy help and reminders', () => {
     open()
     await screen.findByText('You haven’t shared anything.')
     expect(document.querySelector('.privacy-eyebrow')).toBeNull()
+    expect(screen.getByText('When this ends and how to stop sharing everywhere')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Exact expiry and global revocation')
     const purposes = Array.from((screen.getByLabelText('Purpose') as HTMLSelectElement).options).map((option) => option.textContent)
     expect(purposes).toEqual(['Your approved totals', 'Specific records you choose', 'Group totals for the bank (no names, groups of 5 or more)'])
     for (const system of ['monetary', 'Coarse', 'aggregate', 'grant']) expect(document.body.textContent).not.toContain(system)

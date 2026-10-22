@@ -25,11 +25,14 @@ class IncomeScheduleEntryTest < ActiveSupport::TestCase
     duplicate = source.income_schedule_entries.new(entry_type: "recurring_change", amount_cents: 130_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
 
     refute duplicate.valid?
-    assert_includes duplicate.errors[:effective_on], "has already been taken"
+    assert_equal [ "You already have a pay change starting Aug 1, 2026. Edit that change instead." ], duplicate.errors.full_messages
+    assert source.income_schedule_entries.first.update(amount_cents: 125_000)
 
     source.income_schedule_entries.create!(entry_type: "one_time", label: "Bonus", amount_cents: 50_000, cadence: "one_time", effective_on: Date.new(2026, 12, 1))
     reimbursement = source.income_schedule_entries.new(entry_type: "one_time", label: "Reimbursement", amount_cents: 20_000, cadence: "one_time", effective_on: Date.new(2026, 12, 1))
     assert reimbursement.valid?
+    recurring_after_bonus = source.income_schedule_entries.new(entry_type: "recurring_change", amount_cents: 140_000, cadence: "monthly", effective_on: Date.new(2026, 12, 1))
+    assert recurring_after_bonus.valid?, recurring_after_bonus.errors.full_messages.join(", ")
   end
 
   test "only positive recurring income can be explicitly retained after a transition" do

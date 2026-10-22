@@ -600,10 +600,13 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
   const closeHelp = (close: () => void) => { close(); requestAnimationFrame(() => accountRef.current?.querySelector<HTMLElement>('summary')?.focus()) }
 
   if (auth.isAuthEnabled && auth.authRecoveryRequired && auth.authError) return <AuthAccessPanel title={auth.authErrorStatus === 503 ? 'Secure access is temporarily unavailable.' : auth.authErrorStatus === 401 ? 'Sign in again to continue.' : 'We couldn’t finish checking your access.'} copy={auth.authError} recovering onRetry={!auth.isLoading && auth.authErrorStatus !== 401 && (auth.authIdentityId || auth.authProvider === 'workos' && (auth.authErrorStatus === 503 || auth.authErrorStatus === 409)) ? auth.refreshCurrentUser : undefined} onSignIn={auth.authErrorStatus === 401 ? auth.signIn : undefined} onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
-  if (auth.isLoading || auth.isVerifyingApi) return <WorkspaceOpening status="Signing you in securely…" onRetry={() => window.location.reload()} recovery={!auth.isLoading && auth.isSignedIn ? <SignOutButton /> : undefined} />
+  // Keep the same verified account’s Studio mounted while its name refreshes.
+  if (auth.isLoading || (auth.isVerifyingApi && !auth.currentUser)) return <WorkspaceOpening status="Signing you in securely…" onRetry={() => window.location.reload()} recovery={!auth.isLoading && auth.isSignedIn ? <SignOutButton /> : undefined} />
   if (auth.isAuthEnabled && !auth.isSignedIn) return <AuthLanding />
   if (auth.authError) return <AccessDenied message={auth.authError} onSignOut={auth.signOut} onRetry={auth.refreshCurrentUser} />
-  return <main className="app staff-app">
+  return <>
+    {auth.isVerifyingApi && <WorkspaceOpening status="Checking your program access…" onRetry={() => window.location.reload()} />}
+    <main className="app staff-app" hidden={auth.isVerifyingApi} inert={auth.isVerifyingApi}>
     <SeoManager section={activeSection} />
     <header className="shell-header"><div className="shell-brand"><BrandLogo brand={brand} /><div className="shell-brand-copy"><h1>{brand.short_name}</h1></div></div>
       <AccountMenu menuRef={accountRef}>
@@ -619,7 +622,7 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
     {guideOpen && <PilotGuideDialog staffOnly onClose={() => closeHelp(() => setGuideOpen(false))} />}
     {feedbackOpen && <PilotFeedbackDialog initialWorkflow={activeSection === ADMIN_SECTION ? 'admin' : 'other'} onClose={() => closeHelp(() => setFeedbackOpen(false))} onSubmit={submitPilotFeedback} />}
     {enterpriseOpen && <EnterpriseSettings currentUser={currentUser} onClose={() => setEnterpriseOpen(false)} />}
-  </main>
+  </main></>
 }
 
 function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onProgramUnavailable, selectionNotice, onFinancialRestart, restartNotice, onDismissRestartNotice}: {onFinancialRestart: (message: string) => void; restartNotice: string | null; onDismissRestartNotice: () => void; selectedCohortId?: number; onChooseProgram: (cohortId: number) => void; onProgramVerified: (cohortId: number) => void; onProgramUnavailable: () => void; selectionNotice: string | null}) {
@@ -2924,11 +2927,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     })
   }
 
-  function recoverReviewFocus() {
+  function recoverReviewFocus(restoredDraftId?: number, previousAction?: Element | null) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (document.activeElement && document.activeElement !== document.body) return
-      const target = document.querySelector<HTMLElement>('.transaction-draft-stack [data-review-confirm]:not(:disabled)')
-        ?? document.querySelector<HTMLElement>('.transaction-draft-stack [role="status"], [data-review-result], [data-page-heading]')
+      if (document.activeElement && document.activeElement !== document.body && document.activeElement !== previousAction) return
+      const restoredRow = restoredDraftId === undefined ? null : document.querySelector<HTMLElement>(`[data-review-item="${restoredDraftId}"]`)
+      const result = document.querySelector<HTMLElement>('[data-review-result]')
+        ?? document.querySelector<HTMLElement>('[data-page-heading]')
+      const target = restoredDraftId !== undefined
+        ? restoredRow?.querySelector<HTMLElement>('[data-review-confirm]:not(:disabled)')
+          ?? restoredRow?.querySelector<HTMLElement>('button:not(:disabled)')
+          ?? result
+        : document.querySelector<HTMLElement>('.transaction-draft-stack [data-review-confirm]:not(:disabled)')
+          ?? document.querySelector<HTMLElement>('.transaction-draft-stack [role="status"]')
+          ?? result
       target?.focus()
     }))
   }
@@ -3083,6 +3094,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
+    const previousAction = document.activeElement
     const confirmed = window.confirm(transactionReopenConfirmMessage(draft))
     if (!confirmed) return
 
@@ -3110,6 +3122,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentsError(message)
     } finally {
       endBudgetAction()
+      recoverReviewFocus(draft.id, previousAction)
     }
   }
 
@@ -7244,7 +7257,7 @@ export function ManualTransactionCapture({
           {open ? 'Close' : 'Add transaction'}
         </button>
       </div>
-      {(resolutionNotice || added) && !open && <p className="document-alert success" role="status">{resolutionNotice || added}</p>}
+      {(resolutionNotice || added) && !open && <p data-review-result tabIndex={-1} className="document-alert success" role="status">{resolutionNotice || added}</p>}
       {open && (
         <form className="manual-transaction-form" onSubmit={(event) => void submit(event)}>
           <label><span>Date</span><input type="date" required max={guamTodayIso()} value={occurredOn} onChange={(event) => setOccurredOn(event.currentTarget.value)} /></label>

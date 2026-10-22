@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ReleaseAndRolloutStudio } from './ReleaseAndRolloutStudio'
 
-vi.mock('./CohortReleaseStudio', () => ({ CohortReleaseStudio: ({ beforeReleaseAction, onReleaseChange }: { beforeReleaseAction?: () => boolean; onReleaseChange?: () => void }) => <div>Release content<button type="button" onClick={() => { if (beforeReleaseAction?.() !== false) onReleaseChange?.() }}>Simulate sealed release</button></div> }))
+vi.mock('./CohortReleaseStudio', () => ({ CohortReleaseStudio: ({ beforeReleaseAction, onReleaseChange }: { beforeReleaseAction?: () => boolean; onReleaseChange?: () => void }) => <div>Release content<button type="button" onClick={() => { if (beforeReleaseAction?.() !== false) onReleaseChange?.() }}>Simulate saved version</button></div> }))
 vi.mock('./InitialCohortLaunch', () => ({ InitialCohortLaunch: () => <div>First launch review</div> }))
 vi.mock('./CohortRolloutStudio', () => ({ CohortRolloutStudio: ({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) => <label>Plan note<input aria-label="Plan note" onChange={(event) => onDirtyChange(Boolean(event.target.value))} /></label> }))
 
@@ -63,12 +63,12 @@ describe('ReleaseAndRolloutStudio', () => {
     await user.click(screen.getByRole('tab', { name: /Update group Choose who goes first/ }))
     await user.type(screen.getByLabelText('Plan note'), 'Pilot first')
     await user.click(screen.getByRole('tab', { name: /Review settings Prepare a version/ }))
-    await user.click(screen.getByRole('button', { name: 'Simulate sealed release' }))
-    expect(confirm).toHaveBeenCalledWith('Recording a new release will reset the rollout plan you have not recorded. Continue and discard that plan after the release is sealed?')
+    await user.click(screen.getByRole('button', { name: 'Simulate saved version' }))
+    expect(confirm).toHaveBeenCalledWith('Preparing a new version will reset the update plan you have not saved. Continue and discard that plan after the version is saved?')
     expect((screen.getByLabelText('Plan note') as HTMLInputElement).value).toBe('Pilot first')
 
     confirm.mockReturnValue(true)
-    await user.click(screen.getByRole('button', { name: 'Simulate sealed release' }))
+    await user.click(screen.getByRole('button', { name: 'Simulate saved version' }))
     await user.click(screen.getByRole('tab', { name: /Update group Choose who goes first/ }))
     expect((screen.getByLabelText('Plan note') as HTMLInputElement).value).toBe('')
     expect(onDirtyChange).toHaveBeenLastCalledWith(false)

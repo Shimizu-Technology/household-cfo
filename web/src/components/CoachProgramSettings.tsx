@@ -13,7 +13,7 @@ import './CoachProgramSettings.css'
 import './ProgramSettingsFlow.css'
 
 const blankIdentity: CoachWorkspaceSettingsInput = { name: '', coach_profile: { display_name: '', title: 'Financial coach', bio: '' } }
-const releaseImpact = 'Publishing updates the program’s welcome screen. Participants on a sealed release keep its brand until you launch or update their group with this version.'
+const releaseImpact = 'Publishing updates the program’s welcome screen. Participants keep the appearance saved for their group until you launch or update their group with this version.'
 
 function identityValues(workspace: CoachWorkspaceSettings): CoachWorkspaceSettingsInput {
   return { name: workspace.name, coach_profile: workspace.coach_profile ?? blankIdentity.coach_profile }
