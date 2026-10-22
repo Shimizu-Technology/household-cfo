@@ -8581,7 +8581,7 @@ test('Coach Studio first launch requires impact review and stays usable on phone
   await expect(card.getByText('Checking launch readiness…', { exact: true })).toHaveCount(0)
   await card.getByRole('button', { name: 'Review first launch' }).click()
   await expect(card.getByRole('heading', { name: 'Review first group launch' })).toBeFocused()
-  await expect(card.getByText(/6 current participants will use this release/)).toBeVisible()
+  await expect(card.getByText(/6 current participants will use this version/)).toBeVisible()
   expect(launchRequests).toBe(0)
   await card.getByRole('button', { name: 'Cancel' }).click()
   await expect(card.getByRole('button', { name: 'Review first launch' })).toBeFocused()
