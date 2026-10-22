@@ -45,7 +45,7 @@ it('keeps every month selectable in a narrow chart without narrowing the targets
     const { container, rerender } = render(<AnnualCashFlowChart compact plan={planWith([month(1, 'Jan', 600), month(2, 'Feb', -300)])} />)
     act(() => resize?.([{ contentRect: { width: 280 } } as ResizeObserverEntry], {} as ResizeObserver))
     expect(container.querySelectorAll('button.cash-flow-month-trigger')).toHaveLength(0)
-    const picker = screen.getByRole('combobox', { name: 'Chart month' })
+    const picker = screen.getByRole('combobox', { name: 'View month' })
     expect(screen.getAllByRole('option')).toHaveLength(2)
     fireEvent.change(picker, { target: { value: '2' } })
     expect(container.querySelector('.cash-flow-detail-panel')?.textContent).toContain('Feb 2026')

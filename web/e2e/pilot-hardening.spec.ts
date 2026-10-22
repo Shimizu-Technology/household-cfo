@@ -2088,7 +2088,7 @@ test('BOG UI household Home leads with money, a visible year and one purchase re
   await expect(home.locator('.cash-flow-month')).toHaveCount(12)
   await expect(home.locator('details .annual-cash-flow-chart')).toHaveCount(0)
   await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(0)
-  const picker = home.getByRole('combobox', { name: 'Chart month' })
+  const picker = home.getByRole('combobox', { name: 'View month' })
   if (await picker.isVisible()) {
     await picker.selectOption({ label: `Jan ${currentYear}` })
     await expect(home.locator('.cash-flow-detail-panel')).toContainText(`Jan ${currentYear}`)
@@ -3720,7 +3720,7 @@ test('BOG UI household Budget explains scheduled income changes and upcoming ann
 
   await expect(page.getByRole('heading', { name: `What’s left each month in ${currentYear}` })).toBeVisible()
   await expect(page.getByText(/Dec spending spike:/)).toBeVisible()
-  const decemberPicker = page.getByRole('combobox', { name: 'Chart month' })
+  const decemberPicker = page.getByRole('combobox', { name: 'View month' })
   if (await decemberPicker.isVisible()) await decemberPicker.selectOption({ label: `Dec ${currentYear}` })
   else await page.getByRole('button', { name: new RegExp(`Dec ${currentYear}:`) }).click()
   await expect(page.getByText('Holiday travel')).toBeVisible()
@@ -4082,7 +4082,7 @@ test('BOG UI household Budget keeps headline, cockpit, and chart on the selected
   await expect(chartDetail).toContainText(`Report monthDec ${currentYear}`)
   await expect(chartDetail).toContainText('Planned outflow$8,500.00')
 
-  const chartPicker = page.locator('.annual-outlook').getByRole('combobox', { name: 'Chart month' })
+  const chartPicker = page.locator('.annual-outlook').getByRole('combobox', { name: 'View month' })
   if (await chartPicker.isVisible()) await chartPicker.selectOption({ label: `Jan ${currentYear}` })
   else await page.locator('.annual-outlook .cash-flow-month-trigger').first().click()
   await expect(chartDetail).toContainText(`Chart previewJan ${currentYear}`)
@@ -12054,7 +12054,7 @@ for (const role of ['coach', 'admin'] as const) {
     if (role === 'coach') {
       await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
       await page.getByRole('tab', { name: /Daily coaching/ }).click()
-      await expect(page.getByRole('combobox', { name: 'Group', exact: true })).toBeVisible()
+      await expect(page.getByRole('combobox', { name: /Choose a group/ })).toBeVisible()
       await page.getByRole('button', { name: 'Setup help requests', exact: true }).click()
     } else {
       await page.goto('/?pilot_e2e_role=admin#Admin')
@@ -12750,7 +12750,7 @@ for (const section of ['Home', 'Budget', 'Review', 'Statements', 'My Money', 'As
     if (section !== 'Home') await openSection(page, section)
     await expectPhoneTargets(page)
     if (section === 'Home' || section === 'Budget') {
-      const picker = page.getByRole('combobox', { name: 'Chart month' })
+      const picker = page.getByRole('combobox', { name: 'View month' })
       await expect(picker).toBeVisible()
       await expect(picker.locator('option')).toHaveCount(12)
       for (const label of months) {

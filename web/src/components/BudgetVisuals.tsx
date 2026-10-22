@@ -284,7 +284,7 @@ export function AnnualCashFlowChart({
         </div>
       </div>
       {narrow && activeMonth && <label className="cash-flow-month-picker">View month
-        <select aria-label="Chart month" value={activeMonth.period_id} onChange={(event) => {
+        <select value={activeMonth.period_id} onChange={(event) => {
           const periodId = Number(event.target.value)
           setChartFocus({ reportFocusKey, activePeriodId: periodId, pinnedPeriodId: periodId })
         }}>
