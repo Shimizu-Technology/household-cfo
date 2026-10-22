@@ -171,7 +171,9 @@ it('loads the cookie while branding is pending, gates actor verification, and re
  const view=render(<AuthProvider provider="workos" clientId={clientId} verificationEnabled={false}><RetainProbe/></AuthProvider>);
  await waitFor(()=>expect(fetchMock).toHaveBeenCalled());const actorReads=()=>fetchMock.mock.calls.filter(([input])=>String(input).endsWith('/api/v1/auth/me')).length;
  expect(actorReads()).toBe(0);expect(screen.queryByText('Verified WorkOS account')).toBeNull();
- view.rerender(<AuthProvider provider="workos" clientId={clientId}><RetainProbe/></AuthProvider>);await screen.findByText('Verified WorkOS account');expect(actorReads()).toBe(1);const previous=retained!;
+ view.rerender(<AuthProvider provider="workos" clientId={clientId}><RetainProbe/></AuthProvider>);await screen.findByText('Verified WorkOS account');expect(actorReads()).toBe(1);
+ // The probe stores the refresher in an effect; wait for it rather than racing the commit.
+ await waitFor(()=>expect(retained).toBeTypeOf('function'));const previous=retained!;
  view.rerender(<AuthProvider provider="workos" clientId={clientId} verificationEnabled={false}><RetainProbe/></AuthProvider>);expect(screen.queryByText('Verified WorkOS account')).toBeNull();await act(async()=>previous());expect(actorReads()).toBe(1);
  view.rerender(<AuthProvider provider="workos" clientId={clientId}><RetainProbe/></AuthProvider>);await screen.findByText('Verified WorkOS account');expect(actorReads()).toBe(2);
 })
