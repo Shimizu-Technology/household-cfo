@@ -1,4 +1,5 @@
 require "test_helper"
+require_relative "../support/natural_purchase_phrases"
 
 class SavingsChallengeDailyReportParserTest < ActiveSupport::TestCase
   Enrollment = Struct.new(:starts_on, :ends_on, :local_today)
@@ -61,6 +62,26 @@ class SavingsChallengeDailyReportParserTest < ActiveSupport::TestCase
   test "reads real daily report phrasings into unreviewed purchases" do
     PURCHASES.each do |message, expected|
       assert_equal expected, purchases(message), message
+    end
+  end
+
+
+  NATURAL_PURCHASES = NaturalPurchasePhrases::NATURAL_PURCHASES
+
+  test "natural purchase reports share exact cents merchants and days" do
+    NATURAL_PURCHASES.each do |message, expected|
+      assert_equal expected, purchases(message), message
+      intake = SavingsChallenge::ChatIntake.new(@enrollment, message: message).call
+      assert_equal parse(message).report, intake, message
+    end
+  end
+
+  test "an unpriced purchase asks one specific question and never returns a partial card" do
+    [ "I bought lunch at Kings", "I spent $8 at Shell and bought groceries at Payless", "I bought a $5 coffee at Starbucks and a sandwich at Kings", "Spent $8 at Shell and lunch at Kings" ].each do |message|
+      result = parse(message)
+      assert_equal :rejected, result.status
+      assert_match(/How much was the (?:Kings|Payless) purchase\?/, result.reason[:question])
+      assert_nil result.report
     end
   end
 

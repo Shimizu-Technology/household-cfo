@@ -182,6 +182,9 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
   test "real spends that mention savings or sit beside a deposit still become reviews" do
     {
       "I spent $50 at the Savings Mart" => [ 5_000, "the Savings Mart" ],
+      "I spent $5 at May’s Cafe" => [ 500, "May’s Cafe" ],
+      "I spent $5 at Plan B" => [ 500, "Plan B" ],
+      "I spent $5 at Budget Mart" => [ 500, "Budget Mart" ],
       "Spent $40 at Kmart and put $20 in savings" => [ 4_000, "Kmart" ],
       "I bought $15 of snacks at the Savings Mart" => [ 1_500, "the Savings Mart" ],
       "I spent $50 at Payless and moved $25 into savings." => [ 5_000, "Payless" ]

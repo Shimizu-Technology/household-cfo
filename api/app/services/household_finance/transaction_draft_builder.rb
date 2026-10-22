@@ -38,11 +38,11 @@ module HouseholdFinance
 
     def initialize(household, message, user:, annual_budget_manager: nil, plan_prepared: false, raw_input: nil, idempotency_key: nil)
       @household = household
-      @message = message.to_s.squish
-      @raw_input = raw_input.to_s.squish.presence || @message
+      @message = PurchaseReportText.normalize(message).squish
+      @raw_input = raw_input.to_s.squish.presence || message.to_s.squish
       # Savings-deposit and investment clauses never feed the expense amount or merchant.
-      @spend_input = MoneyMovementText.without_non_expense(@raw_input)
-      @draft_text = MoneyMovementText.without_non_expense(current_follow_up_text.presence || @raw_input)
+      @spend_input = MoneyMovementText.without_non_expense(PurchaseReportText.normalize(@raw_input))
+      @draft_text = MoneyMovementText.without_non_expense(current_follow_up_text.presence || PurchaseReportText.normalize(@raw_input))
       @explicit_purchase = self.class.explicit_purchase_details(@spend_input) if self.class.non_expense_movement?(@spend_input)
       @user = user
       @idempotency_key = idempotency_key.presence || SecureRandom.uuid
@@ -102,6 +102,11 @@ module HouseholdFinance
     end
 
     def transaction_like?
+      unless transaction_follow_up_context?
+        calendar = PurchaseReportParser::Calendar.new(Date.new(1900, 1, 1), Date.current, Date.current)
+        reading = PurchaseReportParser.new(calendar, message: draft_text).call
+        return false if reading.status == :rejected || reading.reason&.dig(:kind) == :unbound_purchase || PurchaseReportParser.question_or_plan?(draft_text) || draft_text.match?(PurchaseReportParser::NEGATION)
+      end
       return false if self.class.non_expense_movement?(spend_input) && explicit_purchase.blank?
 
       explicit_spend = amount_match.present? && (draft_text.match?(SPEND_PATTERN) || MiaCoachAnswerer.subjectless_spend_report?(draft_text))

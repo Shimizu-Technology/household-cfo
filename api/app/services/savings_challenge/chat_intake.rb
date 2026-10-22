@@ -63,7 +63,7 @@ module SavingsChallenge
       parsed = DailyReportParser.new(@enrollment, message: @message).call
       return parsed.report if parsed.found?
       @rejection = parsed.reason
-      return unless parsed.none? && @message.match?(/\d/) && (@message.match?(DailyReportParser::SPEND_VERB) || @message.match?(PLACE))
+      return unless parsed.none? && HouseholdFinance::PurchaseReportText.normalize(@message).match?(/\d/) && (@message.match?(DailyReportParser::SPEND_VERB) || @message.match?(PLACE))
 
       (@extractor || DailyReportExtractor.new(@enrollment, message: @message)).call
     end
