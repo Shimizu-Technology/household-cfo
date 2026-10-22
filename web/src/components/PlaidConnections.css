@@ -30,8 +30,7 @@
 .plaid-review h3 { margin: .15rem 0 0; }
 .plaid-transaction-list { display: grid; gap: .5rem; }
 .plaid-transaction { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: .75rem; align-items: center; min-height: 4.75rem; padding: .8rem 1rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fff; transition: border-color var(--duration-fast) var(--ease-out), translate var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out); }
-.plaid-transaction:hover { border-color: color-mix(in srgb, var(--berry) 38%, var(--line)); }
-@media (hover: hover) and (pointer: fine) { .plaid-transaction:hover { translate: 0 -1px; } }
+@media (hover: hover) and (pointer: fine) { .plaid-transaction:hover { border-color: color-mix(in srgb, var(--berry) 38%, var(--line)); translate: 0 -1px; } }
 .plaid-transaction.is-pending { opacity: .72; }
 .plaid-transaction.is-needs_review { background: color-mix(in srgb, #fff7e6 55%, white); }
 .plaid-transaction.is-confirmed { background: color-mix(in srgb, #edf8f0 48%, white); }

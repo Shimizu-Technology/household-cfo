@@ -123,8 +123,14 @@ async function openChatContext(page: Page) {
   const header = page.locator('.chat-shell-header')
   if (decodeURIComponent(new URL(page.url()).hash) === '#Ask Mia') await expect(header).toBeVisible({ timeout: 15000 })
   if (!(await header.count())) return
-  if (await chatAssistPanel(page).getByRole('heading', { name: 'Context & help', exact: true }).isVisible()) return
-  await (await chatHeaderAction(page, 'Context & help')).click()
+  const panelHeading = chatAssistPanel(page).getByRole('heading', { name: 'Context & help', exact: true })
+  // A workspace refresh while the page settles can re-render the header and close
+  // the ⋯ menu mid-click; retry the whole open-and-choose until the panel shows.
+  await expect(async () => {
+    if (await panelHeading.isVisible()) return
+    await (await chatHeaderAction(page, 'Context & help')).click({ timeout: 2000 })
+    await expect(panelHeading).toBeVisible({ timeout: 2000 })
+  }).toPass({ timeout: 20000 })
 }
 
 function chatAssistPanel(page: Page) {

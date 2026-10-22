@@ -749,7 +749,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     <section className="screen-grid coach-studio-screen" aria-busy={cohortsLoading || ((studioSection === 'assistants' || studioSection === 'library') && (loading || detailLoading)) || pendingAction !== null || workspaceMutations.pending}>
       <header className="screen-heading coach-studio-heading">
         <div>
-          <h2 data-page-heading tabIndex={-1}>Coach Studio</h2>
+          {/* A coach whose only destination is Coach Studio already sees it named in the navigation. */}
+          <h2 data-page-heading tabIndex={-1} className={currentUser.is_staff && !currentUser.is_participant && !currentUser.is_admin ? 'sr-only' : undefined}>Coach Studio</h2>
         </div>
         <div className="coach-workspace-heading-tools">
           {workspaceOptions.length > 0 && (
