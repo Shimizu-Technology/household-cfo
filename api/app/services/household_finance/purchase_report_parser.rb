@@ -64,8 +64,10 @@ module HouseholdFinance
     BARE_PATTERN = Regexp.new("(?<![\\w.$#,:/-])(#{NUMBER_SOURCE}(?:k\\b|\\s*thousand\\b)?)(?![\\w%.:,/]|\\.\\d)", Regexp::IGNORECASE).freeze
     # "Shell $8", "Payless: 20", "K-Mart - 15.99" on its own line or clause.
     LIST_ITEM = Regexp.new("\\A(?<place>[a-z][^$\\d\\n]{0,60}?)\\s*(?:[:\\-–—]\\s*)?(?<dollar>\\$)?\\s*(?<amount>#{NUMBER_SOURCE})\\s*(?:dollars?|bucks)?(?:\\s+(?:for|with)\\s+[^$\\d]*)?\\s*\\z", Regexp::IGNORECASE).freeze
+    # A store name ends at a date, a connector, or "for" plus a purpose or budget category
+    # ("for Dining Out", "for the kids"). Other "for" words stay: "Ross Dress for Less".
     MERCHANT_STOP = "(?=\\s+(?:today|tonight|yesterday|this\\s+(?:morning|afternoon|evening)|last\\s+(?:night|#{WEEKDAY_SOURCE})|#{WEEKDAY_SOURCE}|earlier|on\\s+(?:#{MONTH_SOURCE}|#{WEEKDAY_SOURCE}|\\d+|my|the|a|an|gas|food|groceries|lunch|dinner|breakfast|coffee|snacks)\\b" \
-      "|for\\s+(?:\\$|\\d+|my|the|a|an|some|lunch|dinner|breakfast|coffee|gas|food|groceries|snacks|kids?|me|us)" \
+      "|for\\s+(?:\\$|\\d+|my|the|a|an|some|our|lunch|dinner|breakfast|coffee|gas|fuel|food|groceries|snacks|kids?|me|us|dining(?:\\s+out)?|eating\\s+out|entertainment|household|personal|transport(?:ation)?|utilities|bills?|shopping|clothes|clothing|health|medical|school|work|church|gifts?|pets?|car|rent)\\b" \
       "|at|because|since|cause|cuz|when|while|but|so|with|and|felt|feel|feeling|which|that|after|before)\\b|\\s+\\$|[.,;!?\\n]|\\z)"
     MERCHANT_PATTERN = Regexp.new("(?:\\bat|\\bfrom|@)\\s+(?:the\\s+)?(?<merchant>[a-z0-9][^\\n]*?)#{MERCHANT_STOP}", Regexp::IGNORECASE).freeze
     NOT_A_PLACE = /\A(?:night|noon|lunch(?:\s*time)?|breakfast|dinner|least|first|once|all|most|\d+)\z/i.freeze

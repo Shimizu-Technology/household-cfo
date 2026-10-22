@@ -19,6 +19,19 @@ module HouseholdFinance
 
     module_function
 
+    # A purchase question ("How much was it?", "When was it?") only makes sense
+    # when the message states an amount or names a store. A reflection such as
+    # "I ordered takeout again tonight" is conversation, and coaching answers it.
+    def purchase_details?(value)
+      stated_amount?(value) || value.to_s.match?(PurchaseReportParser::MERCHANT_PATTERN)
+    end
+
+    def stated_amount?(value)
+      text = normalize(value)
+      text.include?(UNCLEAR_AMOUNT) ||
+        text.match?(/\$\s*\d|\b\d+(?:\.\d{1,2})?\s*(?:dollars?|bucks)\b|\b(?:spent|paid|cost|costs|was|for)\s+\d/i)
+    end
+
     def normalize(value, preserve_layout: false)
       text = value.to_s.unicode_normalize(:nfkc).gsub(/\r\n?/, "\n").strip
       return text if text.length > 2_000

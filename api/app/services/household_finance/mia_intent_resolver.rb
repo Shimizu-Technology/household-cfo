@@ -267,7 +267,7 @@ module HouseholdFinance
       common = { confidence: 1.0, continuation: false, resolved_message: user_message,
         topic: { type: "transaction_draft", title: "Reported spending", subject: "Reported spending" },
         read_only_plan: {}, source: "deterministic" }
-      if parsed.status == :rejected || parsed.reason&.dig(:kind) == :unbound_purchase
+      if (parsed.status == :rejected || parsed.reason&.dig(:kind) == :unbound_purchase) && PurchaseReportText.purchase_details?(raw_user_message)
         question = parsed.reason&.dig(:question) || (parsed.reason&.dig(:kind) == :future ? "Which past day did you make the purchase?" : "When did you make the purchase?")
         return Result.new(**common, intent: "clarification", needs_clarification: true,
           clarification: question, action: { type: "none" })

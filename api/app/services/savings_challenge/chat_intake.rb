@@ -62,7 +62,8 @@ module SavingsChallenge
     def daily_report
       parsed = DailyReportParser.new(@enrollment, message: @message).call
       return parsed.report if parsed.found?
-      @rejection = parsed.reason
+      # Without an amount or a store this is conversation, not an incomplete report.
+      @rejection = parsed.reason if HouseholdFinance::PurchaseReportText.purchase_details?(@message)
       return unless parsed.none? && HouseholdFinance::PurchaseReportText.normalize(@message).match?(/\d/) && (@message.match?(DailyReportParser::SPEND_VERB) || @message.match?(PLACE))
 
       (@extractor || DailyReportExtractor.new(@enrollment, message: @message)).call

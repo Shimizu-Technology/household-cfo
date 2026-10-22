@@ -76,6 +76,12 @@ class SavingsChallengeDailyReportParserTest < ActiveSupport::TestCase
     end
   end
 
+  test "a reflection without an amount or a store is not treated as an incomplete report" do
+    intake = SavingsChallenge::ChatIntake.new(@enrollment, message: "I ordered takeout again tonight. That's the fourth time this week even though I told myself I'd stop.")
+    assert_nil intake.call
+    assert_nil intake.rejection
+  end
+
   test "an unpriced purchase asks one specific question and never returns a partial card" do
     [ "I bought lunch at Kings", "I spent $8 at Shell and bought groceries at Payless", "I bought a $5 coffee at Starbucks and a sandwich at Kings", "Spent $8 at Shell and lunch at Kings" ].each do |message|
       result = parse(message)

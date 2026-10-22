@@ -18,6 +18,26 @@ class HouseholdFinanceNaturalPurchaseReportTest < ActiveSupport::TestCase
     end
   end
 
+  test "a reflection without an amount or a store is coaching, not a purchase question" do
+    [ "I ordered takeout again tonight. That's the fourth time this week even though I told myself I'd stop.",
+      "I keep buying snacks when I'm stressed", "I bought too much this week and feel bad" ].each do |message|
+      result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: {}, api_key: nil).call
+      refute result&.clarification?, message
+      refute result&.actionable?, message
+    end
+  end
+
+  test "a purpose or category after the store is not part of its name" do
+    { "I spent 7 at No Dollar Cafe for Dining Out today" => "No Dollar Cafe",
+      "I spent $12 at Kmart for the kids yesterday" => "Kmart",
+      "Spent $30 at Payless for groceries" => "Payless",
+      "spent $5 at Ross Dress for Less today" => "Ross Dress for Less" }.each do |message, merchant|
+      result = HouseholdFinance::MiaIntentResolver.new(user_message: message,
+        context: { calendar: { today: NaturalPurchasePhrases::TODAY.iso8601 } }, api_key: nil).call
+      assert_equal merchant, result.action[:merchant], message
+    end
+  end
+
   test "missing purchase prices ask specifically without creating a partial report" do
     result = HouseholdFinance::MiaIntentResolver.new(user_message: "I spent $8 at Shell and bought lunch at Kings",
       context: {}, api_key: nil).call
