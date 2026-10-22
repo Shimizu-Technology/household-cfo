@@ -2074,7 +2074,11 @@ test('BOG UI household Home leads with money, a visible year and one purchase re
   await expect(monthSummary.getByText('Spent so far', { exact: true }).locator('..')).toContainText('$3,475.00')
   await expect(monthSummary).toContainText('$115.00 pending review · not counted as spent')
   await expect(monthSummary.getByText('Planned out', { exact: true }).locator('..')).toContainText('$5,500.00')
-  await expect(monthSummary.locator('.month-plan-balance')).toHaveText(/^(This month’s plan is \$[\d,.]+ more than money in\.|Your plan leaves \$[\d,.]+ after planned spending\.)$/)
+  // The sentence states money in minus planned out, choosing the right branch.
+  const cents = async (name: string) => Math.round(Number((await monthSummary.getByText(name, { exact: true }).locator('..').locator('strong').innerText()).replace(/[$,]/g, '')) * 100)
+  const balanceCents = (await cents('Money in')) - (await cents('Planned out'))
+  const money = (value: number) => `$${(Math.abs(value) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  await expect(monthSummary.locator('.month-plan-balance').first()).toHaveText(balanceCents < 0 ? `This month’s plan is ${money(balanceCents)} more than money in.` : balanceCents === 0 ? 'Your plan uses all of your money in.' : `Your plan leaves ${money(balanceCents)} after planned spending.`)
   await expect(home.locator('.cash-flow-month')).toHaveCount(12)
   await expect(home.locator('details .annual-cash-flow-chart')).toHaveCount(0)
   await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(0)
