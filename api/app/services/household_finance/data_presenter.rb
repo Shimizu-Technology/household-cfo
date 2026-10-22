@@ -649,6 +649,15 @@ module HouseholdFinance
       "Keep wants under #{ActiveSupport::NumberHelper.number_to_currency(dollars(safe_to_spend), precision: 0)} until the next check-in."
     end
 
+    # Mirrors the web's documentNeedsReview for the current financial picture:
+    # a file awaiting value or source review, or holding a pending purchase.
+    def document_review_count
+      imports = household.financial_document_imports.current_picture
+      imports.pending_review
+        .or(imports.where.not(status: %w[failed source_deleted]).where(id: household.transaction_drafts.pending.select(:financial_document_import_id)))
+        .count
+    end
+
     def action_center
       current_year = Date.current.year
       current_year_range = Date.new(current_year, 1, 1)..Date.new(current_year, 12, 31)
@@ -660,6 +669,8 @@ module HouseholdFinance
         transaction_review_count: transaction_reviews,
         mia_action_review_count: action_reviews,
         total_review_count: transaction_reviews + action_reviews,
+        # Statements are reviewed separately; Home links to them without loading every import.
+        document_review_count: document_review_count,
         current_month_label: Date.current.strftime("%B"),
         current_month_index: Date.current.month - 1,
         current_year: current_year
