@@ -1,6 +1,6 @@
 # Household CFO current state
 
-Updated: 2026-08-17
+Updated: 2026-10-18
 
 This is the canonical implementation-status document for Household CFO Method. Product briefs and older PR roadmaps remain useful historical context, but this file is the source of truth for what is built, merged, locally proven, production-proven, and still conceptual.
 
@@ -26,12 +26,46 @@ Mrs. Mel reframed the immediate validation and the longer-term platform directio
 
 - The pre-FinCon validation is a focused group of about four women, not the earlier 16–21-person rollout.
 - The first-session hook is Mia as a culturally authentic coach between human coaching sessions. The app should lead with dialogue and the clearest money-in/money-out picture, not a tour of every module.
-- Uploads from both Ask Mia and My Profile must be treated as a release blocker until real-device production checks prove that supported spreadsheets and images can be read, reviewed, and retried safely.
+- Uploads from both Ask Mia and My Profile must be treated as a release blocker until real-device production checks prove that supported spreadsheets and images can be read, reviewed, and retried safely. (Update, October 2026: the bug that made every PDF/image upload fail to complete was fixed in PR #193, and later upload rounds hardened review and errors in #197 and #204. Real-device production checks are still outstanding.)
 - FinCon, September 16–18, is a tablet/phone demonstration and founding-coach recruitment milestone. The operating targets discussed were three coaches by December and ten by spring.
 - The eventual product is modular coach infrastructure: a coach can configure which modules are visible and build an AI persona from a questionnaire, coaching sources/transcripts, vetted financial sources, and carefully governed cultural/style guidance.
 - That coach-persona, module-configuration, and white-label system is a separate product track. PR #48 only prepares a dependable participant pilot and captures the evidence needed to design that system responsibly.
 
 This section supersedes the older cohort-size and setup/upload-first assumptions in historical roadmaps.
+
+## October 2026: BOG pilot readiness
+
+Status as of October 18, 2026 (Guam). The BOG savings challenge (30 participants, 90 days, suggested $500 target) is built and has been rehearsed end to end locally. It is not launched: no invitations have gone out, Mel has not accepted the flow, and no real-phone journey has been run. Sign-in is WorkOS only.
+
+### Built (PRs #193-#208, all merged)
+
+- Uploads: every PDF/image upload completes again (#193); reviewable bills, plain errors and sturdier batches (#197); manual and upload leftovers including F8/F9 (#204). Plaid sync no longer counts transfers and card payments as spending (#199). Manual flows: reopen/void, restore ignored, correct amount limits and two-tab edits (#200, #201).
+- Mia: alert when the AI provider refuses calls (#194); crisis responses for common texting slang (#195) and broader crisis phrases (#207); fallbacks that never echo the message (#196); setup, no-debt and follow-up routing fixes (#198); newest reply stays visible, stale cards close (#205).
+- Challenge scoping: Mia, chat and drafts follow the savings challenge, with an "opens soon" state that refuses everything until the challenge is opened (#202).
+- Admin controls: the admin chooses the savings experience and opens or pauses the challenge, with a recorded reason and audit history; admin only (#203). While paused, participants can only export their own data, and a first purchase can be logged without choosing a category (#208).
+- Program ownership: the admin names the program owner by email at creation; the owner is added as cohort coach automatically and loses that access if demoted (#206). The owner can build and publish the persona, pick the Savings experience, and seal and launch herself.
+- Mia challenge answers: deterministic answers for credit card, loan and hard-day questions (#207).
+
+### Proven locally
+
+- Full BOG rehearsal on main 6068ee16 (before #207 and #208): 53 pass, 3 fail, 5 blocked across journeys A-I. All 3 failures and the related follow-ups were fixed in #207 and #208. The rehearsal covered admin-created program with Mel as owner, Mel's own setup and launch, 8 invited participants, admin opening with audit history, the opens-soon state, joining with a $500, $300 or postponed target, daily purchases (place, optional feelings), no-spend days, missed days staying unknown, and pause/reopen. Money agreed everywhere it was shown: a $100 contribution, $25.50 evidence and a $25 withdrawal gave $75 reported and $0.50 supported in the UI, API, Mia, coach summary and Day 30 snapshot. An optional $300 card with unknown APR produced no invented ranking or payoff. Exports exclude feelings by default. The coach sees no amounts until a scoped grant and revoking works. The sponsor report is suppressed under 5 consenting participants. The Day 30 checkpoint stays frozen after a later contribution. The default program stays a challenge and chats stay separate.
+- Not tested in the rehearsal: full approved baseline from an upload, a positive sponsor report with at least 5 consenting approved checkpoints, sealed Day 60/90 report contents, capacity 30, real invite email delivery, Mel's seal button on a later real date, real phones.
+- 30-person Mia load test (local, single process): with the default concurrency of 4, 10 of 30 simultaneous users got canned replies; with 8, none did. That covered one simultaneous message per user on a local machine, not sustained load: in that burst a single web service with in-process jobs returned no errors, though other requests waited up to about 30 seconds behind Mia.
+- Manual QA re-test F1-F7 passes; chat and upload QA rounds were run and their findings fixed.
+- Evidence lives in local QA folders and is not committed. See `docs/bog-pilot/readiness-evidence.md` (E38).
+
+### Production-verified
+
+- The merged changes are deployed and health returns 200.
+- On October 17 production was set to `MIA_PROVIDER_MAX_CONCURRENCY=8` and `MIA_PROVIDER_ADMISSION_WAIT_MS=3000`, matching the load test.
+- Not production-verified: any real-phone journey, real invite email delivery, or a production run of the rehearsal.
+
+### Launch holds still open
+
+- Mel's acceptance walkthrough, and her decisions on start date, support hours, consent/retention wording and the sponsor report template. The acceptance packet has not been sent.
+- Real iPhone Safari and Android Chrome checks.
+- OpenRouter credit top-up and a spend cap. The account is shared with QA and had about $5 left on October 17.
+- Deferred follow-ups: TransactionDraft program attribution; two narrow loan-routing phrasings in Mia; a stale card can remain for another selected year after a failed refetch.
 
 ## Built in the current code
 
