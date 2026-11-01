@@ -20,6 +20,7 @@ import { AuthAccessPanel } from './components/AuthAccessPanel'
 import { WorkspaceOpening } from './components/WorkspaceOpening'
 import { WorkspaceVerificationError, workspaceLoadMessage } from './lib/workspaceLoadMessage'
 import { EarlierMiaConversations } from './components/EarlierMiaConversations'
+import { useClearRetainedDocumentFiles, useRetainedDocumentFile } from './components/documentUploadRetentionState'
 import { PausedDocumentImportPanel } from './components/PausedDocumentImportPanel'
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
 import { usePilotDialog } from './lib/usePilotDialog'
@@ -541,12 +542,13 @@ function visibleChatTrigger(...candidates: (HTMLButtonElement | null)[]) {
 function App() {
   useDialogViewport()
   const auth = useAuthContext()
+  const clearRetainedDocumentFiles = useClearRetainedDocumentFiles()
   const [restartNonce, setRestartNonce] = useState(0)
   const [restartNotice, setRestartNotice] = useState<string | null>(null)
   const identity = `${auth.authProvider}:${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
   if (auth.currentUser?.is_staff && !auth.currentUser.is_participant) return <StaffWorkspaceApp key={identity} currentUser={auth.currentUser} />
   return <ParticipantProgramSession identity={identity} authIdentityId={auth.authProvider === 'workos' ? `${auth.authProvider}:${auth.authIdentityId}` : auth.authIdentityId} legacyAuthIdentityId={auth.authProvider === 'workos' ? auth.currentUser?.clerk_id : undefined} actorId={auth.currentUser?.id} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)}>
-    {selection => <WorkspaceApp key={`${identity}:${selection.selectedCohortId ?? 'default'}:${restartNonce}`} {...selection} restartNotice={restartNotice} onDismissRestartNotice={() => setRestartNotice(null)} onFinancialRestart={message => { setRestartNotice(message); setRestartNonce(value => value + 1) }} />}
+    {selection => <WorkspaceApp key={`${identity}:${selection.selectedCohortId ?? 'default'}:${restartNonce}`} {...selection} restartNotice={restartNotice} onDismissRestartNotice={() => setRestartNotice(null)} onFinancialRestart={message => { clearRetainedDocumentFiles(); setRestartNotice(message); setRestartNonce(value => value + 1) }} />}
   </ParticipantProgramSession>
 }
 
@@ -4286,6 +4288,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
 
           {isFirstSessionUpload && <DocumentImportWorkspace
+            uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -4328,6 +4331,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         <ScreenHeading eyebrow="Statements" title="Statements" copy="Upload your statement and check each account and line. Your numbers change only after you approve." />
         {isFirstSessionSetup && <div className="first-session-upload-return"><Button variant="secondary" onClick={startManualFirstSession}>Return to starting numbers</Button></div>}
         <DocumentImportWorkspace
+            uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -4954,6 +4958,7 @@ function milestoneSummary(milestone: WealthData['milestones'][number]) {
 }
 
 function DocumentImportWorkspace({
+  uploadScope,
   onReviewBaseline,
   sectionRef,
   isRealWorkspace,
@@ -4987,6 +4992,7 @@ function DocumentImportWorkspace({
   onDeleteImport,
   onOpenSource,
 }: {
+  uploadScope: string
   onReviewBaseline?: () => void
   sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
@@ -5063,9 +5069,9 @@ function DocumentImportWorkspace({
       {error && <p className="document-alert error" role="alert">{error}</p>}
       {notice && <p className="document-alert success" role="status">{notice}</p>}
 
-      <div className="document-upload-primary">{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+      <div className="document-upload-primary">{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
       <details className="document-upload-secondary"><summary>Upload a receipt, pay stub or budget file</summary>
-        <div className="document-upload-grid">{documentUploadCards.filter(card => card.kind !== 'statement').map(card => <DocumentUploadCard key={card.kind} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+        <div className="document-upload-grid">{documentUploadCards.filter(card => card.kind !== 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
       </details>
 
       <div className="document-review-layout">
@@ -5105,21 +5111,23 @@ function DocumentImportWorkspace({
   )
 }
 
-function DocumentUploadCard({
+export function DocumentUploadCard({
+  retentionSlot,
   card,
   uploading,
   disabled,
   onUpload,
 }: {
+  retentionSlot: string
   card: (typeof documentUploadCards)[number]
   uploading: boolean
   disabled: boolean
   onUpload: (file: File) => Promise<boolean>
 }) {
-  const [retryFile, setRetryFile] = useState<File | null>(null)
+  const [retryFile, setRetryFile] = useRetainedDocumentFile(retentionSlot)
   async function upload(file: File) {
     setRetryFile(file)
-    if (await onUpload(file)) setRetryFile(null)
+    if (await onUpload(file)) setRetryFile(null, file)
   }
   const inputId = `document-upload-${card.kind}`
 

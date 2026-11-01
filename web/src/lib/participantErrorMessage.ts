@@ -14,7 +14,7 @@ const CODE_MESSAGES: Record<string, string> = {
   rate_limited: 'You’re going a little fast. Give it a minute and try again.',
   savings_challenge_unavailable: 'This part of your program isn’t available right now. Contact your program team if that seems wrong.',
   module_disabled: 'This tool isn’t turned on for your program.',
-  storage_unavailable: 'Uploads are unavailable for a moment. Try again in a few minutes.',
+  storage_unavailable: 'File storage is unavailable for a moment. Try again in a few minutes.',
 }
 
 const STATUS_MESSAGES: Record<number, string> = {

@@ -46,5 +46,5 @@ it('bounds stalled storage requests even when fetch ignores abort', async () => 
 it('keeps the storage-unavailable code safe for the participant', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ errors: ['Internal storage detail'], code: 'storage_unavailable' }), { status: 503 })))
   const error = await uploadDocumentImport(file(), 'statement').catch(error => error)
-  expect(participantErrorMessage(error, 'Fallback')).toBe('Uploads are unavailable for a moment. Try again in a few minutes.')
+  expect(participantErrorMessage(error, 'Fallback')).toBe('File storage is unavailable for a moment. Try again in a few minutes.')
 })

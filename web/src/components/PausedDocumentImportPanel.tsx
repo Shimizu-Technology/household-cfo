@@ -5,14 +5,18 @@ import './PausedDocumentImportPanel.css'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 /** Earlier extraction snapshots remain readable, without any current-picture mutations. */
-export function PausedDocumentImportPanel({ documentImport, uploading, opening, removing, acceptedFileTypes, onOpenSource, onDeleteSource, onUpload }: {
+type PanelProps = {
   documentImport: FinancialDocumentImport; uploading: boolean; opening: boolean; removing: boolean; acceptedFileTypes: string;
   onOpenSource: () => void; onDeleteSource: () => void; onUpload: (file: File) => Promise<boolean> | void
-}) {
+}
+export function PausedDocumentImportPanel(props: PanelProps) {
+  return <PausedDocumentImportContent key={props.documentImport.id} {...props} />
+}
+function PausedDocumentImportContent({ documentImport, uploading, opening, removing, acceptedFileTypes, onOpenSource, onDeleteSource, onUpload }: PanelProps) {
   const [retryFile, setRetryFile] = useState<File | null>(null)
   async function upload(file: File) {
     setRetryFile(file)
-    if (await onUpload(file)) setRetryFile(null)
+    if (await onUpload(file)) setRetryFile(current => current === file ? null : current)
   }
   const inputId = `document-fresh-copy-${documentImport.id}`
   return <article className="document-review-panel document-paused-panel" aria-label={`Earlier file ${documentImport.filename}`}>

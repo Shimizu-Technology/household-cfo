@@ -11,6 +11,7 @@ import { AuthProvider } from './contexts/AuthContext'
 import { PostHogProvider } from './providers/PostHogProvider'
 import { BrandBootstrapState } from './components/BrandBootstrapState'
 import { BrandDocument } from './components/BrandDocument'
+import { DocumentUploadRetentionBoundary } from './components/DocumentUploadRetention'
 import { IdentityBoundary } from './components/IdentityBoundary'
 import { useBrand } from './contexts/brandContextValue'
 
@@ -42,7 +43,7 @@ function Root() {
     <AuthProvider provider={config.provider} invitationToken={invitation.token} clientId={config.clientId} callbackError={callbackError} verificationEnabled={status === 'ready'}>
       <BrandDocument />
       <ProgramStartupGate><PostHogProvider>
-        <IdentityBoundary>{config.provider === 'workos' && route.startsWith('/login:') ? <AuthLoginRoute /> : route.startsWith('/organization-access:') || route.endsWith(':true') ? <EnterpriseAccessPage /> : <AppEntry />}</IdentityBoundary>
+        <DocumentUploadRetentionBoundary><IdentityBoundary>{config.provider === 'workos' && route.startsWith('/login:') ? <AuthLoginRoute /> : route.startsWith('/organization-access:') || route.endsWith(':true') ? <EnterpriseAccessPage /> : <AppEntry />}</IdentityBoundary></DocumentUploadRetentionBoundary>
       </PostHogProvider></ProgramStartupGate>
     </AuthProvider>
   )

@@ -41,3 +41,17 @@ test('a failed fresh-copy upload retains the file and retries without reopening 
   expect(onUpload).toHaveBeenNthCalledWith(1, file)
   expect(onUpload).toHaveBeenNthCalledWith(2, file)
 })
+test('changing the selected earlier import clears its retained fresh copy', async () => {
+  const onUpload = vi.fn().mockResolvedValue(false)
+  const p = { ...props(), onUpload }
+  const view = render(<PausedDocumentImportPanel {...p} />)
+  const file = new File(['fictional'], 'private-copy-for-three.pdf', { type: 'application/pdf' })
+  fireEvent.change(screen.getByLabelText('Choose a fresh copy'), { target: { files: [file] } })
+  await screen.findByText('private-copy-for-three.pdf is still selected.')
+  view.rerender(<PausedDocumentImportPanel {...p} documentImport={{ ...snapshot, id: 4, filename: 'other-import.pdf' }} />)
+  expect(screen.queryByText('private-copy-for-three.pdf is still selected.')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Try this file again' })).toBeNull()
+  view.rerender(<PausedDocumentImportPanel {...p} />)
+  expect(screen.queryByRole('button', { name: 'Try this file again' })).toBeNull()
+  expect(onUpload).toHaveBeenCalledOnce()
+})
