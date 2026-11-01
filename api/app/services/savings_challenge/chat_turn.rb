@@ -8,10 +8,15 @@ module SavingsChallenge
     PROGRESS = /\b(?:how am i doing|where am i|day\s*(?:30|60|90)|30\s*[\/,]\s*60|checkpoints?)\b/i.freeze
 
     def self.special?(message, session:)
-      return false if HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i)
+      return false if HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i) || money_report?(message)
       message.match?(PATTERNS) || message.match?(GOAL_CHANGE) || message.match?(PROGRESS) ||
         (message.match?(GOAL) && message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)) ||
         (session.active_topic["type"] == "challenge_patterns" && pattern_continuation?(message, choices: session.active_topic["choices"]))
+    end
+
+    def self.money_report?(message)
+      return false if message.match?(/\?|\A\s*(?:how|why|what|where|can|could|should|do|did|is|are)\b/i)
+      message.match?(/\b(?:spent|bought|paid|saved|withdrew|set aside|no spending|no-spend)\b/i)
     end
 
     def self.pattern_continuation?(message, choices: [])
@@ -38,7 +43,7 @@ module SavingsChallenge
 
     def call
       @supplied_content_context = []
-      if @enrollment && @attachments.empty? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !::Mia::CrisisBoundary.hopeless?(@message) && !HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
+      if @enrollment && @attachments.empty? && !self.class.money_report?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !::Mia::CrisisBoundary.hopeless?(@message) && !HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
         return self if pattern_turn || goal_turn || progress_turn
       end
       parser = ChatIntake.new(@enrollment, message: @message) if @attachments.empty?
@@ -94,7 +99,7 @@ module SavingsChallenge
         end
         if selected && !@message.match?(/\b(?:neither|not|don.t|no)\b/i)
           @goal_cents = 50_000
-          @answer = "Trying #{selected['description'].to_s.downcase} could free about #{money(selected['monthly_impact_cents'].to_i)} in a month like the ones recorded. How about a $500 cushion over your 90 days to keep surprises off the card? Review the goal below; it only changes when you choose Yes, and spending less does not count until you actually set new money aside."
+          @answer = "Spending half as much at #{selected['merchant']} could free about #{money(selected['monthly_impact_cents'].to_i)} in a month like the ones recorded. How about a $500 cushion over your 90 days to keep surprises off the card? Review the goal below; it only changes when you choose Yes, and spending less does not count until you actually set new money aside."
           @topic = { type: "challenge_goal" }
           return true
         elsif @message.match?(/\b(?:what (?:do|should)|which|choose|comfortable|this or|options?)\b/i)

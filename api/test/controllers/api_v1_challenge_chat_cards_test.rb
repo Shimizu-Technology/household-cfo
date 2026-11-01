@@ -120,6 +120,16 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_empty response.parsed_body.fetch("records")
   end
 
+  test "purchase and no-spend reports containing checkpoint or subscription words keep their intake" do
+    ask "Day 30: Today I spent $15 at Stream subscription.", "day30-purchase"
+    assert_equal "daily_report", response.parsed_body.dig("challenge_chat_card", "kind")
+    assert_equal 1_500, response.parsed_body.dig("challenge_chat_card", "input", "purchases", 0, "amount_cents")
+    assert_nil response.parsed_body["spending_patterns"]
+    ask "Day 30: No spending today", "day30-no-spend"
+    assert_equal true, response.parsed_body.dig("challenge_chat_card", "input", "no_spend")
+    assert_equal 0, SavingsDailyPurchaseVersion.count
+  end
+
   test "checkpoint projection exposes Day 30 due and preserves unknown timeline days" do
     # An enrollment starts on acceptance; advance rather than rewriting its dates.
     travel 29.days
