@@ -87,6 +87,8 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   const mixed = await ask('I spent $60 at Ross today. How am I doing this month?', 'purchase-with-overview', /Ross|review/i)
   expect(mixed.transaction_draft.merchant).toBe('Ross')
   expect(mixed.transaction_draft.amount_cents).toBe(6000)
+  const reversed = await ask('How am I doing this month? I spent $60 at Ross today.', 'overview-before-purchase', /Ross|review/i)
+  expect(reversed.transaction_draft.amount_cents).toBe(6000)
   const correctedStore = `${reviewStore} Corrected`
   await ask(`I spent money at ${reviewStore} Original today`, 'merchant-question', /how much|amount/i)
   const corrected = await ask(`It was $60 at ${correctedStore} yesterday`, 'merchant-correction', /review/i)
@@ -94,6 +96,9 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   await ask(`I spent money at ${reviewStore} Tax today`, 'total-question', /how much|amount/i)
   const total = await ask('It was $60, including $5 tax', 'total-clarification', /total.*purchase amount/i)
   expect(total.transaction_draft).toBeNull()
+  await ask(`I spent $60 at ${reviewStore} Dated on February 30`, 'date-question', /when|day/i)
+  const tax = await ask('It was yesterday, including $5 tax', 'tax-clarification', /total.*purchase amount/i)
+  expect(tax.transaction_draft).toBeNull()
   const isoMonth = await ask('How am I doing in 2026-09?', 'iso-month', /September 2026/)
   expect(isoMonth.month_answer.month).toBe(9)
   const workspace = await request.get(`${api}/workspace`, { headers })

@@ -81,6 +81,24 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     assert_equal "pending", draft.fetch("status")
   end
 
+  test "an incurred purchase following a month question still reaches review" do
+    post_message("How am I doing this month? I spent $60 at Ross today.")
+    draft = response.parsed_body.fetch("transaction_draft")
+    assert draft, response.parsed_body.slice("assistant_message", "transaction_draft").inspect
+    assert_equal "Ross", draft.fetch("merchant")
+    assert_equal 6000, draft.fetch("amount_cents")
+  end
+
+  test "a date clarification with a tax component cannot replace the earlier total" do
+    @household.transaction_drafts.destroy_all
+    post_message("I spent $60 at Ross on February 30")
+    assert_no_difference -> { @household.transaction_drafts.count } do
+      post_message("It was yesterday, including $5 tax")
+    end
+    assert_nil response.parsed_body["transaction_draft"]
+    assert_includes reply, "total Ross purchase amount"
+  end
+
   test "the latest merchant in a purchase clarification overrides the earlier one" do
     @household.transaction_drafts.destroy_all
     post_message("I spent money at Ross today")

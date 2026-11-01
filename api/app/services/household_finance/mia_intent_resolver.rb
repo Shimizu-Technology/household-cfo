@@ -215,12 +215,13 @@ module HouseholdFinance
       return nil if user_message.blank?
       read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(user_message)
       if !read_only_request && MiaMonthAnswer.question?(user_message)
-        question = raw_user_message.match(MiaMonthAnswer::QUESTION)
-        report_text = raw_user_message[0...question.begin(0)].sub(/\s+and\s*\z/i, "").strip
-        if MiaCoachAnswerer.spend_report_text?(report_text)
-          purchase = deterministic_purchase_result(report_message: report_text)
-          return purchase if purchase
-        end
+        report_text = raw_user_message.split(/(?<=[.!?])\s+/).filter_map do |sentence|
+          question = sentence.match(MiaMonthAnswer::QUESTION)
+          candidate = question ? sentence[0...question.begin(0)].sub(/\s+and\s*\z/i, "").strip : sentence
+          candidate if MiaCoachAnswerer.spend_report_text?(candidate) && !PurchaseReportParser.question_or_plan?(candidate)
+        end.join(" ")
+        purchase = deterministic_purchase_result(report_message: report_text) if report_text.present?
+        return purchase if purchase
       end
       coaching = deterministic_coaching_result
       coaching ||= deterministic_category_followup_result || deterministic_purchase_continuation_result unless read_only_request
@@ -288,14 +289,13 @@ module HouseholdFinance
       report = texts.reverse.find { |text| text.match?(/\b(?:i|we) (?:spent|paid|bought)\b/i) && !text.include?("?") }
       return unless report
       combined = "#{report} #{user_message}"
-      amounts = user_message.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).flatten
-      amounts = report.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).flatten if amounts.empty?
+      amounts = combined.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).flatten.uniq
       merchant = [ user_message, report ].filter_map do |text|
         match = text.match(PurchaseReportParser::MERCHANT_PATTERN)
         PurchaseReportParser.merchant(match[:merchant]) if match
       end.find(&:present?)
       return if amounts.empty? || merchant.blank?
-      if amounts.many?
+      if amounts.many? || user_message.match?(/\b(?:tax|tip|fees?)\s*(?:was|is|of|:)?\s*\$|\$[\d,.\s]+(?:in\s+)?(?:tax|tip|fees?)\b/i)
         return purchase_continuation_clarification("What was the total #{merchant} purchase amount, including tax?", merchant)
       end
       amount = amounts.sole
