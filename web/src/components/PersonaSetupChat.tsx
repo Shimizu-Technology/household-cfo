@@ -33,7 +33,7 @@ export function PersonaSetupChat({
   manualDirty: boolean
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onPersonaChange: (persona: AdminPersonaDetail) => void
-  onReviewInForm: (state: AuthoringState, firstPath: string | null) => void
+  onReviewInForm: (state: AuthoringState, firstPath: string | null, draftRevision: number) => void
   onDirtyChange: (dirty: boolean) => void
   saveAndPreview?: boolean
 }) {
@@ -355,7 +355,7 @@ export function PersonaSetupChat({
             {manualDirty && <p className="persona-setup-apply-blocked" role="note">Save or discard your manual form changes before applying this proposal.</p>}
             <div className="persona-setup-review-actions">
               <Button disabled={pending !== null || manualDirty || acceptedIndexes.length === 0} onClick={() => void resolveProposal('apply')}>{pending === 'apply' ? 'Applying…' : saveAndPreview ? 'Save and preview answers' : 'Save selected suggestions'}</Button>
-              <Button variant="secondary" disabled={pending !== null} onClick={() => onReviewInForm(session.proposal!.after_state, session.proposal!.operations[0]?.path as string | undefined ?? null)}>Review in form</Button>
+              <Button variant="secondary" disabled={pending !== null} onClick={() => onReviewInForm(session.proposal!.after_state, session.proposal!.operations[0]?.path as string | undefined ?? null, session.proposal!.base_draft_revision)}>Review in form</Button>
               <Button variant="secondary" disabled={pending !== null} onClick={() => composerRef.current?.focus()}>Keep chatting</Button>
               <button type="button" className="persona-setup-reject" disabled={pending !== null} onClick={() => void resolveProposal('reject')}>{pending === 'reject' ? 'Rejecting…' : 'Reject proposal'}</button>
             </div>

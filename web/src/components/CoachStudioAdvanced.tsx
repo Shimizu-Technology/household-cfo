@@ -71,7 +71,9 @@ type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'draft_restore' | 'assignment' | 'phrase_restore' | null
 type StudioSection = 'settings' | 'groups' | 'assistants' | 'library' | 'participant_tools' | 'cohort_releases'
 
-export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection = 'groups', embedded = false, proposedState, onGroupsChanged, onPendingChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void; initialSection?: StudioSection; embedded?: boolean; proposedState?: {description: string; draft_config: PersonaConfiguration}; onGroupsChanged?: () => void; onPendingChange?: (pending: boolean) => void }) {
+export type CoachFormProposal = { description: string; draft_config: PersonaConfiguration; personaId: number; workspaceId: number; draftRevision: number }
+
+export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection = 'groups', embedded = false, proposedState, onGroupsChanged, onPendingChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void; initialSection?: StudioSection; embedded?: boolean; proposedState?: CoachFormProposal; onGroupsChanged?: () => void; onPendingChange?: (pending: boolean) => void }) {
   const { activeCoachWorkspaceId: activeWorkspaceId, selectCoachWorkspace } = useAuthContext()
   const workspaceOptions = currentUser.coach_workspaces ?? []
   const workspaceRole = workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role
@@ -120,6 +122,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
   const [collaboratorsDirty, setCollaboratorsDirty] = useState(false)
   const workspaceMutations = useCoachWorkspaceMutationLifecycle(activeWorkspaceId)
   const selectedIdRef = useRef<number | null>(null)
+  const proposalCopied = useRef(false)
   const activeWorkspaceIdRef = useRef(activeWorkspaceId)
   activeWorkspaceIdRef.current = activeWorkspaceId
   const loadPersonaRequestRef = useRef(0)
@@ -166,6 +169,16 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       setSelectedPersona(persona)
       setDraft(persona.draft ?? null)
       setDescription(persona.description)
+      if (proposedState && !proposalCopied.current) {
+        proposalCopied.current = true
+        if (proposedState.workspaceId !== requestedWorkspaceId || proposedState.personaId !== persona.id || proposedState.draftRevision !== persona.draft_revision || !persona.permissions.edit) {
+          setError('Your assistant or program changed. Open its latest suggestions before copying them into the form.')
+        } else {
+          setDescription(proposedState.description)
+          setDraft(proposedState.draft_config)
+          setMode('advanced')
+        }
+      }
       setPreview(null)
       setPreviewEvidence(null)
       setConflict(null)
@@ -187,7 +200,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     } finally {
       if (requestId === loadPersonaRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) setDetailLoading(false)
     }
-  }, [])
+  }, [proposedState])
 
   const loadPersonas = useCallback(async (preferredId?: number | null) => {
     // Workspace selection changes the request header and invalidates every result in this view.
@@ -202,6 +215,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       setPersonas(nextPersonas)
       const candidateId = preferredId
         ?? selectedIdRef.current
+        ?? (proposedState?.workspaceId === requestedWorkspaceId ? proposedState.personaId : null)
         ?? nextPersonas.find((persona) => persona.status !== 'archived')?.id
         ?? nextPersonas[0]?.id
         ?? null
@@ -211,6 +225,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
         selectedIdRef.current = null
         setSelectedPersona(null)
         setDraft(null)
+        if (proposedState) setError('This assistant changed or is no longer available. Open its latest suggestions again.')
       }
     } catch (caught) {
       if (requestId === loadPersonasRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) {
@@ -220,7 +235,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     } finally {
       if (requestId === loadPersonasRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) setLoading(false)
     }
-  }, [activeWorkspaceId, loadPersona])
+  }, [activeWorkspaceId, loadPersona, proposedState])
 
   const loadCohorts = useCallback(async () => {
     const requestedWorkspaceId = activeWorkspaceId
@@ -744,15 +759,6 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     }
     setError(message)
   }
-
-  const proposalCopied = useRef(false)
-  useEffect(() => {
-    if (!proposedState || !selectedPersona || proposalCopied.current) return
-    proposalCopied.current = true
-    setDescription(proposedState.description)
-    setDraft(proposedState.draft_config)
-    setMode('advanced')
-  }, [proposedState, selectedPersona])
 
   useEffect(() => { onPendingChange?.(pendingAction !== null || workspaceMutations.pending) }, [onPendingChange, pendingAction, workspaceMutations.pending])
 

@@ -129,7 +129,7 @@ describe('PersonaSetupChat', () => {
 
     expect((await screen.findByRole('button', { name: 'Save selected suggestions' }) as HTMLButtonElement).disabled).toBe(true)
     await userEvent.click(screen.getByRole('button', { name: 'Review in form' }))
-    expect(onReviewInForm).toHaveBeenCalledWith(authoringState, 'identity.human_coach_name')
+    expect(onReviewInForm).toHaveBeenCalledWith(authoringState, 'identity.human_coach_name', 1)
   })
 
   it('blocks switching during a turn and ignores the delayed prior-workspace response', async () => {

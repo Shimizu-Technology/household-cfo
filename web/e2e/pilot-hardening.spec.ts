@@ -10494,7 +10494,7 @@ for (const role of ['participant', 'coach', 'admin']) {
     } else {
       await expect(page.getByRole('navigation', { name: /participant sections/ })).toHaveCount(0)
       if (role === 'admin') await openSection(page, 'Admin')
-      else await page.getByRole('tab', { name: 'Program settings', exact: true }).click()
+      else await page.getByRole('button', { name: 'Your assistant', exact: true }).click()
     }
     expect(Math.abs(await account.evaluate(node => node.getBoundingClientRect().right) - homeRight)).toBeLessThanOrEqual(1)
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
@@ -12147,7 +12147,7 @@ for (const role of ['coach', 'admin'] as const) {
     })
     if (role === 'coach') {
       await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
-      await page.getByRole('tab', { name: /Daily coaching/ }).click()
+      await page.getByRole('navigation', { name: 'Coach Studio areas', exact: true }).getByRole('button', { name: 'People', exact: true }).click()
       await expect(page.getByRole('combobox', { name: /Choose a group/ })).toBeVisible()
       await page.getByRole('button', { name: 'Setup help requests', exact: true }).click()
     } else {
@@ -12547,7 +12547,7 @@ for (const role of ['coach', 'admin'] as const) {
     await page.goto(url)
     await expect(page.getByRole('navigation', { name: 'Staff sections' })).toBeVisible()
     await expect(page).toHaveURL(/#Coach%20Studio$/)
-    await expect(page.getByRole('tab', { name: 'Daily coaching', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('navigation', { name: 'Coach Studio areas', exact: true }).getByRole('button', { name: 'People', exact: true })).toHaveAttribute('aria-current', 'page')
     await expect(page.getByRole('navigation', { name: 'Household CFO participant sections' })).toHaveCount(0)
     for (const destination of ['Home', 'Review', 'Ask Mia', 'Budget', 'My Money', 'My Profile', 'Statements', ...(role === 'coach' ? ['Admin'] : [])]) {
       await page.goto(`${url}#${encodeURIComponent(destination)}`)
@@ -12558,7 +12558,7 @@ for (const role of ['coach', 'admin'] as const) {
     await openAccountHelp(page)
     await expect(page.getByRole('button', { name: 'Reset my test workspace', exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: 'Guide', exact: true }).click()
-    await expect(page.getByRole('dialog')).toContainText('Start in Daily coaching')
+    await expect(page.getByRole('dialog')).toContainText('Start in People')
     await page.keyboard.press('Escape')
     await expect(page.locator('.shell-account-menu > summary')).toBeFocused()
     expect(financeReads).toEqual([])

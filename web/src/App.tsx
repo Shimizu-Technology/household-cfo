@@ -4918,9 +4918,9 @@ function PilotGuideDialog({ onClose, savingsChallenge = false, staffOnly = false
         <div className="pilot-dialog-body">
         <ol className="pilot-guide-steps">
           {staffOnly ? <>
-            <li><span>1</span><div><strong>Start in Daily coaching.</strong><p>Choose a group and review who needs help.</p></div></li>
+            <li><span>1</span><div><strong>Start in People.</strong><p>Choose a group and review who needs help.</p></div></li>
             <li><span>2</span><div><strong>Open a participant with permission.</strong><p>Use only the information that participant has shared for coaching.</p></div></li>
-            <li><span>3</span><div><strong>Use the program tools when needed.</strong><p>Program settings, Assistant voice and Coaching Library stay in Coach Studio.</p></div></li>
+            <li><span>3</span><div><strong>Set up your assistant, then go live.</strong><p>Use Your assistant for voice, teaching, tools and appearance. Review changes in Go live.</p></div></li>
           </> : savingsChallenge ? <>
             <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested $500 over 90 days is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
             <li><span>2</span><div><strong>Use Today for a quick check-in.</strong><p>Report purchases when useful, distinguish no spending from unknown spending, and return for your Day 30, 60 and 90 checkpoints. Feelings are optional.</p></div></li>

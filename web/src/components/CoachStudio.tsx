@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createAdminPersona, fetchAdminPersonas, fetchAdminPersona, fetchAdminPersonaAssignableCohorts, type AdminPersonaDetail, type AdminPersonaAssignableCohort, type CurrentUser, type PersonaConfiguration } from '../api'
+import { createAdminPersona, fetchAdminPersonas, fetchAdminPersona, fetchAdminPersonaAssignableCohorts, type AdminPersonaDetail, type AdminPersonaAssignableCohort, type CurrentUser } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
 import { Button } from './Button'
-import { CoachStudioAdvanced } from './CoachStudioAdvanced'
+import { CoachStudioAdvanced, type CoachFormProposal } from './CoachStudioAdvanced'
 import { CoachProgramSettings } from './CoachProgramSettings'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { CoachContentLibrary } from './CoachContentLibrary'
@@ -15,7 +15,7 @@ import './CoachStudio.css'
 type Area = 'people' | 'assistant' | 'live'
 type Task = 'voice' | 'branding' | 'tools' | 'teaching' | 'advanced'
 
-type ProposedState = { description: string; draft_config: PersonaConfiguration }
+type ProposedState = CoachFormProposal
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
@@ -119,7 +119,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
         : task === 'teaching' ? <>{persona && <CoachTeaching key={`${persona.id}:${persona.draft_revision}`} persona={persona} lifecycle={lifecycle} onDirtyChange={trackDirty} onSaved={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} />}<details><summary>Teaching library and sources</summary><CoachContentLibrary currentUser={currentUser} selectedPersona={persona} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} onPersonaChange={setPersona} /></details></>
         : !persona ? <article className="panel"><h3>What is your assistant called?</h3><p>You can change its voice and name later.</p><label>Assistant name<input value={name} maxLength={80} onChange={(event) => { setName(event.target.value); trackDirty(true) }} /></label><Button disabled={busy || !name.trim()} onClick={() => void create()}>Describe this assistant</Button></article>
         : !persona.permissions.edit ? <p>Your assistant is available for review. Ask a program owner or editor to change its voice.</p>
-        : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} saveAndPreview onPersonaChange={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} onReviewInForm={(state) => leave(() => onAdvanced(state))} /><Button disabled={dirty || lifecycle.pending} onClick={() => setArea('live')}>Preview answers</Button></>}
+        : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} saveAndPreview onPersonaChange={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} onReviewInForm={(state, _path, draftRevision) => leave(() => onAdvanced({ ...state, personaId: persona.id, workspaceId, draftRevision }))} /><Button disabled={dirty || lifecycle.pending} onClick={() => setArea('live')}>Preview answers</Button></>}
       </> : persona ? <CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} autoPreview={previewOnOpen} /> : <article className="panel"><h3>Describe your assistant first</h3><Button onClick={() => setArea('assistant')}>Set up your assistant</Button></article>}
     <details className="coach-simple-advanced"><summary>Advanced / history</summary><p>All structured fields, approved sources, earlier versions, team access and controlled group updates.</p><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => leave(() => onAdvanced())}>Open advanced settings</Button></details>
   </section>

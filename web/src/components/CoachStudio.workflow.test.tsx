@@ -249,3 +249,25 @@ it('starts with Daily coaching and a single quiet Studio heading', async () => {
   expect(screen.queryByText('Your coaching workspace.')).toBeNull()
   expect(mocks.fetchAdminPersonas).not.toHaveBeenCalled()
 })
+
+
+describe('reviewed suggestion handoff into the detailed form', () => {
+  const proposal = { description: 'Private source-assistant suggestion', draft_config: persona.draft!, personaId: 81, workspaceId: 2, draftRevision: 1 }
+  it('loads the source assistant even when another assistant moves ahead in the library', async () => {
+    const other = { ...persona, id: 82, name: 'Another assistant' }
+    mocks.fetchAdminPersonas.mockResolvedValue([other, persona])
+    mocks.fetchAdminPersona.mockImplementation(async (id: number) => id === 81 ? persona : other)
+    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} initialSection="assistants" proposedState={proposal} />)
+    await screen.findByDisplayValue(proposal.description)
+    expect(mocks.fetchAdminPersona).toHaveBeenCalledWith(81)
+    expect(mocks.fetchAdminPersona).not.toHaveBeenCalledWith(82)
+    expect(screen.getByLabelText('Assistant name')).toHaveProperty('value', 'Coach Lani')
+  })
+  it.each(['revision', 'program'])('does not copy private suggestions after the source %s changes', async (changed) => {
+    if (changed === 'revision') mocks.fetchAdminPersona.mockResolvedValue({ ...persona, draft_revision: 2 })
+    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} initialSection="assistants" proposedState={changed === 'program' ? { ...proposal, workspaceId: 3 } : proposal} />)
+    await screen.findByText('Your assistant or program changed. Open its latest suggestions before copying them into the form.')
+    expect(screen.queryByDisplayValue(proposal.description)).toBeNull()
+    expect(mocks.fetchAdminPersona).toHaveBeenCalledWith(81)
+  })
+})
