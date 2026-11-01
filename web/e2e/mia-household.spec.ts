@@ -64,7 +64,8 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   const card = page.locator(`[data-review-item="${id}"]`)
   await card.getByRole('button', { name: /^Edit Payless/ }).click()
   await card.getByRole('combobox', { name: 'Category', exact: true }).selectOption('new')
-  const attemptSuffix = testInfo.retry ? ' Retry' : ''
+  const runLabel = process.env.HCFO_W1_RUN_LABEL
+  const attemptSuffix = `${runLabel ? ` ${runLabel}` : ''}${testInfo.retry ? ' Retry' : ''}`
   const name = `Cigarettes ${label}${attemptSuffix}`
   await card.getByRole('textbox', { name: 'New category name', exact: true }).fill(name)
   await card.getByRole('textbox', { name: 'New category name', exact: true }).evaluate((input) => input.scrollIntoView({ block: 'center' }))
