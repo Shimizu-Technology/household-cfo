@@ -16,7 +16,7 @@ module FinancialDocuments
     MAX_WARNINGS = 12
     PDF_BATCH_PAGES = 4
     STATEMENT_PDF_BATCH_PAGES = 2
-    SPREADSHEET_BATCH_ROWS = 40
+    SPREADSHEET_BATCH_ROWS = 80
     MAX_PDF_PAGES = 60
     MAX_OUTPUT_TOKENS = 24_000
     TRANSACTION_CONFIDENCE_DECIMALS = {
@@ -73,7 +73,9 @@ module FinancialDocuments
         check_source_safety!(document_import, tempfile.path)
         progress!
         structured_result = structured_spreadsheet_result(document_import, tempfile.path)
-        return Result.new(success: true, data: structured_result.data, error: nil, metadata: { extraction_mode: "structured_spreadsheet" }) if structured_result&.success?
+        if structured_result&.success? && Array(structured_result.data[:unparsed_sheet_indices]).empty?
+          return Result.new(success: true, data: structured_result.data, error: nil, metadata: { extraction_mode: "structured_spreadsheet" })
+        end
         return failure(structured_result.error) if terminal_structured_spreadsheet_error?(structured_result)
 
         native = native_statement_result(document_import, tempfile.path)
@@ -81,7 +83,7 @@ module FinancialDocuments
 
         return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { error_detail: "OpenRouter API key is not configured" }) if api_key.blank?
 
-        batched_spreadsheet = batched_spreadsheet_result(document_import, tempfile.path)
+        batched_spreadsheet = batched_spreadsheet_result(document_import, tempfile.path, structured_data: structured_result&.success? ? structured_result.data : nil)
         return batched_spreadsheet if batched_spreadsheet
 
         batched_pdf = batched_pdf_result(document_import, tempfile.path)
@@ -171,15 +173,17 @@ module FinancialDocuments
 
     # Only unrecognized workbooks reach the model. Keep physical row/sheet
     # locators, give each batch header context, and never accept partial output.
-    def batched_spreadsheet_result(document_import, file_path)
+    def batched_spreadsheet_result(document_import, file_path, structured_data: nil)
       return unless document_import.spreadsheet?
 
       summary = SpreadsheetSummarizer.new(file_path: file_path, filename: document_import.filename).call
       if summary[:scan_incomplete] || summary[:column_limit_exceeded] || summary[:sheets].any? { |sheet| sheet[:rows_truncated] }
         return failure("This workbook could not be inspected completely. Remove empty rows or columns, or split it into smaller workbooks so every value can be reviewed.")
       end
-      results = []
+      results = structured_data ? [ Result.new(success: true, data: structured_data, error: nil, metadata: {}) ] : []
+      summary[:already_extracted_setup_items] = Array(structured_data&.dig(:items)).map { |item| item.slice(:target_type, :label, :amount_cents, :balance_cents, :payment_cents, :cadence) }
       summary[:sheets].each do |sheet|
+        next if Array(structured_data&.dig(:parsed_sheet_indices)).include?(sheet[:sheet_index])
         sheet[:rows].each_slice(SPREADSHEET_BATCH_ROWS) do |rows|
           result = extract_spreadsheet_rows(document_import, file_path, summary, sheet, rows)
           return result unless result.success?
@@ -200,10 +204,10 @@ module FinancialDocuments
       progress!
       @spreadsheet_batch_coverage = { expected_sheet_count: summary[:sheet_count], processed_sheets: [ sheet[:sheet_index] ] }
       @spreadsheet_batch_summary = summary.except(:sheets).merge(sheets: [ sheet.merge(rows: rows,
-        header_context_only: sheet[:rows].first(8).select { |row| row[:row] < rows.first[:row] }.map { |row| row.except(:cell_types, :cell_formats) }) ])
+        header_context_only: spreadsheet_header_context(sheet, rows)) ])
       label = "worksheet #{sheet[:sheet_index] + 1}, rows #{rows.first[:row]}-#{rows.last[:row]}"
       result = extract_openrouter_document(document_import, file_path,
-        batch_label: "#{label}. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections")
+        batch_label: "#{label}. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections. already_extracted_setup_items were read deterministically from other sheets: do not repeat those values from supporting schedules. Archived or superseded planning estimates and notes are not current setup items or actual transactions")
       if result.metadata[:finish_reason] == "length" && rows.length > 1
         children = []
         rows.each_slice((rows.length / 2.0).ceil) do |smaller|
@@ -216,11 +220,29 @@ module FinancialDocuments
         return Result.new(success: true, data: children.flat_map(&:data), error: nil, metadata: {})
       end
       return failure("One section of this workbook didn’t finish. #{result.error}", metadata: result.metadata) unless result.success?
+      events = Array(result.data.dig(:source_accounting, :events))
+      unless events.all? { |event| event.dig(:locator, :sheet_index) == sheet[:sheet_index] && rows.pluck(:row).include?(event.dig(:locator, :row)) }
+        return failure("We couldn’t match one workbook section to its source rows. Nothing changed. Try Reprocess or export that worksheet as CSV.")
+      end
+      if Array(result.data[:transaction_drafts]).any? && result.data.dig(:source_accounting, :contract_version) != AccountingContract::VERSION
+        return failure("We couldn’t match the workbook transactions to their source rows. Nothing changed. Try Reprocess or export that worksheet as CSV.")
+      end
 
       Result.new(success: true, data: [ result ], error: nil, metadata: {})
     ensure
       @spreadsheet_batch_summary = nil
       @spreadsheet_batch_coverage = nil
+    end
+
+    def spreadsheet_header_context(sheet, rows)
+      earlier = sheet[:rows].select { |row| row[:row] < rows.first[:row] }
+      # Carry the preamble and any later text-only column/section headers,
+      # rather than assuming that the table starts in the first eight rows.
+      headers = earlier.select do |row|
+        values = row[:values].reject(&:blank?)
+        values.any? && values.none? { |value| value.to_s.match?(/\d/) }
+      end
+      (earlier.first(12) + headers.last(12) + earlier.last(4)).uniq { |row| row[:row] }.map { |row| row.except(:cell_types, :cell_formats) }
     end
 
     def batched_pdf_result(document_import, file_path)
@@ -389,7 +411,7 @@ module FinancialDocuments
     end
 
     def merge_source_accounting(batch_data, page_count:, sheet_count: nil)
-      sources = batch_data.map { |data| data[:source_accounting] || AccountingContract.legacy(data[:transaction_drafts]) }
+      sources = batch_data.map { |data| (data[:source_accounting] || AccountingContract.legacy(data[:transaction_drafts])).deep_dup }
       financial_sources = sources.reject { |source| source[:contract_version] == AccountingContract::LEGACY_VERSION && source[:events].empty? }
       versions = (financial_sources.presence || sources).pluck(:contract_version).uniq
       return failure("Statement batches returned inconsistent source accounting contracts; no partial statement was accepted.") unless versions.one?
@@ -402,6 +424,18 @@ module FinancialDocuments
       batch_accounts = sources.map do |source|
         source[:accounts].reject do |account|
           source[:contract_version] == AccountingContract::LEGACY_VERSION && source[:events].empty? && account == placeholder
+        end
+      end
+      # Model keys are local to each request ("checking" is common). Make
+      # them distinct before joining only independently verified identities.
+      if batch_accounts.count(&:any?) > 1
+        batch_accounts.each_with_index do |accounts, index|
+          keys = accounts.to_h { |account| [ account[:source_key], Digest::SHA256.hexdigest("batch/#{index}/#{account[:source_key]}") ] }
+          accounts.each { |account| account[:source_key] = keys.fetch(account[:source_key]) }
+          sources[index][:events].each do |event|
+            event[:source_key] = keys.fetch(event[:source_key], event[:source_key])
+            Array(event[:funding_components]).each { |part| part[:source_key] = keys.fetch(part[:source_key], part[:source_key]) }
+          end
         end
       end
       canonical_keys = canonical_account_keys(batch_accounts)
@@ -701,13 +735,19 @@ module FinancialDocuments
     end
 
     def normalize_extraction(data, document_import, coverage: {})
-      if (limit_error = extraction_row_limit_error(data))
+      payload = data.is_a?(Hash) ? data : {}
+      kind = normalized_document_kind(payload["document_kind"], fallback: document_import.document_kind)
+      if (limit_error = extraction_row_limit_error(payload.merge("document_kind" => kind)))
         raise ArgumentError, limit_error
       end
 
-      payload = data.is_a?(Hash) ? data : {}
       warnings = Array(payload["warnings"]).filter_map { |warning| sanitized_text(warning, max_length: 240).presence }.first(MAX_WARNINGS)
       normalized_items = Array(payload["items"]).filter_map { |item| normalize_item(item) }
+      # Statement activity is historical evidence, not a recurring household
+      # plan. Account headers already have their own explicit source review.
+      if kind == "statement" && payload["source_accounting"].is_a?(Hash)
+        normalized_items = []
+      end
       over_limit_count = Array(payload["items"]).count { |item| item.is_a?(Hash) && %w[amount balance payment].any? { |key| HouseholdFinance::Money.document_amount_over_limit?(item[key]) } } +
         Array(payload["transaction_drafts"]).count { |draft| draft.is_a?(Hash) && HouseholdFinance::Money.document_amount_over_limit?(draft["total_amount"] || draft["amount"]) }
       warnings.unshift("Left out #{over_limit_count} #{over_limit_count == 1 ? 'row' : 'rows'} with an amount above #{HouseholdFinance::Money::MAX_AMOUNT_TEXT}. Check the file, or add those amounts by hand.") if over_limit_count.positive?
@@ -720,7 +760,7 @@ module FinancialDocuments
         AccountingContract.legacy(Array(payload["transaction_drafts"]), coverage: coverage)
       end
       {
-        document_kind: normalized_document_kind(payload["document_kind"], fallback: document_import.document_kind),
+        document_kind: kind,
         document_date: parsed_date(payload["document_date"]),
         period_start_on: parsed_date(payload["period_start_on"]),
         period_end_on: parsed_date(payload["period_end_on"]),
@@ -744,7 +784,7 @@ module FinancialDocuments
       end
 
       item_count = Array(payload["items"]).length
-      if item_count > MAX_ITEMS
+      if item_count > MAX_ITEMS && !(payload["document_kind"] == "statement" && payload["source_accounting"].is_a?(Hash))
         return "This document contains more than #{MAX_ITEMS} budget/profile values. Split it into smaller files so every value can be reviewed without silently truncating the results."
       end
 

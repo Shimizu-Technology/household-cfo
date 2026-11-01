@@ -1,0 +1,45 @@
+{
+  "fixture": "budget-annual-2026.xlsx",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "recorded_on": "2026-11-02",
+  "responses": [
+    {
+      "label": "worksheet 2, rows 1-12. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections. already_extracted_setup_items were read deterministically from other sheets: do not repeat those values from supporting schedules. Archived or superseded planning estimates and notes are not current setup items or actual transactions",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"spreadsheet\",\n  \"document_date\": null,\n  \"period_start_on\": \"2026-01-01\",\n  \"period_end_on\": \"2026-12-31\",\n  \"summary\": \"2026 monthly household plan with flat monthly net income and planned expense rows. Every visible value matches a setup item already extracted from the other sheets, so no new items are added.\",\n  \"confidence\": 0.9,\n  \"warnings\": [],\n  \"items\": [],\n  \"transaction_drafts\": [],\n  \"source_accounting\": null\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 4138,
+            "completion_tokens": 430,
+            "total_tokens": 4568,
+            "cost": 0.012576,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.012576,
+              "upstream_inference_prompt_cost": 0.008276,
+              "upstream_inference_completions_cost": 0.0043
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 248,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "fixture": "receipt-restaurant-2026-09-05.jpg",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "recorded_on": "2026-11-02",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"receipt\",\n  \"document_date\": \"2026-09-05\",\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"Restaurant receipt from Island Table - Tamuning for $67.20 total ($53.20 food and drink, $0.00 tax, $14.00 tip), paid by Visa ending 1234.\",\n  \"confidence\": 0.9,\n  \"warnings\": [\n    \"Receipt date printed as 09/05/2026 was read as MM/DD/YYYY (September 5, 2026), the US/Guam convention. Please confirm the date.\",\n    \"Tip of $14.00 is about 26% of the subtotal. It is included in the total and the Dining split.\"\n  ],\n  \"items\": [],\n  \"transaction_drafts\": [\n    {\n      \"occurred_on\": \"2026-09-05\",\n      \"merchant\": \"Island Table - Tamuning\",\n      \"total_amount\": 67.2,\n      \"source_type\": \"receipt\",\n      \"category_name\": \"Dining\",\n      \"confidence\": 0.9,\n      \"evidence\": \"Receipt SYN-2026-0900: Grilled fish plate 24.95, Chicken plate 21.95, Iced tea x 2 6.30, Subtotal $53.20, Tax $0.00, Tip $14.00, TOTAL $67.20. Visa ****1234 approved.\",\n      \"raw_description\": \"Island Table - Tamuning, Guam, Register DEMO-04, 09/05/2026 18:24, Receipt SYN-2026-0900\",\n      \"external_id\": \"SYN-2026-0900\",\n      \"warnings\": [\n        \"Date format MM/DD vs DD/MM is ambiguous; read as MM/DD.\"\n      ],\n      \"splits\": [\n        {\n          \"amount\": 67.2,\n          \"category_name\": \"Dining\",\n          \"notes\": \"Grilled fish plate, chicken plate, 2 iced teas ($53.20) plus $14.00 tip; no tax\",\n          \"confidence\": 0.92\n        }\n      ]\n    }\n  ],\n  \"source_accounting\": null\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 3771,
+            "completion_tokens": 967,
+            "total_tokens": 4738,
+            "cost": 0.017212,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.017212,
+              "upstream_inference_prompt_cost": 0.007542,
+              "upstream_inference_completions_cost": 0.00967
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 261,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

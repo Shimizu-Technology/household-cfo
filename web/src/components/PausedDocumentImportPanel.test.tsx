@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { FinancialDocumentImport } from '../api'
 import { PausedDocumentImportPanel } from './PausedDocumentImportPanel'
@@ -29,4 +29,15 @@ test('retained extraction remains readable when its raw source has been removed'
   expect(screen.getByRole('button', { name: 'Remove earlier original' })).toHaveProperty('disabled', true)
   expect(screen.getByText('Earlier extraction summary.')).toBeTruthy()
   expect(screen.getByLabelText('Choose a fresh copy')).toHaveProperty('disabled', false)
+})
+test('a failed fresh-copy upload retains the file and retries without reopening the picker', async () => {
+  const onUpload = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+  render(<PausedDocumentImportPanel {...props()} onUpload={onUpload} />)
+  const file = new File(['fictional'], 'retry-fresh-copy.pdf', { type: 'application/pdf' })
+  fireEvent.change(screen.getByLabelText('Choose a fresh copy'), { target: { files: [file] } })
+  await screen.findByText('retry-fresh-copy.pdf is still selected.')
+  fireEvent.click(screen.getByRole('button', { name: 'Try this file again' }))
+  await waitFor(() => expect(screen.queryByText('retry-fresh-copy.pdf is still selected.')).toBeNull())
+  expect(onUpload).toHaveBeenNthCalledWith(1, file)
+  expect(onUpload).toHaveBeenNthCalledWith(2, file)
 })

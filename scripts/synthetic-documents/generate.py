@@ -49,7 +49,7 @@ def event(account, month, n, day, description, cents, kind='purchase', status='p
                 posted_on=date(2026, month, day).isoformat(), description=description,
                 signed_amount_cents=cents, event_type=kind, status=status,
                 row_kind='informational' if status == 'pending' else 'posted',
-                expected_spending_draft=status == 'posted' and kind in ('purchase', 'fee', 'interest'),
+                expected_spending_draft=status == 'posted' and cents < 0 and kind in ('purchase', 'fee', 'interest'),
                 category={'fee': 'Bank fees', 'interest': 'Interest'}.get(kind))
 
 
@@ -483,7 +483,7 @@ def build(output):
 
     bp = [event('bankpacific-00005678', 9, 1, 2, 'Transfer from own DEMO account 00006666', 30000, 'transfer'),
           event('bankpacific-00005678', 9, 2, 11, 'Cost-U-Less - Harmon', -8246),
-          event('bankpacific-00005678', 9, 3, 20, 'Interest credit', 37, 'income'),
+          event('bankpacific-00005678', 9, 3, 20, 'Interest credit', 37, 'interest'),
           event('bankpacific-00005678', 9, 4, 23, 'ATM withdrawal Dededo', -4000, 'cash_withdrawal')]
     for ext in ['pdf', 'csv']:
         name = f'bankpacific-2026-09.{ext}'
@@ -499,6 +499,7 @@ def build(output):
              event('coast360-00002468', 10, 2, 14, 'GTA mobile prepaid', -2500),
              event('coast360-00002468', 10, 3, 28, 'Monthly dividend credit', 85, 'income'),
              event('coast360-00002468', 10, 4, 31, 'Debit card replacement fee', -500, 'fee')]
+    coast[2]['allowed_event_types'] = ['income', 'interest']  # Credit-union dividends are earnings; both classifications are valid.
     period = ('2026-10-01', '2026-10-31')
     statement_pdf(output/'coast360-2026-10.pdf', 'Coast360 Federal Credit Union', 'DEMO 00002468', coast, 400000, *period)
     scanned_pdf(output/'coast360-2026-10-scanned.pdf', output/'coast360-2026-10.pdf')
@@ -521,11 +522,11 @@ def build(output):
         period=('2026-09-01', '2026-09-30'), fictional_account='00009900')
 
     retirement = [event('retirement-00007777', 8, 1, 15, 'Employee retirement contribution', 20000, 'transfer'),
-                  event('retirement-00007777', 8, 2, 15, 'Employer contribution', 10000, 'transfer'),
+                  event('retirement-00007777', 8, 2, 15, 'Employer contribution', 10000, 'income'),
                   event('retirement-00007777', 9, 1, 15, 'Employee retirement contribution', 20000, 'transfer'),
-                  event('retirement-00007777', 9, 2, 15, 'Employer contribution', 10000, 'transfer'),
+                  event('retirement-00007777', 9, 2, 15, 'Employer contribution', 10000, 'income'),
                   event('retirement-00007777', 10, 1, 15, 'Employee retirement contribution', 20000, 'transfer'),
-                  event('retirement-00007777', 10, 2, 15, 'Employer contribution', 10000, 'transfer'),
+                  event('retirement-00007777', 10, 2, 15, 'Employer contribution', 10000, 'income'),
                   event('retirement-00007777', 10, 3, 31, 'Cash dividend distribution', 12450, 'income')]
     statement_pdf(output/'asc-style-retirement-2026-08-to-10.pdf', 'ASC Trust-style DEMO retirement', 'DEMO 00007777',
                   retirement, 2500000, '2026-08-01', '2026-10-31', title='Retirement cash activity | No market value changes in this fixture')
@@ -621,7 +622,8 @@ def build(output):
             elif doc['format'] == 'pdf':
                 e['locator'] = {'page': 1, 'row': i+1}
             else:
-                e['locator'] = {'extraction_index': i, 'row': i+1}
+                physical_index = len(doc['expected_events']) - 1 - i if doc['kind'] == 'statement_screenshot' else i
+                e['locator'] = {'extraction_index': physical_index, 'row': physical_index+1}
         if doc['kind'] in ('budget', 'pay_stub'):
             # No source transaction events: these are setup proposals, not spending.
             doc['totals_cents'] = {}
@@ -630,7 +632,7 @@ def build(output):
                     definitions=dict(source_event_count='Transaction/activity rows only, including pending; excludes printed headers, totals, and footers.',
                       spending_draft_count='Posted purchases, fees and interest only; refunds, income, transfers, cash withdrawals, card payments and pending rows excluded.',
                       signed_amount_cents='Negative is money out / charge; positive is money in / payment credit. Liability closing = opening - signed movements.',
-                      budget_items='Current setup proposals only; archive estimates and monthly schedule are supporting evidence, not duplicate items.',
+                      budget_items='Current financial setup proposals only; archive estimates and monthly schedules are supporting evidence, not duplicate items. Faithful optional profile notes are not counted as financial items.',
                       identifiers='event_id is a fixture join key, not an application deduplication contract.'),
                     document_count=len(documents), documents=documents)
     (output/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')

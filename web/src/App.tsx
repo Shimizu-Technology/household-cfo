@@ -5146,7 +5146,7 @@ function DocumentUploadCard({
         <strong>{uploading ? 'Uploading' : 'Choose file'}</strong>
       </label>
       {retryFile && !uploading && (
-        <div className="form-stack">
+        <div className="form-stack document-upload-recovery">
           <p style={{ overflowWrap: 'anywhere' }}>{retryFile.name} is still selected.</p>
           <button type="button" className="secondary-button" disabled={disabled} onClick={() => void upload(retryFile)}>Try this file again</button>
         </div>

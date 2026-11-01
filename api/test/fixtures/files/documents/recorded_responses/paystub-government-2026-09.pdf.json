@@ -1,0 +1,45 @@
+{
+  "fixture": "paystub-government-2026-09.pdf",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "recorded_on": "2026-11-02",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"pay_stub\",\n  \"document_date\": \"2026-09-15\",\n  \"period_start_on\": \"2026-09-01\",\n  \"period_end_on\": \"2026-09-15\",\n  \"summary\": \"Government of Guam (demo payroll) semi-monthly earnings statement for Lina Talun. Gross pay was $2,800.00 and net deposit was $2,100.00 for 2026-09-01 through 2026-09-15. The net deposit went to checking ***1234.\",\n  \"confidence\": 0.9,\n  \"warnings\": [\n    \"The document covers only one semi-monthly pay period (2026-09-01 to 2026-09-15), not a full month. The monthly figure is normalized from the printed frequency of 24 pay periods per year (2 per month): $2,100.00 x 2 = $4,200.00. Actual monthly take-home may vary.\",\n    \"The amount is net take-home pay (after $700.00 of tax, retirement and health insurance deductions). Gross is $2,800.00 per period, or $5,600.00 per month normalized.\"\n  ],\n  \"items\": [\n    {\n      \"target_type\": \"income_source\",\n      \"label\": \"Government of Guam paycheck (net)\",\n      \"amount\": 4200,\n      \"balance\": null,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": \"monthly\",\n      \"source_type\": \"job\",\n      \"stack_key\": null,\n      \"account_type\": null,\n      \"debt_type\": null,\n      \"confidence\": 0.85,\n      \"evidence\": \"Net deposit $2,100.00 for pay period 2026-09-01 through 2026-09-15. Pay frequency: Semi-monthly (24 periods/year), so the monthly equivalent is $2,100.00 x 2 = $4,200.00. Gross $2,800.00 - deductions $700.00 = net $2,100.00. Deposit to DEMO checking ***1234.\",\n      \"metadata\": {\n        \"goal_type\": null\n      }\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": null\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 2761,
+            "completion_tokens": 1407,
+            "total_tokens": 4168,
+            "cost": 0.021592,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.019592,
+              "upstream_inference_prompt_cost": 0.005522,
+              "upstream_inference_completions_cost": 0.01407
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 710,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

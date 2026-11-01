@@ -1,0 +1,45 @@
+{
+  "fixture": "bank-of-guam-2026-09-phone.png",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "recorded_on": "2026-11-02",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": null,\n  \"period_start_on\": \"2026-09-01\",\n  \"period_end_on\": \"2026-09-30\",\n  \"summary\": \"Bank of Guam checking ****1234 (Lina Talun) September 2026 activity screenshot with 7 visible rows: 1 pending purchase, 1 payroll deposit, 1 fee, 1 refund, and 3 posted purchases/subscriptions.\",\n  \"confidence\": 0.85,\n  \"warnings\": [\n    \"The header shows only 'September 2026 activity'; exact printed period dates, opening/closing balances, and printed totals are not shown.\",\n    \"The 2026-09-30 Port of Mocha row is Pending, so it is recorded as informational and not as a posted event.\",\n    \"This appears to be a transaction list screenshot that may not show every September row; only the 7 visible rows were extracted.\",\n    \"The document is labeled as a synthetic test document with a fictional account and household.\"\n  ],\n  \"items\": [],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": null,\n    \"accounts\": [\n      {\n        \"account_key\": \"checking-1234\",\n        \"account_basis\": \"asset\",\n        \"label\": \"Bank of Guam Checking\",\n        \"masked_identifier\": \"****1234\",\n        \"period_start_on\": null,\n        \"period_end_on\": null,\n        \"opening_balance_cents\": null,\n        \"closing_balance_cents\": null,\n        \"printed_debit_cents\": null,\n        \"printed_credit_cents\": null,\n        \"printed_row_count\": null,\n        \"header_evidence\": \"Bank of Guam | Checking ****1234 | Lina Talun | September 2026 activity\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"checking-1234\",\n        \"row_kind\": \"informational\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -650,\n        \"amount_column_cents\": -650,\n        \"posted_on\": null,\n        \"authorized_on\": \"2026-09-30\",\n        \"locator\": {\"page\": 1, \"row\": 1},\n        \"merchant\": \"Port of Mocha\",\n        \"raw_description\": \"Port of Mocha - Pending\",\n        \"evidence\": \"Row dated 2026-09-30, status Pending, amount -$6.50. Not yet posted.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"checking-1234\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"income\",\n        \"signed_amount_cents\": 165000,\n        \"amount_column_cents\": 165000,\n        \"posted_on\": \"2026-09-28\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 2},\n        \"merchant\": \"Tasi Services\",\n        \"raw_description\": \"Tasi Services DEMO payroll Mateo\",\n        \"evidence\": \"Payroll deposit, Posted, +$1,650.00.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"checking-1234\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"fee\",\n        \"signed_amount_cents\": -500,\n        \"amount_column_cents\": -500,\n        \"posted_on\": \"2026-09-25\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 3},\n        \"merchant\": \"Bank of Guam\",\n        \"raw_description\": \"Monthly service fee\",\n        \"evidence\": \"Monthly account service fee, Posted, -$5.00.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"checking-1234\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"refund\",\n        \"signed_amount_cents\": 1299,\n        \"amount_column_cents\": 1299,\n        \"posted_on\": \"2026-09-24\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 4},\n        \"merchant\": \"Amazon\",\n        \"raw_description\": \"Amazon refund order DEMO-8001\",\n        \"evidence\": \"Refund credit, Posted, +$12.99.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"checking-1234\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -1549,\n        \"amount_column_cents\": -1549,\n        \"posted_on\": \"2026-09-23\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 5},\n        \"merchant\": \"Netflix\",\n        \"raw_description\": \"Netflix monthly subscription\",\n        \"evidence\": \"Subscription charge, Posted, -$15.49.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"checking-1234\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -1475,\n        \"amount_column_cents\": -1475,\n        \"posted_on\": \"2026-09-22\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 6},\n        \"merchant\": \"McDonald's\",\n        \"raw_description\": \"McDonald's - Tamuning\",\n        \"evidence\": \"Restaurant purchase, Posted, -$14.75.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"checking-1234\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -625,\n        \"amount_column_cents\": -625,\n        \"posted_on\": \"2026-09-21\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 7},\n        \"merchant\": \"Port of Mocha\",\n        \"raw_description\": \"Port of Mocha - Hagatna\",\n        \"evidence\": \"Purchase, Posted, -$6.25.\",\n        \"limitations\": null\n      }\n    ]\n  }\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 3891,
+            "completion_tokens": 1972,
+            "total_tokens": 5863,
+            "cost": 0.027502,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.027502,
+              "upstream_inference_prompt_cost": 0.007782,
+              "upstream_inference_completions_cost": 0.01972
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

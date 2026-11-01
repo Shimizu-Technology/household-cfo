@@ -67,23 +67,26 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal typed[:accounts], merged[:accounts]
   end
 
-  test "account merging resolves unknown basis and retains all limitations while preserving real conflicts" do
+  test "account merging requires known identity and retains limitations and header conflicts" do
     extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
     source = lambda do |basis, closing, limitations|
-      { contract_version: FinancialDocuments::AccountingContract::VERSION, events: [], accounts: [ { source_key: "same-account", account_basis: basis, closing_balance_cents: closing, limitations: limitations } ] }
+      { contract_version: FinancialDocuments::AccountingContract::VERSION, events: [], accounts: [ { source_key: "same-account", account_basis: basis, closing_balance_cents: closing, limitations: limitations, evidence: { masked_identifier: "XXXX1234" } } ] }
     end
     unknown = source.call("unknown", nil, [ "account_basis_unknown", "first_page_limit" ])
     known = source.call("asset", 100, [ "later_page_limit" ])
     [ [ unknown, known ], [ known, unknown ] ].each do |sources|
-      account = extractor.send(:merge_source_accounting, sources.map { |value| { source_accounting: value } }, page_count: 2)[:accounts].sole
+      accounts = extractor.send(:merge_source_accounting, sources.map { |value| { source_accounting: value } }, page_count: 2)[:accounts]
+      assert_equal 2, accounts.length
+      account = accounts.find { |value| value[:account_basis] == "asset" }
       assert_equal "asset", account[:account_basis]
       assert_equal 100, account[:closing_balance_cents]
-      assert_equal %w[first_page_limit later_page_limit], account[:limitations].sort
+      assert_equal [ "later_page_limit" ], account[:limitations]
+      assert_includes accounts.find { |value| value[:account_basis] == "unknown" }[:limitations], "account_basis_unknown"
     end
-    conflict = extractor.send(:merge_source_accounting, [ known, source.call("liability", 200, [ "third_page_limit" ]) ].map { |value| { source_accounting: value } }, page_count: 2)[:accounts].sole
-    assert_includes conflict[:limitations], "conflicting_header_account_basis"
+    conflict = extractor.send(:merge_source_accounting, [ known, source.call("asset", 200, [ "third_page_limit" ]) ].map { |value| { source_accounting: value } }, page_count: 2)[:accounts].sole
     assert_includes conflict[:limitations], "conflicting_header_closing_balance_cents"
     assert_includes conflict[:limitations], "third_page_limit"
+    assert_equal [ "account_basis_unknown", "first_page_limit" ], unknown[:accounts].sole[:limitations]
   end
 
   test "accepts canonical model money and rejects malformed or unbounded formats" do
@@ -831,6 +834,21 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset")), batch.call(3, account.call("savings", nil, "asset"))).length
     # Different numbers.
     assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1111", "asset")), batch.call(3, account.call("savings", "XXXX2222", "asset"))).length
+    # Model-local keys can collide even when the printed accounts differ.
+    collision = [ batch.call(1, account.call("checking", "XXXX1111", "asset")), batch.call(3, account.call("checking", "XXXX2222", "asset")) ]
+    merged = extractor.send(:merge_source_accounting, collision, page_count: nil, sheet_count: 2)
+    assert_equal 2, merged[:accounts].length
+    assert_equal 2, merged[:events].pluck(:source_key).uniq.length
+    assert_equal %w[XXXX1111 XXXX2222], merged[:accounts].map { |item| item[:evidence][:masked_identifier] }
+  end
+
+  test "statement fallback classification does not turn historical rows into recurring setup" do
+    document = FinancialDocumentImport.new(document_kind: "statement")
+    payload = { "items" => Array.new(61) { { "target_type" => "income_source", "label" => "Historical payroll", "amount" => 200, "cadence" => "monthly" } },
+      "source_accounting" => { "contract_version" => FinancialDocuments::AccountingContract::VERSION, "accounts" => [], "events" => [] } }
+    result = FinancialDocuments::Extractor.new.send(:normalize_extraction, payload, document)
+    assert_equal "statement", result[:document_kind]
+    assert_empty result[:items]
   end
 
   test "model spreadsheet batches keep original rows and shrink output-limited sections without accepting partial results" do
@@ -885,7 +903,86 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     file&.close!
   end
 
+  test "later workbook failure never returns the earlier successful section" do
+    with_unrecognized_workbook do |document, path|
+      extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+      calls = 0
+      extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_options|
+        calls += 1
+        if calls == 1
+          FinancialDocuments::Extractor::Result.new(success: true, data: { items: [], transaction_drafts: [], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: {})
+        else
+          FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "temporary outage", metadata: {})
+        end
+      end
+      result = extractor.send(:batched_spreadsheet_result, document, path)
+      refute result.success?
+      assert_nil result.data
+      assert_equal 2, calls
+      assert_match(/section.*didn’t finish/, result.error)
+    end
+  end
+
+  test "mixed workbooks retain deterministic values and read unfamiliar financial sheets" do
+    file = Tempfile.new([ "mixed-budget", ".xls" ])
+    file.close
+    book = Spreadsheet::Workbook.new
+    known = book.create_worksheet(name: "Current budget")
+    known.row(0).concat(%w[type label amount cadence])
+    known.row(1).concat([ "income", "Salary", "3000", "monthly" ])
+    unknown = book.create_worksheet(name: "School notes")
+    unknown.row(0).concat([ "School fees planned monthly", "125.00" ])
+    book.write(file.path)
+    document = FinancialDocumentImport.new(document_kind: "spreadsheet", filename: "mixed.xls", content_type: "application/vnd.ms-excel", s3_key: "test/mixed")
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    sheets_seen = []
+    extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_options|
+      sheets_seen << @spreadsheet_batch_summary[:sheets].sole[:sheet_index]
+      FinancialDocuments::Extractor::Result.new(success: true, data: { items: [ { target_type: "expense_item", label: "School fees", amount_cents: 12_500 } ], transaction_drafts: [], warnings: [], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: {})
+    end
+    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write(File.binread(file.path)); true }) do
+      result = extractor.call(document)
+      assert result.success?, result.error
+      assert_equal [ 1 ], sheets_seen
+      assert_equal [ "Salary", "School fees" ], result.data[:items].pluck(:label)
+      assert_equal [ 0, 1 ], result.data[:source_accounting][:coverage][:processed_sheets]
+    end
+  ensure
+    file&.close!
+  end
+
+  test "workbook batches reject repeated earlier source locators" do
+    with_unrecognized_workbook do |document, path|
+      extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+      extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_options|
+        FinancialDocuments::Extractor::Result.new(success: true, data: { items: [], transaction_drafts: [], source_accounting: { contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: [], events: [ { locator: { sheet_index: 0, row: 2 } } ] } }, error: nil, metadata: {})
+      end
+      result = extractor.send(:batched_spreadsheet_result, document, path)
+      refute result.success?
+      assert_nil result.data
+      assert_match(/source rows/, result.error)
+    end
+  end
+
+  test "late column headers accompany later workbook sections" do
+    sheet = { rows: (1..90).map { |i| { row: i, values: i == 10 ? %w[Posted Payee Debit Credit] : [ "Preamble #{i}", i.to_s ] } } }
+    context = FinancialDocuments::Extractor.new.send(:spreadsheet_header_context, sheet, sheet[:rows].last(10))
+    assert_includes context.pluck(:row), 10
+    assert_equal %w[Posted Payee Debit Credit], context.find { |row| row[:row] == 10 }[:values]
+    assert context.all? { |row| row[:row] < 81 }
+  end
+
   private
+
+  def with_unrecognized_workbook
+    file = Tempfile.new([ "unrecognized-budget", ".csv" ])
+    file.write("Budget note,Monthly dollars\n")
+    81.times { |i| file.write("Synthetic note #{i},#{i}\n") }
+    file.flush
+    yield FinancialDocumentImport.new(document_kind: "spreadsheet", filename: "messy.csv", content_type: "text/csv"), file.path
+  ensure
+    file&.close!
+  end
 
   def provider_import
     user = User.create!(clerk_id: "clerk_extractor_provider_#{SecureRandom.hex(4)}", email: "extractor-provider-#{SecureRandom.hex(4)}@example.com", role: "participant", invitation_status: "accepted")

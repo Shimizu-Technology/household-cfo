@@ -7,7 +7,7 @@
     "source_event_count": "Transaction/activity rows only, including pending; excludes printed headers, totals, and footers.",
     "spending_draft_count": "Posted purchases, fees and interest only; refunds, income, transfers, cash withdrawals, card payments and pending rows excluded.",
     "signed_amount_cents": "Negative is money out / charge; positive is money in / payment credit. Liability closing = opening - signed movements.",
-    "budget_items": "Current setup proposals only; archive estimates and monthly schedule are supporting evidence, not duplicate items.",
+    "budget_items": "Current financial setup proposals only; archive estimates and monthly schedules are supporting evidence, not duplicate items. Faithful optional profile notes are not counted as financial items.",
     "identifiers": "event_id is a fixture join key, not an application deduplication contract."
   },
   "document_count": 25,
@@ -2807,11 +2807,11 @@
           "posted_on": "2026-09-20",
           "description": "Interest credit",
           "signed_amount_cents": 37,
-          "event_type": "income",
+          "event_type": "interest",
           "status": "posted",
           "row_kind": "posted",
           "expected_spending_draft": false,
-          "category": null,
+          "category": "Interest",
           "locator": {
             "page": 1,
             "row": 3
@@ -2904,11 +2904,11 @@
           "posted_on": "2026-09-20",
           "description": "Interest credit",
           "signed_amount_cents": 37,
-          "event_type": "income",
+          "event_type": "interest",
           "status": "posted",
           "row_kind": "posted",
           "expected_spending_draft": false,
-          "category": null,
+          "category": "Interest",
           "locator": {
             "row": 4
           }
@@ -3013,6 +3013,10 @@
           "row_kind": "posted",
           "expected_spending_draft": false,
           "category": null,
+          "allowed_event_types": [
+            "income",
+            "interest"
+          ],
           "locator": {
             "page": 1,
             "row": 3
@@ -3113,6 +3117,10 @@
           "row_kind": "posted",
           "expected_spending_draft": false,
           "category": null,
+          "allowed_event_types": [
+            "income",
+            "interest"
+          ],
           "locator": {
             "page": 1,
             "row": 3
@@ -3211,6 +3219,10 @@
           "row_kind": "posted",
           "expected_spending_draft": false,
           "category": null,
+          "allowed_event_types": [
+            "income",
+            "interest"
+          ],
           "locator": {
             "row": 4
           }
@@ -3318,6 +3330,10 @@
           "row_kind": "posted",
           "expected_spending_draft": false,
           "category": null,
+          "allowed_event_types": [
+            "income",
+            "interest"
+          ],
           "locator": {
             "row": 4,
             "sheet_index": 0,
@@ -3520,7 +3536,7 @@
           "posted_on": "2026-08-15",
           "description": "Employer contribution",
           "signed_amount_cents": 10000,
-          "event_type": "transfer",
+          "event_type": "income",
           "status": "posted",
           "row_kind": "posted",
           "expected_spending_draft": false,
@@ -3552,7 +3568,7 @@
           "posted_on": "2026-09-15",
           "description": "Employer contribution",
           "signed_amount_cents": 10000,
-          "event_type": "transfer",
+          "event_type": "income",
           "status": "posted",
           "row_kind": "posted",
           "expected_spending_draft": false,
@@ -3584,7 +3600,7 @@
           "posted_on": "2026-10-15",
           "description": "Employer contribution",
           "signed_amount_cents": 10000,
-          "event_type": "transfer",
+          "event_type": "income",
           "status": "posted",
           "row_kind": "posted",
           "expected_spending_draft": false,
@@ -3654,8 +3670,8 @@
           "expected_spending_draft": true,
           "category": null,
           "locator": {
-            "extraction_index": 0,
-            "row": 1
+            "extraction_index": 6,
+            "row": 7
           }
         },
         {
@@ -3670,8 +3686,8 @@
           "expected_spending_draft": true,
           "category": null,
           "locator": {
-            "extraction_index": 1,
-            "row": 2
+            "extraction_index": 5,
+            "row": 6
           }
         },
         {
@@ -3686,8 +3702,8 @@
           "expected_spending_draft": true,
           "category": null,
           "locator": {
-            "extraction_index": 2,
-            "row": 3
+            "extraction_index": 4,
+            "row": 5
           }
         },
         {
@@ -3718,8 +3734,8 @@
           "expected_spending_draft": true,
           "category": "Bank fees",
           "locator": {
-            "extraction_index": 4,
-            "row": 5
+            "extraction_index": 2,
+            "row": 3
           }
         },
         {
@@ -3734,8 +3750,8 @@
           "expected_spending_draft": false,
           "category": null,
           "locator": {
-            "extraction_index": 5,
-            "row": 6
+            "extraction_index": 1,
+            "row": 2
           }
         },
         {
@@ -3750,8 +3766,8 @@
           "expected_spending_draft": false,
           "category": null,
           "locator": {
-            "extraction_index": 6,
-            "row": 7
+            "extraction_index": 0,
+            "row": 1
           }
         }
       ],

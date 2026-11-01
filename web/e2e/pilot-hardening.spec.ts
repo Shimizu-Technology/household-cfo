@@ -8506,6 +8506,12 @@ test('Auth recovery failed receipt upload retains the selected file for retry', 
   })
   await expect(page.getByRole('alert')).toContainText('Our file storage couldn’t accept your file. It is still selected.')
   await expect(receiptCard.getByText('receipt.png is still selected.')).toBeVisible()
+  const recoveryBounds = await receiptCard.evaluate(card => {
+    const retry = card.querySelector('button')?.getBoundingClientRect()
+    return { cardBottom: card.getBoundingClientRect().bottom, retryBottom: retry?.bottom }
+  })
+  expect(recoveryBounds.retryBottom).toBeDefined()
+  expect(recoveryBounds.retryBottom!).toBeLessThanOrEqual(recoveryBounds.cardBottom + 1)
   await receiptCard.getByRole('button', { name: 'Try this file again' }).click()
   await expect(page.getByRole('alert')).toContainText('Our file storage couldn’t accept your file. It is still selected.')
   await expect(receiptCard.getByText('Choose file', { exact: true })).toBeVisible()

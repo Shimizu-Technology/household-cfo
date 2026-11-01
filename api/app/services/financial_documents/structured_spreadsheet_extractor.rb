@@ -97,6 +97,7 @@ module FinancialDocuments
       items = extract_items(summary)
       source_accounting = extract_source_accounting(summary)
       transaction_drafts = accounting_expense_projections(source_accounting)
+      parsed_sheets = parsed_sheet_indices(summary)
       return failure("This spreadsheet has more than #{Extractor::MAX_ITEMS} budget/profile rows. Split it into smaller files so every value can be reviewed without silently truncating the file.") if items.length > Extractor::MAX_ITEMS
       return failure("This statement has more than #{AccountingContract::MAX_EVENTS} source rows. Split it into smaller date ranges so every row can be reviewed.") if source_accounting[:events].length > AccountingContract::MAX_EVENTS
       return failure("No structured Household CFO rows found") if items.empty? && transaction_drafts.empty? && warnings.empty? && source_accounting[:events].empty?
@@ -111,6 +112,8 @@ module FinancialDocuments
         warnings: warnings.first(Extractor::MAX_WARNINGS),
         no_reviewable_transactions: items.empty? && transaction_drafts.empty?,
         items: items,
+        parsed_sheet_indices: parsed_sheets,
+        unparsed_sheet_indices: summary[:sheets].pluck(:sheet_index) - parsed_sheets,
         transaction_drafts: transaction_drafts,
         source_accounting: source_accounting
       )
@@ -128,6 +131,11 @@ module FinancialDocuments
       Array(summary[:sheets]).any? do |sheet|
         sheet[:rows_truncated]
       end
+    end
+
+    def parsed_sheet_indices(summary)
+      unknown = summary[:sheets].reject { |sheet| sheet[:rows].any? { |row| structured_header?(row[:values]) || transaction_header?(row[:values]) } }.pluck(:sheet_index)
+      (0...summary[:sheet_count]).to_a - unknown
     end
 
     def extract_items(summary)
@@ -213,7 +221,7 @@ module FinancialDocuments
       end
       contract = raw_events.any? ? AccountingContract::VERSION : AccountingContract::LEGACY_VERSION
       AccountingContract.normalize({ contract_version: contract, accounts: raw_accounts, events: raw_events },
-        coverage: { expected_sheet_count: summary[:sheet_count], processed_sheets: (0...summary[:sheet_count].to_i).to_a })
+        coverage: { expected_sheet_count: summary[:sheet_count], processed_sheets: parsed_sheet_indices(summary) })
     end
 
     def signed_row_amount(values, map)

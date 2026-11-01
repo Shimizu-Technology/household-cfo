@@ -1,0 +1,45 @@
+{
+  "fixture": "paystub-private-2026-09.pdf",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "recorded_on": "2026-11-02",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"pay_stub\",\n  \"document_date\": \"2026-09-16\",\n  \"period_start_on\": \"2026-09-01\",\n  \"period_end_on\": \"2026-09-15\",\n  \"summary\": \"Tasi Services semi-monthly earnings statement for 2026-09-01 to 2026-09-15: gross $2,200.00, deductions $550.00, net deposit $1,650.00 to checking ***1234. Normalized to about $3,300.00/month net (24 pay periods/year).\",\n  \"confidence\": 0.93,\n  \"warnings\": [\n    \"The document covers only one semi-monthly pay period (2026-09-01 to 2026-09-15), not a full month. The monthly figure is normalized from the printed pay frequency (24 periods/year): $1,650.00 net x 24 / 12 = $3,300.00.\",\n    \"Actual take-home may vary if hours, deductions, or pay change in other periods. Please confirm the monthly amount.\",\n    \"Gross pay is $2,200.00 per period (about $4,400.00/month normalized). The net amount is used as the income value.\"\n  ],\n  \"items\": [\n    {\n      \"target_type\": \"income_source\",\n      \"label\": \"Tasi Services paycheck (net, monthly normalized)\",\n      \"amount\": 3300.0,\n      \"balance\": null,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": \"monthly\",\n      \"source_type\": \"job\",\n      \"stack_key\": null,\n      \"account_type\": null,\n      \"debt_type\": null,\n      \"confidence\": 0.88,\n      \"evidence\": \"Pay frequency: Semi-monthly (24 periods/year). Net deposit $1,650.00 for 2026-09-01 through 2026-09-15 (gross $2,200.00 - deductions $550.00). $1,650.00 x 24 / 12 = $3,300.00 per month. Deposit to checking ***1234.\",\n      \"metadata\": {\n        \"goal_type\": null\n      }\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": null\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 2762,
+            "completion_tokens": 1337,
+            "total_tokens": 4099,
+            "cost": 0.020894,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.018894,
+              "upstream_inference_prompt_cost": 0.005524,
+              "upstream_inference_completions_cost": 0.01337
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 637,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

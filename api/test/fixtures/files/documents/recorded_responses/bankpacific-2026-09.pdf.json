@@ -1,0 +1,45 @@
+{
+  "fixture": "bankpacific-2026-09.pdf",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "recorded_on": "2026-11-02",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\n  \"document_kind\": \"statement\",\n  \"document_date\": \"2026-09-30\",\n  \"period_start_on\": \"2026-09-01\",\n  \"period_end_on\": \"2026-09-30\",\n  \"summary\": \"BankPacific statement for account ending 5678, September 2026. It shows 4 posted rows, a beginning balance of $800.00 and an ending balance of $977.91.\",\n  \"confidence\": 0.95,\n  \"warnings\": [\n    \"The statement does not say what type of account this is. Checking is a guess, so please confirm it.\",\n    \"The 09/02 credit is labeled as a transfer from the household's own account ending 6666, so it was treated as a transfer and not as income.\"\n  ],\n  \"items\": [\n    {\n      \"target_type\": \"account\",\n      \"label\": \"BankPacific account ending 5678\",\n      \"amount\": null,\n      \"balance\": 977.91,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": null,\n      \"source_type\": \"statement\",\n      \"stack_key\": null,\n      \"account_type\": \"checking\",\n      \"debt_type\": null,\n      \"confidence\": 0.6,\n      \"evidence\": \"Ending balance: $977.91 for statement period 2026-09-01 through 2026-09-30; Account: DEMO 00005678\",\n      \"metadata\": {\n        \"goal_type\": null\n      }\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": 4,\n    \"accounts\": [\n      {\n        \"account_key\": \"5678\",\n        \"account_basis\": \"asset\",\n        \"label\": \"BankPacific account ending 5678\",\n        \"masked_identifier\": \"DEMO ****5678\",\n        \"period_start_on\": \"2026-09-01\",\n        \"period_end_on\": \"2026-09-30\",\n        \"opening_balance_cents\": 80000,\n        \"closing_balance_cents\": 97791,\n        \"printed_debit_cents\": 12246,\n        \"printed_credit_cents\": 30037,\n        \"printed_row_count\": 4,\n        \"header_evidence\": \"Statement period: 2026-09-01 through 2026-09-30; Beginning balance: $800.00 Ending balance: $977.91; Posted credits: $300.37 Posted debits: $122.46; Posted rows: 4\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"5678\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 30000,\n        \"amount_column_cents\": 30000,\n        \"posted_on\": \"2026-09-02\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 1\n        },\n        \"merchant\": null,\n        \"raw_description\": \"Transfer from own DEMO account 00006666\",\n        \"evidence\": \"Credit of 300.00 on 09/02, a transfer from the household's own account ending 6666\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"5678\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -8246,\n        \"amount_column_cents\": 8246,\n        \"posted_on\": \"2026-09-11\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 2\n        },\n        \"merchant\": \"Cost-U-Less - Harmon\",\n        \"raw_description\": \"Cost-U-Less - Harmon\",\n        \"evidence\": \"Debit of 82.46 on 09/11\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"5678\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"interest\",\n        \"signed_amount_cents\": 37,\n        \"amount_column_cents\": 37,\n        \"posted_on\": \"2026-09-20\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 3\n        },\n        \"merchant\": null,\n        \"raw_description\": \"Interest credit\",\n        \"evidence\": \"Credit of 0.37 on 09/20, interest paid to the account\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"5678\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"cash_withdrawal\",\n        \"signed_amount_cents\": -4000,\n        \"amount_column_cents\": 4000,\n        \"posted_on\": \"2026-09-23\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 4\n        },\n        \"merchant\": \"ATM Dededo\",\n        \"raw_description\": \"ATM withdrawal Dededo\",\n        \"evidence\": \"Debit of 40.00 on 09/23, an ATM cash withdrawal\",\n        \"limitations\": null\n      }\n    ]\n  }\n}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 2715,
+            "completion_tokens": 2185,
+            "total_tokens": 4900,
+            "cost": 0.02928,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.02728,
+              "upstream_inference_prompt_cost": 0.00543,
+              "upstream_inference_completions_cost": 0.02185
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 591,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}
