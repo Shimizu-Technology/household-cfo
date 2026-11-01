@@ -63,7 +63,7 @@ test('BOG UI savings Home loads each read once and opens hidden histories on dem
 })
 
 
-test('BOG UI walkthrough saved-day shortcut and short Statements label fit phone targets', async ({ page }) => {
+test('BOG UI walkthrough saved-day shortcut and short Statements label fit phone targets', async ({ page }, info) => {
   await mockSavingsHome(page, true)
   await page.goto('/?pilot_e2e_role=participant#Home')
   const home = page.getByRole('region', { name: 'Savings challenge', exact: true })
@@ -77,6 +77,7 @@ test('BOG UI walkthrough saved-day shortcut and short Statements label fit phone
   const box = await statements.boundingBox()
   expect(box!.width).toBeGreaterThanOrEqual(44)
   expect(box!.height).toBeGreaterThanOrEqual(44)
+  if (process.env.HCFO_W3_EVIDENCE_DIR) await page.screenshot({ path: `${process.env.HCFO_W3_EVIDENCE_DIR}/shots/${info.project.name}-navigation-final.png` })
   await home.getByRole('button', { name: 'Open today’s saved items', exact: true }).click()
   const today = page.getByRole('dialog', { name: 'Today', exact: true })
   await expect(today).toBeVisible()
