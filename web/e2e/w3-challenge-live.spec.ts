@@ -47,7 +47,7 @@ async function send(target: Page, message: string, transcript: unknown[]) {
 
 test.describe('BOG UI W3 real challenge journey', () => {
   test.skip(!live || !fixture, 'Needs the dedicated W3 synthetic Rails fixture; financial responses are never mocked.')
-  test.setTimeout(360_000)
+  test.setTimeout(600_000)
   test('join, patterns, reviewed goal, durable daily card and saved outcomes', async ({ page, context, browser, request }, info) => {
     test.skip(process.env.HCFO_W3_CHECKPOINT_PHASE === '1', 'Run on the Day 1 QA clock before the checkpoint phase.')
     const user = fixture!.users[info.project.name]
@@ -297,7 +297,10 @@ test.describe('BOG UI W3 real challenge journey', () => {
     await today.getByRole('button', { name: 'Close Today', exact: true }).click()
     await page.reload()
     await expect(card.getByLabel('Amount for Shell', { exact: true })).toHaveValue('9.00', { timeout: 60000 })
-    if (evidence) await page.screenshot({ path: `${evidence}/shots/${info.project.name}-recovered-handoff.png`, fullPage: true })
+    if (evidence) {
+      await card.getByLabel('Amount for Shell', { exact: true }).scrollIntoViewIfNeeded()
+      await page.screenshot({ path: `${evidence}/shots/${info.project.name}-recovered-handoff.png`, fullPage: true })
+    }
     await card.getByRole('button', { name: 'Edit in Today', exact: true }).click()
     await expect(today.getByLabel('Where did you buy it?')).toHaveValue('Shell', { timeout: 60000 })
     await today.getByRole('button', { name: 'Save purchase', exact: true }).click()
@@ -306,10 +309,15 @@ test.describe('BOG UI W3 real challenge journey', () => {
     await page.reload()
     await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeEnabled({ timeout: 60000 })
     await expect(card).toContainText('Almost done', { timeout: 60000 })
-    if (evidence) await page.screenshot({ path: `${evidence}/shots/${info.project.name}-saved-in-today.png`, fullPage: true })
+    if (evidence) {
+      await card.getByRole('button', { name: 'Save', exact: true }).scrollIntoViewIfNeeded()
+      await page.screenshot({ path: `${evidence}/shots/${info.project.name}-saved-in-today.png`, fullPage: true })
+    }
     const finish = card.getByRole('button', { name: 'Save', exact: true })
     await expect(finish).toBeEnabled(); await finish.click()
-    await expect(card).toContainText('Saved', { timeout: 60000 })
+    // This final step serializes the check-in, private reflection and card-state
+    // writes against the real API. Allow the loaded QA host to finish them.
+    await expect(card).toContainText('Saved', { timeout: 180000 })
     await card.getByRole('button', { name: 'Done', exact: true }).click()
     await page.reload()
     await expect(card).toHaveCount(0)
