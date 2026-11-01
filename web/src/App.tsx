@@ -7585,6 +7585,7 @@ function TransactionDraftReviewCard({
   const [editError, setEditError] = useState<string | null>(null)
   const firstMissingCategoryRef = useRef<HTMLSelectElement | null>(null)
   const activeCategories = categories.filter((category) => category.active)
+  const allowsNewCategory = draft.source_type === 'manual_chat' && !draft.financial_document_import_id
   const isPending = draft.status === 'pending'
   const proposedMatches = isPending ? (draft.matches ?? []).filter((match) => match.status === 'proposed') : []
   const displayAmount = exactMoneyNumber(draft.amount, draft.amount_cents)
@@ -7594,7 +7595,7 @@ function TransactionDraftReviewCard({
   const saving = action === `update-draft:${draft.id}`
   const reopening = action === `reopen-draft:${draft.id}`
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || Boolean(action)
-  const splitsNeedingCategory = (draft.splits ?? []).filter((split) => transactionDraftSplitNeedsCategory(split, draft.source_type))
+  const splitsNeedingCategory = (draft.splits ?? []).filter((split) => transactionDraftSplitNeedsCategory(split, draft.source_type, draft.financial_document_import_id))
   const needsCategoryReview = splitsNeedingCategory.length > 0
   const categoryWarningId = `transaction-draft-${draft.id}-category-warning`
   const categoryWarningCopy = transactionCategoryWarningCopy(draft, assistantName)
@@ -7719,7 +7720,7 @@ function TransactionDraftReviewCard({
           <div className="transaction-draft-splits">
             {(draft.splits ?? []).map((split) => (
               <article className={!split.budget_category_id ? 'needs-category' : ''} key={split.id}>
-                <strong>{transactionDraftSplitNeedsCategory(split, draft.source_type) ? 'Needs category' : split.category_name} · {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</strong>
+                <strong>{transactionDraftSplitNeedsCategory(split, draft.source_type, draft.financial_document_import_id) ? 'Needs category' : split.category_name} · {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</strong>
                 {(split.notes || (!split.budget_category_id && extractedCategoryLabel(split))) && (
                   <span>{[
                     !split.budget_category_id && extractedCategoryLabel(split) ? `${assistantName} read “${extractedCategoryLabel(split)}”` : null,
@@ -7785,7 +7786,7 @@ function TransactionDraftReviewCard({
                 </label>
                 <label>
                   <span>Category</span>
-                  <select value={split.budget_category_id || (split.metadata.new_category || (!placeholderCategoryName(split.category_name) && (draft.source_type === 'manual_chat' || split.metadata.human_reviewed_replacement === true)) ? 'new' : '')} onChange={(event) => {
+                  <select value={split.budget_category_id || (allowsNewCategory && (split.metadata.new_category || !placeholderCategoryName(split.category_name)) ? 'new' : '')} onChange={(event) => {
                     const value = event.currentTarget.value
                     const category = activeCategories.find((candidate) => String(candidate.id) === value)
                     if (value === 'new' && split.id) {
@@ -7800,11 +7801,11 @@ function TransactionDraftReviewCard({
                     })
                   }} ref={index === firstMissingSplitIndex ? firstMissingCategoryRef : undefined}>
                     <option value="">Needs category</option>
-                    <option value="new">New category</option>
+                    {allowsNewCategory && <option value="new">New category</option>}
                     {activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
                   </select>
                 </label>
-                {!split.budget_category_id && (split.metadata.new_category || (!placeholderCategoryName(split.category_name) && (draft.source_type === 'manual_chat' || split.metadata.human_reviewed_replacement === true))) && (
+                {!split.budget_category_id && (allowsNewCategory && (split.metadata.new_category || !placeholderCategoryName(split.category_name))) && (
                   <div>
                     <label>
                       <span>New category name</span>
@@ -7982,12 +7983,12 @@ function editableSplitsForDraft(draft: TransactionDraft): EditableDraftSplit[] {
 }
 
 function transactionDraftNeedsCategory(draft: TransactionDraft) {
-  if ((draft.splits ?? []).length > 0) return (draft.splits ?? []).some((split) => transactionDraftSplitNeedsCategory(split, draft.source_type))
-  return placeholderCategoryName(draft.category_name) || (!draft.category_id && draft.source_type !== 'manual_chat')
+  if ((draft.splits ?? []).length > 0) return (draft.splits ?? []).some((split) => transactionDraftSplitNeedsCategory(split, draft.source_type, draft.financial_document_import_id))
+  return placeholderCategoryName(draft.category_name) || (!draft.category_id && (draft.source_type !== 'manual_chat' || Boolean(draft.financial_document_import_id)))
 }
 
-function transactionDraftSplitNeedsCategory(split: TransactionDraftSplit, sourceType?: string) {
-  return placeholderCategoryName(split.category_name) || (!split.budget_category_id && sourceType !== 'manual_chat' && split.metadata?.human_reviewed_replacement !== true)
+function transactionDraftSplitNeedsCategory(split: TransactionDraftSplit, sourceType?: string, documentImportId?: number | null) {
+  return placeholderCategoryName(split.category_name) || (!split.budget_category_id && (sourceType !== 'manual_chat' || Boolean(documentImportId)))
 }
 
 function placeholderCategoryName(name: string | null | undefined) {

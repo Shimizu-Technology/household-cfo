@@ -62,3 +62,15 @@ it('asks for a category name before saving a new category', () => {
   expect(screen.getByRole('alert').textContent).toContain('Name the new category before saving.')
   expect(onUpdate).not.toHaveBeenCalled()
 })
+
+it('requires an existing category for document drafts even after a named replacement was reviewed', () => {
+  const imported: TransactionDraft = { ...draft, source_type: 'receipt', financial_document_import_id: 42,
+    category_name: 'Cigarettes', splits: draft.splits?.map((split) => ({ ...split, category_name: 'Cigarettes',
+      metadata: { new_category: true, human_reviewed_replacement: true } })) }
+  render(<TransactionDraftReviewStack drafts={[imported]} isRealWorkspace action={null}
+    onUpdate={vi.fn()} onConfirm={vi.fn()} onIgnore={vi.fn()} onReopen={vi.fn()} />)
+  expect((screen.getByRole('button', { name: /^Confirm Payless/ }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: /^Edit Payless/ }))
+  expect(screen.queryByRole('option', { name: 'New category' })).toBeNull()
+  expect(screen.queryByLabelText('New category name')).toBeNull()
+})

@@ -110,7 +110,9 @@ module HouseholdFinance
     end
 
     def self.spend_report_text?(value)
-      value.to_s.squish.match?(TRANSACTION_REPORT_PATTERN) || subjectless_spend_report?(value)
+      value.to_s.squish.match?(TRANSACTION_REPORT_PATTERN) ||
+        value.to_s.match?(/\b(?:i|we)\b[^.!?]{0,100}\band\s+(?:spent|paid|charged|bought|purchased)\b/i) ||
+        subjectless_spend_report?(value)
     end
 
     def self.prompt_injection?(value)

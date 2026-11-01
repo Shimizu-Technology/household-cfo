@@ -11,8 +11,17 @@ module HouseholdFinance
       message.to_s.match?(QUESTION)
     end
 
+    def self.question_date(message, today: Date.current)
+      relative = BudgetQuestionAnswerer.relative_month_date(message, today: today)
+      return relative if relative
+
+      month = MonthTerms.detect_number(message) || today.month
+      year = message.to_s[/\b(20\d{2})\b/, 1]&.to_i || today.year
+      Date.new(year, month, 1)
+    end
+
     def self.for_question(household, message)
-      date = BudgetQuestionAnswerer.relative_month_date(message) || Date.current
+      date = question_date(message)
       plan = AnnualBudgetManager.new(household, year: date.year).read_only_plan_data
       new(household, annual_plan: plan, month: date.month)
     end

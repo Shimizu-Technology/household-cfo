@@ -2305,7 +2305,7 @@ module Api
 
       def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil, mia_action_result: nil, selected_month: nil)
         if HouseholdFinance::MiaMonthAnswer.question?(content)
-          date = HouseholdFinance::BudgetQuestionAnswerer.relative_month_date(content) || Date.current
+          date = HouseholdFinance::MiaMonthAnswer.question_date(content)
           annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: date.year).read_only_plan_data
           selected_month = date.month
         end

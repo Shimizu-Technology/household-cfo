@@ -3,6 +3,7 @@ module NaturalPurchasePhrases
   TODAY = Date.new(2026, 10, 21)
   YESTERDAY = TODAY - 1
   NATURAL_PURCHASES = [
+    [ "I went to Ross again and spent $60 today", [ [ 6000, "Ross", TODAY ] ] ],
     [ "For today's check-in, I spent $12.34 at Payless on groceries today and bought nothing else. Please prepare one check-in card for me to review. Don't save these purchases until I approve.", [ [ 1234, "Payless", TODAY ] ] ],
     [ "I spent 18 dollars and 47 cents at Payless today", [ [ 1847, "Payless", TODAY ] ] ],
     [ "I spent eighteen dollars and forty-seven cents at Payless today", [ [ 1847, "Payless", TODAY ] ] ],

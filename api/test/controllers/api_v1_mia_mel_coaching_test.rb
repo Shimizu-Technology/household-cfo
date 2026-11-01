@@ -25,10 +25,51 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
 
   test "clear reported amount remains a purchase even with feelings" do
     post_message("I spent $12 at Payless today. I feel stressed.")
+    assert response.parsed_body["transaction_draft"], response.parsed_body.slice("transaction_draft", "assistant_message").inspect
     draft = response.parsed_body.fetch("transaction_draft")
     assert_equal "Payless", draft.fetch("merchant")
     assert_equal 1200, draft.fetch("amount_cents")
     assert_equal "pending", draft.fetch("status")
+  end
+
+  test "incurred spending after a repeated habit still creates a purchase review" do
+    post_message("I went to Ross again and spent $60 today")
+    assert response.parsed_body["transaction_draft"], response.parsed_body.slice("transaction_draft", "assistant_message").inspect
+    draft = response.parsed_body.fetch("transaction_draft")
+    assert_equal "Ross", draft.fetch("merchant")
+    assert_equal 6000, draft.fetch("amount_cents")
+    assert_equal "pending", draft.fetch("status")
+  end
+
+  { "October 1, 2025" => "2025-10-01", "2026-06-01" => "2026-06-01", "yesterday" => "2026-07-14" }.each do |phrase, expected|
+    test "purchase continuation preserves #{phrase}" do
+      @household.transaction_drafts.destroy_all
+      post_message("I spent money at Ross today")
+      post_message("It was $60 on #{phrase}")
+      assert response.parsed_body["transaction_draft"], response.parsed_body.slice("transaction_draft", "assistant_message").inspect
+      draft = response.parsed_body.fetch("transaction_draft")
+      assert_equal "Ross", draft.fetch("merchant")
+      assert_equal expected, draft.fetch("occurred_on")
+    end
+  end
+
+  test "an unresolved purchase continuation day asks instead of substituting today" do
+    @household.transaction_drafts.destroy_all
+    post_message("I spent money at Ross today")
+    assert_no_difference -> { @household.transaction_drafts.count } do
+      post_message("It was $60 on February 30")
+    end
+    assert_nil response.parsed_body["transaction_draft"]
+    assert_includes reply, "Which past day"
+  end
+
+  test "month overview honors a named month and year over the open budget period" do
+    post "/api/v1/mia/messages", params: { message: "How am I doing in September 2026?", year: 2025, month: 1 },
+      headers: { "Authorization" => "Bearer test_token:#{@user.clerk_id}:#{@user.email}:Mel:Test" }, as: :json
+    assert_response :created
+    assert_equal 2026, response.parsed_body.dig("month_answer", "year")
+    assert_equal 9, response.parsed_body.dig("month_answer", "month")
+    assert_includes reply, "September 2026"
   end
 
   test "month answer distinguishes positive plan from cushion and agrees with API figures" do
@@ -58,7 +99,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     before = HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.new(2026, 6, 1))
     post_message("My salary is $6,400 now")
     draft = @household.mia_action_drafts.order(:id).last
-    assert draft, response.parsed_body.inspect
+    assert draft, response.parsed_body.slice("transaction_draft", "assistant_message").inspect
     item = draft.mia_action_items.sole
     assert_equal "upsert_income_schedule_entry", item.action_type
     assert_equal "2026-07-01", item.payload.fetch("effective_on")
@@ -107,7 +148,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     post_message("I spent money at Ross today")
     post_message("It was $60")
     draft = response.parsed_body["transaction_draft"]
-    assert draft, response.parsed_body.inspect
+    assert draft, response.parsed_body.slice("transaction_draft", "assistant_message").inspect
     assert_equal "Ross", draft.fetch("merchant")
     assert_equal 6000, draft.fetch("amount_cents")
   end

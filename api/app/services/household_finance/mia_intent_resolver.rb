@@ -286,7 +286,18 @@ module HouseholdFinance
       return if Array(context[:pending_transaction_reviews]).any? { |draft| draft[:merchant].to_s.casecmp?(merchant) }
       return if combined.match?(/\b(?:refund|transfer|deposit|debt|loan|card payment|tomorrow)\b/i)
       day = Date.iso8601(context.dig(:calendar, :today).presence || Date.current.iso8601)
-      day -= 1 if combined.match?(/\byesterday\b/i)
+      calendar = PurchaseReportParser::Calendar.new(Date.new(1900, 1, 1), day, day)
+      # The latest answer can correct an earlier day; unresolved dates must not become today.
+      date_text = user_message.match?(PurchaseReportParser::DATE_PATTERN) ? user_message : combined
+      reader = PurchaseReportParser.new(calendar, message: date_text)
+      day = reader.date_reading unless reader.named_dates.empty?
+      if date_text.match?(PurchaseReportParser::UNCLEAR_DATE_PATTERN) || !day || day > calendar.local_today
+        return Result.new(intent: "clarification", confidence: 1.0, continuation: true,
+          resolved_message: user_message, needs_clarification: true,
+          clarification: "Which past day was the #{merchant} purchase? Please include the month, day, and year.",
+          topic: { type: "transaction_draft", title: "Reported spending", subject: merchant },
+          action: { type: "none" }, read_only_plan: {}, source: "deterministic")
+      end
       Result.new(intent: "transaction_report", confidence: 1.0, continuation: true,
         resolved_message: "I spent $#{amount} at #{merchant}.", needs_clarification: false, clarification: "",
         topic: { type: "transaction_draft", title: "Reported spending", subject: merchant },
