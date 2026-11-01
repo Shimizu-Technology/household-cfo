@@ -145,6 +145,20 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_includes response.parsed_body.dig("assistant_message", "content"), "Day 30 is ready to review"
   end
 
+  test "progress describes an exact-cent net withdrawal without reporting it as money set aside" do
+    with_savings_runtime do
+      savings_plan(50_000)
+      savings_approve(savings_draft(500))
+      savings_approve(savings_draft(-1_550, funding: "withdrawal"))
+    end
+    ask "Where am I at day 30?", "negative-progress"
+    answer = response.parsed_body.dig("assistant_message", "content")
+    assert_includes answer, "taken out $10.50 more than you've set aside"
+    assert_includes answer, "your goal is $500.00"
+    refute_includes answer, "$-11.50"
+    assert_equal(-1_050, SavingsChallenge::Projection.new(@savings_enrollment.reload).call[:reported_cents])
+  end
+
   test "a debt participant gets the cushion explanation and an actual destination" do
     ask "I joined to pay down my credit card, how does this help?", "debt"
     answer = response.parsed_body.dig("assistant_message", "content")

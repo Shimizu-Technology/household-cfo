@@ -87,7 +87,8 @@ module SavingsChallenge
     private
 
     def money(cents)
-      "$#{cents.div(100)}.#{cents.modulo(100).to_s.rjust(2, '0')}"
+      whole, fraction = cents.abs.divmod(100)
+      "#{cents.negative? ? '-' : ''}$#{whole}.#{fraction.to_s.rjust(2, '0')}"
     end
 
     def pattern_turn
@@ -167,8 +168,19 @@ module SavingsChallenge
       return false unless @message.match?(PROGRESS)
       projection = Projection.new(@enrollment).call
       calendar = ParticipantSerializer.calendar(@enrollment)
-      amount = projection[:reporting_known] ? "You've set aside #{money(projection[:reported_cents])}" : "You haven't reported savings yet, so I don't know your total"
-      target = projection[:target_cents] ? " toward your #{money(projection[:target_cents])} goal" : " and you can choose a comfortable goal whenever you're ready"
+      withdrawn_more = projection[:reporting_known] && projection[:reported_cents].negative?
+      amount = if withdrawn_more
+        "You've taken out #{money(-projection[:reported_cents])} more than you've set aside"
+      elsif projection[:reporting_known]
+        "You've set aside #{money(projection[:reported_cents])}"
+      else
+        "You haven't reported savings yet, so I don't know your total"
+      end
+      target = if projection[:target_cents]
+        withdrawn_more ? "; your goal is #{money(projection[:target_cents])}" : " toward your #{money(projection[:target_cents])} goal"
+      else
+        " and you can choose a comfortable goal whenever you're ready"
+      end
       due = [ 30, 60, 90 ].select { |day| @enrollment.starts_on + day - 1 <= @enrollment.local_today }
       reviewed = SavingsCheckpoint.where(savings_enrollment: @enrollment).where.not(current_version_id: nil).pluck(:milestone_day)
       ready = (due - reviewed).first
