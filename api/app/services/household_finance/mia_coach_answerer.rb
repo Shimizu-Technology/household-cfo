@@ -95,7 +95,7 @@ module HouseholdFinance
     def self.reflective_message?(value)
       text = value.to_s
       # A clear incurred amount still belongs in purchase review.
-      return false if spend_report_text?(text) && text.match?(AMOUNT_PATTERN)
+      return false if spend_report_text?(text) && PurchaseReportText.stated_amount?(text)
       return false if text.match?(/\b(?:set|change|update|create|add|move|log|record|put it)\b/i)
       return false if text.match?(/\b(?:how much|how many|show me|list|when did)\b/i)
       return false if PURCHASE_INTENT_PATTERNS.any? { |pattern| text.match?(pattern) }
@@ -1056,7 +1056,7 @@ module HouseholdFinance
       return false if MoneyMovementText.non_expense?(message) && !MoneyMovementText.separate_spend?(message)
 
       text = MoneyMovementText.without_non_expense(message)
-      self.class.spend_report_text?(text) && text.match?(AMOUNT_PATTERN)
+      self.class.spend_report_text?(text) && PurchaseReportText.stated_amount?(text)
     end
 
     # A savings deposit or investment buy with no separate purchase is not an expense report.

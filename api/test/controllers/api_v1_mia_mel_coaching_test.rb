@@ -148,6 +148,21 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     refute_includes answer.response, "no purchases are waiting"
   end
 
+  test "bare and spoken reported amounts still reach purchase review beside feelings or habits" do
+    {
+      "I went to Ross again and spent 60 today" => [ "Ross", 6000 ],
+      "I spent 12 at Payless today. I feel stressed." => [ "Payless", 1200 ],
+      "I went to Ross again and spent sixty dollars today" => [ "Ross", 6000 ]
+    }.each do |message, (merchant, cents)|
+      post_message(message)
+      draft = response.parsed_body.fetch("transaction_draft")
+      assert draft, response.parsed_body.slice("assistant_message", "transaction_draft").inspect
+      assert_equal merchant, draft.fetch("merchant")
+      assert_equal cents, draft.fetch("amount_cents")
+      assert_equal "pending", draft.fetch("status")
+    end
+  end
+
   test "month answer distinguishes positive plan from cushion and agrees with API figures" do
     post_message("How am I doing this month?")
     facts = response.parsed_body.fetch("month_answer")
