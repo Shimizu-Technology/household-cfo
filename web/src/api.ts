@@ -3886,6 +3886,7 @@ export async function fetchSpendingReport(startOn: string, endOn: string): Promi
 export type MiaMessageResponse = {
   setup_help?: { available: boolean } | null
   financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
+  challenge_chat_card?: import('./lib/challengeChatCards').ChallengeChatCard | null
   savings_intake?: import('./lib/savingsChallenge').SavingsIntake | import('./lib/savingsChallenge').DailyReportIntake | null
   user_message: MiaMessage
   assistant_message: MiaMessage
@@ -5144,4 +5145,12 @@ export async function changeSavingsChallengeAccess(
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
     body: JSON.stringify({ challenge_access: values }),
   })
+}
+
+// Challenge cards are private review state, separate from paginated chat history.
+export function fetchChallengeChatCards(signal?: AbortSignal): Promise<import('./lib/challengeChatCards').ChallengeChatCards> {
+  return fetchJson('/api/v1/savings_challenge/chat_cards', { signal, cache: 'no-store' })
+}
+export function updateChallengeChatCard(id: number, input: { action: 'save_state'; state: import('./lib/dailyCheckIn').DailyCardState; expected_lock_version: number } | { action: 'dismiss' | 'approve_goal'; expected_lock_version: number; accepted?: true }): Promise<{ record: import('./lib/challengeChatCards').ChallengeChatCard; challenge?: SavingsChallenge | null }> {
+  return fetchJson(`/api/v1/savings_challenge/chat_cards/${savingsRecordId(id)}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
 }

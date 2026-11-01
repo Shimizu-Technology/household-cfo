@@ -53,13 +53,6 @@ function SectionIcon({ section }: { section: string }) {
   )
 }
 
-function TodayIcon() {
-  return (
-    <svg className="tabs-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 6v12M6 12h12" />
-    </svg>
-  )
-}
 
 function ArrowIcon() {
   return (
@@ -96,14 +89,14 @@ export function StaffNavigation({ sections, activeSection, onChange }: Pick<Part
   </nav>
 }
 
-function ParticipantNavigation({ sections, activeSection, onChange, savingsChallenge = false, onToday }: ParticipantTabsProps) {
+function ParticipantNavigation({ sections, activeSection, onChange, savingsChallenge = false }: ParticipantTabsProps) {
   const { assistantName, brand } = useBrand()
   const [moreOpen, setMoreOpen] = useState(false)
   const [toolsPosition, setToolsPosition] = useState({ top: 0, right: 16 })
   const shellRef = useRef<HTMLDivElement | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement | null>(null)
   const secondaryRef = useRef<HTMLDivElement | null>(null)
-  const { primary, secondary } = partitionParticipantSections(sections, savingsChallenge)
+  const { primary, secondary } = partitionParticipantSections(savingsChallenge ? sections.filter(section => ['Home', 'Ask Mia', 'Statements', 'My Profile'].includes(section)) : sections, savingsChallenge)
   const secondaryIsActive = secondary.includes(activeSection)
   const tools = secondary.filter(section => PARTICIPANT_TOOL_SECTIONS.includes(section))
   const destinations = secondary.filter(section => !PARTICIPANT_TOOL_SECTIONS.includes(section))
@@ -197,6 +190,7 @@ function ParticipantNavigation({ sections, activeSection, onChange, savingsChall
   const sectionLabel = (section: string, compact = false) => {
     if (savingsChallenge && section === 'Home') return 'Savings'
     if (savingsChallenge && section === 'Review') return 'Transactions'
+    if (savingsChallenge && section === 'Statements') return 'Statements'
     if (section === 'Ask Mia') return compact ? shortAssistantName(assistantName) : `Ask ${assistantName}`
     return compact ? compactLabels[section] ?? section : section
   }
@@ -204,7 +198,6 @@ function ParticipantNavigation({ sections, activeSection, onChange, savingsChall
   return (
     <div className={`tabs-shell${savingsChallenge ? ' is-savings-navigation' : ''}${moreOpen ? ' is-tools-open' : ''}`} ref={shellRef}>
       <nav className="tabs" aria-label={`${brand.short_name} participant sections`}>
-        {savingsChallenge && onToday && <button type="button" className="tabs-today-action" onClick={event => { event.currentTarget.focus({ preventScroll: true }); onToday() }}><TodayIcon /><span className="tabs-label">Today</span></button>}
         {primary.map((section) => (
           <a
             key={section}

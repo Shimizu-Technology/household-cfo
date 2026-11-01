@@ -13,7 +13,7 @@ import { ChallengeCheckpoints } from './ChallengeCheckpoint'
 import './ChallengeToday.css'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
 
-type ChallengeTodayProps = {scope:BaselineScope;cohortId?:number;onClose:()=>void;onStatements:()=>void;onBaseline:()=>void;onPrivacy?:()=>void;initialPurchase?:SavingsIntake|null}
+type ChallengeTodayProps = {initialDate?:string;initialSection?:'today'|'checkpoints';scope:BaselineScope;cohortId?:number;onClose:()=>void;onStatements:()=>void;onBaseline:()=>void;onPrivacy?:()=>void;initialPurchase?:SavingsIntake|null}
 type SpendingState = DailyDay['spending_state']
 
 const isoDate = (iso: string) => new Date(`${iso}T00:00:00Z`)
@@ -37,14 +37,14 @@ const STATE_LABELS: Record<SpendingState, string> = { unknown: 'Not checked in y
 export function ChallengeToday(props: ChallengeTodayProps) {
   return <ChallengeTodaySession key={`${props.scope.user_id}:${props.scope.household_id}:${props.cohortId ?? 'legacy'}`} {...props}/>
 }
-function ChallengeTodaySession({scope,cohortId,onClose,onStatements,onBaseline,onPrivacy,initialPurchase}:ChallengeTodayProps) {
+function ChallengeTodaySession({initialDate,initialSection,scope,cohortId,onClose,onStatements,onBaseline,onPrivacy,initialPurchase}:ChallengeTodayProps) {
   const pinnedEnrollment=useRef<number|undefined>(undefined)
   const staged=useRef<{signature:string;draft:DailyPurchaseDraft}|null>(null)
   const dialog=usePilotDialog(onClose)
   const expected=useMemo(()=>({user_id:scope.user_id,household_id:scope.household_id}),[scope.user_id,scope.household_id])
-  const[context,setContext]=useState<DailyContext|null>(null);const[requestedDate,setRequestedDate]=useState<string|undefined>()
+  const[context,setContext]=useState<DailyContext|null>(null);const[requestedDate,setRequestedDate]=useState<string|undefined>(initialDate)
   const[loading,setLoading]=useState(true);const[readFailed,setReadFailed]=useState(false);const[error,setError]=useState<string|null>(null);const[denied,setDenied]=useState(false)
-  const[attempt,setAttempt]=useState(0);const[section,setSection]=useState<'today'|'checkpoints'>('today')
+  const[attempt,setAttempt]=useState(0);const[section,setSection]=useState<'today'|'checkpoints'>(initialSection ?? 'today')
   const[editing,setEditing]=useState<DailyPurchase|null|undefined>(initialPurchase ? null : undefined)
   const[report,setReport]=useState<SpendingState>('unknown');const[reportReason,setReportReason]=useState('')
   const[categoryName,setCategoryName]=useState('')
@@ -109,9 +109,9 @@ function ChallengeTodaySession({scope,cohortId,onClose,onStatements,onBaseline,o
   const totalDays=calendar?daysBetween(calendar.starts_on,calendar.ends_on)+1:null
   const purchaseWord=(count:number)=>`${count} ${count===1?'purchase':'purchases'} saved`
   return <div className="daily-overlay"><section ref={dialog} className="daily-dialog" role="dialog" aria-modal="true" aria-labelledby="daily-title" tabIndex={-1}>
-    <header><div><h2 id="daily-title">Today</h2>{calendar&&day&&<p className="daily-subtitle">{dayTitle(day.local_on,calendar.local_today)}{dayNumber&&totalDays?` · Day ${dayNumber} of ${totalDays}`:''}</p>}</div><button type="button" onClick={onClose}>Close Today</button></header>
+    <header><div><h2 id="daily-title">Today</h2>{calendar&&day&&<p className="daily-subtitle">{dayTitle(day.local_on,calendar.local_today)}{dayNumber&&totalDays?` · Day ${dayNumber} of ${totalDays}`:''}</p>}</div><button type="button" aria-label="Close Today" className="daily-close" onClick={onClose}>×</button></header>
     {(error||mutation.error)&&<p role="alert" className="daily-note">{error??mutation.error}</p>}
-    {mutation.pending&&<section aria-label="Earlier daily request"><h3>Check the earlier save first</h3><p>{mutation.pending.working?'Checking…':'We need to confirm whether your last change saved before making another.'}</p><p>Reference number: {mutation.pending.key}</p><div className="daily-actions">{mutation.checkStatus&&<button type="button" disabled={mutation.pending.working} onClick={()=>void mutation.checkStatus?.()}>Check earlier daily result</button>}{mutation.retry&&<button type="button" onClick={()=>void mutation.retry?.()}>Retry the same daily request</button>}</div></section>}
+    {mutation.pending&&<section aria-label="Earlier daily request"><h3>Check the earlier save first</h3><p>{mutation.pending.working?'Checking…':'We need to confirm whether your last change saved before making another.'}</p><div className="daily-actions">{mutation.checkStatus&&<button type="button" disabled={mutation.pending.working} onClick={()=>void mutation.checkStatus?.()}>Check earlier daily result</button>}{mutation.retry&&<button type="button" onClick={()=>void mutation.retry?.()}>Retry the same daily request</button>}</div></section>}
     {denied||mutation.denied?<div><p role="alert">Private daily access is no longer available. Close Today to continue.</p>{onPrivacy&&<button type="button" onClick={onPrivacy}>Privacy & reminders</button>}</div>:<>
       {loading&&<p role="status">Loading today…</p>}
       {readFailed&&<button type="button" onClick={refresh}>Try loading again</button>}
@@ -121,7 +121,7 @@ function ChallengeTodaySession({scope,cohortId,onClose,onStatements,onBaseline,o
           {day?<>
             <section className="daily-overview" aria-label="Current personal daily report">
               <p className="daily-figure">{day.reported_spend_cents===null?(day.canonical_links_changed?'Spending needs a check':'Not checked in yet'):day.spending_state==='no_spend'&&day.approved_purchase_count===0?'No spending':`${savingsDollars(day.reported_spend_cents)} spent`}</p>
-              <p>{day.approved_purchase_count>0?purchaseWord(day.approved_purchase_count):day.spending_state==='no_spend'?'Saved as a no-spend day.':'A day you skip stays unknown, not $0.'}</p>
+              <p>{day.approved_purchase_count>0?purchaseWord(day.approved_purchase_count):day.spending_state==='no_spend'?'Saved as a no-spend day.':'Check in when you’re ready. Skipped days stay blank.'}</p>
               {day.canonical_links_changed&&<p className="daily-note">A statement transaction linked to this day changed. Its spending stays unknown until you review it in Statements.</p>}
               {day.no_spend_discrepancy&&<p className="daily-note">This day is saved as no spending but also has a saved purchase. Choose “I spent money” below to fix it.</p>}
             </section>

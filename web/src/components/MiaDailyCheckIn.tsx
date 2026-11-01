@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchDailyContext, fetchDailyRequestStatus } from '../api'
 import { dailyApproval, dailyContextMatches, dailyResponseMatches, type DailyAction, type DailyContext, type DailyInput, type DailyPurchaseDraft, type DailyScope } from '../lib/dailyChallenge'
-import { readDailyCard, useDailyCard, writeDailyCard, type DailyCardRow, type DailyCardState } from '../lib/dailyCheckIn'
+import { DailyCardSyncUnavailable, syncDailyCard, dismissDailyCard, readDailyCard, useDailyCard, writeDailyCard, type DailyCardRow, type DailyCardState } from '../lib/dailyCheckIn'
 import { clearDailyRecovery, readDailyRecovery } from '../lib/dailyRecovery'
 import type { BaselineScope } from '../lib/financialBaseline'
 import { savingsDollars, savingsInputCents, savingsInputDollars, type DailyReportIntake, type SavingsIntake } from '../lib/savingsChallenge'
@@ -69,6 +69,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   const update = (change: (current: DailyCardState) => DailyCardState) => writeDailyCard(nonce, change)
   const patchRow = (id: number, patch: Partial<DailyCardRow>) => update((current) => ({ ...current, rows: current.rows.map((row) => row.id === id ? { ...row, ...patch } : row) }))
   const [contexts, setContexts] = useState<Record<string, DailyContext>>({})
+  const [moving, setMoving] = useState(false)
   const [invalid, setInvalid] = useState<Record<number, string>>({})
   const saveInFlightRef = useRef(false)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -91,7 +92,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   const today = anyContext?.calendar.local_today ?? report.local_on
   const firstDay = contexts[report.local_on]?.day
   const saved = finished(state, noSpend)
-  const busy = state.phase === 'saving'
+  const busy = state.phase === 'saving' || moving
   const noSpendBlocked = noSpend && !saved && Boolean(firstDay && firstDay.approved_purchase_count > 0)
   const openRows = state.rows.filter(open)
   // Purchases saved, but the day's check-in or feelings were left (an interrupted save).
@@ -128,6 +129,8 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
     // Recorded before sending: if the page closes mid-request, the restored card
     // checks this request's result before anything new is sent.
     update((current) => ({ ...current, unconfirmed: { action, input, key, rowId } }))
+    await syncDailyCard(nonce)
+    currentCard()
     const record = await perform(action, input, undefined, key)
     currentCard()
     if (record) { update((current) => current.unconfirmed?.key === key ? { ...current, unconfirmed: undefined } : current); return { record: record as T } }
@@ -141,6 +144,8 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   async function settleUnconfirmed() {
     const pending = readDailyCard(nonce)?.unconfirmed
     if (!pending || !actor) return
+    await syncDailyCard(nonce)
+    currentCard()
     const record = await perform(pending.action, pending.input, undefined, pending.key)
     if (!record && readDailyRecovery(actor)?.key === pending.key) throw new Stop('unknown')
     update((current) => ({ ...current, unconfirmed: undefined }))
@@ -308,12 +313,13 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
         const card = currentCard()
         const complete = noSpend ? card.noSpendSaved : feelingsSaved && !card.unconfirmed && !card.rows.some(open) && card.rows.some((row) => row.status === 'saved')
         update((current) => ({ ...current, phase: complete ? 'saved' : 'idle', message: noSpend ? null : summary(card, feelingsSaved) }))
+        await syncDailyCard(nonce)
       } catch (failure) {
-        const text = failure instanceof Stop && failure.message !== 'unknown' ? failure.message : 'We couldn’t confirm the last save. Tap Save to check — it won’t save twice.'
+        const text = (failure instanceof DailyCardSyncUnavailable || failure instanceof Stop && failure.message !== 'unknown') ? failure.message : 'We couldn’t confirm the last save. Tap Save to check — it won’t save twice.'
         const card = readDailyCard(nonce)
         if (!card) return
         const partial = noSpend ? null : summary(card, true)
-        update((current) => ({ ...current, phase: 'idle', message: failure instanceof Stop ? text : partial && !partial.startsWith('Nothing') ? partial : text }))
+        update((current) => ({ ...current, phase: 'idle', message: failure instanceof Stop || failure instanceof DailyCardSyncUnavailable ? text : partial && !partial.startsWith('Nothing') ? partial : text }))
       }
       const after = readDailyCard(nonce)
       if (after && (after.noSpendSaved || after.rows.some((row) => row.status === 'saved'))) onSaved()
@@ -321,6 +327,11 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
     } finally {
       saveInFlightRef.current = false
     }
+  }
+
+  async function dismiss() {
+    try { await dismissDailyCard(nonce); onDismiss() }
+    catch { update((current) => ({ ...current, message: 'We couldn’t close this card. Try again when you’re connected.' })) }
   }
 
   function edit(id: number, patch: Partial<DailyCardRow>) {
@@ -342,21 +353,31 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
 
   // "Edit in Today" hands one unlocked purchase to the Today form and keeps the rest here.
   const movable = state.rows.find((row) => open(row) && !locked(row))
-  function moveToToday() {
-    if (!movable) return
+  async function moveToToday() {
+    if (!movable || saveInFlightRef.current || busy) return
     let intake: SavingsIntake
     try { intake = { kind: 'purchase', amount_cents: savingsInputCents(movable.amount), effective_on: movable.purchased_on, merchant: movable.merchant.trim(), approval_state: 'unreviewed_input', counted: false } }
     catch { setInvalid((current) => ({ ...current, [movable.id]: 'Enter an amount like 8.25.' })); return }
-    const remaining = state.rows.filter((row) => open(row) && row.id !== movable.id)
+    const remaining = state.rows.filter((row) => row.status !== 'moved' && row.id !== movable.id)
     const names = remaining.map((row) => label(row, state.rows.indexOf(row)))
-    update((current) => ({ ...current, rows: current.rows.map((row) => row.id === movable.id ? { ...row, status: 'moved' } : row),
-      message: remaining.length ? `Moved ${label(movable, state.rows.indexOf(movable))} to Today. ${sentence(names.join(' and '))} ${remaining.length === 1 ? 'is' : 'are'} still here to save.` : null }))
-    onEditInToday(intake, remaining.length)
+    const before = currentCard()
+    setMoving(true)
+    saveInFlightRef.current = true
+    try {
+      update((current) => ({ ...current, phase: remaining.length ? 'saving' : 'saved', rows: current.rows.map((row) => row.id === movable.id ? { ...row, status: 'moved' } : row),
+        message: remaining.length ? `Moved ${label(movable, state.rows.indexOf(movable))} to Today. ${sentence(names.join(' and '))} ${remaining.length === 1 ? 'is' : 'are'} still here to save.` : null }))
+      await syncDailyCard(nonce)
+      currentCard()
+      if (remaining.length) update(current => ({ ...current, phase: 'idle' }))
+      onEditInToday(intake, remaining.length)
+    } catch {
+      update(() => ({ ...before, message: 'We couldn’t move this purchase. Reopen Ask Mia and try again.' }))
+    } finally { saveInFlightRef.current = false; setMoving(false) }
   }
 
   const dayWord = plainDay(report.local_on, today) === 'Today' ? 'today' : `on ${plainDay(report.local_on, today)}`
   const visibleRows = state.rows.filter((row) => row.status !== 'moved')
-  const title = saved ? (allToday ? 'Saved to today' : 'Saved') : noSpend ? `No spending ${dayWord}` : finishing ? 'Almost done' : visibleRows.filter(open).length === 1 ? 'Check this, then save' : 'Check these, then save'
+  const title = moving ? 'Moving to Today…' : saved ? (allToday ? 'Saved to today' : 'Saved') : noSpend ? `No spending ${dayWord}` : finishing ? 'Almost done' : visibleRows.filter(open).length === 1 ? 'Check this, then save' : 'Check these, then save'
   const feelingsOpen = Boolean(report.feelings?.when_spent || report.feelings?.now)
   const setFeeling = (field: 'feelingThen' | 'feelingNow', value: string) => update((current) => ({ ...current, [field]: value }))
   const statusText = finishing && !busy && !reconciling && !state.message ? `Your purchases are saved. Tap ${allToday ? 'Save to today' : 'Save'} to finish this check-in.` : foreignPending ? 'An earlier daily save needs checking first. Nothing new is sent until it is.' : unconfirmed.length && !busy ? `We couldn’t confirm ${unconfirmed.map((row) => label(row, state.rows.indexOf(row))).join(' and ')} saved. Tap Save to check — it won’t save twice.` : state.message ?? ''
@@ -399,10 +420,10 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
       {!saved ? (
         <div className="mia-daily-actions">
           <button type="button" className="mia-daily-save" disabled={busy || reconciling || Boolean(foreignPending) || noSpendBlocked || !actor || (!noSpend && openRows.length === 0 && !finishing)} onClick={() => void save()}>{busy ? 'Saving…' : allToday ? 'Save to today' : 'Save'}</button>
-          {!noSpend && <button type="button" className="secondary-button" disabled={busy || !movable} onClick={moveToToday}>Edit in Today</button>}
-          <button type="button" className="mia-daily-dismiss" disabled={busy || Boolean(state.unconfirmed)} onClick={onDismiss}>Not right</button>
+          {!noSpend && <button type="button" className="secondary-button" disabled={busy || !movable} onClick={() => void moveToToday()}>Edit in Today</button>}
+          <button type="button" className="mia-daily-dismiss" disabled={busy || Boolean(state.unconfirmed)} onClick={() => void dismiss()}>Not right</button>
         </div>
-      ) : <div className="mia-daily-actions"><button type="button" className="mia-daily-dismiss" onClick={onDismiss}>Done</button></div>}
+      ) : <div className="mia-daily-actions"><button type="button" className="mia-daily-dismiss" disabled={busy} onClick={() => void dismiss()}>Done</button></div>}
     </section>
   )
 }

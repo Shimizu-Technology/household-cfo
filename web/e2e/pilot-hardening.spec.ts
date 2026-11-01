@@ -9422,6 +9422,7 @@ async function openSavingsHome(page: Page, options: { enrolled?: boolean; uncert
     const request = route.request(); const url = new URL(request.url()); const path = url.pathname.replace('/api/v1/savings_challenge', '')
     // Daily reads have their own fixture (openDaily); without it, today's check-in state is unknown.
     if (path.startsWith('/daily')) return route.fulfill({ status: 404, json: { errors: ['No daily fixture'] } })
+    if (path === '/chat_cards') return route.fulfill({ json: { records: [], actor_scope: baselineScope, cohort_id: 41, enrollment_id: challenge.enrollment?.id ?? null } })
     if (request.method() === 'GET') {
       if (!path) return route.fulfill({ json: challenge })
       const records = path === '/plan_drafts' ? plans : path === '/entry_drafts' ? drafts : path === '/entries' ? entries : []
@@ -9506,7 +9507,8 @@ test('BOG UI shows Today and the private export only after joining', async ({ pa
   await home.getByLabel(/start later than the group/).check()
   await home.getByRole('button', { name: 'Accept and join' }).click()
   await expect(home).toContainText('Day 1 of 90')
-  await expect(page.locator('.tabs-today-action')).toBeVisible()
+  await expect(page.locator('.tabs-today-action')).toHaveCount(0)
+  await expect(home.getByRole('button', { name: 'Check in for today', exact: true })).toBeVisible()
   await expect(page.getByText('Download your record')).toBeVisible()
   await openSection(page, 'Ask Mia')
   await expect(page.locator('.chat-today-button')).toHaveCount(1)
@@ -9529,6 +9531,7 @@ test('BOG UI savings Home preserves approved totals through proposals correction
   await home.getByRole('button', { name: 'Confirm $25.50 set aside on Sun, Oct 4' }).click()
   await expect(progress.locator('.savings-total')).toHaveText('$25.50')
   await openDetails(page, /^Your records & corrections/)
+  await home.getByText('Review or fix this record', { exact: true }).first().click()
   await home.getByRole('button', { name: 'Fix the $25.50 set aside on Sun, Oct 4' }).click()
   await openSetAside(page)
   await home.getByLabel('Amount in US dollars').fill('10.00')

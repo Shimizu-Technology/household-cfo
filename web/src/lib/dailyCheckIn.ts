@@ -1,7 +1,9 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { fetchDailyContext } from '../api'
+import { fetchDailyContext, updateChallengeChatCard } from '../api'
 import type { BaselineScope } from './financialBaseline'
 import { dailyContextMatches, type DailyAction, type DailyContext, type DailyDay, type DailyInput, type DailyPurchaseDraft } from './dailyChallenge'
+import type { ChallengeChatCard } from './challengeChatCards'
+import { checkedDailyReport } from './savingsChallenge'
 import type { DailyReportIntake } from './savingsChallenge'
 
 // Mia daily report cards keep their progress here, outside the card component,
@@ -30,6 +32,73 @@ const cards = new Map<string, DailyCardState>()
 const entries = new Map<string, DailyCardEntry>()
 const cardListeners = new Set<() => void>()
 const subscribeCards = (listener: () => void) => { cardListeners.add(listener); return () => { cardListeners.delete(listener) } }
+const syncTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const serverCards = new Map<string, { card: ChallengeChatCard; queue: Promise<void> }>()
+
+export function registerServerDailyCard(card: ChallengeChatCard, scope: string): DailyCardEntry | null {
+  const report = checkedDailyReport(card.input)
+  if (card.kind !== 'daily_report' || card.status !== 'pending' || !report) return null
+  const nonce = `server-card-${card.id}`
+  if (!serverCards.has(nonce)) {
+    serverCards.set(nonce, { card, queue: Promise.resolve() })
+    const state = card.state as DailyCardState
+    if (Array.isArray(state.rows)) cards.set(nonce, { ...state, phase: state.phase === 'saving' ? 'idle' : state.phase,
+      rows: state.rows.map((row) => row.status === 'saving' ? { ...row, status: state.unconfirmed?.rowId === row.id ? 'unknown' : 'pending' } : row) })
+  }
+  const entry = { scope, report, nonce }
+  registerDailyCard(entry)
+  return entry
+}
+
+// Serialize writes per card. A financial request waits for its exact key and
+// unconfirmed input to reach the server, so a fresh tab can safely reconcile it.
+function scheduleDailyCardSync(nonce: string) {
+  if (!serverCards.has(nonce)) return
+  clearTimeout(syncTimers.get(nonce))
+  syncTimers.set(nonce, setTimeout(() => { syncTimers.delete(nonce); void syncDailyCard(nonce).catch(() => undefined) }, 300))
+}
+
+export class DailyCardSyncUnavailable extends Error {}
+
+export async function syncDailyCard(nonce: string): Promise<void> {
+  clearTimeout(syncTimers.get(nonce)); syncTimers.delete(nonce)
+  const server = serverCards.get(nonce)
+  if (!server) {
+    if (nonce.startsWith('server-card-')) throw new DailyCardSyncUnavailable('Wait for this check-in to finish loading, then try again.')
+    return
+  }
+  const state = cards.get(nonce)
+  if (!state) throw new DailyCardSyncUnavailable('This check-in was cleared.')
+  if (server.card.status === 'closed') {
+    if (state.phase !== 'saved') throw new DailyCardSyncUnavailable('This check-in was finished in another window. Reopen Ask Mia.')
+    return
+  }
+  const snapshot = JSON.parse(JSON.stringify(state)) as DailyCardState
+  const next = server.queue.catch(() => undefined).then(async () => {
+    if (serverCards.get(nonce) !== server || !entries.has(nonce)) throw new DailyCardSyncUnavailable('This check-in was cleared.')
+    if (server.card.status === 'closed') {
+      if (snapshot.phase !== 'saved') throw new DailyCardSyncUnavailable('This check-in was finished in another window. Reopen Ask Mia.')
+      return
+    }
+    const result = await updateChallengeChatCard(server.card.id, { action: 'save_state', expected_lock_version: server.card.lock_version, state: snapshot })
+    if (serverCards.get(nonce) !== server || !entries.has(nonce)) throw new DailyCardSyncUnavailable('This check-in was cleared.')
+    server.card = result.record
+    if (server.card.status === 'closed' && snapshot.phase !== 'saved') throw new DailyCardSyncUnavailable('This check-in was finished in another window. Reopen Ask Mia.')
+  })
+  server.queue = next
+  return next
+}
+
+export async function dismissDailyCard(nonce: string) {
+  const server = serverCards.get(nonce)
+  if (server) {
+    await syncDailyCard(nonce)
+    const result = await updateChallengeChatCard(server.card.id, { action: 'dismiss', expected_lock_version: server.card.lock_version })
+    server.card = result.record
+  }
+  forgetDailyCard(nonce)
+}
+
 function persist(scope: string) {
   try {
     const saved = [...entries.values()].filter((entry) => entry.scope === scope && cards.has(entry.nonce)).map((entry) => {
@@ -50,6 +119,7 @@ export function writeDailyCard(nonce: string, update: (state: DailyCardState) =>
   cards.set(nonce, update(current))
   const entry = entries.get(nonce)
   if (entry) persist(entry.scope)
+  scheduleDailyCardSync(nonce)
   cardListeners.forEach((listener) => listener())
 }
 export function useDailyCard(nonce: string, init: () => DailyCardState): DailyCardState {
@@ -62,7 +132,8 @@ export function useDailyCard(nonce: string, init: () => DailyCardState): DailyCa
 }
 export function forgetDailyCard(nonce: string) {
   const entry = entries.get(nonce)
-  cards.delete(nonce); entries.delete(nonce)
+  clearTimeout(syncTimers.get(nonce)); syncTimers.delete(nonce)
+  cards.delete(nonce); entries.delete(nonce); serverCards.delete(nonce)
   if (entry) persist(entry.scope)
 }
 // Cards saved for this exact participant, household and program in this tab.
@@ -83,8 +154,13 @@ export function restoreDailyCards(scope: string): DailyCardEntry[] {
     })
   } catch { return [] }
 }
+export function reconcileServerDailyCards(scope: string, activeNonces: Set<string>) {
+  for (const [nonce, entry] of [...entries]) {
+    if (entry.scope === scope && nonce.startsWith('server-card-') && !activeNonces.has(nonce)) forgetDailyCard(nonce)
+  }
+}
 export function clearDailyCards(scope?: string) {
-  for (const [nonce, entry] of [...entries]) if (!scope || entry.scope === scope) { entries.delete(nonce); cards.delete(nonce) }
+  for (const [nonce, entry] of [...entries]) if (!scope || entry.scope === scope) { clearTimeout(syncTimers.get(nonce)); syncTimers.delete(nonce); entries.delete(nonce); cards.delete(nonce); serverCards.delete(nonce) }
   try {
     for (const key of Object.keys(sessionStorage)) if (key.startsWith(STORAGE_PREFIX) && (!scope || key === STORAGE_PREFIX + scope)) sessionStorage.removeItem(key)
   } catch { /* nothing stored */ }
