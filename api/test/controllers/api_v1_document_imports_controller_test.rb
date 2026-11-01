@@ -72,7 +72,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :service_unavailable
     body = JSON.parse(response.body)
-    assert_includes body.fetch("errors").join, "Private S3"
+    assert_includes body.fetch("errors").join, "Our file storage is unavailable"
   end
 
   test "create stores upload in private S3 and enqueues extraction" do
@@ -606,7 +606,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     body = JSON.parse(response.body)
-    assert_match(/Could not store document/, body.fetch("errors").join)
+    assert_match(/Our file storage couldn’t accept your file/, body.fetch("errors").join)
   end
 
   test "create accepts docx financial documents" do

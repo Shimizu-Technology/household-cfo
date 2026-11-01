@@ -3134,7 +3134,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   async function handleDocumentUpload(kind: DocumentImportKind, file: File, origin: 'profile' | 'mia' = 'profile') {
     if (!isRealWorkspace) {
       setDocumentsError('Sign in to a real workspace before uploading financial documents.')
-      return
+      return false
     }
 
     const uploadFile = normalizedEvidenceFile(file, 0)
@@ -3143,7 +3143,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentsNotice(null)
       setDocumentsError(validation.message)
       if (origin === 'mia') setMiaError(validation.message)
-      return
+      return false
     }
 
     setUploadingKind(kind)
@@ -3161,12 +3161,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         origin,
         status: documentImport.status,
       })
-
+      return true
     } catch (caught) {
       trackDocumentUpload(kind, 'failed', uploadFile)
       const uploadError = participantErrorMessage(caught, 'Document could not be uploaded.')
       setDocumentsError(uploadError)
       if (origin === 'mia') setMiaError(uploadError)
+      return false
     } finally {
       setUploadingKind(null)
     }
@@ -5003,7 +5004,7 @@ function DocumentImportWorkspace({
   expandedAppliedImportId: number | null
   onExpandedAppliedImportIdChange: (id: number | null) => void
   demoUploads: Array<{ label: string; kind: string; status: string; accepts: string }>
-  onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => void
+  onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => Promise<boolean>
   onSelectImport: (id: number) => void
   onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => Promise<void> | void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
@@ -5113,8 +5114,13 @@ function DocumentUploadCard({
   card: (typeof documentUploadCards)[number]
   uploading: boolean
   disabled: boolean
-  onUpload: (file: File) => void
+  onUpload: (file: File) => Promise<boolean>
 }) {
+  const [retryFile, setRetryFile] = useState<File | null>(null)
+  async function upload(file: File) {
+    setRetryFile(file)
+    if (await onUpload(file)) setRetryFile(null)
+  }
   const inputId = `document-upload-${card.kind}`
 
   return (
@@ -5127,7 +5133,7 @@ function DocumentUploadCard({
         disabled={disabled}
         onChange={(event) => {
           const file = event.target.files?.[0]
-          if (file) onUpload(file)
+          if (file) void upload(file)
           event.currentTarget.value = ''
         }}
       />
@@ -5139,6 +5145,12 @@ function DocumentUploadCard({
         <small>{card.sizeGuidance}</small>
         <strong>{uploading ? 'Uploading' : 'Choose file'}</strong>
       </label>
+      {retryFile && !uploading && (
+        <div className="form-stack">
+          <p style={{ overflowWrap: 'anywhere' }}>{retryFile.name} is still selected.</p>
+          <button type="button" className="secondary-button" disabled={disabled} onClick={() => void upload(retryFile)}>Try this file again</button>
+        </div>
+      )}
     </article>
   )
 }

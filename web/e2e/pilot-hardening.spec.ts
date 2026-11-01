@@ -8484,7 +8484,7 @@ test('BOG UI household a same-month Mia response cannot undo a newer transaction
   await expect(monthSummary.locator('.month-plan-pending')).toHaveCount(0)
 })
 
-test('failed receipt upload leaves the participant on a retryable private-upload state', async ({ page }) => {
+test('Auth recovery failed receipt upload retains the selected file for retry', async ({ page }) => {
   await page.route('http://api.test/api/v1/document_imports/presign', (route) => route.fulfill({
     status: 200,
     json: {
@@ -8504,7 +8504,10 @@ test('failed receipt upload leaves the participant on a retryable private-upload
   await receiptCard.locator('input[type="file"]').setInputFiles({
     name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from('not-a-real-financial-document'),
   })
-  await expect(page.getByRole('alert')).toContainText('Your file didn’t finish uploading. Try again, and if it keeps happening, contact your program team.')
+  await expect(page.getByRole('alert')).toContainText('Our file storage couldn’t accept your file. It is still selected.')
+  await expect(receiptCard.getByText('receipt.png is still selected.')).toBeVisible()
+  await receiptCard.getByRole('button', { name: 'Try this file again' }).click()
+  await expect(page.getByRole('alert')).toContainText('Our file storage couldn’t accept your file. It is still selected.')
   await expect(receiptCard.getByText('Choose file', { exact: true })).toBeVisible()
   await expect(receiptCard.locator('input[type="file"]')).toBeEnabled()
 })

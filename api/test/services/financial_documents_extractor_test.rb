@@ -672,9 +672,9 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
         result = extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png")
 
         refute result.success?
-        assert_equal FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, result.error
+        assert_equal(status == 402 ? FinancialDocuments::Extractor::PROVIDER_CREDIT_MESSAGE : FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, result.error)
         assert_no_match(/HTTP|OpenRouter|\d{3}/, result.error)
-        assert_match(/temporary/i, result.error)
+        assert_match(status == 402 ? /billing problem on our side/ : /temporary/i, result.error)
         assert_match(/Reprocess/, result.error)
         assert_equal "OpenRouter extraction failed with HTTP #{status}", result.metadata.fetch(:error_detail)
         assert_equal status, result.metadata.fetch(:status_code)
@@ -831,6 +831,58 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset")), batch.call(3, account.call("savings", nil, "asset"))).length
     # Different numbers.
     assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1111", "asset")), batch.call(3, account.call("savings", "XXXX2222", "asset"))).length
+  end
+
+  test "model spreadsheet batches keep original rows and shrink output-limited sections without accepting partial results" do
+    file = Tempfile.new([ "unrecognized-budget", ".csv" ])
+    file.write("Budget note,Monthly dollars\n")
+    81.times { |i| file.write("Synthetic note #{i},#{i}\n") }
+    file.flush
+    document = FinancialDocumentImport.new(document_kind: "spreadsheet", filename: "messy.csv", content_type: "text/csv")
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    seen = []
+    extractor.define_singleton_method(:extract_openrouter_document) do |_document, _path, batch_label:|
+      rows = @spreadsheet_batch_summary[:sheets].sole[:rows]
+      seen << rows.pluck(:row)
+      if rows.length > 20
+        next FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "limit", metadata: { finish_reason: "length" })
+      end
+      FinancialDocuments::Extractor::Result.new(success: true, data: { items: [], transaction_drafts: [], warnings: [], confidence: "high", document_kind: "spreadsheet",
+        source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: { usage: { "total_tokens" => 1 } })
+    end
+    result = extractor.send(:batched_spreadsheet_result, document, file.path)
+    assert result.success?, result.error
+    assert_equal (1..82).to_a, seen.select { |rows| rows.length <= 20 }.flatten
+    assert_equal "spreadsheet_batches", result.metadata[:extraction_mode]
+    assert_equal [ 0 ], result.data[:source_accounting][:coverage][:processed_sheets]
+    assert_equal 5, result.metadata[:batch_count]
+    assert_nil extractor.instance_variable_get(:@spreadsheet_batch_summary)
+  ensure
+    file&.close!
+  end
+
+  test "a provider output-limited PDF batch shrinks to individual original pages" do
+    file = Tempfile.new([ "adaptive-statement", ".pdf" ])
+    file.binmode
+    file.write(blank_pdf_bytes(3))
+    file.flush
+    document = FinancialDocumentImport.new(document_kind: "statement", filename: "adaptive.pdf", content_type: "application/pdf")
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    labels = []
+    extractor.define_singleton_method(:extract_openrouter_document) do |_document, path, batch_label:|
+      labels << batch_label
+      if CombinePDF.load(path).pages.length > 1
+        next FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "limit", metadata: { finish_reason: "length" })
+      end
+      FinancialDocuments::Extractor::Result.new(success: true, data: { items: [], transaction_drafts: [], warnings: [], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: {})
+    end
+    result = extractor.send(:batched_pdf_result, document, file.path)
+    assert result.success?, result.error
+    assert_equal [ "pages 1-2 of 3", "pages 1-1 of 3", "pages 2-2 of 3", "pages 3-3 of 3" ], labels
+    assert_equal 3, result.metadata[:batch_count]
+    assert_equal [ 1, 2, 3 ], result.data[:source_accounting][:coverage][:processed_pages]
+  ensure
+    file&.close!
   end
 
   private

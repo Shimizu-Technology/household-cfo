@@ -16,6 +16,7 @@ module FinancialDocuments
     MAX_WARNINGS = 12
     PDF_BATCH_PAGES = 4
     STATEMENT_PDF_BATCH_PAGES = 2
+    SPREADSHEET_BATCH_ROWS = 40
     MAX_PDF_PAGES = 60
     MAX_OUTPUT_TOKENS = 24_000
     TRANSACTION_CONFIDENCE_DECIMALS = {
@@ -30,6 +31,8 @@ module FinancialDocuments
     # Participant copy for any provider or service problem. The technical
     # cause (status code, provider message) goes to the attempt record and
     # logs through metadata[:error_detail], never to the participant.
+    PROVIDER_CREDIT_MESSAGE = "Our file-reading service is unavailable because of a billing problem on our side. Your file is saved and nothing changed. Contact your program team; try Reprocess after service is restored."
+    STORAGE_FAILURE_MESSAGE = "We couldn’t open your saved file because our storage service is unavailable. Nothing changed. Try Reprocess in a few minutes."
     TEMPORARY_FAILURE_MESSAGE = "We couldn't read this file right now. This is usually temporary. Your file is saved and nothing changed, so try Reprocess in a few minutes."
     UNREADABLE_RESULT_MESSAGE = "We couldn't turn this file into reviewable results. Your file is saved and nothing changed. Try Reprocess, or upload a clearer copy, a CSV export or a screenshot."
     OUTPUT_LIMIT_MESSAGE = "This document has more rows than Mia can read in one pass. Split it into smaller date ranges so every transaction can be reviewed."
@@ -63,7 +66,7 @@ module FinancialDocuments
       @progress = progress
       progress!
       return failure("Document source is no longer available") unless document_import.source_available?
-      return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { error_detail: "AWS S3 storage is not configured" }) unless S3Service.configured?
+      return failure(STORAGE_FAILURE_MESSAGE, metadata: { error_detail: "AWS S3 storage is not configured" }) unless S3Service.configured?
 
       with_source_tempfile(document_import) do |tempfile|
         progress!
@@ -78,6 +81,9 @@ module FinancialDocuments
 
         return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { error_detail: "OpenRouter API key is not configured" }) if api_key.blank?
 
+        batched_spreadsheet = batched_spreadsheet_result(document_import, tempfile.path)
+        return batched_spreadsheet if batched_spreadsheet
+
         batched_pdf = batched_pdf_result(document_import, tempfile.path)
         return batched_pdf if batched_pdf
 
@@ -91,6 +97,8 @@ module FinancialDocuments
       failure(unreadable_source_message(e))
     rescue SpreadsheetSummarizer::Unreadable => e
       failure(e.message)
+    rescue S3Service::MissingConfigurationError, Aws::S3::Errors::ServiceError, Seahorse::Client::NetworkingError => e
+      failure(STORAGE_FAILURE_MESSAGE, metadata: { error_detail: "#{e.class} while reading storage" })
     rescue StandardError => e
       Rails.logger.warn("[FinancialDocuments::Extractor] extraction failed for import #{document_import&.id}: #{e.class}")
       failure(UNREADABLE_RESULT_MESSAGE, metadata: { error_detail: "#{e.class} during extraction" })
@@ -113,7 +121,7 @@ module FinancialDocuments
 
       max_bytes = UploadLimits.max_bytes(filename: document_import.filename, content_type: document_import.content_type)
       downloaded = SourceSafety.download(document_import.s3_key, tempfile, max_bytes: max_bytes)
-      return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { error_detail: "Could not download document source" }) unless downloaded
+      return failure(STORAGE_FAILURE_MESSAGE, metadata: { error_detail: "Could not download document source" }) unless downloaded
 
       tempfile.flush
       tempfile.close
@@ -161,6 +169,60 @@ module FinancialDocuments
       NativeStatementParser.new(file_path: file_path).call
     end
 
+    # Only unrecognized workbooks reach the model. Keep physical row/sheet
+    # locators, give each batch header context, and never accept partial output.
+    def batched_spreadsheet_result(document_import, file_path)
+      return unless document_import.spreadsheet?
+
+      summary = SpreadsheetSummarizer.new(file_path: file_path, filename: document_import.filename).call
+      if summary[:scan_incomplete] || summary[:column_limit_exceeded] || summary[:sheets].any? { |sheet| sheet[:rows_truncated] }
+        return failure("This workbook could not be inspected completely. Remove empty rows or columns, or split it into smaller workbooks so every value can be reviewed.")
+      end
+      results = []
+      summary[:sheets].each do |sheet|
+        sheet[:rows].each_slice(SPREADSHEET_BATCH_ROWS) do |rows|
+          result = extract_spreadsheet_rows(document_import, file_path, summary, sheet, rows)
+          return result unless result.success?
+
+          results.concat(result.data)
+        end
+      end
+      return failure(UNREADABLE_RESULT_MESSAGE) if results.empty?
+
+      merged = merge_pdf_batch_results(results.map(&:data), results.map(&:metadata), page_count: nil, sheet_count: summary[:sheet_count])
+      if merged.success? && summary[:uncalculated_formula_cells].to_i.positive?
+        merged.data[:warnings].unshift(SpreadsheetSummarizer.uncalculated_formula_warning(summary[:uncalculated_formula_cells]))
+      end
+      merged
+    end
+
+    def extract_spreadsheet_rows(document_import, file_path, summary, sheet, rows)
+      progress!
+      @spreadsheet_batch_coverage = { expected_sheet_count: summary[:sheet_count], processed_sheets: [ sheet[:sheet_index] ] }
+      @spreadsheet_batch_summary = summary.except(:sheets).merge(sheets: [ sheet.merge(rows: rows,
+        header_context_only: sheet[:rows].first(8).select { |row| row[:row] < rows.first[:row] }.map { |row| row.except(:cell_types, :cell_formats) }) ])
+      label = "worksheet #{sheet[:sheet_index] + 1}, rows #{rows.first[:row]}-#{rows.last[:row]}"
+      result = extract_openrouter_document(document_import, file_path,
+        batch_label: "#{label}. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections")
+      if result.metadata[:finish_reason] == "length" && rows.length > 1
+        children = []
+        rows.each_slice((rows.length / 2.0).ceil) do |smaller|
+          child = extract_spreadsheet_rows(document_import, file_path, summary, sheet, smaller)
+          return child unless child.success?
+
+          children << child
+        end
+
+        return Result.new(success: true, data: children.flat_map(&:data), error: nil, metadata: {})
+      end
+      return failure("One section of this workbook didn’t finish. #{result.error}", metadata: result.metadata) unless result.success?
+
+      Result.new(success: true, data: [ result ], error: nil, metadata: {})
+    ensure
+      @spreadsheet_batch_summary = nil
+      @spreadsheet_batch_coverage = nil
+    end
+
     def batched_pdf_result(document_import, file_path)
       return unless document_import.pdf?
 
@@ -169,7 +231,7 @@ module FinancialDocuments
       return failure("This PDF has more than #{MAX_PDF_PAGES} pages. Split it into smaller date ranges so every page can be processed and reviewed.") if page_count > MAX_PDF_PAGES
 
       pages_per_batch = pdf_batch_pages(document_import)
-      return if page_count <= pages_per_batch
+      return if page_count == 1
 
       batch_data = []
       batch_metadata = []
@@ -189,6 +251,14 @@ module FinancialDocuments
           chunk.path,
           batch_label: "pages #{first_page}-#{last_page} of #{page_count}"
         )
+        if result.metadata[:finish_reason] == "length" && pages.length > 1
+          split_result = extract_pdf_pages_individually(document_import, pages, first_page, page_count)
+          return split_result unless split_result.success?
+
+          batch_data.concat(split_result.data.map(&:data))
+          batch_metadata.concat(split_result.data.map(&:metadata))
+          next
+        end
         unless result.success?
           return failure("Pages #{first_page}-#{last_page} of this statement didn't finish. #{result.error}",
             metadata: result.metadata.merge(error_detail: "pages #{first_page}-#{last_page} of #{page_count}: #{result.metadata[:error_detail] || result.error}"))
@@ -208,6 +278,24 @@ module FinancialDocuments
     rescue CombinePDF::ParsingError => e
       Rails.logger.warn("[FinancialDocuments::Extractor] could not safely parse PDF import #{document_import.id}: #{e.class}")
       failure(PDF_UNPARSEABLE_MESSAGE)
+    end
+
+    def extract_pdf_pages_individually(document_import, pages, first_page, page_count)
+      results = []
+      pages.each_with_index do |page, index|
+        progress!
+        chunk = Tempfile.new([ "financial_document_page", ".pdf" ])
+        chunk.close
+        write_pdf_chunk([ page ], chunk.path)
+        number = first_page + index
+        result = extract_openrouter_document(document_import, chunk.path, batch_label: "pages #{number}-#{number} of #{page_count}")
+        return result unless result.success?
+
+        results << result
+      ensure
+        chunk&.close!
+      end
+      Result.new(success: true, data: results, error: nil, metadata: {})
     end
 
     def pdf_batch_pages(document_import)
@@ -242,9 +330,9 @@ module FinancialDocuments
       Result.new(success: true, data: normalized, error: nil, metadata: response.metadata)
     end
 
-    def merge_pdf_batch_results(batch_data, batch_metadata, page_count:)
+    def merge_pdf_batch_results(batch_data, batch_metadata, page_count:, sheet_count: nil)
       transactions = batch_data.flat_map { |data| Array(data[:transaction_drafts]) }
-      accounting = merge_source_accounting(batch_data, page_count: page_count)
+      accounting = merge_source_accounting(batch_data, page_count: page_count, sheet_count: sheet_count)
       return accounting if accounting.is_a?(Result)
       if accounting[:contract_version] == AccountingContract::LEGACY_VERSION && transactions.length > HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS
         return failure("This statement contains more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} transaction rows. Split it into smaller date ranges so every row can be reviewed.")
@@ -258,7 +346,7 @@ module FinancialDocuments
       # Each batch only sees its own pages, so its "only pages 3-4 were
       # provided" style warnings contradict the merged, complete statement.
       warnings = batch_data.flat_map { |data| Array(data[:warnings]) }.reject { |warning| batch_scope_warning?(warning) }
-      warnings.unshift("Mia read all #{page_count} pages of this statement.")
+      warnings.unshift(sheet_count ? "Mia read all #{sheet_count} worksheets in smaller sections." : "Mia read all #{page_count} pages of this statement.")
       dates = transactions.filter_map { |draft| parsed_date(draft[:occurred_on]) }
 
       Result.new(
@@ -268,7 +356,7 @@ module FinancialDocuments
           document_date: batch_data.filter_map { |data| data[:document_date] }.first,
           period_start_on: accounting[:contract_version] == AccountingContract::VERSION ? (accounting[:accounts].filter_map { |account| account[:period_start_on] }.min || batch_data.filter_map { |data| data[:period_start_on] }.min) : (dates.min || batch_data.filter_map { |data| data[:period_start_on] }.min),
           period_end_on: accounting[:contract_version] == AccountingContract::VERSION ? (accounting[:accounts].filter_map { |account| account[:period_end_on] }.max || batch_data.filter_map { |data| data[:period_end_on] }.max) : (dates.max || batch_data.filter_map { |data| data[:period_end_on] }.max),
-          summary: "Mia found #{transactions.length} transaction draft#{'s' unless transactions.length == 1} across #{page_count} statement pages for review.",
+          summary: "Mia found #{transactions.length} transaction draft#{'s' unless transactions.length == 1} across #{sheet_count ? "#{sheet_count} worksheets" : "#{page_count} statement pages"} for review.",
           confidence: merged_confidence(batch_data),
           warnings: warnings.uniq.first(MAX_WARNINGS),
           items: items,
@@ -277,7 +365,7 @@ module FinancialDocuments
         },
         error: nil,
         metadata: {
-          extraction_mode: "pdf_batches",
+          extraction_mode: sheet_count ? "spreadsheet_batches" : "pdf_batches",
           page_count: page_count,
           batch_count: batch_data.length,
           usage: merged_usage(batch_metadata),
@@ -288,6 +376,7 @@ module FinancialDocuments
     end
 
     def source_page_coverage(document_import, file_path, batch_label)
+      return @spreadsheet_batch_coverage if @spreadsheet_batch_coverage
       return {} unless document_import
       return { expected_page_count: 1, processed_pages: [ 1 ] } if document_import.image?
       return {} unless document_import.pdf?
@@ -299,7 +388,7 @@ module FinancialDocuments
       { expected_page_count: count, processed_pages: (1..count).to_a }
     end
 
-    def merge_source_accounting(batch_data, page_count:)
+    def merge_source_accounting(batch_data, page_count:, sheet_count: nil)
       sources = batch_data.map { |data| data[:source_accounting] || AccountingContract.legacy(data[:transaction_drafts]) }
       financial_sources = sources.reject { |source| source[:contract_version] == AccountingContract::LEGACY_VERSION && source[:events].empty? }
       versions = (financial_sources.presence || sources).pluck(:contract_version).uniq
@@ -341,7 +430,7 @@ module FinancialDocuments
         event[:row_identity] = Digest::SHA256.hexdigest(JSON.generate([ event[:source_key], event[:locator], index ]))
       end
       { contract_version: versions.first, accounts: accounts, events: events,
-        coverage: { expected_page_count: page_count, processed_pages: (1..page_count).to_a, represented_row_count: events.length, reported_row_count: nil } }
+        coverage: (sheet_count ? { expected_sheet_count: sheet_count, processed_sheets: (0...sheet_count).to_a } : { expected_page_count: page_count, processed_pages: (1..page_count).to_a }).merge(represented_row_count: events.length, reported_row_count: nil) }
     end
 
     # Each batch names its account independently, so one statement account
@@ -479,12 +568,12 @@ module FinancialDocuments
       elsif document_import.pdf?
         content << { type: "file", file: { filename: document_import.filename, file_data: data_url(file_path, "application/pdf") } }
       elsif document_import.spreadsheet?
-        summary = SpreadsheetSummarizer.new(file_path: file_path, filename: document_import.filename).call
+        summary = (@spreadsheet_batch_summary || SpreadsheetSummarizer.new(file_path: file_path, filename: document_import.filename).call).deep_dup
         @uncalculated_formula_cells = summary.delete(:uncalculated_formula_cells).to_i
         summary.fetch(:sheets, []).each do |sheet|
           sheet.fetch(:rows, []).each { |row| row.except!(:cell_types, :cell_formats) }
         end
-        content << { type: "text", text: "Spreadsheet sample JSON:\n#{JSON.generate(summary)}" }
+        content << { type: "text", text: "Spreadsheet rows JSON:\n#{JSON.generate(summary)}" }
       elsif document_import.word_document?
         summary = DocxSummarizer.new(file_path: file_path, filename: document_import.filename).call
         content << { type: "text", text: "Word document text JSON:\n#{JSON.generate(summary)}" }
@@ -579,7 +668,7 @@ module FinancialDocuments
       ProviderOutageAlert.check(response, service: "document_extraction")
       unless response.is_a?(Net::HTTPSuccess)
         status_code = response.code.to_i
-        return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { status_code: status_code, retryable: RETRYABLE_STATUS_CODES.include?(status_code),
+        return failure(status_code == 402 ? PROVIDER_CREDIT_MESSAGE : TEMPORARY_FAILURE_MESSAGE, metadata: { status_code: status_code, retryable: RETRYABLE_STATUS_CODES.include?(status_code),
           retry_after_seconds: retry_after_seconds(response["Retry-After"]), error_detail: "OpenRouter extraction failed with HTTP #{status_code}" }.compact)
       end
 

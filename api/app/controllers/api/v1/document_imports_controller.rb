@@ -80,7 +80,7 @@ module Api
         end
         unless uploaded
           cleanup_failed_upload_import!(document_import)
-          return render json: { errors: [ "Could not store document in private S3" ] }, status: :unprocessable_entity
+          return render json: { errors: [ "Our file storage couldn’t accept your file. Try again in a few minutes." ] }, status: :unprocessable_entity
         end
 
         dispatch = document_import.with_lock do
@@ -117,7 +117,7 @@ module Api
           content_type: metadata.fetch(:content_type),
           checksum_sha256: metadata.fetch(:checksum_sha256)
         )
-        return render json: { errors: [ "Could not prepare private document upload" ] }, status: :service_unavailable unless upload
+        return render json: { errors: [ "Our file storage couldn’t prepare your upload. Try again in a few minutes." ] }, status: :service_unavailable unless upload
 
         token = direct_upload_verifier.generate(
           metadata.merge(s3_key: s3_key, household_id: current_household.id, user_id: current_user.id, financial_generation: FinancialPicture.generation || current_household.financial_generation),
@@ -165,7 +165,7 @@ module Api
         end
       rescue ActiveSupport::MessageVerifier::InvalidSignature, ActionController::ParameterMissing
         render json: { errors: [ "The private upload expired. Choose the file and try again." ] }, status: :unprocessable_entity
-      rescue Aws::S3::Errors::ServiceError => e
+      rescue Aws::S3::Errors::ServiceError, Seahorse::Client::NetworkingError => e
         Rails.logger.warn("[DocumentImportsController] direct upload verification unavailable: #{e.class}")
         render json: { errors: [ "Private storage could not verify the upload yet. Wait a moment and try again." ] }, status: :service_unavailable
       rescue ActiveRecord::RecordNotUnique
@@ -942,7 +942,7 @@ module Api
       end
 
       def render_s3_not_configured
-        render json: { errors: [ "Private S3 document storage is not configured" ] }, status: :service_unavailable
+        render json: { errors: [ "Our file storage is unavailable. Your file is still selected; try again in a few minutes." ], code: "storage_unavailable" }, status: :service_unavailable
       end
     end
   end

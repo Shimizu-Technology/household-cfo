@@ -156,7 +156,7 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_equal 2, result.data.fetch(:source_accounting).fetch(:events).count { |event| event[:row_kind] == "unresolved" }
     assert_equal "statement", result.data.fetch(:document_kind)
     assert_equal Date.new(2026, 5, 12), result.data.fetch(:period_start_on)
-    assert_equal Date.new(2026, 7, 5), result.data.fetch(:period_end_on)
+    assert_equal Date.new(2026, 7, 6), result.data.fetch(:period_end_on)
     assert_equal "Ross", drafts.first.fetch(:merchant)
     assert_equal Date.new(2026, 5, 12), drafts.first.fetch(:occurred_on)
     assert_equal BigDecimal("0.90"), drafts.first.fetch(:confidence)
@@ -411,7 +411,7 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
   test "rejects oversized statement CSVs instead of silently truncating transaction rows" do
     file = Tempfile.new([ "oversized-statement", ".csv" ])
     file.write("date,description,amount,category,notes\n")
-    501.times do |index|
+    2021.times do |index|
       file.write("2026-07-10,Merchant #{index + 1},1.25,Dining Out,Statement row #{index + 1}\n")
     end
     file.rewind
@@ -419,7 +419,7 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "oversized-statement.csv", document_kind: "statement").call
 
     refute result.success?
-    assert_includes result.error, "more than 500 rows"
+    assert_includes result.error, "more than 2020 rows"
     assert_includes result.error, "without silently truncating"
   ensure
     file&.close!
@@ -624,6 +624,26 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
       assert_empty result.data.fetch(:transaction_drafts)
       assert_includes result.data.fetch(:warnings).join(" "), "Payroll"
     end
+  end
+
+  test "retains all 1000 source rows with credit-only month boundaries and pending rows excluded from spending" do
+    file = Tempfile.new([ "large-source", ".csv" ])
+    file.write("Posting Date,Transaction Description,Withdrawal Amount,Deposit Amount,Status\n")
+    file.write("2026-08-01,Payroll,,2000.00,Posted\n")
+    997.times { |index| file.write("2026-09-15,Payless #{index},1.25,,Posted\n") }
+    file.write("2026-10-30,Pending Shell,40.00,,Pending\n2026-10-31,Visa card payment,100.00,,Posted\n")
+    file.rewind
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "large-source.csv", document_kind: "statement").call
+    assert result.success?, result.error
+    assert_equal 1000, result.data[:source_accounting][:events].length
+    assert_equal 997, result.data[:transaction_drafts].length
+    assert_equal 124625, result.data[:transaction_drafts].sum { |draft| draft[:total_amount_cents] }
+    assert_equal Date.new(2026, 8, 1), result.data[:period_start_on]
+    assert_equal Date.new(2026, 10, 31), result.data[:period_end_on]
+    assert_equal "informational", result.data[:source_accounting][:events][-2][:row_kind]
+    assert_equal "debt_payment", result.data[:source_accounting][:events].last[:event_type]
+  ensure
+    file&.close!
   end
 
   private
