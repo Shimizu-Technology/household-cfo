@@ -26,6 +26,13 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 describe('Coach group essentials', () => {
+  it('opens invitations for an empty group without making the coach open another disclosure',async()=>{
+    mocks.fetchAdminUsers.mockResolvedValue([])
+    harness()
+    await screen.findByText('Participants in Tuesday group')
+    expect(screen.getByText('Add a participant',{selector:'summary'}).closest('details')?.open).toBe(true)
+  })
+
   it('explains required savings start dates and uses actor-neutral skipped invitation wording', async () => {
     const user = userEvent.setup()
     mocks.createAdminUser.mockResolvedValue({ invitation_status: 'skipped', invitation_error: 'Invitation saved. No email was sent.' })

@@ -20,7 +20,8 @@ const draft = { ...NEUTRAL_BRAND, product_name: 'Island Money', short_name: 'Isl
 const configuration: WorkspaceBrandConfiguration = { workspace: { id: 1, name: workspace.name, slug: workspace.slug }, draft, draft_revision: 1, preview_required: true, preview: null, published_version: { id: 1, number: 1, digest: 'initial', published_at: '2026-10-01T00:00:00Z', published_by: { id: 1, full_name: 'Mrs. Mel' } }, versions: [], permissions: { edit: true, preview: true, publish: true, rollback: true } }
 const lifecycle = { pending: false, begin: vi.fn(() => ({ id: 1, workspaceId: 1 })), isCurrent: vi.fn(() => true), finish: vi.fn() }
 const refreshCurrentUser = vi.hoisted(() => vi.fn())
-vi.mock('../contexts/authContextValue', () => ({ useAuthContext: () => ({ refreshCurrentUser }) }))
+const selectCoachWorkspace = vi.hoisted(() => vi.fn())
+vi.mock('../contexts/authContextValue', () => ({ useAuthContext: () => ({ refreshCurrentUser, selectCoachWorkspace }) }))
 function renderSettings() { render(<CoachProgramSettings workspaceId={1} currentUser={actor} mutationLifecycle={lifecycle} onDirtyChange={vi.fn()} />) }
 
 describe('program settings', () => {
@@ -33,6 +34,16 @@ describe('program settings', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
   afterEach(() => { cleanup(); vi.restoreAllMocks() })
+
+  it('opens simple program creation with the current coach and selects the saved program', async () => {
+    vi.mocked(api.createCoachWorkspace).mockResolvedValue(workspace)
+    render(<CoachProgramSettings simple workspaceId={null} currentUser={{ ...actor, is_admin: true }} mutationLifecycle={lifecycle} onDirtyChange={vi.fn()} />)
+    expect(screen.getByLabelText('Coach display name')).toHaveProperty('value', 'Mrs. Mel')
+    await userEvent.type(screen.getByLabelText('Program name'), 'Island program')
+    await userEvent.click(screen.getByRole('button', { name: 'Create program' }))
+    await waitFor(() => expect(selectCoachWorkspace).toHaveBeenCalledWith(workspace.id))
+    expect(api.createCoachWorkspace).toHaveBeenCalledWith(expect.objectContaining({ coach_profile: expect.objectContaining({ display_name: 'Mrs. Mel' }) }), expect.any(String))
+  })
 
   it('requires the exact saved preview before publication and explains release pinning', async () => {
     const user = userEvent.setup()

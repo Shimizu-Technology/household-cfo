@@ -12,8 +12,6 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
   const [answers, setAnswers] = useState<Array<{question: string; answer: string}>>([])
   const [reviewedPersona, setReviewedPersona] = useState<AdminPersonaDetail | null>(null)
   const [readiness, setReadiness] = useState<AdminPersonaReleaseReadiness | null>(null)
-  const [reviewed, setReviewed] = useState(false)
-  const [phrases, setPhrases] = useState<string[]>([])
   const [groupIds, setGroupIds] = useState<number[]>(cohorts.filter((item) => item.assignable).map((item) => item.id))
   const [groups, setGroups] = useState<GroupReview[]>([])
   const [settings, setSettings] = useState<CoachSettingsReview | null>(null)
@@ -31,7 +29,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
     if (busy || lifecycle.pending || persona.draft_revision == null) return
     const ticket = lifecycle.begin()
     const current = () => mounted.current && lifecycle.isCurrent(ticket)
-    setBusy(true); setError(null); setReviewed(false); setReadiness(null); setChecks([]); setPhrases([]); setAnswers([]); setSettings(null); setGroups([]); publishedSettings.current = null; publishedPersona.current = null; completedGroups.current.clear(); setReviewedPersona(null); requestId.current = crypto.randomUUID()
+    setBusy(true); setError(null); setReadiness(null); setChecks([]); setAnswers([]); setSettings(null); setGroups([]); publishedSettings.current = null; publishedPersona.current = null; completedGroups.current.clear(); setReviewedPersona(null); requestId.current = crypto.randomUUID()
     try {
       const source = await fetchAdminPersona(persona.id)
       if (!current()) return
@@ -81,7 +79,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
       if (!current()) return
       setSettings(settingsReview)
       setGroups(reviews)
-      setStatus('Review the answers, phrases and groups below. Your participants still have their current settings.')
+      setStatus(source.has_unpublished_changes === false ? 'Review the appearance, tools and groups below. Your participants still have their current settings.' : 'Review the answers, phrases and groups below. Your participants still have their current settings.')
     } catch (caught) { if (current()) { setStatus(''); setError(caught instanceof Error ? caught.message : 'The preview could not finish. Try again.') } }
     finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
   }
@@ -89,13 +87,13 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
   const startedAutomatically = useRef(false)
   const startPreview = useEffectEvent(() => void preview())
   useEffect(() => {
-    if (!autoPreview || lifecycle.pending || startedAutomatically.current) return
+    if ((!autoPreview && persona.has_unpublished_changes !== false) || groupIds.length === 0 || lifecycle.pending || startedAutomatically.current) return
     startedAutomatically.current = true
     startPreview()
-  }, [autoPreview, lifecycle.pending])
+  }, [autoPreview, lifecycle.pending, persona.has_unpublished_changes, groupIds.length])
 
   async function goLive() {
-    if (busy || lifecycle.pending || !reviewed || groups.length === 0) return
+    if (busy || lifecycle.pending || groups.length === 0) return
     const ticket = lifecycle.begin()
     const current = () => mounted.current && lifecycle.isCurrent(ticket)
     setBusy(true); setError(null)
@@ -117,7 +115,6 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
       if (!publishedPersona.current && approved.has_unpublished_changes !== false) {
         if (!readiness?.candidate || !readiness.evaluation_run?.run_digest || !readiness.behavioral_preview_evidence?.valid) throw new Error('Preview the latest saved voice first.')
         for (const phrase of readiness.phrase_audience_reviews) {
-          if (!phrases.includes(phrase.artifact_id)) throw new Error('Review each phrase before going live.')
           if (!current()) return
           if (phrase.review_state !== 'approved') await reviewAdminPersonaAudience(approved.id, { candidate_digest: readiness.candidate.manifest_digest, artifact_id: phrase.artifact_id, artifact_fingerprint: phrase.artifact_fingerprint, decision: 'approved' })
         }
@@ -144,30 +141,30 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
         completedGroups.current.add(group.group.id)
       }
       setStatus(`Live for ${groups.map((item) => item.group.name).join(', ')}. Participants will hear your assistant and see the published tools and appearance.`)
-      setReviewed(false)
+      setGroups([]); setSettings(null)
       onPersonaChange(published)
     } catch (caught) {
       if (current()) {
-        setGroups([]); setReviewed(false); setSettings(null); setReviewedPersona(null)
+        setGroups([]); setSettings(null); setReviewedPersona(null)
         setError(`${caught instanceof Error ? caught.message : 'Publishing could not finish.'}${publishedPersona.current ? ' Your assistant is published. Completed groups stay live. Reopen Go live to review any remaining group, or finish its saved update in Advanced / history.' : ' Review again before retrying.'}`)
       }
     } finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
   }
-  const canPublish = Boolean(persona.permissions.publish && reviewed && groups.length > 0 && (reviewedPersona?.has_unpublished_changes === false || readiness) && (readiness?.phrase_audience_reviews.every((item) => phrases.includes(item.artifact_id)) ?? true))
+  const canPublish = Boolean(persona.permissions.publish && settings && groups.length > 0 && (reviewedPersona?.has_unpublished_changes === false || readiness))
+  const voiceChanges = (reviewedPersona ?? persona).has_unpublished_changes !== false
   return <article className="panel coach-go-live" aria-busy={busy}>
-    <h3>Hear your assistant, then go live</h3><p>Try two everyday questions with fictional details. Review the answers before your people receive any changes.</p>
-    <fieldset disabled={busy}><legend>Who will receive these changes?</legend>{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { setGroupIds((ids) => event.target.checked ? [...ids, group.id] : ids.filter((id) => id !== group.id)); setGroups([]); setReviewed(false) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
-    <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review group changes' : 'Preview answers and check safety'}</Button>
+    <h3>{voiceChanges ? 'Hear your assistant, then go live' : 'Review changes, then go live'}</h3><p>{voiceChanges ? 'Try two everyday questions with fictional details. Review the answers before your people receive any changes.' : 'Your assistant’s voice stays the same. Review the appearance, tools and groups below.'}</p>
+    <fieldset disabled={busy}><legend>Who will receive these changes?</legend>{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { setGroupIds((ids) => event.target.checked ? [...ids, group.id] : ids.filter((id) => id !== group.id)); setGroups([]) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
+    {groups.length === 0 && <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review changes' : 'Preview answers'}</Button>}
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
     <div className="coach-answer-comparison">{answers.map((item) => <section key={item.question}><h4>{item.question}</h4><p>{item.answer}</p></section>)}</div>
     {groups.length > 0 && <section><h4>Review before going live</h4><p>{reviewedPersona?.draft?.identity.assistant_name ?? reviewedPersona?.name} · {groups.map((item) => `${item.group.name} (${item.participantIds.length} ${item.participantIds.length === 1 ? 'person' : 'people'})`).join(', ')}</p><p>These groups will receive this assistant, appearance and tools together.</p>
       {settings && <><BrandWelcomePreview config={settings.brand.preview.brand} />{settings.tools.map((item) => <section key={item.configuration.cohort.id}><h4>Tools for {item.configuration.cohort.name}</h4><p>{item.preview.modules.filter((module) => module.enabled).map((module) => module.label).join(' · ')}</p><p>Hidden: {item.preview.modules.filter((module) => !module.enabled).map((module) => module.label).join(', ') || 'None'}</p></section>)}</>}
       {readiness?.candidate?.audience_snapshot && <p>For: {readiness.candidate.audience_snapshot.audience}<br />Community context: {readiness.candidate.audience_snapshot.culture.context}</p>}
       {checks.length > 0 && <details><summary>Safety checks passed ({checks.length})</summary><ul>{checks.map((item) => <li key={item.id}>{item.case.name}: {item.status}</li>)}</ul></details>}
-      {readiness?.phrase_audience_reviews.map((item) => <label className="coach-phrase-approval" key={item.artifact_id}><input type="checkbox" checked={phrases.includes(item.artifact_id)} disabled={busy} onChange={(event) => setPhrases((ids) => event.target.checked ? [...ids,item.artifact_id] : ids.filter((id) => id !== item.artifact_id))} /><span><strong>{item.phrase.text}</strong> — {item.phrase.meaning}<small>Use: {item.phrase.allowed_contexts.map((context) => context.replaceAll('_', ' ')).join(', ')} · {item.phrase.frequency}. {item.phrase.caution}</small></span></label>)}
-      <label><input type="checkbox" checked={reviewed} disabled={busy} onChange={(event) => setReviewed(event.target.checked)} />I reviewed the answers and safety checks, and approve these changes for these groups.</label>
-      <Button disabled={busy || !canPublish} onClick={() => void goLive()}>Go live for these groups</Button>
-      <details><summary>Advanced / history</summary><p>Safety checks: {readiness?.evaluation_run?.passed ? 'Passed' : persona.has_unpublished_changes === false ? 'Published assistant retained' : 'Not ready'}. Human and phrase approvals are recorded when you go live. Earlier versions and controlled group updates stay available in Your assistant → Advanced / history.</p><pre>{JSON.stringify(readiness?.evaluation_run ?? {}, null, 2)}</pre></details>
+      {readiness?.phrase_audience_reviews.map((item) => <div className="coach-phrase-approval" key={item.artifact_id}><strong>{item.phrase.text}</strong> — {item.phrase.meaning}<small>Use: {item.phrase.allowed_contexts.map((context) => context.replaceAll('_', ' ')).join(', ')} · {item.phrase.frequency}. {item.phrase.caution}</small></div>)}
+      <p id="coach-go-live-consent">{voiceChanges ? 'By choosing Approve and go live, you approve the answers, phrases, safety checks and group changes shown above.' : 'By choosing Approve and go live, you approve the appearance, tools and group changes shown above.'}</p>
+      <Button aria-describedby="coach-go-live-consent" disabled={busy || !canPublish} onClick={() => void goLive()}>Approve and go live</Button>
     </section>}
   </article>
 }

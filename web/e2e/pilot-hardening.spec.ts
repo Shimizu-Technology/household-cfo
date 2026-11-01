@@ -5395,6 +5395,44 @@ test('Coach Studio warns before discarding an unsaved creation form on a view ch
   await expect(form.getByLabel('Internal description')).toHaveValue('')
 })
 
+test('Coach Studio simple voice review keeps the palette, privacy and proposal state clear', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  const areas = page.getByRole('navigation', { name: 'Coach Studio areas', exact: true })
+  await expect(areas).toBeVisible()
+  await areas.getByRole('button', { name: 'Your assistant', exact: true }).click()
+  const composer = page.getByLabel('Message Mia', { exact: true })
+  await expect(composer).toBeVisible()
+  await expect(page.locator('.persona-setup-review')).toHaveCount(0)
+  await expect(page.getByText('No proposal yet.', { exact: true })).toHaveCount(0)
+  const privacy = page.locator('.persona-setup-privacy')
+  await expect(privacy.locator('details')).not.toHaveAttribute('open', '')
+  await privacy.getByText('How this works', { exact: true }).click()
+  await expect(privacy).toContainText('Participant household and financial data are excluded')
+  await composer.fill('The human coach name is Mrs. Mel. '+ 'We take a breath and choose one small step. '.repeat(70))
+  await page.getByRole('button', { name: 'Send to Mia', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Your voice suggestions', exact: true })).toBeVisible()
+  await expect(page.locator('.persona-setup-review')).toContainText('Mrs. Mel')
+  await expect(page.getByText('No proposal yet.', { exact: true })).toHaveCount(0)
+  const replyVisible = await page.locator('.persona-setup-transcript').evaluate(log => {
+    const reply=log.querySelector('.is-mia')!.getBoundingClientRect(), bounds=log.getBoundingClientRect()
+    return reply.top >= bounds.top - 1 && reply.bottom <= bounds.bottom + 1
+  })
+  expect(replyVisible).toBe(true)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Your voice suggestions', exact: true })).toBeVisible()
+  const restoredReplyVisible = await page.locator('.persona-setup-transcript').evaluate(log => {
+    const reply=log.querySelector('.is-mia')!.getBoundingClientRect(), bounds=log.getBoundingClientRect()
+    return reply.top >= bounds.top - 1 && reply.bottom <= bounds.bottom + 1
+  })
+  expect(restoredReplyVisible).toBe(true)
+  const palette = await page.locator('.persona-setup-turn .is-coach').evaluate(el => ({ actual: getComputedStyle(el).backgroundColor, expected: getComputedStyle(document.documentElement).getPropertyValue('--emerald-soft').trim() }))
+  expect(palette.actual).toBe('rgb(241, 226, 227)')
+  expect(palette.expected).toBe('#f1e2e3')
+  await areas.getByRole('button', { name: 'Go live', exact: true }).click()
+  await expect(page.getByText('Advanced / history', { exact: true })).toHaveCount(1)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
 test('Coach Studio creates a persona through private setup chat and reviewed changes', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
   await openSection(page, 'Coach Studio')
@@ -5409,12 +5447,13 @@ test('Coach Studio creates a persona through private setup chat and reviewed cha
   await createForm.getByRole('button', { name: 'Create safe draft' }).click()
 
   await expect(page.getByRole('button', { name: /Setup chat/ })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByText('How this works', { exact: true }).click()
   await expect(page.getByText(/Participant household and financial data are excluded/)).toBeVisible()
   const composer = page.getByLabel('Message Mia')
   await composer.fill('The human coach name is Mrs. Mel.')
   await page.getByRole('button', { name: 'Send to Mia' }).click()
 
-  await expect(page.getByRole('heading', { name: 'Proposed draft changes' })).toBeFocused()
+  await expect(page.getByRole('heading', { name: 'Your voice suggestions' })).toBeFocused()
   const proposalReview = page.locator('.persona-setup-review')
   await expect(proposalReview.getByText('Human coach name', { exact: true })).toBeVisible()
   await expect(proposalReview.getByText('Coach said')).toBeVisible()

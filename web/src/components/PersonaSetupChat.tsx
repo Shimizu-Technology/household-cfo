@@ -54,12 +54,29 @@ export function PersonaSetupChat({
   const requestSequence = useRef(0)
   const personaIdRef = useRef(persona.id)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const transcriptRef = useRef<HTMLDivElement | null>(null)
+  const focusTargetRef = useRef<'proposal' | 'composer' | null>(null)
   const proposalHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const resolutionRetryKeysRef = useRef<Map<string, string>>(new Map())
   const resolutionRetryScopeRef = useRef<{ sessionId: number; proposalId: number } | null>(null)
   useLayoutEffect(() => {
     personaIdRef.current = persona.id
   }, [persona.id])
+
+  const latestTurn = session?.turns.at(-1)
+  useLayoutEffect(() => {
+    const transcript = transcriptRef.current
+    if (!loading && transcript) transcript.scrollTop = transcript.scrollHeight
+  }, [loading, latestTurn?.id, latestTurn?.status])
+
+  useLayoutEffect(() => {
+    if (loading || disabled || pending || mutationLifecycle.pending || !focusTargetRef.current) return
+    const target = focusTargetRef.current === 'proposal' ? proposalHeadingRef.current : composerRef.current
+    if (target) {
+      target.focus()
+      focusTargetRef.current = null
+    }
+  }, [disabled, loading, pending, mutationLifecycle.pending, session?.proposal?.id, latestTurn?.id, latestTurn?.status])
 
   useEffect(() => {
     onDirtyChange(message.trim().length > 0)
@@ -123,9 +140,10 @@ export function PersonaSetupChat({
     try {
       const next = await createAdminPersonaSetupTurn(personaId, session.id, trimmed, key)
       if (!isCurrent(sequence, personaId, ticket)) return
+      const latestTurn = next.turns[next.turns.length - 1]
+      if (latestTurn?.status === 'ready') focusTargetRef.current = next.proposal ? 'proposal' : 'composer'
       setSession(next)
       setAcceptedIndexes(next.proposal?.operations.map((_, index) => index) ?? [])
-      const latestTurn = next.turns[next.turns.length - 1]
       if (!latestTurn || latestTurn.status !== 'ready') {
         if (latestTurn?.status !== 'processing') setRetryKey(null)
         setError(latestTurn?.assistant_message || (latestTurn?.status === 'processing'
@@ -136,7 +154,6 @@ export function PersonaSetupChat({
       setMessage('')
       setRetryKey(null)
       setAnnouncement(next.proposal ? 'Mia prepared a proposal for your review.' : 'Mia replied. Keep chatting to clarify your changes.')
-      window.requestAnimationFrame(() => next.proposal ? proposalHeadingRef.current?.focus() : composerRef.current?.focus())
     } catch (caught) {
       if (isCurrent(sequence, personaId, ticket)) {
         const returnedSession = setupSessionFromError(caught, session.id)
@@ -182,7 +199,7 @@ export function PersonaSetupChat({
       setAnnouncement(action === 'apply' ? 'Selected suggestions saved. Next, preview your assistant’s answers.' : 'Proposal rejected. You can keep chatting.')
       window.requestAnimationFrame(() => composerRef.current?.focus())
     } catch (caught) {
-      if (isCurrent(sequence, personaId, ticket)) setError(setupErrorMessage(caught, `The proposal could not be ${action === 'apply' ? 'applied' : 'rejected'}.`))
+      if (isCurrent(sequence, personaId, ticket)) setError(setupErrorMessage(caught, `The proposal could not be ${action === 'apply' ? 'saved' : 'rejected'}.`))
     } finally {
       if (isCurrent(sequence, personaId, ticket)) setPending(null)
       finishMutation(ticket)
@@ -268,10 +285,11 @@ export function PersonaSetupChat({
         <header>
 
           <h4 id="persona-setup-chat-title">Describe your assistant</h4>
-          <p>Describe its name, tone, method and phrases to use or avoid. Paste two transcripts, or upload them below, and ask for a proposed voice. Review each suggestion, save, then preview answers.</p>
+          <p>Describe your assistant, or add two transcripts. Mia will suggest a voice for you to review.</p>
         </header>
         <div className="persona-setup-privacy" role="note">
-          Your words and transcripts go to the assistant service to prepare suggestions. Participant household and financial data are excluded. Use your own teaching, without private client details. Nothing changes until you approve it.
+          <span>Only share your own teaching, without private client details.</span>
+          <details><summary>How this works</summary><p>Your words and transcripts go to the assistant service to prepare suggestions. Participant household and financial data are excluded. Nothing changes until you approve it.</p></details>
         </div>
         {error && <div className="form-error" role="alert">{error}</div>}
         {loadFailed && !session ? (
@@ -293,7 +311,7 @@ export function PersonaSetupChat({
             <Button variant="secondary" disabled={pending !== null} onClick={() => void updateSession('rebase')}>{pending === 'rebase' ? 'Updating…' : saveAndPreview ? 'Use latest saved voice' : 'Rebase chat'}</Button>
           </div>
         )}
-        <div className="persona-setup-transcript" role="log" aria-live="polite" aria-relevant="additions text">
+        <div ref={transcriptRef} className="persona-setup-transcript" role="log" aria-live="polite" aria-relevant="additions text">
           {session?.turns_truncated && <p className="persona-setup-empty">Showing the 100 most recent setup messages.</p>}
           {session?.turns.length ? session.turns.map((turn) => (
             <div className="persona-setup-turn" key={turn.id}>
@@ -304,7 +322,7 @@ export function PersonaSetupChat({
                   ? 'Mia is still preparing this proposal.'
                   : 'This response is no longer current.')}</p></div>
             </div>
-          )) : <p className="persona-setup-empty">Start with what makes this coach’s approach distinct. Use exact wording for names, local facts, references, and phrases.</p>}
+          )) : <p className="persona-setup-empty">Tell Mia how you coach, in your own words.</p>}
         </div>
         <form className="persona-setup-composer" onSubmit={sendMessage}>
           <label htmlFor={`persona-setup-message-${persona.id}`}>Message Mia</label>
@@ -328,14 +346,11 @@ export function PersonaSetupChat({
         <button className="persona-setup-start-over" type="button" disabled={!session || pending !== null} onClick={() => void updateSession('abandon')}>Start a fresh setup chat</button>
       </section>
 
-      <section className="persona-setup-review" aria-labelledby="persona-setup-review-title">
+      {session?.proposal && <section className="persona-setup-review" aria-labelledby="persona-setup-review-title">
         <header>
           <p>Review before saving</p>
-          <h4 id="persona-setup-review-title" ref={proposalHeadingRef} tabIndex={-1}>Proposed draft changes</h4>
+          <h4 id="persona-setup-review-title" ref={proposalHeadingRef} tabIndex={-1}>Your voice suggestions</h4>
         </header>
-        {!session?.proposal ? (
-          <div className="persona-setup-no-proposal"><p>No proposal yet.</p><small>Mia will show every suggested change here before anything is saved.</small></div>
-        ) : (
           <>
             <div className="persona-proposal-groups">
               {groupedChanges.map((group) => (
@@ -352,16 +367,15 @@ export function PersonaSetupChat({
                 </section>
               ))}
             </div>
-            {manualDirty && <p className="persona-setup-apply-blocked" role="note">Save or discard your manual form changes before applying this proposal.</p>}
+            {manualDirty && <p className="persona-setup-apply-blocked" role="note">Save or discard your manual form changes before saving these suggestions.</p>}
             <div className="persona-setup-review-actions">
-              <Button disabled={pending !== null || manualDirty || acceptedIndexes.length === 0} onClick={() => void resolveProposal('apply')}>{pending === 'apply' ? 'Applying…' : saveAndPreview ? 'Save and preview answers' : 'Save selected suggestions'}</Button>
+              <Button disabled={pending !== null || manualDirty || acceptedIndexes.length === 0} onClick={() => void resolveProposal('apply')}>{pending === 'apply' ? 'Saving…' : saveAndPreview ? 'Save and preview answers' : 'Save selected suggestions'}</Button>
               <Button variant="secondary" disabled={pending !== null} onClick={() => onReviewInForm(session.proposal!.after_state, session.proposal!.operations[0]?.path as string | undefined ?? null, session.proposal!.base_draft_revision)}>Review in form</Button>
               <Button variant="secondary" disabled={pending !== null} onClick={() => composerRef.current?.focus()}>Keep chatting</Button>
               <button type="button" className="persona-setup-reject" disabled={pending !== null} onClick={() => void resolveProposal('reject')}>{pending === 'reject' ? 'Rejecting…' : 'Reject proposal'}</button>
             </div>
           </>
-        )}
-      </section>
+      </section>}
       <p className="sr-only" aria-live="assertive">{announcement}</p>
     </fieldset>
   )

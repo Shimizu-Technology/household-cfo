@@ -21,7 +21,9 @@ function identityValues(workspace: CoachWorkspaceSettings): CoachWorkspaceSettin
 }
 function message(error: unknown) { return error instanceof Error ? error.message : 'Program settings could not be saved. Try again.' }
 
-export function CreateCoachProgram({ firstProgram = false, embedded = false, disabled = false, onDirtyChange, onPendingChange, onCreated }: {
+export function CreateCoachProgram({ firstProgram = false, embedded = false, disabled = false, onDirtyChange, onPendingChange, onCreated, autoOpen = false, defaultCoachName = '' }: {
+  autoOpen?: boolean
+  defaultCoachName?: string
   firstProgram?: boolean
   embedded?: boolean
   disabled?: boolean
@@ -30,8 +32,9 @@ export function CreateCoachProgram({ firstProgram = false, embedded = false, dis
   onCreated?: (workspace: CoachWorkspaceSettings) => void
 }) {
   const { refreshCurrentUser } = useAuthContext()
-  const [open, setOpen] = useState(false)
-  const [values, setValues] = useState<CoachWorkspaceSettingsInput>(blankIdentity)
+  const initialIdentity = { ...blankIdentity, coach_profile: { ...blankIdentity.coach_profile, display_name: defaultCoachName } }
+  const [open, setOpen] = useState(autoOpen)
+  const [values, setValues] = useState<CoachWorkspaceSettingsInput>(initialIdentity)
   const [ownerEmail, setOwnerEmail] = useState('')
   const [sendEmail, setSendEmail] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -40,7 +43,7 @@ export function CreateCoachProgram({ firstProgram = false, embedded = false, dis
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const creationKeys = useRef(new Map<string, string>())
-  const dirty = open && (JSON.stringify(values) !== JSON.stringify(blankIdentity) || ownerEmail !== '' || !sendEmail)
+  const dirty = open && (JSON.stringify(values) !== JSON.stringify(initialIdentity) || ownerEmail !== '' || !sendEmail)
   useEffect(() => { onDirtyChange?.(dirty || busy) }, [busy, dirty, onDirtyChange])
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
   useEffect(() => { onPendingChange?.(busy) }, [busy, onPendingChange])
@@ -58,7 +61,7 @@ export function CreateCoachProgram({ firstProgram = false, embedded = false, dis
       const created = await createCoachWorkspace(payload, requestKey)
       if (!mounted.current) return
       creationKeys.current.clear()
-      setValues(blankIdentity); setOwnerEmail(''); setSendEmail(true); setOpen(false)
+      setValues(initialIdentity); setOwnerEmail(''); setSendEmail(true); setOpen(false)
       const ownerNote = created.owner_invitation
         ? ` ${created.owner_invitation.email} was invited as its owner${created.owner_invitation.delivery?.sent ? ' and emailed' : created.owner_invitation.delivery?.status === 'skipped' ? '. No email was sent; share their sign-in link yourself' : ', but the invitation email did not send, so share their sign-in link yourself'}.`
         : ''
@@ -78,10 +81,10 @@ export function CreateCoachProgram({ firstProgram = false, embedded = false, dis
     {error && <p role="alert" className="coach-studio-alert is-error">{error}</p>}
     {notice && <p role="status" className="coach-studio-alert is-success">{notice}</p>}
     {open && <form onSubmit={(event) => void submit(event)}>
-      <fieldset disabled={busy || disabled}><IdentityFields values={values} onChange={setValues} />
-        <div className="program-fields"><label className="program-wide">Program owner email (the coach who runs this program)<input type="email" autoComplete="off" maxLength={254} value={ownerEmail} onChange={(event) => setOwnerEmail(event.target.value)} aria-describedby="program-owner-help" placeholder="coach@example.com" /><small id="program-owner-help">This coach becomes the owner and can publish their assistant, assign it, publish participant tools, and see the roster. If they have no account yet they are invited as a coach. Double-check this email: the owner will see this program's participant roster once they sign in. Leave blank to own the program yourself. You keep full platform admin access either way.</small></label></div>
-        <label className="program-invite-check"><input type="checkbox" checked={sendEmail} onChange={event => setSendEmail(event.target.checked)} />Send invite email now</label>
-        <div className="program-actions"><Button type="submit">{busy ? 'Creating…' : 'Create program'}</Button><Button variant="ghost" onClick={() => { setOpen(false); setValues(blankIdentity); setOwnerEmail(''); setSendEmail(true) }}>Cancel</Button></div>
+      <fieldset disabled={busy || disabled}><IdentityFields compact={embedded} values={values} onChange={setValues} />
+        <details open={embedded ? undefined : true}><summary>Invite another coach (optional)</summary><div className="program-fields"><label className="program-wide">Program owner email (the coach who runs this program)<input type="email" autoComplete="off" maxLength={254} value={ownerEmail} onChange={(event) => setOwnerEmail(event.target.value)} aria-describedby="program-owner-help" placeholder="coach@example.com" /><small id="program-owner-help">This coach becomes the owner and can publish their assistant, assign it, publish participant tools, and see the roster. If they have no account yet they are invited as a coach. Double-check this email: the owner will see this program's participant roster once they sign in. Leave blank to own the program yourself. You keep full platform admin access either way.</small></label></div>
+        <label className="program-invite-check"><input type="checkbox" checked={sendEmail} onChange={event => setSendEmail(event.target.checked)} />Send invite email now</label></details>
+        <div className="program-actions"><Button type="submit">{busy ? 'Creating…' : 'Create program'}</Button><Button variant="ghost" onClick={() => { setOpen(false); setValues(initialIdentity); setOwnerEmail(''); setSendEmail(true) }}>Cancel</Button></div>
       </fieldset>
       <p className="program-help">{ownerEmail.trim() ? 'The coach you named will own this workspace.' : 'You will own this workspace.'} Creating it does not launch a participant program.</p>
     </form>}
@@ -95,7 +98,7 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
 }) {
-  const { refreshCurrentUser } = useAuthContext()
+  const { refreshCurrentUser, selectCoachWorkspace } = useAuthContext()
   const [workspace, setWorkspace] = useState<CoachWorkspaceSettings | null>(null)
   const [identity, setIdentity] = useState<CoachWorkspaceSettingsInput>(blankIdentity)
   const [brand, setBrand] = useState<WorkspaceBrandConfiguration | null>(null)
@@ -212,7 +215,7 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
 
   return <section className="program-settings" aria-busy={loading || busy}>
     {!(simple && workspaceId === null) && <header><h3>What will people see?</h3><p>Set your program name, coach profile, and welcome screen.</p></header>}
-    {currentUser.is_admin && <CreateCoachProgram embedded={simple && workspaceId === null} disabled={busy || loading || identityDirty || brandDirty} onDirtyChange={setCreateDirty} />}
+    {currentUser.is_admin && <CreateCoachProgram autoOpen={simple && workspaceId === null} defaultCoachName={simple ? currentUser.full_name : ''} onCreated={simple ? (created) => selectCoachWorkspace(created.id) : undefined} embedded={simple && workspaceId === null} disabled={busy || loading || identityDirty || brandDirty} onDirtyChange={setCreateDirty} />}
     {workspaceId === null ? !simple && <p className="coach-read-only">Choose a program above to edit its settings. You can create the first program here.</p> : <>
       {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><Button variant="ghost" disabled={busy} onClick={() => { if (!dirty || window.confirm('Discard unsaved program settings and reload?')) void load() }}>Reload settings</Button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
@@ -247,13 +250,13 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
   </section>
 }
 
-function IdentityFields({ values, onChange }: { values: CoachWorkspaceSettingsInput; onChange: (next: CoachWorkspaceSettingsInput) => void }) {
+function IdentityFields({ values, onChange, compact = false }: { compact?: boolean; values: CoachWorkspaceSettingsInput; onChange: (next: CoachWorkspaceSettingsInput) => void }) {
   function profile(key: keyof CoachWorkspaceSettingsInput['coach_profile'], value: string) { onChange({ ...values, coach_profile: { ...values.coach_profile, [key]: value } }) }
   return <div className="program-fields">
     <label>Program name<input required maxLength={160} value={values.name} onChange={(event) => onChange({ ...values, name: event.target.value })} placeholder="Mrs. Mel’s program" /></label>
     <label>Coach display name<input required maxLength={120} value={values.coach_profile.display_name} onChange={(event) => profile('display_name', event.target.value)} placeholder="Mrs. Mel" /></label>
-    <label>Coach title<input required maxLength={160} value={values.coach_profile.title} onChange={(event) => profile('title', event.target.value)} /></label>
-    <label className="program-wide">About the coach<textarea aria-label="About the coach" maxLength={2000} rows={3} value={values.coach_profile.bio} onChange={(event) => profile('bio', event.target.value)} /></label>
+    <details className="program-wide" open={compact ? undefined : true}><summary>Coach details (optional)</summary><label>Coach title<input required maxLength={160} value={values.coach_profile.title} onChange={(event) => profile('title', event.target.value)} /></label>
+    <label className="program-wide">About the coach<textarea aria-label="About the coach" maxLength={2000} rows={3} value={values.coach_profile.bio} onChange={(event) => profile('bio', event.target.value)} /></label></details>
   </div>
 }
 

@@ -108,11 +108,16 @@ describe('PersonaSetupChat', () => {
     apiMocks.resolveAdminPersonaSetupProposal.mockResolvedValue({ session: session(), persona: persona() })
     render(<Harness onPersonaChange={onPersonaChange} />)
 
-    expect(await screen.findByText(/Participant household and financial data are excluded/)).toBeTruthy()
+    await screen.findByLabelText('Message Mia')
+    expect(screen.getByText('Only share your own teaching, without private client details.')).toBeTruthy()
+    await userEvent.click(screen.getByText('How this works', { selector: 'summary' }))
+    expect(screen.getByText(/Participant household and financial data are excluded/)).toBeTruthy()
     await userEvent.type(screen.getByLabelText('Message Mia'), 'Her name is Mrs. Mel.')
     await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))
 
     expect(await screen.findByText('Human coach name')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Your voice suggestions' })).toBeTruthy()
+    expect(screen.queryByText('No proposal yet.')).toBeNull()
     expect(screen.getByText('Coach said')).toBeTruthy()
     expect(screen.getByText('Mrs. Mel')).toBeTruthy()
     expect(onPersonaChange).not.toHaveBeenCalled()
@@ -120,6 +125,19 @@ describe('PersonaSetupChat', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save selected suggestions' }))
     await vi.waitFor(() => expect(onPersonaChange).toHaveBeenCalledTimes(1))
     expect(apiMocks.resolveAdminPersonaSetupProposal.mock.calls[0][3]).toBe('apply')
+  })
+
+  it('focuses a newly mounted proposal after controls unlock even when animation frames are delayed', async () => {
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1)
+    try {
+      apiMocks.createAdminPersonaSetupTurn.mockResolvedValue(proposalSession())
+      render(<Harness />)
+      await userEvent.type(await screen.findByLabelText('Message Mia'), 'Her name is Mrs. Mel.')
+      await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))
+      const heading = await screen.findByRole('heading', { name: 'Your voice suggestions' })
+      await waitFor(() => expect(document.activeElement).toBe(heading))
+      expect(screen.getByRole('button', { name: 'Save selected suggestions' })).toHaveProperty('disabled', false)
+    } finally { frame.mockRestore() }
   })
 
   it('blocks apply for manual edits and can copy the proposal into the form', async () => {
@@ -211,7 +229,8 @@ describe('PersonaSetupChat', () => {
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Save selected suggestions' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Review in form' })).toBeNull()
-    expect(screen.getByText('No proposal yet.')).toBeTruthy()
+    expect(screen.queryByText('No proposal yet.')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Your voice suggestions' })).toBeNull()
     expect(composer.value).toBe('')
     expect(screen.queryByRole('button', { name: 'Retry message' })).toBeNull()
     await userEvent.type(composer, 'Ask one short question at a time.')
@@ -251,7 +270,7 @@ describe('PersonaSetupChat', () => {
     apiMocks.resolveAdminPersonaSetupProposal.mockRejectedValue(new ApiRequestError('HTTP 500', { status: 500 }))
     render(<Harness />)
     await userEvent.click(await screen.findByRole('button', { name: 'Save selected suggestions' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('The proposal could not be applied.')
+    expect((await screen.findByRole('alert')).textContent).toBe('The proposal could not be saved.')
   })
 
   it('reuses a proposal action key after a lost response', async () => {
