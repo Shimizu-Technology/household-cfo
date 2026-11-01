@@ -15,6 +15,7 @@ Rails.application.routes.draw do
     end
     namespace :public do
       resource :brand, only: :show
+      resources :brand_logos, only: :show
     end
     namespace :v1 do
       resources :enterprise_organizations, only: %i[index show create update] do
@@ -223,6 +224,7 @@ Rails.application.routes.draw do
         resource :brand, controller: "workspace_brand_configurations", only: %i[show update] do
           post :preview
           post :publish
+          post :logo, to: "workspace_brand_logos#create"
           resources :versions, controller: "workspace_brand_versions", only: :show do
             post :rollback, on: :member
           end

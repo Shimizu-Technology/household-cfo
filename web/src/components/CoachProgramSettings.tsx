@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   createCoachWorkspace, fetchCoachWorkspaceSettings, fetchWorkspaceBrand,
   previewWorkspaceBrand, publishWorkspaceBrand, restoreWorkspaceBrandVersion,
-  saveWorkspaceBrand, updateCoachWorkspaceSettings,
+  saveWorkspaceBrand, updateCoachWorkspaceSettings, uploadWorkspaceBrandLogo,
   type BrandConfig, type CoachWorkspaceSettings, type CoachWorkspaceSettingsInput,
   type CurrentUser, type WorkspaceBrandConfiguration, type WorkspaceBrandPreview,
 } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
 import { Button } from './Button'
+import { BrandLogo } from './BrandChrome'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 import './CoachProgramSettings.css'
 import './ProgramSettingsFlow.css'
@@ -167,6 +168,19 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
       acceptBrand(next); setPreview(null); setNotice('Brand draft saved. Preview it before publishing.')
     })
   }
+  function uploadLogo(file: File) {
+    if (!brand?.permissions.edit || brandDirty) return
+    setPreview(null)
+    if (file.type !== 'image/png' || file.size === 0 || file.size > 2 * 1024 * 1024) {
+      setError('Choose a PNG logo up to 2 MB and 2048 × 2048 pixels.')
+      return
+    }
+    void mutate('logo', async (isCurrent) => {
+      const next = await uploadWorkspaceBrandLogo(file, brand.draft_revision)
+      if (!isCurrent()) return
+      acceptBrand(next); setPreview(null); setNotice('Logo saved to your appearance draft. Preview it before publishing.')
+    })
+  }
   function runPreview() {
     if (!brand?.permissions.preview || brandDirty) return
     void mutate('preview', async (isCurrent) => {
@@ -209,7 +223,7 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
         </form>
         <form className="panel" onSubmit={saveBrand}>
           <header><h3>Welcome screen and appearance</h3><p>{releaseImpact} Change the assistant’s name in Assistant voice.</p></header>
-          <fieldset disabled={busy || !brand.permissions.edit}><BrandFields draft={draft} onChange={updateBrand} /></fieldset>
+          <fieldset disabled={busy || !brand.permissions.edit}><BrandFields draft={draft} onChange={updateBrand} onLogoUpload={uploadLogo} logoUploadDisabled={brandDirty} uploadingLogo={pending === 'logo'} /></fieldset>
           {!brand.permissions.edit && <p className="program-help">Your program role can view this appearance but cannot edit it.</p>}
           <div className="program-actions">
             <Button variant="secondary" type="submit" aria-describedby="program-brand-save-help" disabled={busy || !brandDirty || !brand.permissions.edit}>{pending === 'brand' ? 'Saving…' : 'Save brand draft'}</Button>
@@ -250,7 +264,13 @@ const fontLabels: Record<string, string> = {
   inter: 'Inter', montserrat: 'Montserrat', nunito_sans: 'Nunito Sans', source_sans_3: 'Source Sans 3', system_sans: 'System sans serif',
   cormorant_garamond: 'Cormorant Garamond', lora: 'Lora', merriweather: 'Merriweather', playfair_display: 'Playfair Display', source_serif_4: 'Source Serif 4', system_serif: 'System serif',
 }
-function BrandFields({ draft, onChange }: { draft: BrandConfig; onChange: (next: BrandConfig) => void }) {
+function BrandFields({ draft, onChange, onLogoUpload, logoUploadDisabled, uploadingLogo }: {
+  draft: BrandConfig
+  onChange: (next: BrandConfig) => void
+  onLogoUpload: (file: File) => void
+  logoUploadDisabled: boolean
+  uploadingLogo: boolean
+}) {
   function field(key: keyof BrandConfig, value: string) { onChange({ ...draft, [key]: value }) }
   const theme = Object.entries(themes).find(([, value]) => value.colors.primary === draft.colors.primary)?.[0] ?? 'custom'
   return <div className="program-fields">
@@ -271,12 +291,22 @@ function BrandFields({ draft, onChange }: { draft: BrandConfig; onChange: (next:
     <label>Support email<input type="email" maxLength={254} value={draft.support.email ?? ''} onChange={(event) => onChange({ ...draft, support: { ...draft.support, email: event.target.value || null } })} /></label>
     <label className="program-wide">Support website<input type="url" maxLength={2048} pattern="https://.*" value={draft.support.url ?? ''} onChange={(event) => onChange({ ...draft, support: { ...draft.support, url: event.target.value || null } })} placeholder="https://…" /></label>
     </div></details></div>
-    <div className="program-wide"><details><summary>Logo, footer, and additional colors</summary><div className="program-fields program-advanced">
-      <label className="program-wide">Logo image URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.logo_url ?? ''} onChange={(event) => onChange({ ...draft, logo_url: event.target.value || null })} placeholder="https://…" /><small>Use an existing approved HTTPS image.</small></label>
+    <div className="program-wide">
+      <label>Program logo<input type="file" accept="image/png,.png" aria-describedby="program-logo-help" disabled={logoUploadDisabled} onChange={(event) => {
+        const file = event.target.files?.[0]
+        event.target.value = ''
+        if (file) onLogoUpload(file)
+      }} /></label>
+      <p id="program-logo-help" className="program-help">{uploadingLogo ? 'Uploading your logo…' : logoUploadDisabled ? 'Save your appearance changes before uploading a logo.' : 'Choose a PNG up to 2 MB and 2048 × 2048 pixels. Uploading saves it to your draft; preview and publish when ready.'}</p>
+      {draft.logo_url && <><BrandLogo brand={draft} /><Button variant="ghost" onClick={() => onChange({ ...draft, logo_url: null })}>Remove logo</Button></>}
+    </div>
+    <div className="program-wide"><details><summary>Footer and browser icon</summary><div className="program-fields program-advanced">
       <label className="program-wide">Browser icon URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.favicon_url ?? ''} onChange={(event) => onChange({ ...draft, favicon_url: event.target.value || null })} placeholder="https://…" /></label>
       <label className="program-wide">Footer message<textarea aria-label="Footer message" rows={3} maxLength={500} value={draft.footer.text ?? ''} onChange={(event) => onChange({ ...draft, footer: { ...draft.footer, text: event.target.value || null } })} /></label>
       <label>Privacy policy URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.footer.privacy_url ?? ''} onChange={(event) => onChange({ ...draft, footer: { ...draft.footer, privacy_url: event.target.value || null } })} /></label>
       <label>Terms URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.footer.terms_url ?? ''} onChange={(event) => onChange({ ...draft, footer: { ...draft.footer, terms_url: event.target.value || null } })} /></label>
+    </div></details></div>
+    <div className="program-wide"><details><summary>More colours</summary><div className="program-fields program-advanced">
       {Object.keys(draft.colors).map((key) => <label key={key}>{key.replaceAll('_', ' ')}<input type="color" value={draft.colors[key]} onChange={(event) => onChange({ ...draft, colors: { ...draft.colors, [key]: event.target.value } })} /></label>)}
       <p className="program-help program-wide">Colors must remain readable. Saving checks text, button, and focus contrast.</p>
     </div></details></div>
@@ -290,7 +320,7 @@ function previewFont(name: string, display = false) {
 }
 function BrandWelcomePreview({ config }: { config: BrandConfig }) {
   return <article className="panel"><h3>Welcome screen preview</h3><p className="program-help">Preview only · the saved brand draft · desktop and phone widths</p><div className="program-preview" style={{ background: config.colors.background, color: config.colors.text, borderColor: config.colors.border, fontFamily: previewFont(config.typography.body) }}>
-    <header style={{ borderColor: config.colors.border }}>{config.logo_url && <img src={config.logo_url} alt="" referrerPolicy="no-referrer" />}<strong>{config.short_name}</strong></header>
+    <header style={{ borderColor: config.colors.border }}><BrandLogo brand={config} /><strong>{config.short_name}</strong></header>
     <div><p>{config.organization_name}</p><h4 style={{ fontFamily: previewFont(config.typography.display, true) }}>{config.welcome_heading || config.product_name}</h4><p>{config.welcome_description}</p><span className="program-preview-action" style={{ background: config.colors.primary, color: config.colors.on_primary }}>Get started</span><small>{config.tagline}</small></div>
     <footer style={{ color: config.colors.text_muted, borderColor: config.colors.border }}>{config.support.label && <p>{config.support.label}{config.support.email ? ` · ${config.support.email}` : ''}</p>}<p>{config.footer.text}</p></footer>
   </div></article>

@@ -2378,6 +2378,17 @@ function validHttpsUrl(value: unknown) {
   }
 }
 
+// Only generated logo routes may use HTTP during local API/web QA.
+function validLocalLogoUrl(value: unknown) {
+  if (typeof value !== 'string' || value.length > 2_048) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+      && !url.username && !url.password && !url.hash && !url.search
+      && /^\/api\/public\/brand_logos\/[A-Za-z0-9_=-]+$/.test(url.pathname)
+  } catch { return false }
+}
+
 function isBrandConfig(value: unknown): value is BrandConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const config = value as Record<string, unknown>
@@ -2396,7 +2407,7 @@ function isBrandConfig(value: unknown): value is BrandConfig {
     && optionalString(config.tagline)
     && optionalString(config.welcome_heading)
     && optionalString(config.welcome_description)
-    && validHttpsUrl(config.logo_url)
+    && (validHttpsUrl(config.logo_url) || validLocalLogoUrl(config.logo_url))
     && validHttpsUrl(config.favicon_url)
     && Boolean(support)
     && optionalString(support?.label)
@@ -4908,6 +4919,13 @@ export async function saveWorkspaceBrand(draft: BrandConfig, revision: number): 
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ brand_configuration: { draft_config: draft, draft_revision: revision } }),
   })
+  return result.brand_configuration
+}
+export async function uploadWorkspaceBrandLogo(file: File, revision: number): Promise<WorkspaceBrandConfiguration> {
+  const body = new FormData()
+  body.append('file', file)
+  body.append('draft_revision', String(revision))
+  const result = await fetchJson<{ brand_configuration: WorkspaceBrandConfiguration }>('/api/v1/admin/brand/logo', { method: 'POST', body })
   return result.brand_configuration
 }
 export function previewWorkspaceBrand(revision: number): Promise<{ brand_configuration: WorkspaceBrandConfiguration; preview: WorkspaceBrandPreview }> {
