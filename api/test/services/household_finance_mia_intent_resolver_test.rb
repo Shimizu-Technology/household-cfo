@@ -1,6 +1,15 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  test "a merchant beginning with New is not a request to create a category" do
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I spent $12 at New York today", context: intent_context, api_key: nil
+    ).call
+    assert_equal "transaction_report", result.intent
+    assert_equal "New York", result.action[:merchant]
+    assert_nil result.action[:category_name]
+  end
+
   test "an inline category keeps its incurred purchase with a provider configured" do
     result = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Spent $12 at Payless on cigarettes. Put it in a new Cigarettes category.",

@@ -253,7 +253,9 @@ module HouseholdFinance
     attr_reader :raw_user_message, :user_message, :context, :api_key, :model, :transport
 
     def requested_new_category
-      user_message.match(/\b(?:put (?:it|that) (?:under|in)|(?:a )?new)\s+([\p{L}][\p{L} &’'-]{0,79}?)(?:\s+category)?[.!]?\z/i)&.[](1)&.strip&.sub(/\A(?:a\s+)?new\s+/i, "")
+      match = user_message.match(/\bput (?:it|that) (?:under|in)\s+([\p{L}][\p{L} &’'-]{0,79}?)(?:\s+category)?[.!]?\z/i) ||
+        user_message.match(/\b(?:a )?new\s+([\p{L}][\p{L} &’'-]{0,79}?)\s+category[.!]?\z/i)
+      match&.[](1)&.strip&.sub(/\A(?:a\s+)?new\s+/i, "")
     end
 
     def deterministic_category_followup_result
