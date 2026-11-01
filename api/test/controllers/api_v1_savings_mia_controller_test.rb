@@ -133,7 +133,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "debt free and optional feelings need no setup while hold blocks ordinary chat" do
-    [ [ "I do not have credit cards", "without credit cards or debt" ], [ "I feel guilty", "leave feelings blank" ], [ "I bought lunch yesterday", "amount, where and date" ] ].each_with_index do |(message, expected), index|
+    [ [ "I do not have credit cards", "without credit cards or debt" ], [ "I feel guilty", "without judging yourself" ], [ "I bought lunch yesterday", "amount, where and date" ] ].each_with_index do |(message, expected), index|
       post "/api/v1/mia/messages", params: { message: message, request_id: "savings-topic-#{index}" }, headers: auth, as: :json
       assert_response :created
       assert_includes response.parsed_body.dig("assistant_message", "content"), expected
@@ -209,7 +209,8 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
 
       post "/api/v1/mia/messages", params: { message: "I feel stressed, spent $60 at Ross", request_id: "daily-feeling-first" }, headers: auth, as: :json
       assert_equal [ 6000 ], response.parsed_body.dig("savings_intake", "purchases").map { |row| row["amount_cents"] }
-      assert response.parsed_body.dig("assistant_message", "content").start_with?("Thanks for telling me how you're feeling. Got it: $60.00 at Ross.")
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Noticing how you felt is useful"
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Got it: $60.00 at Ross."
 
       # Money talk that is not a purchase keeps Mia's normal answer and shows no card.
       [ "My goal is $500", "Rent went up to $1,400", "I have $180 left", "Mom gave me $50" ].each_with_index do |message, index|
@@ -280,14 +281,15 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ true, true, false ], flags.last(3)
   end
 
-  test "goal changes in the challenge point to the challenge target, and saved money gets a plain reply" do
+  test "goal changes prepare a review card without writing a plan, and saved money gets a plain reply" do
     @savings_household.goals.create!(label: "Family trip", goal_type: "savings", record_kind: "tracked", target_amount_cents: 100_000)
     assert_no_difference [ "SavingsPlanDraft.count", "MiaActionDraft.count", "SavingsEntryDraft.count" ] do
       [ "Change my goal to $300", "Update my goal to $700", "lower my target to 300", "make my goal $400" ].each_with_index do |message, index|
         post "/api/v1/mia/messages", params: { message: message, request_id: "goal-#{index}" }, headers: auth, as: :json
         assert_response :created
         reply = response.parsed_body.dig("assistant_message", "content")
-        assert_includes reply, "open Savings, then Your target & spending choices", message
+        assert_includes reply, "Review the card below", message
+        assert_equal "goal", response.parsed_body.dig("challenge_chat_card", "kind")
         refute_includes reply, "household plan or your savings challenge", message
         assert_nil response.parsed_body["savings_intake"], message
       end
@@ -554,7 +556,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     assert_nil response.parsed_body.fetch("mia_action_draft")
     refute_includes response.parsed_body.dig("assistant_message", "content"), "Household plan:"
-    assert_empty session.reload.active_topic
+    assert_equal "challenge_goal", session.reload.active_topic["type"]
   end
 
   private

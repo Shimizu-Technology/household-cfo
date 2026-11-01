@@ -22,12 +22,60 @@ module Api
       rescue_from HouseholdFinance::Operations::Base::StaleOperation, HouseholdFinance::Operations::Runner::IdempotencyConflict do |error|
         render json: { errors: [ error.message ], code: "savings_review_conflict" }, status: :conflict
       end
+      rescue_from ActiveRecord::StaleObjectError do
+        render json: { errors: [ "This card changed. Reopen Ask Mia before continuing." ] }, status: :conflict
+      end
       rescue_from ActiveRecord::RecordInvalid do |error|
         render json: { errors: error.record.errors.full_messages }, status: :unprocessable_entity
       end
 
       def show
         render json: challenge_data
+      end
+
+      def chat_cards
+        render json: { records: own_chat_cards.where(status: "pending").order(:id).map(&:as_api_json),
+          actor_scope: { user_id: current_user.id, household_id: current_household.id },
+          enrollment_id: enrollment!.id, cohort_id: @savings_cohort.id }
+      end
+
+      def update_chat_card
+        card = own_chat_cards.lock.find(path_id)
+        input = request.request_parameters.to_h.deep_symbolize_keys
+        action = input[:action].to_s
+        raise ArgumentError, "Choose a supported card action" unless %w[save_state dismiss approve_goal].include?(action)
+        if card.status == "closed"
+          if action == "save_state" && input.dig(:state, :phase) != "saved"
+            raise HouseholdFinance::Operations::Base::StaleOperation, "This check-in was finished or closed in another window. Reopen Ask Mia."
+          end
+          if action == "approve_goal" && (!card.state["approved_plan_version_id"] || card.state["approved_plan_version_id"] != enrollment!.current_accepted_plan_version_id)
+            raise HouseholdFinance::Operations::Base::StaleOperation, "This goal was replaced or closed. Reopen Ask Mia to review the current goal."
+          end
+          return render json: { record: card.as_api_json, challenge: action == "approve_goal" ? challenge_data : nil }
+        end
+        raise HouseholdFinance::Operations::Base::StaleOperation, "This card changed in another window. Reopen Ask Mia before continuing." unless input[:expected_lock_version] == card.lock_version
+        case action
+        when "save_state"
+          raise ArgumentError, "Only a check-in has save progress" unless card.kind == "daily_report" && input[:state].is_a?(Hash)
+          if input[:state][:phase] == "saved"
+            card.update!(status: "closed", state: {}, input: card.input.except("feelings"))
+          else
+            card.update!(state: input[:state])
+          end
+        when "dismiss"
+          card.update!(status: "closed", state: {}, input: card.input.except("feelings"))
+        when "approve_goal"
+          raise ArgumentError, "Review and accept the goal" unless card.kind == "goal" && input[:accepted] == true
+          values = card.input.deep_symbolize_keys.merge(cohort_id: enrollment!.cohort_id)
+          runner = HouseholdFinance::Operations::Runner.new(current_household, user: current_user)
+          draft = runner.run(operation_key: "savings.plan.stage", input: values, idempotency_key: "chat-goal-stage-#{card.id}").subject
+          approved = runner.run(operation_key: "savings.plan.approve",
+            input: { cohort_id: enrollment!.cohort_id, draft_id: draft.id, accepted: true,
+              expected_draft_lock_version: draft.lock_version, expected_plan_version_id: draft.base_plan_version_id },
+            idempotency_key: "chat-goal-approve-#{card.id}").subject
+          card.update!(status: "closed", state: { approved_plan_version_id: approved.id })
+        end
+        render json: { record: card.as_api_json, challenge: action == "approve_goal" ? challenge_data : nil }
       end
 
       def request_status
@@ -128,6 +176,10 @@ module Api
         SavingsChallenge::AccessPolicy.new(household: current_household, user: current_user, cohort: @savings_cohort, enrollment: @savings_enrollment).call!
       end
 
+      def own_chat_cards
+        SavingsChatCard.where(savings_enrollment: enrollment!).for_picture(current_household.financial_generation)
+      end
+
       def enrollment!
         @savings_enrollment || raise(ActiveRecord::RecordNotFound)
       end
@@ -156,6 +208,7 @@ module Api
           accepted_plan: enrollment.current_accepted_plan_version && SavingsChallenge::ParticipantSerializer.record(enrollment.current_accepted_plan_version),
           projection: SavingsChallenge::Projection.new(enrollment).call,
           calendar: SavingsChallenge::ParticipantSerializer.calendar(enrollment),
+          timeline: SavingsChallenge::Daily::Timeline.new(enrollment).call,
           pending_entry_count: SavingsEntryDraft.joins(:savings_entry).where(savings_entries: { savings_enrollment_id: enrollment.id }, status: "pending").count,
           pending_plan_count: SavingsPlanDraft.current_pending_id(enrollment) ? 1 : 0
         }
