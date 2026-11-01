@@ -24,4 +24,22 @@ describe('participant navigation', () => {
   it('uses the savings challenge destinations for challenge programs', () => {
     expect(partitionParticipantSections(participantSectionsForModules(allModules), true).primary).toEqual(['Home', 'Ask Mia', 'Statements'])
   })
+  it('decouples Statements from Profile for schema four', () => {
+    expect(participantSectionsForModules(['home', 'ask_mia', 'statements'], { independentStatements: true })).toEqual(['Home', 'Ask Mia', 'Statements'])
+    expect(participantSectionsForModules(['home', 'ask_mia', 'profile'], { independentStatements: true })).toEqual(['Home', 'Ask Mia', 'My Money', 'My Profile'])
+    expect(participantSectionsForModules(['home', 'ask_mia'], { independentStatements: true })).toEqual(['Home', 'Ask Mia'])
+  })
+
+  it('honors custom capability order across primary and secondary destinations', () => {
+    const sections = participantSectionsForModules([...allModules, 'statements'], {
+      independentStatements: true, moduleOrder: ['statements', 'optionality', 'wealth', 'ask_mia', 'cfo_filter', 'home', 'review', 'budget', 'profile'],
+    })
+    expect(partitionParticipantSections(sections, false, true)).toEqual({
+      primary: ['Statements', 'Optionality', 'Wealth', 'Ask Mia'],
+      secondary: ['CFO Filter', 'Home', 'Review', 'Budget', 'My Money', 'My Profile'],
+    })
+    expect(partitionParticipantSections(sections, true, true).primary).toEqual(['Statements', 'Optionality', 'Wealth', 'Ask Mia'])
+    expect(participantSectionsForModules(['home', 'ask_mia', 'budget'], { moduleOrder: ['wealth', 'budget', 'budget'] })).toEqual(['Budget', 'Home', 'Ask Mia'])
+  })
+
 })

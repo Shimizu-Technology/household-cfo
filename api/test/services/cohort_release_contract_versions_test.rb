@@ -155,6 +155,35 @@ class CohortReleaseContractVersionsTest < ActiveSupport::TestCase
     assert_equal original, legacy.reload.attributes
   end
 
+  test "schema four seals and launches configurable tools while older release evidence stays intact" do
+    owner, cohort, participant = governed_cohort
+    legacy = seal(cohort, owner, "before-configurable-tools")
+    original = legacy.attributes.deep_dup
+    config = CohortExperience::Schema.upgrade(CohortExperience::Schema::DEFAULT_CONFIG)
+    config["optional_modules"] = CohortExperience::Schema::CONFIGURABLE_MODULES.index_with(false)
+    config["optional_modules"]["statements"] = true
+    config["module_order"] = %w[statements ask_mia home]
+    publish_experience(cohort, owner, config)
+    release = seal(cohort, owner, "configurable-tools")
+    assert_equal 6, release.tool_registry_version
+    assert_equal config, release.experience_snapshot.fetch("config")
+    assert release.integrity_report.fetch(:valid)
+    assert release.integrity_report.fetch(:runtime_compatible)
+    launcher = CohortReleases::InitialLauncher.new(cohort: cohort, actor: owner)
+    launcher.call!(release_id: release.id, preview_digest: launcher.preview.fetch(:preview_digest), request_key: "launch-configurable-tools")
+    capabilities = runtime(participant).capabilities
+    assert_equal release.id, runtime(participant).release_id
+    assert_equal 4, capabilities.fetch(:schema_version)
+    assert_equal config.fetch("module_order"), capabilities.fetch(:module_order)
+    assert_equal %w[statements ask_mia home], capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.pluck(:id)
+    assert_equal original, legacy.reload.attributes
+    assert legacy.integrity_report.fetch(:runtime_compatible)
+    legacy_capabilities = CohortExperience::EffectiveCapabilitiesResolver.for_release(release: legacy, cohort_membership: nil)
+    assert_equal 1, legacy_capabilities.fetch(:schema_version)
+    refute legacy_capabilities.key?(:module_order)
+    refute legacy_capabilities.fetch(:modules).any? { |item| item[:id] == "statements" }
+  end
+
   private
 
   def legacy_release

@@ -61,6 +61,42 @@ class CohortExperienceSchemaTest < ActiveSupport::TestCase
     assert_equal schema::SAVINGS_CONFIG, savings.reload.config
   end
 
+  test "schema four makes every non-core module optional and orders capabilities" do
+    config = schema.upgrade(schema::DEFAULT_CONFIG)
+    assert_empty schema.errors(config)
+    assert_equal 4, config.fetch("schema_version")
+    assert_equal [], config.fetch("module_order")
+    assert_equal schema::MODULE_DEFAULTS, config.fetch("optional_modules")
+    config["optional_modules"] = schema::CONFIGURABLE_MODULES.index_with(false)
+    config["optional_modules"]["statements"] = true
+    config["module_order"] = %w[statements ask_mia home]
+    capabilities = payload(config)
+    assert_equal %w[statements ask_mia home], capabilities.fetch(:modules).first(3).pluck(:id)
+    assert_equal %w[statements ask_mia home], capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.pluck(:id)
+    assert_equal %w[ask_mia home], capabilities.fetch(:modules).select { |item| item.fetch(:core) }.pluck(:id)
+    assert_equal "household_cfo", capabilities.fetch(:experience_mode)
+    assert_equal config, schema.normalize(config)
+    refute_equal schema.digest(config), schema.digest(config.merge("module_order" => %w[home statements ask_mia]))
+  end
+
+  test "schema four validates all toggles and rejects mandatory flags and malformed order" do
+    valid = schema.upgrade(schema::DEFAULT_CONFIG)
+    [
+      valid.deep_merge("optional_modules" => { "home" => false }),
+      valid.deep_merge("optional_modules" => { "ask_mia" => false }),
+      valid.deep_merge("optional_modules" => { "review" => "false" }),
+      valid.merge("optional_modules" => valid.fetch("optional_modules").except("statements")),
+      valid.merge("module_order" => "home"),
+      valid.merge("module_order" => nil),
+      valid.merge("module_order" => %w[home home]),
+      valid.merge("module_order" => %w[home nonexistent]),
+      schema::DEFAULT_CONFIG.merge("module_order" => %w[home])
+    ].each { |config| assert schema.errors(config).any?, config.inspect }
+    assert_empty schema.errors(valid.except("module_order"))
+    assert_equal [], schema.normalize(valid.except("module_order")).fetch("module_order")
+    assert_equal "savings_challenge", schema.upgrade(schema::PILOT_SAVINGS_CONFIG).fetch("experience_mode")
+  end
+
   private
 
   def schema = CohortExperience::Schema

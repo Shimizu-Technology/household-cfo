@@ -140,7 +140,7 @@ export type AssetPortfolio = {
   unknown_balance_account_ids: number[]
 }
 
-export type ExperienceModuleId = 'home' | 'review' | 'ask_mia' | 'budget' | 'profile' | 'wealth' | 'cfo_filter' | 'optionality'
+export type ExperienceModuleId = 'home' | 'review' | 'ask_mia' | 'budget' | 'profile' | 'wealth' | 'cfo_filter' | 'optionality' | 'statements'
 
 export type ExperienceCapability = {
   id: ExperienceModuleId
@@ -151,8 +151,11 @@ export type ExperienceCapability = {
 }
 
 export type ExperienceCapabilities = {
-  schema_version: 1
-  source: 'published_cohort' | 'standalone_default' | 'safe_default' | 'demo'
+  schema_version: 1 | 2 | 3 | 4
+  experience_mode?: ExperienceMode
+  module_order?: ExperienceModuleId[]
+  cohort_release?: null | { id: number; number: number }
+  source: 'published_cohort' | 'standalone_default' | 'safe_default' | 'demo' | 'cohort_release' | 'safe_default_release'
   cohort_id: number | null
   experience_version: null | { id: number; number: number }
   modules: ExperienceCapability[]
@@ -1846,14 +1849,22 @@ export type AdminCohort = {
 
 export type ExperienceMode = 'household_cfo' | 'savings_challenge'
 
-/** Schema 1 is the ordinary Household CFO experience; 3 carries the chosen experience_mode. */
-export type CohortExperienceDraft = {
+export type ConfigurableExperienceModuleId = Exclude<ExperienceModuleId, 'home' | 'ask_mia'>
+
+export type ConfigurableCohortExperienceDraft = {
+  schema_version: 4
+  experience_mode: ExperienceMode
+  /** Empty or absent retains the existing navigation order. Unlisted modules follow in default order. */
+  module_order?: ExperienceModuleId[]
+  optional_modules: Record<ConfigurableExperienceModuleId, boolean>
+}
+
+/** Historical schemas retain their sealed meaning; schema 4 adds module visibility and order. */
+export type CohortExperienceDraft = ConfigurableCohortExperienceDraft | {
   schema_version: 1 | 2 | 3
   experience_mode?: ExperienceMode
-  optional_modules: {
-    cfo_filter: boolean
-    optionality: boolean
-  }
+  module_order?: never
+  optional_modules: { cfo_filter: boolean; optionality: boolean }
 }
 
 export type CohortExperienceVersion = {
@@ -1883,6 +1894,7 @@ export type CohortExperienceConfiguration = {
 }
 
 export type CohortExperiencePreview = {
+  module_order?: ExperienceModuleId[]
   digest: string
   draft_revision: number
   generated_at: string

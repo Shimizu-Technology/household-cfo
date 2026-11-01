@@ -11,6 +11,7 @@ export type ParticipantTabsProps = {
   onChange: (section: string) => void
   staffOnly?: boolean
   savingsChallenge?: boolean
+  customModuleOrder?: boolean
   onToday?: () => void
 }
 
@@ -96,17 +97,17 @@ export function StaffNavigation({ sections, activeSection, onChange }: Pick<Part
   </nav>
 }
 
-function ParticipantNavigation({ sections, activeSection, onChange, savingsChallenge = false, onToday }: ParticipantTabsProps) {
+function ParticipantNavigation({ sections, activeSection, onChange, savingsChallenge = false, customModuleOrder = false, onToday }: ParticipantTabsProps) {
   const { assistantName, brand } = useBrand()
   const [moreOpen, setMoreOpen] = useState(false)
   const [toolsPosition, setToolsPosition] = useState({ top: 0, right: 16 })
   const shellRef = useRef<HTMLDivElement | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement | null>(null)
   const secondaryRef = useRef<HTMLDivElement | null>(null)
-  const { primary, secondary } = partitionParticipantSections(sections, savingsChallenge)
+  const { primary, secondary } = partitionParticipantSections(sections, savingsChallenge, customModuleOrder)
   const secondaryIsActive = secondary.includes(activeSection)
-  const tools = secondary.filter(section => PARTICIPANT_TOOL_SECTIONS.includes(section))
-  const destinations = secondary.filter(section => !PARTICIPANT_TOOL_SECTIONS.includes(section))
+  const tools = customModuleOrder ? [] : secondary.filter(section => PARTICIPANT_TOOL_SECTIONS.includes(section))
+  const destinations = customModuleOrder ? secondary : secondary.filter(section => !PARTICIPANT_TOOL_SECTIONS.includes(section))
 
   const closeTools = useCallback(() => {
     setMoreOpen(false)
