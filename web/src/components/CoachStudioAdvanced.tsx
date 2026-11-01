@@ -71,7 +71,7 @@ type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'draft_restore' | 'assignment' | 'phrase_restore' | null
 type StudioSection = 'settings' | 'groups' | 'assistants' | 'library' | 'participant_tools' | 'cohort_releases'
 
-export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection = 'groups', embedded = false, proposedState, onGroupsChanged }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void; initialSection?: StudioSection; embedded?: boolean; proposedState?: {description: string; draft_config: PersonaConfiguration}; onGroupsChanged?: () => void }) {
+export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection = 'groups', embedded = false, proposedState, onGroupsChanged, onPendingChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void; initialSection?: StudioSection; embedded?: boolean; proposedState?: {description: string; draft_config: PersonaConfiguration}; onGroupsChanged?: () => void; onPendingChange?: (pending: boolean) => void }) {
   const { activeCoachWorkspaceId: activeWorkspaceId, selectCoachWorkspace } = useAuthContext()
   const workspaceOptions = currentUser.coach_workspaces ?? []
   const workspaceRole = workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role
@@ -111,6 +111,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
   const [groupsNotice, setGroupsNotice] = useState<string | null>(null)
   const [groupsDirty, setGroupsDirty] = useState(false)
   const [groupsAccessVisited, setGroupsAccessVisited] = useState(false)
+  const [groupsAccessOpen, setGroupsAccessOpen] = useState(false)
   const [libraryDirty, setLibraryDirty] = useState(false)
   const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
   const [setupDirty, setSetupDirty] = useState(false)
@@ -230,6 +231,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       const nextCohorts = await fetchAdminPersonaAssignableCohorts()
       if (requestId !== loadAssignableGroupsRequestRef.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       setCohorts(nextCohorts)
+      if (embedded && nextCohorts.length === 0) { setGroupsAccessVisited(true); setGroupsAccessOpen(true) }
       setSelectedCohortId((current) => nextCohorts.some((cohort) => cohort.id === current) ? current : nextCohorts[0]?.id ?? null)
     } catch (caught) {
       if (requestId === loadAssignableGroupsRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) {
@@ -238,7 +240,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     } finally {
       if (requestId === loadAssignableGroupsRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) setCohortsLoading(false)
     }
-  }, [activeWorkspaceId])
+  }, [activeWorkspaceId, embedded])
 
   useEffect(() => {
     queueMicrotask(() => void loadCohorts())
@@ -752,6 +754,8 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     setMode('advanced')
   }, [proposedState, selectedPersona])
 
+  useEffect(() => { onPendingChange?.(pendingAction !== null || workspaceMutations.pending) }, [onPendingChange, pendingAction, workspaceMutations.pending])
+
   const assignmentCohorts = selectedPersona ? cohorts : []
 
   return (
@@ -819,7 +823,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
               ? <SetupSupportInbox actorId={currentUser.id} workspaceId={activeWorkspaceId} cohortId={selectedCohortId} isAdmin={currentUser.is_admin} disabled={pendingAction !== null || cohortsLoading} mutationLifecycle={workspaceMutations} />
               : <p className="coach-studio-muted">Choose a workspace and group to view setup help requests.</p>}</div>}
           </div>
-          <details className="coach-access-disclosure" onToggle={(event) => { if (event.currentTarget.open) setGroupsAccessVisited(true) }}><summary>Group invitations &amp; access</summary>
+          <details className="coach-access-disclosure" open={groupsAccessOpen} onToggle={(event) => { setGroupsAccessOpen(event.currentTarget.open); if (event.currentTarget.open) setGroupsAccessVisited(true) }}><summary>Group invitations &amp; access</summary>
           {groupsAccessVisited && <CoachGroupsParticipants onContextNotice={setGroupsNotice} selectedCohortId={selectedCohortId} onSelectedCohortIdChange={setSelectedCohortId} key={activeWorkspaceId ?? 'platform'} currentUser={currentUser} workspaceId={activeWorkspaceId} mutationLifecycle={workspaceMutations} onDirtyChange={setGroupsDirty} onGroupsChanged={() => { void loadCohorts(); onGroupsChanged?.() }} />}
           </details>
         </div>

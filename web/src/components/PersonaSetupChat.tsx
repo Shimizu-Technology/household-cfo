@@ -222,7 +222,7 @@ export function PersonaSetupChat({
         const next = await rebaseAdminPersonaSetupSession(personaId, session.id)
         if (!isCurrent(sequence, personaId, ticket)) return
         setSession(next)
-        setAnnouncement('Setup chat rebased onto the latest saved draft.')
+        setAnnouncement(saveAndPreview ? 'This chat now uses your latest saved voice.' : 'Setup chat rebased onto the latest saved draft.')
       }
     } catch (caught) {
       if (isCurrent(sequence, personaId, ticket)) {
@@ -288,9 +288,9 @@ export function PersonaSetupChat({
           </div>
         ) : session?.stale && (
           <div className="persona-setup-stale" role="alert">
-            <strong>The saved draft changed.</strong>
-            <span>Rebase this chat before asking Mia for another proposal.</span>
-            <Button variant="secondary" disabled={pending !== null} onClick={() => void updateSession('rebase')}>{pending === 'rebase' ? 'Rebasing…' : 'Rebase chat'}</Button>
+            <strong>Your saved voice changed.</strong>
+            <span>{saveAndPreview ? 'Use the latest saved voice before asking for more suggestions.' : 'Rebase this chat before asking Mia for another proposal.'}</span>
+            <Button variant="secondary" disabled={pending !== null} onClick={() => void updateSession('rebase')}>{pending === 'rebase' ? 'Updating…' : saveAndPreview ? 'Use latest saved voice' : 'Rebase chat'}</Button>
           </div>
         )}
         <div className="persona-setup-transcript" role="log" aria-live="polite" aria-relevant="additions text">
@@ -330,7 +330,7 @@ export function PersonaSetupChat({
 
       <section className="persona-setup-review" aria-labelledby="persona-setup-review-title">
         <header>
-          <p className="eyebrow">Review before applying</p>
+          <p>Review before saving</p>
           <h4 id="persona-setup-review-title" ref={proposalHeadingRef} tabIndex={-1}>Proposed draft changes</h4>
         </header>
         {!session?.proposal ? (
@@ -347,7 +347,7 @@ export function PersonaSetupChat({
                     const matching = session.proposal!.operations.map((op, opIndex) => ({op, opIndex})).filter(({op}) => op.path === change.path)
                     const occurrence = group.changes.slice(0, changeIndex).filter((item) => item.path === change.path).length
                     const operationIndex = matching[occurrence]?.opIndex ?? index
-                    return <div key={`${change.path}-${changeIndex}`}><label><input type="checkbox" checked={acceptedIndexes.includes(operationIndex)} disabled={pending !== null} onChange={(event) => setAcceptedIndexes((ids) => event.target.checked ? [...ids, operationIndex] : ids.filter((id) => id !== operationIndex))} />Use this {change.label.toLowerCase()} suggestion</label><ProposalChange change={change} /></div>
+                    return <div key={`${change.path}-${changeIndex}`}><label><input type="checkbox" checked={acceptedIndexes.includes(operationIndex)} disabled={pending !== null} onChange={(event) => setAcceptedIndexes((ids) => event.target.checked ? [...ids, operationIndex] : ids.filter((id) => id !== operationIndex))} />Use this {change.label.toLowerCase()} suggestion</label><ProposalChange change={change} compact={saveAndPreview} /></div>
                   })}
                 </section>
               ))}
@@ -367,25 +367,26 @@ export function PersonaSetupChat({
   )
 }
 
-function ProposalChange({ change }: { change: AdminPersonaSetupChange }) {
+function ProposalChange({ change, compact = false }: { change: AdminPersonaSetupChange; compact?: boolean }) {
   return (
     <article className="persona-proposal-change">
       <header><strong>{change.label}</strong><span>{change.source_basis === 'coach_quote' ? 'Coach said' : 'Mia drafted'}</span></header>
-      <dl>
+      {compact && <p className="coach-suggestion-value">{displayValue(change.after)}</p>}
+      {compact ? <details><summary>Original wording and source</summary><p>{displayValue(change.before)}</p>{change.evidence_quote && <blockquote>“{change.evidence_quote}”</blockquote>}</details> : <><dl>
         <div><dt>Before</dt><dd>{displayValue(change.before)}</dd></div>
         <div><dt>After</dt><dd>{displayValue(change.after)}</dd></div>
       </dl>
-      {change.evidence_quote && <blockquote>“{change.evidence_quote}”</blockquote>}
+      {change.evidence_quote && <blockquote>“{change.evidence_quote}”</blockquote>}</>}
     </article>
   )
 }
 
-function displayValue(value: unknown) {
+function displayValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return 'Not set'
   if (typeof value === 'string') return value
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
-  if (Array.isArray(value)) return value.length ? value.map((item) => typeof item === 'string' ? item : JSON.stringify(item)).join('\n') : 'None'
-  return JSON.stringify(value, null, 2)
+  if (Array.isArray(value)) return value.length ? value.map(displayValue).join('\n\n') : 'None'
+  return Object.entries(value as Record<string, unknown>).map(([key, item]) => `${key === 'participant' ? 'You' : key === 'assistant' ? 'Your assistant' : key.replaceAll('_', ' ')}: ${displayValue(item)}`).join('\n')
 }
 
 function requestKey() {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError, type AdminPersonaDetail, type AdminPersonaSetupSession, type PersonaConfiguration } from '../api'
@@ -66,12 +66,14 @@ function persona(id = 81) {
 
 function Harness({
   workspaceId = 1,
+  saveAndPreview = false,
   personaId = 81,
   manualDirty = false,
   onPersonaChange = vi.fn(),
   onReviewInForm = vi.fn(),
 }: {
   workspaceId?: number
+  saveAndPreview?: boolean
   personaId?: number
   manualDirty?: boolean
   onPersonaChange?: (value: AdminPersonaDetail) => void
@@ -83,6 +85,7 @@ function Harness({
     <PersonaSetupChat
       key={`${workspaceId}-${personaId}`}
       persona={persona(personaId)}
+      saveAndPreview={saveAndPreview}
       manualDirty={manualDirty}
       mutationLifecycle={lifecycle}
       onPersonaChange={onPersonaChange}
@@ -329,4 +332,13 @@ describe('PersonaSetupChat', () => {
 
     expect(await screen.findByText('Mia is still preparing this proposal.')).toBeTruthy()
   })
+ it('keeps the simple proposal focused on suggested wording while retaining original evidence', async () => {
+   apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
+   render(<Harness saveAndPreview />)
+   await screen.findByRole('button', { name: 'Save and preview answers' })
+   await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Use this human coach name suggestion' })).toHaveProperty('checked', true))
+   expect(screen.queryByText('After')).toBeNull()
+   expect(screen.getByText('Original wording and source')).toBeTruthy()
+ })
+
 })

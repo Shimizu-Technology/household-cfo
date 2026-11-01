@@ -85,6 +85,7 @@ type PendingAction = 'load' | 'save' | 'preview' | 'publish' | 'rollback' | null
 
 export function CohortExperienceStudio({
   cohorts,
+  simple = false,
   cohortsLoading,
   mutationLifecycle,
   onDirtyChange,
@@ -92,6 +93,7 @@ export function CohortExperienceStudio({
   onSelectedCohortIdChange,
 }: {
   cohorts: AdminPersonaAssignableCohort[]
+  simple?: boolean
   cohortsLoading: boolean
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
@@ -328,7 +330,7 @@ export function CohortExperienceStudio({
       <article className="panel experience-cohort-picker">
         <div>
           <h3>Choose what participants can open.</h3>
-          <p>Prepare the tools for this group. After publishing, use Release & rollout to launch or update the group. People already using a release keep their current tools until that update.</p>
+          <p>{simple ? 'Save your choices, then review them in Go live. Your people keep their current tools until you approve the group update.' : 'Prepare the tools for this group. After publishing, use Release & rollout to launch or update the group. People already using a release keep their current tools until that update.'}</p>
         </div>
         <label>
           <span>Group</span>
@@ -397,7 +399,7 @@ export function CohortExperienceStudio({
             </details>
 
 
-          <article className="panel experience-lifecycle">
+          <>{simple && <article className="panel"><Button disabled={!dirty || pendingAction !== null || !configuration.permissions.edit} onClick={() => void saveDraft()}>{pendingAction === 'save' ? 'Saving…' : 'Save draft'}</Button><p>Review these saved choices in Go live before your people receive them.</p></article>}<article hidden={simple} className="panel experience-lifecycle">
             <header>
               <div><h3>Review the tools for this group.</h3></div>
               <span>{closedGroup ? 'Read-only group' : dirty ? 'Unsaved changes' : !previewMatches ? 'Preview required' : !configuration.permissions.publish ? 'Owner or reviewer needed' : 'Ready to publish'}</span>
@@ -429,7 +431,7 @@ export function CohortExperienceStudio({
                 ))}
               </div>
             </details>
-          </article>
+          </article></>
         </>
       )}
     </div>

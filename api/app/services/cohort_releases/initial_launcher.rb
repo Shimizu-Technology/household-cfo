@@ -52,24 +52,30 @@ module CohortReleases
         release: release && { id: release.id, release_number: release.release_number },
         can_launch: !!authorized && blockers.empty?, blockers: blockers.uniq,
         preview_digest: digest,
+        roster_digest: CohortRollouts::Contract.roster_digest_for_ids(cohort_id: cohort.id, user_ids: members.map { |_, user_id, _| user_id }),
         participant_experience: experience,
         message: "Launching makes this sealed brand, assistant, and tools the default for every participant in this cohort. Participants will get the #{experience[:label]} experience. Later changes use a controlled rollout."
       }
     end
 
-    def call!(release_id:, preview_digest:, request_key:)
+    def call!(release_id:, preview_digest:, request_key:, expected_roster_digest: nil)
       key = request_key.to_s.strip
       raise Invalid, "Idempotency-Key must be between 1 and 100 characters" unless key.length.between?(1, 100)
       id = Integer(release_id.to_s, exception: false)
       raise Invalid, "Choose a saved version and reload its launch review." unless id&.positive? && preview_digest.to_s.match?(/\A[0-9a-f]{64}\z/)
+      if expected_roster_digest && !expected_roster_digest.to_s.match?(/\A[0-9a-f]{64}\z/)
+        raise Invalid, "Reload and review the people in this group."
+      end
 
       cohort.with_lock do
         locked_actor, actor_role = Authorization.new(cohort: cohort, actor: actor).call!
-        fingerprint = Contract.digest(
+        request = {
           "schema" => "cohort_initial_launch_request_v1", "release_id" => id,
           "cohort_id" => cohort.id, "preview_digest" => preview_digest,
           "actor_user_id" => locked_actor.id, "actor_role_snapshot" => actor_role, "request_key" => key
-        )
+        }
+        request["expected_roster_digest"] = expected_roster_digest if expected_roster_digest
+        fingerprint = Contract.digest(request)
         existing = cohort.cohort_release_activation_events.find_by(request_key: key)
         if existing
           unless existing.event_type == "initial_launch" && existing.request_fingerprint == fingerprint
@@ -80,7 +86,8 @@ module CohortReleases
 
         lock_components!
         review = preview
-        unless review.fetch(:release)&.fetch(:id) == id && review.fetch(:preview_digest) == preview_digest
+        unless review.fetch(:release)&.fetch(:id) == id && review.fetch(:preview_digest) == preview_digest &&
+            (!expected_roster_digest || review.fetch(:roster_digest) == expected_roster_digest)
           raise Conflict, "The release, participants, or published settings changed. Reload and review the launch again."
         end
         raise Incomplete, review.fetch(:blockers) unless review.fetch(:blockers).empty?

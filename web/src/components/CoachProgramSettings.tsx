@@ -71,7 +71,7 @@ export function CreateCoachProgram({ firstProgram = false, disabled = false, onD
   }
 
   return <article className="panel program-create">
-    <header><div><p className="eyebrow">Coach programs</p><h3>{firstProgram ? 'Create your first program' : 'Create a program'}</h3><p>Give each coach a separate workspace for their assistant, branding, and groups.</p></div>
+    <header><div><h3>{firstProgram ? 'Create your first program' : 'Create a program'}</h3><p>Give each coach a separate workspace for their assistant, branding, and groups.</p></div>
       {!open && <Button variant="secondary" disabled={disabled || busy} onClick={() => setOpen(true)}>Create program</Button>}
     </header>
     {error && <p role="alert" className="coach-studio-alert is-error">{error}</p>}
@@ -87,7 +87,8 @@ export function CreateCoachProgram({ firstProgram = false, disabled = false, onD
   </article>
 }
 
-export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecycle, onDirtyChange }: {
+export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecycle, onDirtyChange, simple = false }: {
+  simple?: boolean
   workspaceId: number | null
   currentUser: CurrentUser
   mutationLifecycle: CoachWorkspaceMutationLifecycle
@@ -222,20 +223,20 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
           <p id="program-identity-save-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !workspace.permissions.manage ? 'Ask a program owner to change the name or coach profile.' : brandDirty ? 'Save the appearance draft below before saving program identity.' : !identityDirty ? 'Your program identity is saved. Change a field to save again.' : 'Save the name and coach profile together.'}</p>
         </form>
         <form className="panel" onSubmit={saveBrand}>
-          <header><h3>Welcome screen and appearance</h3><p>{releaseImpact} Change the assistant’s name in Assistant voice.</p></header>
+          <header><h3>Welcome screen and appearance</h3><p>{simple ? 'Save your appearance, then review it with your assistant and tools in Go live.' : releaseImpact} Change the assistant’s name in Voice.</p></header>
           <fieldset disabled={busy || !brand.permissions.edit}><BrandFields draft={draft} onChange={updateBrand} onLogoUpload={uploadLogo} logoUploadDisabled={brandDirty} uploadingLogo={pending === 'logo'} /></fieldset>
           {!brand.permissions.edit && <p className="program-help">Your program role can view this appearance but cannot edit it.</p>}
           <div className="program-actions">
             <Button variant="secondary" type="submit" aria-describedby="program-brand-save-help" disabled={busy || !brandDirty || !brand.permissions.edit}>{pending === 'brand' ? 'Saving…' : 'Save brand draft'}</Button>
             <Button variant="secondary" aria-describedby="program-brand-preview-help" disabled={busy || brandDirty || !brand.permissions.preview} onClick={runPreview}>{pending === 'preview' ? 'Previewing…' : 'Preview welcome screen'}</Button>
-            <Button aria-describedby="program-brand-publish-help" disabled={busy || brandDirty || !brand.permissions.publish || !preview || preview.digest !== brand.preview?.digest} onClick={publish}>{pending === 'publish' ? 'Publishing…' : 'Publish branding'}</Button>
+            <Button hidden={simple} aria-describedby="program-brand-publish-help" disabled={busy || brandDirty || !brand.permissions.publish || !preview || preview.digest !== brand.preview?.digest} onClick={publish}>{pending === 'publish' ? 'Publishing…' : 'Publish branding'}</Button>
           </div>
           <p id="program-brand-save-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.edit ? 'Your role cannot save appearance changes.' : !brandDirty ? 'Appearance draft saved. Change a field to save again.' : 'Save your appearance changes first.'}</p>
           <p id="program-brand-preview-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.preview ? 'A program editor, reviewer, or owner can preview the welcome screen.' : brandDirty ? 'Save your changes before previewing.' : 'Preview the saved welcome screen before publishing.'}</p>
-          <p id="program-brand-publish-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.publish ? 'A program owner or reviewer must publish this appearance.' : brandDirty ? 'Save and preview your changes before publishing.' : !preview || preview.digest !== brand.preview?.digest ? 'Preview the saved draft to enable publishing.' : 'Review the preview below, then publish. To update an existing group, continue to Release & rollout.'}</p>
+          <p hidden={simple} id="program-brand-publish-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.publish ? 'A program owner or reviewer must publish this appearance.' : brandDirty ? 'Save and preview your changes before publishing.' : !preview || preview.digest !== brand.preview?.digest ? 'Preview the saved draft to enable publishing.' : 'Review the preview below, then publish. To update an existing group, continue to Release & rollout.'}</p>
         </form>
         {preview && <BrandWelcomePreview config={preview.brand} />}
-        <details className="panel program-history"><summary>Brand version history ({brand.versions.length})</summary><div>
+        <details hidden={simple} className="panel program-history"><summary>Brand version history ({brand.versions.length})</summary><div>
           {brand.versions.map((version) => <article key={version.id}><div><strong>Version {version.number}</strong><small>{new Date(version.published_at).toLocaleString()} · {version.published_by.full_name}</small>{version.restored_from_version && <small>Restored from version {version.restored_from_version.number}</small>}</div>
             {version.id === brand.published_version?.id ? <span className="coach-status is-current">Published</span> : <Button variant="ghost" size="compact" disabled={busy || brandDirty || !brand.permissions.rollback} onClick={() => restore(version.id, version.number)}>Restore as new version</Button>}
           </article>)}
@@ -318,7 +319,7 @@ function previewFont(name: string, display = false) {
   if (name === 'system_sans') return 'ui-sans-serif, system-ui, sans-serif'
   return `"${name.replaceAll('_', ' ')}", ${display ? 'Georgia, serif' : 'ui-sans-serif, system-ui, sans-serif'}`
 }
-function BrandWelcomePreview({ config }: { config: BrandConfig }) {
+export function BrandWelcomePreview({ config }: { config: BrandConfig }) {
   return <article className="panel"><h3>Welcome screen preview</h3><p className="program-help">Preview only · the saved brand draft · desktop and phone widths</p><div className="program-preview" style={{ background: config.colors.background, color: config.colors.text, borderColor: config.colors.border, fontFamily: previewFont(config.typography.body) }}>
     <header style={{ borderColor: config.colors.border }}><BrandLogo brand={config} /><strong>{config.short_name}</strong></header>
     <div><p>{config.organization_name}</p><h4 style={{ fontFamily: previewFont(config.typography.display, true) }}>{config.welcome_heading || config.product_name}</h4><p>{config.welcome_description}</p><span className="program-preview-action" style={{ background: config.colors.primary, color: config.colors.on_primary }}>Get started</span><small>{config.tagline}</small></div>

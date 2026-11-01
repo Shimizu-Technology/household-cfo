@@ -64,6 +64,7 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
 
   const acceptLoadedGroups = useEffectEvent(({ nextGroups, nextUsers, nextId: fallbackId }: Awaited<ReturnType<typeof load>>) => {
     const nextId = nextGroups.some((group) => group.id === selectedCohortId) ? selectedCohortId! : fallbackId
+    if (nextGroups.length === 0) setCreateOpen(true)
     setGroups(nextGroups); setUsers(nextUsers); setSelectedId(nextId); onSelectedCohortIdChange?.(nextId)
     setDraft(nextGroups.find((group) => group.id === nextId) ? draftFor(nextGroups.find((group) => group.id === nextId)!) : null)
   })

@@ -37,6 +37,7 @@ function brandRuntime(config = legacyBrandConfig) {
 }
 
 async function openCoachAdvanced(page: Page) {
+  await page.locator('.coach-studio-screen').first().waitFor()
   if (await page.locator('.coach-simple').isVisible()) {
     await page.locator('.coach-simple-advanced > summary').click()
     await page.getByRole('button', { name: 'Open advanced settings', exact: true }).click()
@@ -5378,10 +5379,12 @@ test('Coach Studio warns before discarding an unsaved creation form on a view ch
   await form.getByLabel('Assistant name').fill('Private unfinished assistant')
   await form.getByLabel('Internal description').fill('Private unfinished description')
   page.once('dialog',dialog=>dialog.dismiss())
+  await openCoachAdvanced(page)
   await page.getByRole('tab',{name:/Program settings/}).click()
   await expect(form.getByLabel('Assistant name')).toHaveValue('Private unfinished assistant')
   await expect(form.getByLabel('Internal description')).toHaveValue('Private unfinished description')
   page.once('dialog',dialog=>dialog.accept())
+  await openCoachAdvanced(page)
   await page.getByRole('tab',{name:/Program settings/}).click()
   await expect(form).toHaveCount(0)
   await openCoachAdvanced(page)
@@ -5747,6 +5750,7 @@ test('Coach Studio platform administrator deliberately switches between global a
   const createAssistant = page.getByRole('button', { name: 'Create', exact: true, includeHidden: true })
   await expect(createAssistant).toBeDisabled()
 
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
@@ -5817,6 +5821,7 @@ test('Coach Studio content controls follow independent editor and reviewer permi
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
@@ -5826,6 +5831,7 @@ test('Coach Studio content controls follow independent editor and reviewer permi
   await expect(itemPanel.getByRole('button', { name: /Approve/ })).toHaveCount(0)
 
   await page.getByLabel('Coach workspace').selectOption('2')
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
@@ -5838,6 +5844,7 @@ test('Coach Studio participant tools preview publish and restore the exact cohor
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Participant tools/ }).click()
 
   await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
@@ -5923,6 +5930,7 @@ for (const role of ['editor', 'reviewer', 'viewer'] as const) {
     await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+    await openCoachAdvanced(page)
     await page.getByRole('tab', { name: /Participant tools/ }).click()
     await expect(page.getByLabel('Include CFO Filter')).toBeVisible()
     if (permissions.edit) await expect(page.getByLabel('Include CFO Filter')).toBeEnabled()
@@ -5933,7 +5941,7 @@ for (const role of ['editor', 'reviewer', 'viewer'] as const) {
       await expect(page.getByRole('status')).toContainText('draft saved')
       expect(mutationRequests).toEqual([{
         method: 'PATCH', path: '/api/v1/admin/cohorts/41/experience_configuration',
-        body: { experience_configuration: { draft_revision: 1, draft_config: { schema_version: 1, optional_modules: { cfo_filter: false, optionality: true } } } },
+        body: { experience_configuration: { draft_revision: 1, draft_config: { schema_version: 4, experience_mode: 'household_cfo', module_order: [], optional_modules: { review: true, budget: true, profile: true, statements: true, wealth: true, cfo_filter: false, optionality: true } } } },
       }])
     } else await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled()
     const preview = page.getByRole('button', { name: 'Preview navigation' })
@@ -5944,7 +5952,7 @@ for (const role of ['editor', 'reviewer', 'viewer'] as const) {
       expect(previewRequests).toBe(1)
     } else {
       await expect(preview).toBeDisabled()
-      await expect(page.getByText('Your workspace role can view these tools but cannot change or publish them.')).toBeVisible()
+      await expect(page.getByText('Your workspace role can view these tools but cannot change them.')).toBeVisible()
     }
     if (permissions.publish) {
       await expect(page.getByRole('button', { name: 'Publish tool version' })).toBeEnabled()
@@ -5990,6 +5998,7 @@ test('Coach Studio shows participant cohorts loading before an empty state', asy
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Participant tools/ }).click()
 
   await expect(page.getByRole('status').filter({ hasText: 'Loading manageable cohorts…' })).toBeVisible()
@@ -6039,6 +6048,7 @@ test('Coach Studio ignores a delayed participant-tool response after switching c
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Participant tools/ }).click()
   const cohortSelect = page.getByRole('combobox', { name: 'Group' })
   await expect(cohortSelect).toHaveValue('41')
@@ -6078,6 +6088,7 @@ test('Coach Studio clears the prior cohort after a participant-tool load fails',
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Participant tools/ }).click()
   const cohortSelect = page.getByRole('combobox', { name: 'Group' })
   await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
@@ -6173,6 +6184,7 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await expect(page.getByRole('heading', { name: 'Build reusable coaching material' })).toBeVisible()
@@ -6256,6 +6268,7 @@ test('Coach Studio locks workspace selection through a delayed Coaching Library 
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
@@ -6299,6 +6312,7 @@ test('Coach Studio locks workspace selection across private-source presign and c
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await showLibraryArea(page, 'Private sources')
@@ -6337,6 +6351,7 @@ test('Coach Studio locks workspace selection through a delayed Participant Tools
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Participant tools/ }).click()
   await page.getByLabel('Include Optionality').uncheck()
   await page.getByRole('button', { name: 'Save draft' }).click()
@@ -6418,6 +6433,7 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await showLibraryArea(page, 'Private sources')
@@ -6531,6 +6547,7 @@ test('Coach Studio imports, retries, and redacts a secure web snapshot without b
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await showLibraryArea(page, 'Private sources')
@@ -6661,6 +6678,7 @@ test('Coach Studio promotes only an attested source phrase and keeps it locked a
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await page.getByRole('button', { name: /private-workshop\.txt/ }).click()
@@ -6754,6 +6772,7 @@ test('Coach Studio preserves candidate edits through conflicts and server safety
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await page.getByRole('button', { name: /review-guide.txt/ }).click()
@@ -6803,6 +6822,7 @@ test('administrators can see and retry terminal private upload cleanup', async (
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await expect(page.getByText('Upload cleanup needs admin retry')).toBeVisible()
@@ -6849,6 +6869,7 @@ test('Coach Studio keeps failed library drafts and read-only sources do not trig
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await showLibraryArea(page, 'Teaching items')
@@ -6862,15 +6883,18 @@ test('Coach Studio keeps failed library drafts and read-only sources do not trig
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await showLibraryArea(page, 'Collections')
   await page.getByRole('button', { name: /Platform safeguards/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Participant tools/ }).click()
   await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
   page.off('dialog', acceptUnexpectedPrompt)
   expect(unexpectedPrompt).toBe(false)
 
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
@@ -7011,6 +7035,7 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
   await expect(sourceCheckbox).toBeChecked()
 
   page.once('dialog', (dialog) => dialog.accept())
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await showLibraryArea(page, 'Private sources')
   await expect(page.getByRole('heading', { name: 'Build reusable coaching material' })).toBeVisible()
@@ -7037,6 +7062,7 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
     await dialog.accept()
   }
   page.on('dialog', acceptUnexpectedPrompt)
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Participant tools/ }).click()
   await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
   page.off('dialog', acceptUnexpectedPrompt)
@@ -8660,6 +8686,7 @@ test('Coach Studio first launch requires impact review and stays usable on phone
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Release & rollout/ }).click()
   await openDetails(page, 'Version history (1)')
   await expect(page.getByText('Latest saved version', { exact: true })).toBeVisible()
@@ -8804,6 +8831,7 @@ test('Coach Studio program settings preserve draft review before exact brand pub
   await page.getByRole('button', { name: 'Save program identity' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Program identity saved' })).toBeVisible()
   await page.reload()
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Program settings/ }).click()
   await expect(page.getByLabel('Program name', { exact: true })).toHaveValue('Island coaching community')
   await expect(page.getByLabel('About the coach', { exact: true })).toHaveValue('Helping households take one clear step at a time.')
@@ -8876,6 +8904,7 @@ test('Coach Studio program reviewer cannot edit identity or access participants 
   await expect(page.getByLabel('Program name', { exact: true })).toBeEnabled()
   const ownerRosterRequests = rosterRequests
   await page.getByLabel('Coach workspace').selectOption('2')
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Program settings/ }).click()
   await expect(page.getByLabel('Program name', { exact: true })).toHaveValue('Partner coaching workspace')
   await expect(page.getByLabel('Program name', { exact: true })).toBeDisabled()
@@ -12383,9 +12412,9 @@ test('BOG UI Coach Studio uses staff navigation and compact program controls wit
   await expect(nav).toBeVisible()
   await expect(nav.getByRole('link')).toHaveCount(1)
   await expect(page.getByRole('navigation', { name: /participant sections/ })).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: 'Daily coaching', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('navigation', { name: 'Coach Studio areas', exact: true }).getByRole('button', { name: 'People', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByText('Your coaching workspace.', { exact: true })).toHaveCount(0)
-  const select = page.getByLabel('Coach workspace')
+  const select = page.getByLabel('Program', { exact: true })
   await expect(select).toBeVisible()
   expect((await select.boundingBox())!.height).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -12394,7 +12423,7 @@ test('BOG UI Coach Studio uses staff navigation and compact program controls wit
 test('BOG UI staff without a household seat start in Coach Studio unless a link names a section', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
   await expect(page).toHaveURL(/#Coach%20Studio$/)
-  await expect(page.getByRole('tab', { name: 'Daily coaching', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('navigation', { name: 'Coach Studio areas', exact: true }).getByRole('button', { name: 'People', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('navigation', { name: 'Staff sections' }).getByRole('link', { name: 'Coach Studio', exact: true })).toHaveAttribute('aria-current', 'page')
   await page.reload()
   await expect(page).toHaveURL(/#Coach%20Studio$/)
@@ -12677,6 +12706,7 @@ test('Coach Studio final acceptance identity save retains Program settings throu
     return route.fulfill({ json: { user: { ...pilotAdminUser, id: 902, clerk_id: 'e2e_coach', role: 'coach', is_admin: false, is_coach: true, is_staff: true, is_participant: false, coach_workspaces: [{ id: 1, name: 'Mrs. Mel coaching workspace', slug: 'mrs-mel', membership_role: 'owner', coach_profile: { display_name: 'Mrs. Mel', title: 'Financial coach', bio: '' } }], active_coach_workspace: { id: 1 } } } })
   })
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_live_api=true#Coach%20Studio')
+  await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Program settings/ }).click()
   await page.getByLabel('Program name', { exact: true }).fill('Mel’s saved program')
   await page.getByRole('button', { name: 'Save program identity' }).click()
@@ -12769,7 +12799,7 @@ for (const role of ['coach', 'admin']) {
     await page.goto(`/?pilot_e2e_role=${role}&pilot_e2e_live_api=true#Coach%20Studio`)
     const workspacePicker = page.getByLabel('Coach workspace')
     if (await workspacePicker.count()) {
-      await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
+      await expect(page.locator('.coach-studio-screen').first()).toHaveAttribute('aria-busy', 'false')
       await expect(workspacePicker).toBeEnabled()
       await workspacePicker.selectOption('1')
       await expect(workspacePicker).toHaveValue('1')
@@ -12779,10 +12809,10 @@ for (const role of ['coach', 'admin']) {
     const top = (await first.boundingBox())!.y
     if (['desktop-chrome', 'mobile-chrome', 'mobile-webkit'].includes(info.project.name)) expect(top).toBeLessThanOrEqual(page.viewportSize()!.height * .6)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    for (const control of await page.locator('.coach-workspace-picker select, .coach-group-context select, .coach-challenge-summary button').all()) {
+    for (const control of await page.locator('.coach-workspace-picker select:visible, .coach-simple-heading select:visible, .coach-group-context select:visible, .coach-challenge-summary button:visible').all()) {
       expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44)
     }
-    for (const control of await page.locator('.coach-workspace-picker select, .coach-group-context select, .coach-daily-list input').all()) {
+    for (const control of await page.locator('.coach-workspace-picker select:visible, .coach-simple-heading select:visible, .coach-group-context select:visible, .coach-daily-list input:visible').all()) {
       expect(await control.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16)
     }
     await page.screenshot({ path: info.outputPath(`daily-density-${role}.png`) })

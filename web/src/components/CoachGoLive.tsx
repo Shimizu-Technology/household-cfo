@@ -1,6 +1,8 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
-import { fetchAdminPersona, fetchAdminPersonaEvaluationRun, fetchAdminPersonaReleaseReadiness, previewAdminPersona, publishAdminPersona, reviewAdminPersonaAudience, reviewAdminPersonaEvaluation, runAdminPersonaEvaluation, type AdminPersonaAssignableCohort, type AdminPersonaDetail, type AdminPersonaReleaseReadiness, type AdminPersonaEvaluationResult } from '../api'
+import { fetchAdminPersona, fetchAdminPersonaEvaluationRun, fetchAdminPersonaReleaseReadiness, previewAdminPersona, publishAdminPersona, reviewAdminPersonaAudience, reviewAdminPersonaEvaluation, runAdminPersonaEvaluation, type AdminPersonaAssignableCohort, type AdminPersonaDetail, type AdminPersonaReleaseReadiness, type AdminPersonaEvaluationResult, type AdminPersonaBehavioralPreviewEvidence } from '../api'
 import { publishCoachGroup, reviewCoachGroup, type GroupReview } from '../lib/coachGoLive'
+import { reviewCoachSettings, publishCoachSettings, type CoachSettingsReview, type PublishedCoachSettings } from '../lib/coachSettingsReview'
+import { BrandWelcomePreview } from './CoachProgramSettings'
 import { Button } from './Button'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
@@ -8,11 +10,14 @@ const samples = ['I want to spend $100 this weekend. How can I decide?', 'I had 
 export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, autoPreview = false }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void; autoPreview?: boolean }) {
   const [checks, setChecks] = useState<AdminPersonaEvaluationResult[]>([])
   const [answers, setAnswers] = useState<Array<{question: string; answer: string}>>([])
+  const [reviewedPersona, setReviewedPersona] = useState<AdminPersonaDetail | null>(null)
   const [readiness, setReadiness] = useState<AdminPersonaReleaseReadiness | null>(null)
   const [reviewed, setReviewed] = useState(false)
   const [phrases, setPhrases] = useState<string[]>([])
   const [groupIds, setGroupIds] = useState<number[]>(cohorts.filter((item) => item.assignable).map((item) => item.id))
   const [groups, setGroups] = useState<GroupReview[]>([])
+  const [settings, setSettings] = useState<CoachSettingsReview | null>(null)
+  const publishedSettings = useRef<PublishedCoachSettings | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -26,16 +31,22 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
     if (busy || lifecycle.pending || persona.draft_revision == null) return
     const ticket = lifecycle.begin()
     const current = () => mounted.current && lifecycle.isCurrent(ticket)
-    setBusy(true); setError(null); setReviewed(false); setReadiness(null); setPhrases([]); setAnswers([])
+    setBusy(true); setError(null); setReviewed(false); setReadiness(null); setChecks([]); setPhrases([]); setAnswers([]); setSettings(null); setGroups([]); publishedSettings.current = null; publishedPersona.current = null; completedGroups.current.clear(); setReviewedPersona(null); requestId.current = crypto.randomUUID()
     try {
+      const source = await fetchAdminPersona(persona.id)
+      if (!current()) return
+      setReviewedPersona(source)
       const results = []
-      if (persona.has_unpublished_changes !== false) {
+      let lastEvidence: AdminPersonaBehavioralPreviewEvidence | null = null
+      if (source.has_unpublished_changes !== false) {
         for (const question of samples) {
           if (!current()) return
           setStatus('Preparing an example answer…')
-          const result = await previewAdminPersona(persona.id, persona.draft_revision, question)
+          const result = await previewAdminPersona(source.id, source.draft_revision!, question)
           if (!current()) return
-          if (!result.behavioral_preview_evidence?.valid) throw new Error('This preview could not be verified. Try again before publishing.')
+          if (!result.behavioral_preview_evidence?.valid) throw new Error(result.preview?.notice || 'This preview could not be verified. Try again before publishing.')
+          if (lastEvidence && lastEvidence.candidate_digest !== result.behavioral_preview_evidence.candidate_digest) throw new Error('Your voice changed. Preview again before reviewing it.')
+          lastEvidence = result.behavioral_preview_evidence
           results.push({ question, answer: result.behavioral_preview_evidence.output })
           setAnswers([...results])
         }
@@ -54,18 +65,24 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
         setChecks(detail.results ?? [])
         const ready = await fetchAdminPersonaReleaseReadiness(persona.id)
         if (!current()) return
+        const saved = await fetchAdminPersona(source.id)
+        if (!current()) return
+        if (saved.draft_revision !== source.draft_revision || saved.published_version?.id !== source.published_version?.id || ready.candidate?.draft_revision !== source.draft_revision || ready.candidate?.manifest_digest !== run.candidate_digest || ready.evaluation_run?.id !== run.id || ready.evaluation_run?.run_digest !== run.run_digest || ready.behavioral_preview_evidence?.digest !== lastEvidence?.digest || ready.candidate?.manifest_digest !== lastEvidence?.candidate_digest) throw new Error('Your voice or safety checks changed. Preview again before reviewing it.')
         setReadiness(ready)
       }
       setStatus('Preparing your group review…')
+      const settingsReview = await reviewCoachSettings(groupIds, current)
+      if (!current()) return
       const reviews = []
       for (const group of cohorts.filter((item) => groupIds.includes(item.id))) {
         if (!current()) return
         reviews.push(await reviewCoachGroup(group))
       }
       if (!current()) return
+      setSettings(settingsReview)
       setGroups(reviews)
       setStatus('Review the answers, phrases and groups below. Your participants still have their current settings.')
-    } catch (caught) { if (current()) setError(caught instanceof Error ? caught.message : 'The preview could not finish. Try again.') }
+    } catch (caught) { if (current()) { setStatus(''); setError(caught instanceof Error ? caught.message : 'The preview could not finish. Try again.') } }
     finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
   }
 
@@ -83,24 +100,37 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
     const current = () => mounted.current && lifecycle.isCurrent(ticket)
     setBusy(true); setError(null)
     try {
-      let published = publishedPersona.current ?? persona
-      if (!publishedPersona.current && persona.has_unpublished_changes !== false) {
+      const approved = reviewedPersona
+      if (!approved) throw new Error('Review your assistant first.')
+      if (!settings) throw new Error('Review the saved appearance and tools first.')
+      const reviewedSaved = await fetchAdminPersona(approved.id)
+      if (!current()) return
+      if (reviewedSaved.draft_revision !== approved.draft_revision || reviewedSaved.published_version?.id !== approved.published_version?.id) throw new Error('Your assistant changed. Review its latest preview before going live.')
+      if (approved.has_unpublished_changes !== false) {
+        const latest = await fetchAdminPersonaReleaseReadiness(approved.id)
+        if (!current()) return
+        if (!readiness?.candidate || latest.candidate?.draft_revision !== approved.draft_revision || latest.candidate?.manifest_digest !== readiness.candidate.manifest_digest || latest.evaluation_run?.id !== readiness.evaluation_run?.id || latest.evaluation_run?.run_digest !== readiness.evaluation_run?.run_digest || latest.behavioral_preview_evidence?.digest !== readiness.behavioral_preview_evidence?.digest) throw new Error('Your voice or safety checks changed. Preview again before approving them.')
+      }
+      publishedSettings.current ??= await publishCoachSettings(settings, requestId.current, current)
+      if (!current()) return
+      let published = publishedPersona.current ?? approved
+      if (!publishedPersona.current && approved.has_unpublished_changes !== false) {
         if (!readiness?.candidate || !readiness.evaluation_run?.run_digest || !readiness.behavioral_preview_evidence?.valid) throw new Error('Preview the latest saved voice first.')
         for (const phrase of readiness.phrase_audience_reviews) {
           if (!phrases.includes(phrase.artifact_id)) throw new Error('Review each phrase before going live.')
           if (!current()) return
-          if (phrase.review_state !== 'approved') await reviewAdminPersonaAudience(persona.id, { candidate_digest: readiness.candidate.manifest_digest, artifact_id: phrase.artifact_id, artifact_fingerprint: phrase.artifact_fingerprint, decision: 'approved' })
+          if (phrase.review_state !== 'approved') await reviewAdminPersonaAudience(approved.id, { candidate_digest: readiness.candidate.manifest_digest, artifact_id: phrase.artifact_id, artifact_fingerprint: phrase.artifact_fingerprint, decision: 'approved' })
         }
         if (!current()) return
-        if (!readiness.approval?.valid) await reviewAdminPersonaEvaluation(persona.id, readiness.evaluation_run.id, 'approved', readiness.evaluation_run.run_digest)
+        if (!readiness.approval?.valid) await reviewAdminPersonaEvaluation(approved.id, readiness.evaluation_run.id, 'approved', readiness.evaluation_run.run_digest)
         if (!current()) return
-        const ready = await fetchAdminPersonaReleaseReadiness(persona.id)
+        const ready = await fetchAdminPersonaReleaseReadiness(approved.id)
         if (!current()) return
         if (!ready.ready || !ready.candidate || !ready.approval?.valid || !ready.evaluation_run?.run_digest || !ready.behavioral_preview_evidence?.valid) throw new Error('The voice or review changed. Preview again before publishing.')
-        const saved = await fetchAdminPersona(persona.id)
+        const saved = await fetchAdminPersona(approved.id)
         if (!current()) return
-        if (saved.draft_revision !== persona.draft_revision || saved.published_version?.id !== persona.published_version?.id || ready.candidate.manifest_digest !== readiness.candidate.manifest_digest || ready.behavioral_preview_evidence.digest !== readiness.behavioral_preview_evidence.digest) throw new Error('Your assistant changed. Review its latest preview before going live.')
-        published = (await publishAdminPersona(persona.id, { draft_revision: persona.draft_revision!, preview_digest: saved.preview!.digest, expected_published_version_id: persona.published_version?.id ?? null, release_candidate_digest: ready.candidate.manifest_digest, evaluation_run_digest: ready.evaluation_run.run_digest, evaluation_approval_digest: ready.approval.approval_digest, behavioral_preview_digest: ready.behavioral_preview_evidence.digest })).persona
+        if (saved.draft_revision !== approved.draft_revision || saved.published_version?.id !== approved.published_version?.id || ready.candidate.manifest_digest !== readiness.candidate.manifest_digest || ready.evaluation_run.id !== readiness.evaluation_run?.id || ready.evaluation_run.run_digest !== readiness.evaluation_run?.run_digest || ready.behavioral_preview_evidence.digest !== readiness.behavioral_preview_evidence.digest) throw new Error('Your assistant changed. Review its latest preview before going live.')
+        published = (await publishAdminPersona(approved.id, { draft_revision: approved.draft_revision!, preview_digest: saved.preview!.digest, expected_published_version_id: approved.published_version?.id ?? null, release_candidate_digest: ready.candidate.manifest_digest, evaluation_run_digest: ready.evaluation_run.run_digest, evaluation_approval_digest: ready.approval.approval_digest, behavioral_preview_digest: ready.behavioral_preview_evidence.digest })).persona
         if (!current()) return
         publishedPersona.current = published
       }
@@ -109,7 +139,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
         if (!current()) return
         if (completedGroups.current.has(group.group.id)) continue
         setStatus(`Updating ${group.group.name}…`)
-        await publishCoachGroup(group, published.id, published.published_version.id, requestId.current, current)
+        await publishCoachGroup(group, published.id, published.published_version.id, requestId.current, current, publishedSettings.current)
         if (!current()) return
         completedGroups.current.add(group.group.id)
       }
@@ -117,17 +147,21 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
       setReviewed(false)
       onPersonaChange(published)
     } catch (caught) {
-      if (current()) setError(`${caught instanceof Error ? caught.message : 'Publishing could not finish.'}${publishedPersona.current ? ' Your assistant is published. Completed groups stay live; retry continues the remaining groups.' : ''}`)
+      if (current()) {
+        setGroups([]); setReviewed(false); setSettings(null); setReviewedPersona(null)
+        setError(`${caught instanceof Error ? caught.message : 'Publishing could not finish.'}${publishedPersona.current ? ' Your assistant is published. Completed groups stay live. Reopen Go live to review any remaining group, or finish its saved update in Advanced / history.' : ' Review again before retrying.'}`)
+      }
     } finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
   }
-  const canPublish = Boolean(persona.permissions.publish && reviewed && groups.length > 0 && (persona.has_unpublished_changes === false || readiness) && (readiness?.phrase_audience_reviews.every((item) => phrases.includes(item.artifact_id)) ?? true))
+  const canPublish = Boolean(persona.permissions.publish && reviewed && groups.length > 0 && (reviewedPersona?.has_unpublished_changes === false || readiness) && (readiness?.phrase_audience_reviews.every((item) => phrases.includes(item.artifact_id)) ?? true))
   return <article className="panel coach-go-live" aria-busy={busy}>
     <h3>Hear your assistant, then go live</h3><p>Try two everyday questions with fictional details. Review the answers before your people receive any changes.</p>
     <fieldset disabled={busy}><legend>Who will receive these changes?</legend>{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { setGroupIds((ids) => event.target.checked ? [...ids, group.id] : ids.filter((id) => id !== group.id)); setGroups([]); setReviewed(false) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
     <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review group changes' : 'Preview answers and check safety'}</Button>
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
     <div className="coach-answer-comparison">{answers.map((item) => <section key={item.question}><h4>{item.question}</h4><p>{item.answer}</p></section>)}</div>
-    {groups.length > 0 && <section><h4>Review before going live</h4><p>{persona.draft?.identity.assistant_name ?? persona.name} · {groups.map((item) => `${item.group.name} (${item.participantIds.length} people)`).join(', ')}</p><p>Publishing sets your program’s default voice. These groups will also receive the published appearance and tools together.</p>
+    {groups.length > 0 && <section><h4>Review before going live</h4><p>{reviewedPersona?.draft?.identity.assistant_name ?? reviewedPersona?.name} · {groups.map((item) => `${item.group.name} (${item.participantIds.length} ${item.participantIds.length === 1 ? 'person' : 'people'})`).join(', ')}</p><p>These groups will receive this assistant, appearance and tools together.</p>
+      {settings && <><BrandWelcomePreview config={settings.brand.preview.brand} />{settings.tools.map((item) => <section key={item.configuration.cohort.id}><h4>Tools for {item.configuration.cohort.name}</h4><p>{item.preview.modules.filter((module) => module.enabled).map((module) => module.label).join(' · ')}</p><p>Hidden: {item.preview.modules.filter((module) => !module.enabled).map((module) => module.label).join(', ') || 'None'}</p></section>)}</>}
       {readiness?.candidate?.audience_snapshot && <p>For: {readiness.candidate.audience_snapshot.audience}<br />Community context: {readiness.candidate.audience_snapshot.culture.context}</p>}
       {checks.length > 0 && <details><summary>Safety checks passed ({checks.length})</summary><ul>{checks.map((item) => <li key={item.id}>{item.case.name}: {item.status}</li>)}</ul></details>}
       {readiness?.phrase_audience_reviews.map((item) => <label className="coach-phrase-approval" key={item.artifact_id}><input type="checkbox" checked={phrases.includes(item.artifact_id)} disabled={busy} onChange={(event) => setPhrases((ids) => event.target.checked ? [...ids,item.artifact_id] : ids.filter((id) => id !== item.artifact_id))} /><span><strong>{item.phrase.text}</strong> — {item.phrase.meaning}<small>Use: {item.phrase.allowed_contexts.join(', ')} · {item.phrase.frequency}. {item.phrase.caution}</small></span></label>)}

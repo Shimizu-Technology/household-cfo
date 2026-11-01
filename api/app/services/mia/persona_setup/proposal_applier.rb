@@ -39,12 +39,7 @@ module Mia
           ensure_pending!(proposal, session)
           verify_seal!(proposal, authorization.persona)
 
-          state = if indexes == proposal.operations.each_index.to_a
-            proposal.after_state
-          else
-            OperationContract.new(actor: authorization.actor, user_message: proposal.turn.user_message,
-              persona: authorization.persona).build(indexes.map { |index| proposal.operations.fetch(index) }).fetch(:after_state)
-          end
+          state = selected_state(proposal, indexes)
           updater = PersonaDraftUpdater.new(
             persona: authorization.persona,
             actor: authorization.actor,
@@ -104,6 +99,36 @@ module Mia
       private
 
       attr_reader :proposal_id, :session_id, :persona_id, :actor_id, :workspace_id
+
+      # The whole proposal has already passed its contract and seal checks. Copy
+      # selected values from that sealed result instead of capturing artifacts a
+      # second time with new identities or the actor's current role.
+      def selected_state(proposal, indexes)
+        return proposal.after_state if indexes == proposal.operations.each_index.to_a
+
+        state = proposal.before_state.deep_dup
+        before_phrases = proposal.before_state.fetch("draft_config").fetch("phrases")
+        after_phrases = proposal.after_state.fetch("draft_config").fetch("phrases")
+        added = after_phrases.reject { |phrase| before_phrases.any? { |item| item.fetch("artifact_id") == phrase.fetch("artifact_id") } }
+        removed = before_phrases.reject { |phrase| after_phrases.any? { |item| item.fetch("artifact_id") == phrase.fetch("artifact_id") } }
+        indexes.each do |index|
+          operation = proposal.operations.fetch(index)
+          case operation.fetch("op")
+          when "set"
+            keys = operation.fetch("path") == "description" ? [ "description" ] : [ "draft_config", *operation.fetch("path").split(".") ]
+            target = keys[0...-1].reduce(state) { |value, key| value.fetch(key) }
+            target[keys.last] = proposal.after_state.dig(*keys).deep_dup
+          when "add_phrase"
+            text = operation.fetch("value").fetch("text")
+            phrase = added.find { |item| item.fetch("text") == text }
+            state.fetch("draft_config").fetch("phrases") << phrase.deep_dup
+          when "remove_phrase"
+            phrase = removed.find { |item| item.fetch("text") == operation.fetch("value") }
+            state.fetch("draft_config").fetch("phrases").reject! { |item| item.fetch("artifact_id") == phrase.fetch("artifact_id") }
+          end
+        end
+        state
+      end
 
       def authorize!
         Authorization.lock_editor!(actor_id:, workspace_id:, persona_id:) ||

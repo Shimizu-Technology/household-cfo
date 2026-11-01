@@ -1878,6 +1878,7 @@ export type CohortExperienceVersion = {
 }
 
 export type CohortExperienceConfiguration = {
+  has_unpublished_changes?: boolean
   cohort: {
     id: number
     name: string
@@ -2913,7 +2914,7 @@ export async function sealCohortRelease(
   cohortId: number,
   values: CohortReleaseMutationInput,
   requestId: string,
-): Promise<unknown> {
+): Promise<{ release: CohortReleaseRecord }> {
   return fetchJson(`/api/v1/admin/cohorts/${cohortId}/releases`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
@@ -4889,6 +4890,7 @@ export type WorkspaceBrandVersion = {
   config?: BrandConfig
 }
 export type WorkspaceBrandConfiguration = {
+  has_unpublished_changes?: boolean
   workspace: { id: number; name: string; slug: string }
   draft: BrandConfig
   draft_revision: number
@@ -5000,6 +5002,7 @@ export async function sendWorkspaceCollaboratorEmail(workspaceId: number, member
 }
 
 export type CohortInitialLaunch = {
+  roster_digest: string
   cohort: { id: number; name: string; participant_count: number }
   active_release_id: number | null
   release: { id: number; release_number: number } | null
@@ -5017,7 +5020,7 @@ export async function fetchCohortInitialLaunch(cohortId: number, signal?: AbortS
 
 export async function launchCohortRelease(
   cohortId: number,
-  values: { release_id: number; preview_digest: string },
+  values: { release_id: number; preview_digest: string; expected_roster_digest?: string },
   requestId: string,
 ): Promise<{ launch: CohortInitialLaunch; replayed: boolean }> {
   return fetchJson(`/api/v1/admin/cohorts/${cohortId}/launch`, {

@@ -210,8 +210,12 @@ module Mia
           string_keys.all? { |key| value[key].is_a?(String) } &&
           array_keys.all? { |key| value[key].is_a?(Array) && value[key].all? { |item| item.is_a?(String) } }
         raise ContractError, "Mia returned an unsupported phrase shape." unless valid
-
-        value
+        if value.fetch("allowed_contexts").include?("crisis")
+          raise ContractError, "Coaching phrases cannot be used during a crisis."
+        end
+        # This locked safety boundary is part of every reviewable suggestion,
+        # even when the transcript never mentions crisis handling.
+        value.merge("prohibited_contexts" => (value.fetch("prohibited_contexts") + [ "crisis" ]).uniq)
       end
 
       def remove_phrase!(state, raw_value)

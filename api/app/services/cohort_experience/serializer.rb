@@ -17,6 +17,7 @@ module CohortExperience
         },
         draft: configuration.draft_config,
         draft_revision: configuration.draft_revision,
+        has_unpublished_changes: configuration.current_published_version&.config_digest != Schema.digest(configuration.draft_config),
         preview_required: preview_required?,
         preview: configuration.preview_digest && {
           digest: configuration.preview_digest,
