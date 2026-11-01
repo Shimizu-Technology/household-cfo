@@ -89,6 +89,9 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   expect(mixed.transaction_draft.amount_cents).toBe(6000)
   const reversed = await ask('How am I doing this month? I spent $60 at Ross today.', 'overview-before-purchase', /Ross|review/i)
   expect(reversed.transaction_draft.amount_cents).toBe(6000)
+  const supportingDay = await ask('I spent $60 at Ross. It was yesterday. How am I doing this month?', 'supporting-date', /Ross|review/i)
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1)
+  expect(supportingDay.transaction_draft.occurred_on).toBe(`${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`)
   const correctedStore = `${reviewStore} Corrected`
   await ask(`I spent money at ${reviewStore} Original today`, 'merchant-question', /how much|amount/i)
   const corrected = await ask(`It was $60 at ${correctedStore} yesterday`, 'merchant-correction', /review/i)

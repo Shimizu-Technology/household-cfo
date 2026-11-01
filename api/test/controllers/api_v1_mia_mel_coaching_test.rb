@@ -81,6 +81,15 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     assert_equal "pending", draft.fetch("status")
   end
 
+  test "a supporting date sentence stays with a purchase beside a month question" do
+    post_message("I spent $60 at Ross. It was yesterday. How am I doing this month?")
+    draft = response.parsed_body.fetch("transaction_draft")
+    assert draft, response.parsed_body.slice("assistant_message", "transaction_draft").inspect
+    assert_equal "Ross", draft.fetch("merchant")
+    assert_equal 6000, draft.fetch("amount_cents")
+    assert_equal (Date.current - 1).iso8601, draft.fetch("occurred_on")
+  end
+
   test "an incurred purchase following a month question still reaches review" do
     post_message("How am I doing this month? I spent $60 at Ross today.")
     draft = response.parsed_body.fetch("transaction_draft")

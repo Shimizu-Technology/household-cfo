@@ -215,12 +215,11 @@ module HouseholdFinance
       return nil if user_message.blank?
       read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(user_message)
       if !read_only_request && MiaMonthAnswer.question?(user_message)
-        report_text = raw_user_message.split(/(?<=[.!?])\s+/).filter_map do |sentence|
+        report_text = raw_user_message.split(/(?<=[.!?])\s+/).map do |sentence|
           question = sentence.match(MiaMonthAnswer::QUESTION)
-          candidate = question ? sentence[0...question.begin(0)].sub(/\s+and\s*\z/i, "").strip : sentence
-          candidate if MiaCoachAnswerer.spend_report_text?(candidate) && !PurchaseReportParser.question_or_plan?(candidate)
+          question ? sentence[0...question.begin(0)].sub(/\s+and\s*\z/i, "").strip : sentence
         end.join(" ")
-        purchase = deterministic_purchase_result(report_message: report_text) if report_text.present?
+        purchase = deterministic_purchase_result(report_message: report_text) if MiaCoachAnswerer.spend_report_text?(report_text)
         return purchase if purchase
       end
       coaching = deterministic_coaching_result
