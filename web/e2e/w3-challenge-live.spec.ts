@@ -158,7 +158,7 @@ test.describe('BOG UI W3 real challenge journey', () => {
     async function shot(name: string) {
       await page.evaluate(() => window.scrollTo(0, 0))
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-      if (evidence) await page.screenshot({ path: `${evidence}/shots/${info.project.name}-${name}.png`, fullPage: true })
+      if (evidence) await page.screenshot({ path: `${evidence}/shots/${info.project.name}-${name}.png`, fullPage: (await page.getByRole('dialog').count()) === 0 })
     }
     if (info.project.name === 'desktop-chrome') await page.setViewportSize({ width: 1366, height: 900 })
     await page.goto(`${live}/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Home`)
@@ -204,6 +204,7 @@ test.describe('BOG UI W3 real challenge journey', () => {
     } else await home.getByRole('button', { name: 'Day 30 ready to review', exact: true }).click()
     await expect(today.getByRole('button', { name: 'Checkpoints', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await expect(today).toContainText('Look back at your first 30 days')
+    await expect(today.getByRole('button', { name: 'Checkpoints', exact: true })).toHaveCSS('white-space', 'nowrap')
     await shot('day30-checkpoint-intro')
     if (!checkpointAlreadySaved) {
       await today.getByRole('button', { name: /^Review Day 30/ }).click()

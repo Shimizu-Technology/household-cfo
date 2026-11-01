@@ -46,4 +46,4 @@
 .daily-dialog .daily-close { flex: 0 0 44px; width: 44px; height: 44px; padding: 0; font-size: 24px; }
 .daily-tabs button[aria-pressed=true] { background: var(--surface-muted); border-color: var(--ink); color: var(--ink); }
 .daily-tabs { flex-wrap: nowrap; }
-.daily-tabs > button { min-width: 0; padding-inline: 10px; white-space: nowrap; }
+.daily-dialog .daily-tabs > button { min-width: 0; padding-inline: 10px; white-space: nowrap; }
