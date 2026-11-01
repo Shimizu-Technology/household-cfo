@@ -79,9 +79,15 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     assert_equal 1200, draft.total_amount_cents
     assert_equal "pending", draft.status
     assert_nil @household.budget_categories.find_by(name: "Cigarettes")
-    result = HouseholdFinance::TransactionDraftConfirmer.new(draft).call
-    assert result.success?, result.errors.inspect
-    assert_equal "Cigarettes", result.transaction.transaction_splits.sole.budget_category.name
+    post "/api/v1/transaction_drafts/#{draft.id}/confirm", params: {}, headers: {
+      "Authorization" => "Bearer test_token:#{@user.clerk_id}:#{@user.email}:Mel:Test",
+      "Idempotency-Key" => SecureRandom.uuid
+    }, as: :json
+    assert_response :success
+    assert_equal "Cigarettes", draft.reload.confirmed_transaction.transaction_splits.sole.budget_category.name
+    status = response.parsed_body.dig("workspace", "mia", "messages").last.fetch("content")
+    assert_includes status, "in Cigarettes"
+    refute_includes status, "Uncategorized"
   end
 
   test "category followup reuses the pending amount and merchant" do

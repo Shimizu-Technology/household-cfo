@@ -650,7 +650,7 @@ cases:
     expected_phrases: [money in, planned out, spent so far, plan leaves]
     forbidden_phrases: [not have enough approved data, confirmed actuals recorded]
     live_expected:
-      - [income, money in]
+      - [income, money in, coming in]
       - [planned, plan]
       - [spent, spending]
 
@@ -659,6 +659,8 @@ cases:
     prompt: I went to Ross again today. That is the third time this month.
     expected_phrases: [Ross, you are noticing it, What was happening]
     forbidden_phrases: [How much did you spend, budget stack, not have enough approved data]
+    live_expected: [Ross, [pattern, repeat, again], [before, trigger, what]]
+    live_forbidden: [How much did you spend, budget stack, safe-to-spend, readiness]
 
   - id: mel_stuck_to_budget
     route: controller
@@ -671,6 +673,8 @@ cases:
     prompt: I am so stressed about money this week.
     expected_phrases: [heavy week, Which bill is due next]
     forbidden_phrases: [readiness is Red, budget stack, not have enough approved data]
+    live_expected: [[stress, heavy, hard], [bill, payment], [next, first]]
+    live_forbidden: [readiness, safe-to-spend, budget stack, not have enough approved data]
 
   - id: mel_keep_buying_takeout
     route: controller
@@ -683,6 +687,7 @@ cases:
     prompt: My salary is $6,400 now
     expected_phrases: [July 2026, review]
     forbidden_phrases: [January 2026, budget stack]
+    live_expected: [July 2026, [review, approve, check], "$6,400"]
 
   - id: mel_inline_category
     route: controller

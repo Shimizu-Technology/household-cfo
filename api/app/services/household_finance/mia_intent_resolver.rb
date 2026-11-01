@@ -217,6 +217,10 @@ module HouseholdFinance
       coaching = deterministic_coaching_result
       coaching ||= deterministic_category_followup_result || deterministic_purchase_continuation_result unless read_only_request
       return coaching if coaching
+      if !read_only_request && requested_new_category.present?
+        purchase = deterministic_purchase_result
+        return purchase if purchase
+      end
 
       setup_result = deterministic_current_salary_result || deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
       return setup_result if setup_result
@@ -348,7 +352,9 @@ module HouseholdFinance
       return unless rows.all? { |row| row[:merchant].present? && row[:amount_cents] <= Money::MAX_AMOUNT_CENTS }
 
       actions = rows.map do |row|
-        { type: "create_transaction_draft", merchant: row[:merchant],
+        merchant = row[:merchant]
+        merchant = merchant.sub(/\s+on\s+#{Regexp.escape(requested_new_category)}\z/i, "") if requested_new_category.present?
+        { type: "create_transaction_draft", merchant: merchant,
           amount: format("%.2f", BigDecimal(row[:amount_cents].to_s) / 100),
           occurred_on: row[:purchased_on], category_name: requested_new_category, splits: [] }
       end

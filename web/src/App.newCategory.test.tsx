@@ -38,6 +38,7 @@ it('allows confirmation after the named category has been saved without requirin
   render(<TransactionDraftReviewStack drafts={[named]} isRealWorkspace action={null}
     onConfirm={onConfirm} onIgnore={vi.fn()} onReopen={vi.fn()} />)
   const confirm = screen.getByRole('button', { name: /^Confirm Payless/ })
+  expect(screen.queryByText('Needs category')).toBeNull()
   expect((confirm as HTMLButtonElement).disabled).toBe(false)
   fireEvent.click(confirm)
   expect(onConfirm).toHaveBeenCalledWith(named)

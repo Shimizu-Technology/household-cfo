@@ -1,6 +1,19 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "reflections and purchase reviews never narrate internal status or unrelated readiness" do
+    [
+      [ "I went to Ross again", "Readiness is red and safe-to-spend is $0." ],
+      [ "I spent $12 at Payless", "The purchase shows needs_category." ]
+    ].each do |prompt, narration|
+      fallback = "Pause and choose one next step."
+      narrator = HouseholdFinance::MiaNarrator.new(user_message: prompt,
+        answer_packet: { kind: "coaching", fallback_response: fallback, write_state: "no_write" }, api_key: "synthetic")
+      narrator.define_singleton_method(:openrouter_response) { narration }
+      assert_equal fallback, narrator.call
+    end
+  end
+
   test "supplies approved coaching context below immutable system contracts and records it only as supplied context" do
     item_version = Data.define(:title, :kind).new(title: "Coach decision check", kind: "guidance")
     pack_version = Data.define(:name, :pack_kind).new(name: "Mrs. Mel method", pack_kind: "coaching_method")

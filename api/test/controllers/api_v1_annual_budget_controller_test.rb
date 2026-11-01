@@ -1211,7 +1211,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "Sinking Fund — Expected"
+    assert_includes content, "planned yearly costs"
     assert_includes content, "specific car registration line"
     assert_includes content, "amount or due date"
     assert_includes content, "Next CFO move"

@@ -7713,7 +7713,7 @@ function TransactionDraftReviewCard({
             <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
           </div>
         </div>
-        <div className="transaction-review-facts"><time dateTime={draft.occurred_on}>{formatShortDate(draft.occurred_on)}</time><strong>{currency.format(displayAmount)}</strong><span>{(draft.splits ?? []).length > 1 ? `${draft.splits?.length} splits` : (draft.category_name ?? 'Needs category')}</span></div>
+        <div className="transaction-review-facts"><time dateTime={draft.occurred_on}>{formatShortDate(draft.occurred_on)}</time><strong>{currency.format(displayAmount)}</strong><span>{(draft.splits ?? []).length > 1 ? `${draft.splits?.length} splits` : (!needsCategoryReview && draft.splits?.[0]?.category_name ? draft.splits[0].category_name : draft.category_name ?? 'Needs category')}</span></div>
         <details className="transaction-review-details" open={editing || undefined}><summary>Splits &amp; budget impact</summary><p>{transactionDraftSourceLabel(draft.source_type, assistantName)}</p>
         {(draft.splits ?? []).length > 0 && (
           <div className="transaction-draft-splits">

@@ -53,9 +53,9 @@ module HouseholdFinance
         attributes[:budget_category_id] = category_id if category_id
         if command[:category_name].present? && category_id.nil? && Array(command[:splits]).empty?
           raise ArgumentError, "Choose the category for each part of this purchase" if draft.transaction_draft_splits.many?
-          attributes[:splits] = [{ id: draft.transaction_draft_splits.first&.id, budget_category_id: nil,
+          attributes[:splits] = [ { id: draft.transaction_draft_splits.first&.id, budget_category_id: nil,
             category_name: command[:category_name], stack_key: "discretionary",
-            amount: command[:amount].presence || Money.dollars(draft.total_amount_cents) }]
+            amount: command[:amount].presence || Money.dollars(draft.total_amount_cents) } ]
         end
 
         explicit_splits = normalized_splits(command[:splits], draft)
