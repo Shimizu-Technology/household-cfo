@@ -10175,7 +10175,7 @@ test('BOG UI baseline revoked refresh clears private snapshots and controls',asy
 async function assertBaselineFits(dialog: ReturnType<Page['getByRole']>) {const size = await dialog.evaluate((root) => ({scroll:root.scrollWidth,client:root.clientWidth,width:root.getBoundingClientRect().width,offenders:[...root.querySelectorAll('*')].filter((node)=>node.getClientRects().length && (node.getBoundingClientRect().right > root.getBoundingClientRect().right-parseFloat(getComputedStyle(root).paddingRight)+1 || node.scrollWidth > node.clientWidth+1)).map((node)=>({tag:node.tagName,text:node.textContent?.slice(0,60),width:node.getBoundingClientRect().width,right:node.getBoundingClientRect().right,scroll:node.scrollWidth,client:node.clientWidth,padding:getComputedStyle(node).padding})).slice(-12)}));expect(size.scroll,JSON.stringify(size)).toBeLessThanOrEqual(size.client+1)}
 
 async function openDaily(page:Page,options:{known?:boolean;source?:boolean;uncertain?:boolean;many?:boolean;active?:boolean;holdSecondApprove?:boolean}={}) {
-  await openSavingsHome(page)
+  const {home}=await openSavingsHome(page)
   let context={...structuredClone(dailyContext),cohort_id:41,enrollment_id:1};let revoked=false
   const purchases:DailyPurchase[]=options.known?[{id:200,current_version_id:400,lock_version:1,current_version:{...dailyVersion,link_kind:options.source?'existing_transaction':'manual_new'}}]:[]
   const drafts:DailyPurchaseDraft[]=[];const reflections:DailyReflection[]=[];const checkpointDrafts:DailyCheckpointDraft[]=[];const checkpoints:DailyCheckpoint[]=[]
@@ -10218,7 +10218,7 @@ async function openDaily(page:Page,options:{known?:boolean;source?:boolean;uncer
   })
   // Native font completion prevents a late layout shift at the mobile navigation click.
   await page.evaluate(() => document.fonts.ready)
-  const trigger=page.getByRole('navigation',{name:'Household CFO participant sections'}).getByRole('button',{name:'Today',exact:true});const dialog=page.getByRole('dialog',{name:'Today',exact:true});if(options.active)return{dialog,trigger,calls,revoke:()=>{revoked=true}};await trigger.click();await expect(dialog.getByRole('combobox',{name:'How was this day?',exact:true})).toBeVisible();return{dialog,trigger,calls,revoke:()=>{revoked=true}}
+  const dialog=page.getByRole('dialog',{name:'Today',exact:true});const trigger=home.getByRole('button',{name:'Open today’s record and check-ins',exact:true});if(options.active){await home.getByRole('button',{name:'Check in for today',exact:true}).click();await expect(page.getByRole('textbox',{name:'Ask Mia',exact:true})).toBeVisible();await page.evaluate(()=>window.dispatchEvent(new Event('focus')));return{dialog,trigger,calls,revoke:()=>{revoked=true}}};await trigger.click();await expect(dialog.getByRole('combobox',{name:'How was this day?',exact:true})).toBeVisible();return{dialog,trigger,calls,revoke:()=>{revoked=true}}
 }
 async function dailyManual(dialog:ReturnType<Page['getByRole']>,merchant='Fictional lunch') {await dialog.getByRole('button',{name:'Add a purchase',exact:true}).click();await dialog.getByLabel('Where did you buy it?').fill(merchant);await dialog.getByLabel('Purchase amount (USD)').fill('12.50');await dialog.getByRole('combobox',{name:'Category (optional)',exact:true}).selectOption('20');await expect(dialog.getByRole('checkbox',{name:/I reviewed/})).toHaveCount(0);await dialog.getByRole('button',{name:'Save purchase',exact:true}).click()}
 async function dailyFits(dialog:ReturnType<Page['getByRole']>) {const size=await dialog.evaluate(root=>({scroll:root.scrollWidth,client:root.clientWidth}));expect(size.scroll,JSON.stringify(size)).toBeLessThanOrEqual(size.client+1)}
@@ -10285,9 +10285,9 @@ test('BOG UI daily Mia card reload mid-save checks the interrupted approval and 
   await expect(page.getByRole('heading',{name:/Ask Mia/}).first()).toBeVisible();await expect(restored).toHaveCount(0)
 })
 test('BOG UI daily Mia keeps money prompts and cards away from a safety reply',async({page})=>{
-  const{trigger}=await openDaily(page,{active:true})
+  await openDaily(page,{active:true})
   const prompt=page.getByRole('group',{name:/asks about today/})
-  await expect.poll(async()=>{await trigger.click();return page.getByRole('dialog',{name:'Today',exact:true}).count().then(async count=>{if(count)await page.getByRole('button',{name:'Close Today',exact:true}).click();return count})}).toBe(0)
+  await expect(page.getByRole('dialog',{name:'Today',exact:true})).toHaveCount(0)
   await expect(prompt).toBeVisible()
   const safety={user_message:{id:8101,role:'user',author:'You',content:'i dont see the point anymore'},assistant_message:{id:8102,role:'assistant',author:'Mia',content:'I’m really glad you told me. If you ever feel like you might hurt yourself, please call or text 988 right now, or 911 in an emergency.',safety_reply:true},savings_intake:miaDailyReport}
   await sendMiaDailyReport(page,safety)
@@ -10296,9 +10296,9 @@ test('BOG UI daily Mia keeps money prompts and cards away from a safety reply',a
   const card=await sendMiaDailyReport(page);await expect(card).toBeVisible()
 })
 test('BOG UI daily Mia asks how today went until today is checked in',async({page},testInfo)=>{
-  const{trigger,calls}=await openDaily(page,{active:true})
+  const{calls}=await openDaily(page,{active:true})
   const prompt=page.getByRole('group',{name:/asks about today/});const composer=page.getByRole('textbox',{name:'Ask Mia',exact:true})
-  await expect.poll(async()=>{await trigger.click();return page.getByRole('dialog',{name:'Today',exact:true}).count().then(async count=>{if(count)await page.getByRole('button',{name:'Close Today',exact:true}).click();return count})}).toBe(0)
+  await expect(page.getByRole('dialog',{name:'Today',exact:true})).toHaveCount(0)
   await expect(prompt).toBeVisible();await expect(prompt.getByRole('button',{name:'No spending today',exact:true})).toBeVisible()
   // The keyboard would cover the quick replies on touch screens, so only pointer devices focus the composer.
   if(testInfo.project.name==='desktop-chrome')await expect(composer).toBeFocused();else await expect(composer).not.toBeFocused()
