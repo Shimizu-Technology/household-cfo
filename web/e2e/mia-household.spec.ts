@@ -63,7 +63,8 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   const card = page.locator(`[data-review-item="${id}"]`)
   await card.getByRole('button', { name: /^Edit Payless/ }).click()
   await card.getByRole('combobox', { name: 'Category', exact: true }).selectOption('new')
-  const name = `Cigarettes ${label}`
+  const attemptSuffix = testInfo.retry ? ' Retry' : ''
+  const name = `Cigarettes ${label}${attemptSuffix}`
   await card.getByRole('textbox', { name: 'New category name', exact: true }).fill(name)
   await card.getByRole('textbox', { name: 'New category name', exact: true }).evaluate((input) => input.scrollIntoView({ block: 'center' }))
   await page.screenshot({ path: `${evidence}/${label}-category-edit.png`, fullPage: true })
@@ -76,7 +77,7 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   const incurred = await ask('I went to Ross again and spent $60 today', 'ross-purchase', /Ross|review/i)
   expect(incurred.transaction_draft.merchant).toBe('Ross')
   expect(incurred.transaction_draft.amount_cents).toBe(6000)
-  const reviewStore = `Review Store ${['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'][testInfo.config.projects.findIndex((project) => project.name === label)]}`
+  const reviewStore = `Review Store ${['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'][testInfo.config.projects.findIndex((project) => project.name === label)]}${attemptSuffix}`
   await ask(`I spent money at ${reviewStore} today`, 'purchase-question', /how much|amount/i)
   const dated = await ask('It was $60 on October 1, 2026', 'purchase-date', /Review Store|review/i)
   expect(dated.transaction_draft.merchant).toBe(reviewStore)
