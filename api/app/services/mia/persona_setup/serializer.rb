@@ -49,7 +49,8 @@ module Mia
           after_state: proposal.after_state,
           grouped_changes: grouped_changes(proposal),
           created_at: proposal.created_at,
-          resolved_at: proposal.resolved_at
+          resolved_at: proposal.resolved_at,
+          accepted_operation_indexes: proposal.accepted_operation_indexes
         }
       end
 

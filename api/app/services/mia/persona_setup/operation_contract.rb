@@ -25,6 +25,11 @@ module Mia
         culture.locale_label culture.context culture.local_realities culture.references
       ].freeze
       MIA_DRAFTABLE_PATHS = %w[coaching.philosophy].freeze
+      TRANSCRIPT_DRAFTABLE_PATHS = %w[
+        voice.tone_traits voice.energy voice.accountability_style voice.language_style
+        coaching.philosophy coaching.method coaching.principles coaching.do coaching.do_not
+        curriculum.examples
+      ].freeze
       OPERATIONS = %w[set add_phrase remove_phrase].freeze
       SOURCES = %w[coach_quote mia_drafted].freeze
 
@@ -39,7 +44,7 @@ module Mia
 
       def initialize(actor:, user_message:, persona:)
         @actor = actor
-        @user_message = normalize_text(user_message, max: 4_000)
+        @user_message = normalize_text(user_message, max: 24_000)
         @persona = persona
       end
 
@@ -124,6 +129,12 @@ module Mia
             raise ContractError, "Every coach-authored change must cite exact wording from this message."
           end
         else
+          if transcript_request? && op == "set" && path.in?(TRANSCRIPT_DRAFTABLE_PATHS)
+            unless evidence.present? && user_message.include?(evidence)
+              raise ContractError, "A transcript suggestion must cite exact source wording."
+            end
+            return
+          end
           allowed = op == "set" && path.in?(MIA_DRAFTABLE_PATHS)
           requested = user_message.match?(/\b(?:draft|suggest|propose|help me write|create|come up with)\b/i) &&
             user_message.match?(/\b(?:coaching\s+)?philosoph(?:y|ies)\b/i)
@@ -148,11 +159,17 @@ module Mia
         voice_request = user_message.match?(/\b(?:voice|tone|style|wording|language|warm|direct|calm|formal|concise|encouraging|lighthearted|patient)\b/i)
         raise ContractError, "A location label alone cannot authorize a voice or dialect change." unless source == "coach_quote" && voice_request
 
+        return if transcript_request? && evidence.present? && user_message.include?(evidence)
+
         changed_exact_strings(path, value).each do |text|
           next if text.blank? || (user_message.include?(text) && evidence.include?(text))
 
           raise ContractError, "Every voice value must appear exactly in the coach's wording and cited evidence."
         end
+      end
+
+      def transcript_request?
+        user_message.match?(/\b(?:propose|suggest|derive)\b/i) && user_message.match?(/\btranscripts?\b/i)
       end
 
       def mutation_target(operation)

@@ -21,21 +21,30 @@ module Mia
         @workspace_id = workspace.id
       end
 
-      def apply!(idempotency_key:)
+      def apply!(idempotency_key:, accepted_operation_indexes: nil)
         key = normalize_key(idempotency_key)
         ApplicationRecord.transaction do
           authorization = authorize!
           session = locked_session!
           proposal = session.proposals.lock.find(proposal_id)
+          indexes = selected_indexes(proposal, accepted_operation_indexes)
           if proposal.status == "applied"
-            return authorization.persona if secure_match?(proposal.resolution_idempotency_key, key)
+            if secure_match?(proposal.resolution_idempotency_key, key) &&
+                (proposal.accepted_operation_indexes || proposal.operations.each_index.to_a) == indexes
+              return authorization.persona
+            end
 
             raise Error.new("This proposal was already applied with a different request.", code: "persona_setup_resolution_conflict")
           end
           ensure_pending!(proposal, session)
           verify_seal!(proposal, authorization.persona)
 
-          state = proposal.after_state
+          state = if indexes == proposal.operations.each_index.to_a
+            proposal.after_state
+          else
+            OperationContract.new(actor: authorization.actor, user_message: proposal.turn.user_message,
+              persona: authorization.persona).build(indexes.map { |index| proposal.operations.fetch(index) }).fetch(:after_state)
+          end
           updater = PersonaDraftUpdater.new(
             persona: authorization.persona,
             actor: authorization.actor,
@@ -50,6 +59,7 @@ module Mia
             expected_state_digest: PersonaDraftUpdater.state_digest(state)
           )
           persona = authorization.persona.reload
+          proposal.update!(accepted_operation_indexes: indexes)
           proposal.resolve!(status: "applied", actor: authorization.actor, idempotency_key: key)
           session.update!(
             base_draft_revision: persona.draft_revision,
@@ -132,6 +142,14 @@ module Mia
           secure_match?(proposal.proposal_digest, expected_digest) &&
           secure_match?(PersonaDraftUpdater.state_digest(proposal.before_state), PersonaDraftUpdater.state_digest(current_state))
         raise Error.new("The persona changed or this proposal failed verification.", code: "persona_setup_stale") unless valid
+      end
+
+      def selected_indexes(proposal, values)
+        return proposal.operations.each_index.to_a if values.nil?
+        unless values.is_a?(Array) && values.present? && values.all? { |index| index.is_a?(Integer) && index >= 0 && index < proposal.operations.length } && values.uniq.length == values.length
+          raise Error.new("Choose at least one valid suggestion to save.", code: "persona_setup_invalid", status: :unprocessable_entity)
+        end
+        values.sort
       end
 
       def normalize_key(value)

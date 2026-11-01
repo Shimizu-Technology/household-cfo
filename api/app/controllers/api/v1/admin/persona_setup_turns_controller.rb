@@ -27,6 +27,27 @@ module Api
           render json: payload, status: error.status
         end
 
+        def transcript
+          scoped_session
+          file = params[:file]
+          unless file.is_a?(ActionDispatch::Http::UploadedFile)
+            return render json: { error: "Choose a TXT, DOCX, or PDF transcript." }, status: :unprocessable_entity
+          end
+          unless File.extname(file.original_filename).downcase.in?(%w[.txt .docx .pdf])
+            return render json: { error: "Choose a TXT, DOCX, or PDF transcript." }, status: :unprocessable_entity
+          end
+          ContentSources::UploadValidator.validate_metadata!(filename: file.original_filename,
+            content_type: file.content_type, byte_size: file.size, checksum_sha256: Digest::SHA256.file(file.path).hexdigest)
+          parsed = ContentSources::Parser.new.call(path: file.path, filename: file.original_filename)
+          text = parsed.segments.map(&:text).join("\n\n")
+          if text.length > 22_000
+            return render json: { error: "This transcript is long. Choose an excerpt of up to 22,000 characters." }, status: :unprocessable_entity
+          end
+          render json: { text: text }
+        rescue ContentSources::Error
+          render json: { error: "This transcript could not be read safely. Try a TXT file or paste its text." }, status: :unprocessable_entity
+        end
+
         private
 
         def policy
@@ -36,7 +57,7 @@ module Api
         def scoped_session
           persona = policy.editable_personas.find(params[:persona_id])
           CoachPersonaSetupSession.find_by!(
-            id: params[:setup_session_id],
+            id: params[:setup_session_id] || params[:id],
             coach_persona_id: persona.id,
             coach_workspace_id: current_coach_workspace.id,
             created_by_user_id: current_user.id

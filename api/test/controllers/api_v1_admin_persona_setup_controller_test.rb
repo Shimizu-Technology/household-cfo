@@ -13,6 +13,26 @@ class ApiV1AdminPersonaSetupControllerTest < ActionDispatch::IntegrationTest
     @headers = workspace_auth_headers(@owner, @workspace)
   end
 
+  test "transcript extraction is private and never writes the draft" do
+    post "/api/v1/admin/personas/#{@persona.id}/setup_sessions", headers: @headers, as: :json
+    session_id = response.parsed_body.dig("session", "id")
+    Tempfile.create([ "w4-transcript", ".txt" ]) do |file|
+      file.write("We take one small step. We ask one kind question at a time.")
+      file.flush
+      upload = Rack::Test::UploadedFile.new(file.path, "text/plain")
+      path = "/api/v1/admin/personas/#{@persona.id}/setup_sessions/#{session_id}/transcript"
+      before = @persona.reload.draft_revision
+      post path, params: { file: upload }, headers: @headers
+      assert_response :ok
+      assert_includes response.parsed_body.fetch("text"), "one small step"
+      assert_equal before, @persona.reload.draft_revision
+      outside = persona_user
+      outside_workspace = CoachWorkspaces::Resolver.new(user: outside).call
+      post path, params: { file: Rack::Test::UploadedFile.new(file.path, "text/plain") }, headers: workspace_auth_headers(outside, outside_workspace)
+      assert_response :not_found
+    end
+  end
+
   test "setup requires an explicitly selected workspace for platform admins" do
     admin = persona_user(role: "admin")
 

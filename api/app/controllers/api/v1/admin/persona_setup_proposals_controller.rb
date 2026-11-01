@@ -15,7 +15,7 @@ module Api
             proposal:,
             actor: current_user,
             workspace: current_coach_workspace
-          ).apply!(idempotency_key: request.headers["Idempotency-Key"])
+          ).apply!(idempotency_key: request.headers["Idempotency-Key"], accepted_operation_indexes: params[:accepted_operation_indexes])
           render json: {
             persona: Mia::PersonaStudioSerializer.new(persona, policy: policy).detail,
             session: Mia::PersonaSetup::Serializer.new(proposal.session.reload).call

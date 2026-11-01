@@ -3383,11 +3383,12 @@ export async function resolveAdminPersonaSetupProposal(
   proposalId: number,
   action: 'apply' | 'reject',
   idempotencyKey: string,
+  acceptedOperationIndexes?: number[],
 ): Promise<{ session: AdminPersonaSetupSession; persona?: AdminPersonaDetail }> {
   return fetchJson(`/api/v1/admin/personas/${personaId}/setup_sessions/${sessionId}/proposals/${proposalId}/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({}),
+    body: JSON.stringify(acceptedOperationIndexes === undefined ? {} : { accepted_operation_indexes: acceptedOperationIndexes }),
   })
 }
 

@@ -2851,3 +2851,39 @@
   #coach-studio-panel-groups .coach-challenge { padding: 0; border: 0; }
   #coach-studio-panel-groups .coach-daily-list > label { margin-block: .25rem; }
 }
+
+/* The default coach flow stays quiet; the full release tools remain underneath. */
+.coach-simple [hidden] { display: none !important; }
+.coach-simple { min-width: 0; }
+.coach-simple-heading { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 1rem; }
+.coach-simple-heading h2 { margin-bottom: .4rem; }
+.coach-simple-heading p { margin: 0; color: var(--text-muted); }
+.coach-simple .coach-studio-section-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.coach-simple .coach-studio-section-tabs button { min-height: 48px; font: inherit; padding: .8rem .4rem; }
+.coach-simple .coach-studio-section-tabs [aria-current="page"] { background: var(--primary-soft, #f1e2e3); color: var(--primary, #7b4a58); font-weight: 600; }
+.coach-simple-tasks { display: flex; gap: .6rem; flex-wrap: wrap; }
+.coach-simple label { display: flex; align-items: start; gap: .65rem; margin-block: .7rem; min-height: 44px; line-height: 1.6; }
+.coach-simple label:has(input:not([type="checkbox"])), .coach-simple label:has(select), .coach-simple .coach-transcript-upload { flex-direction: column; }
+.coach-simple input[type="checkbox"], .coach-simple input[type="radio"] { accent-color: var(--primary, #7b4a58); width: 22px; height: 22px; margin-top: .25rem; flex: 0 0 auto; }
+.coach-simple input[type="file"] { max-width: 100%; font: inherit; }
+.coach-simple input[type="file"]::file-selector-button { min-height: 44px; border: 1px solid var(--border, #e2d9cb); border-radius: .5rem; background: var(--surface, #fffdf8); color: var(--text, #1f2421); padding: .5rem .8rem; font: inherit; margin-right: .5rem; }
+.coach-simple button { transition: transform 140ms var(--ease-out, ease-out); }
+.coach-simple button:active:not(:disabled) { transform: scale(.97); }
+.coach-simple .coach-answer-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; margin-block: 1.5rem; }
+.coach-answer-comparison section { border-top: 1px solid var(--border, #e2d9cb); }
+.coach-answer-comparison p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.coach-phrase-approval small { display: block; }
+.coach-setup-checklist ol { padding-left: 1.4rem; }
+.coach-setup-checklist li { margin-block: .8rem; }
+.coach-setup-checklist button { min-height: 44px; padding: .25rem; text-align: left; border: 0; background: none; color: var(--primary, #7b4a58); font: inherit; text-decoration: underline; }
+.coach-setup-checklist span { margin-left: .8rem; color: var(--text-muted); }
+.coach-simple details > summary { min-height: 44px; cursor: pointer; padding-block: .7rem; }
+.coach-simple pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .coach-simple .coach-answer-comparison { grid-template-columns: 1fr; }
+  .coach-simple .coach-simple-tasks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .coach-simple .persona-setup-review-actions, .coach-simple .persona-setup-composer > div { display: flex; flex-direction: column; align-items: stretch; }
+  .coach-simple .button { width: 100%; }
+  .coach-simple-heading label, .coach-simple-heading select { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .coach-simple button { transition: none; } }

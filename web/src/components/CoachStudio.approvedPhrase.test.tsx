@@ -4,7 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AdminPersonaDetail, PersonaConfiguration } from '../api'
-import { PhraseEditor } from './CoachStudio'
+import { PhraseEditor } from './CoachStudioAdvanced'
 import { savedPreviewDigestForCurrentDraft } from './personaReleaseState'
 
 const reviewedPhrase = {

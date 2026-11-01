@@ -618,7 +618,9 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     philosophy_schema = operation_schema.fetch(:oneOf).find { |schema| schema.dig(:properties, "path", :enum) == [ "coaching.philosophy" ] }
     assert_equal %w[coach_quote mia_drafted], philosophy_schema.dig(:properties, "source_basis", :enum)
     operation_schema.fetch(:oneOf).excluding(philosophy_schema).each do |schema|
-      assert_equal [ "coach_quote" ], schema.dig(:properties, "source_basis", :enum)
+      paths = schema.dig(:properties, "path", :enum)
+      derived = schema.dig(:properties, "op", :const) == "set" && (paths & Mia::PersonaSetup::OperationContract::TRANSCRIPT_DRAFTABLE_PATHS).any?
+      assert_equal derived ? %w[coach_quote mia_drafted] : [ "coach_quote" ], schema.dig(:properties, "source_basis", :enum)
     end
     prompt = payload.fetch(:messages).pluck(:content).join(" ")
     assert_includes prompt, "proposal or review wording"

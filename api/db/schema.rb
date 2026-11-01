@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_23_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_02_040001) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -1027,6 +1027,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_23_120000) do
   end
 
   create_table "coach_persona_setup_proposals", force: :cascade do |t|
+    t.jsonb "accepted_operation_indexes"
     t.jsonb "after_state", default: {}, null: false
     t.string "base_config_digest", null: false
     t.integer "base_draft_revision", null: false
@@ -1109,7 +1110,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_23_120000) do
     t.check_constraint "assistant_message IS NULL OR char_length(assistant_message) <= 2000", name: "persona_setup_turns_assistant_message_length"
     t.check_constraint "base_config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_setup_turns_digest_sha256"
     t.check_constraint "base_draft_revision > 0", name: "persona_setup_turns_revision_positive"
-    t.check_constraint "char_length(user_message) >= 1 AND char_length(user_message) <= 4000", name: "persona_setup_turns_user_message_length"
+    t.check_constraint "char_length(user_message) >= 1 AND char_length(user_message) <= 24000", name: "persona_setup_turns_user_message_length"
     t.check_constraint "error_code IS NULL OR char_length(error_code::text) >= 1 AND char_length(error_code::text) <= 80", name: "persona_setup_turns_error_code_length"
     t.check_constraint "jsonb_typeof(usage) = 'object'::text", name: "persona_setup_turns_usage_object"
     t.check_constraint "status::text = ANY (ARRAY['processing'::character varying, 'ready'::character varying, 'failed'::character varying, 'stale'::character varying]::text[])", name: "persona_setup_turns_status_valid"

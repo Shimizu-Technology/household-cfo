@@ -234,6 +234,7 @@ Rails.application.routes.draw do
           end
           resources :setup_sessions, controller: "persona_setup_sessions", only: %i[create show destroy] do
             post :rebase, on: :member
+            post :transcript, to: "persona_setup_turns#transcript", on: :member
             resources :turns, controller: "persona_setup_turns", only: :create
             resources :proposals, controller: "persona_setup_proposals", only: [] do
               post :apply, on: :member

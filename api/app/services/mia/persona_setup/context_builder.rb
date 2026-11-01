@@ -4,7 +4,7 @@ module Mia
   module PersonaSetup
     class ContextBuilder
       MAX_TURNS = 32
-      MAX_TRANSCRIPT_CHARACTERS = 16_000
+      MAX_TRANSCRIPT_CHARACTERS = 32_000
 
       def initialize(session:, persona:)
         @session = session

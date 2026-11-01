@@ -12,6 +12,7 @@ import {
   type PersonaConfiguration,
 } from '../api'
 import { Button } from './Button'
+import { readCoachVoiceTranscript } from '../enterpriseApi'
 import './PersonaVoiceFlow.css'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
@@ -36,6 +37,8 @@ export function PersonaSetupChat({
 }) {
   const [session, setSession] = useState<AdminPersonaSetupSession | null>(null)
   const [message, setMessage] = useState('')
+  const [acceptedIndexes, setAcceptedIndexes] = useState<number[]>([])
+  const [uploading, setUploading] = useState(false)
   const [retryKey, setRetryKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -98,6 +101,10 @@ export function PersonaSetupChat({
     }
   }, [beginMutation, finishMutation, loadAttempt, mutationIsCurrent, persona.id])
 
+  useEffect(() => {
+    queueMicrotask(() => setAcceptedIndexes(session?.proposal?.operations.map((_, index) => index) ?? []))
+  }, [session?.proposal])
+
   const groupedChanges = useMemo(() => session?.proposal?.grouped_changes ?? [], [session])
 
   async function sendMessage(event: FormEvent) {
@@ -115,6 +122,7 @@ export function PersonaSetupChat({
       const next = await createAdminPersonaSetupTurn(personaId, session.id, trimmed, key)
       if (!isCurrent(sequence, personaId, ticket)) return
       setSession(next)
+      setAcceptedIndexes(next.proposal?.operations.map((_, index) => index) ?? [])
       const latestTurn = next.turns[next.turns.length - 1]
       if (!latestTurn || latestTurn.status !== 'ready') {
         if (latestTurn?.status !== 'processing') setRetryKey(null)
@@ -157,19 +165,19 @@ export function PersonaSetupChat({
       resolutionRetryKeysRef.current.clear()
       resolutionRetryScopeRef.current = { sessionId: session.id, proposalId: proposal.id }
     }
-    const retrySlot = `${proposal.id}:${action}`
+    const retrySlot = `${proposal.id}:${action}:${acceptedIndexes.join(',')}`
     const key = resolutionRetryKeysRef.current.get(retrySlot) ?? requestKey()
     resolutionRetryKeysRef.current.set(retrySlot, key)
     setPending(action)
     setError(null)
     try {
-      const result = await resolveAdminPersonaSetupProposal(personaId, session.id, proposal.id, action, key)
+      const result = await resolveAdminPersonaSetupProposal(personaId, session.id, proposal.id, action, key, action === 'apply' ? acceptedIndexes : undefined)
       if (!isCurrent(sequence, personaId, ticket)) return
       resolutionRetryKeysRef.current.clear()
       resolutionRetryScopeRef.current = null
       setSession(result.session)
       if (result.persona) onPersonaChange(result.persona)
-      setAnnouncement(action === 'apply' ? 'Proposal applied to the saved draft. Next, open Evaluate & publish to preview this voice.' : 'Proposal rejected. You can keep chatting.')
+      setAnnouncement(action === 'apply' ? 'Selected suggestions saved. Next, preview your assistant’s answers.' : 'Proposal rejected. You can keep chatting.')
       window.requestAnimationFrame(() => composerRef.current?.focus())
     } catch (caught) {
       if (isCurrent(sequence, personaId, ticket)) setError(setupErrorMessage(caught, `The proposal could not be ${action === 'apply' ? 'applied' : 'rejected'}.`))
@@ -233,6 +241,22 @@ export function PersonaSetupChat({
     return sequence === requestSequence.current && personaIdRef.current === personaId && mutationIsCurrent(ticket)
   }
 
+  async function uploadTranscript(file: File | undefined) {
+    if (!file || !session || uploading || pending) return
+    const sequence = requestSequence.current
+    const personaId = persona.id
+    setUploading(true); setError(null)
+    try {
+      const result = await readCoachVoiceTranscript(personaId, session.id, file)
+      if (sequence !== requestSequence.current || personaIdRef.current !== personaId) return
+      const prefix = message.trim() ? `${message}\n\n` : 'Propose a voice summary, phrases and example replies from these transcripts for my review.\n\n'
+      const next = `${prefix}Transcript: ${file.name}\n${result.text}`
+      if (next.length > 24000) { setError('These transcripts are long. Use excerpts totalling up to 24,000 characters.'); return }
+      setMessage(next); setRetryKey(null)
+    } catch { if (sequence === requestSequence.current) setError('This transcript could not be read. Try TXT, DOCX or PDF, or paste its text.') }
+    finally { setUploading(false) }
+  }
+
   if (loading) return <div className="persona-setup-loading" role="status">Opening your private setup chat…</div>
 
   return (
@@ -241,11 +265,11 @@ export function PersonaSetupChat({
       <section className="persona-setup-chat" aria-labelledby="persona-setup-chat-title">
         <header>
 
-          <h4 id="persona-setup-chat-title">Describe Mia’s voice</h4>
-          <p>Tell Mia who you coach and how you want her to sound. Review her proposal, apply it to the draft, then open Evaluate & publish for a fresh preview.</p>
+          <h4 id="persona-setup-chat-title">Describe your assistant</h4>
+          <p>Describe its name, tone, method and phrases to use or avoid. Paste two transcripts, or upload them below, and ask for a proposed voice. Review each suggestion, save, then preview answers.</p>
         </header>
         <div className="persona-setup-privacy" role="note">
-          Your setup messages and this persona draft may be sent to the configured model. Participant household and financial data are excluded. Nothing changes until you apply a reviewed proposal.
+          Your words and transcripts go to the assistant service to prepare suggestions. Participant household and financial data are excluded. Use your own teaching, without private client details. Nothing changes until you approve it.
         </div>
         {error && <div className="form-error" role="alert">{error}</div>}
         {loadFailed && !session ? (
@@ -286,7 +310,7 @@ export function PersonaSetupChat({
             ref={composerRef}
             id={`persona-setup-message-${persona.id}`}
             rows={4}
-            maxLength={4000}
+            maxLength={24000}
             value={message}
             disabled={!session || pending !== null || session?.stale}
             onChange={(event) => {
@@ -295,7 +319,9 @@ export function PersonaSetupChat({
             }}
             placeholder="For example: Her name is Mrs. Mel. Please use a warm, direct tone and ask one practical question at a time."
           />
-          <div><small>{message.length}/4,000</small><Button type="submit" disabled={!message.trim() || !session || pending !== null || session.stale}>{pending === 'send' ? 'Mia is preparing…' : retryKey ? 'Retry message' : 'Send to Mia'}</Button></div>
+          <label className="coach-transcript-upload">Add a transcript (TXT, DOCX or PDF)<input type="file" accept=".txt,.docx,.pdf" disabled={uploading || pending !== null || !session || session.stale} onChange={(event) => { void uploadTranscript(event.target.files?.[0]); event.target.value = '' }} /></label>
+          {uploading && <p role="status">Reading your transcript…</p>}
+          <div><small>{message.length.toLocaleString()}/24,000</small><Button type="submit" disabled={!message.trim() || !session || pending !== null || session.stale || uploading}>{pending === 'send' ? 'Mia is preparing…' : retryKey ? 'Retry message' : 'Send to Mia'}</Button></div>
         </form>
         <button className="persona-setup-start-over" type="button" disabled={!session || pending !== null} onClick={() => void updateSession('abandon')}>Start a fresh setup chat</button>
       </section>
@@ -313,13 +339,20 @@ export function PersonaSetupChat({
               {groupedChanges.map((group) => (
                 <section key={group.group}>
                   <h5>{group.group}</h5>
-                  {group.changes.map((change) => <ProposalChange key={`${change.path}-${change.label}`} change={change} />)}
+                  {group.changes.map((change, changeIndex) => {
+                    const index = session.proposal!.grouped_changes.slice(0, session.proposal!.grouped_changes.indexOf(group)).reduce((sum, item) => sum + item.changes.length, 0) + changeIndex
+                    // Groups preserve operation order within a field family; match the sealed operation itself.
+                    const matching = session.proposal!.operations.map((op, opIndex) => ({op, opIndex})).filter(({op}) => op.path === change.path)
+                    const occurrence = group.changes.slice(0, changeIndex).filter((item) => item.path === change.path).length
+                    const operationIndex = matching[occurrence]?.opIndex ?? index
+                    return <div key={`${change.path}-${changeIndex}`}><label><input type="checkbox" checked={acceptedIndexes.includes(operationIndex)} disabled={pending !== null} onChange={(event) => setAcceptedIndexes((ids) => event.target.checked ? [...ids, operationIndex] : ids.filter((id) => id !== operationIndex))} />Use this {change.label.toLowerCase()} suggestion</label><ProposalChange change={change} /></div>
+                  })}
                 </section>
               ))}
             </div>
             {manualDirty && <p className="persona-setup-apply-blocked" role="note">Save or discard your manual form changes before applying this proposal.</p>}
             <div className="persona-setup-review-actions">
-              <Button disabled={pending !== null || manualDirty} onClick={() => void resolveProposal('apply')}>{pending === 'apply' ? 'Applying…' : 'Apply to saved draft'}</Button>
+              <Button disabled={pending !== null || manualDirty || acceptedIndexes.length === 0} onClick={() => void resolveProposal('apply')}>{pending === 'apply' ? 'Applying…' : 'Save selected suggestions'}</Button>
               <Button variant="secondary" disabled={pending !== null} onClick={() => onReviewInForm(session.proposal!.after_state, session.proposal!.operations[0]?.path as string | undefined ?? null)}>Review in form</Button>
               <Button variant="secondary" disabled={pending !== null} onClick={() => composerRef.current?.focus()}>Keep chatting</Button>
               <button type="button" className="persona-setup-reject" disabled={pending !== null} onClick={() => void resolveProposal('reject')}>{pending === 'reject' ? 'Rejecting…' : 'Reject proposal'}</button>

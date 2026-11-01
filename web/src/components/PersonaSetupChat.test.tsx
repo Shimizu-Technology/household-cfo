@@ -114,7 +114,7 @@ describe('PersonaSetupChat', () => {
     expect(screen.getByText('Mrs. Mel')).toBeTruthy()
     expect(onPersonaChange).not.toHaveBeenCalled()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Apply to saved draft' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save selected suggestions' }))
     await vi.waitFor(() => expect(onPersonaChange).toHaveBeenCalledTimes(1))
     expect(apiMocks.resolveAdminPersonaSetupProposal.mock.calls[0][3]).toBe('apply')
   })
@@ -124,7 +124,7 @@ describe('PersonaSetupChat', () => {
     apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
     render(<Harness manualDirty onReviewInForm={onReviewInForm} />)
 
-    expect((await screen.findByRole('button', { name: 'Apply to saved draft' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((await screen.findByRole('button', { name: 'Save selected suggestions' }) as HTMLButtonElement).disabled).toBe(true)
     await userEvent.click(screen.getByRole('button', { name: 'Review in form' }))
     expect(onReviewInForm).toHaveBeenCalledWith(authoringState, 'identity.human_coach_name')
   })
@@ -206,7 +206,7 @@ describe('PersonaSetupChat', () => {
 
     expect(await screen.findByText(clarification)).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Apply to saved draft' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save selected suggestions' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Review in form' })).toBeNull()
     expect(screen.getByText('No proposal yet.')).toBeTruthy()
     expect(composer.value).toBe('')
@@ -247,7 +247,7 @@ describe('PersonaSetupChat', () => {
     apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
     apiMocks.resolveAdminPersonaSetupProposal.mockRejectedValue(new ApiRequestError('HTTP 500', { status: 500 }))
     render(<Harness />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Apply to saved draft' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Save selected suggestions' }))
     expect((await screen.findByRole('alert')).textContent).toBe('The proposal could not be applied.')
   })
 
@@ -258,9 +258,9 @@ describe('PersonaSetupChat', () => {
       .mockResolvedValueOnce({ session: session(), persona: persona() })
     render(<Harness />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Apply to saved draft' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Save selected suggestions' }))
     expect((await screen.findByRole('alert')).textContent).toContain('The response was lost.')
-    await userEvent.click(screen.getByRole('button', { name: 'Apply to saved draft' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save selected suggestions' }))
     await vi.waitFor(() => expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledTimes(2))
 
     expect(apiMocks.resolveAdminPersonaSetupProposal.mock.calls[1][4])
@@ -275,11 +275,11 @@ describe('PersonaSetupChat', () => {
       .mockResolvedValueOnce({ session: session(), persona: persona() })
     render(<Harness />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Apply to saved draft' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Save selected suggestions' }))
     expect((await screen.findByRole('alert')).textContent).toContain('The apply response was lost.')
     await userEvent.click(screen.getByRole('button', { name: 'Reject proposal' }))
     expect((await screen.findByRole('alert')).textContent).toContain('The reject response was lost.')
-    await userEvent.click(screen.getByRole('button', { name: 'Apply to saved draft' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save selected suggestions' }))
     await vi.waitFor(() => expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledTimes(3))
 
     const calls = apiMocks.resolveAdminPersonaSetupProposal.mock.calls
