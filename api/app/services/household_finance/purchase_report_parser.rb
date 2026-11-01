@@ -58,7 +58,7 @@ module HouseholdFinance
     # A bare number counts as dollars only after one of these spending verbs.
     BARE_AFTER_VERB = /\b(?:spent|paid|charged|dropped|blew)\s+(?:(?:about|around|like|roughly|almost|over|just|another)\s+)?\z/i.freeze
     # Words that may follow a bare money amount; anything else ("2 kids", "3 times") is not money.
-    BARE_FOLLOWERS = /\A(?:\s*(?:dollars?|bucks)\b|\s+(?:at|@|from|on|for|in|today|tonight|yesterday|this|last|earlier|and|then|plus|total|cash|altogether)\b|\s*[.,;!]|\s*\z)/i.freeze
+    BARE_FOLLOWERS = /\A(?:\s*(?:dollars?|bucks)\b|\s+(?:at|@|from|on|for|in|today|tonight|yesterday|this|last|earlier|and|then|plus|total|cash|altogether)\b|\s*[.,;!~]|\s*\z)/i.freeze
     LEADING_JOINER = /\A(?:(?:and|then|plus|also|another|oh|ok|okay|so|um)\b[\s,]*|(?>~+)\s*)*\z/i.freeze
     DOLLAR_PATTERN = Regexp.new("\\$\\s*(#{NUMBER_SOURCE})(\\s*(?:k\\b|thousand\\b))?|\\b(#{NUMBER_SOURCE})\\s*(?:dollars?|bucks)\\b", Regexp::IGNORECASE).freeze
     BARE_PATTERN = Regexp.new("(?<![\\w.$#,:/-])(#{NUMBER_SOURCE}(?:k\\b|\\s*thousand\\b)?)(?![\\w%.:,/]|\\.\\d)", Regexp::IGNORECASE).freeze
