@@ -214,6 +214,14 @@ module HouseholdFinance
     def call
       return nil if user_message.blank?
       read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(user_message)
+      if !read_only_request && MiaMonthAnswer.question?(user_message)
+        question = raw_user_message.match(MiaMonthAnswer::QUESTION)
+        report_text = raw_user_message[0...question.begin(0)].sub(/\s+and\s*\z/i, "").strip
+        if MiaCoachAnswerer.spend_report_text?(report_text)
+          purchase = deterministic_purchase_result(report_message: report_text)
+          return purchase if purchase
+        end
+      end
       coaching = deterministic_coaching_result
       coaching ||= deterministic_category_followup_result || deterministic_purchase_continuation_result unless read_only_request
       return coaching if coaching
@@ -280,9 +288,17 @@ module HouseholdFinance
       report = texts.reverse.find { |text| text.match?(/\b(?:i|we) (?:spent|paid|bought)\b/i) && !text.include?("?") }
       return unless report
       combined = "#{report} #{user_message}"
-      amount = combined.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).flatten.last
-      merchant = combined.match(/\bat\s+([\p{L}][\p{L} &’'-]{0,80}?)(?=\s+(?:today|yesterday|for|on|again)|[.!?]|$)/i)&.[](1)&.strip
-      return unless amount && merchant
+      amounts = user_message.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).flatten
+      amounts = report.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).flatten if amounts.empty?
+      merchant = [ user_message, report ].filter_map do |text|
+        match = text.match(PurchaseReportParser::MERCHANT_PATTERN)
+        PurchaseReportParser.merchant(match[:merchant]) if match
+      end.find(&:present?)
+      return if amounts.empty? || merchant.blank?
+      if amounts.many?
+        return purchase_continuation_clarification("What was the total #{merchant} purchase amount, including tax?", merchant)
+      end
+      amount = amounts.sole
       return if Array(context[:pending_transaction_reviews]).any? { |draft| draft[:merchant].to_s.casecmp?(merchant) }
       return if combined.match?(/\b(?:refund|transfer|deposit|debt|loan|card payment|tomorrow)\b/i)
       day = Date.iso8601(context.dig(:calendar, :today).presence || Date.current.iso8601)
@@ -292,17 +308,20 @@ module HouseholdFinance
       reader = PurchaseReportParser.new(calendar, message: date_text)
       day = reader.date_reading unless reader.named_dates.empty?
       if date_text.match?(PurchaseReportParser::UNCLEAR_DATE_PATTERN) || !day || day > calendar.local_today
-        return Result.new(intent: "clarification", confidence: 1.0, continuation: true,
-          resolved_message: user_message, needs_clarification: true,
-          clarification: "Which past day was the #{merchant} purchase? Please include the month, day, and year.",
-          topic: { type: "transaction_draft", title: "Reported spending", subject: merchant },
-          action: { type: "none" }, read_only_plan: {}, source: "deterministic")
+        return purchase_continuation_clarification("Which past day was the #{merchant} purchase? Please include the month, day, and year.", merchant)
       end
       Result.new(intent: "transaction_report", confidence: 1.0, continuation: true,
         resolved_message: "I spent $#{amount} at #{merchant}.", needs_clarification: false, clarification: "",
         topic: { type: "transaction_draft", title: "Reported spending", subject: merchant },
         action: { type: "create_transaction_draft", merchant: merchant, amount: amount, occurred_on: day.iso8601 },
         read_only_plan: {}, source: "deterministic")
+    end
+
+    def purchase_continuation_clarification(question, merchant)
+      Result.new(intent: "clarification", confidence: 1.0, continuation: true,
+        resolved_message: user_message, needs_clarification: true, clarification: question,
+        topic: { type: "transaction_draft", title: "Reported spending", subject: merchant },
+        action: { type: "none" }, read_only_plan: {}, source: "deterministic")
     end
 
     def deterministic_current_salary_result
@@ -342,14 +361,14 @@ module HouseholdFinance
 
     # Use the challenge reader when no structured provider is configured.
     # This path only proposes reviews. Corrections keep the existing draft router.
-    def deterministic_purchase_result
+    def deterministic_purchase_result(report_message: raw_user_message)
       return if user_message.match?(/\b(?:actually|instead|correct|change|update|split)\b/i)
       return if TransactionDraftBuilder.non_expense_movement?(user_message)
       return if one_purchase_in_parts?(user_message)
 
       day = Date.iso8601(context.dig(:calendar, :today).presence || Date.current.iso8601)
       calendar = PurchaseReportParser::Calendar.new(Date.new(1900, 1, 1), day, day)
-      parsed = PurchaseReportParser.new(calendar, message: raw_user_message).call
+      parsed = PurchaseReportParser.new(calendar, message: report_message).call
       common = { confidence: 1.0, continuation: false, resolved_message: user_message,
         topic: { type: "transaction_draft", title: "Reported spending", subject: "Reported spending" },
         read_only_plan: {}, source: "deterministic" }

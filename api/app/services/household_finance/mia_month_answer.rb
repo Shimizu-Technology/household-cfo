@@ -15,6 +15,9 @@ module HouseholdFinance
       relative = BudgetQuestionAnswerer.relative_month_date(message, today: today)
       return relative if relative
 
+      numeric = message.to_s.match(/\b(20\d{2})-(0[1-9]|1[0-2])\b/)
+      return Date.new(numeric[1].to_i, numeric[2].to_i, 1) if numeric
+
       month = MonthTerms.detect_number(message) || today.month
       year = message.to_s[/\b(20\d{2})\b/, 1]&.to_i || today.year
       Date.new(year, month, 1)
@@ -49,6 +52,8 @@ module HouseholdFinance
         planned = categories && debt ? categories + debt : nil
         actual = approved ? rows.sum { |row| Money.cents(cell(row)[:actual]) } : nil
         pending = Array(plan[:pending_transaction_drafts]).select { |draft| draft[:occurred_on].to_s.start_with?(format("%04d-%02d", year, month)) }
+        truncated = plan.dig(:pending_transaction_drafts_meta, :truncated) == true
+        pending_unknown = truncated && pending.empty?
         snapshot = SnapshotBuilder.new(household, reference_date: Date.new(year, month, 1), ensure_plan: false).call
         readiness_known = income && planned && snapshot[:liquid_assets_known] && SetupStatus.new(household).complete?
         {
@@ -57,8 +62,8 @@ module HouseholdFinance
           debt_minimums_cents: debt, spent_so_far_cents: actual,
           plan_left_cents: income && planned ? income - planned : nil,
           category_left_cents: categories && actual ? categories - actual : nil,
-          pending_cents: approved ? pending.sum { |draft| draft[:amount_cents] || Money.cents(draft[:amount]) } : nil,
-          pending_count: pending.length, pending_list_truncated: plan.dig(:pending_transaction_drafts_meta, :truncated) == true,
+          pending_cents: approved && !pending_unknown ? pending.sum { |draft| draft[:amount_cents] || Money.cents(draft[:amount]) } : nil,
+          pending_count: pending_unknown ? nil : pending.length, pending_list_truncated: truncated,
           readiness_tone: readiness_known ? snapshot[:readiness_tone] : nil,
           readiness_meaning: readiness_known ? snapshot[:readiness_label] : "Add the missing starting numbers before judging your cushion.",
           safe_to_spend_cents: readiness_known ? snapshot[:safe_to_spend_cents] : nil,
@@ -80,7 +85,9 @@ module HouseholdFinance
       else
         "Your plan leaves #{money(left)} after planned spending; that is planned breathing room, not cash available to spend."
       end
-      pending_line = if facts[:pending_count].positive?
+      pending_line = if facts[:pending_count].nil?
+        "; the review list is incomplete, so I cannot tell how many purchases are waiting for review in this month."
+      elsif facts[:pending_count].positive?
         qualifier = facts[:pending_list_truncated] ? "At least " : ""
         "; #{qualifier}#{figure(facts[:pending_cents])} is waiting for your review and is separate from spent so far."
       else

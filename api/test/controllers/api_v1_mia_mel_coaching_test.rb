@@ -72,6 +72,55 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     assert_includes reply, "September 2026"
   end
 
+  test "a month question does not swallow an incurred purchase in the same turn" do
+    post_message("I spent $60 at Ross today. How am I doing this month?")
+    draft = response.parsed_body.fetch("transaction_draft")
+    assert draft, response.parsed_body.slice("assistant_message", "transaction_draft").inspect
+    assert_equal "Ross", draft.fetch("merchant")
+    assert_equal 6000, draft.fetch("amount_cents")
+    assert_equal "pending", draft.fetch("status")
+  end
+
+  test "the latest merchant in a purchase clarification overrides the earlier one" do
+    @household.transaction_drafts.destroy_all
+    post_message("I spent money at Ross today")
+    post_message("It was $60 at Payless yesterday")
+    draft = response.parsed_body.fetch("transaction_draft")
+    assert draft, response.parsed_body.slice("assistant_message", "transaction_draft").inspect
+    assert_equal "Payless", draft.fetch("merchant")
+    assert_equal 6000, draft.fetch("amount_cents")
+    assert_equal (Date.current - 1).iso8601, draft.fetch("occurred_on")
+  end
+
+  test "a total and component amount in a clarification ask rather than creating the component purchase" do
+    @household.transaction_drafts.destroy_all
+    post_message("I spent money at Ross today")
+    assert_no_difference -> { @household.transaction_drafts.count } do
+      post_message("It was $60, including $5 tax")
+    end
+    assert_nil response.parsed_body["transaction_draft"]
+    assert_includes reply, "total Ross purchase amount"
+  end
+
+  test "month overview resolves an ISO year and month" do
+    post_message("How am I doing in 2026-09?")
+    assert_equal 2026, response.parsed_body.dig("month_answer", "year")
+    assert_equal 9, response.parsed_body.dig("month_answer", "month")
+    assert_includes reply, "September 2026"
+  end
+
+  test "an incomplete annual review list cannot establish no reviews in an older month" do
+    plan = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).read_only_plan_data
+    plan[:pending_transaction_drafts] = []
+    plan[:pending_transaction_drafts_meta] = { total_count: 501, returned_count: 500, truncated: true }
+    answer = HouseholdFinance::MiaMonthAnswer.new(@household, annual_plan: plan, month: 1)
+    assert_nil answer.call[:pending_count]
+    assert_nil answer.call[:pending_cents]
+    assert answer.call[:pending_list_truncated]
+    assert_includes answer.response, "review list is incomplete"
+    refute_includes answer.response, "no purchases are waiting"
+  end
+
   test "month answer distinguishes positive plan from cushion and agrees with API figures" do
     post_message("How am I doing this month?")
     facts = response.parsed_body.fetch("month_answer")
