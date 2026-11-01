@@ -1,0 +1,1002 @@
+Posted Date,Payee,Debit Amount,Credit Amount,Status,Reference
+2026-10-01,DEMO settlement payroll | ref SYN0001,,3000.00,Posted,stress-00008888-202610-0001
+2026-10-01,Transfer to own savings | ref SYN0002,200.00,,Posted,stress-00008888-202610-0002
+2026-10-01,Visa payment | ref SYN0003,250.00,,Posted,stress-00008888-202610-0003
+2026-10-01,Payless merchandise refund | ref SYN0004,,9.99,Posted,stress-00008888-202610-0004
+2026-10-01,GTA prepaid | ref SYN0005,2.48,,Posted,stress-00008888-202610-0005
+2026-10-01,Payless Supermarkets | ref SYN0006,2.85,,Posted,stress-00008888-202610-0006
+2026-10-01,Shell - Upper Tumon | ref SYN0007,3.22,,Posted,stress-00008888-202610-0007
+2026-10-01,Port of Mocha | ref SYN0008,3.59,,Posted,stress-00008888-202610-0008
+2026-10-01,Cost-U-Less - Harmon | ref SYN0009,3.96,,Posted,stress-00008888-202610-0009
+2026-10-01,GTA prepaid | ref SYN0010,4.33,,Posted,stress-00008888-202610-0010
+2026-10-01,Payless Supermarkets | ref SYN0011,4.70,,Posted,stress-00008888-202610-0011
+2026-10-01,Shell - Upper Tumon | ref SYN0012,5.07,,Posted,stress-00008888-202610-0012
+2026-10-01,Port of Mocha | ref SYN0013,5.44,,Posted,stress-00008888-202610-0013
+2026-10-01,Cost-U-Less - Harmon | ref SYN0014,5.81,,Posted,stress-00008888-202610-0014
+2026-10-01,GTA prepaid | ref SYN0015,6.18,,Posted,stress-00008888-202610-0015
+2026-10-01,Payless Supermarkets | ref SYN0016,6.55,,Posted,stress-00008888-202610-0016
+2026-10-01,Shell - Upper Tumon | ref SYN0017,6.92,,Posted,stress-00008888-202610-0017
+2026-10-01,Port of Mocha | ref SYN0018,7.29,,Posted,stress-00008888-202610-0018
+2026-10-01,Cost-U-Less - Harmon | ref SYN0019,7.66,,Posted,stress-00008888-202610-0019
+2026-10-01,GTA prepaid | ref SYN0020,8.03,,Posted,stress-00008888-202610-0020
+2026-10-01,Payless Supermarkets | ref SYN0021,8.40,,Posted,stress-00008888-202610-0021
+2026-10-01,Shell - Upper Tumon | ref SYN0022,8.77,,Posted,stress-00008888-202610-0022
+2026-10-01,Port of Mocha | ref SYN0023,9.14,,Posted,stress-00008888-202610-0023
+2026-10-01,Cost-U-Less - Harmon | ref SYN0024,9.51,,Posted,stress-00008888-202610-0024
+2026-10-01,GTA prepaid | ref SYN0025,9.88,,Posted,stress-00008888-202610-0025
+2026-10-01,Payless Supermarkets | ref SYN0026,10.25,,Posted,stress-00008888-202610-0026
+2026-10-01,Shell - Upper Tumon | ref SYN0027,10.62,,Posted,stress-00008888-202610-0027
+2026-10-01,Port of Mocha | ref SYN0028,10.99,,Posted,stress-00008888-202610-0028
+2026-10-01,Cost-U-Less - Harmon | ref SYN0029,11.36,,Posted,stress-00008888-202610-0029
+2026-10-01,GTA prepaid | ref SYN0030,11.73,,Posted,stress-00008888-202610-0030
+2026-10-01,Payless Supermarkets | ref SYN0031,12.10,,Posted,stress-00008888-202610-0031
+2026-10-01,Shell - Upper Tumon | ref SYN0032,12.47,,Posted,stress-00008888-202610-0032
+2026-10-01,Port of Mocha | ref SYN0033,12.84,,Posted,stress-00008888-202610-0033
+2026-10-02,Cost-U-Less - Harmon | ref SYN0034,13.21,,Posted,stress-00008888-202610-0034
+2026-10-02,GTA prepaid | ref SYN0035,13.58,,Posted,stress-00008888-202610-0035
+2026-10-02,Payless Supermarkets | ref SYN0036,13.95,,Posted,stress-00008888-202610-0036
+2026-10-02,Shell - Upper Tumon | ref SYN0037,14.32,,Posted,stress-00008888-202610-0037
+2026-10-02,Port of Mocha | ref SYN0038,14.69,,Posted,stress-00008888-202610-0038
+2026-10-02,Cost-U-Less - Harmon | ref SYN0039,15.06,,Posted,stress-00008888-202610-0039
+2026-10-02,GTA prepaid | ref SYN0040,15.43,,Posted,stress-00008888-202610-0040
+2026-10-02,Payless Supermarkets | ref SYN0041,15.80,,Posted,stress-00008888-202610-0041
+2026-10-02,Shell - Upper Tumon | ref SYN0042,16.17,,Posted,stress-00008888-202610-0042
+2026-10-02,Port of Mocha | ref SYN0043,16.54,,Posted,stress-00008888-202610-0043
+2026-10-02,Cost-U-Less - Harmon | ref SYN0044,16.91,,Posted,stress-00008888-202610-0044
+2026-10-02,GTA prepaid | ref SYN0045,17.28,,Posted,stress-00008888-202610-0045
+2026-10-02,Payless Supermarkets | ref SYN0046,17.65,,Posted,stress-00008888-202610-0046
+2026-10-02,Shell - Upper Tumon | ref SYN0047,18.02,,Posted,stress-00008888-202610-0047
+2026-10-02,Port of Mocha | ref SYN0048,18.39,,Posted,stress-00008888-202610-0048
+2026-10-02,Cost-U-Less - Harmon | ref SYN0049,18.76,,Posted,stress-00008888-202610-0049
+2026-10-02,GTA prepaid | ref SYN0050,19.13,,Posted,stress-00008888-202610-0050
+2026-10-02,Payless Supermarkets | ref SYN0051,19.50,,Posted,stress-00008888-202610-0051
+2026-10-02,Shell - Upper Tumon | ref SYN0052,19.87,,Posted,stress-00008888-202610-0052
+2026-10-02,Port of Mocha | ref SYN0053,20.24,,Posted,stress-00008888-202610-0053
+2026-10-02,Cost-U-Less - Harmon | ref SYN0054,20.61,,Posted,stress-00008888-202610-0054
+2026-10-02,GTA prepaid | ref SYN0055,20.98,,Posted,stress-00008888-202610-0055
+2026-10-02,Payless Supermarkets | ref SYN0056,21.35,,Posted,stress-00008888-202610-0056
+2026-10-02,Shell - Upper Tumon | ref SYN0057,21.72,,Posted,stress-00008888-202610-0057
+2026-10-02,Port of Mocha | ref SYN0058,22.09,,Posted,stress-00008888-202610-0058
+2026-10-02,Cost-U-Less - Harmon | ref SYN0059,22.46,,Posted,stress-00008888-202610-0059
+2026-10-02,GTA prepaid | ref SYN0060,22.83,,Posted,stress-00008888-202610-0060
+2026-10-02,Payless Supermarkets | ref SYN0061,23.20,,Posted,stress-00008888-202610-0061
+2026-10-02,Shell - Upper Tumon | ref SYN0062,23.57,,Posted,stress-00008888-202610-0062
+2026-10-02,Port of Mocha | ref SYN0063,23.94,,Posted,stress-00008888-202610-0063
+2026-10-02,Cost-U-Less - Harmon | ref SYN0064,24.31,,Posted,stress-00008888-202610-0064
+2026-10-02,GTA prepaid | ref SYN0065,24.68,,Posted,stress-00008888-202610-0065
+2026-10-03,Payless Supermarkets | ref SYN0066,25.05,,Posted,stress-00008888-202610-0066
+2026-10-03,Shell - Upper Tumon | ref SYN0067,25.42,,Posted,stress-00008888-202610-0067
+2026-10-03,Port of Mocha | ref SYN0068,25.79,,Posted,stress-00008888-202610-0068
+2026-10-03,Cost-U-Less - Harmon | ref SYN0069,26.16,,Posted,stress-00008888-202610-0069
+2026-10-03,GTA prepaid | ref SYN0070,26.53,,Posted,stress-00008888-202610-0070
+2026-10-03,Payless Supermarkets | ref SYN0071,26.90,,Posted,stress-00008888-202610-0071
+2026-10-03,Shell - Upper Tumon | ref SYN0072,27.27,,Posted,stress-00008888-202610-0072
+2026-10-03,Port of Mocha | ref SYN0073,27.64,,Posted,stress-00008888-202610-0073
+2026-10-03,Cost-U-Less - Harmon | ref SYN0074,28.01,,Posted,stress-00008888-202610-0074
+2026-10-03,GTA prepaid | ref SYN0075,28.38,,Posted,stress-00008888-202610-0075
+2026-10-03,Payless Supermarkets | ref SYN0076,28.75,,Posted,stress-00008888-202610-0076
+2026-10-03,Shell - Upper Tumon | ref SYN0077,29.12,,Posted,stress-00008888-202610-0077
+2026-10-03,Port of Mocha | ref SYN0078,29.49,,Posted,stress-00008888-202610-0078
+2026-10-03,Cost-U-Less - Harmon | ref SYN0079,29.86,,Posted,stress-00008888-202610-0079
+2026-10-03,GTA prepaid | ref SYN0080,30.23,,Posted,stress-00008888-202610-0080
+2026-10-03,Payless Supermarkets | ref SYN0081,30.60,,Posted,stress-00008888-202610-0081
+2026-10-03,Shell - Upper Tumon | ref SYN0082,30.97,,Posted,stress-00008888-202610-0082
+2026-10-03,Port of Mocha | ref SYN0083,31.34,,Posted,stress-00008888-202610-0083
+2026-10-03,Cost-U-Less - Harmon | ref SYN0084,31.71,,Posted,stress-00008888-202610-0084
+2026-10-03,GTA prepaid | ref SYN0085,32.08,,Posted,stress-00008888-202610-0085
+2026-10-03,Payless Supermarkets | ref SYN0086,32.45,,Posted,stress-00008888-202610-0086
+2026-10-03,Shell - Upper Tumon | ref SYN0087,32.82,,Posted,stress-00008888-202610-0087
+2026-10-03,Port of Mocha | ref SYN0088,33.19,,Posted,stress-00008888-202610-0088
+2026-10-03,Cost-U-Less - Harmon | ref SYN0089,33.56,,Posted,stress-00008888-202610-0089
+2026-10-03,GTA prepaid | ref SYN0090,33.93,,Posted,stress-00008888-202610-0090
+2026-10-03,Payless Supermarkets | ref SYN0091,34.30,,Posted,stress-00008888-202610-0091
+2026-10-03,Shell - Upper Tumon | ref SYN0092,34.67,,Posted,stress-00008888-202610-0092
+2026-10-03,Port of Mocha | ref SYN0093,35.04,,Posted,stress-00008888-202610-0093
+2026-10-03,Cost-U-Less - Harmon | ref SYN0094,35.41,,Posted,stress-00008888-202610-0094
+2026-10-03,GTA prepaid | ref SYN0095,35.78,,Posted,stress-00008888-202610-0095
+2026-10-03,Payless Supermarkets | ref SYN0096,36.15,,Posted,stress-00008888-202610-0096
+2026-10-03,Shell - Upper Tumon | ref SYN0097,36.52,,Posted,stress-00008888-202610-0097
+2026-10-04,Port of Mocha | ref SYN0098,36.89,,Posted,stress-00008888-202610-0098
+2026-10-04,Cost-U-Less - Harmon | ref SYN0099,37.26,,Posted,stress-00008888-202610-0099
+2026-10-04,GTA prepaid | ref SYN0100,37.63,,Posted,stress-00008888-202610-0100
+2026-10-04,DEMO settlement payroll | ref SYN0101,,3000.00,Posted,stress-00008888-202610-0101
+2026-10-04,Transfer to own savings | ref SYN0102,200.00,,Posted,stress-00008888-202610-0102
+2026-10-04,Visa payment | ref SYN0103,250.00,,Posted,stress-00008888-202610-0103
+2026-10-04,Payless merchandise refund | ref SYN0104,,9.99,Posted,stress-00008888-202610-0104
+2026-10-04,GTA prepaid | ref SYN0105,39.48,,Posted,stress-00008888-202610-0105
+2026-10-04,Payless Supermarkets | ref SYN0106,39.85,,Posted,stress-00008888-202610-0106
+2026-10-04,Shell - Upper Tumon | ref SYN0107,40.22,,Posted,stress-00008888-202610-0107
+2026-10-04,Port of Mocha | ref SYN0108,40.59,,Posted,stress-00008888-202610-0108
+2026-10-04,Cost-U-Less - Harmon | ref SYN0109,40.96,,Posted,stress-00008888-202610-0109
+2026-10-04,GTA prepaid | ref SYN0110,41.33,,Posted,stress-00008888-202610-0110
+2026-10-04,Payless Supermarkets | ref SYN0111,41.70,,Posted,stress-00008888-202610-0111
+2026-10-04,Shell - Upper Tumon | ref SYN0112,42.07,,Posted,stress-00008888-202610-0112
+2026-10-04,Port of Mocha | ref SYN0113,42.44,,Posted,stress-00008888-202610-0113
+2026-10-04,Cost-U-Less - Harmon | ref SYN0114,42.81,,Posted,stress-00008888-202610-0114
+2026-10-04,GTA prepaid | ref SYN0115,43.18,,Posted,stress-00008888-202610-0115
+2026-10-04,Payless Supermarkets | ref SYN0116,43.55,,Posted,stress-00008888-202610-0116
+2026-10-04,Shell - Upper Tumon | ref SYN0117,43.92,,Posted,stress-00008888-202610-0117
+2026-10-04,Port of Mocha | ref SYN0118,44.29,,Posted,stress-00008888-202610-0118
+2026-10-04,Cost-U-Less - Harmon | ref SYN0119,44.66,,Posted,stress-00008888-202610-0119
+2026-10-04,GTA prepaid | ref SYN0120,45.03,,Posted,stress-00008888-202610-0120
+2026-10-04,Payless Supermarkets | ref SYN0121,45.40,,Posted,stress-00008888-202610-0121
+2026-10-04,Shell - Upper Tumon | ref SYN0122,45.77,,Posted,stress-00008888-202610-0122
+2026-10-04,Port of Mocha | ref SYN0123,46.14,,Posted,stress-00008888-202610-0123
+2026-10-04,Cost-U-Less - Harmon | ref SYN0124,46.51,,Posted,stress-00008888-202610-0124
+2026-10-04,GTA prepaid | ref SYN0125,46.88,,Posted,stress-00008888-202610-0125
+2026-10-04,Payless Supermarkets | ref SYN0126,47.25,,Posted,stress-00008888-202610-0126
+2026-10-04,Shell - Upper Tumon | ref SYN0127,47.62,,Posted,stress-00008888-202610-0127
+2026-10-04,Port of Mocha | ref SYN0128,47.99,,Posted,stress-00008888-202610-0128
+2026-10-04,Cost-U-Less - Harmon | ref SYN0129,48.36,,Posted,stress-00008888-202610-0129
+2026-10-04,GTA prepaid | ref SYN0130,48.73,,Posted,stress-00008888-202610-0130
+2026-10-05,Payless Supermarkets | ref SYN0131,49.10,,Posted,stress-00008888-202610-0131
+2026-10-05,Shell - Upper Tumon | ref SYN0132,49.47,,Posted,stress-00008888-202610-0132
+2026-10-05,Port of Mocha | ref SYN0133,49.84,,Posted,stress-00008888-202610-0133
+2026-10-05,Cost-U-Less - Harmon | ref SYN0134,50.21,,Posted,stress-00008888-202610-0134
+2026-10-05,GTA prepaid | ref SYN0135,50.58,,Posted,stress-00008888-202610-0135
+2026-10-05,Payless Supermarkets | ref SYN0136,50.95,,Posted,stress-00008888-202610-0136
+2026-10-05,Shell - Upper Tumon | ref SYN0137,51.32,,Posted,stress-00008888-202610-0137
+2026-10-05,Port of Mocha | ref SYN0138,51.69,,Posted,stress-00008888-202610-0138
+2026-10-05,Cost-U-Less - Harmon | ref SYN0139,52.06,,Posted,stress-00008888-202610-0139
+2026-10-05,GTA prepaid | ref SYN0140,52.43,,Posted,stress-00008888-202610-0140
+2026-10-05,Payless Supermarkets | ref SYN0141,52.80,,Posted,stress-00008888-202610-0141
+2026-10-05,Shell - Upper Tumon | ref SYN0142,53.17,,Posted,stress-00008888-202610-0142
+2026-10-05,Port of Mocha | ref SYN0143,53.54,,Posted,stress-00008888-202610-0143
+2026-10-05,Cost-U-Less - Harmon | ref SYN0144,53.91,,Posted,stress-00008888-202610-0144
+2026-10-05,GTA prepaid | ref SYN0145,54.28,,Posted,stress-00008888-202610-0145
+2026-10-05,Payless Supermarkets | ref SYN0146,54.65,,Posted,stress-00008888-202610-0146
+2026-10-05,Shell - Upper Tumon | ref SYN0147,55.02,,Posted,stress-00008888-202610-0147
+2026-10-05,Port of Mocha | ref SYN0148,55.39,,Posted,stress-00008888-202610-0148
+2026-10-05,Cost-U-Less - Harmon | ref SYN0149,55.76,,Posted,stress-00008888-202610-0149
+2026-10-05,GTA prepaid | ref SYN0150,56.13,,Posted,stress-00008888-202610-0150
+2026-10-05,Payless Supermarkets | ref SYN0151,56.50,,Posted,stress-00008888-202610-0151
+2026-10-05,Shell - Upper Tumon | ref SYN0152,56.87,,Posted,stress-00008888-202610-0152
+2026-10-05,Port of Mocha | ref SYN0153,57.24,,Posted,stress-00008888-202610-0153
+2026-10-05,Cost-U-Less - Harmon | ref SYN0154,57.61,,Posted,stress-00008888-202610-0154
+2026-10-05,GTA prepaid | ref SYN0155,57.98,,Posted,stress-00008888-202610-0155
+2026-10-05,Payless Supermarkets | ref SYN0156,58.35,,Posted,stress-00008888-202610-0156
+2026-10-05,Shell - Upper Tumon | ref SYN0157,58.72,,Posted,stress-00008888-202610-0157
+2026-10-05,Port of Mocha | ref SYN0158,59.09,,Posted,stress-00008888-202610-0158
+2026-10-05,Cost-U-Less - Harmon | ref SYN0159,59.46,,Posted,stress-00008888-202610-0159
+2026-10-05,GTA prepaid | ref SYN0160,59.83,,Posted,stress-00008888-202610-0160
+2026-10-05,Payless Supermarkets | ref SYN0161,60.20,,Posted,stress-00008888-202610-0161
+2026-10-05,Shell - Upper Tumon | ref SYN0162,60.57,,Posted,stress-00008888-202610-0162
+2026-10-06,Port of Mocha | ref SYN0163,60.94,,Posted,stress-00008888-202610-0163
+2026-10-06,Cost-U-Less - Harmon | ref SYN0164,61.31,,Posted,stress-00008888-202610-0164
+2026-10-06,GTA prepaid | ref SYN0165,61.68,,Posted,stress-00008888-202610-0165
+2026-10-06,Payless Supermarkets | ref SYN0166,62.05,,Posted,stress-00008888-202610-0166
+2026-10-06,Shell - Upper Tumon | ref SYN0167,62.42,,Posted,stress-00008888-202610-0167
+2026-10-06,Port of Mocha | ref SYN0168,62.79,,Posted,stress-00008888-202610-0168
+2026-10-06,Cost-U-Less - Harmon | ref SYN0169,63.16,,Posted,stress-00008888-202610-0169
+2026-10-06,GTA prepaid | ref SYN0170,63.53,,Posted,stress-00008888-202610-0170
+2026-10-06,Payless Supermarkets | ref SYN0171,63.90,,Posted,stress-00008888-202610-0171
+2026-10-06,Shell - Upper Tumon | ref SYN0172,64.27,,Posted,stress-00008888-202610-0172
+2026-10-06,Port of Mocha | ref SYN0173,64.64,,Posted,stress-00008888-202610-0173
+2026-10-06,Cost-U-Less - Harmon | ref SYN0174,65.01,,Posted,stress-00008888-202610-0174
+2026-10-06,GTA prepaid | ref SYN0175,65.38,,Posted,stress-00008888-202610-0175
+2026-10-06,Payless Supermarkets | ref SYN0176,65.75,,Posted,stress-00008888-202610-0176
+2026-10-06,Shell - Upper Tumon | ref SYN0177,66.12,,Posted,stress-00008888-202610-0177
+2026-10-06,Port of Mocha | ref SYN0178,66.49,,Posted,stress-00008888-202610-0178
+2026-10-06,Cost-U-Less - Harmon | ref SYN0179,66.86,,Posted,stress-00008888-202610-0179
+2026-10-06,GTA prepaid | ref SYN0180,67.23,,Posted,stress-00008888-202610-0180
+2026-10-06,Payless Supermarkets | ref SYN0181,67.60,,Posted,stress-00008888-202610-0181
+2026-10-06,Shell - Upper Tumon | ref SYN0182,67.97,,Posted,stress-00008888-202610-0182
+2026-10-06,Port of Mocha | ref SYN0183,68.34,,Posted,stress-00008888-202610-0183
+2026-10-06,Cost-U-Less - Harmon | ref SYN0184,68.71,,Posted,stress-00008888-202610-0184
+2026-10-06,GTA prepaid | ref SYN0185,69.08,,Posted,stress-00008888-202610-0185
+2026-10-06,Payless Supermarkets | ref SYN0186,69.45,,Posted,stress-00008888-202610-0186
+2026-10-06,Shell - Upper Tumon | ref SYN0187,69.82,,Posted,stress-00008888-202610-0187
+2026-10-06,Port of Mocha | ref SYN0188,70.19,,Posted,stress-00008888-202610-0188
+2026-10-06,Cost-U-Less - Harmon | ref SYN0189,70.56,,Posted,stress-00008888-202610-0189
+2026-10-06,GTA prepaid | ref SYN0190,70.93,,Posted,stress-00008888-202610-0190
+2026-10-06,Payless Supermarkets | ref SYN0191,71.30,,Posted,stress-00008888-202610-0191
+2026-10-06,Shell - Upper Tumon | ref SYN0192,71.67,,Posted,stress-00008888-202610-0192
+2026-10-06,Port of Mocha | ref SYN0193,72.04,,Posted,stress-00008888-202610-0193
+2026-10-06,Cost-U-Less - Harmon | ref SYN0194,72.41,,Posted,stress-00008888-202610-0194
+2026-10-07,GTA prepaid | ref SYN0195,72.78,,Posted,stress-00008888-202610-0195
+2026-10-07,Payless Supermarkets | ref SYN0196,73.15,,Posted,stress-00008888-202610-0196
+2026-10-07,Shell - Upper Tumon | ref SYN0197,73.52,,Posted,stress-00008888-202610-0197
+2026-10-07,Port of Mocha | ref SYN0198,73.89,,Posted,stress-00008888-202610-0198
+2026-10-07,Cost-U-Less - Harmon | ref SYN0199,74.26,,Posted,stress-00008888-202610-0199
+2026-10-07,GTA prepaid | ref SYN0200,74.63,,Posted,stress-00008888-202610-0200
+2026-10-07,DEMO settlement payroll | ref SYN0201,,3000.00,Posted,stress-00008888-202610-0201
+2026-10-07,Transfer to own savings | ref SYN0202,200.00,,Posted,stress-00008888-202610-0202
+2026-10-07,Visa payment | ref SYN0203,250.00,,Posted,stress-00008888-202610-0203
+2026-10-07,Payless merchandise refund | ref SYN0204,,9.99,Posted,stress-00008888-202610-0204
+2026-10-07,GTA prepaid | ref SYN0205,76.48,,Posted,stress-00008888-202610-0205
+2026-10-07,Payless Supermarkets | ref SYN0206,76.85,,Posted,stress-00008888-202610-0206
+2026-10-07,Shell - Upper Tumon | ref SYN0207,77.22,,Posted,stress-00008888-202610-0207
+2026-10-07,Port of Mocha | ref SYN0208,77.59,,Posted,stress-00008888-202610-0208
+2026-10-07,Cost-U-Less - Harmon | ref SYN0209,77.96,,Posted,stress-00008888-202610-0209
+2026-10-07,GTA prepaid | ref SYN0210,78.33,,Posted,stress-00008888-202610-0210
+2026-10-07,Payless Supermarkets | ref SYN0211,78.70,,Posted,stress-00008888-202610-0211
+2026-10-07,Shell - Upper Tumon | ref SYN0212,79.07,,Posted,stress-00008888-202610-0212
+2026-10-07,Port of Mocha | ref SYN0213,79.44,,Posted,stress-00008888-202610-0213
+2026-10-07,Cost-U-Less - Harmon | ref SYN0214,79.81,,Posted,stress-00008888-202610-0214
+2026-10-07,GTA prepaid | ref SYN0215,80.18,,Posted,stress-00008888-202610-0215
+2026-10-07,Payless Supermarkets | ref SYN0216,80.55,,Posted,stress-00008888-202610-0216
+2026-10-07,Shell - Upper Tumon | ref SYN0217,80.92,,Posted,stress-00008888-202610-0217
+2026-10-07,Port of Mocha | ref SYN0218,81.29,,Posted,stress-00008888-202610-0218
+2026-10-07,Cost-U-Less - Harmon | ref SYN0219,81.66,,Posted,stress-00008888-202610-0219
+2026-10-07,GTA prepaid | ref SYN0220,82.03,,Posted,stress-00008888-202610-0220
+2026-10-07,Payless Supermarkets | ref SYN0221,82.40,,Posted,stress-00008888-202610-0221
+2026-10-07,Shell - Upper Tumon | ref SYN0222,82.77,,Posted,stress-00008888-202610-0222
+2026-10-07,Port of Mocha | ref SYN0223,83.14,,Posted,stress-00008888-202610-0223
+2026-10-07,Cost-U-Less - Harmon | ref SYN0224,83.51,,Posted,stress-00008888-202610-0224
+2026-10-07,GTA prepaid | ref SYN0225,83.88,,Posted,stress-00008888-202610-0225
+2026-10-07,Payless Supermarkets | ref SYN0226,84.25,,Posted,stress-00008888-202610-0226
+2026-10-08,Shell - Upper Tumon | ref SYN0227,84.62,,Posted,stress-00008888-202610-0227
+2026-10-08,Port of Mocha | ref SYN0228,84.99,,Posted,stress-00008888-202610-0228
+2026-10-08,Cost-U-Less - Harmon | ref SYN0229,85.36,,Posted,stress-00008888-202610-0229
+2026-10-08,GTA prepaid | ref SYN0230,85.73,,Posted,stress-00008888-202610-0230
+2026-10-08,Payless Supermarkets | ref SYN0231,86.10,,Posted,stress-00008888-202610-0231
+2026-10-08,Shell - Upper Tumon | ref SYN0232,86.47,,Posted,stress-00008888-202610-0232
+2026-10-08,Port of Mocha | ref SYN0233,86.84,,Posted,stress-00008888-202610-0233
+2026-10-08,Cost-U-Less - Harmon | ref SYN0234,87.21,,Posted,stress-00008888-202610-0234
+2026-10-08,GTA prepaid | ref SYN0235,87.58,,Posted,stress-00008888-202610-0235
+2026-10-08,Payless Supermarkets | ref SYN0236,87.95,,Posted,stress-00008888-202610-0236
+2026-10-08,Shell - Upper Tumon | ref SYN0237,88.32,,Posted,stress-00008888-202610-0237
+2026-10-08,Port of Mocha | ref SYN0238,88.69,,Posted,stress-00008888-202610-0238
+2026-10-08,Cost-U-Less - Harmon | ref SYN0239,89.06,,Posted,stress-00008888-202610-0239
+2026-10-08,GTA prepaid | ref SYN0240,89.43,,Posted,stress-00008888-202610-0240
+2026-10-08,Payless Supermarkets | ref SYN0241,89.80,,Posted,stress-00008888-202610-0241
+2026-10-08,Shell - Upper Tumon | ref SYN0242,90.17,,Posted,stress-00008888-202610-0242
+2026-10-08,Port of Mocha | ref SYN0243,90.54,,Posted,stress-00008888-202610-0243
+2026-10-08,Cost-U-Less - Harmon | ref SYN0244,90.91,,Posted,stress-00008888-202610-0244
+2026-10-08,GTA prepaid | ref SYN0245,91.28,,Posted,stress-00008888-202610-0245
+2026-10-08,Payless Supermarkets | ref SYN0246,91.65,,Posted,stress-00008888-202610-0246
+2026-10-08,Shell - Upper Tumon | ref SYN0247,92.02,,Posted,stress-00008888-202610-0247
+2026-10-08,Port of Mocha | ref SYN0248,92.39,,Posted,stress-00008888-202610-0248
+2026-10-08,Cost-U-Less - Harmon | ref SYN0249,92.76,,Posted,stress-00008888-202610-0249
+2026-10-08,GTA prepaid | ref SYN0250,93.13,,Posted,stress-00008888-202610-0250
+2026-10-08,Payless Supermarkets | ref SYN0251,93.50,,Posted,stress-00008888-202610-0251
+2026-10-08,Shell - Upper Tumon | ref SYN0252,93.87,,Posted,stress-00008888-202610-0252
+2026-10-08,Port of Mocha | ref SYN0253,94.24,,Posted,stress-00008888-202610-0253
+2026-10-08,Cost-U-Less - Harmon | ref SYN0254,94.61,,Posted,stress-00008888-202610-0254
+2026-10-08,GTA prepaid | ref SYN0255,94.98,,Posted,stress-00008888-202610-0255
+2026-10-08,Payless Supermarkets | ref SYN0256,95.35,,Posted,stress-00008888-202610-0256
+2026-10-08,Shell - Upper Tumon | ref SYN0257,95.72,,Posted,stress-00008888-202610-0257
+2026-10-08,Port of Mocha | ref SYN0258,96.09,,Posted,stress-00008888-202610-0258
+2026-10-08,Cost-U-Less - Harmon | ref SYN0259,96.46,,Posted,stress-00008888-202610-0259
+2026-10-09,GTA prepaid | ref SYN0260,96.83,,Posted,stress-00008888-202610-0260
+2026-10-09,Payless Supermarkets | ref SYN0261,97.20,,Posted,stress-00008888-202610-0261
+2026-10-09,Shell - Upper Tumon | ref SYN0262,97.57,,Posted,stress-00008888-202610-0262
+2026-10-09,Port of Mocha | ref SYN0263,97.94,,Posted,stress-00008888-202610-0263
+2026-10-09,Cost-U-Less - Harmon | ref SYN0264,98.31,,Posted,stress-00008888-202610-0264
+2026-10-09,GTA prepaid | ref SYN0265,98.68,,Posted,stress-00008888-202610-0265
+2026-10-09,Payless Supermarkets | ref SYN0266,99.05,,Posted,stress-00008888-202610-0266
+2026-10-09,Shell - Upper Tumon | ref SYN0267,99.42,,Posted,stress-00008888-202610-0267
+2026-10-09,Port of Mocha | ref SYN0268,99.79,,Posted,stress-00008888-202610-0268
+2026-10-09,Cost-U-Less - Harmon | ref SYN0269,100.16,,Posted,stress-00008888-202610-0269
+2026-10-09,GTA prepaid | ref SYN0270,100.53,,Posted,stress-00008888-202610-0270
+2026-10-09,Payless Supermarkets | ref SYN0271,100.90,,Posted,stress-00008888-202610-0271
+2026-10-09,Shell - Upper Tumon | ref SYN0272,101.27,,Posted,stress-00008888-202610-0272
+2026-10-09,Port of Mocha | ref SYN0273,101.64,,Posted,stress-00008888-202610-0273
+2026-10-09,Cost-U-Less - Harmon | ref SYN0274,102.01,,Posted,stress-00008888-202610-0274
+2026-10-09,GTA prepaid | ref SYN0275,102.38,,Posted,stress-00008888-202610-0275
+2026-10-09,Payless Supermarkets | ref SYN0276,102.75,,Posted,stress-00008888-202610-0276
+2026-10-09,Shell - Upper Tumon | ref SYN0277,103.12,,Posted,stress-00008888-202610-0277
+2026-10-09,Port of Mocha | ref SYN0278,103.49,,Posted,stress-00008888-202610-0278
+2026-10-09,Cost-U-Less - Harmon | ref SYN0279,103.86,,Posted,stress-00008888-202610-0279
+2026-10-09,GTA prepaid | ref SYN0280,104.23,,Posted,stress-00008888-202610-0280
+2026-10-09,Payless Supermarkets | ref SYN0281,104.60,,Posted,stress-00008888-202610-0281
+2026-10-09,Shell - Upper Tumon | ref SYN0282,104.97,,Posted,stress-00008888-202610-0282
+2026-10-09,Port of Mocha | ref SYN0283,105.34,,Posted,stress-00008888-202610-0283
+2026-10-09,Cost-U-Less - Harmon | ref SYN0284,105.71,,Posted,stress-00008888-202610-0284
+2026-10-09,GTA prepaid | ref SYN0285,106.08,,Posted,stress-00008888-202610-0285
+2026-10-09,Payless Supermarkets | ref SYN0286,106.45,,Posted,stress-00008888-202610-0286
+2026-10-09,Shell - Upper Tumon | ref SYN0287,106.82,,Posted,stress-00008888-202610-0287
+2026-10-09,Port of Mocha | ref SYN0288,107.19,,Posted,stress-00008888-202610-0288
+2026-10-09,Cost-U-Less - Harmon | ref SYN0289,107.56,,Posted,stress-00008888-202610-0289
+2026-10-09,GTA prepaid | ref SYN0290,107.93,,Posted,stress-00008888-202610-0290
+2026-10-09,Payless Supermarkets | ref SYN0291,108.30,,Posted,stress-00008888-202610-0291
+2026-10-10,Shell - Upper Tumon | ref SYN0292,108.67,,Posted,stress-00008888-202610-0292
+2026-10-10,Port of Mocha | ref SYN0293,109.04,,Posted,stress-00008888-202610-0293
+2026-10-10,Cost-U-Less - Harmon | ref SYN0294,109.41,,Posted,stress-00008888-202610-0294
+2026-10-10,GTA prepaid | ref SYN0295,109.78,,Posted,stress-00008888-202610-0295
+2026-10-10,Payless Supermarkets | ref SYN0296,110.15,,Posted,stress-00008888-202610-0296
+2026-10-10,Shell - Upper Tumon | ref SYN0297,110.52,,Posted,stress-00008888-202610-0297
+2026-10-10,Port of Mocha | ref SYN0298,110.89,,Posted,stress-00008888-202610-0298
+2026-10-10,Cost-U-Less - Harmon | ref SYN0299,111.26,,Posted,stress-00008888-202610-0299
+2026-10-10,GTA prepaid | ref SYN0300,111.63,,Posted,stress-00008888-202610-0300
+2026-10-10,DEMO settlement payroll | ref SYN0301,,3000.00,Posted,stress-00008888-202610-0301
+2026-10-10,Transfer to own savings | ref SYN0302,200.00,,Posted,stress-00008888-202610-0302
+2026-10-10,Visa payment | ref SYN0303,250.00,,Posted,stress-00008888-202610-0303
+2026-10-10,Payless merchandise refund | ref SYN0304,,9.99,Posted,stress-00008888-202610-0304
+2026-10-10,GTA prepaid | ref SYN0305,113.48,,Posted,stress-00008888-202610-0305
+2026-10-10,Payless Supermarkets | ref SYN0306,113.85,,Posted,stress-00008888-202610-0306
+2026-10-10,Shell - Upper Tumon | ref SYN0307,114.22,,Posted,stress-00008888-202610-0307
+2026-10-10,Port of Mocha | ref SYN0308,114.59,,Posted,stress-00008888-202610-0308
+2026-10-10,Cost-U-Less - Harmon | ref SYN0309,114.96,,Posted,stress-00008888-202610-0309
+2026-10-10,GTA prepaid | ref SYN0310,115.33,,Posted,stress-00008888-202610-0310
+2026-10-10,Payless Supermarkets | ref SYN0311,115.70,,Posted,stress-00008888-202610-0311
+2026-10-10,Shell - Upper Tumon | ref SYN0312,116.07,,Posted,stress-00008888-202610-0312
+2026-10-10,Port of Mocha | ref SYN0313,116.44,,Posted,stress-00008888-202610-0313
+2026-10-10,Cost-U-Less - Harmon | ref SYN0314,116.81,,Posted,stress-00008888-202610-0314
+2026-10-10,GTA prepaid | ref SYN0315,117.18,,Posted,stress-00008888-202610-0315
+2026-10-10,Payless Supermarkets | ref SYN0316,117.55,,Posted,stress-00008888-202610-0316
+2026-10-10,Shell - Upper Tumon | ref SYN0317,117.92,,Posted,stress-00008888-202610-0317
+2026-10-10,Port of Mocha | ref SYN0318,118.29,,Posted,stress-00008888-202610-0318
+2026-10-10,Cost-U-Less - Harmon | ref SYN0319,118.66,,Posted,stress-00008888-202610-0319
+2026-10-10,GTA prepaid | ref SYN0320,119.03,,Posted,stress-00008888-202610-0320
+2026-10-10,Payless Supermarkets | ref SYN0321,119.40,,Posted,stress-00008888-202610-0321
+2026-10-10,Shell - Upper Tumon | ref SYN0322,119.77,,Posted,stress-00008888-202610-0322
+2026-10-10,Port of Mocha | ref SYN0323,120.14,,Posted,stress-00008888-202610-0323
+2026-10-11,Cost-U-Less - Harmon | ref SYN0324,120.51,,Posted,stress-00008888-202610-0324
+2026-10-11,GTA prepaid | ref SYN0325,120.88,,Posted,stress-00008888-202610-0325
+2026-10-11,Payless Supermarkets | ref SYN0326,121.25,,Posted,stress-00008888-202610-0326
+2026-10-11,Shell - Upper Tumon | ref SYN0327,121.62,,Posted,stress-00008888-202610-0327
+2026-10-11,Port of Mocha | ref SYN0328,121.99,,Posted,stress-00008888-202610-0328
+2026-10-11,Cost-U-Less - Harmon | ref SYN0329,122.36,,Posted,stress-00008888-202610-0329
+2026-10-11,GTA prepaid | ref SYN0330,122.73,,Posted,stress-00008888-202610-0330
+2026-10-11,Payless Supermarkets | ref SYN0331,123.10,,Posted,stress-00008888-202610-0331
+2026-10-11,Shell - Upper Tumon | ref SYN0332,123.47,,Posted,stress-00008888-202610-0332
+2026-10-11,Port of Mocha | ref SYN0333,123.84,,Posted,stress-00008888-202610-0333
+2026-10-11,Cost-U-Less - Harmon | ref SYN0334,124.21,,Posted,stress-00008888-202610-0334
+2026-10-11,GTA prepaid | ref SYN0335,124.58,,Posted,stress-00008888-202610-0335
+2026-10-11,Payless Supermarkets | ref SYN0336,124.95,,Posted,stress-00008888-202610-0336
+2026-10-11,Shell - Upper Tumon | ref SYN0337,125.32,,Posted,stress-00008888-202610-0337
+2026-10-11,Port of Mocha | ref SYN0338,125.69,,Posted,stress-00008888-202610-0338
+2026-10-11,Cost-U-Less - Harmon | ref SYN0339,126.06,,Posted,stress-00008888-202610-0339
+2026-10-11,GTA prepaid | ref SYN0340,126.43,,Posted,stress-00008888-202610-0340
+2026-10-11,Payless Supermarkets | ref SYN0341,126.80,,Posted,stress-00008888-202610-0341
+2026-10-11,Shell - Upper Tumon | ref SYN0342,127.17,,Posted,stress-00008888-202610-0342
+2026-10-11,Port of Mocha | ref SYN0343,127.54,,Posted,stress-00008888-202610-0343
+2026-10-11,Cost-U-Less - Harmon | ref SYN0344,127.91,,Posted,stress-00008888-202610-0344
+2026-10-11,GTA prepaid | ref SYN0345,128.28,,Posted,stress-00008888-202610-0345
+2026-10-11,Payless Supermarkets | ref SYN0346,128.65,,Posted,stress-00008888-202610-0346
+2026-10-11,Shell - Upper Tumon | ref SYN0347,129.02,,Posted,stress-00008888-202610-0347
+2026-10-11,Port of Mocha | ref SYN0348,129.39,,Posted,stress-00008888-202610-0348
+2026-10-11,Cost-U-Less - Harmon | ref SYN0349,129.76,,Posted,stress-00008888-202610-0349
+2026-10-11,GTA prepaid | ref SYN0350,130.13,,Posted,stress-00008888-202610-0350
+2026-10-11,Payless Supermarkets | ref SYN0351,130.50,,Posted,stress-00008888-202610-0351
+2026-10-11,Shell - Upper Tumon | ref SYN0352,130.87,,Posted,stress-00008888-202610-0352
+2026-10-11,Port of Mocha | ref SYN0353,131.24,,Posted,stress-00008888-202610-0353
+2026-10-11,Cost-U-Less - Harmon | ref SYN0354,131.61,,Posted,stress-00008888-202610-0354
+2026-10-11,GTA prepaid | ref SYN0355,131.98,,Posted,stress-00008888-202610-0355
+2026-10-12,Payless Supermarkets | ref SYN0356,132.35,,Posted,stress-00008888-202610-0356
+2026-10-12,Shell - Upper Tumon | ref SYN0357,132.72,,Posted,stress-00008888-202610-0357
+2026-10-12,Port of Mocha | ref SYN0358,133.09,,Posted,stress-00008888-202610-0358
+2026-10-12,Cost-U-Less - Harmon | ref SYN0359,133.46,,Posted,stress-00008888-202610-0359
+2026-10-12,GTA prepaid | ref SYN0360,133.83,,Posted,stress-00008888-202610-0360
+2026-10-12,Payless Supermarkets | ref SYN0361,134.20,,Posted,stress-00008888-202610-0361
+2026-10-12,Shell - Upper Tumon | ref SYN0362,134.57,,Posted,stress-00008888-202610-0362
+2026-10-12,Port of Mocha | ref SYN0363,134.94,,Posted,stress-00008888-202610-0363
+2026-10-12,Cost-U-Less - Harmon | ref SYN0364,135.31,,Posted,stress-00008888-202610-0364
+2026-10-12,GTA prepaid | ref SYN0365,135.68,,Posted,stress-00008888-202610-0365
+2026-10-12,Payless Supermarkets | ref SYN0366,136.05,,Posted,stress-00008888-202610-0366
+2026-10-12,Shell - Upper Tumon | ref SYN0367,136.42,,Posted,stress-00008888-202610-0367
+2026-10-12,Port of Mocha | ref SYN0368,136.79,,Posted,stress-00008888-202610-0368
+2026-10-12,Cost-U-Less - Harmon | ref SYN0369,137.16,,Posted,stress-00008888-202610-0369
+2026-10-12,GTA prepaid | ref SYN0370,137.53,,Posted,stress-00008888-202610-0370
+2026-10-12,Payless Supermarkets | ref SYN0371,137.90,,Posted,stress-00008888-202610-0371
+2026-10-12,Shell - Upper Tumon | ref SYN0372,138.27,,Posted,stress-00008888-202610-0372
+2026-10-12,Port of Mocha | ref SYN0373,138.64,,Posted,stress-00008888-202610-0373
+2026-10-12,Cost-U-Less - Harmon | ref SYN0374,139.01,,Posted,stress-00008888-202610-0374
+2026-10-12,GTA prepaid | ref SYN0375,139.38,,Posted,stress-00008888-202610-0375
+2026-10-12,Payless Supermarkets | ref SYN0376,139.75,,Posted,stress-00008888-202610-0376
+2026-10-12,Shell - Upper Tumon | ref SYN0377,140.12,,Posted,stress-00008888-202610-0377
+2026-10-12,Port of Mocha | ref SYN0378,140.49,,Posted,stress-00008888-202610-0378
+2026-10-12,Cost-U-Less - Harmon | ref SYN0379,140.86,,Posted,stress-00008888-202610-0379
+2026-10-12,GTA prepaid | ref SYN0380,141.23,,Posted,stress-00008888-202610-0380
+2026-10-12,Payless Supermarkets | ref SYN0381,141.60,,Posted,stress-00008888-202610-0381
+2026-10-12,Shell - Upper Tumon | ref SYN0382,141.97,,Posted,stress-00008888-202610-0382
+2026-10-12,Port of Mocha | ref SYN0383,142.34,,Posted,stress-00008888-202610-0383
+2026-10-12,Cost-U-Less - Harmon | ref SYN0384,142.71,,Posted,stress-00008888-202610-0384
+2026-10-12,GTA prepaid | ref SYN0385,143.08,,Posted,stress-00008888-202610-0385
+2026-10-12,Payless Supermarkets | ref SYN0386,143.45,,Posted,stress-00008888-202610-0386
+2026-10-12,Shell - Upper Tumon | ref SYN0387,143.82,,Posted,stress-00008888-202610-0387
+2026-10-12,Port of Mocha | ref SYN0388,144.19,,Posted,stress-00008888-202610-0388
+2026-10-13,Cost-U-Less - Harmon | ref SYN0389,144.56,,Posted,stress-00008888-202610-0389
+2026-10-13,GTA prepaid | ref SYN0390,144.93,,Posted,stress-00008888-202610-0390
+2026-10-13,Payless Supermarkets | ref SYN0391,145.30,,Posted,stress-00008888-202610-0391
+2026-10-13,Shell - Upper Tumon | ref SYN0392,145.67,,Posted,stress-00008888-202610-0392
+2026-10-13,Port of Mocha | ref SYN0393,146.04,,Posted,stress-00008888-202610-0393
+2026-10-13,Cost-U-Less - Harmon | ref SYN0394,146.41,,Posted,stress-00008888-202610-0394
+2026-10-13,GTA prepaid | ref SYN0395,146.78,,Posted,stress-00008888-202610-0395
+2026-10-13,Payless Supermarkets | ref SYN0396,147.15,,Posted,stress-00008888-202610-0396
+2026-10-13,Shell - Upper Tumon | ref SYN0397,147.52,,Posted,stress-00008888-202610-0397
+2026-10-13,Port of Mocha | ref SYN0398,147.89,,Posted,stress-00008888-202610-0398
+2026-10-13,Cost-U-Less - Harmon | ref SYN0399,148.26,,Posted,stress-00008888-202610-0399
+2026-10-13,GTA prepaid | ref SYN0400,148.63,,Posted,stress-00008888-202610-0400
+2026-10-13,DEMO settlement payroll | ref SYN0401,,3000.00,Posted,stress-00008888-202610-0401
+2026-10-13,Transfer to own savings | ref SYN0402,200.00,,Posted,stress-00008888-202610-0402
+2026-10-13,Visa payment | ref SYN0403,250.00,,Posted,stress-00008888-202610-0403
+2026-10-13,Payless merchandise refund | ref SYN0404,,9.99,Posted,stress-00008888-202610-0404
+2026-10-13,GTA prepaid | ref SYN0405,150.48,,Posted,stress-00008888-202610-0405
+2026-10-13,Payless Supermarkets | ref SYN0406,150.85,,Posted,stress-00008888-202610-0406
+2026-10-13,Shell - Upper Tumon | ref SYN0407,151.22,,Posted,stress-00008888-202610-0407
+2026-10-13,Port of Mocha | ref SYN0408,151.59,,Posted,stress-00008888-202610-0408
+2026-10-13,Cost-U-Less - Harmon | ref SYN0409,151.96,,Posted,stress-00008888-202610-0409
+2026-10-13,GTA prepaid | ref SYN0410,152.33,,Posted,stress-00008888-202610-0410
+2026-10-13,Payless Supermarkets | ref SYN0411,152.70,,Posted,stress-00008888-202610-0411
+2026-10-13,Shell - Upper Tumon | ref SYN0412,153.07,,Posted,stress-00008888-202610-0412
+2026-10-13,Port of Mocha | ref SYN0413,153.44,,Posted,stress-00008888-202610-0413
+2026-10-13,Cost-U-Less - Harmon | ref SYN0414,153.81,,Posted,stress-00008888-202610-0414
+2026-10-13,GTA prepaid | ref SYN0415,154.18,,Posted,stress-00008888-202610-0415
+2026-10-13,Payless Supermarkets | ref SYN0416,154.55,,Posted,stress-00008888-202610-0416
+2026-10-13,Shell - Upper Tumon | ref SYN0417,154.92,,Posted,stress-00008888-202610-0417
+2026-10-13,Port of Mocha | ref SYN0418,155.29,,Posted,stress-00008888-202610-0418
+2026-10-13,Cost-U-Less - Harmon | ref SYN0419,155.66,,Posted,stress-00008888-202610-0419
+2026-10-13,GTA prepaid | ref SYN0420,156.03,,Posted,stress-00008888-202610-0420
+2026-10-14,Payless Supermarkets | ref SYN0421,156.40,,Posted,stress-00008888-202610-0421
+2026-10-14,Shell - Upper Tumon | ref SYN0422,156.77,,Posted,stress-00008888-202610-0422
+2026-10-14,Port of Mocha | ref SYN0423,157.14,,Posted,stress-00008888-202610-0423
+2026-10-14,Cost-U-Less - Harmon | ref SYN0424,157.51,,Posted,stress-00008888-202610-0424
+2026-10-14,GTA prepaid | ref SYN0425,157.88,,Posted,stress-00008888-202610-0425
+2026-10-14,Payless Supermarkets | ref SYN0426,158.25,,Posted,stress-00008888-202610-0426
+2026-10-14,Shell - Upper Tumon | ref SYN0427,158.62,,Posted,stress-00008888-202610-0427
+2026-10-14,Port of Mocha | ref SYN0428,158.99,,Posted,stress-00008888-202610-0428
+2026-10-14,Cost-U-Less - Harmon | ref SYN0429,159.36,,Posted,stress-00008888-202610-0429
+2026-10-14,GTA prepaid | ref SYN0430,159.73,,Posted,stress-00008888-202610-0430
+2026-10-14,Payless Supermarkets | ref SYN0431,160.10,,Posted,stress-00008888-202610-0431
+2026-10-14,Shell - Upper Tumon | ref SYN0432,160.47,,Posted,stress-00008888-202610-0432
+2026-10-14,Port of Mocha | ref SYN0433,160.84,,Posted,stress-00008888-202610-0433
+2026-10-14,Cost-U-Less - Harmon | ref SYN0434,161.21,,Posted,stress-00008888-202610-0434
+2026-10-14,GTA prepaid | ref SYN0435,161.58,,Posted,stress-00008888-202610-0435
+2026-10-14,Payless Supermarkets | ref SYN0436,161.95,,Posted,stress-00008888-202610-0436
+2026-10-14,Shell - Upper Tumon | ref SYN0437,162.32,,Posted,stress-00008888-202610-0437
+2026-10-14,Port of Mocha | ref SYN0438,162.69,,Posted,stress-00008888-202610-0438
+2026-10-14,Cost-U-Less - Harmon | ref SYN0439,163.06,,Posted,stress-00008888-202610-0439
+2026-10-14,GTA prepaid | ref SYN0440,163.43,,Posted,stress-00008888-202610-0440
+2026-10-14,Payless Supermarkets | ref SYN0441,163.80,,Posted,stress-00008888-202610-0441
+2026-10-14,Shell - Upper Tumon | ref SYN0442,164.17,,Posted,stress-00008888-202610-0442
+2026-10-14,Port of Mocha | ref SYN0443,164.54,,Posted,stress-00008888-202610-0443
+2026-10-14,Cost-U-Less - Harmon | ref SYN0444,164.91,,Posted,stress-00008888-202610-0444
+2026-10-14,GTA prepaid | ref SYN0445,165.28,,Posted,stress-00008888-202610-0445
+2026-10-14,Payless Supermarkets | ref SYN0446,165.65,,Posted,stress-00008888-202610-0446
+2026-10-14,Shell - Upper Tumon | ref SYN0447,166.02,,Posted,stress-00008888-202610-0447
+2026-10-14,Port of Mocha | ref SYN0448,166.39,,Posted,stress-00008888-202610-0448
+2026-10-14,Cost-U-Less - Harmon | ref SYN0449,166.76,,Posted,stress-00008888-202610-0449
+2026-10-14,GTA prepaid | ref SYN0450,167.13,,Posted,stress-00008888-202610-0450
+2026-10-14,Payless Supermarkets | ref SYN0451,167.50,,Posted,stress-00008888-202610-0451
+2026-10-14,Shell - Upper Tumon | ref SYN0452,167.87,,Posted,stress-00008888-202610-0452
+2026-10-15,Port of Mocha | ref SYN0453,168.24,,Posted,stress-00008888-202610-0453
+2026-10-15,Cost-U-Less - Harmon | ref SYN0454,168.61,,Posted,stress-00008888-202610-0454
+2026-10-15,GTA prepaid | ref SYN0455,168.98,,Posted,stress-00008888-202610-0455
+2026-10-15,Payless Supermarkets | ref SYN0456,169.35,,Posted,stress-00008888-202610-0456
+2026-10-15,Shell - Upper Tumon | ref SYN0457,169.72,,Posted,stress-00008888-202610-0457
+2026-10-15,Port of Mocha | ref SYN0458,170.09,,Posted,stress-00008888-202610-0458
+2026-10-15,Cost-U-Less - Harmon | ref SYN0459,170.46,,Posted,stress-00008888-202610-0459
+2026-10-15,GTA prepaid | ref SYN0460,170.83,,Posted,stress-00008888-202610-0460
+2026-10-15,Payless Supermarkets | ref SYN0461,171.20,,Posted,stress-00008888-202610-0461
+2026-10-15,Shell - Upper Tumon | ref SYN0462,171.57,,Posted,stress-00008888-202610-0462
+2026-10-15,Port of Mocha | ref SYN0463,171.94,,Posted,stress-00008888-202610-0463
+2026-10-15,Cost-U-Less - Harmon | ref SYN0464,172.31,,Posted,stress-00008888-202610-0464
+2026-10-15,GTA prepaid | ref SYN0465,172.68,,Posted,stress-00008888-202610-0465
+2026-10-15,Payless Supermarkets | ref SYN0466,173.05,,Posted,stress-00008888-202610-0466
+2026-10-15,Shell - Upper Tumon | ref SYN0467,173.42,,Posted,stress-00008888-202610-0467
+2026-10-15,Port of Mocha | ref SYN0468,173.79,,Posted,stress-00008888-202610-0468
+2026-10-15,Cost-U-Less - Harmon | ref SYN0469,174.16,,Posted,stress-00008888-202610-0469
+2026-10-15,GTA prepaid | ref SYN0470,174.53,,Posted,stress-00008888-202610-0470
+2026-10-15,Payless Supermarkets | ref SYN0471,174.90,,Posted,stress-00008888-202610-0471
+2026-10-15,Shell - Upper Tumon | ref SYN0472,175.27,,Posted,stress-00008888-202610-0472
+2026-10-15,Port of Mocha | ref SYN0473,175.64,,Posted,stress-00008888-202610-0473
+2026-10-15,Cost-U-Less - Harmon | ref SYN0474,176.01,,Posted,stress-00008888-202610-0474
+2026-10-15,GTA prepaid | ref SYN0475,176.38,,Posted,stress-00008888-202610-0475
+2026-10-15,Payless Supermarkets | ref SYN0476,176.75,,Posted,stress-00008888-202610-0476
+2026-10-15,Shell - Upper Tumon | ref SYN0477,177.12,,Posted,stress-00008888-202610-0477
+2026-10-15,Port of Mocha | ref SYN0478,177.49,,Posted,stress-00008888-202610-0478
+2026-10-15,Cost-U-Less - Harmon | ref SYN0479,177.86,,Posted,stress-00008888-202610-0479
+2026-10-15,GTA prepaid | ref SYN0480,178.23,,Posted,stress-00008888-202610-0480
+2026-10-15,Payless Supermarkets | ref SYN0481,178.60,,Posted,stress-00008888-202610-0481
+2026-10-15,Shell - Upper Tumon | ref SYN0482,178.97,,Posted,stress-00008888-202610-0482
+2026-10-15,Port of Mocha | ref SYN0483,179.34,,Posted,stress-00008888-202610-0483
+2026-10-15,Cost-U-Less - Harmon | ref SYN0484,179.71,,Posted,stress-00008888-202610-0484
+2026-10-16,GTA prepaid | ref SYN0485,180.08,,Posted,stress-00008888-202610-0485
+2026-10-16,Payless Supermarkets | ref SYN0486,180.45,,Posted,stress-00008888-202610-0486
+2026-10-16,Shell - Upper Tumon | ref SYN0487,180.82,,Posted,stress-00008888-202610-0487
+2026-10-16,Port of Mocha | ref SYN0488,181.19,,Posted,stress-00008888-202610-0488
+2026-10-16,Cost-U-Less - Harmon | ref SYN0489,181.56,,Posted,stress-00008888-202610-0489
+2026-10-16,GTA prepaid | ref SYN0490,181.93,,Posted,stress-00008888-202610-0490
+2026-10-16,Payless Supermarkets | ref SYN0491,182.30,,Posted,stress-00008888-202610-0491
+2026-10-16,Shell - Upper Tumon | ref SYN0492,182.67,,Posted,stress-00008888-202610-0492
+2026-10-16,Port of Mocha | ref SYN0493,183.04,,Posted,stress-00008888-202610-0493
+2026-10-16,Cost-U-Less - Harmon | ref SYN0494,183.41,,Posted,stress-00008888-202610-0494
+2026-10-16,GTA prepaid | ref SYN0495,183.78,,Posted,stress-00008888-202610-0495
+2026-10-16,Payless Supermarkets | ref SYN0496,184.15,,Posted,stress-00008888-202610-0496
+2026-10-16,Shell - Upper Tumon | ref SYN0497,184.52,,Posted,stress-00008888-202610-0497
+2026-10-16,Port of Mocha | ref SYN0498,184.89,,Posted,stress-00008888-202610-0498
+2026-10-16,Cost-U-Less - Harmon | ref SYN0499,185.26,,Posted,stress-00008888-202610-0499
+2026-10-16,GTA prepaid | ref SYN0500,185.63,,Posted,stress-00008888-202610-0500
+2026-10-16,DEMO settlement payroll | ref SYN0501,,3000.00,Posted,stress-00008888-202610-0501
+2026-10-16,Transfer to own savings | ref SYN0502,200.00,,Posted,stress-00008888-202610-0502
+2026-10-16,Visa payment | ref SYN0503,250.00,,Posted,stress-00008888-202610-0503
+2026-10-16,Payless merchandise refund | ref SYN0504,,9.99,Posted,stress-00008888-202610-0504
+2026-10-16,GTA prepaid | ref SYN0505,187.48,,Posted,stress-00008888-202610-0505
+2026-10-16,Payless Supermarkets | ref SYN0506,187.85,,Posted,stress-00008888-202610-0506
+2026-10-16,Shell - Upper Tumon | ref SYN0507,188.22,,Posted,stress-00008888-202610-0507
+2026-10-16,Port of Mocha | ref SYN0508,188.59,,Posted,stress-00008888-202610-0508
+2026-10-16,Cost-U-Less - Harmon | ref SYN0509,188.96,,Posted,stress-00008888-202610-0509
+2026-10-16,GTA prepaid | ref SYN0510,189.33,,Posted,stress-00008888-202610-0510
+2026-10-16,Payless Supermarkets | ref SYN0511,189.70,,Posted,stress-00008888-202610-0511
+2026-10-16,Shell - Upper Tumon | ref SYN0512,190.07,,Posted,stress-00008888-202610-0512
+2026-10-16,Port of Mocha | ref SYN0513,190.44,,Posted,stress-00008888-202610-0513
+2026-10-16,Cost-U-Less - Harmon | ref SYN0514,190.81,,Posted,stress-00008888-202610-0514
+2026-10-16,GTA prepaid | ref SYN0515,1.18,,Posted,stress-00008888-202610-0515
+2026-10-16,Payless Supermarkets | ref SYN0516,1.55,,Posted,stress-00008888-202610-0516
+2026-10-16,Shell - Upper Tumon | ref SYN0517,1.92,,Posted,stress-00008888-202610-0517
+2026-10-17,Port of Mocha | ref SYN0518,2.29,,Posted,stress-00008888-202610-0518
+2026-10-17,Cost-U-Less - Harmon | ref SYN0519,2.66,,Posted,stress-00008888-202610-0519
+2026-10-17,GTA prepaid | ref SYN0520,3.03,,Posted,stress-00008888-202610-0520
+2026-10-17,Payless Supermarkets | ref SYN0521,3.40,,Posted,stress-00008888-202610-0521
+2026-10-17,Shell - Upper Tumon | ref SYN0522,3.77,,Posted,stress-00008888-202610-0522
+2026-10-17,Port of Mocha | ref SYN0523,4.14,,Posted,stress-00008888-202610-0523
+2026-10-17,Cost-U-Less - Harmon | ref SYN0524,4.51,,Posted,stress-00008888-202610-0524
+2026-10-17,GTA prepaid | ref SYN0525,4.88,,Posted,stress-00008888-202610-0525
+2026-10-17,Payless Supermarkets | ref SYN0526,5.25,,Posted,stress-00008888-202610-0526
+2026-10-17,Shell - Upper Tumon | ref SYN0527,5.62,,Posted,stress-00008888-202610-0527
+2026-10-17,Port of Mocha | ref SYN0528,5.99,,Posted,stress-00008888-202610-0528
+2026-10-17,Cost-U-Less - Harmon | ref SYN0529,6.36,,Posted,stress-00008888-202610-0529
+2026-10-17,GTA prepaid | ref SYN0530,6.73,,Posted,stress-00008888-202610-0530
+2026-10-17,Payless Supermarkets | ref SYN0531,7.10,,Posted,stress-00008888-202610-0531
+2026-10-17,Shell - Upper Tumon | ref SYN0532,7.47,,Posted,stress-00008888-202610-0532
+2026-10-17,Port of Mocha | ref SYN0533,7.84,,Posted,stress-00008888-202610-0533
+2026-10-17,Cost-U-Less - Harmon | ref SYN0534,8.21,,Posted,stress-00008888-202610-0534
+2026-10-17,GTA prepaid | ref SYN0535,8.58,,Posted,stress-00008888-202610-0535
+2026-10-17,Payless Supermarkets | ref SYN0536,8.95,,Posted,stress-00008888-202610-0536
+2026-10-17,Shell - Upper Tumon | ref SYN0537,9.32,,Posted,stress-00008888-202610-0537
+2026-10-17,Port of Mocha | ref SYN0538,9.69,,Posted,stress-00008888-202610-0538
+2026-10-17,Cost-U-Less - Harmon | ref SYN0539,10.06,,Posted,stress-00008888-202610-0539
+2026-10-17,GTA prepaid | ref SYN0540,10.43,,Posted,stress-00008888-202610-0540
+2026-10-17,Payless Supermarkets | ref SYN0541,10.80,,Posted,stress-00008888-202610-0541
+2026-10-17,Shell - Upper Tumon | ref SYN0542,11.17,,Posted,stress-00008888-202610-0542
+2026-10-17,Port of Mocha | ref SYN0543,11.54,,Posted,stress-00008888-202610-0543
+2026-10-17,Cost-U-Less - Harmon | ref SYN0544,11.91,,Posted,stress-00008888-202610-0544
+2026-10-17,GTA prepaid | ref SYN0545,12.28,,Posted,stress-00008888-202610-0545
+2026-10-17,Payless Supermarkets | ref SYN0546,12.65,,Posted,stress-00008888-202610-0546
+2026-10-17,Shell - Upper Tumon | ref SYN0547,13.02,,Posted,stress-00008888-202610-0547
+2026-10-17,Port of Mocha | ref SYN0548,13.39,,Posted,stress-00008888-202610-0548
+2026-10-17,Cost-U-Less - Harmon | ref SYN0549,13.76,,Posted,stress-00008888-202610-0549
+2026-10-18,GTA prepaid | ref SYN0550,14.13,,Posted,stress-00008888-202610-0550
+2026-10-18,Payless Supermarkets | ref SYN0551,14.50,,Posted,stress-00008888-202610-0551
+2026-10-18,Shell - Upper Tumon | ref SYN0552,14.87,,Posted,stress-00008888-202610-0552
+2026-10-18,Port of Mocha | ref SYN0553,15.24,,Posted,stress-00008888-202610-0553
+2026-10-18,Cost-U-Less - Harmon | ref SYN0554,15.61,,Posted,stress-00008888-202610-0554
+2026-10-18,GTA prepaid | ref SYN0555,15.98,,Posted,stress-00008888-202610-0555
+2026-10-18,Payless Supermarkets | ref SYN0556,16.35,,Posted,stress-00008888-202610-0556
+2026-10-18,Shell - Upper Tumon | ref SYN0557,16.72,,Posted,stress-00008888-202610-0557
+2026-10-18,Port of Mocha | ref SYN0558,17.09,,Posted,stress-00008888-202610-0558
+2026-10-18,Cost-U-Less - Harmon | ref SYN0559,17.46,,Posted,stress-00008888-202610-0559
+2026-10-18,GTA prepaid | ref SYN0560,17.83,,Posted,stress-00008888-202610-0560
+2026-10-18,Payless Supermarkets | ref SYN0561,18.20,,Posted,stress-00008888-202610-0561
+2026-10-18,Shell - Upper Tumon | ref SYN0562,18.57,,Posted,stress-00008888-202610-0562
+2026-10-18,Port of Mocha | ref SYN0563,18.94,,Posted,stress-00008888-202610-0563
+2026-10-18,Cost-U-Less - Harmon | ref SYN0564,19.31,,Posted,stress-00008888-202610-0564
+2026-10-18,GTA prepaid | ref SYN0565,19.68,,Posted,stress-00008888-202610-0565
+2026-10-18,Payless Supermarkets | ref SYN0566,20.05,,Posted,stress-00008888-202610-0566
+2026-10-18,Shell - Upper Tumon | ref SYN0567,20.42,,Posted,stress-00008888-202610-0567
+2026-10-18,Port of Mocha | ref SYN0568,20.79,,Posted,stress-00008888-202610-0568
+2026-10-18,Cost-U-Less - Harmon | ref SYN0569,21.16,,Posted,stress-00008888-202610-0569
+2026-10-18,GTA prepaid | ref SYN0570,21.53,,Posted,stress-00008888-202610-0570
+2026-10-18,Payless Supermarkets | ref SYN0571,21.90,,Posted,stress-00008888-202610-0571
+2026-10-18,Shell - Upper Tumon | ref SYN0572,22.27,,Posted,stress-00008888-202610-0572
+2026-10-18,Port of Mocha | ref SYN0573,22.64,,Posted,stress-00008888-202610-0573
+2026-10-18,Cost-U-Less - Harmon | ref SYN0574,23.01,,Posted,stress-00008888-202610-0574
+2026-10-18,GTA prepaid | ref SYN0575,23.38,,Posted,stress-00008888-202610-0575
+2026-10-18,Payless Supermarkets | ref SYN0576,23.75,,Posted,stress-00008888-202610-0576
+2026-10-18,Shell - Upper Tumon | ref SYN0577,24.12,,Posted,stress-00008888-202610-0577
+2026-10-18,Port of Mocha | ref SYN0578,24.49,,Posted,stress-00008888-202610-0578
+2026-10-18,Cost-U-Less - Harmon | ref SYN0579,24.86,,Posted,stress-00008888-202610-0579
+2026-10-18,GTA prepaid | ref SYN0580,25.23,,Posted,stress-00008888-202610-0580
+2026-10-18,Payless Supermarkets | ref SYN0581,25.60,,Posted,stress-00008888-202610-0581
+2026-10-19,Shell - Upper Tumon | ref SYN0582,25.97,,Posted,stress-00008888-202610-0582
+2026-10-19,Port of Mocha | ref SYN0583,26.34,,Posted,stress-00008888-202610-0583
+2026-10-19,Cost-U-Less - Harmon | ref SYN0584,26.71,,Posted,stress-00008888-202610-0584
+2026-10-19,GTA prepaid | ref SYN0585,27.08,,Posted,stress-00008888-202610-0585
+2026-10-19,Payless Supermarkets | ref SYN0586,27.45,,Posted,stress-00008888-202610-0586
+2026-10-19,Shell - Upper Tumon | ref SYN0587,27.82,,Posted,stress-00008888-202610-0587
+2026-10-19,Port of Mocha | ref SYN0588,28.19,,Posted,stress-00008888-202610-0588
+2026-10-19,Cost-U-Less - Harmon | ref SYN0589,28.56,,Posted,stress-00008888-202610-0589
+2026-10-19,GTA prepaid | ref SYN0590,28.93,,Posted,stress-00008888-202610-0590
+2026-10-19,Payless Supermarkets | ref SYN0591,29.30,,Posted,stress-00008888-202610-0591
+2026-10-19,Shell - Upper Tumon | ref SYN0592,29.67,,Posted,stress-00008888-202610-0592
+2026-10-19,Port of Mocha | ref SYN0593,30.04,,Posted,stress-00008888-202610-0593
+2026-10-19,Cost-U-Less - Harmon | ref SYN0594,30.41,,Posted,stress-00008888-202610-0594
+2026-10-19,GTA prepaid | ref SYN0595,30.78,,Posted,stress-00008888-202610-0595
+2026-10-19,Payless Supermarkets | ref SYN0596,31.15,,Posted,stress-00008888-202610-0596
+2026-10-19,Shell - Upper Tumon | ref SYN0597,31.52,,Posted,stress-00008888-202610-0597
+2026-10-19,Port of Mocha | ref SYN0598,31.89,,Posted,stress-00008888-202610-0598
+2026-10-19,Cost-U-Less - Harmon | ref SYN0599,32.26,,Posted,stress-00008888-202610-0599
+2026-10-19,GTA prepaid | ref SYN0600,32.63,,Posted,stress-00008888-202610-0600
+2026-10-19,DEMO settlement payroll | ref SYN0601,,3000.00,Posted,stress-00008888-202610-0601
+2026-10-19,Transfer to own savings | ref SYN0602,200.00,,Posted,stress-00008888-202610-0602
+2026-10-19,Visa payment | ref SYN0603,250.00,,Posted,stress-00008888-202610-0603
+2026-10-19,Payless merchandise refund | ref SYN0604,,9.99,Posted,stress-00008888-202610-0604
+2026-10-19,GTA prepaid | ref SYN0605,34.48,,Posted,stress-00008888-202610-0605
+2026-10-19,Payless Supermarkets | ref SYN0606,34.85,,Posted,stress-00008888-202610-0606
+2026-10-19,Shell - Upper Tumon | ref SYN0607,35.22,,Posted,stress-00008888-202610-0607
+2026-10-19,Port of Mocha | ref SYN0608,35.59,,Posted,stress-00008888-202610-0608
+2026-10-19,Cost-U-Less - Harmon | ref SYN0609,35.96,,Posted,stress-00008888-202610-0609
+2026-10-19,GTA prepaid | ref SYN0610,36.33,,Posted,stress-00008888-202610-0610
+2026-10-19,Payless Supermarkets | ref SYN0611,36.70,,Posted,stress-00008888-202610-0611
+2026-10-19,Shell - Upper Tumon | ref SYN0612,37.07,,Posted,stress-00008888-202610-0612
+2026-10-19,Port of Mocha | ref SYN0613,37.44,,Posted,stress-00008888-202610-0613
+2026-10-20,Cost-U-Less - Harmon | ref SYN0614,37.81,,Posted,stress-00008888-202610-0614
+2026-10-20,GTA prepaid | ref SYN0615,38.18,,Posted,stress-00008888-202610-0615
+2026-10-20,Payless Supermarkets | ref SYN0616,38.55,,Posted,stress-00008888-202610-0616
+2026-10-20,Shell - Upper Tumon | ref SYN0617,38.92,,Posted,stress-00008888-202610-0617
+2026-10-20,Port of Mocha | ref SYN0618,39.29,,Posted,stress-00008888-202610-0618
+2026-10-20,Cost-U-Less - Harmon | ref SYN0619,39.66,,Posted,stress-00008888-202610-0619
+2026-10-20,GTA prepaid | ref SYN0620,40.03,,Posted,stress-00008888-202610-0620
+2026-10-20,Payless Supermarkets | ref SYN0621,40.40,,Posted,stress-00008888-202610-0621
+2026-10-20,Shell - Upper Tumon | ref SYN0622,40.77,,Posted,stress-00008888-202610-0622
+2026-10-20,Port of Mocha | ref SYN0623,41.14,,Posted,stress-00008888-202610-0623
+2026-10-20,Cost-U-Less - Harmon | ref SYN0624,41.51,,Posted,stress-00008888-202610-0624
+2026-10-20,GTA prepaid | ref SYN0625,41.88,,Posted,stress-00008888-202610-0625
+2026-10-20,Payless Supermarkets | ref SYN0626,42.25,,Posted,stress-00008888-202610-0626
+2026-10-20,Shell - Upper Tumon | ref SYN0627,42.62,,Posted,stress-00008888-202610-0627
+2026-10-20,Port of Mocha | ref SYN0628,42.99,,Posted,stress-00008888-202610-0628
+2026-10-20,Cost-U-Less - Harmon | ref SYN0629,43.36,,Posted,stress-00008888-202610-0629
+2026-10-20,GTA prepaid | ref SYN0630,43.73,,Posted,stress-00008888-202610-0630
+2026-10-20,Payless Supermarkets | ref SYN0631,44.10,,Posted,stress-00008888-202610-0631
+2026-10-20,Shell - Upper Tumon | ref SYN0632,44.47,,Posted,stress-00008888-202610-0632
+2026-10-20,Port of Mocha | ref SYN0633,44.84,,Posted,stress-00008888-202610-0633
+2026-10-20,Cost-U-Less - Harmon | ref SYN0634,45.21,,Posted,stress-00008888-202610-0634
+2026-10-20,GTA prepaid | ref SYN0635,45.58,,Posted,stress-00008888-202610-0635
+2026-10-20,Payless Supermarkets | ref SYN0636,45.95,,Posted,stress-00008888-202610-0636
+2026-10-20,Shell - Upper Tumon | ref SYN0637,46.32,,Posted,stress-00008888-202610-0637
+2026-10-20,Port of Mocha | ref SYN0638,46.69,,Posted,stress-00008888-202610-0638
+2026-10-20,Cost-U-Less - Harmon | ref SYN0639,47.06,,Posted,stress-00008888-202610-0639
+2026-10-20,GTA prepaid | ref SYN0640,47.43,,Posted,stress-00008888-202610-0640
+2026-10-20,Payless Supermarkets | ref SYN0641,47.80,,Posted,stress-00008888-202610-0641
+2026-10-20,Shell - Upper Tumon | ref SYN0642,48.17,,Posted,stress-00008888-202610-0642
+2026-10-20,Port of Mocha | ref SYN0643,48.54,,Posted,stress-00008888-202610-0643
+2026-10-20,Cost-U-Less - Harmon | ref SYN0644,48.91,,Posted,stress-00008888-202610-0644
+2026-10-20,GTA prepaid | ref SYN0645,49.28,,Posted,stress-00008888-202610-0645
+2026-10-20,Payless Supermarkets | ref SYN0646,49.65,,Posted,stress-00008888-202610-0646
+2026-10-21,Shell - Upper Tumon | ref SYN0647,50.02,,Posted,stress-00008888-202610-0647
+2026-10-21,Port of Mocha | ref SYN0648,50.39,,Posted,stress-00008888-202610-0648
+2026-10-21,Cost-U-Less - Harmon | ref SYN0649,50.76,,Posted,stress-00008888-202610-0649
+2026-10-21,GTA prepaid | ref SYN0650,51.13,,Posted,stress-00008888-202610-0650
+2026-10-21,Payless Supermarkets | ref SYN0651,51.50,,Posted,stress-00008888-202610-0651
+2026-10-21,Shell - Upper Tumon | ref SYN0652,51.87,,Posted,stress-00008888-202610-0652
+2026-10-21,Port of Mocha | ref SYN0653,52.24,,Posted,stress-00008888-202610-0653
+2026-10-21,Cost-U-Less - Harmon | ref SYN0654,52.61,,Posted,stress-00008888-202610-0654
+2026-10-21,GTA prepaid | ref SYN0655,52.98,,Posted,stress-00008888-202610-0655
+2026-10-21,Payless Supermarkets | ref SYN0656,53.35,,Posted,stress-00008888-202610-0656
+2026-10-21,Shell - Upper Tumon | ref SYN0657,53.72,,Posted,stress-00008888-202610-0657
+2026-10-21,Port of Mocha | ref SYN0658,54.09,,Posted,stress-00008888-202610-0658
+2026-10-21,Cost-U-Less - Harmon | ref SYN0659,54.46,,Posted,stress-00008888-202610-0659
+2026-10-21,GTA prepaid | ref SYN0660,54.83,,Posted,stress-00008888-202610-0660
+2026-10-21,Payless Supermarkets | ref SYN0661,55.20,,Posted,stress-00008888-202610-0661
+2026-10-21,Shell - Upper Tumon | ref SYN0662,55.57,,Posted,stress-00008888-202610-0662
+2026-10-21,Port of Mocha | ref SYN0663,55.94,,Posted,stress-00008888-202610-0663
+2026-10-21,Cost-U-Less - Harmon | ref SYN0664,56.31,,Posted,stress-00008888-202610-0664
+2026-10-21,GTA prepaid | ref SYN0665,56.68,,Posted,stress-00008888-202610-0665
+2026-10-21,Payless Supermarkets | ref SYN0666,57.05,,Posted,stress-00008888-202610-0666
+2026-10-21,Shell - Upper Tumon | ref SYN0667,57.42,,Posted,stress-00008888-202610-0667
+2026-10-21,Port of Mocha | ref SYN0668,57.79,,Posted,stress-00008888-202610-0668
+2026-10-21,Cost-U-Less - Harmon | ref SYN0669,58.16,,Posted,stress-00008888-202610-0669
+2026-10-21,GTA prepaid | ref SYN0670,58.53,,Posted,stress-00008888-202610-0670
+2026-10-21,Payless Supermarkets | ref SYN0671,58.90,,Posted,stress-00008888-202610-0671
+2026-10-21,Shell - Upper Tumon | ref SYN0672,59.27,,Posted,stress-00008888-202610-0672
+2026-10-21,Port of Mocha | ref SYN0673,59.64,,Posted,stress-00008888-202610-0673
+2026-10-21,Cost-U-Less - Harmon | ref SYN0674,60.01,,Posted,stress-00008888-202610-0674
+2026-10-21,GTA prepaid | ref SYN0675,60.38,,Posted,stress-00008888-202610-0675
+2026-10-21,Payless Supermarkets | ref SYN0676,60.75,,Posted,stress-00008888-202610-0676
+2026-10-21,Shell - Upper Tumon | ref SYN0677,61.12,,Posted,stress-00008888-202610-0677
+2026-10-21,Port of Mocha | ref SYN0678,61.49,,Posted,stress-00008888-202610-0678
+2026-10-22,Cost-U-Less - Harmon | ref SYN0679,61.86,,Posted,stress-00008888-202610-0679
+2026-10-22,GTA prepaid | ref SYN0680,62.23,,Posted,stress-00008888-202610-0680
+2026-10-22,Payless Supermarkets | ref SYN0681,62.60,,Posted,stress-00008888-202610-0681
+2026-10-22,Shell - Upper Tumon | ref SYN0682,62.97,,Posted,stress-00008888-202610-0682
+2026-10-22,Port of Mocha | ref SYN0683,63.34,,Posted,stress-00008888-202610-0683
+2026-10-22,Cost-U-Less - Harmon | ref SYN0684,63.71,,Posted,stress-00008888-202610-0684
+2026-10-22,GTA prepaid | ref SYN0685,64.08,,Posted,stress-00008888-202610-0685
+2026-10-22,Payless Supermarkets | ref SYN0686,64.45,,Posted,stress-00008888-202610-0686
+2026-10-22,Shell - Upper Tumon | ref SYN0687,64.82,,Posted,stress-00008888-202610-0687
+2026-10-22,Port of Mocha | ref SYN0688,65.19,,Posted,stress-00008888-202610-0688
+2026-10-22,Cost-U-Less - Harmon | ref SYN0689,65.56,,Posted,stress-00008888-202610-0689
+2026-10-22,GTA prepaid | ref SYN0690,65.93,,Posted,stress-00008888-202610-0690
+2026-10-22,Payless Supermarkets | ref SYN0691,66.30,,Posted,stress-00008888-202610-0691
+2026-10-22,Shell - Upper Tumon | ref SYN0692,66.67,,Posted,stress-00008888-202610-0692
+2026-10-22,Port of Mocha | ref SYN0693,67.04,,Posted,stress-00008888-202610-0693
+2026-10-22,Cost-U-Less - Harmon | ref SYN0694,67.41,,Posted,stress-00008888-202610-0694
+2026-10-22,GTA prepaid | ref SYN0695,67.78,,Posted,stress-00008888-202610-0695
+2026-10-22,Payless Supermarkets | ref SYN0696,68.15,,Posted,stress-00008888-202610-0696
+2026-10-22,Shell - Upper Tumon | ref SYN0697,68.52,,Posted,stress-00008888-202610-0697
+2026-10-22,Port of Mocha | ref SYN0698,68.89,,Posted,stress-00008888-202610-0698
+2026-10-22,Cost-U-Less - Harmon | ref SYN0699,69.26,,Posted,stress-00008888-202610-0699
+2026-10-22,GTA prepaid | ref SYN0700,69.63,,Posted,stress-00008888-202610-0700
+2026-10-22,DEMO settlement payroll | ref SYN0701,,3000.00,Posted,stress-00008888-202610-0701
+2026-10-22,Transfer to own savings | ref SYN0702,200.00,,Posted,stress-00008888-202610-0702
+2026-10-22,Visa payment | ref SYN0703,250.00,,Posted,stress-00008888-202610-0703
+2026-10-22,Payless merchandise refund | ref SYN0704,,9.99,Posted,stress-00008888-202610-0704
+2026-10-22,GTA prepaid | ref SYN0705,71.48,,Posted,stress-00008888-202610-0705
+2026-10-22,Payless Supermarkets | ref SYN0706,71.85,,Posted,stress-00008888-202610-0706
+2026-10-22,Shell - Upper Tumon | ref SYN0707,72.22,,Posted,stress-00008888-202610-0707
+2026-10-22,Port of Mocha | ref SYN0708,72.59,,Posted,stress-00008888-202610-0708
+2026-10-22,Cost-U-Less - Harmon | ref SYN0709,72.96,,Posted,stress-00008888-202610-0709
+2026-10-22,GTA prepaid | ref SYN0710,73.33,,Posted,stress-00008888-202610-0710
+2026-10-23,Payless Supermarkets | ref SYN0711,73.70,,Posted,stress-00008888-202610-0711
+2026-10-23,Shell - Upper Tumon | ref SYN0712,74.07,,Posted,stress-00008888-202610-0712
+2026-10-23,Port of Mocha | ref SYN0713,74.44,,Posted,stress-00008888-202610-0713
+2026-10-23,Cost-U-Less - Harmon | ref SYN0714,74.81,,Posted,stress-00008888-202610-0714
+2026-10-23,GTA prepaid | ref SYN0715,75.18,,Posted,stress-00008888-202610-0715
+2026-10-23,Payless Supermarkets | ref SYN0716,75.55,,Posted,stress-00008888-202610-0716
+2026-10-23,Shell - Upper Tumon | ref SYN0717,75.92,,Posted,stress-00008888-202610-0717
+2026-10-23,Port of Mocha | ref SYN0718,76.29,,Posted,stress-00008888-202610-0718
+2026-10-23,Cost-U-Less - Harmon | ref SYN0719,76.66,,Posted,stress-00008888-202610-0719
+2026-10-23,GTA prepaid | ref SYN0720,77.03,,Posted,stress-00008888-202610-0720
+2026-10-23,Payless Supermarkets | ref SYN0721,77.40,,Posted,stress-00008888-202610-0721
+2026-10-23,Shell - Upper Tumon | ref SYN0722,77.77,,Posted,stress-00008888-202610-0722
+2026-10-23,Port of Mocha | ref SYN0723,78.14,,Posted,stress-00008888-202610-0723
+2026-10-23,Cost-U-Less - Harmon | ref SYN0724,78.51,,Posted,stress-00008888-202610-0724
+2026-10-23,GTA prepaid | ref SYN0725,78.88,,Posted,stress-00008888-202610-0725
+2026-10-23,Payless Supermarkets | ref SYN0726,79.25,,Posted,stress-00008888-202610-0726
+2026-10-23,Shell - Upper Tumon | ref SYN0727,79.62,,Posted,stress-00008888-202610-0727
+2026-10-23,Port of Mocha | ref SYN0728,79.99,,Posted,stress-00008888-202610-0728
+2026-10-23,Cost-U-Less - Harmon | ref SYN0729,80.36,,Posted,stress-00008888-202610-0729
+2026-10-23,GTA prepaid | ref SYN0730,80.73,,Posted,stress-00008888-202610-0730
+2026-10-23,Payless Supermarkets | ref SYN0731,81.10,,Posted,stress-00008888-202610-0731
+2026-10-23,Shell - Upper Tumon | ref SYN0732,81.47,,Posted,stress-00008888-202610-0732
+2026-10-23,Port of Mocha | ref SYN0733,81.84,,Posted,stress-00008888-202610-0733
+2026-10-23,Cost-U-Less - Harmon | ref SYN0734,82.21,,Posted,stress-00008888-202610-0734
+2026-10-23,GTA prepaid | ref SYN0735,82.58,,Posted,stress-00008888-202610-0735
+2026-10-23,Payless Supermarkets | ref SYN0736,82.95,,Posted,stress-00008888-202610-0736
+2026-10-23,Shell - Upper Tumon | ref SYN0737,83.32,,Posted,stress-00008888-202610-0737
+2026-10-23,Port of Mocha | ref SYN0738,83.69,,Posted,stress-00008888-202610-0738
+2026-10-23,Cost-U-Less - Harmon | ref SYN0739,84.06,,Posted,stress-00008888-202610-0739
+2026-10-23,GTA prepaid | ref SYN0740,84.43,,Posted,stress-00008888-202610-0740
+2026-10-23,Payless Supermarkets | ref SYN0741,84.80,,Posted,stress-00008888-202610-0741
+2026-10-23,Shell - Upper Tumon | ref SYN0742,85.17,,Posted,stress-00008888-202610-0742
+2026-10-24,Port of Mocha | ref SYN0743,85.54,,Posted,stress-00008888-202610-0743
+2026-10-24,Cost-U-Less - Harmon | ref SYN0744,85.91,,Posted,stress-00008888-202610-0744
+2026-10-24,GTA prepaid | ref SYN0745,86.28,,Posted,stress-00008888-202610-0745
+2026-10-24,Payless Supermarkets | ref SYN0746,86.65,,Posted,stress-00008888-202610-0746
+2026-10-24,Shell - Upper Tumon | ref SYN0747,87.02,,Posted,stress-00008888-202610-0747
+2026-10-24,Port of Mocha | ref SYN0748,87.39,,Posted,stress-00008888-202610-0748
+2026-10-24,Cost-U-Less - Harmon | ref SYN0749,87.76,,Posted,stress-00008888-202610-0749
+2026-10-24,GTA prepaid | ref SYN0750,88.13,,Posted,stress-00008888-202610-0750
+2026-10-24,Payless Supermarkets | ref SYN0751,88.50,,Posted,stress-00008888-202610-0751
+2026-10-24,Shell - Upper Tumon | ref SYN0752,88.87,,Posted,stress-00008888-202610-0752
+2026-10-24,Port of Mocha | ref SYN0753,89.24,,Posted,stress-00008888-202610-0753
+2026-10-24,Cost-U-Less - Harmon | ref SYN0754,89.61,,Posted,stress-00008888-202610-0754
+2026-10-24,GTA prepaid | ref SYN0755,89.98,,Posted,stress-00008888-202610-0755
+2026-10-24,Payless Supermarkets | ref SYN0756,90.35,,Posted,stress-00008888-202610-0756
+2026-10-24,Shell - Upper Tumon | ref SYN0757,90.72,,Posted,stress-00008888-202610-0757
+2026-10-24,Port of Mocha | ref SYN0758,91.09,,Posted,stress-00008888-202610-0758
+2026-10-24,Cost-U-Less - Harmon | ref SYN0759,91.46,,Posted,stress-00008888-202610-0759
+2026-10-24,GTA prepaid | ref SYN0760,91.83,,Posted,stress-00008888-202610-0760
+2026-10-24,Payless Supermarkets | ref SYN0761,92.20,,Posted,stress-00008888-202610-0761
+2026-10-24,Shell - Upper Tumon | ref SYN0762,92.57,,Posted,stress-00008888-202610-0762
+2026-10-24,Port of Mocha | ref SYN0763,92.94,,Posted,stress-00008888-202610-0763
+2026-10-24,Cost-U-Less - Harmon | ref SYN0764,93.31,,Posted,stress-00008888-202610-0764
+2026-10-24,GTA prepaid | ref SYN0765,93.68,,Posted,stress-00008888-202610-0765
+2026-10-24,Payless Supermarkets | ref SYN0766,94.05,,Posted,stress-00008888-202610-0766
+2026-10-24,Shell - Upper Tumon | ref SYN0767,94.42,,Posted,stress-00008888-202610-0767
+2026-10-24,Port of Mocha | ref SYN0768,94.79,,Posted,stress-00008888-202610-0768
+2026-10-24,Cost-U-Less - Harmon | ref SYN0769,95.16,,Posted,stress-00008888-202610-0769
+2026-10-24,GTA prepaid | ref SYN0770,95.53,,Posted,stress-00008888-202610-0770
+2026-10-24,Payless Supermarkets | ref SYN0771,95.90,,Posted,stress-00008888-202610-0771
+2026-10-24,Shell - Upper Tumon | ref SYN0772,96.27,,Posted,stress-00008888-202610-0772
+2026-10-24,Port of Mocha | ref SYN0773,96.64,,Posted,stress-00008888-202610-0773
+2026-10-24,Cost-U-Less - Harmon | ref SYN0774,97.01,,Posted,stress-00008888-202610-0774
+2026-10-24,GTA prepaid | ref SYN0775,97.38,,Posted,stress-00008888-202610-0775
+2026-10-25,Payless Supermarkets | ref SYN0776,97.75,,Posted,stress-00008888-202610-0776
+2026-10-25,Shell - Upper Tumon | ref SYN0777,98.12,,Posted,stress-00008888-202610-0777
+2026-10-25,Port of Mocha | ref SYN0778,98.49,,Posted,stress-00008888-202610-0778
+2026-10-25,Cost-U-Less - Harmon | ref SYN0779,98.86,,Posted,stress-00008888-202610-0779
+2026-10-25,GTA prepaid | ref SYN0780,99.23,,Posted,stress-00008888-202610-0780
+2026-10-25,Payless Supermarkets | ref SYN0781,99.60,,Posted,stress-00008888-202610-0781
+2026-10-25,Shell - Upper Tumon | ref SYN0782,99.97,,Posted,stress-00008888-202610-0782
+2026-10-25,Port of Mocha | ref SYN0783,100.34,,Posted,stress-00008888-202610-0783
+2026-10-25,Cost-U-Less - Harmon | ref SYN0784,100.71,,Posted,stress-00008888-202610-0784
+2026-10-25,GTA prepaid | ref SYN0785,101.08,,Posted,stress-00008888-202610-0785
+2026-10-25,Payless Supermarkets | ref SYN0786,101.45,,Posted,stress-00008888-202610-0786
+2026-10-25,Shell - Upper Tumon | ref SYN0787,101.82,,Posted,stress-00008888-202610-0787
+2026-10-25,Port of Mocha | ref SYN0788,102.19,,Posted,stress-00008888-202610-0788
+2026-10-25,Cost-U-Less - Harmon | ref SYN0789,102.56,,Posted,stress-00008888-202610-0789
+2026-10-25,GTA prepaid | ref SYN0790,102.93,,Posted,stress-00008888-202610-0790
+2026-10-25,Payless Supermarkets | ref SYN0791,103.30,,Posted,stress-00008888-202610-0791
+2026-10-25,Shell - Upper Tumon | ref SYN0792,103.67,,Posted,stress-00008888-202610-0792
+2026-10-25,Port of Mocha | ref SYN0793,104.04,,Posted,stress-00008888-202610-0793
+2026-10-25,Cost-U-Less - Harmon | ref SYN0794,104.41,,Posted,stress-00008888-202610-0794
+2026-10-25,GTA prepaid | ref SYN0795,104.78,,Posted,stress-00008888-202610-0795
+2026-10-25,Payless Supermarkets | ref SYN0796,105.15,,Posted,stress-00008888-202610-0796
+2026-10-25,Shell - Upper Tumon | ref SYN0797,105.52,,Posted,stress-00008888-202610-0797
+2026-10-25,Port of Mocha | ref SYN0798,105.89,,Posted,stress-00008888-202610-0798
+2026-10-25,Cost-U-Less - Harmon | ref SYN0799,106.26,,Posted,stress-00008888-202610-0799
+2026-10-25,GTA prepaid | ref SYN0800,106.63,,Posted,stress-00008888-202610-0800
+2026-10-25,DEMO settlement payroll | ref SYN0801,,3000.00,Posted,stress-00008888-202610-0801
+2026-10-25,Transfer to own savings | ref SYN0802,200.00,,Posted,stress-00008888-202610-0802
+2026-10-25,Visa payment | ref SYN0803,250.00,,Posted,stress-00008888-202610-0803
+2026-10-25,Payless merchandise refund | ref SYN0804,,9.99,Posted,stress-00008888-202610-0804
+2026-10-25,GTA prepaid | ref SYN0805,108.48,,Posted,stress-00008888-202610-0805
+2026-10-25,Payless Supermarkets | ref SYN0806,108.85,,Posted,stress-00008888-202610-0806
+2026-10-25,Shell - Upper Tumon | ref SYN0807,109.22,,Posted,stress-00008888-202610-0807
+2026-10-26,Port of Mocha | ref SYN0808,109.59,,Posted,stress-00008888-202610-0808
+2026-10-26,Cost-U-Less - Harmon | ref SYN0809,109.96,,Posted,stress-00008888-202610-0809
+2026-10-26,GTA prepaid | ref SYN0810,110.33,,Posted,stress-00008888-202610-0810
+2026-10-26,Payless Supermarkets | ref SYN0811,110.70,,Posted,stress-00008888-202610-0811
+2026-10-26,Shell - Upper Tumon | ref SYN0812,111.07,,Posted,stress-00008888-202610-0812
+2026-10-26,Port of Mocha | ref SYN0813,111.44,,Posted,stress-00008888-202610-0813
+2026-10-26,Cost-U-Less - Harmon | ref SYN0814,111.81,,Posted,stress-00008888-202610-0814
+2026-10-26,GTA prepaid | ref SYN0815,112.18,,Posted,stress-00008888-202610-0815
+2026-10-26,Payless Supermarkets | ref SYN0816,112.55,,Posted,stress-00008888-202610-0816
+2026-10-26,Shell - Upper Tumon | ref SYN0817,112.92,,Posted,stress-00008888-202610-0817
+2026-10-26,Port of Mocha | ref SYN0818,113.29,,Posted,stress-00008888-202610-0818
+2026-10-26,Cost-U-Less - Harmon | ref SYN0819,113.66,,Posted,stress-00008888-202610-0819
+2026-10-26,GTA prepaid | ref SYN0820,114.03,,Posted,stress-00008888-202610-0820
+2026-10-26,Payless Supermarkets | ref SYN0821,114.40,,Posted,stress-00008888-202610-0821
+2026-10-26,Shell - Upper Tumon | ref SYN0822,114.77,,Posted,stress-00008888-202610-0822
+2026-10-26,Port of Mocha | ref SYN0823,115.14,,Posted,stress-00008888-202610-0823
+2026-10-26,Cost-U-Less - Harmon | ref SYN0824,115.51,,Posted,stress-00008888-202610-0824
+2026-10-26,GTA prepaid | ref SYN0825,115.88,,Posted,stress-00008888-202610-0825
+2026-10-26,Payless Supermarkets | ref SYN0826,116.25,,Posted,stress-00008888-202610-0826
+2026-10-26,Shell - Upper Tumon | ref SYN0827,116.62,,Posted,stress-00008888-202610-0827
+2026-10-26,Port of Mocha | ref SYN0828,116.99,,Posted,stress-00008888-202610-0828
+2026-10-26,Cost-U-Less - Harmon | ref SYN0829,117.36,,Posted,stress-00008888-202610-0829
+2026-10-26,GTA prepaid | ref SYN0830,117.73,,Posted,stress-00008888-202610-0830
+2026-10-26,Payless Supermarkets | ref SYN0831,118.10,,Posted,stress-00008888-202610-0831
+2026-10-26,Shell - Upper Tumon | ref SYN0832,118.47,,Posted,stress-00008888-202610-0832
+2026-10-26,Port of Mocha | ref SYN0833,118.84,,Posted,stress-00008888-202610-0833
+2026-10-26,Cost-U-Less - Harmon | ref SYN0834,119.21,,Posted,stress-00008888-202610-0834
+2026-10-26,GTA prepaid | ref SYN0835,119.58,,Posted,stress-00008888-202610-0835
+2026-10-26,Payless Supermarkets | ref SYN0836,119.95,,Posted,stress-00008888-202610-0836
+2026-10-26,Shell - Upper Tumon | ref SYN0837,120.32,,Posted,stress-00008888-202610-0837
+2026-10-26,Port of Mocha | ref SYN0838,120.69,,Posted,stress-00008888-202610-0838
+2026-10-26,Cost-U-Less - Harmon | ref SYN0839,121.06,,Posted,stress-00008888-202610-0839
+2026-10-27,GTA prepaid | ref SYN0840,121.43,,Posted,stress-00008888-202610-0840
+2026-10-27,Payless Supermarkets | ref SYN0841,121.80,,Posted,stress-00008888-202610-0841
+2026-10-27,Shell - Upper Tumon | ref SYN0842,122.17,,Posted,stress-00008888-202610-0842
+2026-10-27,Port of Mocha | ref SYN0843,122.54,,Posted,stress-00008888-202610-0843
+2026-10-27,Cost-U-Less - Harmon | ref SYN0844,122.91,,Posted,stress-00008888-202610-0844
+2026-10-27,GTA prepaid | ref SYN0845,123.28,,Posted,stress-00008888-202610-0845
+2026-10-27,Payless Supermarkets | ref SYN0846,123.65,,Posted,stress-00008888-202610-0846
+2026-10-27,Shell - Upper Tumon | ref SYN0847,124.02,,Posted,stress-00008888-202610-0847
+2026-10-27,Port of Mocha | ref SYN0848,124.39,,Posted,stress-00008888-202610-0848
+2026-10-27,Cost-U-Less - Harmon | ref SYN0849,124.76,,Posted,stress-00008888-202610-0849
+2026-10-27,GTA prepaid | ref SYN0850,125.13,,Posted,stress-00008888-202610-0850
+2026-10-27,Payless Supermarkets | ref SYN0851,125.50,,Posted,stress-00008888-202610-0851
+2026-10-27,Shell - Upper Tumon | ref SYN0852,125.87,,Posted,stress-00008888-202610-0852
+2026-10-27,Port of Mocha | ref SYN0853,126.24,,Posted,stress-00008888-202610-0853
+2026-10-27,Cost-U-Less - Harmon | ref SYN0854,126.61,,Posted,stress-00008888-202610-0854
+2026-10-27,GTA prepaid | ref SYN0855,126.98,,Posted,stress-00008888-202610-0855
+2026-10-27,Payless Supermarkets | ref SYN0856,127.35,,Posted,stress-00008888-202610-0856
+2026-10-27,Shell - Upper Tumon | ref SYN0857,127.72,,Posted,stress-00008888-202610-0857
+2026-10-27,Port of Mocha | ref SYN0858,128.09,,Posted,stress-00008888-202610-0858
+2026-10-27,Cost-U-Less - Harmon | ref SYN0859,128.46,,Posted,stress-00008888-202610-0859
+2026-10-27,GTA prepaid | ref SYN0860,128.83,,Posted,stress-00008888-202610-0860
+2026-10-27,Payless Supermarkets | ref SYN0861,129.20,,Posted,stress-00008888-202610-0861
+2026-10-27,Shell - Upper Tumon | ref SYN0862,129.57,,Posted,stress-00008888-202610-0862
+2026-10-27,Port of Mocha | ref SYN0863,129.94,,Posted,stress-00008888-202610-0863
+2026-10-27,Cost-U-Less - Harmon | ref SYN0864,130.31,,Posted,stress-00008888-202610-0864
+2026-10-27,GTA prepaid | ref SYN0865,130.68,,Posted,stress-00008888-202610-0865
+2026-10-27,Payless Supermarkets | ref SYN0866,131.05,,Posted,stress-00008888-202610-0866
+2026-10-27,Shell - Upper Tumon | ref SYN0867,131.42,,Posted,stress-00008888-202610-0867
+2026-10-27,Port of Mocha | ref SYN0868,131.79,,Posted,stress-00008888-202610-0868
+2026-10-27,Cost-U-Less - Harmon | ref SYN0869,132.16,,Posted,stress-00008888-202610-0869
+2026-10-27,GTA prepaid | ref SYN0870,132.53,,Posted,stress-00008888-202610-0870
+2026-10-27,Payless Supermarkets | ref SYN0871,132.90,,Posted,stress-00008888-202610-0871
+2026-10-28,Shell - Upper Tumon | ref SYN0872,133.27,,Posted,stress-00008888-202610-0872
+2026-10-28,Port of Mocha | ref SYN0873,133.64,,Posted,stress-00008888-202610-0873
+2026-10-28,Cost-U-Less - Harmon | ref SYN0874,134.01,,Posted,stress-00008888-202610-0874
+2026-10-28,GTA prepaid | ref SYN0875,134.38,,Posted,stress-00008888-202610-0875
+2026-10-28,Payless Supermarkets | ref SYN0876,134.75,,Posted,stress-00008888-202610-0876
+2026-10-28,Shell - Upper Tumon | ref SYN0877,135.12,,Posted,stress-00008888-202610-0877
+2026-10-28,Port of Mocha | ref SYN0878,135.49,,Posted,stress-00008888-202610-0878
+2026-10-28,Cost-U-Less - Harmon | ref SYN0879,135.86,,Posted,stress-00008888-202610-0879
+2026-10-28,GTA prepaid | ref SYN0880,136.23,,Posted,stress-00008888-202610-0880
+2026-10-28,Payless Supermarkets | ref SYN0881,136.60,,Posted,stress-00008888-202610-0881
+2026-10-28,Shell - Upper Tumon | ref SYN0882,136.97,,Posted,stress-00008888-202610-0882
+2026-10-28,Port of Mocha | ref SYN0883,137.34,,Posted,stress-00008888-202610-0883
+2026-10-28,Cost-U-Less - Harmon | ref SYN0884,137.71,,Posted,stress-00008888-202610-0884
+2026-10-28,GTA prepaid | ref SYN0885,138.08,,Posted,stress-00008888-202610-0885
+2026-10-28,Payless Supermarkets | ref SYN0886,138.45,,Posted,stress-00008888-202610-0886
+2026-10-28,Shell - Upper Tumon | ref SYN0887,138.82,,Posted,stress-00008888-202610-0887
+2026-10-28,Port of Mocha | ref SYN0888,139.19,,Posted,stress-00008888-202610-0888
+2026-10-28,Cost-U-Less - Harmon | ref SYN0889,139.56,,Posted,stress-00008888-202610-0889
+2026-10-28,GTA prepaid | ref SYN0890,139.93,,Posted,stress-00008888-202610-0890
+2026-10-28,Payless Supermarkets | ref SYN0891,140.30,,Posted,stress-00008888-202610-0891
+2026-10-28,Shell - Upper Tumon | ref SYN0892,140.67,,Posted,stress-00008888-202610-0892
+2026-10-28,Port of Mocha | ref SYN0893,141.04,,Posted,stress-00008888-202610-0893
+2026-10-28,Cost-U-Less - Harmon | ref SYN0894,141.41,,Posted,stress-00008888-202610-0894
+2026-10-28,GTA prepaid | ref SYN0895,141.78,,Posted,stress-00008888-202610-0895
+2026-10-28,Payless Supermarkets | ref SYN0896,142.15,,Posted,stress-00008888-202610-0896
+2026-10-28,Shell - Upper Tumon | ref SYN0897,142.52,,Posted,stress-00008888-202610-0897
+2026-10-28,Port of Mocha | ref SYN0898,142.89,,Posted,stress-00008888-202610-0898
+2026-10-28,Cost-U-Less - Harmon | ref SYN0899,143.26,,Posted,stress-00008888-202610-0899
+2026-10-28,GTA prepaid | ref SYN0900,143.63,,Posted,stress-00008888-202610-0900
+2026-10-28,DEMO settlement payroll | ref SYN0901,,3000.00,Posted,stress-00008888-202610-0901
+2026-10-28,Transfer to own savings | ref SYN0902,200.00,,Posted,stress-00008888-202610-0902
+2026-10-28,Visa payment | ref SYN0903,250.00,,Posted,stress-00008888-202610-0903
+2026-10-28,Payless merchandise refund | ref SYN0904,,9.99,Posted,stress-00008888-202610-0904
+2026-10-29,GTA prepaid | ref SYN0905,145.48,,Posted,stress-00008888-202610-0905
+2026-10-29,Payless Supermarkets | ref SYN0906,145.85,,Posted,stress-00008888-202610-0906
+2026-10-29,Shell - Upper Tumon | ref SYN0907,146.22,,Posted,stress-00008888-202610-0907
+2026-10-29,Port of Mocha | ref SYN0908,146.59,,Posted,stress-00008888-202610-0908
+2026-10-29,Cost-U-Less - Harmon | ref SYN0909,146.96,,Posted,stress-00008888-202610-0909
+2026-10-29,GTA prepaid | ref SYN0910,147.33,,Posted,stress-00008888-202610-0910
+2026-10-29,Payless Supermarkets | ref SYN0911,147.70,,Posted,stress-00008888-202610-0911
+2026-10-29,Shell - Upper Tumon | ref SYN0912,148.07,,Posted,stress-00008888-202610-0912
+2026-10-29,Port of Mocha | ref SYN0913,148.44,,Posted,stress-00008888-202610-0913
+2026-10-29,Cost-U-Less - Harmon | ref SYN0914,148.81,,Posted,stress-00008888-202610-0914
+2026-10-29,GTA prepaid | ref SYN0915,149.18,,Posted,stress-00008888-202610-0915
+2026-10-29,Payless Supermarkets | ref SYN0916,149.55,,Posted,stress-00008888-202610-0916
+2026-10-29,Shell - Upper Tumon | ref SYN0917,149.92,,Posted,stress-00008888-202610-0917
+2026-10-29,Port of Mocha | ref SYN0918,150.29,,Posted,stress-00008888-202610-0918
+2026-10-29,Cost-U-Less - Harmon | ref SYN0919,150.66,,Posted,stress-00008888-202610-0919
+2026-10-29,GTA prepaid | ref SYN0920,151.03,,Posted,stress-00008888-202610-0920
+2026-10-29,Payless Supermarkets | ref SYN0921,151.40,,Posted,stress-00008888-202610-0921
+2026-10-29,Shell - Upper Tumon | ref SYN0922,151.77,,Posted,stress-00008888-202610-0922
+2026-10-29,Port of Mocha | ref SYN0923,152.14,,Posted,stress-00008888-202610-0923
+2026-10-29,Cost-U-Less - Harmon | ref SYN0924,152.51,,Posted,stress-00008888-202610-0924
+2026-10-29,GTA prepaid | ref SYN0925,152.88,,Posted,stress-00008888-202610-0925
+2026-10-29,Payless Supermarkets | ref SYN0926,153.25,,Posted,stress-00008888-202610-0926
+2026-10-29,Shell - Upper Tumon | ref SYN0927,153.62,,Posted,stress-00008888-202610-0927
+2026-10-29,Port of Mocha | ref SYN0928,153.99,,Posted,stress-00008888-202610-0928
+2026-10-29,Cost-U-Less - Harmon | ref SYN0929,154.36,,Posted,stress-00008888-202610-0929
+2026-10-29,GTA prepaid | ref SYN0930,154.73,,Posted,stress-00008888-202610-0930
+2026-10-29,Payless Supermarkets | ref SYN0931,155.10,,Posted,stress-00008888-202610-0931
+2026-10-29,Shell - Upper Tumon | ref SYN0932,155.47,,Posted,stress-00008888-202610-0932
+2026-10-29,Port of Mocha | ref SYN0933,155.84,,Posted,stress-00008888-202610-0933
+2026-10-29,Cost-U-Less - Harmon | ref SYN0934,156.21,,Posted,stress-00008888-202610-0934
+2026-10-29,GTA prepaid | ref SYN0935,156.58,,Posted,stress-00008888-202610-0935
+2026-10-29,Payless Supermarkets | ref SYN0936,156.95,,Posted,stress-00008888-202610-0936
+2026-10-30,Shell - Upper Tumon | ref SYN0937,157.32,,Posted,stress-00008888-202610-0937
+2026-10-30,Port of Mocha | ref SYN0938,157.69,,Posted,stress-00008888-202610-0938
+2026-10-30,Cost-U-Less - Harmon | ref SYN0939,158.06,,Posted,stress-00008888-202610-0939
+2026-10-30,GTA prepaid | ref SYN0940,158.43,,Posted,stress-00008888-202610-0940
+2026-10-30,Payless Supermarkets | ref SYN0941,158.80,,Posted,stress-00008888-202610-0941
+2026-10-30,Shell - Upper Tumon | ref SYN0942,159.17,,Posted,stress-00008888-202610-0942
+2026-10-30,Port of Mocha | ref SYN0943,159.54,,Posted,stress-00008888-202610-0943
+2026-10-30,Cost-U-Less - Harmon | ref SYN0944,159.91,,Posted,stress-00008888-202610-0944
+2026-10-30,GTA prepaid | ref SYN0945,160.28,,Posted,stress-00008888-202610-0945
+2026-10-30,Payless Supermarkets | ref SYN0946,160.65,,Posted,stress-00008888-202610-0946
+2026-10-30,Shell - Upper Tumon | ref SYN0947,161.02,,Posted,stress-00008888-202610-0947
+2026-10-30,Port of Mocha | ref SYN0948,161.39,,Posted,stress-00008888-202610-0948
+2026-10-30,Cost-U-Less - Harmon | ref SYN0949,161.76,,Posted,stress-00008888-202610-0949
+2026-10-30,GTA prepaid | ref SYN0950,162.13,,Posted,stress-00008888-202610-0950
+2026-10-30,Payless Supermarkets | ref SYN0951,162.50,,Posted,stress-00008888-202610-0951
+2026-10-30,Shell - Upper Tumon | ref SYN0952,162.87,,Posted,stress-00008888-202610-0952
+2026-10-30,Port of Mocha | ref SYN0953,163.24,,Posted,stress-00008888-202610-0953
+2026-10-30,Cost-U-Less - Harmon | ref SYN0954,163.61,,Posted,stress-00008888-202610-0954
+2026-10-30,GTA prepaid | ref SYN0955,163.98,,Posted,stress-00008888-202610-0955
+2026-10-30,Payless Supermarkets | ref SYN0956,164.35,,Posted,stress-00008888-202610-0956
+2026-10-30,Shell - Upper Tumon | ref SYN0957,164.72,,Posted,stress-00008888-202610-0957
+2026-10-30,Port of Mocha | ref SYN0958,165.09,,Posted,stress-00008888-202610-0958
+2026-10-30,Cost-U-Less - Harmon | ref SYN0959,165.46,,Posted,stress-00008888-202610-0959
+2026-10-30,GTA prepaid | ref SYN0960,165.83,,Posted,stress-00008888-202610-0960
+2026-10-30,Payless Supermarkets | ref SYN0961,166.20,,Posted,stress-00008888-202610-0961
+2026-10-30,Shell - Upper Tumon | ref SYN0962,166.57,,Posted,stress-00008888-202610-0962
+2026-10-30,Port of Mocha | ref SYN0963,166.94,,Posted,stress-00008888-202610-0963
+2026-10-30,Cost-U-Less - Harmon | ref SYN0964,167.31,,Posted,stress-00008888-202610-0964
+2026-10-30,GTA prepaid | ref SYN0965,167.68,,Posted,stress-00008888-202610-0965
+2026-10-30,Payless Supermarkets | ref SYN0966,168.05,,Posted,stress-00008888-202610-0966
+2026-10-30,Shell - Upper Tumon | ref SYN0967,168.42,,Posted,stress-00008888-202610-0967
+2026-10-30,Port of Mocha | ref SYN0968,168.79,,Posted,stress-00008888-202610-0968
+2026-10-31,Cost-U-Less - Harmon | ref SYN0969,169.16,,Posted,stress-00008888-202610-0969
+2026-10-31,GTA prepaid | ref SYN0970,169.53,,Posted,stress-00008888-202610-0970
+2026-10-31,Payless Supermarkets | ref SYN0971,169.90,,Posted,stress-00008888-202610-0971
+2026-10-31,Shell - Upper Tumon | ref SYN0972,170.27,,Posted,stress-00008888-202610-0972
+2026-10-31,Port of Mocha | ref SYN0973,170.64,,Posted,stress-00008888-202610-0973
+2026-10-31,Cost-U-Less - Harmon | ref SYN0974,171.01,,Posted,stress-00008888-202610-0974
+2026-10-31,GTA prepaid | ref SYN0975,171.38,,Posted,stress-00008888-202610-0975
+2026-10-31,Payless Supermarkets | ref SYN0976,171.75,,Posted,stress-00008888-202610-0976
+2026-10-31,Shell - Upper Tumon | ref SYN0977,172.12,,Posted,stress-00008888-202610-0977
+2026-10-31,Port of Mocha | ref SYN0978,172.49,,Posted,stress-00008888-202610-0978
+2026-10-31,Cost-U-Less - Harmon | ref SYN0979,172.86,,Posted,stress-00008888-202610-0979
+2026-10-31,GTA prepaid | ref SYN0980,173.23,,Posted,stress-00008888-202610-0980
+2026-10-31,Payless Supermarkets | ref SYN0981,173.60,,Posted,stress-00008888-202610-0981
+2026-10-31,Shell - Upper Tumon | ref SYN0982,173.97,,Posted,stress-00008888-202610-0982
+2026-10-31,Port of Mocha | ref SYN0983,174.34,,Posted,stress-00008888-202610-0983
+2026-10-31,Cost-U-Less - Harmon | ref SYN0984,174.71,,Posted,stress-00008888-202610-0984
+2026-10-31,GTA prepaid | ref SYN0985,175.08,,Posted,stress-00008888-202610-0985
+2026-10-31,Payless Supermarkets | ref SYN0986,175.45,,Posted,stress-00008888-202610-0986
+2026-10-31,Shell - Upper Tumon | ref SYN0987,175.82,,Posted,stress-00008888-202610-0987
+2026-10-31,Port of Mocha | ref SYN0988,176.19,,Posted,stress-00008888-202610-0988
+2026-10-31,Cost-U-Less - Harmon | ref SYN0989,176.56,,Posted,stress-00008888-202610-0989
+2026-10-31,GTA prepaid | ref SYN0990,176.93,,Posted,stress-00008888-202610-0990
+2026-10-31,Payless Supermarkets | ref SYN0991,177.30,,Posted,stress-00008888-202610-0991
+2026-10-31,Shell - Upper Tumon | ref SYN0992,177.67,,Posted,stress-00008888-202610-0992
+2026-10-31,Port of Mocha | ref SYN0993,178.04,,Posted,stress-00008888-202610-0993
+2026-10-31,Cost-U-Less - Harmon | ref SYN0994,178.41,,Posted,stress-00008888-202610-0994
+2026-10-31,GTA prepaid | ref SYN0995,178.78,,Posted,stress-00008888-202610-0995
+2026-10-31,Payless Supermarkets | ref SYN0996,179.15,,Posted,stress-00008888-202610-0996
+2026-10-31,Shell - Upper Tumon | ref SYN0997,179.52,,Posted,stress-00008888-202610-0997
+2026-10-31,Port of Mocha | ref SYN0998,179.89,,Posted,stress-00008888-202610-0998
+2026-10-31,Cost-U-Less - Harmon | ref SYN0999,180.26,,Posted,stress-00008888-202610-0999
+2026-10-31,GTA prepaid | ref SYN1000,180.63,,Posted,stress-00008888-202610-1000
+Synthetic test document,Fictional household and account numbers; no real banking data
