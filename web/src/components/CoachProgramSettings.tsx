@@ -21,8 +21,9 @@ function identityValues(workspace: CoachWorkspaceSettings): CoachWorkspaceSettin
 }
 function message(error: unknown) { return error instanceof Error ? error.message : 'Program settings could not be saved. Try again.' }
 
-export function CreateCoachProgram({ firstProgram = false, disabled = false, onDirtyChange, onPendingChange, onCreated }: {
+export function CreateCoachProgram({ firstProgram = false, embedded = false, disabled = false, onDirtyChange, onPendingChange, onCreated }: {
   firstProgram?: boolean
+  embedded?: boolean
   disabled?: boolean
   onDirtyChange?: (dirty: boolean) => void
   onPendingChange?: (pending: boolean) => void
@@ -70,8 +71,8 @@ export function CreateCoachProgram({ firstProgram = false, disabled = false, onD
     finally { if (mounted.current) setBusy(false) }
   }
 
-  return <article className="panel program-create">
-    <header><div><h3>{firstProgram ? 'Create your first program' : 'Create a program'}</h3><p>Give each coach a separate workspace for their assistant, branding, and groups.</p></div>
+  return <article className={embedded ? 'program-create' : 'panel program-create'}>
+    <header>{!embedded && <div><h3>{firstProgram ? 'Create your first program' : 'Create a program'}</h3><p>Give each coach a separate workspace for their assistant, branding, and groups.</p></div>}
       {!open && <Button variant="secondary" disabled={disabled || busy} onClick={() => setOpen(true)}>Create program</Button>}
     </header>
     {error && <p role="alert" className="coach-studio-alert is-error">{error}</p>}
@@ -210,9 +211,9 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
   }
 
   return <section className="program-settings" aria-busy={loading || busy}>
-    <header><h3>What will people see?</h3><p>Set your program name, coach profile, and welcome screen.</p></header>
-    {currentUser.is_admin && <CreateCoachProgram disabled={busy || loading || identityDirty || brandDirty} onDirtyChange={setCreateDirty} />}
-    {workspaceId === null ? <p className="coach-read-only">Choose a program above to edit its settings. You can create the first program here.</p> : <>
+    {!(simple && workspaceId === null) && <header><h3>What will people see?</h3><p>Set your program name, coach profile, and welcome screen.</p></header>}
+    {currentUser.is_admin && <CreateCoachProgram embedded={simple && workspaceId === null} disabled={busy || loading || identityDirty || brandDirty} onDirtyChange={setCreateDirty} />}
+    {workspaceId === null ? !simple && <p className="coach-read-only">Choose a program above to edit its settings. You can create the first program here.</p> : <>
       {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><Button variant="ghost" disabled={busy} onClick={() => { if (!dirty || window.confirm('Discard unsaved program settings and reload?')) void load() }}>Reload settings</Button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
       {loading ? <p role="status">Loading program settings…</p> : workspace && brand && draft && <>
