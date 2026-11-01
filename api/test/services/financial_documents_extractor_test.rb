@@ -842,6 +842,26 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal %w[XXXX1111 XXXX2222], merged[:accounts].map { |item| item[:evidence][:masked_identifier] }
   end
 
+  test "worksheet chunks join verified headers only within one worksheet" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+    batch = lambda do |sheet, row|
+      { source_accounting: FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+        accounts: [ { account_key: "checking", account_basis: "asset", masked_identifier: "XXXX1111" } ],
+        events: [ { account_key: "checking", event_type: "purchase", row_kind: "posted", posted_on: "2026-10-01", signed_amount_cents: -100, amount_column_cents: 100, locator: { sheet_index: sheet, row: row } } ] },
+        coverage: { expected_sheet_count: 2, processed_sheets: [ sheet ] }) }
+    end
+    separate = extractor.send(:merge_source_accounting, [ batch.call(0, 1), batch.call(1, 1) ], page_count: nil, sheet_count: 2)
+    assert_equal 2, separate[:accounts].length, "Different banks can print the same account suffix on separate sheets"
+    assert_equal 2, separate[:events].pluck(:source_key).uniq.length
+    continued = extractor.send(:merge_source_accounting, [ batch.call(0, 1), batch.call(0, 81) ], page_count: nil, sheet_count: 2)
+    assert_equal 1, continued[:accounts].length
+    assert_equal 1, continued[:events].pluck(:source_key).uniq.length
+    assert_equal [ 1, 81 ], continued[:events].map { |event| event[:locator][:row] }
+    unknown = [ batch.call(0, 1), batch.call(1, 1) ]
+    unknown.each { |data| data[:source_accounting][:coverage][:processed_sheets] = [] }
+    assert_equal 2, extractor.send(:merge_source_accounting, unknown, page_count: nil, sheet_count: 2)[:accounts].length
+  end
+
   test "statement fallback classification does not turn historical rows into recurring setup" do
     document = FinancialDocumentImport.new(document_kind: "statement")
     payload = { "items" => Array.new(61) { { "target_type" => "income_source", "label" => "Historical payroll", "amount" => 200, "cadence" => "monthly" } },

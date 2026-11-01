@@ -438,7 +438,7 @@ module FinancialDocuments
           end
         end
       end
-      canonical_keys = canonical_account_keys(batch_accounts)
+      canonical_keys = canonical_account_keys(batch_accounts, worksheet_sources: sheet_count ? sources : nil)
       account_headers = batch_accounts.flatten.map { |account| account.merge(source_key: canonical_keys.fetch(account[:source_key], account[:source_key])) }
       events.each do |event|
         event[:source_key] = canonical_keys.fetch(event[:source_key], event[:source_key])
@@ -472,15 +472,19 @@ module FinancialDocuments
     # 1-2 and "XXXX-XX-5590 continued" later). Join keys only when they come
     # from different batches, print the same masked number and report the
     # same known account basis. Two keys from one batch, an unknown basis or
-    # a missing number always stay separate accounts for the reviewer.
-    def canonical_account_keys(batch_accounts)
+    # a missing number always stay separate accounts for the reviewer. Worksheet
+    # boundaries also stay separate: unrelated banks can share a masked suffix.
+    def canonical_account_keys(batch_accounts, worksheet_sources: nil)
       candidates = batch_accounts.each_with_index.flat_map do |accounts, batch|
         accounts.filter_map do |account|
           digits = account.dig(:evidence, :masked_identifier).to_s.gsub(/\D/, "").last(4)
           basis = account[:account_basis].to_s
           next unless digits.length == 4 && basis.in?(%w[asset liability])
 
-          { batch: batch, key: account[:source_key], identity: [ digits, basis ] }
+          sheets = worksheet_sources ? Array(worksheet_sources[batch].dig(:coverage, :processed_sheets)).sort : nil
+          next if worksheet_sources && sheets.length != 1
+
+          { batch: batch, key: account[:source_key], identity: [ sheets, digits, basis ] }
         end
       end
       mapping = {}
