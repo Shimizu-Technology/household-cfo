@@ -2,8 +2,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError, fetchDailyContext, fetchDailyRequestStatus, mutateDaily, updateChallengeChatCard } from '../api'
+import type { DailyMutate } from '../lib/useDailyMutation'
 import type { DailyContext, DailyDay, DailyInput } from '../lib/dailyChallenge'
-import { clearDailyCards, forgetDailyCard, dailyCardNeedsAttention, registerDailyCard, restoreDailyCards, registerServerDailyCard } from '../lib/dailyCheckIn'
+import { clearDailyCards, forgetDailyCard, dailyCardNeedsAttention, registerDailyCard, restoreDailyCards, registerServerDailyCard, readDailyCard, syncDailyCard, saveDailyCardPurchase } from '../lib/dailyCheckIn'
 import { saveDailyRecovery, setDailyExpectedUser } from '../lib/dailyRecovery'
 import type { DailyReportIntake } from '../lib/savingsChallenge'
 import { baselineScope } from '../test/baselineFixtures'
@@ -361,12 +362,12 @@ describe('Mia daily report card', () => {
   it('hands one purchase to Today and keeps the rest in the card, without saving', async () => {
     const { card, onEditInToday } = renderCard(todayOnly)
     fireEvent.click(within(card).getByRole('button', { name: 'Edit in Today' }))
-    await waitFor(() => expect(onEditInToday).toHaveBeenCalledWith({ kind: 'purchase', amount_cents: 800, effective_on: today, merchant: 'Shell', approval_state: 'unreviewed_input', counted: false }, 1))
-    expect(within(card).getByRole('status').textContent).toBe('Moved Shell to Today. Payless is still here to save.')
-    expect(within(card).queryByLabelText('Amount for Shell')).toBeNull()
+    await waitFor(() => expect(onEditInToday).toHaveBeenCalledWith({ kind: 'purchase', amount_cents: 800, effective_on: today, merchant: 'Shell', approval_state: 'unreviewed_input', counted: false }, 0))
+    expect(within(card).getByRole('status').textContent).toBe('Opened Shell in Today. It stays here until saved.')
+    expect(within(card).getByLabelText('Amount for Shell')).toBeTruthy()
     expect(within(card).getByLabelText('Amount for Payless')).toBeTruthy()
     fireEvent.click(within(card).getByRole('button', { name: 'Edit in Today' }))
-    await waitFor(() => expect(onEditInToday).toHaveBeenLastCalledWith(expect.objectContaining({ merchant: 'Payless' }), 0))
+    await waitFor(() => expect(onEditInToday).toHaveBeenLastCalledWith(expect.objectContaining({ merchant: 'Shell' }), 0))
     expect(mutateDaily).not.toHaveBeenCalled()
   })
 
@@ -397,18 +398,25 @@ it('blocks financial requests before a restored server card is registered', asyn
   await within(card).findByText(/Wait for this check-in to finish loading/)
   expect(mutateDaily).not.toHaveBeenCalled()
 })
-it('persists a final handoff before opening Today and closes the server card', async () => {
+it('keeps the final handoff recoverable when Today closes or fails before saving', async () => {
   const input = { ...report, purchases: [report.purchases[0]] }
   const server = { id: 999, kind: 'daily_report' as const, status: 'pending' as const, lock_version: 0, enrollment_id: 10, message_id: 20, input, state: {} }
   registerServerDailyCard(server, 'handoff-test')
   let finish!: (value: Awaited<ReturnType<typeof updateChallengeChatCard>>) => void
   vi.mocked(updateChallengeChatCard).mockReturnValue(new Promise(resolve => { finish = resolve }))
-  const { card, onEditInToday } = renderCard(input, 'server-card-999')
+  const { card, onEditInToday, view } = renderCard(input, 'server-card-999')
   fireEvent.click(within(card).getByRole('button', { name: 'Edit in Today' }))
-  await waitFor(() => expect(updateChallengeChatCard).toHaveBeenCalledWith(999, expect.objectContaining({ state: expect.objectContaining({ phase: 'saved', rows: [expect.objectContaining({ status: 'moved' })] }) })))
+  await waitFor(() => expect(updateChallengeChatCard).toHaveBeenCalledWith(999, expect.objectContaining({ state: expect.objectContaining({ phase: 'idle', rows: [expect.objectContaining({ status: 'pending', merchant: 'Shell' })] }) })))
   expect(onEditInToday).not.toHaveBeenCalled()
-  await act(async () => finish({ record: { ...server, status: 'closed', lock_version: 1 }, challenge: {} as never }))
+  await act(async () => finish({ record: { ...server, lock_version: 1 }, challenge: {} as never }))
   expect(onEditInToday).toHaveBeenCalledOnce()
+  const persisted = structuredClone(readDailyCard('server-card-999')!)
+  view.unmount()
+  clearDailyCards(); sessionStorage.clear()
+  registerServerDailyCard({ ...server, lock_version: 1, state: persisted }, 'handoff-test')
+  const restored = renderCard(input, 'server-card-999')
+  expect(within(restored.card).getByLabelText('Amount for Shell')).toHaveProperty('value', '8.00')
+  expect(readDailyCard('server-card-999')?.phase).toBe('idle')
   expect(mutateDaily).not.toHaveBeenCalled()
 })
 it('does not approve after chat clears while the exact approval input is being persisted', async () => {
@@ -429,4 +437,36 @@ it('does not approve after chat clears while the exact approval input is being p
   act(() => forgetDailyCard('server-card-999'))
   await act(async () => finish({ record: { ...server, lock_version: ++version }, challenge: {} as never }))
   expect(actions()).toEqual(['purchase_stage'])
+})
+
+it('reconciles a Today approval after reload without saving the purchase twice', async () => {
+  const input = { ...report, purchases: [report.purchases[0]] }
+  const server = { id: 999, kind: 'daily_report' as const, status: 'pending' as const, lock_version: 0, enrollment_id: 10, message_id: 20, input, state: {} }
+  let persisted = server
+  vi.mocked(updateChallengeChatCard).mockImplementation(async (_id, request) => {
+    persisted = { ...persisted, lock_version: persisted.lock_version + 1, state: request.action === 'save_state' ? structuredClone(request.state) : {} }
+    return { record: persisted, challenge: {} as never }
+  })
+  registerServerDailyCard(server, 'today-approval')
+  const view = renderCard(input, 'server-card-999')
+  await ready(view.card)
+  const actor = { ...baselineScope, enrollment_id: dailyContext.enrollment_id }
+  const handoff = { nonce: 'server-card-999', rowId: 0 }
+  const perform = vi.fn<DailyMutate>(async (action) => action === 'purchase_stage' ? dailyDraft : null)
+  await act(async () => { await saveDailyCardPurchase(handoff, 'purchase_stage', { amount_cents: 800, merchant: 'Shell', purchased_on: today }, perform, actor) })
+  perform.mockImplementation(async (_action, _input, _reflection, key) => {
+    saveDailyRecovery({ scope: actor, action: 'purchase_approve', input: {}, key: key!, working: false, error: '' })
+    return null
+  })
+  await act(async () => { await saveDailyCardPurchase(handoff, 'purchase_approve', { draft_id: dailyDraft.id }, perform, actor) })
+  const key = readDailyCard(handoff.nonce)!.unconfirmed!.key
+  view.view.unmount(); clearDailyCards(); sessionStorage.clear()
+  vi.mocked(fetchDailyRequestStatus).mockResolvedValue({ actor_scope: baselineScope, enrollment_id: actor.enrollment_id, state: 'committed', replayed: true, record: dailyVersion })
+  registerServerDailyCard(persisted, 'today-approval')
+  const restored = renderCard(input, handoff.nonce)
+  await waitFor(() => expect(readDailyCard(handoff.nonce)?.rows[0].status).toBe('saved'))
+  expect(fetchDailyRequestStatus).toHaveBeenCalledWith('purchase_approve', key)
+  expect(mutateDaily).not.toHaveBeenCalled()
+  await act(async () => { await syncDailyCard(handoff.nonce) })
+  expect(within(restored.card).queryByLabelText('Amount for Shell')).toBeNull()
 })

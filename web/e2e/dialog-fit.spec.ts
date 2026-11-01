@@ -31,6 +31,7 @@ for (const fixture of [
       }
       await assertFitsDialog(dialog.getByRole('heading', { level: 2 }))
       if (fixture.page === '/privacy-qa.html') {
+        await dialog.locator('summary').filter({ hasText: 'Sharing choices' }).click()
         const purpose = dialog.getByRole('combobox', { name: 'Purpose', exact: true })
         // Native popup interaction is checked through computer use; headless
         // mobile WebKit does not expose its system picker to keyboard input.
@@ -43,6 +44,13 @@ for (const fixture of [
       const last = dialog.locator('button:visible:not([disabled]), summary:visible').last()
       await last.focus()
       await assertFitsDialog(last)
+      if (fixture.page === '/privacy-qa.html') {
+        await dialog.getByRole('heading', { level: 2 }).scrollIntoViewIfNeeded()
+        await assertFitsDialog(dialog.getByRole('heading', { level: 2 }))
+        await dialog.getByRole('button', { name: 'Close privacy controls' }).focus()
+        await last.focus()
+        await assertFitsDialog(last)
+      }
       const overflow = await dialog.evaluate(el => { const bounds = el.getBoundingClientRect(); return { amount: el.scrollWidth - el.clientWidth, offenders: Array.from(el.querySelectorAll('*')).filter(child => { const r=child.getBoundingClientRect(); return r.height > 0 && (r.right > bounds.right + 1 || r.left < bounds.left - 1 || child.scrollWidth > child.clientWidth + 1) }).slice(0, 12).map(child => ({ tag: child.tagName, class: child.className, text: child.textContent?.slice(0, 40), width: child.getBoundingClientRect().width, scroll:child.scrollWidth,client:child.clientWidth })) } })
       expect(overflow.amount, JSON.stringify(overflow.offenders)).toBeLessThanOrEqual(1)
       await page.keyboard.press('Tab')

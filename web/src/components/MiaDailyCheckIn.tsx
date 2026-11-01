@@ -41,7 +41,7 @@ export function MiaDailyPrompt({ assistantName, assistantInitial, disabled, onNo
   )
 }
 
-type CardProps = { nonce: string; report: DailyReportIntake; scope: BaselineScope; cohortId?: number; onSaved: () => void; onEditInToday: (purchase: SavingsIntake, remaining: number) => void; onDismiss: () => void }
+type CardProps = { nonce: string; report: DailyReportIntake; scope: BaselineScope; cohortId?: number; onSaved: () => void; onEditInToday: (purchase: SavingsIntake, rowId: number) => void; onDismiss: () => void }
 type Perform = (action: Exclude<DailyAction, 'reflection_erase'>, input: DailyInput, reflectionId: undefined, key: string) => Promise<unknown | null>
 
 const locked = (row: DailyCardRow) => row.draft !== undefined || row.status === 'saving' || row.status === 'unknown'
@@ -351,25 +351,23 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
     })
   }
 
-  // "Edit in Today" hands one unlocked purchase to the Today form and keeps the rest here.
+  // "Edit in Today" opens one unlocked purchase and retains its recovery state here.
   const movable = state.rows.find((row) => open(row) && !locked(row))
   async function moveToToday() {
     if (!movable || saveInFlightRef.current || busy) return
     let intake: SavingsIntake
     try { intake = { kind: 'purchase', amount_cents: savingsInputCents(movable.amount), effective_on: movable.purchased_on, merchant: movable.merchant.trim(), approval_state: 'unreviewed_input', counted: false } }
     catch { setInvalid((current) => ({ ...current, [movable.id]: 'Enter an amount like 8.25.' })); return }
-    const remaining = state.rows.filter((row) => row.status !== 'moved' && row.id !== movable.id)
-    const names = remaining.map((row) => label(row, state.rows.indexOf(row)))
     const before = currentCard()
     setMoving(true)
     saveInFlightRef.current = true
     try {
-      update((current) => ({ ...current, phase: remaining.length ? 'saving' : 'saved', rows: current.rows.map((row) => row.id === movable.id ? { ...row, status: 'moved' } : row),
-        message: remaining.length ? `Moved ${label(movable, state.rows.indexOf(movable))} to Today. ${sentence(names.join(' and '))} ${remaining.length === 1 ? 'is' : 'are'} still here to save.` : null }))
+      // Keep the editable row and the server card until a confirmed financial save.
+      // Today uses the same durable request keys, so closing either view is safe.
+      update((current) => ({ ...current, phase: 'idle', message: `Opened ${label(movable, state.rows.indexOf(movable))} in Today. It stays here until saved.` }))
       await syncDailyCard(nonce)
       currentCard()
-      if (remaining.length) update(current => ({ ...current, phase: 'idle' }))
-      onEditInToday(intake, remaining.length)
+      onEditInToday(intake, movable.id)
     } catch {
       update(() => ({ ...before, message: 'We couldn’t move this purchase. Reopen Ask Mia and try again.' }))
     } finally { saveInFlightRef.current = false; setMoving(false) }

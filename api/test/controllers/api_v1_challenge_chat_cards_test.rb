@@ -192,6 +192,49 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_nil response.parsed_body["challenge_chat_card"]
   end
 
+  test "essential hardship and crisis interrupt patterns and goal cards without financial proposals" do
+    [ "patterns", "goal" ].each do |previous|
+      {
+        "I can't afford rent this month, what should I do?" => "Protect food, housing, medication",
+        "I can't afford food this month, what should I do?" => "Food comes first",
+        "I can't afford medicine this month, what should I do?" => "Protect food, housing, medication",
+        "I want to kill myself. What should I do about my goal?" => "988"
+      }.each_with_index do |(message, expected), index|
+        if previous == "patterns"
+          ask "Can you identify spending patterns?", "safety-setup-patterns-#{index}"
+          ChatSession.find_by!(user: @savings_user, household: @savings_household).update!(active_topic: {
+            type: "challenge_patterns", choices: [ { merchant: "Ross", monthly_impact_cents: 10_000 }, { merchant: "Kmart", monthly_impact_cents: 6_000 } ]
+          })
+        else
+          ask "Set my goal to $500", "safety-setup-goal-#{index}"
+        end
+        ask message, "safety-#{previous}-#{index}"
+        answer = response.parsed_body.dig("assistant_message", "content")
+        assert_includes answer, expected, message
+        refute_includes answer, "Would you feel more comfortable cutting back"
+        assert_nil response.parsed_body["challenge_chat_card"]
+        refute_equal "challenge_patterns", ChatSession.find_by!(user: @savings_user, household: @savings_household).active_topic["type"]
+      end
+    end
+    assert_equal 0, SavingsPlanVersion.count
+  end
+
+  test "mentioning an existing goal amount preserves a pending proposal" do
+    ask "Set my goal to $300", "pending-goal"
+    pending = response.parsed_body.fetch("challenge_chat_card")
+    [ "What happens if I miss my goal of $500?", "My goal is $500", "What should I do about my goal of $500?" ].each_with_index do |message, index|
+      ask message, "mention-goal-#{index}"
+      assert_nil response.parsed_body["challenge_chat_card"], message
+      assert_equal "pending", SavingsChatCard.find(pending["id"]).status
+      assert_equal 1, SavingsChatCard.where(kind: "goal", status: "pending").count
+    end
+    [ "Make it $400", "Let's do $400", "Change my goal to $400" ].each_with_index do |message, index|
+      ask message, "explicit-goal-#{index}"
+      assert_equal 40_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents"), message
+    end
+    assert_nil @savings_enrollment.reload.current_accepted_plan_version_id
+  end
+
   private
   def auth = { "Authorization" => "Bearer test_token_#{@savings_user.id}", "X-Cohort-Id" => @savings_cohort.id.to_s }
   def ask(message, request_id)

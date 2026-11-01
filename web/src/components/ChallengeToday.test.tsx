@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { act,cleanup,fireEvent,render,screen,waitFor,within } from '@testing-library/react'
 import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest'
-import { ApiRequestError, fetchDailyContext, fetchDailyPage, mutateDaily, fetchDailyRequestStatus, fetchDailyCandidates } from '../api'
+import { ApiRequestError, fetchDailyContext, fetchDailyPage, mutateDaily, fetchDailyRequestStatus, fetchDailyCandidates, updateChallengeChatCard } from '../api'
 import { dailyContext,dailyDraft,dailyVersion } from '../test/dailyFixtures'
 import { baselineScope } from '../test/baselineFixtures'
 import { setDailyExpectedUser } from '../lib/dailyRecovery'
+import { clearDailyCards, registerServerDailyCard, useDailyCard, readDailyCard } from '../lib/dailyCheckIn'
+import { renderHook } from '@testing-library/react'
 import { ChallengeToday } from './ChallengeToday'
-vi.mock('../api',async(original)=>({...await original<typeof import('../api')>(),fetchDailyContext:vi.fn(),fetchDailyPage:vi.fn(),mutateDaily:vi.fn(),fetchDailyRequestStatus:vi.fn(),fetchDailyCandidates:vi.fn()}))
+vi.mock('../api',async(original)=>({...await original<typeof import('../api')>(),fetchDailyContext:vi.fn(),fetchDailyPage:vi.fn(),mutateDaily:vi.fn(),fetchDailyRequestStatus:vi.fn(),fetchDailyCandidates:vi.fn(),updateChallengeChatCard:vi.fn()}))
 function open(){return render(<ChallengeToday scope={baselineScope} onClose={vi.fn()} onStatements={vi.fn()} onBaseline={vi.fn()}/>)}
 const actions=()=>vi.mocked(mutateDaily).mock.calls.map(call=>call[0])
 async function clickReady(control: HTMLElement) {
@@ -14,7 +16,7 @@ async function clickReady(control: HTMLElement) {
  fireEvent.click(control)
 }
 async function addPurchase(merchant:string,amount:string){await clickReady(await screen.findByRole('button',{name:'Add a purchase'}));fireEvent.change(screen.getByLabelText('Where did you buy it?'),{target:{value:merchant}});fireEvent.change(screen.getByLabelText('Purchase amount (USD)'),{target:{value:amount}})}
-afterEach(cleanup)
+afterEach(()=>{cleanup();clearDailyCards()})
 beforeEach(()=>{vi.resetAllMocks();vi.mocked(fetchDailyCandidates).mockResolvedValue({actor_scope:baselineScope,records:[],next_cursor:null});sessionStorage.clear();setDailyExpectedUser(null);setDailyExpectedUser(901);vi.mocked(fetchDailyContext).mockResolvedValue(structuredClone(dailyContext));vi.mocked(fetchDailyPage).mockImplementation(async()=>({actor_scope:baselineScope,records:[],next_cursor:null}));vi.mocked(fetchDailyRequestStatus).mockResolvedValue({actor_scope:baselineScope,state:'unknown',can_retry:true});vi.mocked(mutateDaily).mockResolvedValue({actor_scope:baselineScope,record:dailyDraft,replayed:false})})
 describe('participant daily reporting',()=>{
  it('keeps missing spending unknown and saves an explicit no-spend day in one tap',async()=>{open();await screen.findByText('Not checked in yet',{selector:'.daily-figure'},{timeout:3000});expect(screen.queryByText(/\$0\.00/)).toBeNull();expect((screen.getByRole('button',{name:'Save day'}) as HTMLButtonElement).disabled).toBe(true);fireEvent.change(screen.getByLabelText('How was this day?'),{target:{value:'no_spend'}});await clickReady(screen.getByRole('button',{name:'Save day'}));await waitFor(()=>expect(mutateDaily).toHaveBeenCalledWith('check_in_save',{local_on:'2026-09-28',spending_state:'no_spend',accepted:true,expected_version_id:null,expected_head_lock_version:0,reason:''},expect.any(String)))},15000)
@@ -64,4 +66,26 @@ describe('selected daily program identity',()=>{
   await screen.findByText('Not checked in yet',{selector:'.daily-figure'},{timeout:3000});await act(async()=>resolve(context));await waitFor(()=>expect(fetchDailyContext).toHaveBeenCalledTimes(2));
   expect(screen.queryByText('Private daily access is no longer available. Close Today to continue.')).toBeNull()
  })
+})
+
+it('retains the chat row until Today approves, then leaves later purchases independent', async () => {
+ const report = { kind: 'daily_report' as const, local_on: '2026-09-28', purchases: [{ amount_cents: 800, merchant: 'Shell', purchased_on: '2026-09-28' }], no_spend: false, feelings: null, counted: false as const, approval_state: 'unreviewed_input' as const }
+ const server = { id: 999, kind: 'daily_report' as const, status: 'pending' as const, lock_version: 0, enrollment_id: 100, message_id: 20, input: report, state: {} }
+ let version = 0
+ vi.mocked(updateChallengeChatCard).mockImplementation(async (_id, request) => ({ record: { ...server, lock_version: ++version, state: request.action === 'save_state' ? request.state : {} }, challenge: {} as never }))
+ registerServerDailyCard(server, 'today-integration')
+ renderHook(() => useDailyCard('server-card-999', () => ({ rows: [{ id: 0, amount: '8.00', merchant: 'Shell', purchased_on: report.local_on, status: 'pending' }], feelingThen: '', feelingNow: '', keys: {}, phase: 'idle', message: null, switchedToSpending: [], checkedIn: [], noSpendSaved: false })))
+ vi.mocked(mutateDaily).mockImplementation(async action => ({ actor_scope: baselineScope, record: action === 'purchase_stage' ? dailyDraft : dailyVersion, replayed: false }))
+ render(<ChallengeToday scope={baselineScope} cardHandoff={{nonce:'server-card-999',rowId:0}} initialPurchase={{kind:'purchase',amount_cents:800,merchant:'Shell',effective_on:report.local_on,counted:false,approval_state:'unreviewed_input'}} onClose={vi.fn()} onStatements={vi.fn()} onBaseline={vi.fn()} />)
+ await screen.findByLabelText('Where did you buy it?')
+ expect(readDailyCard('server-card-999')?.rows[0].status).toBe('pending')
+ await clickReady(screen.getByRole('button',{name:'Save purchase'}))
+ await waitFor(()=>expect(readDailyCard('server-card-999')?.rows[0].status).toBe('saved'))
+ await clickReady(await screen.findByRole('button',{name:'Add a purchase'}))
+ fireEvent.change(screen.getByLabelText('Where did you buy it?'),{target:{value:'Payless'}})
+ fireEvent.change(screen.getByLabelText('Purchase amount (USD)'),{target:{value:'12.50'}})
+ await clickReady(screen.getByRole('button',{name:'Save purchase'}))
+ await waitFor(()=>expect(vi.mocked(mutateDaily).mock.calls.filter(([action])=>action==='purchase_approve')).toHaveLength(2))
+ expect(readDailyCard('server-card-999')?.rows[0].merchant).toBe('Shell')
+ expect(readDailyCard('server-card-999')?.rows[0].status).toBe('saved')
 })

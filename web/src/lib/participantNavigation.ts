@@ -24,13 +24,15 @@ export function participantSectionsForModules(enabledModuleIds: string[]) {
 // The bottom bar holds four destinations plus More. Budget is the core of the
 // method, so it stays one tap away; My Money fills in when a program hides Budget.
 const PRIMARY_PRIORITY = ['Home', 'Ask Mia', 'Budget', 'Review', 'My Money']
+const SAVINGS_SECTIONS = ['Home', 'Ask Mia', 'Statements', 'My Profile']
 const SAVINGS_PRIMARY_PRIORITY = ['Home', 'Ask Mia', 'Statements']
 const PRIMARY_LIMIT = 4
 
 /** Splits participant sections into primary destinations and the More menu. */
 export function partitionParticipantSections(sections: string[], savingsChallenge = false) {
+  const visible = savingsChallenge ? sections.filter(section => SAVINGS_SECTIONS.includes(section)) : sections
   const priority = savingsChallenge ? SAVINGS_PRIMARY_PRIORITY : PRIMARY_PRIORITY
-  const primary = priority.filter((section) => sections.includes(section)).slice(0, PRIMARY_LIMIT)
-  const secondary = sections.filter((section) => !primary.includes(section))
+  const primary = priority.filter((section) => visible.includes(section)).slice(0, PRIMARY_LIMIT)
+  const secondary = visible.filter((section) => !primary.includes(section))
   return { primary, secondary }
 }

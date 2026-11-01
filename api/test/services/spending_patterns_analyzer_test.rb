@@ -37,6 +37,23 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     assert_empty analyze[:candidate_changes]
   end
 
+  test "a selected window loads only the transactions it analyzes" do
+    purchase(Date.new(2025, 1, 5), "Old purchase", 90_000)
+    purchase(Date.new(2026, 10, 5), "Ross", 20_000)
+    purchase(Date.new(2026, 11, 1), "Current month", 80_000)
+    loaded = 0
+    observer = lambda do |*args|
+      payload = args.last
+      loaded += payload[:record_count] if payload[:class_name] == "HouseholdTransaction"
+    end
+    result = ActiveSupport::Notifications.subscribed(observer, "instantiation.active_record") do
+      SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), from: "2026-10-01", to: "2026-10-31").call
+    end
+    assert_equal 1, loaded
+    assert_equal 20_000, result[:observed_spending_cents]
+    assert_equal "Ross", result[:merchants].sole[:label]
+  end
+
   test "small purchases reveal weekday and end-of-month clusters without guessing motivation" do
     [ Date.new(2026, 10, 23), Date.new(2026, 10, 24), Date.new(2026, 10, 30) ].each { |date| purchase(date, "Kopi", 650) }
     result = analyze

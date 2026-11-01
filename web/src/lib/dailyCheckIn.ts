@@ -1,8 +1,10 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { fetchDailyContext, updateChallengeChatCard } from '../api'
 import type { BaselineScope } from './financialBaseline'
-import { dailyContextMatches, type DailyAction, type DailyContext, type DailyDay, type DailyInput, type DailyPurchaseDraft } from './dailyChallenge'
+import { dailyContextMatches, type DailyAction, type DailyContext, type DailyDay, type DailyInput, type DailyPurchaseDraft, type DailyScope } from './dailyChallenge'
 import type { ChallengeChatCard } from './challengeChatCards'
+import type { DailyMutate } from './useDailyMutation'
+import { readDailyRecovery } from './dailyRecovery'
 import { checkedDailyReport } from './savingsChallenge'
 import type { DailyReportIntake } from './savingsChallenge'
 
@@ -39,7 +41,10 @@ export function registerServerDailyCard(card: ChallengeChatCard, scope: string):
   const report = checkedDailyReport(card.input)
   if (card.kind !== 'daily_report' || card.status !== 'pending' || !report) return null
   const nonce = `server-card-${card.id}`
-  if (!serverCards.has(nonce)) {
+  const tracked = serverCards.get(nonce)
+  if (tracked) {
+    if (card.lock_version > tracked.card.lock_version) tracked.card = card
+  } else {
     serverCards.set(nonce, { card, queue: Promise.resolve() })
     const state = card.state as DailyCardState
     if (Array.isArray(state.rows)) cards.set(nonce, { ...state, phase: state.phase === 'saving' ? 'idle' : state.phase,
@@ -82,11 +87,40 @@ export async function syncDailyCard(nonce: string): Promise<void> {
     }
     const result = await updateChallengeChatCard(server.card.id, { action: 'save_state', expected_lock_version: server.card.lock_version, state: snapshot })
     if (serverCards.get(nonce) !== server || !entries.has(nonce)) throw new DailyCardSyncUnavailable('This check-in was cleared.')
-    server.card = result.record
+    if (result.record.lock_version >= server.card.lock_version) server.card = result.record
     if (server.card.status === 'closed' && snapshot.phase !== 'saved') throw new DailyCardSyncUnavailable('This check-in was finished in another window. Reopen Ask Mia.')
   })
   server.queue = next
   return next
+}
+
+export type DailyCardHandoff = { nonce: string; rowId: number }
+
+// Today and Ask Mia share the exact request identity and recoverable result.
+// Persist before sending: a closed tab can reconcile an approval without
+// restaging or saving the purchase twice.
+export async function saveDailyCardPurchase(handoff: DailyCardHandoff, action: 'purchase_stage' | 'purchase_approve', input: DailyInput, mutate: DailyMutate, actor: DailyScope) {
+  const { nonce, rowId } = handoff
+  const state = readDailyCard(nonce)
+  if (!state || !state.rows.some(row => row.id === rowId)) throw new DailyCardSyncUnavailable('Reopen Ask Mia before saving this purchase.')
+  const step = `${action === 'purchase_stage' ? 'stage' : 'approve'}:${rowId}`
+  const id = `${step}:${JSON.stringify(input)}`
+  const key = state.keys[id] ?? crypto.randomUUID()
+  writeDailyCard(nonce, current => ({ ...current, phase: 'idle', message: null, keys: { ...current.keys, [id]: key },
+    rows: current.rows.map(row => row.id === rowId ? { ...row, status: 'unknown', ...(action === 'purchase_stage' ? { amount: String(Number(input.amount_cents) / 100), merchant: String(input.merchant), purchased_on: String(input.purchased_on) } : {}) } : row),
+    unconfirmed: { action, input, key, rowId } }))
+  await syncDailyCard(nonce)
+  const record = await mutate(action, input, undefined, key)
+  if (!readDailyCard(nonce)) throw new DailyCardSyncUnavailable('This check-in was cleared.')
+  if (!record && readDailyRecovery(actor)?.key === key) return null
+  writeDailyCard(nonce, current => ({ ...current, unconfirmed: undefined,
+    rows: current.rows.map(row => row.id !== rowId ? row : record
+      ? action === 'purchase_stage' ? { ...row, status: 'pending', draft: record as DailyPurchaseDraft }
+        : { ...row, status: 'saved', purchaseId: row.draft?.savings_daily_purchase_id }
+      : { ...row, status: 'failed', draft: undefined }),
+    keys: !record ? Object.fromEntries(Object.entries(current.keys).filter(([name]) => !name.startsWith(`stage:${rowId}:`))) : current.keys }))
+  await syncDailyCard(nonce)
+  return record
 }
 
 export async function dismissDailyCard(nonce: string) {

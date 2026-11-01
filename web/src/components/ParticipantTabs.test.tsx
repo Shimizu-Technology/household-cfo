@@ -7,7 +7,7 @@ vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantNa
 afterEach(cleanup)
 it('keeps one Savings tab and only challenge destinations in More', () => {
   const change = vi.fn()
-  render(<ParticipantTabs savingsChallenge sections={['Home', 'Review', 'Ask Mia', 'My Money', 'Budget', 'My Profile', 'Statements']} activeSection="Statements" onChange={change} onToday={vi.fn()} />)
+  render(<ParticipantTabs savingsChallenge sections={['Home', 'Review', 'Ask Mia', 'My Money', 'Budget', 'My Profile', 'Statements']} activeSection="Statements" onChange={change} />)
   const nav = screen.getByRole('navigation')
   expect(within(nav).queryByRole('button', { name: 'Today' })).toBeNull()
   expect(within(nav).getByRole('link', { name: 'Savings' })).toBeTruthy()

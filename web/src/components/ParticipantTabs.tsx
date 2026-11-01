@@ -11,7 +11,6 @@ export type ParticipantTabsProps = {
   onChange: (section: string) => void
   staffOnly?: boolean
   savingsChallenge?: boolean
-  onToday?: () => void
 }
 
 
@@ -96,7 +95,7 @@ function ParticipantNavigation({ sections, activeSection, onChange, savingsChall
   const shellRef = useRef<HTMLDivElement | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement | null>(null)
   const secondaryRef = useRef<HTMLDivElement | null>(null)
-  const { primary, secondary } = partitionParticipantSections(savingsChallenge ? sections.filter(section => ['Home', 'Ask Mia', 'Statements', 'My Profile'].includes(section)) : sections, savingsChallenge)
+  const { primary, secondary } = partitionParticipantSections(sections, savingsChallenge)
   const secondaryIsActive = secondary.includes(activeSection)
   const tools = secondary.filter(section => PARTICIPANT_TOOL_SECTIONS.includes(section))
   const destinations = secondary.filter(section => !PARTICIPANT_TOOL_SECTIONS.includes(section))
@@ -189,7 +188,6 @@ function ParticipantNavigation({ sections, activeSection, onChange, savingsChall
 
   const sectionLabel = (section: string, compact = false) => {
     if (savingsChallenge && section === 'Home') return 'Savings'
-    if (savingsChallenge && section === 'Review') return 'Transactions'
     if (savingsChallenge && section === 'Statements') return 'Statements'
     if (section === 'Ask Mia') return compact ? shortAssistantName(assistantName) : `Ask ${assistantName}`
     return compact ? compactLabels[section] ?? section : section

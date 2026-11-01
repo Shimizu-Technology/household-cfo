@@ -4,11 +4,11 @@ module SavingsChallenge
   class ChatTurn
     PATTERNS = /\b(?:patterns?|waterfall|subscriptions?)\b/i.freeze
     GOAL = /\b(?:goal|target)\b/i.freeze
-    GOAL_CHANGE = /\b(?:change|set|make|update|lower|raise|switch|drop|bump|aim)\b.{0,50}\b(?:goal|target)\b|\b(?:goal|target)\b.{0,40}\$\s*\d|\blet['’]?s do\s+\$\s*\d/i.freeze
+    GOAL_CHANGE = /\b(?:change|set|make|update|lower|raise|switch|drop|bump|aim)\b.{0,50}\b(?:goal|target)\b|\bmake it\s+\$\s*\d|\blet['’]?s do\s+\$\s*\d/i.freeze
     PROGRESS = /\b(?:how am i doing|where am i|day\s*(?:30|60|90)|30\s*[\/,]\s*60|checkpoints?)\b/i.freeze
 
     def self.special?(message, session:)
-      return false if HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i) || money_report?(message)
+      return false if protected_message?(message) || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i) || money_report?(message)
       message.match?(PATTERNS) || message.match?(GOAL_CHANGE) || message.match?(PROGRESS) ||
         (message.match?(GOAL) && message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)) ||
         (session.active_topic["type"] == "challenge_patterns" && pattern_continuation?(message, choices: session.active_topic["choices"]))
@@ -19,7 +19,14 @@ module SavingsChallenge
       message.match?(/\b(?:spent|bought|paid|saved|withdrew|set aside|no spending|no-spend)\b/i)
     end
 
+    def self.protected_message?(message)
+      message.match?(CoachAnswerer::PROTECTED_BASELINE) ||
+        HouseholdFinance::MoneyMovementText.food_insecurity?(message) ||
+        ::Mia::CrisisBoundary.matches?(message) || ::Mia::CrisisBoundary.hopeless?(message)
+    end
+
     def self.pattern_continuation?(message, choices: [])
+      return false if protected_message?(message)
       normalized = message.downcase.squish.sub(/[.!]\z/, "")
       return true if Array(choices).any? { |choice| choice["merchant"].to_s.downcase == normalized }
       return false if message.match?(/\b(?:spent|bought|paid|saved|withdrew|set aside|budget|category|income|salary|paycheck|account|asset|balance)\b/i)
@@ -43,7 +50,7 @@ module SavingsChallenge
 
     def call
       @supplied_content_context = []
-      if @enrollment && @attachments.empty? && !self.class.money_report?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !::Mia::CrisisBoundary.hopeless?(@message) && !HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
+      if @enrollment && @attachments.empty? && !self.class.money_report?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !self.class.protected_message?(@message)
         return self if pattern_turn || goal_turn || progress_turn
       end
       parser = ChatIntake.new(@enrollment, message: @message) if @attachments.empty?

@@ -22,6 +22,6 @@ describe('participant navigation', () => {
   })
 
   it('uses the savings challenge destinations for challenge programs', () => {
-    expect(partitionParticipantSections(participantSectionsForModules(allModules), true).primary).toEqual(['Home', 'Ask Mia', 'Statements'])
+    expect(partitionParticipantSections(participantSectionsForModules(allModules), true)).toEqual({ primary: ['Home', 'Ask Mia', 'Statements'], secondary: ['My Profile'] })
   })
 })

@@ -14,15 +14,15 @@ module SpendingPatterns
       eligible_ids = reviewed[:canonical_rows].select { |row| row[:spending_eligible] }.map { |row| row[:id] }
       source = SourceReviewVersion.where(household_id: @household.id, id: reviewed[:canonical_rows].map { |row| row[:id] })
         .includes(:budget_category, source_account_identity_version: :source_tracked_account).to_a
-      actuals = @household.household_transactions.where(status: %w[confirmed reconciled], financial_source_event_id: nil)
-        .includes(transaction_splits: :budget_category).to_a
-      dates = source.filter_map(&:posted_on) + actuals.map(&:occurred_on)
+      actuals_scope = @household.household_transactions.where(status: %w[confirmed reconciled], financial_source_event_id: nil)
+      dates = source.filter_map(&:posted_on) + actuals_scope.pluck(:occurred_on)
       last = dates.select { |date| date < @today.beginning_of_month }.max
       finish = @to ? Date.iso8601(@to.to_s) : (last || @today.prev_month).end_of_month
       start = @from ? Date.iso8601(@from.to_s) : finish.beginning_of_month - 2.months
       raise ArgumentError, "Choose a past spending window of up to one year" unless start <= finish && finish <= @today && (finish - start).to_i <= 366
       selected_source = source.select { |row| row.posted_on&.between?(start, finish) }
-      selected_actuals = actuals.select { |row| row.occurred_on.between?(start, finish) }
+      selected_actuals = actuals_scope.where(occurred_on: start..finish)
+        .includes(transaction_splits: :budget_category).to_a
       rows = selected_source.select { |row| eligible_ids.include?(row.id) }.map { |row| source_row(row) } + selected_actuals.map { |row| actual_row(row) }
       selected_ids = selected_source.map(&:id)
       refund_groups = reviewed[:economic_groups].select { |group| group[:kind] == "refund" }

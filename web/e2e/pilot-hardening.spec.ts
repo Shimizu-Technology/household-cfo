@@ -10312,9 +10312,9 @@ test('BOG UI daily Mia report card hands off to Today prefilled without saving',
   const{dialog,calls}=await openDaily(page);await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
   const card=await sendMiaDailyReport(page);await card.getByRole('button',{name:'Edit in Today',exact:true}).click()
   await expect(dialog.getByLabel('Where did you buy it?')).toHaveValue('Fictional fuel');await expect(dialog.getByLabel('Purchase amount (USD)')).toHaveValue('8.00');await expect(dialog.getByRole('combobox',{name:'Category (optional)',exact:true})).toHaveValue('');expect(calls).toHaveLength(0);await dailyFits(dialog)
-  // The other purchase stays in the card, and the card says so.
+  // Both purchases stay recoverable until Today confirms the handed-off save.
   await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
-  await expect(card.getByRole('status')).toHaveText('Moved Fictional fuel to Today. Purchase 2 is still here to save.');await expect(card.getByLabel('Amount for purchase 2')).toHaveValue('12.50');await expect(card.getByLabel('Amount for Fictional fuel')).toHaveCount(0)
+  await expect(card.getByRole('status')).toHaveText('Opened Fictional fuel in Today. It stays here until saved.');await expect(card.getByLabel('Amount for purchase 2')).toHaveValue('12.50');await expect(card.getByLabel('Amount for Fictional fuel')).toHaveValue('8.00');expect(calls).toHaveLength(0)
 })
 test('BOG UI daily Mia savings note requires new-money confirmation before a draft',async({page})=>{
   const{dialog}=await openDaily(page);await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
@@ -10746,10 +10746,13 @@ test('BOG UI financial review cards stay available in Mia with their explicit ho
   await expect(page.locator('.mia-action-draft-card')).toBeVisible()
   const navigation = page.getByRole('navigation', { name: /participant sections/ })
   await expect(navigation.getByRole('link', { name: 'My Money', exact: true })).toHaveCount(0)
-  await openSection(page, 'My Money')
-  await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: 'Debt', exact: true }).click()
-  await expect(page.locator('.money-scope-note')).toContainText('changes here do not update it')
-  await expect(page.locator('.debt-manager')).toBeVisible()
+  await navigation.getByRole('link', { name: 'Savings', exact: true }).click()
+  await openSection(page, 'Ask Mia')
+  await expect(page.locator('.mia-action-scope-note')).toHaveText(scopedDraft.scope_note)
+  await expect(page.locator('.mia-action-draft-card')).toBeVisible()
+  await page.reload()
+  await expect(page.locator('.mia-action-scope-note')).toHaveText(scopedDraft.scope_note)
+  await expect(page.locator('.mia-action-draft-card')).toBeVisible()
 })
 
 

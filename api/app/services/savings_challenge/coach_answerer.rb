@@ -41,10 +41,10 @@ module SavingsChallenge
         return deterministic(hopeless_answer)
       end
       return privacy_answer if @message.match?(/\b(?:employer|sponsor|bank of guam|bog)\b.{0,100}\b(?:see|share|send|give|feelings?|balances?|statements?|transactions?)\b|\bwho\b.{0,40}\b(?:sees?|access|read)\b/i)
-      return food_insecurity_answer if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
+      return deterministic(food_insecurity_answer) if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
       return guarantee_answer if @message.match?(/\b(?:guarantee|guaranteed|eligibility|eligible for|approve (?:my|a) loan|bank endorsement)\b/i)
       return deterministic(loan_answer) if loan_decision_question?
-      return protected_baseline_answer if @message.match?(PROTECTED_BASELINE)
+      return deterministic(protected_baseline_answer) if @message.match?(PROTECTED_BASELINE)
       return "The recommended goal is $500 in new money you actually set aside over 90 days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
       private_context do
         return attachment_answer if @attachments.any?
@@ -146,7 +146,7 @@ module SavingsChallenge
       return card_tool_unavailable unless @enrollment
       cards = approved_cards
       return card_tool_unavailable if cards.nil?
-      return "You have not approved any optional card with a balance yet, so I do not have a balance to share. From Home, open Optional card & debt review if you want to add one; it is optional and does not need a budget or bank link. Nothing is assumed in the meantime." if cards.empty?
+      return "You have not approved any optional card with a balance yet, so I do not have a balance to share. In Savings, open Optional card & debt review if you want to add one; it is optional and does not need a budget or bank link. Nothing is assumed in the meantime." if cards.empty?
 
       @answer_facts = { approved_optional_debt: cards.map { |row| { label: row[:label], balance_cents: row[:terms]["balance_cents"] } } }
       lines = cards.map { |row| card_balance_line(row) }
@@ -173,7 +173,7 @@ module SavingsChallenge
       return nil unless cards.any? { |row| row[:terms]["apr_bps"].nil? || row[:terms]["minimum_payment_cents"].nil? }
 
       @answer_facts = { approved_optional_debt: cards.map { |row| { label: row[:label], balance_cents: row[:terms]["balance_cents"] } } }
-      "I cannot rank your cards or suggest an extra amount yet, because I do not have the interest rate (APR) and minimum payment for #{cards.one? ? 'your approved card' : 'each approved card'}, and I would not guess them. If you want, add those from Optional card & debt review on Home and I can compare them with you. Either way, I will not set a payoff date, and what you pay on a card stays separate from the money you set aside for the challenge. Would you like to add those terms?"
+      "I cannot rank your cards or suggest an extra amount yet, because I do not have the interest rate (APR) and minimum payment for #{cards.one? ? 'your approved card' : 'each approved card'}, and I would not guess them. If you want, add those from Optional card & debt review in Savings and I can compare them with you. Either way, I will not set a payoff date, and what you pay on a card stays separate from the money you set aside for the challenge. Would you like to add those terms?"
     end
 
     def card_tool_unavailable

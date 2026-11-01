@@ -551,6 +551,7 @@ module Api
 
       def render_crisis_response(session, content, attached_imports, message_request:)
         user_message, assistant_message = persist_chat_messages(session, content, attached_imports, ::Mia::CrisisBoundary.response)
+        session.update!(active_topic: {}) if session.active_topic["type"].in?(%w[challenge_patterns challenge_goal])
         payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message),

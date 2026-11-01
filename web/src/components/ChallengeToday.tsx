@@ -3,6 +3,7 @@ import { ApiRequestError, fetchDailyContext, fetchDailyPage } from '../api'
 import { type BaselineScope } from '../lib/financialBaseline'
 import { savingsDollars, type SavingsIntake } from '../lib/savingsChallenge'
 import { dailyApproval, dailyContextMatches, dailyResponseMatches, type DailyCheckIn, type DailyCheckInVersion, type DailyContext, type DailyDay, type DailyInput, type DailyPurchase, type DailyPurchaseDraft, type DailyPurchaseVersion, type DailyScope } from '../lib/dailyChallenge'
+import { saveDailyCardPurchase, type DailyCardHandoff } from '../lib/dailyCheckIn'
 import { isDailyActor, readDailyRecovery } from '../lib/dailyRecovery'
 import { useDailyMutation, type DailyMutate } from '../lib/useDailyMutation'
 import { usePilotDialog } from '../lib/usePilotDialog'
@@ -13,7 +14,7 @@ import { ChallengeCheckpoints } from './ChallengeCheckpoint'
 import './ChallengeToday.css'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
 
-type ChallengeTodayProps = {initialDate?:string;initialSection?:'today'|'checkpoints';scope:BaselineScope;cohortId?:number;onClose:()=>void;onStatements:()=>void;onBaseline:()=>void;onPrivacy?:()=>void;initialPurchase?:SavingsIntake|null}
+type ChallengeTodayProps = {initialDate?:string;initialSection?:'today'|'checkpoints';scope:BaselineScope;cohortId?:number;onClose:()=>void;onStatements:()=>void;onBaseline:()=>void;onPrivacy?:()=>void;initialPurchase?:SavingsIntake|null;cardHandoff?:DailyCardHandoff}
 type SpendingState = DailyDay['spending_state']
 
 const isoDate = (iso: string) => new Date(`${iso}T00:00:00Z`)
@@ -37,7 +38,8 @@ const STATE_LABELS: Record<SpendingState, string> = { unknown: 'Not checked in y
 export function ChallengeToday(props: ChallengeTodayProps) {
   return <ChallengeTodaySession key={`${props.scope.user_id}:${props.scope.household_id}:${props.cohortId ?? 'legacy'}`} {...props}/>
 }
-function ChallengeTodaySession({initialDate,initialSection,scope,cohortId,onClose,onStatements,onBaseline,onPrivacy,initialPurchase}:ChallengeTodayProps) {
+function ChallengeTodaySession({initialDate,initialSection,scope,cohortId,onClose,onStatements,onBaseline,onPrivacy,initialPurchase,cardHandoff}:ChallengeTodayProps) {
+  const handoffActive=useRef(Boolean(cardHandoff))
   const pinnedEnrollment=useRef<number|undefined>(undefined)
   const staged=useRef<{signature:string;draft:DailyPurchaseDraft}|null>(null)
   const dialog=usePilotDialog(onClose)
@@ -87,13 +89,15 @@ function ChallengeTodaySession({initialDate,initialSection,scope,cohortId,onClos
       const corrected=await mutation.mutate('check_in_save',{local_on:date,spending_state:'spending',accepted:true,expected_version_id:day.check_in_version_id,expected_head_lock_version:day.check_in_lock_version,reason:'Added a purchase in Today'})
       if(!corrected)return false
     }
+    const performPurchase = (action: 'purchase_stage' | 'purchase_approve', values: DailyInput) =>
+      cardHandoff && handoffActive.current && editing === null && actor ? saveDailyCardPurchase(cardHandoff, action, values, mutation.mutate, actor) : mutation.mutate(action, values)
     const signature=JSON.stringify(input)
-    const draft=staged.current?.signature===signature?staged.current.draft:await mutation.mutate('purchase_stage',input) as DailyPurchaseDraft|null
+    const draft=staged.current?.signature===signature?staged.current.draft:await performPurchase('purchase_stage',input) as DailyPurchaseDraft|null
     if(!draft)return false
     staged.current={signature,draft}
     // A future date stays a preview until that day comes.
     if(draft.purchased_on>calendar.local_today)return true
-    const approved=await mutation.mutate('purchase_approve',dailyApproval(draft))
+    const approved=await performPurchase('purchase_approve',dailyApproval(draft))
     if(!approved){
       // An unconfirmed result keeps the draft so the same approval is replayed;
       // a definite refusal (stale versions) means the next Save stages afresh.
@@ -101,6 +105,7 @@ function ChallengeTodaySession({initialDate,initialSection,scope,cohortId,onClos
       return false
     }
     staged.current=null
+    handoffActive.current=false
     if(purchase&&sameDay&&!day.check_in_version_id)await mutation.mutate('check_in_save',{local_on:date,spending_state:'spending',accepted:true,expected_version_id:null,expected_head_lock_version:0,reason:''})
     return true
   }
@@ -125,7 +130,7 @@ function ChallengeTodaySession({initialDate,initialSection,scope,cohortId,onClos
               {day.canonical_links_changed&&<p className="daily-note">A statement transaction linked to this day changed. Its spending stays unknown until you review it in Statements.</p>}
               {day.no_spend_discrepancy&&<p className="daily-note">This day is saved as no spending but also has a saved purchase. Choose “I spent money” below to fix it.</p>}
             </section>
-            {editing===undefined?<button type="button" className="daily-primary" disabled={disabled} onClick={()=>setEditing(null)}>Add a purchase</button>:<DailyPurchaseEditor key={editing?.id??'new'} context={context} scope={actor} purchase={editing??undefined} initialInput={editing===null?initialPurchase:undefined} selectedDate={day.local_on} onSave={savePurchase} busy={disabled} onDone={()=>setEditing(undefined)} onStatements={onStatements} onDenied={onDenied}/>}
+            {editing===undefined?<button type="button" className="daily-primary" disabled={disabled} onClick={()=>setEditing(null)}>Add a purchase</button>:<DailyPurchaseEditor key={editing?.id??'new'} context={context} scope={actor} purchase={editing??undefined} initialInput={editing===null?initialPurchase:undefined} selectedDate={day.local_on} onSave={savePurchase} busy={disabled} onDone={()=>{handoffActive.current=false;setEditing(undefined)}} onStatements={onStatements} onDenied={onDenied}/>}
             <fieldset disabled={disabled} className="daily-report"><legend className="sr-only">Day check-in</legend>
               <label>How was this day?<select value={report} onChange={event=>setReport(event.target.value as SpendingState)}><option value="unknown">{STATE_LABELS.unknown}</option><option value="spending">{STATE_LABELS.spending}</option><option value="no_spend" disabled={day.approved_purchase_count>0}>{day.approved_purchase_count>0?'No spending (you saved a purchase)':STATE_LABELS.no_spend}</option></select></label>
               {needsReason&&<label>What changed?<input maxLength={500} value={reportReason} onChange={event=>setReportReason(event.target.value)}/></label>}
@@ -133,7 +138,7 @@ function ChallengeTodaySession({initialDate,initialSection,scope,cohortId,onClos
               {savedState==='spending'&&day.spending_state!=='spending'&&<p className="daily-hint">Your saved purchases already show this day as spent.</p>}
             </fieldset>
           </>:<p className="daily-note">Your challenge starts {shortDay(calendar.starts_on)}. A purchase dated later can be prepared now and saved on that day.</p>}
-          {!day&&(editing===undefined?<button type="button" disabled={disabled} onClick={()=>setEditing(null)}>Add a purchase</button>:<DailyPurchaseEditor key={editing?.id??'new'} context={context} scope={actor} purchase={editing??undefined} initialInput={editing===null?initialPurchase:undefined} selectedDate={calendar.starts_on} onSave={savePurchase} busy={disabled} onDone={()=>setEditing(undefined)} onStatements={onStatements} onDenied={onDenied}/>)}
+          {!day&&(editing===undefined?<button type="button" disabled={disabled} onClick={()=>setEditing(null)}>Add a purchase</button>:<DailyPurchaseEditor key={editing?.id??'new'} context={context} scope={actor} purchase={editing??undefined} initialInput={editing===null?initialPurchase:undefined} selectedDate={calendar.starts_on} onSave={savePurchase} busy={disabled} onDone={()=>{handoffActive.current=false;setEditing(undefined)}} onStatements={onStatements} onDenied={onDenied}/>)}
           <label className="daily-date">See another day<input type="date" min={calendar.starts_on} max={calendar.local_today<calendar.ends_on?calendar.local_today:calendar.ends_on} value={day?.local_on??''} disabled={disabled||calendar.phase==='upcoming'} onChange={event=>{setLoading(true);setRequestedDate(event.target.value)}}/><span className="daily-hint">Days follow Guam time.</span></label>
           <DailyRecordPage<DailyPurchase> collection="purchases" scope={actor} refresh={attempt} title="Saved purchases" onDenied={onDenied} render={head=><PurchaseRecord key={`${head.id}:${head.current_version_id}`} head={head} context={context} actor={actor} refresh={attempt} busy={disabled} mutate={mutation.mutate} onDenied={onDenied} onEdit={()=>setEditing(head)}/>}/>
           <PendingPurchases scope={actor} context={context} refresh={attempt} mutate={mutation.mutate} busy={disabled} onDenied={onDenied}/>

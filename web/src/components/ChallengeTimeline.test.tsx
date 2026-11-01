@@ -10,7 +10,7 @@ it('names unknown, no-spend and deposited days separately and opens the selected
     { day: 2, local_on: '2026-10-02', check_in: 'no_spend', future: false, purchase_count: 0, deposit_cents: 2500 },
     { day: 90, local_on: '2026-12-29', check_in: 'unknown', future: true, purchase_count: 0, deposit_cents: null },
   ] }} onDay={onDay} onCheckpoint={onCheckpoint} />)
-  expect(screen.getByRole('list', { name: 'Day symbols' }).textContent).toBe('✓ Checked in○ No spending+ Set aside· Not checked in')
+  expect(screen.getByRole('list', { name: 'Day symbols' }).textContent).toBe('✓ Checked in○ No spending+ Set aside− Taken out· Not checked in')
   expect(screen.getByText('Swipe for all 90 days')).toBeTruthy()
   const unknown = screen.getByRole('button', { name: /Day 1,.*Not checked in/ })
   expect(unknown.textContent).not.toContain('$0')
@@ -18,4 +18,14 @@ it('names unknown, no-spend and deposited days separately and opens the selected
   fireEvent.click(saved); expect(onDay).toHaveBeenCalledWith('2026-10-02')
   expect((screen.getByRole('button', { name: /Day 90,.*Ahead/ }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Day 30 ready to review' })); expect(onCheckpoint).toHaveBeenCalledOnce()
+})
+
+it('shows a negative net deposit as money taken out with a distinct symbol', () => {
+  render(<ChallengeTimeline timeline={{ checkpoints_due: [], days: [
+    { day: 3, local_on: '2026-10-03', check_in: 'unknown', future: false, purchase_count: 0, deposit_cents: -1550 },
+  ] }} />)
+  const day = screen.getByRole('button', { name: /Day 3,.*\$15.50 net taken out/ })
+  expect(day.textContent).toContain('−')
+  expect(day.textContent).not.toContain('+')
+  expect(day.getAttribute('aria-label')).not.toContain('set aside')
 })
