@@ -69,10 +69,12 @@ test('BOG UI walkthrough saved-day shortcut and short Statements label fit phone
   const home = page.getByRole('region', { name: 'Savings challenge', exact: true })
   await expect(home.getByText('You checked in today')).toBeVisible()
   const statements = page.getByRole('navigation').getByRole('link', { name: 'Statements', exact: true })
+  await page.evaluate(() => document.fonts.ready)
   const compact = statements.locator('.tabs-label-short')
   if (await compact.isVisible()) {
     await expect(compact).toHaveText('Statements')
-    expect(await compact.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+    const fit = await compact.evaluate(node => ({ client: node.clientWidth, scroll: node.scrollWidth, columns: getComputedStyle(node.closest('nav')!).gridTemplateColumns }))
+    expect(fit.scroll, JSON.stringify(fit)).toBeLessThanOrEqual(fit.client)
   }
   const box = await statements.boundingBox()
   expect(box!.width).toBeGreaterThanOrEqual(44)

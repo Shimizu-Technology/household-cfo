@@ -180,6 +180,10 @@
     padding: var(--space-1) 0;
   }
 
+  .app .tabs-shell.is-savings-navigation .tabs {
+    grid-template-columns: minmax(0, 1fr) minmax(0, .8fr) minmax(0, 1.4fr) minmax(0, .8fr);
+  }
+
   .app .tabs-shell .tabs :where(button, a),
   .app .tabs-shell.is-savings-navigation .tabs :where(button, a) {
     flex-direction: column;
