@@ -78,6 +78,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     assert_equal "Cigarettes", draft.transaction_draft_splits.sole.category_name
     assert_equal 1200, draft.total_amount_cents
     assert_equal "pending", draft.status
+    assert_includes reply, "new category will be added"
     assert_nil @household.budget_categories.find_by(name: "Cigarettes")
     post "/api/v1/transaction_drafts/#{draft.id}/confirm", params: {}, headers: {
       "Authorization" => "Bearer test_token:#{@user.clerk_id}:#{@user.email}:Mel:Test",

@@ -2375,6 +2375,12 @@ module Api
       def drafted_transaction_impact_line(draft, annual_plan)
         impacts = HouseholdFinance::TransactionDraftBudgetImpact.new(annual_plan: annual_plan, draft: draft).call
         known = impacts.select { |impact| impact[:status] != "needs_category" }
+        if known.empty? && draft.source_type == "manual_chat" && draft.transaction_draft_splits.one?
+          split = draft.transaction_draft_splits.sole
+          if split.budget_category_id.nil? && split.category_name.present? && split.stack_key.present?
+            return "Your new category will be added to flexible spending when you confirm this purchase. You can set its budget later."
+          end
+        end
         return "Choose a category in the draft to see its budget impact." if known.empty?
 
         impact = known.min_by { |candidate| candidate.fetch(:remaining_if_approved_cents) }
