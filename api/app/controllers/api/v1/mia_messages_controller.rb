@@ -360,7 +360,8 @@ module Api
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
           mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft, selected_item_ids: action_result&.selected_item_ids) : nil,
           budget: annual_plan && !global_read_only_request && !intent_result&.read_only_plan? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
-          spending_report: spending_report
+          spending_report: spending_report,
+          month_answer: (HouseholdFinance::MiaMonthAnswer.question?(content) ? HouseholdFinance::MiaMonthAnswer.for_question(current_household, content) : HouseholdFinance::MiaMonthAnswer.new(current_household, annual_plan: annual_plan || annual_budget_manager.read_only_plan_data, month: budget_month_param)).call
         }
         complete_message_request(message_request, response_payload)
         record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports, transaction_draft: transaction_draft, mia_action_draft: mia_action_draft)
@@ -2303,6 +2304,11 @@ module Api
       end
 
       def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil, mia_action_result: nil, selected_month: nil)
+        if HouseholdFinance::MiaMonthAnswer.question?(content)
+          date = HouseholdFinance::BudgetQuestionAnswerer.relative_month_date(content) || Date.current
+          annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: date.year).read_only_plan_data
+          selected_month = date.month
+        end
         answer_packet = HouseholdFinance::MiaAnswerPacketBuilder.new(
           kind: kind,
           fallback_response: fallback_response,

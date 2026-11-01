@@ -27,6 +27,12 @@ module HouseholdFinance
         safe_command[:amount] = purchase.fetch(:amount)
         safe_command[:splits] = []
       end
+      if safe_command[:category_name].present? && Array(safe_command[:splits]).empty?
+        category = household.budget_categories.active.find_by("LOWER(name) = ?", safe_command[:category_name].downcase)
+        safe_command[:splits] = [{ budget_category_id: category&.id,
+          category_name: safe_command[:category_name], stack_key: category&.stack_key || "discretionary",
+          amount: safe_command[:amount] }]
+      end
       input = safe_command.merge(
         source_type: "manual_chat",
         raw_input: raw_input,

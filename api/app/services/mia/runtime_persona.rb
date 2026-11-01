@@ -68,10 +68,11 @@ module Mia
           user_id: persisted_user.id,
           role: "participant"
         )
-        assignment = membership&.cohort&.cohort_persona_assignment
-        return unless assignment&.coach_persona_id == version.coach_persona_id
-        return unless assignment.coach_persona_version_id == version.id
-        return unless version.coach_persona.current_published_version_id == version.id
+        return unless membership
+
+        _, persona, selected_version = PersonaResolver.selection_for(membership.cohort)
+        return unless selected_version&.id == version.id
+        return unless PersonaResolver.valid_selection?(membership.cohort, persona, version)
 
         persisted_user.id
       end

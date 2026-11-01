@@ -7594,7 +7594,7 @@ function TransactionDraftReviewCard({
   const saving = action === `update-draft:${draft.id}`
   const reopening = action === `reopen-draft:${draft.id}`
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || Boolean(action)
-  const splitsNeedingCategory = (draft.splits ?? []).filter(transactionDraftSplitNeedsCategory)
+  const splitsNeedingCategory = (draft.splits ?? []).filter((split) => transactionDraftSplitNeedsCategory(split, draft.source_type))
   const needsCategoryReview = splitsNeedingCategory.length > 0
   const categoryWarningId = `transaction-draft-${draft.id}-category-warning`
   const categoryWarningCopy = transactionCategoryWarningCopy(draft, assistantName)
@@ -7670,6 +7670,11 @@ function TransactionDraftReviewCard({
       return
     }
 
+    if (cleanedSplits.some((split) => split.metadata.new_category && !split.category_name.trim())) {
+      setEditError('Name the new category before saving.')
+      return
+    }
+
     setEditError(null)
     try {
       await onUpdate(draft, {
@@ -7714,7 +7719,7 @@ function TransactionDraftReviewCard({
           <div className="transaction-draft-splits">
             {(draft.splits ?? []).map((split) => (
               <article className={!split.budget_category_id ? 'needs-category' : ''} key={split.id}>
-                <strong>{split.budget_category_id ? split.category_name : 'Needs category'} · {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</strong>
+                <strong>{transactionDraftSplitNeedsCategory(split, draft.source_type) ? 'Needs category' : split.category_name} · {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</strong>
                 {(split.notes || (!split.budget_category_id && extractedCategoryLabel(split))) && (
                   <span>{[
                     !split.budget_category_id && extractedCategoryLabel(split) ? `${assistantName} read “${extractedCategoryLabel(split)}”` : null,
@@ -7780,18 +7785,34 @@ function TransactionDraftReviewCard({
                 </label>
                 <label>
                   <span>Category</span>
-                  <select value={split.budget_category_id} onChange={(event) => {
-                    const category = activeCategories.find((candidate) => String(candidate.id) === event.currentTarget.value)
+                  <select value={split.budget_category_id || (split.metadata.new_category || (!placeholderCategoryName(split.category_name) && (draft.source_type === 'manual_chat' || split.metadata.human_reviewed_replacement === true)) ? 'new' : '')} onChange={(event) => {
+                    const value = event.currentTarget.value
+                    const category = activeCategories.find((candidate) => String(candidate.id) === value)
+                    if (value === 'new' && split.id) {
+                      setRemovedSplitIds((current) => Array.from(new Set([...current, split.id!])).sort((left, right) => left - right))
+                    }
                     updateSplit(index, {
-                      budget_category_id: event.currentTarget.value,
-                      category_name: category?.name ?? split.category_name,
-                      stack_key: category?.stack_key ?? split.stack_key,
+                      id: value === 'new' ? undefined : split.id,
+                      budget_category_id: category ? value : '',
+                      category_name: category?.name ?? '',
+                      stack_key: category?.stack_key ?? (value === 'new' ? 'discretionary' : ''),
+                      metadata: { ...split.metadata, new_category: value === 'new' },
                     })
                   }} ref={index === firstMissingSplitIndex ? firstMissingCategoryRef : undefined}>
                     <option value="">Needs category</option>
+                    <option value="new">New category</option>
                     {activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
                   </select>
                 </label>
+                {!split.budget_category_id && (split.metadata.new_category || (!placeholderCategoryName(split.category_name) && (draft.source_type === 'manual_chat' || split.metadata.human_reviewed_replacement === true))) && (
+                  <div>
+                    <label>
+                      <span>New category name</span>
+                      <input maxLength={80} value={split.category_name} onChange={(event) => updateSplit(index, { category_name: event.currentTarget.value })} />
+                    </label>
+                    <small>Added to flexible spending when you confirm this purchase. You can set its budget later.</small>
+                  </div>
+                )}
                 <label>
                   <span>Notes</span>
                   <input value={split.notes} onChange={(event) => updateSplit(index, { notes: event.currentTarget.value })} />
@@ -7961,12 +7982,12 @@ function editableSplitsForDraft(draft: TransactionDraft): EditableDraftSplit[] {
 }
 
 function transactionDraftNeedsCategory(draft: TransactionDraft) {
-  if ((draft.splits ?? []).length > 0) return (draft.splits ?? []).some(transactionDraftSplitNeedsCategory)
-  return !draft.category_id || placeholderCategoryName(draft.category_name)
+  if ((draft.splits ?? []).length > 0) return (draft.splits ?? []).some((split) => transactionDraftSplitNeedsCategory(split, draft.source_type))
+  return placeholderCategoryName(draft.category_name) || (!draft.category_id && draft.source_type !== 'manual_chat')
 }
 
-function transactionDraftSplitNeedsCategory(split: TransactionDraftSplit) {
-  return !split.budget_category_id || placeholderCategoryName(split.category_name)
+function transactionDraftSplitNeedsCategory(split: TransactionDraftSplit, sourceType?: string) {
+  return placeholderCategoryName(split.category_name) || (!split.budget_category_id && sourceType !== 'manual_chat' && split.metadata?.human_reviewed_replacement !== true)
 }
 
 function placeholderCategoryName(name: string | null | undefined) {

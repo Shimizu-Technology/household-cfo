@@ -64,7 +64,7 @@ module HouseholdFinance
       case readiness_tone
       when "green" then "Green — steady, keep building"
       when "yellow" then "Yellow — close, but protect runway"
-      else "Red — pause and stabilize basics"
+      else baseline_surplus_cents.positive? ? "Red — build your cushion from the plan’s surplus" : "Red — bring planned costs within income and rebuild your cushion"
       end
     end
 

@@ -51,10 +51,18 @@ module HouseholdFinance
 
         category_id = resolved_category_id(command[:category_id], command[:category_name])
         attributes[:budget_category_id] = category_id if category_id
+        if command[:category_name].present? && category_id.nil? && Array(command[:splits]).empty?
+          raise ArgumentError, "Choose the category for each part of this purchase" if draft.transaction_draft_splits.many?
+          attributes[:splits] = [{ id: draft.transaction_draft_splits.first&.id, budget_category_id: nil,
+            category_name: command[:category_name], stack_key: "discretionary",
+            amount: command[:amount].presence || Money.dollars(draft.total_amount_cents) }]
+        end
 
         explicit_splits = normalized_splits(command[:splits], draft)
         if explicit_splits.any?
           attributes[:splits] = explicit_splits
+        elsif attributes[:splits].present?
+          # A new category stays in the pending purchase until confirmation.
         elsif command[:amount].present? && draft.transaction_draft_splits.size == 1
           split = draft.transaction_draft_splits.first
           attributes[:splits] = [
@@ -127,6 +135,7 @@ module HouseholdFinance
       else
         household.budget_categories.find_by("LOWER(name) = ?", name.to_s.squish.downcase)
       end
+      return if !category && id.to_i.zero? && name.to_s.squish.present?
       raise ArgumentError, "Budget category not found" unless category
       raise ArgumentError, "Budget category is archived. Restore it or choose an active category before confirming." unless category.active?
 
@@ -139,7 +148,7 @@ module HouseholdFinance
         occurred_on: draft.occurred_on,
         merchant: draft.merchant,
         amount_cents: draft.total_amount_cents,
-        category_name: draft.budget_category&.name,
+        category_name: draft.budget_category&.name || draft.transaction_draft_splits.first&.category_name,
         splits: draft.transaction_draft_splits.ordered.includes(:budget_category).map do |split|
           {
             category_name: split.budget_category&.name || split.category_name,

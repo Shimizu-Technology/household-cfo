@@ -65,8 +65,17 @@ module HouseholdFinance
         year: annual_plan_year,
         active_category_count: active_rows.length,
         pending_draft_count: pending.length,
+        month_answer: month_answer,
         top_categories: summarized_categories(active_rows)
       }
+    end
+
+    def month_answer
+      household_id = annual_plan[:household_id] || annual_plan["household_id"]
+      household = Household.find_by(id: household_id)
+      return unless household && selected_month.to_i.positive?
+
+      MiaMonthAnswer.new(household, annual_plan: annual_plan, month: selected_month).call
     end
 
     def summarized_categories(active_rows)

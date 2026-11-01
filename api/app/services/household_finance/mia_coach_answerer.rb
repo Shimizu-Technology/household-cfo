@@ -6,6 +6,7 @@ module HouseholdFinance
     # and only in a statement, so "Spent too much, can I afford a TV?" stays a question.
     SUBJECTLESS_SPEND_PATTERN = /(?:\A|[.!?;]\s*)(?:just\s+)?(?:spent|paid|charged|bought)\s+(?:about\s+|around\s+|like\s+)?\$\s*\d/i.freeze
     PURCHASE_INTENT_PATTERNS = [
+      /\b(?:i|we)(?:[’']m| am| are)?\s+(?:thinking|planning)\b.{0,40}\b(?:buy|buying|purchase|spend)\b/i,
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
       /\bis it (?:okay|ok|safe|smart|in the cards)\b.*\b(?:to )?(?:buy|spend|purchase|afford|get|book|order)\b/i,
       /\b(?:i|we)\s+(?:want|need|have)\s+to\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
@@ -88,6 +89,21 @@ module HouseholdFinance
     SAVINGS_DEPOSIT_STRAIN_PATTERN = /\b(?:(?:can t|cannot|can not|couldn t|could not|didn t|did not|won t)\s+(?:pay|cover|afford)|(?:instead of|rather than)\s+(?:paying|covering|the|my|our|rent|bills?)|skip(?:ped|ping)?\s+(?:the\s+|my\s+|our\s+)?(?:rent|bills?|payment|power|water)|short|behind|overdue|late|past due|shut ?off|disconnect\w*|evict\w*)\b/i.freeze
     TRANSACTION_DRAFT_FOLLOWUP_PATTERN = /\bfollow-up to previous transaction_draft topic\b|\btopic:\s*reported spending\b/i.freeze
 
+    WIN_PATTERN = /\b(?:stayed|kept|came in|was|were|am)\s+(?:under|within|on)(?:\s+my|\s+our|\s+the)?\s+\w*\s*budget\b|\b(?:stuck to|didn['’]?t go over|did not go over)\s+(?:my|our|the)\s+\w*\s*budget\b/i.freeze
+    HABIT_PATTERN = /\b(?:went to|shopped at|keep going to|kept going to)\s+[^.!?]{1,70}\b(?:again|third time|second time)\b|\b(?:keep|kept)\s+(?:buying|ordering|spending|going|eating out)\b/i.freeze
+
+    def self.reflective_message?(value)
+      text = value.to_s
+      # A clear incurred amount still belongs in purchase review.
+      return false if spend_report_text?(text) && text.match?(AMOUNT_PATTERN)
+      return false if text.match?(/\b(?:set|change|update|create|add|move|log|record|put it)\b/i)
+      return false if text.match?(/\b(?:how much|how many|show me|list|when did)\b/i)
+      return false if PURCHASE_INTENT_PATTERNS.any? { |pattern| text.match?(pattern) }
+
+      [ WIN_PATTERN, HABIT_PATTERN, OVERWHELMED_PATTERN, EMOTIONAL_STRESS_PATTERN ].any? { |pattern| text.match?(pattern) } ||
+        (text.match?(REPEAT_MARKER_PATTERN) && text.match?(REPEAT_SPENDING_PATTERN))
+    end
+
     def self.subjectless_spend_report?(value)
       text = value.to_s.squish
       text.match?(SUBJECTLESS_SPEND_PATTERN) && !text.include?("?")
@@ -128,7 +144,7 @@ module HouseholdFinance
       return food_answer if food_answer
       return nil if transaction_report?
 
-      essential_skip_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || avoidance_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || planned_purchase_detail_answer || purchase_decision_answer
+      avoidance_answer || reflective_answer || month_overview_answer || essential_skip_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || avoidance_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
@@ -140,7 +156,7 @@ module HouseholdFinance
     def support_answer
       return if self.class.prompt_injection?(message)
 
-      food_insecurity_answer || (savings_deposit_answer if non_expense_movement_only?) ||
+      food_insecurity_answer || avoidance_answer || reflective_answer || (savings_deposit_answer if non_expense_movement_only?) ||
         (investment_boundary_answer if non_expense_movement_only? && MoneyMovementText.investment_purchase_report?(message))
     end
 
@@ -151,6 +167,26 @@ module HouseholdFinance
     private
 
     attr_reader :household, :message, :annual_budget_manager, :provided_annual_plan, :reference_month, :conversation_messages, :ensure_plan, :user
+
+    def reflective_answer
+      return unless self.class.reflective_message?(message)
+      return if transaction_report?
+      return win_answer if message.match?(WIN_PATTERN)
+      return repeated_pattern_answer if message.match?(HABIT_PATTERN) || (message.match?(REPEAT_SPENDING_PATTERN) && message.match?(REPEAT_MARKER_PATTERN))
+
+      return "Tonight, start with one calmer conversation about money. Name the bill or purchase each of you is worried about, without deciding who is at fault. Can you choose one thing to handle together in the next day?" if normalized_message.match?(/spouse|fighting/i)
+      emotional_stress_answer || overwhelmed_answer
+    end
+
+    def win_answer
+      "You kept your spending within the limit you set this week. That is a choice worth noticing, even while the rest of the month needs attention; I’m taking this as your update, not a checked spending total. What worked this week that you could repeat next week?"
+    end
+
+    def month_overview_answer
+      return unless MiaMonthAnswer.question?(message)
+
+      MiaMonthAnswer.for_question(household, message).response
+    end
 
     def read_only_amount_edit_answer
       "I kept this read-only: I did not change your financial records and did not create a review card. Your saved plan stays unchanged. Next CFO move: ask how that proposed amount compares with your saved plan if you want an analysis."
@@ -547,18 +583,18 @@ module HouseholdFinance
       end
 
       if normalized_message.match?(/gifts?/i)
-        return "Planned gifts belong in Sinking Fund — Expected; surprise gifts belong in Discretionary. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned and discretionary money should not jump ahead of readiness #{snapshot.fetch(:readiness_label)}. Next CFO move: create or use one gift category for known birthdays/holidays, then put last-minute gifts through the normal discretionary approval rule."
+        return "Planned gifts belong in planned yearly costs; surprise gifts belong in Discretionary. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned and discretionary money should not jump ahead of readiness #{snapshot.fetch(:readiness_label)}. Next CFO move: create or use one gift category for known birthdays/holidays, then put last-minute gifts through the normal discretionary approval rule."
       end
 
       if normalized_message.match?(/fridge|appliance|home repair/i)
-        return "A likely fridge or home repair belongs in Sinking Fund — Unexpected until you have a real quote. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned, and pending drafts are not counted as actuals. Next CFO move: get the repair/replacement estimate, then decide what discretionary category pauses while you build or protect that amount."
+        return "A likely fridge or home repair belongs in a surprise fund until you have a real quote. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned, and pending drafts are not counted as actuals. Next CFO move: get the repair/replacement estimate, then decide what discretionary category pauses while you build or protect that amount."
       end
 
       if normalized_message.match?(/insurance renewal|renewal/i)
-        return "Insurance renewal belongs in Sinking Fund — Expected because you know it is coming. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned, but I still need the renewal amount to calculate the monthly set-aside. Next CFO move: divide the real renewal amount by the months left, then add or update the expected sinking-fund category before approving wants."
+        return "Insurance renewal belongs in planned yearly costs because you know it is coming. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned, but I still need the renewal amount to calculate the monthly set-aside. Next CFO move: divide the real renewal amount by the months left, then add or update the expected sinking-fund category before approving wants."
       end
 
-      "This belongs in Sinking Fund — Expected if the date is known, and Sinking Fund — Unexpected if the amount or timing is still uncertain. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned and unexpected sinking funds have #{money(unexpected_cents)} planned. Next CFO move: send me the amount and due date, then place it in the right stack before discretionary spending gets approved."
+      "This belongs in planned yearly costs if the date is known, and a surprise fund if the amount or timing is still uncertain. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned and unexpected sinking funds have #{money(unexpected_cents)} planned. Next CFO move: send me the amount and due date, then place it in the right stack before discretionary spending gets approved."
     end
 
     def car_registration_answer
@@ -606,7 +642,7 @@ module HouseholdFinance
     def car_registration_without_category(plan, month_index, expected_total_cents, amount_cents)
       month_label = month_label(plan, month_index)
       amount_line = amount_cents&.positive? ? " The amount you gave me is #{money(amount_cents)}, so that needs to be protected before discretionary wants." : " I do not have the registration amount or due date yet, so I cannot honestly say yes/no as a fact."
-      "Car registration belongs in Sinking Fund — Expected; it should not be treated like a discretionary shoe or coffee decision. Based on your active annual plan for #{month_label}, I can see #{money(expected_total_cents)} planned across expected sinking funds, but I do not see a specific car registration line.#{amount_line} Next CFO move: add or rename a car registration category under Expected Sinking Fund, then set the monthly amount from the real due amount divided by the months left."
+      "Car registration belongs in planned yearly costs; it should not be treated like a discretionary shoe or coffee decision. Based on your active annual plan for #{month_label}, I can see #{money(expected_total_cents)} planned across expected sinking funds, but I do not see a specific car registration line.#{amount_line} Next CFO move: add or rename a car registration category under planned yearly costs, then set the monthly amount from the real due amount divided by the months left."
     end
 
     def readiness_plan_answer
@@ -840,7 +876,7 @@ module HouseholdFinance
     def overwhelmed_answer
       return nil unless normalized_message.match?(OVERWHELMED_PATTERN)
 
-      "Start with the baseline, not the whole mountain. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so the first pass is roof, food, utilities, debt minimums, and any bill due before the next paycheck. Do not solve shoes, extra debt, family requests, or dreams until those are named. Next CFO move: list the next three due dates and amounts; then we decide what gets paid, paused, or moved."
+      "That sounds like a heavy week. You do not have to solve the whole month tonight: start with food, housing, utilities, and required payments. Feeling stressed does not tell us whether the money will stretch, so let’s look at one real bill at a time. Which bill is due next, and how much is it?"
     end
 
     def essential_skip_answer
@@ -864,13 +900,13 @@ module HouseholdFinance
     end
 
     def repeated_pattern_answer
-      return nil unless normalized_message.match?(REPEAT_MARKER_PATTERN) && message.match?(REPEAT_SPENDING_PATTERN)
+      return nil unless message.match?(HABIT_PATTERN) || (normalized_message.match?(REPEAT_MARKER_PATTERN) && message.match?(REPEAT_SPENDING_PATTERN))
       return nil if normalized_message.match?(INVESTMENT_PATTERN) || normalized_message.match?(REPEAT_LOOKUP_PATTERN)
       return nil if normalized_message.match?(DEBT_TERM_PATTERN) || normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(/\b(?:behind|late|overdue|past due)\b/)
       return nil if normalized_message.match?(ESSENTIAL_PURCHASE_TERMS) && !normalized_message.match?(REPEAT_LABEL_PATTERN)
 
-      label = normalized_message.match(REPEAT_LABEL_PATTERN)&.[](1)&.sub("take out", "takeout") || "this spending"
-      "Thank you for telling me; noticing a pattern is the hard part, and it does not make you a failure. It sounds like #{label} keeps coming back even when you plan otherwise, which usually means the plan needs to fit your hardest moments better, not that you need more willpower. Repeats often follow a trigger like a long day, stress, or being short on time. Next step: before tomorrow, pick one small swap for the moment it usually happens, like something easy ready at home or a set limit for the rest of this week, and tell me how it goes."
+      label = message.match(/\b(?:went to|shopped at|going to)\s+(.+?)(?=\s+again|[.!?]|$)/i)&.[](1) || normalized_message.match(REPEAT_LABEL_PATTERN)&.[](1)&.sub("take out", "takeout") || "this spending"
+      "It sounds like #{label} is becoming a repeat stop, and you are noticing it. That does not make you bad with money, but it is worth pausing before the next trip; I have not counted this as a purchase. What was happening just before you decided to go again?"
     end
 
     def savings_goal_answer
@@ -953,6 +989,17 @@ module HouseholdFinance
 
     def conditional_monthly_income_question?
       ConversationFollowupResolver.complete_conditional_income_question?(message)
+    end
+
+    def purse_decision_answer
+      return unless normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
+      return unless purchase_question? || normalized_message.match?(/\bthinking\b.{0,30}\bbuy\b/)
+      return unavailable_plan_answer unless plan_available?
+
+      price = amount_from_message_cents
+      label = price ? "the #{money(price)} purse" : "the purse"
+      opening = snapshot[:readiness_tone] == "green" ? "Check what would fund #{label} before you decide." : "I’d pause on #{label} for now."
+      "#{opening} Wanting something nice is understandable, and the plan’s breathing room still has a job to do before it becomes shopping money. Your flexible categories have #{money(current_discretionary_remaining_cents)} left in the plan before purchases waiting for review, which is not your bank balance. Would this come from a funded flexible category, or would it dip into money for bills or emergencies?"
     end
 
     def planned_purchase_detail_answer
