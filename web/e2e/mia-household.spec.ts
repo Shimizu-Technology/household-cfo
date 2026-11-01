@@ -76,8 +76,10 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   const incurred = await ask('I went to Ross again and spent $60 today', 'ross-purchase', /Ross|review/i)
   expect(incurred.transaction_draft.merchant).toBe('Ross')
   expect(incurred.transaction_draft.amount_cents).toBe(6000)
-  await ask('I spent money at Review Store today', 'purchase-question', /how much|amount/i)
+  const reviewStore = `Review Store ${['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'][testInfo.config.projects.findIndex((project) => project.name === label)]}`
+  await ask(`I spent money at ${reviewStore} today`, 'purchase-question', /how much|amount/i)
   const dated = await ask('It was $60 on October 1, 2026', 'purchase-date', /Review Store|review/i)
+  expect(dated.transaction_draft.merchant).toBe(reviewStore)
   expect(dated.transaction_draft.occurred_on).toBe('2026-10-01')
   const namedMonth = await ask('How am I doing in September 2026?', 'named-month', /September 2026/)
   expect(namedMonth.month_answer.year).toBe(2026)

@@ -353,7 +353,7 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     publish_configuration(participant_cohort.cohort_experience_configuration, admin, cfo_filter: false, optionality: true)
     coach_persona = CoachPersona.create!(
       name: "Coach-only voice",
-      description: "Must not leak into participant context.",
+      description: "The single published program voice also applies to unassigned groups.",
       draft_config: persona_configuration(assistant_name: "Coach Cohort Voice", coach_name: "Coach Morgan"),
       created_by_user: admin
     )
@@ -366,7 +366,8 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     capabilities = response.parsed_body.dig("workspace", "capabilities")
     assert_equal participant_cohort.id, capabilities.fetch("cohort_id")
     assert_equal participant_cohort.id, response.parsed_body.dig("workspace", "cohort", "id")
-    assert_equal "Mia", response.parsed_body.dig("profile", "coach", "name")
+    # Voice inheritance is program-wide; capabilities still come only from the participant group.
+    assert_equal "Coach Cohort Voice", response.parsed_body.dig("profile", "coach", "name")
     assert_equal "published_cohort", capabilities.fetch("source")
     modules = capabilities.fetch("modules").index_by { |item| item.fetch("id") }
     refute modules.fetch("cfo_filter").fetch("enabled")

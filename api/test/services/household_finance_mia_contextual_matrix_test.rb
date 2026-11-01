@@ -136,7 +136,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "Should we file married for taxes?", [ "cannot give tax advice", "tax" ] ],
       [ "help", [ "do not have enough approved data", "bill, a purchase, a debt decision, or family support" ] ],
       [ "What should I do?", [ "do not have enough approved data", "Next CFO move" ] ],
-      [ "Can I spend $60 on a handbag if it is on sale?", [ "pre-spend CFO decision", "$60" ] ],
+      [ "Can I spend $60 on a handbag if it is on sale?", [ "pause on the $60 purse", "funded flexible category" ] ],
       [ "Should we take a trip if business income improves?", [ "runway decision", "business income" ] ]
     ]
 
