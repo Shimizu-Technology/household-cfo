@@ -61,9 +61,15 @@ class CohortExperienceMiaModuleGuidanceTest < ActiveSupport::TestCase
     assert_includes built.content, "$500"
     bounded = writer.build(content: "Open Wealth. " * ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH)
     assert_operator bounded.content.length, :<=, ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH
-    saved = writer.create!(content: "Open Statements.")
+    presentation = { version: 1, kind: "read_only_answer", basis: "saved_household",
+      lead: "Open Wealth. Your approved savings are $500.",
+      sections: [ { id: "part-1", title: "Next step", body: "Open Statements. Your approved savings are $500." } ] }
+    saved = writer.create!(content: "Open Statements.", presentation: presentation)
     refute_includes saved.reload.content, "Open Statements"
     refute saved.new_record?
+    serialized = saved.as_api_json.fetch(:presentation)
+    assert_equal "Keep working with me here in chat. Your approved savings are $500.", serialized.fetch("lead")
+    assert_equal "Keep working with me here in chat. Your approved savings are $500.", serialized.fetch("sections").sole.fetch("body")
     assert_equal({ direct_answer: "Keep working with me here in chat.", amount: 500 }, guidance_for([]).filter({ direct_answer: "Open Wealth.", amount: 500 }))
   end
 

@@ -619,6 +619,10 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     assert_equal %w[coach_quote mia_drafted], philosophy_schema.dig(:properties, "source_basis", :enum)
     operation_schema.fetch(:oneOf).excluding(philosophy_schema).each do |schema|
       paths = schema.dig(:properties, "path", :enum)
+      if paths.intersect?(%w[culture.local_realities culture.references])
+        assert_empty paths & Mia::PersonaSetup::OperationContract::TRANSCRIPT_DRAFTABLE_PATHS
+        assert_equal [ "coach_quote" ], schema.dig(:properties, "source_basis", :enum)
+      end
       derived = schema.dig(:properties, "op", :const) == "set" && (paths & Mia::PersonaSetup::OperationContract::TRANSCRIPT_DRAFTABLE_PATHS).any?
       assert_equal derived ? %w[coach_quote mia_drafted] : [ "coach_quote" ], schema.dig(:properties, "source_basis", :enum)
     end
@@ -634,6 +638,8 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       response = provider_response(model: "exact/model", content: JSON.generate("assistant_message" => message, "operations" => [ { "op" => "set" } ]))
       resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
       reply = resolver.call(context: {}, user_message: "Propose my voice.").assistant_message
+      assert_includes reply, "suggestions for your assistant."
+      refute_includes reply, "assistant’s voice"
       assert_includes reply, "Nothing has been saved."
       assert_includes reply, "Change anything"
       assert_operator reply.length, :<, 200

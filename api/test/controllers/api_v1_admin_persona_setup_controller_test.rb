@@ -33,6 +33,51 @@ class ApiV1AdminPersonaSetupControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  [
+    [ "non-file", nil, "not a file", "Choose a TXT, DOCX, or PDF transcript." ],
+    [ "unsupported extension", ".csv", "a,b", "Choose a TXT, DOCX, or PDF transcript." ],
+    [ "too long", ".txt", "a" * 22_001, "This transcript is long. Choose an excerpt of up to 22,000 characters." ],
+    [ "corrupt", ".pdf", "%PDF-1.7 corrupt", "This transcript could not be read safely. Try a TXT file or paste its text." ],
+    [ "blank", ".txt", "   \n ", "This transcript could not be read safely. Try a TXT file or paste its text." ]
+  ].each do |label, extension, content, message|
+    test "transcript rejects #{label} without changing the draft" do
+      session_id = create_setup_session
+      before = @persona.reload.attributes.slice("draft_revision", "draft_config", "preview_digest")
+      path = "/api/v1/admin/personas/#{@persona.id}/setup_sessions/#{session_id}/transcript"
+      if extension
+        Tempfile.create([ "transcript", extension ]) do |file|
+          file.write(content); file.flush
+          mime = extension == ".pdf" ? "application/pdf" : extension == ".txt" ? "text/plain" : "text/csv"
+          post path, params: { file: Rack::Test::UploadedFile.new(file.path, mime) }, headers: @headers
+        end
+      else
+        post path, params: { file: content }, headers: @headers
+      end
+      assert_response :unprocessable_entity
+      assert_equal message, response.parsed_body.fetch("error")
+      assert_equal before, @persona.reload.attributes.slice("draft_revision", "draft_config", "preview_digest")
+      assert_empty @persona.versions
+    end
+  end
+
+  test "transcript rejects blank extracted text without changing the draft" do
+    session_id = create_setup_session
+    revision = @persona.reload.draft_revision
+    parser = ContentSources::Parser
+    original = parser.instance_method(:call)
+    parser.define_method(:call) { |**| ContentSources::Parser::Result.new(segments: [], metadata: {}) }
+    Tempfile.create([ "transcript", ".txt" ]) do |file|
+      file.write("A readable transcript before extraction."); file.flush
+      post "/api/v1/admin/personas/#{@persona.id}/setup_sessions/#{session_id}/transcript",
+        params: { file: Rack::Test::UploadedFile.new(file.path, "text/plain") }, headers: @headers
+    end
+    assert_response :unprocessable_entity
+    assert_equal "This transcript has no readable text. Try a TXT file or paste its text.", response.parsed_body.fetch("error")
+    assert_equal revision, @persona.reload.draft_revision
+  ensure
+    parser.define_method(:call, original) if original
+  end
+
   test "setup requires an explicitly selected workspace for platform admins" do
     admin = persona_user(role: "admin")
 
@@ -140,7 +185,13 @@ class ApiV1AdminPersonaSetupControllerTest < ActionDispatch::IntegrationTest
     2.times do
       post apply_path, headers: @headers.merge("Idempotency-Key" => "apply-controller-123"), as: :json
       assert_response :success
+      assert_nil response.parsed_body.dig("session", "proposal")
+      assert_equal [ 0 ], response.parsed_body.dig("session", "resolved_proposal", "accepted_operation_indexes")
     end
+    get "/api/v1/admin/personas/#{@persona.id}/setup_sessions/#{session_id}", headers: @headers
+    assert_response :success
+    assert_equal proposal.fetch("id"), response.parsed_body.dig("session", "resolved_proposal", "id")
+    assert_equal [ 0 ], response.parsed_body.dig("session", "resolved_proposal", "accepted_operation_indexes")
     assert_equal "Lina", @persona.reload.name
     assert_equal 2, @persona.draft_revision
     assert_nil @persona.preview_digest

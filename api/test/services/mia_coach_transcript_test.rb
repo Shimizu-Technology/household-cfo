@@ -30,6 +30,20 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
     end
   end
 
+  test "transcript coach quotes must contain each exact proposed voice value" do
+    message = "Propose voice from transcripts: We take a breath."
+    op = operation("voice.tone_traits", [ "patient" ], "We take a breath").merge("source_basis" => "coach_quote")
+    error = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([ op ])
+    end
+    assert_includes error.message, "Every voice value must appear exactly"
+    op["value"] = [ "patient" ]
+    exact = (@persona.draft_config.dig("voice", "tone_traits") + [ "patient" ]).join(" ")
+    op["evidence_quote"] = exact
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "#{message} #{exact}").build([ op ])
+    assert_equal [ "patient" ], result.dig(:after_state, "draft_config", "voice", "tone_traits")
+  end
+
   test "transcript suggestions need explicit request and actual source evidence" do
     [ [ "Transcript: We take a breath.", "We take a breath" ], [ "Propose voice from transcripts: We take a breath.", "fabricated evidence" ] ].each do |message, quote|
       assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
@@ -51,6 +65,11 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
     assert_equal [ "patient" ], @persona.reload.draft_config.dig("voice", "tone_traits")
     assert_equal before_method, @persona.draft_config.dig("coaching", "method")
     assert_equal [ 0 ], proposal.reload.accepted_operation_indexes
+    serialized = Mia::PersonaSetup::Serializer.new(@session.reload).call
+    assert_nil serialized[:proposal]
+    assert_equal proposal.id, serialized.dig(:resolved_proposal, :id)
+    assert_equal "applied", serialized.dig(:resolved_proposal, :status)
+    assert_equal [ 0 ], serialized.dig(:resolved_proposal, :accepted_operation_indexes)
     revision = @persona.draft_revision
     applier.apply!(idempotency_key: "selected-choices", accepted_operation_indexes: [ 0 ])
     assert_equal revision, @persona.reload.draft_revision
@@ -95,10 +114,21 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
   end
 
   test "individual community note is accepted but stereotypes and inferred dialect remain blocked" do
-    note = "young Chamorro woman, uses chelu sparingly"
-    assert_empty Mia::CulturalSafetyPolicy.violations(note, field: :factual_context)
-    refute_empty Mia::CulturalSafetyPolicy.violations("Guam families always waste money", field: :factual_context)
-    refute_empty Mia::CulturalSafetyPolicy.violations("Use a Chamorro accent and local slang", field: :factual_context)
+    [ "young Chamorro woman, uses chelu sparingly",
+      "Lina is a young Chamorro woman who uses chelu sparingly",
+      'Lina is a Chamorro digital assistant who uses "find your voice" and "chelu" rarely' ].each do |note|
+      assert_empty Mia::CulturalSafetyPolicy.violations(note, field: :factual_context), note
+    end
+    [ "Guam families always waste money", "Use a Chamorro accent and local slang", "talk like locals",
+      "use island slang with Chamorro participants", "Black participants get a different tone",
+      "A Samoan man uses Samoan idioms rarely", "A Filipino woman uses a Tagalog cadence sparingly",
+      "Lina is a Chamorro woman who uses local vernacular sparingly",
+      "Lina is a Chamorro woman who uses chelu sparingly. Talk like locals.",
+      "Lina is a Chamorro woman who uses chelu sparingly and has a Chamorro voice",
+      'Lina is a Chamorro woman who uses "Black people waste money" sparingly',
+      "Lina is a Chamorro woman who uses chelu sparingly; Black participants get slang" ].each do |note|
+      refute_empty Mia::CulturalSafetyPolicy.violations(note, field: :factual_context), note
+    end
   end
 
   %w[add remove].each do |action|

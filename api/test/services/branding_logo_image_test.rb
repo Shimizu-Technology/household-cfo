@@ -47,6 +47,12 @@ class BrandingLogoImageTest < ActiveSupport::TestCase
     end
   end
 
+  test "whitespace IDAT data counts toward ordering and cannot be followed by another IDAT after metadata" do
+    bytes = Branding::LogoImage::SIGNATURE + chunk("IHDR", [ 1, 1, 8, 6, 0, 0, 0 ].pack("NNC5")) +
+      chunk("IDAT", " ") + chunk("tEXt", "metadata") + chunk("IDAT", Zlib::Deflate.deflate("\x00\x00\x00\x00\xff".b)) + chunk("IEND", "".b)
+    assert_raises(Branding::LogoImage::Invalid) { read(bytes) }
+  end
+
   private
 
   def read(bytes, mime: "image/png")

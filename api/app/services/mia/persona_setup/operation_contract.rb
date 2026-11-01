@@ -159,8 +159,6 @@ module Mia
         voice_request = user_message.match?(/\b(?:voice|tone|style|wording|language|warm|direct|calm|formal|concise|encouraging|lighthearted|patient)\b/i)
         raise ContractError, "A location label alone cannot authorize a voice or dialect change." unless source == "coach_quote" && voice_request
 
-        return if transcript_request? && evidence.present? && user_message.include?(evidence)
-
         changed_exact_strings(path, value).each do |text|
           next if text.blank? || (user_message.include?(text) && evidence.include?(text))
 

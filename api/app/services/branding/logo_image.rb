@@ -49,7 +49,7 @@ module Branding
         crc = @bytes.byteslice(offset + 8 + length, 4).unpack1("N")
         invalid! unless type.match?(/\A[A-Za-z]{4}\z/) && Zlib.crc32(type + data) == crc
         invalid! if chunks.empty? && type != "IHDR"
-        data_ended = true if compressed.present? && type != "IDAT"
+        data_ended = true if !compressed.empty? && type != "IDAT"
         case type
         when "IHDR"
           invalid! unless chunks.empty? && length == 13
@@ -61,12 +61,12 @@ module Branding
           raise Invalid, "Save your logo as a non-interlaced PNG and try again." unless interlace.zero?
           chunks << [ type, data ]
         when "PLTE"
-          invalid! if compressed.present? || chunks.any? { |entry| entry.first == "PLTE" } || [ 0, 4 ].include?(@color)
+          invalid! if !compressed.empty? || chunks.any? { |entry| entry.first == "PLTE" } || [ 0, 4 ].include?(@color)
           invalid! unless length.positive? && (length % 3).zero? && length <= 768
           invalid! if @color == 3 && length / 3 > 2**@depth
           chunks << [ type, data ]
         when "tRNS"
-          invalid! if compressed.present? || chunks.any? { |entry| entry.first == "tRNS" }
+          invalid! if !compressed.empty? || chunks.any? { |entry| entry.first == "tRNS" }
           palette = chunks.find { |entry| entry.first == "PLTE" }&.last
           valid = case @color
           when 0 then length == 2
@@ -80,7 +80,7 @@ module Branding
           invalid! if data_ended || (@color == 3 && chunks.none? { |entry| entry.first == "PLTE" })
           compressed << data
         when "IEND"
-          invalid! unless length.zero? && compressed.present?
+          invalid! unless length.zero? && !compressed.empty?
           ended = true
         else
           # Unknown critical chunks cannot be safely interpreted. All ancillary

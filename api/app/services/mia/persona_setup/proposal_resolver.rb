@@ -106,7 +106,7 @@ module Mia
           # Replace it with truthful review wording; operations still pass the
           # full evidence/allowlist validation before a proposal can be saved.
           assistant_message = if parsed.fetch("operations").any?
-            "Here are my suggestions for your assistant’s voice. Nothing has been saved. Change anything that doesn’t sound like you."
+            "Here are my suggestions for your assistant. Nothing has been saved. Change anything that doesn’t sound like you."
           else
             "Nothing has been saved. Tell me what you would like to change, and I will propose it for you to review."
           end
@@ -340,7 +340,8 @@ module Mia
         schemas << set_operation_schema([ "coaching.philosophy" ], { type: "string", maxLength: 2_000 }, sources: OperationContract::SOURCES)
         schemas << set_operation_schema(%w[voice.tone_traits], string_array_schema(PersonaSchema::TONE_TRAITS, max: PersonaSchema::TONE_TRAITS.length))
         schemas << set_operation_schema(%w[voice.language_style], string_array_schema(PersonaSchema::LANGUAGE_STYLES, max: PersonaSchema::LANGUAGE_STYLES.length))
-        schemas << set_operation_schema(%w[coaching.principles coaching.do coaching.do_not culture.local_realities culture.references], string_array_schema(nil, max: 16))
+        schemas << set_operation_schema(%w[coaching.principles coaching.do coaching.do_not], string_array_schema(nil, max: 16))
+        schemas << set_operation_schema(%w[culture.local_realities culture.references], string_array_schema(nil, max: 16))
         schemas << set_operation_schema(%w[response_shape.min_sentences response_shape.max_sentences response_shape.max_characters], { type: "integer" })
         schemas << set_operation_schema(%w[response_shape.plain_text_only], { type: "boolean" })
         schemas << set_operation_schema(%w[curriculum.guidance], {

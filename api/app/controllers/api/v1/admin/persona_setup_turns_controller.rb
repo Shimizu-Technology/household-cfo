@@ -40,6 +40,9 @@ module Api
             content_type: file.content_type, byte_size: file.size, checksum_sha256: Digest::SHA256.file(file.path).hexdigest)
           parsed = ContentSources::Parser.new.call(path: file.path, filename: file.original_filename)
           text = parsed.segments.map(&:text).join("\n\n")
+          if text.blank?
+            return render json: { error: "This transcript has no readable text. Try a TXT file or paste its text." }, status: :unprocessable_entity
+          end
           if text.length > 22_000
             return render json: { error: "This transcript is long. Choose an excerpt of up to 22,000 characters." }, status: :unprocessable_entity
           end
