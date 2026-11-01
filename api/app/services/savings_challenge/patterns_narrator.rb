@@ -6,7 +6,7 @@ module SavingsChallenge
     private
 
     def narrator_contract
-      "#{super} For this spending-patterns answer, use 3-5 short sentences, aiming for about 350 characters, in the assigned persona's warm, plain coaching voice. Lead with the biggest flexible spends and their recorded window. Describe the small-purchase cluster plainly; for Friday through Sunday you can call it a little end-of-week waterfall. Do not speculate about the reason, and do not announce that you are not speculating. End with a comfortable choice between the supplied merchants. Give only the first choice's estimated monthly impact. Include coverage in one short clause only if months are missing; do not recite disclosures. Do not mention subscriptions, other merchants, goals, screens or facts outside this packet. Keep each merchant total in the form Merchant ($amount). Copy each figure exactly from the verified reference; do not round, calculate, spell out new numbers or pair amounts with different merchants. Use could free for the monthly estimate; do not recite estimate-not-savings disclaimers or guardrails. This is a read-only observation, so do not add a review-before-writing disclaimer."
+      "#{super} For this spending-patterns answer, use 3-5 short sentences, aiming for about 350 characters, in the assigned persona's warm, plain coaching voice. Lead with the biggest flexible spends and their recorded window. Describe the small-purchase cluster plainly; for Friday through Sunday you can call it a little end-of-week waterfall. Do not speculate about the reason, and do not announce that you are not speculating. End with a comfortable choice between the supplied merchants. Give only the first choice's estimated monthly impact, using the factual sentence Spending half as much at MERCHANT could free about AMOUNT a month, with the supplied merchant and amount. Include coverage in one short clause only if months are missing; do not recite disclosures. Do not mention subscriptions, other merchants, goals, screens or facts outside this packet. Keep each merchant total in the form Merchant ($amount). Copy each figure exactly from the verified reference; do not round, calculate, spell out new numbers or pair amounts with different merchants. Use could free for the monthly estimate; do not recite estimate-not-savings disclaimers or guardrails. This is a read-only observation, so do not add a review-before-writing disclaimer."
     end
 
     def narration_rejection_reason(content)
@@ -17,8 +17,8 @@ module SavingsChallenge
       sentences = content.to_s.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY)
       return :patterns_response_length unless sentences.length.between?(3, 5)
       return :spelled_pattern_figure if content.match?(/\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)\s+(?:dollars?|purchases?|buys|percent|months?|days?|payments?|charges?|transactions?)\b/i)
-      allowed = fallback_response.scan(FIGURE)
-      return :invented_pattern_figure unless (content.scan(FIGURE) - allowed).empty?
+      allowed = fallback_response.scan(FIGURE).tally
+      return :invented_pattern_figure if content.scan(FIGURE).tally.any? { |figure, count| count > allowed.fetch(figure, 0) }
       return :unrequested_subscription if content.match?(/\bsubscriptions?\b/i)
       facts = answer_packet.fetch(:verified_facts)
       months = Array(facts[:months_with_purchases])
@@ -33,9 +33,13 @@ module SavingsChallenge
         end
       end
       if (choice = facts[:choices]&.first)
-        return :incorrect_pattern_estimate unless sentences.any? do |sentence|
-          sentence.include?(choice[:merchant]) && sentence.include?(coaching_money(choice[:monthly_impact_cents])) && sentence.match?(/\bmonth\b/i)
-        end
+        merchant = Regexp.escape(choice[:merchant])
+        amount = Regexp.escape(coaching_money(choice[:monthly_impact_cents]))
+        # Bind the halving action and its amount to the same display name.
+        # Merely mentioning Ross elsewhere in a sentence about Kmart is unsafe.
+        action = "(?:(?i:Spending half as much at |Halving |Halving spending at )#{merchant}|(?i:Cutting spending at )#{merchant}(?i: in half))"
+        estimate = /\A#{action}(?i: could free about )#{amount}(?i: a month)(?:, based on the months recorded)?[.!]\z/
+        return :incorrect_pattern_estimate unless sentences.any? { |sentence| sentence.match?(estimate) }
       end
       # Each named spend must retain its own total, not another merchant's figure.
       facts.fetch(:merchants).each do |row|

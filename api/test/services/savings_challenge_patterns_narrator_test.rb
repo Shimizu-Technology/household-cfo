@@ -21,9 +21,11 @@ class SavingsChallengePatternsNarratorTest < ActiveSupport::TestCase
   end
 
   test "falls back for new figures, swapped totals, subscriptions and long replies" do
-    [ REFERENCE.sub("Would you", "You made twelve purchases at Ross. Would you"), REFERENCE.sub("$227.99", "$228"), REFERENCE.sub("Aug to Oct", "Sep to Nov"), REFERENCE.sub("25 small", "26 small"),
+    [ REFERENCE.sub("Would you", "You made twelve purchases at Ross. Would you"),
+      REFERENCE.sub("Would you", "The $100 is also from Kmart. Would you"), REFERENCE.sub("$227.99", "$228"), REFERENCE.sub("Aug to Oct", "Sep to Nov"), REFERENCE.sub("25 small", "26 small"),
       REFERENCE.sub("Ross ($600) and Kmart ($360)", "Ross ($360) and Kmart ($600)"),
-      REFERENCE.sub("at Ross could free", "at Kmart could free"), REFERENCE.sub("25 small buys", "Small buys"),
+      REFERENCE.sub("at Ross could free", "at Kmart could free"),
+      REFERENCE.sub("Spending half as much at Ross could free about $100 a month, based on the months recorded.", "Unlike Ross, halving Kmart could free about $100 a month."), REFERENCE.sub("25 small buys", "Small buys"),
       REFERENCE + " Ross is a subscription.", REFERENCE + " Here is more. And more." ].each do |content|
       subject = narrator
       subject.define_singleton_method(:openrouter_response) { content }
