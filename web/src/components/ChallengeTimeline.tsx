@@ -13,7 +13,7 @@ export function ChallengeTimeline({ timeline, onDay, onCheckpoint }: { timeline:
         return <div role="listitem" key={day.day}><button type="button" disabled={day.future || !onDay} data-state={day.future ? 'future' : day.check_in} data-deposit={Boolean(day.deposit_cents && day.deposit_cents > 0)} aria-label={`Day ${day.day}, ${formatDay(day.local_on)}: ${state}${deposit}`} title={`${state}${deposit}`} onClick={() => onDay?.(day.local_on)}><span>{day.day}</span><span aria-hidden="true">{day.check_in === 'no_spend' ? '○' : day.check_in === 'spending' ? '✓' : '·'}{day.deposit_cents && day.deposit_cents > 0 ? ' +' : ''}</span></button></div>
       })}
     </div>
-    <ul className="challenge-days-legend" aria-label="Day symbols">
+    <ul className="challenge-days-legend" role="list" aria-label="Day symbols">
       <li>✓ Checked in</li><li>○ No spending</li><li>+ Set aside</li><li>· Not checked in</li>
     </ul>
     <p className="savings-caption challenge-days-swipe">Swipe for all 90 days</p>
