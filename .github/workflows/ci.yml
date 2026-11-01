@@ -12,7 +12,8 @@ concurrency:
 
 jobs:
   rails_security:
-    runs-on: ubuntu-latest
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: api
@@ -33,7 +34,8 @@ jobs:
         run: bin/bundler-audit check --update
 
   rails_lint:
-    runs-on: ubuntu-latest
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: api
@@ -63,7 +65,8 @@ jobs:
         run: bin/rubocop -f github
 
   rails_test:
-    runs-on: ubuntu-latest
+    # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: api
