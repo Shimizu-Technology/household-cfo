@@ -22,3 +22,12 @@
 
 .persona-release-review { display: grid; gap: 1rem; min-width: 0; }
 .persona-release-review > .persona-release-step { margin-top: 1rem; }
+
+.persona-proposal-summary { margin: 0; min-width: 0; }
+.persona-proposal-summary > div { display: flex; align-items: baseline; gap: .75rem; padding-block: .65rem; border-bottom: 1px solid var(--line); min-width: 0; }
+.persona-proposal-summary dt { flex: 0 0 5rem; font-weight: 650; }
+.persona-proposal-summary dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.persona-proposal-choices { min-width: 0; }
+.persona-proposal-choices > summary { min-height: 44px; align-content: center; cursor: pointer; }
+
+.persona-setup-review { align-self: start; }

@@ -26,6 +26,17 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 describe('Coach group essentials', () => {
+  it('preserves the chosen invitation disclosure state while a roster search has no matches',async()=>{
+    harness();await screen.findByText('Participants in Tuesday group')
+    const details=screen.getByText('Add a participant',{selector:'summary'}).closest('details')!
+    const search=screen.getByRole('searchbox')
+    expect(details.open).toBe(false)
+    fireEvent.change(search,{target:{value:'nobody-matches'}});expect(details.open).toBe(false)
+    fireEvent.change(search,{target:{value:''}});details.open=true
+    fireEvent.change(search,{target:{value:'nobody-matches'}});expect(details.open).toBe(true)
+    fireEvent.change(search,{target:{value:''}});expect(details.open).toBe(true)
+  })
+
   it('opens invitations for an empty group without making the coach open another disclosure',async()=>{
     mocks.fetchAdminUsers.mockResolvedValue([])
     harness()

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AdminPersonaDetail } from '../api'
@@ -67,7 +68,7 @@ it.each(['revision','run','preview'])('rejects readiness for a different %s befo
  api.fetchAdminPersonaReleaseReadiness.mockResolvedValue(mismatch);
  render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));
  await screen.findByRole('alert');
- expect(screen.queryByRole('checkbox',{name:/I reviewed the answers/})).toBeNull();
+ expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull();
  expect(api.reviewAdminPersonaEvaluation).not.toHaveBeenCalled();expect(api.reviewAdminPersonaAudience).not.toHaveBeenCalled();
 })
 it('rechecks evaluation identity before recording any approval when another review finishes after display',async()=>{
@@ -93,4 +94,27 @@ it('prepares published group changes automatically and keeps the only group sele
  await waitFor(()=>expect(groupApi.publishCoachGroup).toHaveBeenCalledTimes(1));
  expect(api.publishAdminPersona).not.toHaveBeenCalled();
  expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull();
+})
+
+it('keeps the live confirmation after the success callback refreshes parent persona props',async()=>{
+ const published={...persona,has_unpublished_changes:false,published_version:{id:9}} as AdminPersonaDetail;
+ function RefreshingHarness(){const [current,setCurrent]=useState(persona);const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={current} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={setCurrent}/>}
+ api.publishAdminPersona.mockResolvedValue({persona:published});
+ render(<RefreshingHarness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));
+ await screen.findByText('Review before going live');fireEvent.click(screen.getByRole('button',{name:'Approve and go live'}));
+ await screen.findByText(/^Live for Practice people/);
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Review changes'})).toHaveProperty('disabled',false));
+ expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(1);
+ expect(api.fetchAdminPersona).toHaveBeenCalledTimes(4);
+ expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull();
+ expect(screen.queryByRole('alert')).toBeNull();
+})
+it.each(['before approvals','before publish'])('rejects a missing preview digest %s with a useful recovery message',async(stage)=>{
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));await screen.findByText('Review before going live');
+ if(stage==='before approvals') api.fetchAdminPersona.mockResolvedValue({...persona,preview:null});
+ else api.fetchAdminPersona.mockResolvedValueOnce(persona).mockResolvedValue({...persona,preview:null});
+ fireEvent.click(screen.getByRole('button',{name:'Approve and go live'}));
+ expect((await screen.findByRole('alert')).textContent).toContain('Preview again before publishing.');
+ expect(api.publishAdminPersona).not.toHaveBeenCalled();expect(groupApi.publishCoachGroup).not.toHaveBeenCalled();
+ if(stage==='before approvals'){expect(api.reviewAdminPersonaAudience).not.toHaveBeenCalled();expect(api.reviewAdminPersonaEvaluation).not.toHaveBeenCalled();expect(settingsApi.publishCoachSettings).not.toHaveBeenCalled()}
 })

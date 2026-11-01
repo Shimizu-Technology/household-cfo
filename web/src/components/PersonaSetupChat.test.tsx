@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { useState } from 'react'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -8,12 +9,15 @@ import { PersonaSetupChat } from './PersonaSetupChat'
 import { useCoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
 const apiMocks = vi.hoisted(() => ({
+  readCoachVoiceTranscript: vi.fn(),
   createAdminPersonaSetupSession: vi.fn(),
   createAdminPersonaSetupTurn: vi.fn(),
   rebaseAdminPersonaSetupSession: vi.fn(),
   abandonAdminPersonaSetupSession: vi.fn(),
   resolveAdminPersonaSetupProposal: vi.fn(),
 }))
+
+vi.mock('../enterpriseApi',()=>({readCoachVoiceTranscript:apiMocks.readCoachVoiceTranscript}))
 
 vi.mock('../api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../api')>(),
@@ -115,14 +119,15 @@ describe('PersonaSetupChat', () => {
     await userEvent.type(screen.getByLabelText('Message Mia'), 'Her name is Mrs. Mel.')
     await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))
 
+    await userEvent.click(await screen.findByText('Review each suggestion',{selector:'summary'}))
     expect(await screen.findByText('Human coach name')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Your voice suggestions' })).toBeTruthy()
     expect(screen.queryByText('No proposal yet.')).toBeNull()
     expect(screen.getByText('Coach said')).toBeTruthy()
-    expect(screen.getByText('Mrs. Mel')).toBeTruthy()
+    expect(screen.getAllByText('Mrs. Mel')[0]).toBeTruthy()
     expect(onPersonaChange).not.toHaveBeenCalled()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Save selected suggestions' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Use all suggestions' }))
     await vi.waitFor(() => expect(onPersonaChange).toHaveBeenCalledTimes(1))
     expect(apiMocks.resolveAdminPersonaSetupProposal.mock.calls[0][3]).toBe('apply')
   })
@@ -136,7 +141,7 @@ describe('PersonaSetupChat', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))
       const heading = await screen.findByRole('heading', { name: 'Your voice suggestions' })
       await waitFor(() => expect(document.activeElement).toBe(heading))
-      expect(screen.getByRole('button', { name: 'Save selected suggestions' })).toHaveProperty('disabled', false)
+      expect(screen.getByRole('button', { name: 'Use all suggestions' })).toHaveProperty('disabled', false)
     } finally { frame.mockRestore() }
   })
 
@@ -145,7 +150,7 @@ describe('PersonaSetupChat', () => {
     apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
     render(<Harness manualDirty onReviewInForm={onReviewInForm} />)
 
-    expect((await screen.findByRole('button', { name: 'Save selected suggestions' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((await screen.findByRole('button', { name: 'Use all suggestions' }) as HTMLButtonElement).disabled).toBe(true)
     await userEvent.click(screen.getByRole('button', { name: 'Review in form' }))
     expect(onReviewInForm).toHaveBeenCalledWith(authoringState, 'identity.human_coach_name', 1)
   })
@@ -227,7 +232,7 @@ describe('PersonaSetupChat', () => {
 
     expect(await screen.findByText(clarification)).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Save selected suggestions' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Use all suggestions' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Review in form' })).toBeNull()
     expect(screen.queryByText('No proposal yet.')).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Your voice suggestions' })).toBeNull()
@@ -269,7 +274,7 @@ describe('PersonaSetupChat', () => {
     apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
     apiMocks.resolveAdminPersonaSetupProposal.mockRejectedValue(new ApiRequestError('HTTP 500', { status: 500 }))
     render(<Harness />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Save selected suggestions' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use all suggestions' }))
     expect((await screen.findByRole('alert')).textContent).toBe('The proposal could not be saved.')
   })
 
@@ -280,9 +285,9 @@ describe('PersonaSetupChat', () => {
       .mockResolvedValueOnce({ session: session(), persona: persona() })
     render(<Harness />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Save selected suggestions' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use all suggestions' }))
     expect((await screen.findByRole('alert')).textContent).toContain('The response was lost.')
-    await userEvent.click(screen.getByRole('button', { name: 'Save selected suggestions' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Use all suggestions' }))
     await vi.waitFor(() => expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledTimes(2))
 
     expect(apiMocks.resolveAdminPersonaSetupProposal.mock.calls[1][4])
@@ -297,11 +302,11 @@ describe('PersonaSetupChat', () => {
       .mockResolvedValueOnce({ session: session(), persona: persona() })
     render(<Harness />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Save selected suggestions' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use all suggestions' }))
     expect((await screen.findByRole('alert')).textContent).toContain('The apply response was lost.')
     await userEvent.click(screen.getByRole('button', { name: 'Reject proposal' }))
     expect((await screen.findByRole('alert')).textContent).toContain('The reject response was lost.')
-    await userEvent.click(screen.getByRole('button', { name: 'Save selected suggestions' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Use all suggestions' }))
     await vi.waitFor(() => expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledTimes(3))
 
     const calls = apiMocks.resolveAdminPersonaSetupProposal.mock.calls
@@ -354,10 +359,56 @@ describe('PersonaSetupChat', () => {
  it('keeps the simple proposal focused on suggested wording while retaining original evidence', async () => {
    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
    render(<Harness saveAndPreview />)
-   await screen.findByRole('button', { name: 'Save and preview answers' })
+   await screen.findByRole('button', { name: 'Use all suggestions' })
+   expect(screen.getByText('Review each suggestion',{selector:'summary'}).closest('details')?.open).toBe(false)
+   await userEvent.click(screen.getByText('Review each suggestion',{selector:'summary'}))
    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Use this human coach name suggestion' })).toHaveProperty('checked', true))
    expect(screen.queryByText('After')).toBeNull()
    expect(screen.getByText('Original wording and source')).toBeTruthy()
  })
+
+  it('saves chosen operation indexes and transitions into the preview through onPersonaChange',async()=>{
+    const proposed=proposalSession()
+    proposed.proposal!.operations.unshift({op:'set',path:'response_shape.max_sentences',value:3,source_basis:'coach_quote',evidence_quote:'3'})
+    proposed.proposal!.grouped_changes.push({group:'Response',changes:[{group:'Response',path:'response_shape.max_sentences',label:'Max sentences',before:5,after:3,source_basis:'coach_quote',evidence_quote:'3'}]})
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposed)
+    apiMocks.resolveAdminPersonaSetupProposal.mockResolvedValue({session:session(),persona:persona()})
+    const changed=vi.fn(),review=vi.fn()
+    function Transition(){const [saved,setSaved]=useState<AdminPersonaDetail|null>(null);return saved ? <p>Live preview for {saved.id}</p> : <Harness saveAndPreview onReviewInForm={review} onPersonaChange={(value)=>{changed(value);setSaved(value)}}/>}
+    render(<Transition/>);
+    const useAll=await screen.findByRole('button',{name:'Use all suggestions'});await waitFor(()=>expect(useAll).toHaveProperty('disabled',false))
+    expect(screen.getByText('Review each suggestion',{selector:'summary'}).closest('details')?.open).toBe(false)
+    await userEvent.click(screen.getByText('Review each suggestion',{selector:'summary'}))
+    expect(screen.getByText('3',{selector:'.coach-suggestion-value'})).toBeTruthy()
+    await userEvent.click(screen.getByRole('checkbox',{name:'Use this max sentences suggestion'}))
+    await userEvent.click(screen.getByRole('button',{name:'Use selected suggestions'}))
+    await screen.findByText('Live preview for 81')
+    expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81,51,71,'apply',expect.any(String),[1])
+    expect(changed).toHaveBeenCalledWith(persona());expect(review).not.toHaveBeenCalled()
+  })
+  it('uses all suggestions by default when saving directly to preview',async()=>{
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
+    apiMocks.resolveAdminPersonaSetupProposal.mockResolvedValue({session:session(),persona:persona()})
+    const changed=vi.fn();render(<Harness saveAndPreview onPersonaChange={changed}/>);
+    const button=await screen.findByRole('button',{name:'Use all suggestions'});await waitFor(()=>expect(button).toHaveProperty('disabled',false));await userEvent.click(button)
+    await waitFor(()=>expect(changed).toHaveBeenCalledWith(persona()))
+    expect(apiMocks.resolveAdminPersonaSetupProposal.mock.calls[0][5]).toEqual([0])
+  })
+  it('keeps text typed while a transcript upload is reading',async()=>{
+    let finish!:(value:{text:string})=>void
+    apiMocks.readCoachVoiceTranscript.mockReturnValue(new Promise(resolve=>{finish=resolve}))
+    render(<Harness/>);const composer=await screen.findByLabelText('Message Mia')
+    await userEvent.upload(screen.getByLabelText(/Add a transcript/),new File(['One small step'],'talk.txt',{type:'text/plain'}))
+    await screen.findByText('Reading your transcript…');await userEvent.type(composer,'Keep this new wording.')
+    finish({text:'One small step'})
+    await waitFor(()=>expect(composer).toHaveProperty('value','Keep this new wording.\n\nTranscript: talk.txt\nOne small step'))
+  })
+  it('shows an actionable server transcript error and retains the typed message',async()=>{
+    apiMocks.readCoachVoiceTranscript.mockRejectedValue(new ApiRequestError('This transcript is long. Choose an excerpt of up to 22,000 characters.',{status:422}))
+    render(<Harness/>);const composer=await screen.findByLabelText('Message Mia');await userEvent.type(composer,'Keep me.')
+    await userEvent.upload(screen.getByLabelText(/Add a transcript/),new File(['long'],'talk.txt',{type:'text/plain'}))
+    expect((await screen.findByRole('alert')).textContent).toContain('22,000 characters')
+    expect(composer).toHaveProperty('value','Keep me.')
+  })
 
 })

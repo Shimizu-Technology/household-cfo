@@ -37,7 +37,7 @@ const PRIMARY_LIMIT = 4
 /** Splits participant sections into primary destinations and the More menu. */
 export function partitionParticipantSections(sections: string[], savingsChallenge = false, customOrder = false) {
   const priority = savingsChallenge ? SAVINGS_PRIMARY_PRIORITY : PRIMARY_PRIORITY
-  const primary = customOrder ? sections.slice(0, PRIMARY_LIMIT) : priority.filter((section) => sections.includes(section)).slice(0, PRIMARY_LIMIT)
+  const primary = customOrder ? sections.filter((section) => section !== 'Coach Studio' && section !== 'Admin').slice(0, PRIMARY_LIMIT) : priority.filter((section) => sections.includes(section)).slice(0, PRIMARY_LIMIT)
   const secondary = sections.filter((section) => !primary.includes(section))
   return { primary, secondary }
 }

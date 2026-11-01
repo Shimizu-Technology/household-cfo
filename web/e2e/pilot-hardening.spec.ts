@@ -5455,13 +5455,15 @@ test('Coach Studio creates a persona through private setup chat and reviewed cha
 
   await expect(page.getByRole('heading', { name: 'Your voice suggestions' })).toBeFocused()
   const proposalReview = page.locator('.persona-setup-review')
+  await expect(proposalReview.locator('.persona-proposal-choices')).not.toHaveAttribute('open','')
+  await proposalReview.getByText('Review each suggestion',{exact:true}).click()
   await expect(proposalReview.getByText('Human coach name', { exact: true })).toBeVisible()
   await expect(proposalReview.getByText('Coach said')).toBeVisible()
   await expect(proposalReview.getByText('Pilot Admin')).toBeVisible()
   await expect(proposalReview.getByText('Mrs. Mel', { exact: true }).first()).toBeVisible()
   await page.getByRole('button', { name: 'Keep chatting' }).click()
   await expect(composer).toBeFocused()
-  await page.getByRole('button', { name: 'Save selected suggestions' }).click()
+  await page.getByRole('button', { name: 'Use all suggestions' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'reviewed proposal was applied' })).toBeVisible()
 
   await page.getByRole('button', { name: /Guided setup/ }).click()

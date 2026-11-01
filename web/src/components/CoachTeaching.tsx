@@ -1,7 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
-import { updateAdminPersona, type AdminPersonaDetail } from '../api'
+import { updateAdminPersona, type AdminPersonaDetail, type CurrentUser } from '../api'
 import { Button } from './Button'
+import { CoachContentLibrary } from './CoachContentLibrary'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
+
+export function CoachTeachingWorkspace({ persona, currentUser, lifecycle, onDirtyChange, onPersonaChange, onPreview }: { persona: AdminPersonaDetail | null; currentUser: CurrentUser; lifecycle: CoachWorkspaceMutationLifecycle; onDirtyChange: (dirty: boolean) => void; onPersonaChange: (persona: AdminPersonaDetail) => void; onPreview: () => void }) {
+  const [methodDirty, setMethodDirty] = useState(false)
+  const [libraryDirty, setLibraryDirty] = useState(false)
+  const [saved, setSaved] = useState(false)
+  useEffect(() => { onDirtyChange(methodDirty || libraryDirty) }, [methodDirty, libraryDirty, onDirtyChange])
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange])
+  function preview() {
+    if (libraryDirty && !window.confirm('Leave without saving your library changes? Your teaching method is saved.')) return
+    onPreview()
+  }
+  return <>
+    {persona && <CoachTeaching key={`${persona.id}:${persona.draft_revision}`} persona={persona} lifecycle={lifecycle} onDirtyChange={setMethodDirty} onSaved={(next) => { onPersonaChange(next); setSaved(true); preview() }} />}
+    {saved && <p role="status">Your teaching method is saved. Save your library changes or leave them behind to preview. <Button variant="secondary" disabled={methodDirty || lifecycle.pending} onClick={preview}>Preview saved teaching</Button></p>}
+    <details><summary>Teaching library and sources</summary><CoachContentLibrary currentUser={currentUser} selectedPersona={persona} mutationLifecycle={lifecycle} onDirtyChange={setLibraryDirty} onPersonaChange={onPersonaChange} /></details>
+  </>
+}
 
 export function CoachTeaching({ persona, lifecycle, onDirtyChange, onSaved }: { persona: AdminPersonaDetail; lifecycle: CoachWorkspaceMutationLifecycle; onDirtyChange: (dirty: boolean) => void; onSaved: (persona: AdminPersonaDetail) => void }) {
   const [method, setMethod] = useState(persona.draft?.coaching.method ?? '')

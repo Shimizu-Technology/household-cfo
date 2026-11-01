@@ -3,13 +3,14 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { CurrentUser } from '../api'
 import { CoachStudio } from './CoachStudio'
+const auth=vi.hoisted(()=>({workspaceId:1}))
 const api=vi.hoisted(()=>({createAdminPersona:vi.fn(),fetchAdminPersonas:vi.fn(),fetchAdminPersona:vi.fn(),fetchAdminPersonaAssignableCohorts:vi.fn()}))
 vi.mock('../api',()=>api)
-vi.mock('../contexts/authContextValue',()=>({useAuthContext:()=>({activeCoachWorkspaceId:1,selectCoachWorkspace:vi.fn()})}))
+vi.mock('../contexts/authContextValue',()=>({useAuthContext:()=>({activeCoachWorkspaceId:auth.workspaceId,selectCoachWorkspace:vi.fn()})}))
 vi.mock('./CoachStudioAdvanced',()=>({CoachStudioAdvanced:({embedded,onDirtyChange}:{embedded:boolean;onDirtyChange:(dirty:boolean)=>void})=><><p>{embedded?'People and invitations':'Full settings and history'}</p><button onClick={()=>onDirtyChange(true)}>Unsaved group edit</button></>}))
 vi.mock('./CoachProgramSettings',()=>({CoachProgramSettings:()=>null}));vi.mock('./CohortExperienceStudio',()=>({CohortExperienceStudio:()=>null}));vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:()=> <p>Review saved answers and groups</p>}));
-const user={coach_workspaces:[{id:1,name:'Practice coaching'}]} as CurrentUser
-beforeEach(()=>{window.sessionStorage.clear();vi.resetAllMocks();api.fetchAdminPersonas.mockResolvedValue([]);api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([])})
+const user={id:902,coach_workspaces:[{id:1,name:'Practice coaching'},{id:2,name:'Second program'}]} as CurrentUser
+beforeEach(()=>{window.sessionStorage.clear();auth.workspaceId=1;vi.resetAllMocks();api.fetchAdminPersonas.mockResolvedValue([]);api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([])})
 afterEach(cleanup)
 it('has three default areas and a short setup checklist without release terminology',async()=>{
  render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready');
@@ -32,10 +33,12 @@ it('creates the assistant then makes describe, preview and advanced history reac
 
 it('keeps only the detailed-view preference when the app remounts after a program switch',async()=>{
  const first=render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready');
- fireEvent.click(screen.getByRole('button',{name:'Open advanced settings'}));await screen.findByText('Full settings and history');first.unmount();
+ fireEvent.click(screen.getByRole('button',{name:'Open advanced settings'}));await screen.findByText('Full settings and history');first.unmount();auth.workspaceId=2;
  render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);expect(screen.getByText('Full settings and history')).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Back to simple setup'}));await screen.findByText('Get your program ready');
- expect(window.sessionStorage.getItem('hcfo.coachStudio.mode:undefined')).toBeNull();
+ expect(window.sessionStorage.getItem('hcfo.coachStudio.mode:902')).toBeNull();
+ expect(screen.getByLabelText('Program')).toHaveProperty('value','2');
+ expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('People');
 })
 
 it('retains the selected area after an account refresh without retaining private form values',async()=>{

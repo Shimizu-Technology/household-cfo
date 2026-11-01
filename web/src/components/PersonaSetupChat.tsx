@@ -53,6 +53,8 @@ export function PersonaSetupChat({
   const finishMutation = mutationLifecycle.finish
   const requestSequence = useRef(0)
   const personaIdRef = useRef(persona.id)
+  const messageRef = useRef(message)
+  useLayoutEffect(() => { messageRef.current = message }, [message])
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
   const focusTargetRef = useRef<'proposal' | 'composer' | null>(null)
@@ -124,7 +126,17 @@ export function PersonaSetupChat({
     queueMicrotask(() => setAcceptedIndexes(session?.proposal?.operations.map((_, index) => index) ?? []))
   }, [session?.proposal])
 
-  const groupedChanges = useMemo(() => session?.proposal?.grouped_changes ?? [], [session])
+  const groupedChanges = useMemo(() => {
+    const groups = new Map<string, AdminPersonaSetupChange[]>()
+    for (const group of session?.proposal?.grouped_changes ?? []) {
+      for (const change of group.changes) {
+        const title = group.group === 'Community' ? 'Identity' : group.group === 'Response' ? 'Voice' : change.path === 'curriculum.examples' ? 'Examples' : group.group
+        groups.set(title, [...(groups.get(title) ?? []), change])
+      }
+    }
+    const order = ['Identity', 'Voice', 'Coaching', 'Phrases', 'Examples', 'Teaching']
+    return [...groups].map(([group, changes]) => ({ group, changes })).sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group))
+  }, [session])
 
   async function sendMessage(event: FormEvent) {
     event.preventDefault()
@@ -268,11 +280,12 @@ export function PersonaSetupChat({
     try {
       const result = await readCoachVoiceTranscript(personaId, session.id, file)
       if (sequence !== requestSequence.current || personaIdRef.current !== personaId) return
-      const prefix = message.trim() ? `${message}\n\n` : 'Propose a voice summary, phrases and example replies from these transcripts for my review.\n\n'
-      const next = `${prefix}Transcript: ${file.name}\n${result.text}`
-      if (next.length > 24000) { setError('These transcripts are long. Use excerpts totalling up to 24,000 characters.'); return }
-      setMessage(next); setRetryKey(null)
-    } catch { if (sequence === requestSequence.current) setError('This transcript could not be read. Try TXT, DOCX or PDF, or paste its text.') }
+      const append = (current: string) => `${current.trim() ? `${current}\n\n` : 'Propose a voice summary, phrases and example replies from these transcripts for my review.\n\n'}Transcript: ${file.name}\n${result.text}`
+      if (append(messageRef.current).length > 24000) { setError('These transcripts are long. Use excerpts totalling up to 24,000 characters.'); return }
+      setMessage((current) => append(current)); setRetryKey(null)
+    } catch (caught) {
+      if (sequence === requestSequence.current && personaIdRef.current === personaId) setError(setupErrorMessage(caught, 'This transcript could not be read. Try TXT, DOCX or PDF, or paste its text.'))
+    }
     finally { setUploading(false) }
   }
 
@@ -352,12 +365,16 @@ export function PersonaSetupChat({
           <h4 id="persona-setup-review-title" ref={proposalHeadingRef} tabIndex={-1}>Your voice suggestions</h4>
         </header>
           <>
+            <dl className="persona-proposal-summary">
+              {groupedChanges.map((group) => <div key={group.group}><dt>{group.group}</dt><dd>{sectionSummary(group.group, group.changes)}</dd></div>)}
+            </dl>
+            <details className="persona-proposal-choices"><summary>Review each suggestion</summary>
             <div className="persona-proposal-groups">
               {groupedChanges.map((group) => (
                 <section key={group.group}>
                   <h5>{group.group}</h5>
                   {group.changes.map((change, changeIndex) => {
-                    const index = session.proposal!.grouped_changes.slice(0, session.proposal!.grouped_changes.indexOf(group)).reduce((sum, item) => sum + item.changes.length, 0) + changeIndex
+                    const index = groupedChanges.slice(0, groupedChanges.indexOf(group)).reduce((sum, item) => sum + item.changes.length, 0) + changeIndex
                     // Groups preserve operation order within a field family; match the sealed operation itself.
                     const matching = session.proposal!.operations.map((op, opIndex) => ({op, opIndex})).filter(({op}) => op.path === change.path)
                     const occurrence = group.changes.slice(0, changeIndex).filter((item) => item.path === change.path).length
@@ -367,9 +384,12 @@ export function PersonaSetupChat({
                 </section>
               ))}
             </div>
+            </details>
             {manualDirty && <p className="persona-setup-apply-blocked" role="note">Save or discard your manual form changes before saving these suggestions.</p>}
+            {acceptedIndexes.length !== session.proposal.operations.length && <p>{acceptedIndexes.length} of {session.proposal.operations.length} suggestions selected.</p>}
+            {saveAndPreview && <p>Save these suggestions, then preview your assistant’s answers.</p>}
             <div className="persona-setup-review-actions">
-              <Button disabled={pending !== null || manualDirty || acceptedIndexes.length === 0} onClick={() => void resolveProposal('apply')}>{pending === 'apply' ? 'Saving…' : saveAndPreview ? 'Save and preview answers' : 'Save selected suggestions'}</Button>
+              <Button disabled={pending !== null || manualDirty || acceptedIndexes.length === 0} onClick={() => void resolveProposal('apply')}>{pending === 'apply' ? 'Saving…' : acceptedIndexes.length === session.proposal.operations.length ? 'Use all suggestions' : 'Use selected suggestions'}</Button>
               <Button variant="secondary" disabled={pending !== null} onClick={() => onReviewInForm(session.proposal!.after_state, session.proposal!.operations[0]?.path as string | undefined ?? null, session.proposal!.base_draft_revision)}>Review in form</Button>
               <Button variant="secondary" disabled={pending !== null} onClick={() => composerRef.current?.focus()}>Keep chatting</Button>
               <button type="button" className="persona-setup-reject" disabled={pending !== null} onClick={() => void resolveProposal('reject')}>{pending === 'reject' ? 'Rejecting…' : 'Reject proposal'}</button>
@@ -400,7 +420,18 @@ function displayValue(value: unknown): string {
   if (typeof value === 'string') return value
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   if (Array.isArray(value)) return value.length ? value.map(displayValue).join('\n\n') : 'None'
+  if (typeof value !== 'object') return String(value)
   return Object.entries(value as Record<string, unknown>).map(([key, item]) => `${key === 'participant' ? 'You' : key === 'assistant' ? 'Your assistant' : key.replaceAll('_', ' ')}: ${displayValue(item)}`).join('\n')
+}
+
+function sectionSummary(group: string, changes: AdminPersonaSetupChange[]): string {
+  if (group === 'Phrases') return changes.map((change) => change.after == null ? `Remove “${displayValue(change.before)}”` : `“${displayValue(change.after)}”`).join(', ')
+  const examples = changes.find((change) => change.path === 'curriculum.examples')?.after
+  if (group === 'Examples' && Array.isArray(examples)) return `${examples.length} example ${examples.length === 1 ? 'reply' : 'replies'} for everyday questions`
+  const first = changes.find((change) => change.path === 'voice.tone_traits') ?? changes[0]
+  if (!first) return ''
+  const value = Array.isArray(first.after) ? first.after.map(displayValue).join(', ') : displayValue(first.after)
+  return `${first.path.startsWith('response_shape.') ? `${first.label}: ` : ''}${value}`.replaceAll('\n', ' ')
 }
 
 function requestKey() {

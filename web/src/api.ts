@@ -1554,6 +1554,7 @@ export type AdminPersonaSetupProposal = {
   grouped_changes: Array<{ group: string; changes: AdminPersonaSetupChange[] }>
   created_at: string
   resolved_at: string | null
+  accepted_operation_indexes?: number[] | null
 }
 
 export type AdminPersonaSetupTurn = {
@@ -1578,6 +1579,7 @@ export type AdminPersonaSetupSession = {
   turns_truncated?: boolean
   turns: AdminPersonaSetupTurn[]
   proposal: AdminPersonaSetupProposal | null
+  resolved_proposal?: AdminPersonaSetupProposal | null
 }
 
 export type AdminPersonaBehavioralPreviewStatus = 'not_requested' | 'ready' | 'safety_only' | 'unavailable'

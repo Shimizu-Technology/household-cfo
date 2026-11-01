@@ -105,6 +105,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
       if (!current()) return
       if (reviewedSaved.draft_revision !== approved.draft_revision || reviewedSaved.published_version?.id !== approved.published_version?.id) throw new Error('Your assistant changed. Review its latest preview before going live.')
       if (approved.has_unpublished_changes !== false) {
+        if (!reviewedSaved.preview?.digest) throw new Error('Your assistant changed. Preview again before publishing.')
         const latest = await fetchAdminPersonaReleaseReadiness(approved.id)
         if (!current()) return
         if (!readiness?.candidate || latest.candidate?.draft_revision !== approved.draft_revision || latest.candidate?.manifest_digest !== readiness.candidate.manifest_digest || latest.evaluation_run?.id !== readiness.evaluation_run?.id || latest.evaluation_run?.run_digest !== readiness.evaluation_run?.run_digest || latest.behavioral_preview_evidence?.digest !== readiness.behavioral_preview_evidence?.digest) throw new Error('Your voice or safety checks changed. Preview again before approving them.')
@@ -127,7 +128,8 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
         const saved = await fetchAdminPersona(approved.id)
         if (!current()) return
         if (saved.draft_revision !== approved.draft_revision || saved.published_version?.id !== approved.published_version?.id || ready.candidate.manifest_digest !== readiness.candidate.manifest_digest || ready.evaluation_run.id !== readiness.evaluation_run?.id || ready.evaluation_run.run_digest !== readiness.evaluation_run?.run_digest || ready.behavioral_preview_evidence.digest !== readiness.behavioral_preview_evidence.digest) throw new Error('Your assistant changed. Review its latest preview before going live.')
-        published = (await publishAdminPersona(approved.id, { draft_revision: approved.draft_revision!, preview_digest: saved.preview!.digest, expected_published_version_id: approved.published_version?.id ?? null, release_candidate_digest: ready.candidate.manifest_digest, evaluation_run_digest: ready.evaluation_run.run_digest, evaluation_approval_digest: ready.approval.approval_digest, behavioral_preview_digest: ready.behavioral_preview_evidence.digest })).persona
+        if (!saved.preview?.digest) throw new Error('Your assistant changed. Preview again before publishing.')
+        published = (await publishAdminPersona(approved.id, { draft_revision: approved.draft_revision!, preview_digest: saved.preview.digest, expected_published_version_id: approved.published_version?.id ?? null, release_candidate_digest: ready.candidate.manifest_digest, evaluation_run_digest: ready.evaluation_run.run_digest, evaluation_approval_digest: ready.approval.approval_digest, behavioral_preview_digest: ready.behavioral_preview_evidence.digest })).persona
         if (!current()) return
         publishedPersona.current = published
       }
@@ -142,6 +144,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
       }
       setStatus(`Live for ${groups.map((item) => item.group.name).join(', ')}. Participants will hear your assistant and see the published tools and appearance.`)
       setGroups([]); setSettings(null)
+      startedAutomatically.current = true
       onPersonaChange(published)
     } catch (caught) {
       if (current()) {

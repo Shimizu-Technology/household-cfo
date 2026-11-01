@@ -5,8 +5,7 @@ import { Button } from './Button'
 import { CoachStudioAdvanced, type CoachFormProposal } from './CoachStudioAdvanced'
 import { CoachProgramSettings } from './CoachProgramSettings'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
-import { CoachContentLibrary } from './CoachContentLibrary'
-import { CoachTeaching } from './CoachTeaching'
+import { CoachTeachingWorkspace } from './CoachTeaching'
 import { PersonaSetupChat } from './PersonaSetupChat'
 import { CoachGoLive } from './CoachGoLive'
 import { useCoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
@@ -117,7 +116,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
         <details className="coach-assistant-settings"><summary>More settings</summary><nav className="coach-simple-tasks" aria-label="Assistant settings">{([['voice', 'Voice'], ['teaching', 'Teaching'], ['tools', 'Tools'], ['branding', 'Appearance']] as const).map(([id,label]) => <Button key={id} variant="secondary" aria-pressed={task === id} disabled={busy || lifecycle.pending} onClick={() => leave(() => setTask(id))}>{label}</Button>)}</nav></details>
         {task === 'branding' ? <CoachProgramSettings simple workspaceId={workspaceId} currentUser={currentUser} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} />
         : task === 'tools' ? <CohortExperienceStudio simple cohorts={cohorts} cohortsLoading={loading} selectedCohortId={selectedCohortId} onSelectedCohortIdChange={setSelectedCohortId} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} />
-        : task === 'teaching' ? <>{persona && <CoachTeaching key={`${persona.id}:${persona.draft_revision}`} persona={persona} lifecycle={lifecycle} onDirtyChange={trackDirty} onSaved={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} />}<details><summary>Teaching library and sources</summary><CoachContentLibrary currentUser={currentUser} selectedPersona={persona} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} onPersonaChange={setPersona} /></details></>
+        : task === 'teaching' ? <CoachTeachingWorkspace persona={persona} currentUser={currentUser} lifecycle={lifecycle} onDirtyChange={trackDirty} onPersonaChange={setPersona} onPreview={() => { setPreviewOnOpen(true); setArea('live') }} />
         : !persona ? <article className="panel"><h3>What is your assistant called?</h3><p>You can change its voice and name later.</p><label>Assistant name<input value={name} maxLength={80} onChange={(event) => { setName(event.target.value); trackDirty(true) }} /></label><Button disabled={busy || !name.trim()} onClick={() => void create()}>Describe this assistant</Button></article>
         : !persona.permissions.edit ? <p>Your assistant is available for review. Ask a program owner or editor to change its voice.</p>
         : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} saveAndPreview onPersonaChange={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} onReviewInForm={(state, _path, draftRevision) => leave(() => onAdvanced({ ...state, personaId: persona.id, workspaceId, draftRevision }))} /><Button variant="secondary" disabled={dirty || lifecycle.pending} onClick={() => setArea('live')}>Preview answers</Button></>}
