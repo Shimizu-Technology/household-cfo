@@ -5,7 +5,8 @@ import { writeFileSync } from 'node:fs'
 // mocked financial responses; normal CI runs the existing mocked review specs.
 test('mobile Ask Mia household coaching and inline new category', async ({ page, request }, testInfo) => {
   test.skip(process.env.HCFO_W1_LIVE_API !== '1', 'Requires the isolated W1 synthetic API fixture')
-  test.setTimeout(600_000)
+  // Twenty-four turns plus saved-outcome checks on the heavily loaded local host.
+  test.setTimeout(1_800_000)
   const token = 'test_token:e2e_participant:w1-participant@example.invalid:Ana:Test'
   const headers = { Authorization: `Bearer ${token}` }
   const api = 'http://127.0.0.1:3201/api/v1'
