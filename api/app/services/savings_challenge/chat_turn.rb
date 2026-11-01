@@ -1,6 +1,6 @@
 module SavingsChallenge
   # The challenge's conversation boundary. Numbers are computed here; the
-  # narrator can coach ordinary turns but cannot rewrite verified answers.
+  # narrator coaches from verified facts; proposals still need review.
   class ChatTurn
     PATTERNS = /\b(?:patterns?|waterfall|subscriptions?)\b/i.freeze
     GOAL = /\b(?:goal|target)\b/i.freeze
@@ -88,7 +88,7 @@ module SavingsChallenge
 
     def money(cents)
       whole, fraction = cents.abs.divmod(100)
-      "#{cents.negative? ? '-' : ''}$#{whole}.#{fraction.to_s.rjust(2, '0')}"
+      "#{cents.negative? ? '-' : ''}$#{whole}#{fraction.zero? ? '' : ".#{fraction.to_s.rjust(2, '0')}"}"
     end
 
     def pattern_turn
@@ -100,7 +100,7 @@ module SavingsChallenge
         end
         if selected && !@message.match?(/\b(?:neither|not|don.t|no)\b/i)
           @goal_cents = 50_000
-          @answer = "Spending half as much at #{selected['merchant']} could free about #{money(selected['monthly_impact_cents'].to_i)} in a month like the ones recorded. How about a $500 cushion over your 90 days to keep surprises off the card? Review the goal below; it only changes when you choose Yes, and spending less does not count until you actually set new money aside."
+          @answer = "Spending half as much at #{selected['merchant']} could free about #{money(selected['monthly_impact_cents'].to_i)} a month, based on the months recorded. How about a $500 cushion over your 90 days to keep surprises off the card? Choose Yes on the card if that feels comfortable; nothing changes until you do. Only new money you actually set aside counts toward the goal."
           @topic = { type: "challenge_goal" }
           return true
         elsif @message.match?(/\b(?:what (?:do|should)|which|choose|comfortable|this or|options?)\b/i)
@@ -114,23 +114,37 @@ module SavingsChallenge
       choices = @patterns[:candidate_changes].first(2)
       @topic = { type: "challenge_patterns", choices: choices }
       coverage = @patterns[:coverage]
-      labels = coverage[:months].map { |row| Date.iso8601("#{row[:month]}-01").strftime("%b %Y") }
-      flexible = @patterns[:discretionary_merchants].first(3).map { |row| "#{row[:label]}: #{money(row[:total_cents])}" }
-      observed = flexible.any? ? "Purchases in categories marked flexible include #{flexible.join('; ')}." : "I don't have enough purchases in flexible categories to suggest a cut yet; a store name alone doesn't tell me what you needed."
+      present = coverage[:months].select { |row| row[:spending_cents] }.map { |row| Date.iso8601("#{row[:month]}-01").strftime("%b") }
+      missing = coverage[:months].any? { |row| row[:spending_cents].nil? }
+      window = if missing
+        "I only see purchases for #{present.to_sentence}"
+      else
+        "From #{present.first} to #{present.last} in the recorded purchases"
+      end
+      flexible = @patterns[:discretionary_merchants].first(2).map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
+      observed = if flexible.any?
+        "#{window}, #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spend' : 'were your biggest flexible spends'}."
+      else
+        "I don't have enough purchases in flexible categories to suggest a cut yet. A store name alone doesn't tell me what you needed."
+      end
       cluster = @patterns[:small_purchase_clusters].first
-      waterfall = cluster ? " Small purchases of $25 or less cluster around #{cluster[:label]}: #{cluster[:purchase_count]} purchases totaling #{money(cluster[:total_cents])}; that may be a useful habit to notice, without guessing why." : ""
-      recurring = @patterns[:possible_subscriptions].first
-      subscription = recurring ? " #{recurring[:merchant]} repeats around the same date at about #{money(recurring[:typical_amount_cents])}; check whether it's a subscription you still want." : ""
-      missing = coverage[:months].select { |row| row[:spending_cents].nil? }.map { |row| Date.iso8601("#{row[:month]}-01").strftime("%B") }
-      limits = "I looked at #{labels.join(', ')}. #{coverage[:note]}#{missing.any? ? " I have no confirmed purchases for #{missing.join(' or ')}; that isn't a zero-spending month." : ''}"
-      @answer = "#{observed}#{waterfall}#{subscription} #{limits} #{choices_question(choices)}"
+      waterfall = cluster ? " #{cluster[:purchase_count]} small buys of #{money(cluster[:threshold_cents])} or less stacked up around #{cluster[:label]} — #{money(cluster[:total_cents])} altogether." : ""
+      impact = choices.first
+      estimate = impact ? " Spending half as much at #{impact[:merchant]} could free about #{money(impact[:monthly_impact_cents])} a month, based on the months recorded." : ""
+      reference = "#{observed}#{waterfall}#{estimate} #{choices_question(choices)}"
+      narrator = PatternsNarrator.new(user_message: @message, persona: @persona, history: @history, approved_content: @approved_content,
+        answer_packet: { kind: "challenge_patterns", write_state: "no_write", fallback_response: reference,
+          verified_facts: { merchants: @patterns[:discretionary_merchants].first(2), cluster: cluster, choices: choices,
+            months_with_purchases: present, missing_months: missing } })
+      @answer = narrator.call
+      @supplied_content_context = narrator.supplied_content_context
       true
     end
 
     def choices_question(choices)
       return "Would you like to review a statement in Statements, or tell me one spending habit you'd like to change?" if choices.empty?
-      options = choices.first(2).map { |choice| "#{choice[:label] || choice['label']} (about #{money(choice[:monthly_impact_cents] || choice['monthly_impact_cents'])} a month if you spend half as much)" }
-      "Would you feel more comfortable choosing #{options.join(' or ')}? These are estimates from the months recorded; keep essentials and required payments covered."
+      options = choices.first(2).map { |choice| choice[:merchant] || choice['merchant'] }
+      "Would you feel more comfortable cutting back on #{options.join(' or ')}?"
     end
 
     def goal_turn
@@ -160,7 +174,7 @@ module SavingsChallenge
         return true
       end
       @topic = { type: "challenge_goal" }
-      @answer = "How does #{money(@goal_cents)} over your 90 days feel? A cushion can keep surprises off the card, but food, housing and required payments come first. Review the card below and choose Yes, change the amount, or leave it for now; nothing has changed yet."
+      @answer = "Your proposed goal is #{money(@goal_cents)} over your 90 days. A cushion can keep surprises off the card; keep essentials and required payments covered first. Review the card below and choose Yes if that feels comfortable, or change it; nothing has changed yet."
       true
     end
 

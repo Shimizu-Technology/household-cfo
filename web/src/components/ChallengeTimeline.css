@@ -7,3 +7,9 @@
 .challenge-days button:disabled { opacity: .55; cursor: default; }
 .challenge-days button:active:not(:disabled) { transform: scale(.97); }
 @media(prefers-reduced-motion: reduce) { .challenge-days button { transition: none; } .challenge-days button:active:not(:disabled) { transform: none; } }
+
+.challenge-days-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0; margin: 8px 0; list-style: none; font-size: 0.875rem; color: var(--muted); }
+@media (min-width: 768px) {
+  .challenge-days { display: grid; grid-template-columns: repeat(auto-fit, minmax(44px, 1fr)); overflow: visible; }
+  .challenge-days-swipe { display: none; }
+}

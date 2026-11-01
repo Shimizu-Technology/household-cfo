@@ -84,6 +84,21 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     end
   end
 
+  test "subscription wording needs near-identical amounts and a regular monthly cadence" do
+    [8, 9, 10].each { |month| purchase(Date.new(2026, month, 8), "Island Gym", 5000) }
+    assert_equal "Island Gym", analyze[:possible_subscriptions].sole[:merchant]
+    @household.household_transactions.find_by(occurred_on: Date.new(2026, 9, 8)).update!(total_amount_cents: 5400)
+    assert_empty analyze[:possible_subscriptions]
+    @household.household_transactions.find_by(occurred_on: Date.new(2026, 9, 8)).update!(total_amount_cents: 5000, occurred_on: Date.new(2026, 9, 22))
+    assert_empty analyze[:possible_subscriptions]
+  end
+
+  test "same day-of-month in nonconsecutive months is not a monthly subscription" do
+    [6, 8, 10].each { |month| purchase(Date.new(2026, month, 8), "Software subscription", 1599) }
+    result = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), from: "2026-06-01").call
+    assert_empty result[:possible_subscriptions]
+  end
+
   private
   def analyze = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2)).call
   def purchase(date, merchant, cents, status: "confirmed")

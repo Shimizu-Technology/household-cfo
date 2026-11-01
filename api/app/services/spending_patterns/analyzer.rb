@@ -101,14 +101,14 @@ module SpendingPatterns
       rows.group_by { |row| row[:merchant].downcase.squish }.filter_map do |_, group|
         # A repeated retail purchase is a habit, not a subscription. Only flag
         # subscription wording or a participant-labelled subscription category.
-        subscription_label = group.first[:merchant].match?(/\b(?:subscriptions?|membership|stream(?:ing)?\s+service)\b/i) ||
-          group.any? { |row| row[:splits].any? { |split| split[:name].match?(/\b(?:subscriptions?|memberships?|streaming)\b/i) } }
+        subscription_label = group.first[:merchant].match?(/\b(?:subscriptions?|membership|stream(?:ing)?\s+service|netflix|spotify|gym|software|phone\s+plan|internet\s+plan)\b/i) ||
+          group.any? { |row| row[:splits].any? { |split| split[:name].match?(/\b(?:subscriptions?|memberships?|streaming|software|gym|phone\s+plan|internet\s+plan)\b/i) } }
         next unless subscription_label
         next unless group.length >= 3 && group.map { |row| row[:date].strftime("%Y-%m") }.uniq.length >= 3
         amounts = group.map { |row| row[:amount_cents] }.sort
         median = amounts[amounts.length / 2]
-        next unless amounts.all? { |amount| (amount - median).abs <= [ 100, median / 10 ].max }
-        next unless group.map { |row| row[:date].day }.minmax.then { |min, max| max - min <= 5 }
+        next unless amounts.all? { |amount| (amount - median).abs <= [ 25, median / 100 ].max }
+        next unless group.sort_by { |row| row[:date] }.each_cons(2).all? { |first, second| (26..35).cover?((second[:date] - first[:date]).to_i) }
         { merchant: group.first[:merchant], typical_amount_cents: median, observed_payments: group.length, confirmed_subscription: false }
       end.sort_by { |row| [ -row[:typical_amount_cents], row[:merchant] ] }
     end

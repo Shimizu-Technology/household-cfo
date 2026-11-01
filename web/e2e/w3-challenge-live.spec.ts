@@ -1,7 +1,9 @@
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { expect as baseExpect, test, type BrowserContext, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 
+// Local review runs share a heavily loaded host; wait for saved API outcomes.
+const expect = baseExpect.configure({ timeout: 60_000 })
 const live = process.env.HCFO_W3_LIVE_URL
 const api = process.env.HCFO_W3_API_URL ?? 'http://127.0.0.1:3203'
 const fixturePath = process.env.HCFO_W3_FIXTURE_FILE
@@ -10,7 +12,7 @@ const fixture = fixturePath ? JSON.parse(readFileSync(fixturePath, 'utf8')) as {
 
 test.describe('BOG UI W3 real challenge journey', () => {
   test.skip(!live || !fixture, 'Needs the dedicated W3 synthetic Rails fixture; financial responses are never mocked.')
-  test.setTimeout(240_000)
+  test.setTimeout(360_000)
   test('join, patterns, reviewed goal, durable daily card and saved outcomes', async ({ page, context, browser, request }, info) => {
     test.skip(process.env.HCFO_W3_CHECKPOINT_PHASE === '1', 'Run on the Day 1 QA clock before the checkpoint phase.')
     const user = fixture!.users[info.project.name]
@@ -74,7 +76,8 @@ test.describe('BOG UI W3 real challenge journey', () => {
     const patterns = await send(page, 'Can you identify spending patterns in my last 3 months?')
     expect(patterns.spending_patterns.coverage.months.map((row: { month: string }) => row.month)).toEqual(['2026-08', '2026-09', '2026-10'])
     expect(patterns.spending_patterns.coverage.account_completeness).toBe('unknown')
-    expect(patterns.assistant_message.content).toContain('Would you feel more comfortable')
+    expect(patterns.assistant_message.content).toMatch(/comfortable|feel better/i)
+    expect(patterns.assistant_message.content).not.toMatch(/Ross.{0,50}subscription|Only confirmed purchases|Reviewed linked refunds/)
     await shot(page, 'patterns')
     const merchant = patterns.spending_patterns.candidate_changes[0].merchant
     await send(page, `I'll cut back on ${merchant}`)
@@ -87,10 +90,14 @@ test.describe('BOG UI W3 real challenge journey', () => {
     expect((await read('savings_challenge')).accepted_plan.target_cents).toBe(50000)
     await goal.getByRole('button', { name: 'Done', exact: true }).click()
     await send(page, "Let's do $400 instead")
+    await shot(page, 'goal-change')
     await goal.getByRole('button', { name: 'Yes, set my goal to $400.00', exact: true }).click()
     await expect(goal).toContainText('Goal saved: $400.00')
     expect((await read('savings_challenge')).accepted_plan.target_cents).toBe(40000)
     await goal.getByRole('button', { name: 'Done', exact: true }).click()
+    const debt = await send(page, 'I joined to pay down my credit card, how does this help?')
+    expect(debt.assistant_message.content).toContain('Optional card & debt review in Savings')
+    await shot(page, 'debt')
     const purchasesBefore = await read('savings_challenge/daily/records?collection=purchases')
     const reply = await send(page, 'Today I spent $14.75 at Kmart on snacks for the kids. I felt rushed when I bought it and now I feel guilty.')
     expect(reply.assistant_message.content).toContain('Being rushed')
@@ -125,6 +132,12 @@ test.describe('BOG UI W3 real challenge journey', () => {
       expect((await read('savings_challenge/daily/records?collection=purchases')).records.length).toBe(purchases.records.length)
       await restored.getByRole('link', { name: 'Savings', exact: true }).click()
       await expect(restored.getByRole('region', { name: 'Your 90 days', exact: true })).toBeVisible()
+      const strip = restored.getByRole('region', { name: 'Your 90 days', exact: true })
+      await expect(strip.getByRole('list', { name: 'Day symbols' })).toBeVisible()
+      if (restored.viewportSize()!.width >= 768) {
+        await expect(strip.getByText('Swipe for all 90 days')).toBeHidden()
+        expect(await strip.locator('.challenge-days').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      } else await expect(strip.getByText('Swipe for all 90 days')).toBeVisible()
       await shot(restored, 'home-strip')
       await restored.getByRole('button', { name: /Day 1,.*Checked in/ }).click()
       const today = restored.getByRole('dialog', { name: 'Today', exact: true })

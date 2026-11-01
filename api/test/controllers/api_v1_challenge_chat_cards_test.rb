@@ -59,6 +59,8 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     revision = response.parsed_body.fetch("challenge_chat_card")
     assert_equal 40_000, revision.dig("input", "target_cents")
     assert_equal 50_000, @savings_enrollment.reload.current_accepted_plan_version.target_cents
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "Your proposed goal is $400 over your 90 days."
+    refute_includes response.parsed_body.dig("assistant_message", "content"), "$400.00"
     confirm(revision)
     assert_equal 40_000, @savings_enrollment.reload.current_accepted_plan_version.target_cents
     post "/api/v1/savings_challenge/chat_cards/#{card['id']}", params: { action: "approve_goal", expected_lock_version: card["lock_version"], accepted: true }, headers: auth, as: :json
@@ -91,7 +93,29 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_nil response.parsed_body["challenge_chat_card"]
     assert_includes response.parsed_body.dig("assistant_message", "content"), "Would you feel more comfortable"
     ask "Ross", "choice-merchant"
+    reply = response.parsed_body.dig("assistant_message", "content")
+    assert_includes reply, "Spending half as much at Ross could free about $100 a month"
+    refute_match(/Trying try|at ross|\$100\.00/, reply)
     assert_equal 50_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
+  end
+
+  test "patterns name missing months in one clause and keep merchant display names" do
+    category = @savings_household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
+    year = @savings_household.budget_years.create!(year: 2026)
+    [[8, "Ross", 20_000], [10, "Kmart", 10_000]].each do |month, merchant, cents|
+      date = Date.new(2026, month, 5)
+      period = year.budget_periods.create!(starts_on: date.beginning_of_month, ends_on: date.end_of_month)
+      row = @savings_household.household_transactions.create!(budget_period: period, occurred_on: date, merchant: merchant, total_amount_cents: cents, source_type: "statement", status: "confirmed")
+      row.transaction_splits.create!(budget_category: category, amount_cents: cents)
+    end
+    ask "Can you identify spending patterns?", "partial-patterns"
+    reply = response.parsed_body.dig("assistant_message", "content")
+    assert_includes reply, "I only see purchases for Aug and Oct"
+    assert_includes reply, "Ross ($200) and Kmart ($100)"
+    refute_includes reply, "Only confirmed purchases"
+    refute_includes reply, ".00"
+    assert_equal 3, reply.split(Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).length
+    assert_nil response.parsed_body.dig("spending_patterns", "coverage", "months", 1, "spending_cents")
   end
 
   test "polite goal changes and old-to-new amounts prepare the requested review only" do
@@ -154,7 +178,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     ask "Where am I at day 30?", "negative-progress"
     answer = response.parsed_body.dig("assistant_message", "content")
     assert_includes answer, "taken out $10.50 more than you've set aside"
-    assert_includes answer, "your goal is $500.00"
+    assert_includes answer, "your goal is $500"
     refute_includes answer, "$-11.50"
     assert_equal(-1_050, SavingsChallenge::Projection.new(@savings_enrollment.reload).call[:reported_cents])
   end
