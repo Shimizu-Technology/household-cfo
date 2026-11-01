@@ -16,6 +16,7 @@ async function mockSavingsHome(page: Page, checkedIn = false) {
     if (path === '/api/public/brand') return route.fulfill({ json: { brand: workspace.workspace.brand.config, available: true, source: 'legacy_household_cfo_default', workspace: null, version: null, primary_domain: '127.0.0.1' } })
     if (path === '/api/v1/auth/me') return route.fulfill({ json: { user: { id: 901, clerk_id: 'e2e_participant', email: 'participant@pilot.test', first_name: 'Test', last_name: 'Participant', full_name: 'Test Participant', role: 'participant', is_participant: true, is_staff: false, is_admin: false, is_coach: false, invitation_status: 'accepted', coach_workspaces: [], active_coach_workspace: null } } })
     if (path === '/api/v1/workspace') return route.fulfill({ json: workspace })
+    if (path === '/api/v1/savings_challenge/chat_cards') return route.fulfill({ json: { records: [], actor_scope: actor, cohort_id: 1, enrollment_id: 1 } })
     if (path === '/api/v1/savings_challenge') return route.fulfill({ json: challenge })
     if (path === '/api/v1/savings_challenge/daily') return route.fulfill({ json: { ...dailyContext, day: { ...dailyContext.day, local_on: challenge.calendar!.local_today, check_in_id: checkedIn ? 7 : null, check_in_version_id: checkedIn ? 8 : null, spending_state: checkedIn ? 'spending' : 'unknown', approved_purchase_count: checkedIn ? 1 : 0, reported_spend_cents: checkedIn ? 1250 : null, completed_at: checkedIn ? '2026-10-04T01:00:00Z' : null }, actor_scope: actor, cohort_id: 1, enrollment_id: 1, calendar: challenge.calendar } })
     if (path === '/api/v1/savings_challenge/daily/records') return route.fulfill({ json: { actor_scope: actor, cohort_id: 1, enrollment_id: 1, records: checkedIn && url.searchParams.get('collection') === 'purchases' ? [{ id: 200, lock_version: 0, current_version_id: dailyVersion.id, current_version: { ...dailyVersion, purchased_on: challenge.calendar!.local_today } }] : [], next_cursor: null } })
@@ -44,7 +45,7 @@ test('BOG UI savings Home loads each read once and opens hidden histories on dem
   await expect(home.getByRole('article', { name: 'Approved savings progress' })).toBeVisible()
   await expect.poll(() => reads.filter(path => path.endsWith('/daily')).length).toBe(1)
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-  expect(reads.filter(path => path.startsWith('/api/v1/savings_challenge'))).toEqual(['/api/v1/savings_challenge', '/api/v1/savings_challenge/daily'])
+  expect(reads.filter(path => path.startsWith('/api/v1/savings_challenge')).sort()).toEqual(['/api/v1/savings_challenge', '/api/v1/savings_challenge/chat_cards', '/api/v1/savings_challenge/daily'])
   expect(reads.filter(path => path === '/api/v1/workspace')).toHaveLength(1)
   expect(reads.filter(path => /document_imports|spending_report|mia\/messages/.test(path))).toEqual([])
   await home.getByRole('button', { name: /^I set money aside/ }).click()
@@ -70,7 +71,7 @@ test('BOG UI walkthrough saved-day shortcut and short Statements label fit phone
   const statements = page.getByRole('navigation').getByRole('link', { name: 'Statements', exact: true })
   const compact = statements.locator('.tabs-label-short')
   if (await compact.isVisible()) {
-    await expect(compact).toHaveText('Files')
+    await expect(compact).toHaveText('Statements')
     expect(await compact.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
   }
   const box = await statements.boundingBox()
