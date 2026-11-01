@@ -44,7 +44,7 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
     built = Mia::PersonaSetup::ProposalBuilder.new(actor: @coach, persona: @persona, user_message: message).call(operations)
     turn = @session.turns.create!(position: 1, idempotency_key: "transcript-turn", status: "ready", assistant_message: "Review these suggestions. Nothing has been saved.", user_message: message,
       base_draft_revision: @persona.draft_revision, base_config_digest: Mia::PersonaSchema.digest(@persona.draft_config))
-    proposal = @session.proposals.create!(turn: turn, status: "pending", **built)
+    proposal = CoachPersonaSetupProposal.create!(session: @session, turn: turn, status: "pending", **built)
     before_method = @persona.draft_config.dig("coaching", "method")
     applier = Mia::PersonaSetup::ProposalApplier.new(proposal: proposal, actor: @coach, workspace: @workspace)
     applier.apply!(idempotency_key: "selected-choices", accepted_operation_indexes: [ 0 ])

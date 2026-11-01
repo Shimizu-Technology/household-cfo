@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
-import { fetchAdminPersona, fetchAdminPersonaEvaluationRun, fetchAdminPersonaReleaseReadiness, previewAdminPersona, publishAdminPersona, reviewAdminPersonaAudience, reviewAdminPersonaEvaluation, runAdminPersonaEvaluation, type AdminPersonaAssignableCohort, type AdminPersonaDetail, type AdminPersonaReleaseReadiness } from '../api'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { fetchAdminPersona, fetchAdminPersonaEvaluationRun, fetchAdminPersonaReleaseReadiness, previewAdminPersona, publishAdminPersona, reviewAdminPersonaAudience, reviewAdminPersonaEvaluation, runAdminPersonaEvaluation, type AdminPersonaAssignableCohort, type AdminPersonaDetail, type AdminPersonaReleaseReadiness, type AdminPersonaEvaluationResult } from '../api'
 import { publishCoachGroup, reviewCoachGroup, type GroupReview } from '../lib/coachGoLive'
 import { Button } from './Button'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
 const samples = ['I want to spend $100 this weekend. How can I decide?', 'I had a hard week and spent more than I planned. What can I do next?']
-export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void }) {
+export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, autoPreview = false }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void; autoPreview?: boolean }) {
+  const [checks, setChecks] = useState<AdminPersonaEvaluationResult[]>([])
   const [answers, setAnswers] = useState<Array<{question: string; answer: string}>>([])
   const [readiness, setReadiness] = useState<AdminPersonaReleaseReadiness | null>(null)
   const [reviewed, setReviewed] = useState(false)
@@ -48,6 +49,9 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange }: { 
         }
         if (!current()) return
         if (!run.passed) throw new Error('Safety checks need attention. Review the results in Advanced / history before publishing.')
+        const detail = run.results ? run : await fetchAdminPersonaEvaluationRun(persona.id, run.id)
+        if (!current()) return
+        setChecks(detail.results ?? [])
         const ready = await fetchAdminPersonaReleaseReadiness(persona.id)
         if (!current()) return
         setReadiness(ready)
@@ -64,6 +68,14 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange }: { 
     } catch (caught) { if (current()) setError(caught instanceof Error ? caught.message : 'The preview could not finish. Try again.') }
     finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
   }
+
+  const startedAutomatically = useRef(false)
+  const startPreview = useEffectEvent(() => void preview())
+  useEffect(() => {
+    if (!autoPreview || lifecycle.pending || startedAutomatically.current) return
+    startedAutomatically.current = true
+    startPreview()
+  }, [autoPreview, lifecycle.pending])
 
   async function goLive() {
     if (busy || lifecycle.pending || !reviewed || groups.length === 0) return
@@ -115,7 +127,9 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange }: { 
     <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review group changes' : 'Preview answers and check safety'}</Button>
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
     <div className="coach-answer-comparison">{answers.map((item) => <section key={item.question}><h4>{item.question}</h4><p>{item.answer}</p></section>)}</div>
-    {groups.length > 0 && <section><h4>Review before going live</h4><p>{persona.draft?.identity.assistant_name ?? persona.name} · {groups.map((item) => `${item.group.name} (${item.participantIds.length} people)`).join(', ')}</p><p>The published voice, appearance and tools will go to these groups together.</p>
+    {groups.length > 0 && <section><h4>Review before going live</h4><p>{persona.draft?.identity.assistant_name ?? persona.name} · {groups.map((item) => `${item.group.name} (${item.participantIds.length} people)`).join(', ')}</p><p>Publishing sets your program’s default voice. These groups will also receive the published appearance and tools together.</p>
+      {readiness?.candidate?.audience_snapshot && <p>For: {readiness.candidate.audience_snapshot.audience}<br />Community context: {readiness.candidate.audience_snapshot.culture.context}</p>}
+      {checks.length > 0 && <details><summary>Safety checks passed ({checks.length})</summary><ul>{checks.map((item) => <li key={item.id}>{item.case.name}: {item.status}</li>)}</ul></details>}
       {readiness?.phrase_audience_reviews.map((item) => <label className="coach-phrase-approval" key={item.artifact_id}><input type="checkbox" checked={phrases.includes(item.artifact_id)} disabled={busy} onChange={(event) => setPhrases((ids) => event.target.checked ? [...ids,item.artifact_id] : ids.filter((id) => id !== item.artifact_id))} /><span><strong>{item.phrase.text}</strong> — {item.phrase.meaning}<small>Use: {item.phrase.allowed_contexts.join(', ')} · {item.phrase.frequency}. {item.phrase.caution}</small></span></label>)}
       <label><input type="checkbox" checked={reviewed} disabled={busy} onChange={(event) => setReviewed(event.target.checked)} />I reviewed the answers and safety checks, and approve these changes for these groups.</label>
       <Button disabled={busy || !canPublish} onClick={() => void goLive()}>Go live for these groups</Button>

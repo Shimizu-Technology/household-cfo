@@ -20,7 +20,7 @@ it('has three default areas and a short setup checklist without release terminol
  expect(screen.getByLabelText('Assistant name')).toHaveProperty('value', 'Mia');
 })
 it('creates the assistant then makes describe, preview and advanced history reachable',async()=>{
- api.createAdminPersona.mockResolvedValue({id:8,name:'Lina',draft_revision:1});
+ api.createAdminPersona.mockResolvedValue({id:8,name:'Lina',draft_revision:1,permissions:{edit:true,publish:true}});
  render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready');
  fireEvent.click(screen.getByRole('button',{name:'Your assistant'}));fireEvent.change(screen.getByLabelText('Assistant name'),{target:{value:'Lina'}});fireEvent.click(screen.getByRole('button',{name:'Describe this assistant'}));
  await screen.findByText('Describe with transcripts');expect(api.createAdminPersona).toHaveBeenCalledWith({name:'Lina',description:''});

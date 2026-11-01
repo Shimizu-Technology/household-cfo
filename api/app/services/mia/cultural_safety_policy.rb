@@ -131,7 +131,7 @@ module Mia
         # A coach may describe one fictional assistant and explicitly name its phrases.
         # This does not authorize deriving a dialect from a participant's identity.
         explicit_individual = field == :factual_context &&
-          text.match?(/\b(?:young\s+)?(?:Chamorro|Guamanian)\s+(?:woman|man|digital assistant)\b/i) &&
+          text.match?(/\b(?:[[:alpha:]][[:alpha:]'’-]*\s+){1,5}(?:woman|man|digital assistant)\b/i) &&
           text.match?(/\buses?\s+.{1,40}\s+(?:sparingly|rarely)\b/i) &&
           !text.match?(/\b(?:all|always|everyone|people|families|locals|dialect|accent|slang)\b/i)
         text.match?(RESPONSE_STYLE_PATTERN) && identity_basis && !explicit_individual

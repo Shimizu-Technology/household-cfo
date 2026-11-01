@@ -29,6 +29,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
   const [name, setName] = useState('Mia')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [previewOnOpen, setPreviewOnOpen] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [advanced, setAdvanced] = useState(false)
@@ -101,8 +102,8 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
         : task === 'teaching' ? <CoachContentLibrary currentUser={currentUser} selectedPersona={persona} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} onPersonaChange={setPersona} />
         : !persona ? <article className="panel"><h3>What is your assistant called?</h3><p>You can change its voice and name later.</p><label>Assistant name<input value={name} maxLength={80} onChange={(event) => { setName(event.target.value); trackDirty(true) }} /></label><Button disabled={busy || !name.trim()} onClick={() => void create()}>Describe this assistant</Button></article>
         : !persona.permissions.edit ? <p>Your assistant is available for review. Ask a program owner or editor to change its voice.</p>
-        : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} onPersonaChange={setPersona} onReviewInForm={(state) => { setProposedState(state); leave(() => setAdvanced(true)) }} /><Button disabled={dirty || lifecycle.pending} onClick={() => setArea('live')}>Preview answers</Button></>}
-      </> : persona ? <CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} /> : <article className="panel"><h3>Describe your assistant first</h3><Button onClick={() => setArea('assistant')}>Set up your assistant</Button></article>}
+        : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} saveAndPreview onPersonaChange={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} onReviewInForm={(state) => { setProposedState(state); leave(() => setAdvanced(true)) }} /><Button disabled={dirty || lifecycle.pending} onClick={() => setArea('live')}>Preview answers</Button></>}
+      </> : persona ? <CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} autoPreview={previewOnOpen} /> : <article className="panel"><h3>Describe your assistant first</h3><Button onClick={() => setArea('assistant')}>Set up your assistant</Button></article>}
     <details className="coach-simple-advanced"><summary>Advanced / history</summary><p>All structured fields, approved sources, earlier versions, team access and controlled group updates.</p><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => leave(() => setAdvanced(true))}>Open advanced settings</Button></details>
   </section>
 }
