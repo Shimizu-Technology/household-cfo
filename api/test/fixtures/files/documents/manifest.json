@@ -922,8 +922,8 @@
       ],
       "institution": "Bank of Guam",
       "fictional_account": "00001234",
-      "sha256": "959ad8cf8765002beeca63bd2afc3dd757d2087d5d8fa16d8549abb24d3b23fd",
-      "size_bytes": 2239,
+      "sha256": "707eb734e188e79136774c1872dc5c71dc7e2758a2edcc7fbb6ac334b829aa4a",
+      "size_bytes": 2241,
       "totals_origin": "derived_from_expected_rows"
     },
     {
@@ -1836,8 +1836,8 @@
       ],
       "institution": "Bank of Guam",
       "fictional_account": "00001234",
-      "sha256": "c98fcd3d416b519d1174aecf4ce7cab5ec82b5da925ec527349dc80b27577588",
-      "size_bytes": 2239,
+      "sha256": "a9ac0baaed8955b914565dfa7e9920b79ef3df9bb67dca672c062a7b7fe27d22",
+      "size_bytes": 2241,
       "totals_origin": "derived_from_expected_rows"
     },
     {
@@ -2750,8 +2750,8 @@
       ],
       "institution": "Bank of Guam",
       "fictional_account": "00001234",
-      "sha256": "0f78eaac77977b0c6fc37d21ea3663a8ab6c636788a7a9e85e14524827f5ad0b",
-      "size_bytes": 2239,
+      "sha256": "b814136b773118ac0c6e9272e74f8d2e0de760361d39f8f049c8f435a3d3f3a1",
+      "size_bytes": 2241,
       "totals_origin": "derived_from_expected_rows"
     },
     {
@@ -2951,8 +2951,8 @@
       ],
       "institution": "BankPacific",
       "fictional_account": "00005678",
-      "sha256": "bdf7ca404e6790d5d3efd19569f70e76a701533c00db0bb0be52ec92aaddbd70",
-      "size_bytes": 479,
+      "sha256": "e70e71a1cda7c94451ee6ea92ca9afd5f44646d55f21cb07ab3a994b29a6ceb6",
+      "size_bytes": 481,
       "totals_origin": "derived_from_expected_rows"
     },
     {
@@ -3266,8 +3266,8 @@
         "Status",
         "Reference"
       ],
-      "sha256": "121c4d42d1d2bd540c92de776b9ee989edb41bf3d2a4217a7e31186808fbd5aa",
-      "size_bytes": 507,
+      "sha256": "d4d68085a765639025ba8d5387941664360120bb9541d3dab063907a3afeaf7e",
+      "size_bytes": 509,
       "totals_origin": "derived_from_expected_rows"
     },
     {
@@ -3381,8 +3381,8 @@
         "Status",
         "Reference"
       ],
-      "sha256": "8ee89e5746e12b15f4df15246cd4bb71e57714d940601e5530a7c62847faf2d2",
-      "size_bytes": 5827,
+      "sha256": "2f7a08cd20a1d9e3f2d4b143a386a426bb4504019c5957c99e6a0b0926af1634",
+      "size_bytes": 5828,
       "totals_origin": "derived_from_expected_rows"
     },
     {
@@ -19687,8 +19687,8 @@
       ],
       "fictional_account": "00008888",
       "stress_fixture": true,
-      "sha256": "d0158ea06c4e8c9db690a1a8fc61beac5179ca6dd1cf58c0ff4ff2594229dce7",
-      "size_bytes": 85297,
+      "sha256": "679cf19baff19a968a6748adc8fe8cd4876b93b81376fc037d7e8253c2059692",
+      "size_bytes": 85299,
       "totals_origin": "derived_from_expected_rows"
     },
     {
@@ -36729,7 +36729,7 @@
       ],
       "fictional_account": "00008888",
       "stress_fixture": true,
-      "sha256": "90c82b9f40ab9406e595c4a255ee558b31f0fe9d9df202cc2f4a2f4a227c0939",
+      "sha256": "edf0a98f345202b7239cf0614f85484b64bc508aa18bc70342cc749ae26c6ae6",
       "size_bytes": 38230,
       "totals_origin": "derived_from_expected_rows"
     }

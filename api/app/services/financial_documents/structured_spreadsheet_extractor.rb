@@ -190,7 +190,12 @@ module FinancialDocuments
         map = header_map_for(header[:values])
         rows.drop_while { |row| row[:row] <= header[:row] }.each do |row|
           values = row[:values]
-          next if transaction_header?(values) || values.first.to_s.match?(/\ASynthetic test document\b/i)
+          next if transaction_header?(values)
+          # Export notes often occupy only column A. Keep incomplete financial
+          # rows, including date/amount-first layouts, without recognizing footer text.
+          financial_cell = parsed_date(cell(values, map, "date")) || %w[amount debit credit].any? { |field| cell(values, map, field).present? }
+          merchant_cell = %w[merchant label].any? { |field| map[field].to_i.positive? && cell(values, map, field).present? }
+          next unless financial_cell || merchant_cell
           next if !transaction_like_row?(values, map) && item_from_row(values, map, cell_types: row[:cell_types], cell_formats: row[:cell_formats])
           key = cell(values, map, "account").to_s.presence || "sheet-#{sheet_index}"
           basis = cell(values, map, "account_basis").to_s.downcase

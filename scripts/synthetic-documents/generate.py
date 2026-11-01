@@ -183,7 +183,7 @@ def statement_csv(path, events, layout):
         writer.writerow(LAYOUTS[layout])
         for row in table_rows(events, layout):
             writer.writerow([f'{v:.2f}' if isinstance(v, float) else v for v in row])
-        writer.writerow([FOOTER, 'Fictional household and account numbers; no real banking data'])
+        writer.writerow([FOOTER + ' | Fictional household and account numbers; no real banking data'])
 
 
 def style_sheet(s, header=1, widths=None):
@@ -249,7 +249,7 @@ def statement_xlsx(path, events, layout):
     for row in table_rows(events, layout):
         row[0] = date.fromisoformat(row[0])
         s.append(row)
-    s.append([FOOTER, 'All household names, references and account numbers are fictional.'])
+    s.append([FOOTER + ' | All household names, references and account numbers are fictional.'])
     style_sheet(s)
     s.auto_filter.ref = f'A1:F{len(events) + 1}'
     save_book(w, path)

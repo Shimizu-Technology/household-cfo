@@ -75,6 +75,8 @@ module Api
         document_import.save!
 
         s3_key = s3_key_for(document_import, file)
+        # Persist the intended key before PUT: a lost response can still mean S3 stored it.
+        document_import.update!(s3_key: s3_key)
         uploaded = File.open(file.tempfile.path, "rb") do |io|
           S3Service.upload(s3_key, io, content_type: document_import.content_type)
         end
@@ -706,7 +708,12 @@ module Api
       end
 
       def cleanup_failed_upload_import!(document_import)
-        document_import.destroy!
+        cleanup = nil
+        ApplicationRecord.transaction do
+          cleanup = FinancialDocumentSourceCleanup.request!(document_import, user: current_user)
+          document_import.destroy!
+        end
+        cleanup&.enqueue_retry
       rescue ActiveRecord::RecordNotDestroyed
         document_import.update_columns(
           status: "failed",
@@ -942,7 +949,7 @@ module Api
       end
 
       def render_s3_not_configured
-        render json: { errors: [ "Our file storage is unavailable. Your file is still selected; try again in a few minutes." ], code: "storage_unavailable" }, status: :service_unavailable
+        render json: { errors: [ "Our file storage is unavailable. Try again in a few minutes." ], code: "storage_unavailable" }, status: :service_unavailable
       end
     end
   end

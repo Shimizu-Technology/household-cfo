@@ -236,12 +236,12 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal [ 2, 2, 2, 2, 1 ], batches.pluck(:pages)
     assert_equal [ "pages 1-2 of 9", "pages 3-4 of 9", "pages 5-6 of 9", "pages 7-8 of 9", "pages 9-9 of 9" ], batches.pluck(:label)
     assert_equal 5, result.data.fetch(:transaction_drafts).length
-    assert_equal "Mia found 5 transaction drafts across 9 statement pages for review.", result.data.fetch(:summary)
+    assert_equal "Mia found 5 transaction drafts across 9 pages for review.", result.data.fetch(:summary)
     assert_equal "pdf_batches", result.metadata.fetch(:extraction_mode)
     assert_equal 9, result.metadata.fetch(:page_count)
     assert_equal 5, result.metadata.fetch(:batch_count)
     assert_equal 500, result.metadata.dig(:usage, "total_tokens")
-    assert_includes result.data.fetch(:warnings), "Mia read all 9 pages of this statement."
+    assert_includes result.data.fetch(:warnings), "Mia read all 9 pages of this document."
   ensure
     file&.close!
   end
@@ -773,7 +773,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     result = extractor.send(:batched_pdf_result, document_import, file.path)
 
     refute result.success?
-    assert_equal "Pages 3-4 of this statement didn't finish. #{FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE}", result.error
+    assert_equal "Pages 3-4 of this document didn't finish. #{FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE}", result.error
     assert_equal "pages 3-4 of 4: OpenRouter extraction failed with HTTP 503", result.metadata.fetch(:error_detail)
   ensure
     file&.close!
@@ -809,7 +809,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_empty account[:limitations]
     assert_equal [ account[:source_key] ] * 3, accounting.fetch(:events).pluck(:source_key)
     assert_equal 3, accounting.fetch(:events).pluck(:row_identity).uniq.length
-    assert_equal [ "Mia read all 6 pages of this statement.", "No category was assigned to any row; the participant should choose categories during review." ], result.data.fetch(:warnings)
+    assert_equal [ "Mia read all 6 pages of this document.", "No category was assigned to any row; the participant should choose categories during review." ], result.data.fetch(:warnings)
   end
 
   test "statement batches keep genuinely different accounts apart" do
@@ -984,20 +984,126 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     end
   end
 
+  test "oversized unknown workbook is rejected before any paid batch" do
+    file = Tempfile.new([ "oversized-unknown", ".csv" ])
+    file.write("Notes,Unrecognized value\n")
+    (FinancialDocuments::Extractor::MAX_SPREADSHEET_BATCHES * FinancialDocuments::Extractor::SPREADSHEET_BATCH_ROWS).times { |i| file.write("Note #{i},#{i}\n") }
+    file.flush
+    document = FinancialDocumentImport.new(document_kind: "spreadsheet", filename: "unknown.csv", content_type: "text/csv")
+    extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+    extractor.define_singleton_method(:extract_openrouter_document) { |*_, **_| raise "must not call provider" }
+    result = extractor.send(:batched_spreadsheet_result, document, file.path)
+    refute result.success?
+    assert_nil result.data
+    assert_match(/Split it/, result.error)
+  ensure
+    file&.close!
+  end
+
+  test "spreadsheet processing stops at the event limit before reading another section" do
+    with_unrecognized_workbook(row_count: 161) do |document, path|
+      extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+      calls = 0
+      extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_|
+        calls += 1
+        row = @spreadsheet_batch_summary[:sheets].sole[:rows].first[:row]
+        events = Array.new(FinancialDocuments::AccountingContract::MAX_EVENTS / 2 + 1) { { locator: { sheet_index: 0, row: row } } }
+        FinancialDocuments::Extractor::Result.new(success: true, data: { source_accounting: { events: events } }, error: nil, metadata: {})
+      end
+      result = extractor.send(:batched_spreadsheet_result, document, path)
+      refute result.success?
+      assert_nil result.data
+      assert_equal 2, calls
+      assert_match(/Split it/, result.error)
+    end
+  end
+
+  test "adaptive spreadsheet splitting shares a bounded model call budget" do
+    with_unrecognized_workbook do |document, path|
+      extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+      calls = 0
+      extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_|
+        calls += 1
+        if @spreadsheet_batch_summary[:sheets].sole[:rows].length > 1
+          FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "output limit", metadata: { finish_reason: "length" })
+        else
+          FinancialDocuments::Extractor::Result.new(success: true, data: { source_accounting: { events: [] } }, error: nil, metadata: {})
+        end
+      end
+      result = extractor.send(:batched_spreadsheet_result, document, path)
+      refute result.success?
+      assert_nil result.data
+      assert_equal FinancialDocuments::Extractor::MAX_SPREADSHEET_BATCHES, calls
+    end
+  end
+
+  test "single PDF batch preserves a non-statement summary and uses document-neutral warnings" do
+    file = Tempfile.new([ "pay-stub", ".pdf" ])
+    file.binmode
+    file.write(blank_pdf_bytes(3))
+    file.flush
+    document = FinancialDocumentImport.new(document_kind: "pay_stub", filename: "pay.pdf", content_type: "application/pdf")
+    extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+    extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_|
+      FinancialDocuments::Extractor::Result.new(success: true, data: { summary: "Take-home pay for September.", warnings: [], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: {})
+    end
+    result = extractor.send(:batched_pdf_result, document, file.path)
+    assert result.success?, result.error
+    assert_equal "Take-home pay for September.", result.data[:summary]
+    assert_includes result.data[:warnings], "Mia read all 3 pages of this document."
+    refute_match(/statement/, result.data[:warnings].join)
+  ensure
+    file&.close!
+  end
+
+  test "spreadsheet batching does not reinsert the formula warning after merging" do
+    with_unrecognized_workbook do |document, path|
+      summary = FinancialDocuments::SpreadsheetSummarizer.new(file_path: path, filename: document.filename).call
+      summary[:uncalculated_formula_cells] = 1
+      summarizer = Object.new
+      summarizer.define_singleton_method(:call) { summary }
+      singleton = FinancialDocuments::SpreadsheetSummarizer.singleton_class
+      original = singleton.instance_method(:new)
+      singleton.define_method(:new) { |**_| summarizer }
+      extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+      warning = FinancialDocuments::SpreadsheetSummarizer.uncalculated_formula_warning(1)
+      extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_|
+        FinancialDocuments::Extractor::Result.new(success: true, data: { warnings: [ warning ], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: {})
+      end
+      result = extractor.send(:batched_spreadsheet_result, document, path)
+      assert result.success?, result.error
+      assert_equal 1, result.data[:warnings].count(warning)
+    ensure
+      singleton&.define_method(:new, original) if original
+    end
+  end
+
+  test "merged spreadsheet warns once about formulas and pluralizes worksheet counts" do
+    extractor = FinancialDocuments::Extractor.new
+    warning = FinancialDocuments::SpreadsheetSummarizer.uncalculated_formula_warning(1)
+    batch = { warnings: [ warning, *Array.new(12) { |i| "Warning #{i}" } ], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }
+    result = extractor.send(:merge_pdf_batch_results, [ batch, batch ], [], page_count: nil, sheet_count: 1)
+    assert result.success?, result.error
+    assert_equal 1, result.data[:warnings].count(warning)
+    assert_equal FinancialDocuments::Extractor::MAX_WARNINGS, result.data[:warnings].length
+    assert_includes result.data[:warnings], "Mia read all 1 worksheet in smaller sections."
+    assert_match(/1 worksheet for review/, result.data[:summary])
+  end
+
   test "late column headers accompany later workbook sections" do
-    sheet = { rows: (1..90).map { |i| { row: i, values: i == 10 ? %w[Posted Payee Debit Credit] : [ "Preamble #{i}", i.to_s ] } } }
+    sheet = { rows: (1..90).map { |i| { row: i, values: i == 40 ? %w[Posted Payee Debit Credit] : [ "Preamble #{i}", i.to_s ] } } }
     context = FinancialDocuments::Extractor.new.send(:spreadsheet_header_context, sheet, sheet[:rows].last(10))
-    assert_includes context.pluck(:row), 10
-    assert_equal %w[Posted Payee Debit Credit], context.find { |row| row[:row] == 10 }[:values]
+    assert_includes context.pluck(:row), 40
+    assert_equal %w[Posted Payee Debit Credit], context.find { |row| row[:row] == 40 }[:values]
     assert context.all? { |row| row[:row] < 81 }
   end
 
   private
 
-  def with_unrecognized_workbook
+  def with_unrecognized_workbook(row_count: 81)
     file = Tempfile.new([ "unrecognized-budget", ".csv" ])
     file.write("Budget note,Monthly dollars\n")
-    81.times { |i| file.write("Synthetic note #{i},#{i}\n") }
+    row_count.times { |i| file.write("Synthetic note #{i},#{i}\n") }
     file.flush
     yield FinancialDocumentImport.new(document_kind: "spreadsheet", filename: "messy.csv", content_type: "text/csv"), file.path
   ensure

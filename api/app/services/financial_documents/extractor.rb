@@ -17,6 +17,8 @@ module FinancialDocuments
     PDF_BATCH_PAGES = 4
     STATEMENT_PDF_BATCH_PAGES = 2
     SPREADSHEET_BATCH_ROWS = 80
+    # At most 20 model sections, including adaptive output-limit retries.
+    MAX_SPREADSHEET_BATCHES = 20
     MAX_PDF_PAGES = 60
     MAX_OUTPUT_TOKENS = 24_000
     TRANSACTION_CONFIDENCE_DECIMALS = {
@@ -35,6 +37,7 @@ module FinancialDocuments
     STORAGE_FAILURE_MESSAGE = "We couldn’t open your saved file because our storage service is unavailable. Nothing changed. Try Reprocess in a few minutes."
     TEMPORARY_FAILURE_MESSAGE = "We couldn't read this file right now. This is usually temporary. Your file is saved and nothing changed, so try Reprocess in a few minutes."
     UNREADABLE_RESULT_MESSAGE = "We couldn't turn this file into reviewable results. Your file is saved and nothing changed. Try Reprocess, or upload a clearer copy, a CSV export or a screenshot."
+    SPREADSHEET_LIMIT_MESSAGE = "This workbook is too large to read in one pass. Split it into smaller files so every row can be reviewed."
     OUTPUT_LIMIT_MESSAGE = "This document has more rows than Mia can read in one pass. Split it into smaller date ranges so every transaction can be reviewed."
     # Bounded automatic retry for transient provider failures (network errors,
     # rate limits and 5xx), per request, so one hiccup on one statement batch
@@ -182,8 +185,15 @@ module FinancialDocuments
       end
       results = structured_data ? [ Result.new(success: true, data: structured_data, error: nil, metadata: {}) ] : []
       summary[:already_extracted_setup_items] = Array(structured_data&.dig(:items)).map { |item| item.slice(:target_type, :label, :amount_cents, :balance_cents, :payment_cents, :cadence) }
-      summary[:sheets].each do |sheet|
-        next if Array(structured_data&.dig(:parsed_sheet_indices)).include?(sheet[:sheet_index])
+      unparsed_sheets = summary[:sheets].reject { |sheet| Array(structured_data&.dig(:parsed_sheet_indices)).include?(sheet[:sheet_index]) }
+      batch_count = unparsed_sheets.sum { |sheet| (sheet[:rows].length.to_f / SPREADSHEET_BATCH_ROWS).ceil }
+      return failure(SPREADSHEET_LIMIT_MESSAGE) if batch_count > MAX_SPREADSHEET_BATCHES
+
+      @spreadsheet_model_calls = 0
+      @spreadsheet_event_count = Array(structured_data&.dig(:source_accounting, :events)).length
+      return failure(SPREADSHEET_LIMIT_MESSAGE) if @spreadsheet_event_count > AccountingContract::MAX_EVENTS
+
+      unparsed_sheets.each do |sheet|
         sheet[:rows].each_slice(SPREADSHEET_BATCH_ROWS) do |rows|
           result = extract_spreadsheet_rows(document_import, file_path, summary, sheet, rows)
           return result unless result.success?
@@ -193,14 +203,13 @@ module FinancialDocuments
       end
       return failure(UNREADABLE_RESULT_MESSAGE) if results.empty?
 
-      merged = merge_pdf_batch_results(results.map(&:data), results.map(&:metadata), page_count: nil, sheet_count: summary[:sheet_count])
-      if merged.success? && summary[:uncalculated_formula_cells].to_i.positive?
-        merged.data[:warnings].unshift(SpreadsheetSummarizer.uncalculated_formula_warning(summary[:uncalculated_formula_cells]))
-      end
-      merged
+      merge_pdf_batch_results(results.map(&:data), results.map(&:metadata), page_count: nil, sheet_count: summary[:sheet_count])
     end
 
     def extract_spreadsheet_rows(document_import, file_path, summary, sheet, rows)
+      # Adaptive output-limit splitting shares the same paid-call budget.
+      return failure(SPREADSHEET_LIMIT_MESSAGE) if @spreadsheet_model_calls >= MAX_SPREADSHEET_BATCHES
+      @spreadsheet_model_calls += 1
       progress!
       @spreadsheet_batch_coverage = { expected_sheet_count: summary[:sheet_count], processed_sheets: [ sheet[:sheet_index] ] }
       @spreadsheet_batch_summary = summary.except(:sheets).merge(sheets: [ sheet.merge(rows: rows,
@@ -221,6 +230,9 @@ module FinancialDocuments
       end
       return failure("One section of this workbook didn’t finish. #{result.error}", metadata: result.metadata) unless result.success?
       events = Array(result.data.dig(:source_accounting, :events))
+      @spreadsheet_event_count += events.length
+      return failure(SPREADSHEET_LIMIT_MESSAGE) if @spreadsheet_event_count > AccountingContract::MAX_EVENTS
+
       unless events.all? { |event| event.dig(:locator, :sheet_index) == sheet[:sheet_index] && rows.pluck(:row).include?(event.dig(:locator, :row)) }
         return failure("We couldn’t match one workbook section to its source rows. Nothing changed. Try Reprocess or export that worksheet as CSV.")
       end
@@ -282,7 +294,7 @@ module FinancialDocuments
           next
         end
         unless result.success?
-          return failure("Pages #{first_page}-#{last_page} of this statement didn't finish. #{result.error}",
+          return failure("Pages #{first_page}-#{last_page} of this document didn't finish. #{result.error}",
             metadata: result.metadata.merge(error_detail: "pages #{first_page}-#{last_page} of #{page_count}: #{result.metadata[:error_detail] || result.error}"))
         end
 
@@ -368,7 +380,7 @@ module FinancialDocuments
       # Each batch only sees its own pages, so its "only pages 3-4 were
       # provided" style warnings contradict the merged, complete statement.
       warnings = batch_data.flat_map { |data| Array(data[:warnings]) }.reject { |warning| batch_scope_warning?(warning) }
-      warnings.unshift(sheet_count ? "Mia read all #{sheet_count} worksheets in smaller sections." : "Mia read all #{page_count} pages of this statement.")
+      warnings.unshift(sheet_count ? "Mia read all #{sheet_count} #{'worksheet'.pluralize(sheet_count)} in smaller sections." : "Mia read all #{page_count} pages of this document.")
       dates = transactions.filter_map { |draft| parsed_date(draft[:occurred_on]) }
 
       Result.new(
@@ -378,7 +390,7 @@ module FinancialDocuments
           document_date: batch_data.filter_map { |data| data[:document_date] }.first,
           period_start_on: accounting[:contract_version] == AccountingContract::VERSION ? (accounting[:accounts].filter_map { |account| account[:period_start_on] }.min || batch_data.filter_map { |data| data[:period_start_on] }.min) : (dates.min || batch_data.filter_map { |data| data[:period_start_on] }.min),
           period_end_on: accounting[:contract_version] == AccountingContract::VERSION ? (accounting[:accounts].filter_map { |account| account[:period_end_on] }.max || batch_data.filter_map { |data| data[:period_end_on] }.max) : (dates.max || batch_data.filter_map { |data| data[:period_end_on] }.max),
-          summary: "Mia found #{transactions.length} transaction draft#{'s' unless transactions.length == 1} across #{sheet_count ? "#{sheet_count} worksheets" : "#{page_count} statement pages"} for review.",
+          summary: batch_data.one? ? batch_data.first[:summary] : "Mia found #{transactions.length} transaction draft#{'s' unless transactions.length == 1} across #{sheet_count ? "#{sheet_count} #{'worksheet'.pluralize(sheet_count)}" : "#{page_count} pages"} for review.",
           confidence: merged_confidence(batch_data),
           warnings: warnings.uniq.first(MAX_WARNINGS),
           items: items,

@@ -54,9 +54,23 @@ class FinancialDocumentsCorpusTest < ActiveSupport::TestCase
       recording = ROOT.join("recorded_responses", doc["filename"] + ".json")
       responses = recording.exist? ? JSON.parse(recording.read).fetch("responses").dup : []
       extractor = FinancialDocuments::Extractor.new(api_key: "offline-fixture")
-      extractor.define_singleton_method(:perform_openrouter_request) do |_payload|
+      assertions = self
+      requested_label = nil
+      original_extract = extractor.method(:extract_openrouter_document)
+      extractor.define_singleton_method(:extract_openrouter_document) do |*args, **options|
+        requested_label = options[:batch_label]
+        original_extract.call(*args, **options)
+      end
+      extractor.define_singleton_method(:perform_openrouter_request) do |payload|
         raise "Unexpected provider call for #{doc['filename']}" if responses.empty?
-        raw = responses.shift.fetch("response").deep_symbolize_keys
+        recorded = responses.shift
+        if recorded.fetch("label").nil?
+          assertions.assert_nil requested_label, "#{doc['filename']}: unbatched recording must not answer a source section"
+        else
+          assertions.assert_equal recorded.fetch("label"), requested_label, "#{doc['filename']}: recorded batch must match the requested source section"
+          assertions.assert_includes payload.dig(:messages, 1, :content).first.fetch(:text), "This file is #{recorded.fetch("label")}."
+        end
+        raw = recorded.fetch("response").deep_symbolize_keys
         FinancialDocuments::Extractor::Result.new(**raw)
       end
       singleton = S3Service.singleton_class

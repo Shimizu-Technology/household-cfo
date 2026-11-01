@@ -3,6 +3,27 @@ require "spreadsheet"
 require "zip"
 
 class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::TestCase
+  test "skips generic export notes but retains dated and incomplete financial rows" do
+    file = Tempfile.new([ "export-notes", ".csv" ])
+    file.write(<<~CSV)
+      Date,Description,Debit,Credit
+      2026-09-01,Payless,25.00,
+      Please contact the bank with any questions,,,
+      Synthetic test document is also an ordinary note,,,
+      2026-09-02,,,
+      ,Missing date purchase,10.00,
+      Synthetic test document merchant,Real merchant,8.00,
+    CSV
+    file.flush
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "notes.csv", document_kind: "statement").call
+    assert result.success?, result.error
+    events = result.data.fetch(:source_accounting).fetch(:events)
+    assert_equal [ 2, 5, 6, 7 ], events.map { |event| event.dig(:locator, :row) }
+    assert_equal 4, events.length
+  ensure
+    file&.close!
+  end
+
   test "extracts Household CFO Excel template rows without AI" do
     file_path = Rails.root.join("..", "web", "public", "household-cfo-budget-template.xlsx")
 
