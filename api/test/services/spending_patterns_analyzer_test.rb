@@ -10,7 +10,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
   end
 
   test "three full months use exact reviewed amounts and ignore the current month, ignored purchases and other households" do
-    [8, 9, 10].each { |month| purchase(Date.new(2026, month, 5), "Ross", 20_000) }
+    [ 8, 9, 10 ].each { |month| purchase(Date.new(2026, month, 5), "Ross", 20_000) }
     purchase(Date.new(2026, 11, 1), "Current month", 999_999)
     purchase(Date.new(2026, 10, 2), "Ignored", 888_888, status: "ignored")
     result = analyze
@@ -38,7 +38,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
   end
 
   test "small purchases reveal weekday and end-of-month clusters without guessing motivation" do
-    [Date.new(2026, 10, 23), Date.new(2026, 10, 24), Date.new(2026, 10, 30)].each { |date| purchase(date, "Kopi", 650) }
+    [ Date.new(2026, 10, 23), Date.new(2026, 10, 24), Date.new(2026, 10, 30) ].each { |date| purchase(date, "Kopi", 650) }
     result = analyze
     cluster = result[:small_purchase_clusters].find { |row| row[:label] == "Friday through Sunday" }
     assert_equal 3, cluster[:purchase_count]
@@ -47,7 +47,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
   end
 
   test "repeated same-date same-amount purchases are possible subscriptions, never confirmed subscriptions" do
-    [8, 9, 10].each { |month| purchase(Date.new(2026, month, 8), "Stream service", 1599) }
+    [ 8, 9, 10 ].each { |month| purchase(Date.new(2026, month, 8), "Stream service", 1599) }
     result = analyze
     assert_equal({ merchant: "Stream service", typical_amount_cents: 1599, observed_payments: 3, confirmed_subscription: false }, result[:possible_subscriptions].sole)
     assert_raises(ArgumentError) { SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), from: "2026-11-01", to: "2026-12-01").call }
@@ -76,7 +76,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     result = analyze
     assert_equal 2_000, result[:observed_spending_cents]
     assert_equal 1, result[:purchase_count]
-    assert_equal ["Synthetic reserve account"], result[:coverage][:accounts]
+    assert_equal [ "Synthetic reserve account" ], result[:coverage][:accounts]
     @household.update!(financial_generation: 1)
     FinancialPicture.set(household_id: @household.id, generation: 1) do
       assert_nil analyze[:observed_spending_cents]
@@ -85,7 +85,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
   end
 
   test "subscription wording needs near-identical amounts and a regular monthly cadence" do
-    [8, 9, 10].each { |month| purchase(Date.new(2026, month, 8), "Island Gym", 5000) }
+    [ 8, 9, 10 ].each { |month| purchase(Date.new(2026, month, 8), "Island Gym", 5000) }
     assert_equal "Island Gym", analyze[:possible_subscriptions].sole[:merchant]
     @household.household_transactions.find_by(occurred_on: Date.new(2026, 9, 8)).update!(total_amount_cents: 5400)
     assert_empty analyze[:possible_subscriptions]
@@ -94,7 +94,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
   end
 
   test "same day-of-month in nonconsecutive months is not a monthly subscription" do
-    [6, 8, 10].each { |month| purchase(Date.new(2026, month, 8), "Software subscription", 1599) }
+    [ 6, 8, 10 ].each { |month| purchase(Date.new(2026, month, 8), "Software subscription", 1599) }
     result = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), from: "2026-06-01").call
     assert_empty result[:possible_subscriptions]
   end

@@ -143,7 +143,7 @@ module SavingsChallenge
 
     def choices_question(choices)
       return "Would you like to review a statement in Statements, or tell me one spending habit you'd like to change?" if choices.empty?
-      options = choices.first(2).map { |choice| choice[:merchant] || choice['merchant'] }
+      options = choices.first(2).map { |choice| choice[:merchant] || choice["merchant"] }
       "Would you feel more comfortable cutting back on #{options.join(' or ')}?"
     end
 
@@ -198,7 +198,7 @@ module SavingsChallenge
       due = [ 30, 60, 90 ].select { |day| @enrollment.starts_on + day - 1 <= @enrollment.local_today }
       reviewed = SavingsCheckpoint.where(savings_enrollment: @enrollment).where.not(current_version_id: nil).pluck(:milestone_day)
       ready = (due - reviewed).first
-      dates = calendar[:checkpoints].map { |day, date| "Day #{day}: #{Date.iso8601(date).strftime('%b %-d')}" }.join('; ')
+      dates = calendar[:checkpoints].map { |day, date| "Day #{day}: #{Date.iso8601(date).strftime('%b %-d')}" }.join("; ")
       @answer = "#{amount}#{target}. #{dates}. #{ready ? "Day #{ready} is ready to review: open Today, then Checkpoints, to look back at what you saved and noticed." : 'At each checkpoint you can look back at your saved amounts and check-ins in Today → Checkpoints.'} Estimates and spending cuts are separate from money you actually set aside."
       true
     end

@@ -12,6 +12,6 @@ class CreateSavingsChatCards < ActiveRecord::Migration[8.1]
     end
     add_check_constraint :savings_chat_cards, "kind IN ('daily_report', 'goal')", name: "savings_chat_card_kind"
     add_check_constraint :savings_chat_cards, "status IN ('pending', 'closed')", name: "savings_chat_card_status"
-    add_index :savings_chat_cards, [:savings_enrollment_id, :status, :id], name: "savings_chat_cards_pending"
+    add_index :savings_chat_cards, [ :savings_enrollment_id, :status, :id ], name: "savings_chat_cards_pending"
   end
 end

@@ -24,7 +24,7 @@ module SavingsChallenge
       months = Array(facts[:months_with_purchases])
       if months.any?
         named_months = content.scan(/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/).map { |month| month.first(3) }
-        return :incorrect_pattern_window unless (named_months - months).empty? && [months.first, months.last].all? { |month| named_months.include?(month) }
+        return :incorrect_pattern_window unless (named_months - months).empty? && [ months.first, months.last ].all? { |month| named_months.include?(month) }
         return :missing_pattern_coverage if facts[:missing_months] && !content.match?(/\bonly\b/i)
       end
       if (cluster = facts[:cluster])

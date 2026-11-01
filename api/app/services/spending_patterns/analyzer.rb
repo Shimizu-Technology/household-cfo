@@ -90,7 +90,7 @@ module SpendingPatterns
       small = rows.select { |row| row[:amount_cents] <= 2_500 }
       groups = small.group_by { |row| row[:date].strftime("%A") }.map { |label, group| [ label, group ] }
       groups += small.group_by { |row| row[:date].day <= 10 ? "the first ten days of the month" : row[:date].day <= 20 ? "the middle of the month" : "the end of the month" }.to_a
-      groups += [[ "Friday through Sunday", small.select { |row| [ 5, 6, 0 ].include?(row[:date].wday) } ]]
+      groups += [ [ "Friday through Sunday", small.select { |row| [ 5, 6, 0 ].include?(row[:date].wday) } ] ]
       groups.filter_map do |label, group|
         next if group.length < 3 || group.map { |row| row[:date] }.uniq.length < 2
         { label: label, purchase_count: group.length, total_cents: group.sum { |row| row[:amount_cents] }, threshold_cents: 2_500 }

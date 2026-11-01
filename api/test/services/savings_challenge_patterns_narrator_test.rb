@@ -6,9 +6,9 @@ class SavingsChallengePatternsNarratorTest < ActiveSupport::TestCase
   def narrator
     SavingsChallenge::PatternsNarrator.new(user_message: "What patterns do you see?", persona: Mia::Persona.default,
       api_key: "fictional", answer_packet: { kind: "challenge_patterns", write_state: "no_write", fallback_response: REFERENCE,
-        verified_facts: { merchants: [{ label: "Ross", total_cents: 60_000 }, { label: "Kmart", total_cents: 36_000 }],
+        verified_facts: { merchants: [ { label: "Ross", total_cents: 60_000 }, { label: "Kmart", total_cents: 36_000 } ],
           cluster: { purchase_count: 25, total_cents: 22_799, label: "Friday through Sunday" },
-          choices: [{ merchant: "Ross", monthly_impact_cents: 10_000 }], months_with_purchases: %w[Aug Sep Oct], missing_months: false } })
+          choices: [ { merchant: "Ross", monthly_impact_cents: 10_000 } ], months_with_purchases: %w[Aug Sep Oct], missing_months: false } })
   end
 
   test "uses the assigned persona and accepts concise narration with exact figures" do

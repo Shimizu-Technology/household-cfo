@@ -27,7 +27,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     get "/api/v1/savings_challenge/chat_cards", headers: auth
     assert_response :success
     assert_equal card, response.parsed_body.fetch("records").sole
-    state = { rows: [{ id: 0, status: "unknown" }], unconfirmed: { key: "same-approval", action: "purchase_approve", input: { draft_id: 123 } } }
+    state = { rows: [ { id: 0, status: "unknown" } ], unconfirmed: { key: "same-approval", action: "purchase_approve", input: { draft_id: 123 } } }
     post "/api/v1/savings_challenge/chat_cards/#{card['id']}", params: { action: "save_state", expected_lock_version: 0, state: state }, headers: auth, as: :json
     assert_response :success
     get "/api/v1/savings_challenge/chat_cards", headers: auth
@@ -102,7 +102,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
   test "patterns name missing months in one clause and keep merchant display names" do
     category = @savings_household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
     year = @savings_household.budget_years.create!(year: 2026)
-    [[8, "Ross", 20_000], [10, "Kmart", 10_000]].each do |month, merchant, cents|
+    [ [ 8, "Ross", 20_000 ], [ 10, "Kmart", 10_000 ] ].each do |month, merchant, cents|
       date = Date.new(2026, month, 5)
       period = year.budget_periods.create!(starts_on: date.beginning_of_month, ends_on: date.end_of_month)
       row = @savings_household.household_transactions.create!(budget_period: period, occurred_on: date, merchant: merchant, total_amount_cents: cents, source_type: "statement", status: "confirmed")
@@ -161,7 +161,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_response :success
     timeline = response.parsed_body.fetch("timeline")
     assert_equal 90, timeline.fetch("days").length
-    assert_equal [30], timeline.fetch("checkpoints_due")
+    assert_equal [ 30 ], timeline.fetch("checkpoints_due")
     assert_equal "unknown", timeline.fetch("days").first["check_in"]
     assert_nil timeline.fetch("days").first["deposit_cents"]
     assert_equal true, timeline.fetch("days")[30]["future"]
