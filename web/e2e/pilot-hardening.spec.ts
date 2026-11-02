@@ -13021,6 +13021,9 @@ test('mobile Ask Mia anchors the sent message above typing and never returns to 
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(page.locator('.is-new-reply')).toHaveCSS('animation-name', 'none')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await expect(page.locator('.message-row.is-new-reply')).toHaveCount(0)
 })
 
 test('mobile Ask Mia empty history offers a compact review link and gives the thread phone space', async ({ page }) => {

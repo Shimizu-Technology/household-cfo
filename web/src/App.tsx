@@ -1590,8 +1590,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const newestMessageKey = newestMessage ? String(newestMessage.id ?? newestMessage.client_id ?? `${newestMessage.role}-${currentMessages.length}`) : ''
 
   useEffect(() => {
+    setFreshMiaReplyId(null)
     if (activeSection === 'Ask Mia') { chatScrolledAwayRef.current = false; sentTurnRef.current = false }
-  }, [activeSection])
+  }, [activeSection, chatStorageKey])
 
   useEffect(() => {
     if (miaLoading) { chatScrolledAwayRef.current = false; sentTurnRef.current = true }
