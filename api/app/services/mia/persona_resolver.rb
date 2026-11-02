@@ -52,10 +52,21 @@ module Mia
     def conflicting_persona_assignments?
       return false unless user
 
-      relevant_memberships = user.cohort_memberships.where(role: "participant")
+      cohorts = user.cohort_memberships.where(role: "participant")
         .joins(:cohort)
         .where(cohorts: { status: ASSIGNABLE_COHORT_STATUSES })
-      relevant_memberships.filter_map { |membership| self.class.selection_for(membership.cohort)[1]&.id }.uniq.length > 1
+        .pluck("cohorts.id", "cohorts.coach_workspace_id")
+      assignments = CohortPersonaAssignment.where(cohort_id: cohorts.map(&:first))
+        .pluck(:cohort_id, :coach_persona_id).to_h
+      published = CoachPersona.active.where(coach_workspace_id: cohorts.map(&:last).uniq)
+        .where.not(current_published_version_id: nil).pluck(:coach_workspace_id, :id)
+        .group_by(&:first)
+      cohorts.filter_map do |cohort_id, workspace_id|
+        next assignments.fetch(cohort_id) if assignments.key?(cohort_id)
+
+        voices = published.fetch(workspace_id, [])
+        voices.first.last if voices.one?
+      end.uniq.length > 1
     end
 
     def fallback_for_ambiguous_assignments

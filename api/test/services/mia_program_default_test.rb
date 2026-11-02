@@ -84,6 +84,25 @@ class MiaProgramDefaultTest < ActiveSupport::TestCase
     assert_equal 1, CohortReleases::ParticipantConflicts.new(cohort: @cohort).entries.length
   end
 
+  test "conflict detection batches assignments and program voices across many memberships" do
+    persona = create_persona(creator: @coach)
+    publish_persona(persona, actor: @coach)
+    5.times do |index|
+      cohort_for(@coach, name: "Program group #{index}").cohort_memberships.create!(user: @participant, role: "participant")
+    end
+    queries = []
+    recorder = ->(_name, _start, _finish, _id, payload) { queries << payload[:sql] unless payload[:name] == "SCHEMA" }
+    resolver = Mia::PersonaResolver.new(user: @participant, cohort_membership: @membership)
+    ActiveRecord::Base.uncached do
+      ActiveSupport::Notifications.subscribed(recorder, "sql.active_record") do
+        refute resolver.send(:conflicting_persona_assignments?)
+      end
+    end
+    assert_equal 3, queries.length, queries.join("\n")
+    assert_equal 1, queries.count { |sql| sql.include?('FROM "cohort_persona_assignments"') }
+    assert_equal 1, queries.count { |sql| sql.include?('FROM "coach_personas"') }
+  end
+
   private
 
   def resolve
