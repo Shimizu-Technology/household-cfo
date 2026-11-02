@@ -132,9 +132,13 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
       assert_includes answer, "don’t have reviewed purchases for February"
       refute_includes answer, "$0"
       refute_includes answer, "Recent shop"
-      post "/api/v1/mia/messages", params: { message: "What spending patterns do you see last week?" }, headers: @headers, as: :json
-      assert_response :created
-      assert_includes response.parsed_body.dig("assistant_message", "content"), "couldn’t identify a supported spending period"
+      [ "last week", "in Q1 2025", "in summer 2025", "in the first half of 2025" ].each do |period|
+        post "/api/v1/mia/messages", params: { message: "What spending patterns do you see #{period}?" }, headers: @headers, as: :json
+        assert_response :created
+        answer = response.parsed_body.dig("assistant_message", "content")
+        assert_includes answer, "couldn’t identify a supported spending period"
+        refute_includes answer, "January shop"
+      end
       assert_equal before, financial_counts
     end
   end
