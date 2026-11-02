@@ -174,3 +174,18 @@ it('distinguishes confirmed zero, missing category amounts, mixed subtotals and 
  expect(view.container.querySelector('.expense-stack-row-heading b')?.textContent).toBe('$100 planned')
  expect(screen.getByText('Plus $0 in debt minimums.')).toBeTruthy()
 })
+
+
+it('locks every editable monthly value until the save and household refresh finish', () => {
+  const props = plannerProps()
+  const view = render(<AnnualBudgetPlanner {...props} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Manage manually' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Edit monthly plan' }))
+  const amount = screen.getByRole('spinbutton', { name: 'Everyday costs planned for Oct' })
+  fireEvent.change(amount, { target: { value: '4000' } })
+  view.rerender(<AnnualBudgetPlanner {...props} action="save-budget-edits" />)
+  for (const field of [amount, screen.getByRole('textbox', { name: 'Category name' }), screen.getByRole('combobox', { name: 'Expense stack' })]) expect(field).toHaveProperty('disabled', true)
+  view.rerender(<AnnualBudgetPlanner {...props} />)
+  expect(amount).toHaveProperty('disabled', false)
+  expect(amount).toHaveProperty('value', '4000')
+})

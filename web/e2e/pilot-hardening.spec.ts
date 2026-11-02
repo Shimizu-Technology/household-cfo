@@ -5,6 +5,7 @@ import { expect, test, type Page, type Locator, type Route } from '@playwright/t
 import { readFileSync } from 'node:fs'
 import { savingsEntryDraft, savingsEntryVersion, savingsFixture, savingsPlanDraft, savingsPlanVersion } from '../src/test/savingsFixtures'
 import type { SavingsChallenge, SavingsEntry, SavingsEntryDraft, SavingsPlanDraft } from '../src/lib/savingsChallenge'
+import { guamTodayIso } from '../src/lib/householdDate'
 import { participantReviewFixture, sourceReviewFixture } from './sourceReviewFixtures'
 import type { SourceReview, SourceReviewFilter } from '../src/lib/sourceReview'
 import type { BrandConfig, CoachWorkspaceSettings, WorkspaceBrandConfiguration, WorkspaceBrandVersion, WorkspaceCollaborator } from '../src/api'
@@ -1956,10 +1957,10 @@ test('account selection keeps activity cards and row totals in the same scope', 
   await page.goto('/?pilot_e2e_role=participant')
   await openSection(page, 'Review')
   const summary = page.getByLabel('Bank activity summary')
-  await expect(summary.getByText('$141')).toHaveCount(2)
+  await expect(summary.getByText('$141', { exact: true })).toHaveCount(2)
 
   await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption('11')
-  await expect(summary.getByText('$42')).toHaveCount(2)
+  await expect(summary.getByText('$42', { exact: true })).toHaveCount(2)
   await expect(page.getByRole('heading', { name: '1 transaction' })).toBeVisible()
 })
 
@@ -13117,26 +13118,87 @@ test('BOG UI Home and Wealth cap exceptionally large emergency cushions consiste
 })
 
 
-test('BOG UI a saved current-month Budget amount refreshes Home and Wealth without reloading',async({page})=>{
- const workspace=realWorkspaceData(true)
- let edited=false
- await page.route('http://api.test/api/v1/workspace',route=>route.fulfill({json:edited?{...workspace,dashboard:{...workspace.dashboard,month_answer:{...workspace.dashboard.month_answer,planned_out_cents:560000,plan_left_cents:940000}}}:workspace}))
- await page.route('http://api.test/api/v1/budget_allocations/**',route=>{
-  const updated=structuredClone(workspace.budget)
-  updated.annual_plan.rows[0].months[0].planned=7100
-  edited=true
-  return route.fulfill({json:{budget:updated}})
- })
- await page.goto('/?pilot_e2e_role=participant#Budget')
- await page.getByRole('button',{name:'Manage manually',exact:true}).click()
- await page.getByRole('button',{name:'Edit monthly plan',exact:true}).click()
- const month=page.getByRole('combobox',{name:'Edit month',exact:true})
- if(await month.isVisible())await month.selectOption('0')
- await page.getByRole('spinbutton',{name:'Fixed essentials planned for Jan',exact:true}).fill('7100')
- await page.getByRole('button',{name:'Save 1 change',exact:true}).click()
- await expect(page.getByRole('button',{name:'Manage manually',exact:true})).toBeEnabled()
- await openSection(page,'Home')
- await expect(page.locator('.home-money-values')).toContainText('$9,400')
- await openSection(page,'Wealth')
- await expect(page.locator('.wealth-explainer-metric')).toContainText('$9,400')
+test('BOG UI a saved current-month Budget amount refreshes Home and Wealth without reloading', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const monthIndex = Number(guamTodayIso().slice(5, 7)) - 1
+  workspace.dashboard.action_center.current_month_index = monthIndex
+  const row = workspace.budget.annual_plan.rows[0]
+  const allocation = row.months[monthIndex]
+  const monthLabel = workspace.budget.annual_plan.months[monthIndex].label
+  const plannedAmount = allocation.planned + 100
+  const requests: Array<{ id: number; body: unknown }> = []
+  let savedBudget: typeof workspace.budget | undefined
+  let releaseRefresh: () => void = () => {}
+  const refreshGate = new Promise<void>(resolve => { releaseRefresh = resolve })
+  let refreshStarted = false
+  await page.route('http://api.test/api/v1/workspace', async route => {
+    if (!savedBudget) return route.fulfill({ json: workspace })
+    refreshStarted = true
+    await refreshGate
+    const savedAmount = savedBudget.annual_plan.rows[0].months[monthIndex].planned
+    const deltaCents = Math.round((savedAmount - allocation.planned) * 100)
+    return route.fulfill({ json: { ...workspace, budget: savedBudget, dashboard: { ...workspace.dashboard, month_answer: {
+      ...workspace.dashboard.month_answer,
+      planned_out_cents: workspace.dashboard.month_answer.planned_out_cents + deltaCents,
+      plan_left_cents: workspace.dashboard.month_answer.plan_left_cents - deltaCents,
+    } } } })
+  })
+  await page.route('http://api.test/api/v1/budget_allocations/**', route => {
+    const id = Number(new URL(route.request().url()).pathname.split('/').at(-1))
+    const body = route.request().postDataJSON()
+    requests.push({ id, body })
+    savedBudget = structuredClone(workspace.budget)
+    savedBudget.annual_plan.rows[0].months[monthIndex].planned = Number(body.allocation.planned_amount)
+    return route.fulfill({ json: { budget: savedBudget } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await expect(page.locator('.home-money-values')).toContainText('$9,500')
+  await openSection(page, 'Budget')
+  await page.getByRole('combobox', { name: 'Report month', exact: true }).selectOption(String(monthIndex))
+  await page.getByRole('button', { name: 'Manage manually', exact: true }).click()
+  await page.getByRole('button', { name: 'Edit monthly plan', exact: true }).click()
+  const month = page.getByRole('combobox', { name: 'Edit month', exact: true })
+  if (await month.isVisible()) await month.selectOption(String(monthIndex))
+  const amount = page.getByRole('spinbutton', { name: `Fixed essentials planned for ${monthLabel}`, exact: true })
+  await amount.fill(String(plannedAmount))
+  await page.getByRole('button', { name: 'Save 1 change', exact: true }).click()
+  await expect.poll(() => refreshStarted).toBe(true)
+  try {
+    expect(requests).toEqual([{ id: allocation.allocation_id, body: { allocation: { planned_amount: String(plannedAmount), expected_planned_amount: allocation.planned } } }])
+    await expect(amount).toBeDisabled()
+    await expect(page.getByRole('textbox', { name: 'Category name', exact: true }).first()).toBeDisabled()
+    await expect(page.getByRole('combobox', { name: 'Expense stack', exact: true }).first()).toBeDisabled()
+  } finally {
+    releaseRefresh()
+  }
+  await expect(page.getByRole('button', { name: 'Manage manually', exact: true })).toBeEnabled()
+  await openSection(page, 'Home')
+  await expect(page.locator('.home-money-values')).toContainText('$9,400')
+  await openSection(page, 'Wealth')
+  await expect(page.locator('.wealth-explainer-metric')).toContainText('$9,400')
+})
+
+for (const runway of [-1, 0]) {
+  test(`BOG UI Home and Wealth describe a ${runway} month cushion in plain words`, async ({ page }) => {
+    const workspace = realWorkspaceData(true)
+    workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, runway_months: runway }
+    workspace.wealth.milestones = [{ kind: 'progress', label: 'Runway target', current: runway, target: 6, unit: 'months', status: 'red' }]
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+    await page.goto('/?pilot_e2e_role=participant#Home')
+    await expect(page.locator('.home-cushion')).toContainText('No cushion yet')
+    await openSection(page, 'Wealth')
+    await expect(page.locator('.milestone-card')).toContainText('No cushion yet')
+  })
+}
+
+test('BOG UI Home hides debt recovery when My Money is disabled', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.capabilities.modules = workspace.workspace.capabilities.modules.map(module => module.id === 'profile' ? { ...module, enabled: false } : module)
+  workspace.dashboard.coach_read = { title: 'Debt minimums needed', body: 'Add minimums', action: 'open_debt' }
+  workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, planned_out_cents: null, plan_left_cents: null }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add debt minimums', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'My Money', exact: true })).toHaveCount(0)
 })

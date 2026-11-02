@@ -151,6 +151,7 @@ import {
 } from './api'
 import type {
   AnnualBudgetPlan,
+  AppData,
   BudgetCategoryMonth,
   BudgetCategoryRow,
   BudgetData,
@@ -2493,12 +2494,17 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
   }
 
-  async function refreshCurrentHouseholdView(savedBudget: BudgetData) {
-    // Home and Wealth read the service snapshot, so a Budget-only response must
-    // refresh it even when the edited plan belongs to the current year.
+  async function refreshCurrentHouseholdView(savedBudget: BudgetData, savedWorkspace?: AppData) {
+    const currentYear = savedWorkspace?.dashboard.action_center.current_year
+    // Complete mutation responses already carry the new confirmations and month
+    // answer. Only their other-year budget needs a current-year plan for Home.
+    if (savedWorkspace && savedBudget.annual_plan?.year === currentYear) return
+    // Budget-only responses need the service snapshot for Home and Wealth too.
     const generation = financialMutationGenerationRef.current
     try {
-      const payload = await fetchAppData(true)
+      const payload = savedWorkspace
+        ? { ...savedWorkspace, budget: await fetchBudget(currentYear) }
+        : await fetchAppData(true)
       if (generation !== financialMutationGenerationRef.current) return
       setData(payload)
       // Keep the exact saved plan and the editor’s draft baseline while refreshing
@@ -2840,7 +2846,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
       replaceMiaHistory(workspace.mia)
-      if (miaDraftChangesSharedFinancialRecords(draft, selection)) await refreshCurrentHouseholdView(workspace.budget)
+      if (miaDraftChangesSharedFinancialRecords(draft, selection)) await refreshCurrentHouseholdView(workspace.budget, workspace)
       captureAnalyticsEvent('mia_action_draft_applied', {
         draft_type: draft.draft_type,
         item_count: draft.items.length,
@@ -3395,7 +3401,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const response = await applyDocumentImport(documentImport.id, itemIds)
       setDocumentImports((current) => replaceImport(current, response.document_import))
       setData({ type: 'shared_financial_mutation', update: response.workspace })
-      await refreshCurrentHouseholdView(response.workspace.budget)
+      await refreshCurrentHouseholdView(response.workspace.budget, response.workspace)
       await restoreSelectedBudgetPlan(response.workspace.budget)
       setSetupDraft(response.workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(response.workspace.workspace.setup_values, response.workspace.workspace.setup_status) : setupDraft)
       replaceMiaHistory(response.workspace.mia)
@@ -3796,7 +3802,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onReviewMiaActions={() => switchSection('Ask Mia')}
               pendingImportCount={visibleSections.includes('Statements') ? (documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0) : 0}
               onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
-              onOpenDebt={isRealWorkspace ? () => handleProfileSectionEdit('debt') : undefined}
+              onOpenDebt={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('debt') : undefined}
               onOpenBudget={visibleSections.includes('Budget') ? () => switchSection('Budget') : undefined}
               canAskMia={visibleSections.includes('Ask Mia')}
               canReviewTransactions={visibleSections.includes('Review')}
@@ -8242,11 +8248,11 @@ export function CategoryEditCell({
     <div className="annual-category-cell-editor">
       <label>
         <span className="sr-only">Category name</span>
-        <input data-budget-category-action="name" value={draft.name} onChange={(event) => onChange({ name: event.currentTarget.value })} />
+        <input data-budget-category-action="name" disabled={Boolean(action)} value={draft.name} onChange={(event) => onChange({ name: event.currentTarget.value })} />
       </label>
       <label>
         <span className="sr-only">Expense stack</span>
-        <select value={draft.stack_key} onChange={(event) => onChange({ stack_key: event.currentTarget.value as BudgetStackKey })}>
+        <select disabled={Boolean(action)} value={draft.stack_key} onChange={(event) => onChange({ stack_key: event.currentTarget.value as BudgetStackKey })}>
           <option value="non_discretionary">Non-discretionary</option>
           <option value="discretionary">Discretionary</option>
           <option value="sinking_expected">Sinking Fund — Expected</option>
@@ -8258,7 +8264,7 @@ export function CategoryEditCell({
         data-budget-category-action="archive"
         className="archive-category-button"
         aria-label={`${action === `archive-category:${row.id}` ? 'Archiving' : 'Archive'} ${row.name}`}
-        disabled={hasPendingDrafts || action === `archive-category:${row.id}`}
+        disabled={hasPendingDrafts || Boolean(action)}
         title={hasPendingDrafts ? 'This category has pending drafts. Confirm, correct, or ignore those drafts before archiving.' : 'Archive this category'}
         onClick={onArchive}
       >
@@ -8758,6 +8764,7 @@ export function AnnualBudgetPlanner({
                                   min="0"
                                   step="1"
                                   value={draftValue}
+                                  disabled={budgetEditsLocked}
                                   data-budget-month={index + 1}
                                   data-dirty={hasDraftChange ? 'true' : undefined}
                                   onChange={(event) => updateAllocationDraft(month, event.currentTarget.value)}
