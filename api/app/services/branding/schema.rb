@@ -241,7 +241,8 @@ module Branding
       end
 
       uri = URI.parse(value)
-      valid = uri.is_a?(URI::HTTPS) && uri.host.present? && uri.userinfo.nil? && uri.fragment.nil?
+      valid_scheme = uri.is_a?(URI::HTTPS) || (key == "logo_url" && !Rails.env.production? && LogoAsset.local_url?(uri))
+      valid = valid_scheme && uri.host.present? && uri.userinfo.nil? && uri.fragment.nil?
       result << "#{key} must be an HTTPS URL without credentials or a fragment" unless valid
     rescue URI::InvalidURIError
       result << "#{key} must be a valid HTTPS URL"

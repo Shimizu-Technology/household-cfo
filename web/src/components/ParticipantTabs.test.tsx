@@ -94,3 +94,10 @@ it('returns to More when the parent keeps the current route after a guarded sele
   await waitFor(() => expect(document.activeElement).toBe(more))
   expect(screen.queryByRole('dialog')).toBeNull()
 })
+
+it('uses coach order for tabs and More without regrouping tools', () => {
+  render(<ParticipantTabs customModuleOrder sections={['Statements', 'Wealth', 'Home', 'Ask Mia', 'Optionality', 'Review', 'CFO Filter', 'Budget']} activeSection="Optionality" onChange={vi.fn()} />)
+  expect(within(screen.getByRole('navigation')).getAllByRole('link').map(link => link.getAttribute('aria-label'))).toEqual(['Statements', 'Wealth', 'Home', 'Ask Mia'])
+  fireEvent.click(screen.getByRole('button', { name: 'More' }))
+  expect(within(screen.getByRole('dialog', { name: 'More' })).getAllByRole('link').map(link => link.getAttribute('aria-label'))).toEqual(['Optionality', 'Review', 'CFO Filter', 'Budget'])
+})

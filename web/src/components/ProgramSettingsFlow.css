@@ -59,6 +59,7 @@
   }
 }
 /* WebKit's native menu styling can reduce a select to its 24px intrinsic size. */
+.coach-simple-heading select,
 .program-settings .program-fields select,
 .workspace-collaborators select,
 .release-rollout-studio select,

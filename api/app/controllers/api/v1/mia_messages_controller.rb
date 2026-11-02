@@ -213,6 +213,7 @@ module Api
           transcript: transcript,
           selected_month: budget_month_param
         ).call
+        intent_context[:available_product_modules] = module_guidance.context
         intent_result = prompt_injection_intent_result(content, intent_context: intent_context) || setup_guide_intent_result(content)
         intent_result ||= HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
@@ -531,8 +532,8 @@ module Api
         history = intent_transcript_without_memory_commands(transcript_for_current_persona(transcript)).map { |message| message.slice(:role, :content) }
         @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
         turn = SavingsChallenge::ChatTurn.new(household: current_household, user: current_user, enrollment: enrollment,
-          session: session, message: content, attachments: attached_imports, persona: current_persona,
-          history: history, approved_content: @approved_coach_content).call
+          session: session, message: content, attachments: attached_imports, persona: module_guidance.persona(current_persona),
+          history: history, approved_content: @approved_coach_content, available_product_modules: module_guidance.context).call
         @used_coach_content = turn.supplied_content_context
         ApplicationRecord.transaction do
           current_household.lock!
@@ -2231,8 +2232,9 @@ module Api
           conversation_context: conversation_context,
           experience_capabilities: current_experience_capabilities
         ).call
+        context = JSON.generate(JSON.parse(context).merge("available_product_modules" => module_guidance.context))
         response_history = conversation_resolution&.dig(:intent) == "recall" ? [] : history
-        responder = ::Demo::MiaResponder.new(persona: current_persona, approved_content: @approved_coach_content)
+        responder = ::Demo::MiaResponder.new(persona: module_guidance.persona(current_persona), approved_content: @approved_coach_content)
         response = responder.call(
           content,
           history: response_history,
@@ -2309,11 +2311,12 @@ module Api
           mia_action_result: mia_action_result
         ).call
 
+        answer_packet[:available_product_modules] = module_guidance.context
         narrator = HouseholdFinance::MiaNarrator.new(
           user_message: content,
           history: history,
           answer_packet: answer_packet,
-          persona: current_persona,
+          persona: module_guidance.persona(current_persona),
           approved_content: @approved_coach_content
         )
         response = narrator.call
@@ -2321,8 +2324,12 @@ module Api
         response
       end
 
+      def module_guidance
+        @module_guidance ||= CohortExperience::MiaModuleGuidance.new(current_experience_capabilities)
+      end
+
       def assistant_message_writer(session)
-        ::Mia::AssistantMessageWriter.new(
+        CohortExperience::AssistantMessageWriter.new(
           session: session,
           persona: current_persona,
           participant_runtime: current_participant_runtime

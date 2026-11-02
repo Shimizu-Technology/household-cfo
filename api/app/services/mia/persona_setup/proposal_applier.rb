@@ -21,21 +21,25 @@ module Mia
         @workspace_id = workspace.id
       end
 
-      def apply!(idempotency_key:)
+      def apply!(idempotency_key:, accepted_operation_indexes: nil)
         key = normalize_key(idempotency_key)
         ApplicationRecord.transaction do
           authorization = authorize!
           session = locked_session!
           proposal = session.proposals.lock.find(proposal_id)
+          indexes = selected_indexes(proposal, accepted_operation_indexes)
           if proposal.status == "applied"
-            return authorization.persona if secure_match?(proposal.resolution_idempotency_key, key)
+            if secure_match?(proposal.resolution_idempotency_key, key) &&
+                (proposal.accepted_operation_indexes || proposal.operations.each_index.to_a) == indexes
+              return authorization.persona
+            end
 
             raise Error.new("This proposal was already applied with a different request.", code: "persona_setup_resolution_conflict")
           end
           ensure_pending!(proposal, session)
           verify_seal!(proposal, authorization.persona)
 
-          state = proposal.after_state
+          state = selected_state(proposal, indexes)
           updater = PersonaDraftUpdater.new(
             persona: authorization.persona,
             actor: authorization.actor,
@@ -50,6 +54,7 @@ module Mia
             expected_state_digest: PersonaDraftUpdater.state_digest(state)
           )
           persona = authorization.persona.reload
+          proposal.update!(accepted_operation_indexes: indexes)
           proposal.resolve!(status: "applied", actor: authorization.actor, idempotency_key: key)
           session.update!(
             base_draft_revision: persona.draft_revision,
@@ -95,6 +100,36 @@ module Mia
 
       attr_reader :proposal_id, :session_id, :persona_id, :actor_id, :workspace_id
 
+      # The whole proposal has already passed its contract and seal checks. Copy
+      # selected values from that sealed result instead of capturing artifacts a
+      # second time with new identities or the actor's current role.
+      def selected_state(proposal, indexes)
+        return proposal.after_state if indexes == proposal.operations.each_index.to_a
+
+        state = proposal.before_state.deep_dup
+        before_phrases = proposal.before_state.fetch("draft_config").fetch("phrases")
+        after_phrases = proposal.after_state.fetch("draft_config").fetch("phrases")
+        added = after_phrases.reject { |phrase| before_phrases.any? { |item| item.fetch("artifact_id") == phrase.fetch("artifact_id") } }
+        removed = before_phrases.reject { |phrase| after_phrases.any? { |item| item.fetch("artifact_id") == phrase.fetch("artifact_id") } }
+        indexes.each do |index|
+          operation = proposal.operations.fetch(index)
+          case operation.fetch("op")
+          when "set"
+            keys = operation.fetch("path") == "description" ? [ "description" ] : [ "draft_config", *operation.fetch("path").split(".") ]
+            target = keys[0...-1].reduce(state) { |value, key| value.fetch(key) }
+            target[keys.last] = proposal.after_state.dig(*keys).deep_dup
+          when "add_phrase"
+            text = operation.fetch("value").fetch("text")
+            phrase = added.find { |item| item.fetch("text") == text }
+            state.fetch("draft_config").fetch("phrases") << phrase.deep_dup
+          when "remove_phrase"
+            phrase = removed.find { |item| item.fetch("text") == operation.fetch("value") }
+            state.fetch("draft_config").fetch("phrases").reject! { |item| item.fetch("artifact_id") == phrase.fetch("artifact_id") }
+          end
+        end
+        state
+      end
+
       def authorize!
         Authorization.lock_editor!(actor_id:, workspace_id:, persona_id:) ||
           raise(Error.new("Persona setup proposal not found.", code: "persona_setup_not_found", status: :not_found))
@@ -132,6 +167,14 @@ module Mia
           secure_match?(proposal.proposal_digest, expected_digest) &&
           secure_match?(PersonaDraftUpdater.state_digest(proposal.before_state), PersonaDraftUpdater.state_digest(current_state))
         raise Error.new("The persona changed or this proposal failed verification.", code: "persona_setup_stale") unless valid
+      end
+
+      def selected_indexes(proposal, values)
+        return proposal.operations.each_index.to_a if values.nil?
+        unless values.is_a?(Array) && values.present? && values.all? { |index| index.is_a?(Integer) && index >= 0 && index < proposal.operations.length } && values.uniq.length == values.length
+          raise Error.new("Choose at least one valid suggestion to save.", code: "persona_setup_invalid", status: :unprocessable_entity)
+        end
+        values.sort
       end
 
       def normalize_key(value)

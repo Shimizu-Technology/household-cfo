@@ -25,6 +25,11 @@ module Mia
         culture.locale_label culture.context culture.local_realities culture.references
       ].freeze
       MIA_DRAFTABLE_PATHS = %w[coaching.philosophy].freeze
+      TRANSCRIPT_DRAFTABLE_PATHS = %w[
+        voice.tone_traits voice.energy voice.accountability_style voice.language_style
+        coaching.philosophy coaching.method coaching.principles coaching.do coaching.do_not
+        curriculum.examples
+      ].freeze
       OPERATIONS = %w[set add_phrase remove_phrase].freeze
       SOURCES = %w[coach_quote mia_drafted].freeze
 
@@ -39,7 +44,7 @@ module Mia
 
       def initialize(actor:, user_message:, persona:)
         @actor = actor
-        @user_message = normalize_text(user_message, max: 4_000)
+        @user_message = normalize_text(user_message, max: 24_000)
         @persona = persona
       end
 
@@ -124,6 +129,12 @@ module Mia
             raise ContractError, "Every coach-authored change must cite exact wording from this message."
           end
         else
+          if transcript_request? && op == "set" && path.in?(TRANSCRIPT_DRAFTABLE_PATHS)
+            unless evidence.present? && user_message.include?(evidence)
+              raise ContractError, "A transcript suggestion must cite exact source wording."
+            end
+            return
+          end
           allowed = op == "set" && path.in?(MIA_DRAFTABLE_PATHS)
           requested = user_message.match?(/\b(?:draft|suggest|propose|help me write|create|come up with)\b/i) &&
             user_message.match?(/\b(?:coaching\s+)?philosoph(?:y|ies)\b/i)
@@ -153,6 +164,10 @@ module Mia
 
           raise ContractError, "Every voice value must appear exactly in the coach's wording and cited evidence."
         end
+      end
+
+      def transcript_request?
+        user_message.match?(/\b(?:propose|suggest|derive)\b/i) && user_message.match?(/\btranscripts?\b/i)
       end
 
       def mutation_target(operation)
@@ -193,8 +208,12 @@ module Mia
           string_keys.all? { |key| value[key].is_a?(String) } &&
           array_keys.all? { |key| value[key].is_a?(Array) && value[key].all? { |item| item.is_a?(String) } }
         raise ContractError, "Mia returned an unsupported phrase shape." unless valid
-
-        value
+        if value.fetch("allowed_contexts").include?("crisis")
+          raise ContractError, "Coaching phrases cannot be used during a crisis."
+        end
+        # This locked safety boundary is part of every reviewable suggestion,
+        # even when the transcript never mentions crisis handling.
+        value.merge("prohibited_contexts" => (value.fetch("prohibited_contexts") + [ "crisis" ]).uniq)
       end
 
       def remove_phrase!(state, raw_value)

@@ -15,7 +15,7 @@ class CoachPersonaSetupTurn < ApplicationRecord
   validates :status, inclusion: { in: STATUSES }
   validates :base_draft_revision, numericality: { only_integer: true, greater_than: 0 }
   validates :base_config_digest, format: { with: /\A[0-9a-f]{64}\z/ }
-  validates :user_message, presence: true, length: { maximum: 4_000 }
+  validates :user_message, presence: true, length: { maximum: 24_000 }
   validates :assistant_message, length: { maximum: 2_000 }, allow_nil: true
   validate :usage_is_sanitized
   validate :state_is_coherent

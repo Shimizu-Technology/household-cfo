@@ -655,7 +655,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [profileEditBaseline, setProfileEditBaseline] = useState<WorkspaceSetupValues | null>(null)
   const profileEditingRef = useRef(isProfileEditing)
   profileEditingRef.current = isProfileEditing
-  const [moneyTopic, setMoneyTopic] = useState<MoneyTopic>(() => hasPendingPlaidOAuthReturn() ? 'accounts' : 'income')
+  const [selectedMoneyTopic, setMoneyTopic] = useState<MoneyTopic>(() => hasPendingPlaidOAuthReturn() ? 'accounts' : 'income')
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
@@ -992,12 +992,16 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [budgetViewScope])
   const visibleSections = useMemo(() => {
     const participantSections = data
-      ? participantSectionsForModules(data.workspace.capabilities.modules.filter((module) => module.enabled).map((module) => module.id))
+      ? participantSectionsForModules(data.workspace.capabilities.modules.filter((module) => module.enabled).map((module) => module.id), {
+        moduleOrder: data.workspace.capabilities.module_order,
+        independentStatements: data.workspace.capabilities.schema_version === 4,
+      })
       : []
     const staffSections = auth.currentUser?.is_staff ? [COACH_STUDIO_SECTION] : []
     const adminSections = auth.currentUser?.is_admin ? [ADMIN_SECTION] : []
     return [...participantSections, ...staffSections, ...adminSections]
   }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff, data])
+  const moneyTopic = selectedMoneyTopic === 'statements' && !visibleSections.includes('Statements') ? 'income' : selectedMoneyTopic
   const activeSection = !visibleSections.includes(active) ? sections[0] : active
   useEffect(() => {
     if (!savingsEnrollmentScope || activeSection === 'Home' || savingsEnrollment?.scope === savingsEnrollmentScope) return
@@ -3744,7 +3748,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {transactionNotice && ['Ask Mia', 'Statements'].includes(activeSection) && <p data-review-result tabIndex={-1} role="status" className="document-alert success">{transactionNotice}</p>}
       {selectionNotice && <p className="document-alert" role="status">{selectionNotice}</p>}
       {restartNotice && <div className="document-alert financial-restart-notice" role="status"><p>{restartNotice}</p><button type="button" className="secondary-button" onClick={onDismissRestartNotice}>Dismiss</button></div>}
-      <ParticipantTabs staffOnly={staffOnly} sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} />
+      <ParticipantTabs customModuleOrder={Boolean(data.workspace.capabilities.module_order?.length)} staffOnly={staffOnly} sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} />
 
       {isRealWorkspace && !isSavingsExperience && activeSection !== ADMIN_SECTION && activeSection !== COACH_STUDIO_SECTION && activeSection !== 'Ask Mia' && (
         <PilotSupportBar />
@@ -4142,7 +4146,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           />
           {isRealWorkspace && <Button variant="secondary" size="compact" className="money-setup-help" onClick={() => setSetupHelpOpen(true)}>Fix my setup</Button>}
           <nav className="money-topics" aria-label="My Money topics">
-            {moneyTopics.map(topic => (
+            {moneyTopics.filter(topic => topic.id !== 'statements' || visibleSections.includes('Statements')).map(topic => (
               <button type="button" key={topic.id} aria-pressed={moneyTopic === topic.id} aria-controls="money-topic-content" onClick={() => {
                 if (canResumePlaidOAuthReturn && topic.id !== 'accounts') { setRouteAnnouncement('Finish the bank connection before switching money topics.'); return }
                 if (topic.id !== moneyTopic && blockFinancialTransition('switching money topics')) return
@@ -4928,9 +4932,9 @@ function PilotGuideDialog({ onClose, savingsChallenge = false, staffOnly = false
         <div className="pilot-dialog-body">
         <ol className="pilot-guide-steps">
           {staffOnly ? <>
-            <li><span>1</span><div><strong>Start in Daily coaching.</strong><p>Choose a group and review who needs help.</p></div></li>
+            <li><span>1</span><div><strong>Start in People.</strong><p>Choose a group and review who needs help.</p></div></li>
             <li><span>2</span><div><strong>Open a participant with permission.</strong><p>Use only the information that participant has shared for coaching.</p></div></li>
-            <li><span>3</span><div><strong>Use the program tools when needed.</strong><p>Program settings, Assistant voice and Coaching Library stay in Coach Studio.</p></div></li>
+            <li><span>3</span><div><strong>Set up your assistant, then go live.</strong><p>Use Your assistant for voice, teaching, tools and appearance. Review changes in Go live.</p></div></li>
           </> : savingsChallenge ? <>
             <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested $500 over 90 days is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
             <li><span>2</span><div><strong>Use Today for a quick check-in.</strong><p>Report purchases when useful, distinguish no spending from unknown spending, and return for your Day 30, 60 and 90 checkpoints. Feelings are optional.</p></div></li>

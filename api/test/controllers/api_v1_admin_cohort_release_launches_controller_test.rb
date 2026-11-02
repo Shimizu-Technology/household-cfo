@@ -114,6 +114,29 @@ class ApiV1AdminCohortReleaseLaunchesControllerTest < ActionDispatch::Integratio
     assert_nil cohort.reload.active_cohort_release_id
   end
 
+  test "a refreshed launch preview cannot approve people added after the coach roster review" do
+    owner, cohort, release = launch_setup
+    approved_roster = review(owner, cohort).fetch("roster_digest")
+    persona_user(role: "participant").cohort_memberships.create!(cohort: cohort, role: "participant")
+    latest = review(owner, cohort)
+    refute_equal approved_roster, latest.fetch("roster_digest")
+    input = { release_id: release.id, preview_digest: latest.fetch("preview_digest"), expected_roster_digest: approved_roster }
+    headers = workspace_headers(owner, cohort.coach_workspace).merge("Idempotency-Key" => "reviewed-roster-launch")
+    post endpoint(cohort), params: { launch: input }, headers: headers, as: :json
+    assert_response :conflict
+    assert_nil cohort.reload.active_cohort_release_id
+    assert_empty cohort.cohort_release_activation_events
+    input[:expected_roster_digest] = latest.fetch("roster_digest")
+    post endpoint(cohort), params: { launch: input }, headers: headers, as: :json
+    assert_response :created
+    post endpoint(cohort), params: { launch: input }, headers: headers, as: :json
+    assert_response :success
+    assert response.parsed_body.fetch("replayed")
+    post endpoint(cohort), params: { launch: input.merge(expected_roster_digest: approved_roster) }, headers: headers, as: :json
+    assert_response :conflict
+    assert_equal 1, cohort.cohort_release_activation_events.count
+  end
+
   test "read only and unsealed cohorts cannot launch and foreign workspace stays hidden" do
     owner, cohort, release = launch_setup
     cohort.update!(status: "completed")

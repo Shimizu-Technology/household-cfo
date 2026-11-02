@@ -221,7 +221,7 @@ module Api
       end
 
       def append_chat_status_message(content)
-        ::Mia::AssistantMessageWriter.new(
+        CohortExperience::AssistantMessageWriter.new(
           session: current_chat_session,
           persona: current_persona,
           participant_runtime: current_participant_runtime

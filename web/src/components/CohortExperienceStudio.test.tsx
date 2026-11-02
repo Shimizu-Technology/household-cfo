@@ -56,7 +56,7 @@ describe('CohortExperienceStudio experience choice', () => {
     expect(within(summary).getByText('Savings')).toBeTruthy()
     expect(within(summary).getByText('Statements')).toBeTruthy()
     expect(within(summary).queryByText('Budget')).toBeNull()
-    expect(screen.queryByRole('switch', { name: 'Include CFO Filter' })).toBeNull()
+    expect(screen.getByRole('switch', { name: 'Include CFO Filter' })).toHaveProperty('checked', false)
     await user.click(screen.getByRole('button', { name: 'Save draft' }))
     await waitFor(() => expect(apiMocks.updateCohortExperienceConfiguration).toHaveBeenCalledWith(5, 1, { schema_version: 3, experience_mode: 'savings_challenge', optional_modules: { cfo_filter: false, optionality: false } }))
   })
@@ -125,6 +125,87 @@ describe('CohortExperienceStudio experience choice', () => {
       expect(screen.getByRole('button', { name }).getAttribute('aria-describedby')).toBe('experience-closed-help')
     }
     expect(screen.queryByText('Your role cannot save changes to these tools.')).toBeNull()
+  })
+
+  it('lets a coach hide every non-core module while keeping Statements independent', async () => {
+    const user = userEvent.setup()
+    renderStudio()
+    await screen.findByRole('switch', { name: 'Include Review' })
+    expect(screen.queryByRole('switch', { name: 'Include Home' })).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'Include Ask Mia' })).toBeNull()
+    for (const name of ['Review', 'Budget', 'My Profile', 'Wealth']) {
+      await user.click(screen.getByRole('switch', { name: `Include ${name}` }))
+    }
+    const summary = screen.getByLabelText('Navigation participants will see')
+    expect(summary.textContent).toContain('Statements')
+    expect(summary.textContent).not.toContain('My Money')
+    expect(summary.textContent).not.toContain('Budget')
+    await user.click(screen.getByRole('switch', { name: 'Include Statements' }))
+    expect(summary.textContent).not.toContain('Statements')
+    const expected = { schema_version: 4, experience_mode: 'household_cfo', module_order: [], optional_modules: {
+      review: false, budget: false, profile: false, statements: false, wealth: false, cfo_filter: false, optionality: false,
+    } }
+    apiMocks.updateCohortExperienceConfiguration.mockResolvedValue(configuration(expected as CohortExperienceConfiguration['draft']))
+    await user.click(screen.getByRole('button', { name: 'Save draft' }))
+    await waitFor(() => expect(apiMocks.updateCohortExperienceConfiguration).toHaveBeenCalledWith(5, 1, expected))
+  })
+
+  it('orders primary navigation and retains module choices when changing experience', async () => {
+    const user = userEvent.setup()
+    renderStudio()
+    await screen.findByRole('button', { name: 'Move Review up' })
+    await user.click(screen.getByRole('switch', { name: 'Include Wealth' }))
+    await user.click(screen.getByRole('button', { name: 'Move Review up' }))
+    const order = within(screen.getByRole('list', { name: 'Participant tool order' })).getAllByRole('listitem')
+    expect(order[0].textContent).toContain('Review')
+    const summary = screen.getByLabelText('Navigation participants will see')
+    expect(within(summary).getAllByText(/Review|Home|Ask Mia|Budget/, { selector: 'b' }).map(item => item.textContent)).toEqual(['Review', 'Home', 'Ask Mia', 'Budget'])
+    await user.click(screen.getByRole('radio', { name: /90-day Savings Challenge/ }))
+    expect(screen.getByRole('switch', { name: 'Include Wealth' })).toHaveProperty('checked', false)
+    const expected = { schema_version: 4, experience_mode: 'savings_challenge', module_order: ['review', 'home', 'ask_mia', 'budget', 'profile', 'wealth', 'cfo_filter', 'optionality', 'statements'], optional_modules: {
+      review: true, budget: true, profile: true, statements: true, wealth: false, cfo_filter: false, optionality: false,
+    } }
+    apiMocks.updateCohortExperienceConfiguration.mockResolvedValue(configuration(expected as CohortExperienceConfiguration['draft']))
+    await user.click(screen.getByRole('button', { name: 'Save draft' }))
+    await waitFor(() => expect(apiMocks.updateCohortExperienceConfiguration).toHaveBeenCalledWith(5, 1, expected))
+  })
+
+  it('previews the saved custom order without promoting default tabs', async () => {
+    const user = userEvent.setup()
+    const custom = configuration({ schema_version: 4, experience_mode: 'household_cfo', module_order: ['statements', 'ask_mia', 'home'], optional_modules: {
+      review: false, budget: false, profile: false, statements: true, wealth: false, cfo_filter: false, optionality: false,
+    } })
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue(custom)
+    apiMocks.previewCohortExperienceConfiguration.mockResolvedValue({
+      experience_configuration: { ...custom, preview: { digest: 'd', draft_revision: 1, generated_at: '2026-11-02' } },
+      preview: { digest: 'd', draft_revision: 1, generated_at: '2026-11-02', module_order: custom.draft.module_order, modules: [
+        { id: 'statements', label: 'Statements', core: false, enabled: true },
+        { id: 'ask_mia', label: 'Ask Mia', core: true, enabled: true },
+        { id: 'home', label: 'Home', core: true, enabled: true },
+      ] },
+    })
+    renderStudio()
+    await user.click(await screen.findByRole('button', { name: 'Preview navigation' }))
+    const phone = await screen.findByLabelText('Phone preview')
+    expect(within(phone).getAllByText(/Statements|Ask Mia|Home/, { selector: 'b' }).map(item => item.textContent)).toEqual(['Statements', 'Ask Mia', 'Home'])
+  })
+
+  it('restores default navigation order while preserving hidden modules', async () => {
+    const user = userEvent.setup()
+    const custom = configuration({ schema_version: 4, experience_mode: 'household_cfo', module_order: ['budget', 'review', 'ask_mia', 'home'], optional_modules: {
+      review: true, budget: true, profile: false, statements: true, wealth: false, cfo_filter: false, optionality: false,
+    } })
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue(custom)
+    if (custom.draft.schema_version !== 4) throw new Error("Expected a schema 4 fixture")
+    const expected = { ...custom.draft, module_order: [] }
+    apiMocks.updateCohortExperienceConfiguration.mockResolvedValue(configuration(expected))
+    renderStudio()
+    await user.click(await screen.findByRole('button', { name: 'Use default order' }))
+    expect(screen.getByRole('switch', { name: 'Include Wealth' })).toHaveProperty('checked', false)
+    const summary = screen.getByLabelText('Navigation participants will see')
+    expect(within(summary).getAllByText(/Home|Ask Mia|Budget|Review/, { selector: 'b' }).map(item => item.textContent)).toEqual(['Home', 'Ask Mia', 'Budget', 'Review'])
+    await user.click(screen.getByRole('button', { name: 'Save draft' }))
+    await waitFor(() => expect(apiMocks.updateCohortExperienceConfiguration).toHaveBeenCalledWith(5, 1, expected))
   })
 
 })

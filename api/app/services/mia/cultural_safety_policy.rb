@@ -98,6 +98,12 @@ module Mia
         return [] if field == :metadata
 
         text = value.to_s.unicode_normalize(:nfkc)
+        if field == :factual_context && named_assistant_phrase_description?(text)
+          # Remove only the single assistant's descriptor. Its literal phrases
+          # still pass every stereotype/style check below.
+          text = "The assistant uses #{text.split(/\s+uses\s+/, 2).last}"
+        end
+
         violations = []
         if identity_based_response_style?(text, field:, identity_labels:) &&
             !(field == PHRASE_MEANING_FIELD && text.match?(PHRASE_MEANING_DESCRIPTION_PATTERN))
@@ -129,6 +135,23 @@ module Mia
         return identity_basis if field == :style_instruction
 
         text.match?(RESPONSE_STYLE_PATTERN) && identity_basis
+      end
+
+      # Recognize only a complete description of one named assistant and its
+      # explicitly listed phrases. Extra instructions or identity-derived style
+      # must go through the normal safety checks, even in factual context.
+      def named_assistant_phrase_description?(text)
+        description = text.strip.delete_suffix(".")
+        return false unless description.match?(/\A[[:upper:]][[:alpha:]'’-]{1,30}(?:\s+[[:upper:]][[:alpha:]'’-]{1,30}){0,2}\s+is\s+(?:a|an)\s+(?:[[:alpha:]]+\s+){0,5}(?:woman|man|(?:fictional|digital|coach)\s+assistant)\s+(?:who\s+|,\s*)?uses\s+.+\s+(?:sparingly|rarely)\z/)
+
+        # Quoted phrases can contain words such as "voice"; they do not grant
+        # permission to derive any other style from an identity.
+        without_quotes = description.gsub(/["“][^"“”\n]{1,100}["”]/, "phrase")
+        return false if without_quotes.match?(RESPONSE_STYLE_PATTERN)
+        return false if without_quotes.match?(/\b(?:all|always|everyone|people|families|locals|participants?|groups?)\b/i)
+
+        phrases = without_quotes.split(/\s+uses\s+/, 2).last.sub(/\s+(?:sparingly|rarely)\z/, "")
+        phrases.match?(/\A[[:alpha:]'’-]+(?:\s*(?:,|and)\s*[[:alpha:]'’-]+){0,3}\z/)
       end
 
       def demographic_financial_claim?(text)

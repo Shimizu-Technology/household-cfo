@@ -40,9 +40,10 @@ module SavingsChallenge
       payload.merge("challenge_chat_card" => card&.as_api_json)
     end
 
-    def initialize(household:, user:, enrollment:, session:, message:, attachments: [], persona:, history:, approved_content: [])
+    def initialize(household:, user:, enrollment:, session:, message:, attachments: [], persona:, history:, approved_content: [], available_product_modules: nil)
       @household, @user, @enrollment, @session, @message, @attachments = household, user, enrollment, session, message.to_s, attachments
       @persona, @history, @approved_content = persona, history, approved_content
+      @available_product_modules = available_product_modules
       @topic = {}
     end
 
@@ -64,7 +65,8 @@ module SavingsChallenge
         narrator = Narrator.new(user_message: @message,
           answer_packet: { kind: "savings_challenge", basis: "participant-approved savings ledger and explicitly scoped baseline",
             write_state: "no_write", fallback_response: reference,
-            guardrails: [ "90_day_total_not_monthly", "approved_new_money_reserved_only", "partial_coverage_is_not_full_household", "feelings_optional_private" ], verified_facts: coach.answer_facts }.compact,
+            guardrails: [ "90_day_total_not_monthly", "approved_new_money_reserved_only", "partial_coverage_is_not_full_household", "feelings_optional_private" ],
+            available_product_modules: @available_product_modules, verified_facts: coach.answer_facts }.compact,
           history: @history, persona: @persona, approved_content: @approved_content)
         @answer = narrator.call
         @supplied_content_context = narrator.supplied_content_context
@@ -140,7 +142,7 @@ module SavingsChallenge
       estimate = impact ? " Spending half as much at #{impact[:merchant]} could free about #{money(impact[:monthly_impact_cents])} a month, based on the months recorded." : ""
       reference = "#{observed}#{waterfall}#{estimate} #{choices_question(choices)}"
       narrator = PatternsNarrator.new(user_message: @message, persona: @persona, history: @history, approved_content: @approved_content,
-        answer_packet: { kind: "challenge_patterns", write_state: "no_write", fallback_response: reference,
+        answer_packet: { kind: "challenge_patterns", write_state: "no_write", fallback_response: reference, available_product_modules: @available_product_modules,
           verified_facts: { merchants: @patterns[:discretionary_merchants].first(2), cluster: cluster, choices: choices,
             months_with_purchases: present, missing_months: missing } })
       @answer = narrator.call
