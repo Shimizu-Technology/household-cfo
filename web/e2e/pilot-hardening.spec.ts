@@ -13006,10 +13006,11 @@ test('mobile Ask Mia anchors the sent message above typing and never returns to 
   await composer.fill('What spending patterns do you see?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   const sentAtTop = () => page.locator('.chat-card').evaluate(card => {
-    const user = [...card.querySelectorAll('.message-row.user')].at(-1)!.getBoundingClientRect()
-    return Math.abs(user.top - card.getBoundingClientRect().top - 12) < 3
+    const row = [...card.querySelectorAll('.message-row.user')].at(-1)!
+    const offset = row.getBoundingClientRect().top - card.getBoundingClientRect().top
+    return Math.abs(offset - 12) < 3 ? 'anchored' : JSON.stringify({ offset, scrollTop: card.scrollTop, height: card.clientHeight, content: row.textContent })
   })
-  await expect.poll(sentAtTop).toBe(true)
+  await expect.poll(sentAtTop).toBe('anchored')
   await expect(page.getByLabel('Mia is thinking').first()).toBeVisible()
   expect(await page.locator('.typing-row').evaluate(row => {
     const area = row.closest('.chat-card')!.getBoundingClientRect()
@@ -13018,7 +13019,7 @@ test('mobile Ask Mia anchors the sent message above typing and never returns to 
   })).toBe(true)
   release!()
   await expect(page.locator('.message-row.assistant').last()).toContainText('Ross ($600)')
-  await expect.poll(sentAtTop).toBe(true)
+  await expect.poll(sentAtTop).toBe('anchored')
   await expect(page.locator('.message-row.is-new-reply')).toHaveCount(1)
   await expect(page.locator('.is-new-reply')).toHaveCSS('animation-duration', '0.15s')
   await expect(page.locator('.message-row.user').last()).toHaveCSS('animation-name', 'none')

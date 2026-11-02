@@ -36,12 +36,10 @@ export function useMiaEntryAnchor({ active, messageKey, loading, chatRef, awayRe
     observer?.observe(chat)
     Array.from(chat.children).forEach(child => observer?.observe(child))
     chat.addEventListener('load', reanchor, true)
-    const settle = window.setTimeout(() => { settled = true }, 2500)
     return () => {
       settled = true
       cancelAnimationFrame(frame)
       cancelAnimationFrame(resizeFrame)
-      window.clearTimeout(settle)
       observer?.disconnect()
       chat.removeEventListener('pointerdown', away)
       chat.removeEventListener('wheel', away)

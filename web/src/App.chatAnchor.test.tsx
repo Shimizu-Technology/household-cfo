@@ -45,21 +45,21 @@ it('yields to a pointer press before a late entry frame, image load or resize ca
   expect(anchor).not.toHaveBeenCalled()
 })
 
-it('anchors an untouched reply while it settles, then stops observing on departure', () => {
+it('anchors an untouched reply through late media layout, then stops observing on departure', () => {
   const { anchor, setShowScrollButton, awayRef, unmount } = setup()
   const button = screen.getByRole('button')
   act(() => { frames.forEach(frame => frame(0)); resize([], {} as ResizeObserver); frames.at(-1)?.(0) })
   expect(anchor).toHaveBeenCalledTimes(2)
   expect(setShowScrollButton).toHaveBeenCalledWith(false)
   act(() => vi.advanceTimersByTime(2500))
-  act(() => resize([], {} as ResizeObserver))
-  expect(anchor).toHaveBeenCalledTimes(2)
+  act(() => { resize([], {} as ResizeObserver); frames.at(-1)?.(0) })
+  expect(anchor).toHaveBeenCalledTimes(3)
   unmount()
   act(() => resize([], {} as ResizeObserver))
   fireEvent.pointerDown(button)
   expect(disconnect).toHaveBeenCalledTimes(1)
   expect(awayRef.current).toBe(false)
-  expect(anchor).toHaveBeenCalledTimes(2)
+  expect(anchor).toHaveBeenCalledTimes(3)
 })
 
 it('keeps a focused review control in place when a late layout update arrives', () => {
