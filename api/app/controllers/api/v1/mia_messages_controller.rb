@@ -365,7 +365,8 @@ module Api
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
           mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft, selected_item_ids: action_result&.selected_item_ids) : nil,
           budget: annual_plan && !global_read_only_request && !intent_result&.read_only_plan? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
-          spending_report: spending_report
+          spending_report: spending_report,
+          month_answer: safe_month_answer(content, annual_plan: annual_plan || intent_plan)
         }
         complete_message_request(message_request, response_payload)
         record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports, transaction_draft: transaction_draft, mia_action_draft: mia_action_draft)
@@ -1678,7 +1679,7 @@ module Api
           # Food hardship, savings deposits and investment buys are never expense
           # reports or lookups, whatever the intent model called them.
           if !intent_result.actionable? || intent_result.transaction_report_action?
-            coach_answer = support_coach_answer(content, annual_budget_manager: annual_budget_manager)
+            coach_answer = support_coach_answer(content, annual_budget_manager: annual_budget_manager, annual_plan: annual_plan)
             support_preempted = coach_answer.present?
           end
 
@@ -1734,11 +1735,13 @@ module Api
               current_household,
               resolved_content,
               annual_budget_manager: budget_manager,
+              annual_plan: annual_plan,
               reference_month: budget_month_param,
               conversation_messages: @mia_conversation_messages,
               user: current_user
             )
             coach_answer = coach_answerer.call
+            @mia_month_answer ||= coach_answerer.prepared_month_answer
             annual_plan = coach_answerer.prepared_annual_plan || annual_plan
             budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(resolved_content, annual_plan: annual_plan).call if coach_answer.blank?
           when "spending_report"
@@ -1808,11 +1811,13 @@ module Api
               current_household,
               resolved_content,
               annual_budget_manager: annual_budget_manager,
+              annual_plan: annual_plan,
               reference_month: budget_month_param,
               conversation_messages: @mia_conversation_messages,
               user: current_user
             )
             coach_answer = coach_answerer.call
+            @mia_month_answer ||= coach_answerer.prepared_month_answer
             annual_plan = coach_answerer.prepared_annual_plan || annual_plan
           end
         end
@@ -1866,7 +1871,6 @@ module Api
         parts = []
         if drafted.any?
           parts << "I drafted #{drafted.length} expense #{'review'.pluralize(drafted.length)}: #{labels.to_sentence}."
-          parts << "#{drafted.many? ? 'Each one is' : 'It is'} pending your review, and month-to-date actuals have not changed."
         end
         parts << "I could not draft #{failed.to_sentence}, so send #{failed.many? ? 'those' : 'that one'} again with the merchant, amount, and date." if failed.any?
         parts << "Your next move is to check each merchant, amount, and category, then confirm the ones that are right." if drafted.any?
@@ -1902,15 +1906,19 @@ module Api
         end
       end
 
-      def support_coach_answer(content, annual_budget_manager:)
-        HouseholdFinance::MiaCoachAnswerer.new(
+      def support_coach_answer(content, annual_budget_manager:, annual_plan: nil)
+        answerer = HouseholdFinance::MiaCoachAnswerer.new(
           current_household,
           content,
           annual_budget_manager: annual_budget_manager,
+          annual_plan: annual_plan,
           reference_month: budget_month_param,
           conversation_messages: @mia_conversation_messages,
           user: current_user
-        ).support_answer
+        )
+        answer = answerer.support_answer
+        @mia_month_answer ||= answerer.prepared_month_answer
+        answer
       end
 
       def coaching_guardrail_answer(content, annual_budget_manager:)
@@ -2298,7 +2306,33 @@ module Api
         [ assistant_content, boundary ].compact_blank.join(" ")
       end
 
+      # Optional response metadata cannot turn an already-persisted chat into a
+      # failed request. Share the exact facts used for the primary narration.
+      def safe_month_answer(content, annual_plan: nil)
+        return unless HouseholdFinance::MiaMonthAnswer.question?(content)
+        return @mia_month_facts if defined?(@mia_month_facts)
+
+        @mia_month_answer ||= HouseholdFinance::MiaMonthAnswer.for_question(current_household, content, annual_plan: annual_plan)
+        @mia_month_facts = @mia_month_answer.call
+      rescue StandardError => error
+        Rails.logger.warn("[MiaMonthAnswer] optional facts unavailable: #{error.class}")
+        @mia_month_facts = nil
+      end
+
       def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil, mia_action_result: nil, selected_month: nil)
+        priority = HouseholdFinance::MiaCoachAnswerer.routing_priority(content)
+        month_facts = safe_month_answer(content, annual_plan: annual_plan) if priority == :month
+        if month_facts
+          annual_plan = @mia_month_answer.plan_data
+          selected_month = month_facts[:month]
+          if write_state.in?(%w[pending_review draft_updated]) && kind.in?(%w[budget_action transaction_draft transaction_draft_update])
+            fallback_response = month_answer_with_review(fallback_response, transaction_draft: transaction_draft)
+          end
+        end
+        # A reflection is about the participant's experience, not a fresh plan
+        # calculation. Supplying totals invites unrelated figures and caveats.
+        reflection = kind == "coaching" && priority == :reflective
+        annual_plan = nil if kind == "coaching" && priority.in?(%i[hardship essential_skip reflective])
         answer_packet = HouseholdFinance::MiaAnswerPacketBuilder.new(
           kind: kind,
           fallback_response: fallback_response,
@@ -2308,7 +2342,10 @@ module Api
           spending_report: spending_report,
           transaction_draft: transaction_draft,
           conversation_context: conversation_context,
-          mia_action_result: mia_action_result
+          mia_action_result: mia_action_result,
+          month_answer: month_facts,
+          participant_message: content,
+          reflection: reflection
         ).call
 
         answer_packet[:available_product_modules] = module_guidance.context
@@ -2322,6 +2359,20 @@ module Api
         response = narrator.call
         @used_coach_content = narrator.respond_to?(:supplied_content_context) ? narrator.supplied_content_context : []
         response
+      end
+
+      def month_answer_with_review(reference, transaction_draft: nil)
+        review_step = if transaction_draft
+          date = transaction_draft.occurred_on&.strftime("%B %-d, %Y")
+          timing = date ? " on #{date}" : ""
+          "Check the pending #{transaction_draft.merchant} review for #{money(transaction_draft.total_amount_cents)}#{timing} on the card before confirming the merchant, amount, and category."
+        else
+          reference
+        end
+        @mia_month_answer.response(next_move: review_step)
+      rescue StandardError => error
+        Rails.logger.warn("[MiaMonthAnswer] combined answer unavailable: #{error.class}")
+        reference
       end
 
       def module_guidance
@@ -2349,7 +2400,7 @@ module Api
       def drafted_transaction_message(draft, annual_plan)
         category = drafted_transaction_category_label(draft)
         impact = drafted_transaction_impact_line(draft, annual_plan)
-        "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. #{impact} Confirm it only if the merchant, amount, and category are right. Month-to-date actuals will not change until you approve it."
+        "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. #{impact} Check the merchant, amount, and category on the card."
       end
 
       def drafted_transaction_category_label(draft)
@@ -2365,6 +2416,12 @@ module Api
       def drafted_transaction_impact_line(draft, annual_plan)
         impacts = HouseholdFinance::TransactionDraftBudgetImpact.new(annual_plan: annual_plan, draft: draft).call
         known = impacts.select { |impact| impact[:status] != "needs_category" }
+        if known.empty? && draft.source_type == "manual_chat" && draft.transaction_draft_splits.one?
+          split = draft.transaction_draft_splits.sole
+          if split.budget_category_id.nil? && split.category_name.present? && split.stack_key.present?
+            return "Your new category will be added to flexible spending on confirmation; you can set its budget later."
+          end
+        end
         return "Choose a category in the draft to see its budget impact." if known.empty?
 
         impact = known.min_by { |candidate| candidate.fetch(:remaining_if_approved_cents) }
@@ -2375,7 +2432,6 @@ module Api
           "would have #{money(remaining_cents)} left in its #{money(impact.fetch(:planned_cents))} plan"
         end
         line = "If approved, #{draft.occurred_on.strftime('%B')}'s #{impact.fetch(:category_name)} category #{outcome}."
-        line += " The review card shows all #{known.length} category impacts." if known.length > 1
         line
       end
 

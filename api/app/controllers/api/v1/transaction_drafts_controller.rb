@@ -256,7 +256,9 @@ module Api
       end
 
       def confirmed_message(draft)
-        category = draft.budget_category&.name || "Uncategorized"
+        categories = draft.confirmed_transaction.transaction_splits.includes(:budget_category)
+          .filter_map { |split| split.budget_category&.name }.uniq
+        category = categories.presence&.to_sentence || "Uncategorized"
         "Confirmed #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. I updated month-to-date actuals."
       end
 

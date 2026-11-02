@@ -14,10 +14,11 @@ module CohortReleases
         memberships = CohortMembership.includes(:user, cohort: %i[cohort_persona_assignment cohort_experience_configuration])
           .joins(:cohort).where(user_id: participant_ids, role: "participant",
             cohorts: { status: Mia::PersonaResolver::ASSIGNABLE_COHORT_STATUSES })
+        selections = {}
         memberships.group_by(&:user_id).values.select do |rows|
           rows.map do |row|
-            assignment = row.cohort.cohort_persona_assignment
-            [ assignment&.coach_persona_id, assignment&.coach_persona_version_id,
+            _, persona, version = (selections[row.cohort_id] ||= Mia::PersonaResolver.selection_for(row.cohort))
+            [ persona&.id, version&.id,
               row.cohort.cohort_experience_configuration&.current_published_version_id ]
           end.uniq.length > 1
         end

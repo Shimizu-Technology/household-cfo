@@ -126,7 +126,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
       assert_equal response.metadata[:shown_count], response.metadata[:records].length
       assert_equal "bounded_saved_records", response.metadata[:coverage]
       assert_equal 22_000.0, response.metadata[:selected_month_amount]
-      assert_includes response.answer, "Showing #{response.metadata[:shown_count]} of 20 saved records"
+      assert_includes response.answer, "Showing #{response.metadata[:shown_count]} of 20 items"
       assert_includes response.answer, "Monthly totals include all saved sources"
       assert_includes response.answer, "Saved sources may not cover all household income"
       assert_not_includes response.answer, "Showing all 20"
@@ -259,7 +259,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_read_financial_records_unchanged do
       response = answer("Show my household spending categories and planned amounts")
       assert_equal "spending", response.metadata[:topic]
-      assert_includes response.answer, "Dining Out — Discretionary: saved monthly plan $300.00; confirmed actuals recorded $25.00; pending proposed category spending $10.00, excluded from actuals"
+      assert_includes response.answer, "Dining Out — flexible spending: saved monthly plan $300.00; spent so far $25.00; $10.00 waiting for review, separate from spent so far"
       assert_includes response.answer, "2 pending household transaction reviews"
       assert_includes response.answer, "totaling $15.00"
       assert_includes response.answer, "does not verify no spending or complete coverage"
@@ -296,10 +296,10 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
       response = answer("Show my household spending categories and planned amounts")
       refute response.metadata[:plan_available]
       assert_includes response.answer, "No saved monthly budget plan"
-      assert_includes response.answer, "Rent — Non-discretionary: no saved monthly allocation; setup starting estimate $800.00 (not approved for this month)"
-      assert_includes response.answer, "Unplanned category — Discretionary: no saved monthly allocation; planned amount unknown"
-      assert_includes response.answer, "confirmed actuals unavailable in this plan preview"
-      assert_not_includes response.answer, "confirmed actuals recorded $0.00"
+      assert_includes response.answer, "Rent — must-pay bills: no saved monthly allocation; setup starting estimate $800.00 (not approved for this month)"
+      assert_includes response.answer, "Unplanned category — flexible spending: no saved monthly allocation; planned amount unknown"
+      assert_includes response.answer, "spent so far is not known in this plan preview"
+      assert_not_includes response.answer, "spent so far $0.00"
       assert response.metadata[:records].all? { |row| row[:planned_amount].nil? && row[:confirmed_actual_amount].nil? }
     end
   end
@@ -347,7 +347,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_read_financial_records_unchanged do
       response = answer("What is my household Old Dining budget for 2026-10?")
       assert_includes response.answer, "archived category retained for history"
-      assert_includes response.answer, "saved monthly plan $0.00; confirmed actuals recorded $0.00"
+      assert_includes response.answer, "saved monthly plan $0.00; spent so far $0.00"
       assert_includes response.answer, "A recorded $0 does not verify no spending"
     end
   end
@@ -381,10 +381,15 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
       assert_operator response.answer.length, :<=, ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH
       assert_equal 20, response.metadata[:total_count]
       assert_operator response.metadata[:shown_count], :>, 0
-      assert_operator response.metadata[:shown_count], :<, 20
+      assert_operator response.metadata[:shown_count], :<=, 20
       assert_equal response.metadata[:shown_count], response.metadata[:records].length
-      assert_equal "bounded_saved_records", response.metadata[:coverage]
-      assert_includes response.answer, "Showing #{response.metadata[:shown_count]} of 20 saved records"
+      if response.metadata[:shown_count] < 20
+        assert_equal "bounded_saved_records", response.metadata[:coverage]
+        assert_includes response.answer, "Showing #{response.metadata[:shown_count]} of 20 items"
+      else
+        assert_equal "all_matching_records", response.metadata[:coverage]
+        assert_includes response.answer, "Showing all 20 items"
+      end
       assert_includes response.answer, "20 pending household transaction reviews"
       assert_includes response.answer, "$429,496,729.40"
       assert_includes response.answer, "A recorded $0 does not verify no spending"

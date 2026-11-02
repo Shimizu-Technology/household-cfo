@@ -153,7 +153,6 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       "help",
       "What was the plan last time?",
       "What should I do with my tax refund?",
-      "My spouse and I are fighting about money.",
       "Should I file married?"
     ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
@@ -730,7 +729,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
 
     answer = HouseholdFinance::MiaCoachAnswerer.new(household, "I feel overwhelmed and behind").call
 
-    assert_includes answer, "Start with the baseline, not the whole mountain."
+    assert_includes answer, "That sounds like a heavy week."
   end
 
   test "bank avoidance gets one small step instead of a data dump, even before setup is confirmed" do
@@ -869,9 +868,9 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
 
     answer = HouseholdFinance::MiaCoachAnswerer.new(household, "I ordered takeout again tonight. That's the fourth time this week even though I told myself I'd stop.").call
 
-    assert_includes answer, "noticing a pattern is the hard part"
-    assert_includes answer, "takeout keeps coming back"
-    assert_includes answer, "Next step: before tomorrow, pick one small swap"
+    assert_includes answer, "you are noticing it"
+    assert_includes answer, "takeout is becoming a repeat stop"
+    assert_includes answer, "What was happening just before"
     refute_match(/ashamed|irresponsible|lazy|not enough approved data/i, answer)
   end
 

@@ -1,6 +1,27 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  test "a merchant beginning with New is not a request to create a category" do
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I spent $12 at New York today", context: intent_context, api_key: nil
+    ).call
+    assert_equal "transaction_report", result.intent
+    assert_equal "New York", result.action[:merchant]
+    assert_nil result.action[:category_name]
+  end
+
+  test "an inline category keeps its incurred purchase with a provider configured" do
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Spent $12 at Payless on cigarettes. Put it in a new Cigarettes category.",
+      context: intent_context, api_key: "synthetic",
+      transport: ->(_) { flunk "A complete purchase and category do not need model interpretation" }
+    ).call
+    assert_equal "transaction_report", result.intent
+    assert_equal "Payless", result.action[:merchant]
+    assert_equal "12.00", result.action[:amount]
+    assert_equal "Cigarettes", result.action[:category_name]
+  end
+
   test "a complete named income request recovers explicit amount omitted by provider without guessing" do
     action = default_action.merge(type: "create_income_source", income_source_name: "Real salary QA", cadence: "monthly", effective_on: "2026-10-01")
     transport = ->(_) { resolution_json(intent: "income_action", continuation: false, resolved_message: "Create income", topic: { type: "income_schedule", title: "Income", subject: "Real salary QA" }, action: action) }
