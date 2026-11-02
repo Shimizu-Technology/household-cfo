@@ -31,6 +31,7 @@ module HouseholdFinance
       /\b(?:waiting\s+for\s+(?:your\s+)?review|confirm\s+or\s+delete\s+the\s+pending|confirm\s+the\s+pending)\b/i
     ].freeze
     INTERNAL_VOICE_RULE_PATTERN = /\b(?:persona|voice|cultural|teasing|phrase|narrator|system)\b.{0,80}\b(?:rules?|instructions?|policy|artifacts?|allowed|forbidden|belongs|prohibit\w*|approved)\b|\b(?:instructed|required|not allowed|policy)\b.{0,80}\b(?:persona|cultural|teasing|phrase)\b/i.freeze
+    VOICE_ABSTENTION_PATTERN = /\b(?:keep(?:ing)?|leav(?:e|ing)|avoid(?:ing)?|skip(?:ping)?|(?:not|never)\s+us(?:e|ing))\b.{0,60}\b(?:cute|cultural|teasing)\s+(?:phrases?|wording)\b/i.freeze
     RECORD_CAVEAT_PATTERN = /(?:not (?:your |a |an |the )?(?:checked |verified |available )?bank balance|not (?:a )?checked spending total|(?:not|haven['’]t|have not) counted (?:this|it|that) as a purchase|(?:nothing|no (?:numbers|records|actuals|spending)) (?:has |have |will )?(?:changed|changes|change)|(?:actuals|spending) (?:have not|has not|did not|will not) change)/i.freeze
 
     NEW_DRAFT_CLAIMS = [
@@ -268,7 +269,7 @@ module HouseholdFinance
     def narration_rejection_reason(content)
       return :blank_response if content.blank?
       return :persona_response_shape unless ::Mia::ResponseShapePolicy.valid?(content, persona: persona)
-      return :internal_voice_instruction if content.match?(INTERNAL_VOICE_RULE_PATTERN)
+      return :internal_voice_instruction if content.match?(INTERNAL_VOICE_RULE_PATTERN) || content.match?(VOICE_ABSTENTION_PATTERN)
       return :participant_system_wording if content.match?(/\bneeds_category\b|budget stack|confirmed actuals recorded|pending proposed category spending/i)
       if MiaCoachAnswerer.routing_priority(user_message) == :essential_skip
         first = content.split(/(?<=[.!?])\s+/).first.to_s
@@ -296,6 +297,9 @@ module HouseholdFinance
         return :unrelated_readiness_in_reflection
       end
       if MiaCoachAnswerer.routing_priority(user_message) == :reflective && content.match?(/participant update|(?:not|unverified).{0,20}checked total|store visit without an amount|doesn['’]?t tell me anything about damage/i)
+        return :internal_coaching_wording
+      end
+      if MiaCoachAnswerer.routing_priority(user_message) == :reflective && content.match?(/\bno (?:purchase )?amount (?:has been|was|is) (?:shared|given|provided|included)\b/i) && content.match?(/\bdraft(?:ing)?\b/i)
         return :internal_coaching_wording
       end
       return :stacked_record_caveats if content.scan(RECORD_CAVEAT_PATTERN).length > 1

@@ -76,6 +76,17 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     assert_equal packet[:fallback_response], narrate(reply, packet, "I went to Ross again")
   end
 
+  test "recorded Ross embarrassment rejects voice abstention and purchase intake explanations" do
+    fallback = "Going back to Ross does not define you. What was happening just before you went?"
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback }
+    prompt = "I'm embarrassed I went to Ross again"
+    reply = "Feeling embarrassed tells me you care about the plan, and going back to Ross doesn't say anything about your worth. It's a pattern we can coach, and I'm not here to shame it. No amount has been shared, so I'm not treating this as a purchase to draft. I'm also keeping the cute phrases out of this one, because embarrassment deserves a straight answer. What was going on right before you went, like a stressful day, a payday, or boredom?"
+    assert_equal fallback, narrate(reply, packet, prompt)
+    assert_equal fallback, narrate("Going back to Ross does not define you. No amount has been shared, so I'm not treating this as a purchase to draft. What happened before you went?", packet, prompt)
+    assert_equal fallback, narrate("Going back to Ross does not define you. I'm keeping the cute phrases out of this one. What happened before you went?", packet, prompt)
+    assert_equal fallback, narrate(fallback, packet, prompt)
+  end
+
   test "internal voice rules never reach a participant in coaching or draft replies" do
     fallback = "Ordering takeout again does not make you a failure. Let’s make the next tired evening easier. What easy meal could you keep ready?"
     leaked = [
