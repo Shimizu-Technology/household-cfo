@@ -21,6 +21,7 @@ module HouseholdFinance
       {
         kind: kind,
         basis: answer_basis,
+        coaching_priority: coaching_priority,
         coaching_provenance: coaching_provenance,
         write_state: write_state,
         fallback_response: fallback_response,
@@ -42,6 +43,7 @@ module HouseholdFinance
 
     def answer_basis
       return "participant-reported experience; coaching guidance is not a verified financial outcome" if @reflection
+      return "participant-stated essential need; general coach guidance; no financial achievement established" if coaching_priority.in?(%w[hardship essential_skip])
 
       case kind
       when "budget_question"
@@ -56,7 +58,7 @@ module HouseholdFinance
     end
 
     def coaching_provenance
-      return unless @reflection
+      return unless @reflection || coaching_priority.in?(%w[hardship essential_skip])
 
       { participant_report: @participant_message,
         achievement_basis: "participant report only",
@@ -69,6 +71,10 @@ module HouseholdFinance
       return unless annual_plan
 
       annual_plan[:year] || annual_plan["year"]
+    end
+
+    def coaching_priority
+      MiaCoachAnswerer.routing_priority(@participant_message).to_s if @participant_message.present?
     end
 
     def annual_plan_summary

@@ -1,6 +1,14 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "narration cannot praise a budget win before protecting skipped meals" do
+    fallback = "Please do not skip food to save money. Food comes first. Choose a flexible expense instead."
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback }
+    reply = "Staying under budget took real discipline. But skipping lunch isn't the move I want to coach you toward. Choose a flexible expense instead."
+    assert_equal fallback, narrate(reply, packet, "I stayed under my budget. I skipped lunch to save for the challenge")
+    assert_equal fallback, narrate(fallback, packet, "I stayed under my budget. I skipped lunch to save for the challenge")
+  end
+
   test "reported wins reject invented causes and financial achievements" do
     fallback = "You kept your spending within the limit you set. What worked that you could repeat?"
     packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback }

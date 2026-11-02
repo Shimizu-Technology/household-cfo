@@ -10,7 +10,7 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   const token = 'test_token:e2e_participant:w1-participant@example.invalid:Ana:Test'
   const headers = { Authorization: `Bearer ${token}` }
   const api = 'http://127.0.0.1:3201/api/v1'
-  const transcripts: Array<{ prompt: string; reply: string; month_answer?: unknown }> = []
+  const transcripts: Array<{ prompt: string; reply: string; user_message_id: number; month_answer?: unknown }> = []
   const evidence = process.env.HCFO_W1_EVIDENCE!
   const label = testInfo.project.name
   const before = await (await request.get(`${api}/workspace`, { headers })).json()
@@ -29,7 +29,7 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
     expect(result.status()).toBe(201)
     const body = await result.json()
     expect(body.assistant_message.content).toMatch(expected)
-    transcripts.push({ prompt, reply: body.assistant_message.content, month_answer: body.month_answer })
+    transcripts.push({ prompt, user_message_id: body.user_message.id, reply: body.assistant_message.content, month_answer: body.month_answer })
     writeFileSync(`${evidence}/${label}-transcript.json`, JSON.stringify(transcripts, null, 2))
     await expect(composer).toBeEnabled({ timeout: 90_000 })
     await page.getByText(body.assistant_message.content, { exact: true }).last().scrollIntoViewIfNeeded().catch(() => {})
@@ -125,22 +125,28 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   const checking = await ask('I have $500 in checking; should I buy a purse?', 'checking-purse', /what does the purse cost/i)
   expect(checking.assistant_message.content).not.toContain('$500 purse')
   await ask('How am I doing in 2026-13?', 'invalid-month', /which month and year/i)
-  const renameName = `Meals ${['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'][testInfo.config.projects.findIndex((project) => project.name === label)]}`
+  const renameName = `Meals ${['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'][testInfo.config.projects.findIndex((project) => project.name === label)]}${attemptSuffix}`
   const rename = await ask(`Rename Dining Out category to ${renameName}`, 'rename-review', /check the details.*nothing changes until you apply/i)
   expect(rename.mia_action_draft).toBeTruthy()
   expect(rename.assistant_message.content).not.toContain('amount and timing')
   const workspace = await request.get(`${api}/workspace`, { headers })
   expect(workspace.ok()).toBe(true)
   const saved = await workspace.json()
+  // This longer journey exceeds the workspace's 60-message initial window.
+  // Read the bounded history endpoint explicitly and verify this run's IDs.
+  const historyResponse = await request.get(`${api}/mia/messages?limit=100`, { headers })
+  expect(historyResponse.ok()).toBe(true)
+  const savedHistory = await historyResponse.json()
   for (const turn of transcripts) {
-    expect(saved.mia.messages.some((message: { role: string; content: string }) => message.role === 'user' && message.content === turn.prompt)).toBe(true)
+    expect(savedHistory.messages.some((message: { id: number; role: string; content: string }) => message.id === turn.user_message_id && message.role === 'user' && message.content === turn.prompt)).toBe(true)
   }
+  writeFileSync(`${evidence}/${label}-saved-history.json`, JSON.stringify(savedHistory, null, 2))
   expect(saved.budget.annual_plan.rows.some((row: { name: string }) => row.name === 'Dining Out')).toBe(true)
   expect(saved.budget.annual_plan.rows.some((row: { name: string }) => row.name === renameName)).toBe(false)
   const category = saved.budget.annual_plan.rows.find((row: { name: string }) => row.name === name)
   expect(category).toBeTruthy()
   expect(saved.budget.annual_plan.recent_transactions.some((transaction: { merchant: string; amount: number; categories: string[] }) => transaction.merchant === 'Payless' && Number(transaction.amount) === 12 && transaction.categories.includes(name))).toBe(true)
-  const confirmation = saved.mia.messages.find((message: { role: string; content: string }) => message.role === 'assistant' && message.content.includes('Confirmed Payless') && message.content.includes(name))
+  const confirmation = savedHistory.messages.find((message: { role: string; content: string }) => message.role === 'assistant' && message.content.includes('Confirmed Payless') && message.content.includes(name))
   expect(confirmation).toBeTruthy()
   expect(confirmation.content).not.toContain('Uncategorized')
   await testInfo.attach('transcript', { body: JSON.stringify(transcripts, null, 2), contentType: 'application/json' })
