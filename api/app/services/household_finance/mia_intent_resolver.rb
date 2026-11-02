@@ -214,6 +214,9 @@ module HouseholdFinance
     def call
       return nil if user_message.blank?
       read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(user_message)
+      coaching = deterministic_coaching_result
+      return coaching if coaching && MiaCoachAnswerer.routing_priority(user_message).in?(%i[hardship essential_skip])
+
       if !read_only_request && MiaMonthAnswer.question?(user_message)
         report_text = raw_user_message.split(/(?<=[.!?])\s+/).map do |sentence|
           question = sentence.match(MiaMonthAnswer::QUESTION)
@@ -222,7 +225,6 @@ module HouseholdFinance
         purchase = deterministic_purchase_result(report_message: report_text) if MiaCoachAnswerer.spend_report_text?(report_text)
         return purchase if purchase
       end
-      coaching = deterministic_coaching_result
       coaching ||= deterministic_category_followup_result || deterministic_purchase_continuation_result unless read_only_request
       return coaching if coaching
       if !read_only_request && requested_new_category.present?
@@ -360,7 +362,7 @@ module HouseholdFinance
       boundary = priority.in?(%i[hardship essential_skip])
       return if !boundary && MiaCoachAnswerer.explicit_write_request?(user_message)
       return unless boundary || priority.in?(%i[reflective month]) || purse_advice
-      return if TransactionDraftBuilder.non_expense_movement?(user_message)
+      return if !boundary && TransactionDraftBuilder.non_expense_movement?(user_message)
 
       Result.new(intent: "coaching", confidence: 1.0, continuation: false,
         resolved_message: user_message, needs_clarification: false, clarification: "",

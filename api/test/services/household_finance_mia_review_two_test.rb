@@ -89,6 +89,17 @@ class HouseholdFinanceMiaReviewTwoTest < ActiveSupport::TestCase
     assert_nil resolver("Should I change my salary to $6,400?", {}).send(:deterministic_current_salary_result)
   end
 
+  test "essentials also precede deposit boundaries and purchase clarification beside a month question" do
+    [ "I can't pay rent. I put $50 in savings",
+      "I skipped lunch to save. I put $50 in savings",
+      "I spent money at Ross. I can't afford food. How am I doing this month?" ].each do |message|
+      result = resolver(message, {}).call
+      assert_equal "coaching", result.intent, message
+      refute result.actionable?, message
+      refute result.clarification?, message
+    end
+  end
+
   test "all nonamount proposal types use neutral wording and remain unapplied" do
     builder = HouseholdFinance::MiaActionDraftBuilder.allocate
     %w[rename_category reclassify_category archive_category restore_category].each do |type|
