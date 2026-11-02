@@ -62,6 +62,10 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
   test "household review cards omit challenge-specific scope" do
     draft = @household.mia_action_drafts.create!(requested_by_user: @user, draft_type: "budget_edit", status: "pending", year: 2026, title: "Change plan", summary: "Change plan")
     assert_nil HouseholdFinance::MiaActionDraftPresenter.new(draft).call[:scope_note]
+    coach = User.create!(clerk_id: "coach-#{SecureRandom.hex(8)}", email: "coach-#{SecureRandom.hex(8)}@example.invalid", role: "coach", invitation_status: "accepted")
+    cohort = Cohort.create!(created_by_user: coach, name: "Synthetic challenge", status: "active", savings_challenge_enabled: true)
+    draft.update!(metadata: { "review_program_scope" => { "cohort_id" => cohort.id } })
+    assert_includes HouseholdFinance::MiaActionDraftPresenter.new(draft).call[:scope_note], "do not approve challenge savings"
   end
 
   private

@@ -36,7 +36,10 @@ module HouseholdFinance
 
     def scope_note
       session = draft.source_chat_message&.chat_session || draft.assistant_chat_message&.chat_session
-      return unless session&.cohort&.savings_challenge_enabled?
+      cohort = session&.cohort
+      cohort_id = draft.metadata.to_h.dig("review_program_scope", "cohort_id")
+      cohort ||= Cohort.find_by(id: cohort_id) if cohort_id.present?
+      return unless cohort&.savings_challenge_enabled?
 
       "Household plan — changes here do not approve challenge savings, change the challenge target, or update optional card terms."
     end
