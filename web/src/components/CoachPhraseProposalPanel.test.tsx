@@ -128,7 +128,9 @@ describe('CoachPhraseProposalPanel', () => {
 
     expect(await screen.findByRole('heading', { name: /Review exact wording/i })).toBeTruthy()
     expect(screen.queryByText(candidate.evidence_excerpt)).toBeNull()
-    await userEvent.type(screen.getByLabelText('Meaning and intent'), 'Choose one practical action.')
+    const meaning = await screen.findByLabelText('Meaning and intent', {}, { timeout: 10000 })
+    await waitFor(() => expect(meaning).toHaveProperty('disabled', false))
+    await userEvent.type(meaning, 'Choose one practical action.')
     await userEvent.click(screen.getByRole('button', { name: 'Save and submit for review' }))
 
     await waitFor(() => expect(apiMocks.createAdminPhraseProposal).toHaveBeenCalledTimes(1))

@@ -50,7 +50,16 @@ class BrandingLogoImageTest < ActiveSupport::TestCase
   test "whitespace IDAT data counts toward ordering and cannot be followed by another IDAT after metadata" do
     bytes = Branding::LogoImage::SIGNATURE + chunk("IHDR", [ 1, 1, 8, 6, 0, 0, 0 ].pack("NNC5")) +
       chunk("IDAT", " ") + chunk("tEXt", "metadata") + chunk("IDAT", Zlib::Deflate.deflate("\x00\x00\x00\x00\xff".b)) + chunk("IEND", "".b)
-    assert_raises(Branding::LogoImage::Invalid) { read(bytes) }
+    pixels_checked = false
+    image = Class.new(Branding::LogoImage) do
+      define_method(:validate_pixels!) do |data|
+        pixels_checked = true
+        super(data)
+      end
+      private :validate_pixels!
+    end.new(bytes)
+    assert_raises(Branding::LogoImage::Invalid) { image.sanitize }
+    refute pixels_checked, "Invalid chunk ordering must be rejected before decompression"
   end
 
   private
