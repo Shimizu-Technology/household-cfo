@@ -13,6 +13,7 @@ export function useMiaEntryAnchor({ active, messageKey, loading, chatRef, awayRe
   useEffect(() => {
     const chat = chatRef.current
     if (!active || !chat) return
+    const interactionTarget = chat.parentElement ?? chat
 
     let settled = false
     const away = () => { awayRef.current = true }
@@ -22,11 +23,11 @@ export function useMiaEntryAnchor({ active, messageKey, loading, chatRef, awayRe
       resizeFrame = requestAnimationFrame(() => { if (!settled && !awayRef.current) anchor('auto') })
     }
     // A press on Load earlier is intent too: its target must not move before release.
-    chat.addEventListener('pointerdown', away, { passive: true })
-    chat.addEventListener('wheel', away, { passive: true })
-    chat.addEventListener('touchmove', away, { passive: true })
-    chat.addEventListener('keydown', away)
-    chat.addEventListener('focusin', away)
+    interactionTarget.addEventListener('pointerdown', away, { passive: true })
+    interactionTarget.addEventListener('wheel', away, { passive: true })
+    interactionTarget.addEventListener('touchmove', away, { passive: true })
+    interactionTarget.addEventListener('keydown', away)
+    interactionTarget.addEventListener('focusin', away)
     const frame = requestAnimationFrame(() => {
       if (settled || awayRef.current) return
       anchor('auto')
@@ -41,11 +42,11 @@ export function useMiaEntryAnchor({ active, messageKey, loading, chatRef, awayRe
       cancelAnimationFrame(frame)
       cancelAnimationFrame(resizeFrame)
       observer?.disconnect()
-      chat.removeEventListener('pointerdown', away)
-      chat.removeEventListener('wheel', away)
-      chat.removeEventListener('touchmove', away)
-      chat.removeEventListener('keydown', away)
-      chat.removeEventListener('focusin', away)
+      interactionTarget.removeEventListener('pointerdown', away)
+      interactionTarget.removeEventListener('wheel', away)
+      interactionTarget.removeEventListener('touchmove', away)
+      interactionTarget.removeEventListener('keydown', away)
+      interactionTarget.removeEventListener('focusin', away)
       chat.removeEventListener('load', reanchor, true)
     }
   }, [active, messageKey, loading, chatRef, awayRef, anchor, setShowScrollButton])

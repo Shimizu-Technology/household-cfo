@@ -1566,7 +1566,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     const distanceFromBottom = chatCard.scrollHeight - chatCard.scrollTop - chatCard.clientHeight
     setShowChatScrollButton(distanceFromBottom > 72)
-    if (performance.now() >= miaProgrammaticScrollUntilRef.current) {
+    // Sending follows explicit interaction intent from useMiaEntryAnchor. A late
+    // image/layout scroll must not masquerade as the participant leaving the turn.
+    if (!sentTurnRef.current && performance.now() >= miaProgrammaticScrollUntilRef.current) {
       const nearAnchor = Math.abs(chatCard.scrollTop - miaChatAnchorTop(chatCard, sentTurnRef.current)) <= 80
       chatScrolledAwayRef.current = !(distanceFromBottom <= 80 || nearAnchor)
     }
@@ -1582,6 +1584,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [])
 
   const scrollMiaChatToBottom = useCallback(() => {
+    chatScrolledAwayRef.current = false
     anchorMiaChat('auto')
     setShowChatScrollButton(false)
   }, [anchorMiaChat])
