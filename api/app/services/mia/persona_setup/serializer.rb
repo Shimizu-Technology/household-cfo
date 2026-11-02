@@ -21,6 +21,7 @@ module Mia
 
       def call
         pending = session.proposals.find_by(status: "pending")
+        resolved = session.proposals.where.not(status: "pending").order(resolved_at: :desc, id: :desc).first
         recent_turns = session.turns.reorder(position: :desc).limit(MAX_SERIALIZED_TURNS + 1).to_a
         {
           id: session.id,
@@ -33,7 +34,8 @@ module Mia
           stale: stale?,
           turns_truncated: recent_turns.length > MAX_SERIALIZED_TURNS,
           turns: recent_turns.first(MAX_SERIALIZED_TURNS).reverse.map { |turn| serialize_turn(turn) },
-          proposal: pending && serialize_proposal(pending)
+          proposal: pending && serialize_proposal(pending),
+          resolved_proposal: resolved && serialize_proposal(resolved)
         }
       end
 
@@ -49,7 +51,8 @@ module Mia
           after_state: proposal.after_state,
           grouped_changes: grouped_changes(proposal),
           created_at: proposal.created_at,
-          resolved_at: proposal.resolved_at
+          resolved_at: proposal.resolved_at,
+          accepted_operation_indexes: proposal.accepted_operation_indexes
         }
       end
 

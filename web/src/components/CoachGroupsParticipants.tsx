@@ -64,6 +64,7 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
 
   const acceptLoadedGroups = useEffectEvent(({ nextGroups, nextUsers, nextId: fallbackId }: Awaited<ReturnType<typeof load>>) => {
     const nextId = nextGroups.some((group) => group.id === selectedCohortId) ? selectedCohortId! : fallbackId
+    if (nextGroups.length === 0) setCreateOpen(true)
     setGroups(nextGroups); setUsers(nextUsers); setSelectedId(nextId); onSelectedCohortIdChange?.(nextId)
     setDraft(nextGroups.find((group) => group.id === nextId) ? draftFor(nextGroups.find((group) => group.id === nextId)!) : null)
   })
@@ -89,8 +90,8 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
     }
   }
 
-  const participants = useMemo(() => users.filter((user) => user.is_participant && user.cohorts.some((membership) => membership.cohort.id === selectedId))
-    .filter((user) => `${user.full_name} ${user.email}`.toLowerCase().includes(search.trim().toLowerCase())), [search, selectedId, users])
+  const groupParticipants = useMemo(() => users.filter((user) => user.is_participant && user.cohorts.some((membership) => membership.cohort.id === selectedId)), [selectedId, users])
+  const participants = useMemo(() => groupParticipants.filter((user) => `${user.full_name} ${user.email}`.toLowerCase().includes(search.trim().toLowerCase())), [search, groupParticipants])
   const rosterPages = Math.ceil(participants.length / 10)
   const currentRosterPage = Math.min(rosterPage, Math.max(0, rosterPages - 1))
   const visibleParticipants = participants.slice(currentRosterPage * 10, (currentRosterPage + 1) * 10)
@@ -164,12 +165,12 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
     const values: AdminCohortInput = { ...draft, name: draft.name.trim(), expected_updated_at: selected.updated_at }
     void mutate(async () => {
       const updated = await updateAdminCohort(selected.id, values)
-      return { notice: 'Group saved. Its participant experience changes only through Launch & rollout.', preferredId: updated.id, updatedGroup: updated }
+      return { notice: 'Group saved. Review participant changes in Go live.', preferredId: updated.id, updatedGroup: updated }
     })
   }
   function createGroup(event: FormEvent) {
     event.preventDefault()
-    void mutate(async () => { const group = await createAdminCohort({ name: newName.trim(), status: 'enrolling' }); return { notice: 'Group created. Add participants, then prepare and launch its experience.', preferredId: group.id } }, () => { setNewName(''); setCreateOpen(false) })
+    void mutate(async () => { const group = await createAdminCohort({ name: newName.trim(), status: 'enrolling' }); return { notice: 'Group created. Add participants, then prepare and go live.', preferredId: group.id } }, () => { setNewName(''); setCreateOpen(false) })
   }
   function inviteParticipant(event: FormEvent) {
     event.preventDefault()
@@ -194,12 +195,12 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
     {error && <div className="coach-groups-error" role="alert">{error}</div>}
     {notice && <div className="coach-groups-notice" role="status">{notice}</div>}
     {loading && <p role="status">Loading groups and participants…</p>}
-    {createOpen && <form className="coach-groups-card" onSubmit={createGroup}><h3>Create a group</h3><label>Group name<input required maxLength={120} value={newName} disabled={disabled} onChange={(event) => setNewName(event.target.value)} /></label><p>New groups start as Enrolling. Launch a reviewed participant experience when you are ready.</p><Button type="submit" disabled={disabled || !newName.trim() || groupDirty || !!email.trim()}>Create group</Button>{(groupDirty || email.trim()) && <p>Save or discard the current group or invitation changes first.</p>}</form>}
+    {createOpen && <form className="coach-groups-card" onSubmit={createGroup}><h3>Create a group</h3><label>Group name<input required maxLength={120} value={newName} disabled={disabled} onChange={(event) => setNewName(event.target.value)} /></label><p>New groups start as Enrolling. Review the assistant, then go live when you are ready.</p><Button type="submit" disabled={disabled || !newName.trim() || groupDirty || !!email.trim()}>Create group</Button>{(groupDirty || email.trim()) && <p>Save or discard the current group or invitation changes first.</p>}</form>}
     {!loading && groups.length === 0 && <p>Create your first group to invite participants.</p>}
     {selectedCohortId === undefined && !!groups.length && <label className="coach-group-picker">Group<select disabled={disabled} value={selectedId ?? ''} onChange={(event) => chooseGroup(Number(event.target.value))}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name} · {group.participant_count} participants</option>)}</select></label>}
     {selected && draft && <>
       <details className="coach-group-settings"><summary>Group details & dates</summary><form className="coach-groups-card" onSubmit={saveGroup}><h3>Group details</h3><div className="coach-groups-grid"><label>Group name<input required maxLength={120} value={draft.name} disabled={disabled} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label>Group status<select value={draft.status} disabled={disabled} onChange={(event) => setDraft({ ...draft, status: event.target.value as AdminCohortStatus })}><option value="draft">Draft</option><option value="enrolling">Enrolling</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select></label><label>Start date<input type="date" value={draft.starts_on} disabled={disabled} onChange={(event) => setDraft({ ...draft, starts_on: event.target.value })} /></label><label>End date (optional)<input type="date" value={draft.ends_on} min={draft.starts_on || undefined} disabled={disabled} onChange={(event) => setDraft({ ...draft, ends_on: event.target.value })} /></label></div><label>Group notes (optional)<textarea rows={3} maxLength={2000} value={draft.notes} disabled={disabled} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label><p>A savings challenge needs a start date before it can open. Each participant gets 90 days; the group end date is optional. Status organizes the group. It does not publish or launch an assistant, tools, or branding. Completed and archived groups cannot have an open rollout.</p><div className="coach-groups-actions"><Button type="submit" disabled={disabled || !groupDirty || !draft.name.trim()}>Save group</Button><Button variant="secondary" disabled={disabled || !groupDirty} onClick={() => setDraft(draftFor(selected))}>Discard changes</Button></div></form></details>
-      <details ref={invitation} className="coach-group-settings"><summary>Add a participant</summary><form className="coach-groups-card" onSubmit={inviteParticipant}><h3>Add a participant</h3><label>Participant email<input type="email" required maxLength={254} autoComplete="email" value={email} disabled={disabled} onChange={(event) => setEmail(event.target.value)} /></label><label className="coach-groups-check"><input type="checkbox" checked={sendEmail} disabled={disabled} onChange={(event) => setSendEmail(event.target.checked)} />Send an invitation email when eligible</label><p>Existing participants can join another group if its assistant and participant tools are compatible. Their account and other groups stay unchanged. Shared or accepted accounts may be added without another email.</p><Button type="submit" disabled={disabled || !email.trim() || groupDirty || !!newName.trim()}>Add to {selected.name}</Button>{(groupDirty || newName.trim()) && <p>Save or discard group changes first.</p>}</form></details>
+      <details ref={invitation} className="coach-group-settings" open={groupParticipants.length === 0 || undefined}><summary>Add a participant</summary><form className="coach-groups-card" onSubmit={inviteParticipant}><h3>Add a participant</h3><label>Participant email<input type="email" required maxLength={254} autoComplete="email" value={email} disabled={disabled} onChange={(event) => setEmail(event.target.value)} /></label><label className="coach-groups-check"><input type="checkbox" checked={sendEmail} disabled={disabled} onChange={(event) => setSendEmail(event.target.checked)} />Send an invitation email when eligible</label><p>Existing participants can join another group if its assistant and participant tools are compatible. Their account and other groups stay unchanged. Shared or accepted accounts may be added without another email.</p><Button type="submit" disabled={disabled || !email.trim() || groupDirty || !!newName.trim()}>Add to {selected.name}</Button>{(groupDirty || newName.trim()) && <p>Save or discard group changes first.</p>}</form></details>
       <section className="coach-groups-card"><h3>Participants in {selected.name}</h3><label>Find a participant<input type="search" value={search} disabled={disabled} onChange={(event) => { setSearch(event.target.value); setRosterPage(0); setRemovingId(null) }} /></label><p>Invitation pending describes account access, not email delivery. Historical email delivery details are private to platform administrators.</p>
         {!participants.length && <p>{search ? 'No participants match your search.' : 'No participants in this group yet.'}</p>}
         {!!participants.length && <p className="coach-roster-count">Showing {currentRosterPage * 10 + 1}–{Math.min((currentRosterPage + 1) * 10, participants.length)} of {participants.length} {search.trim() ? 'matching participants' : 'participants'}.</p>}

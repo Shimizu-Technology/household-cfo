@@ -382,6 +382,45 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     assert capabilities.fetch("modules").all? { |item| item.fetch("enabled") }
   end
 
+  test "group saves previews and publishes independent configurable modules and order" do
+    owner = create_user("coach")
+    participant = create_user("participant")
+    cohort = Cohort.create!(name: "Configurable tools", status: "active", created_by_user: owner)
+    membership = cohort.cohort_memberships.create!(user: participant, role: "participant")
+    configuration = cohort.cohort_experience_configuration
+    config = CohortExperience::Schema.upgrade(configuration.draft_config)
+    config["optional_modules"] = CohortExperience::Schema::CONFIGURABLE_MODULES.index_with(false)
+    config["optional_modules"]["statements"] = true
+    config["module_order"] = %w[statements ask_mia home]
+    headers = workspace_headers(owner, cohort.coach_workspace)
+    patch endpoint(cohort), params: { experience_configuration: { draft_revision: 1, draft_config: config } }, headers: headers, as: :json
+    assert_response :success
+    assert_equal config, configuration.reload.draft_config
+    post "#{endpoint(cohort)}/preview", params: { experience_configuration: { draft_revision: configuration.draft_revision } }, headers: headers, as: :json
+    assert_response :success
+    preview = response.parsed_body.fetch("preview")
+    assert_equal %w[statements ask_mia home], preview.fetch("module_order")
+    assert_equal %w[statements ask_mia home], preview.fetch("modules").select { |item| item.fetch("enabled") }.pluck("id")
+    post "#{endpoint(cohort)}/publish", params: { experience_configuration: {
+      draft_revision: configuration.draft_revision, preview_digest: preview.fetch("digest"), expected_published_version_id: nil
+    } }, headers: headers, as: :json
+    assert_response :success
+    capabilities = CohortExperience::EffectiveCapabilitiesResolver.new(cohort_membership: membership.reload).call
+    assert_equal config.fetch("module_order"), capabilities.fetch(:module_order)
+    assert_equal %w[statements ask_mia home], capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.pluck(:id)
+    refute capabilities.fetch(:modules).find { |item| item[:id] == "profile" }.fetch(:enabled)
+    assert_equal config, configuration.reload.current_published_version.config
+    # Reordering invalidates the exact saved preview and cannot reuse it.
+    config["module_order"] = %w[home ask_mia statements]
+    patch endpoint(cohort), params: { experience_configuration: { draft_revision: configuration.draft_revision, draft_config: config } }, headers: headers, as: :json
+    assert_response :success
+    post "#{endpoint(cohort)}/publish", params: { experience_configuration: {
+      draft_revision: configuration.reload.draft_revision, preview_digest: preview.fetch("digest"), expected_published_version_id: configuration.current_published_version_id
+    } }, headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_equal "experience_preview_required", response.parsed_body.fetch("code")
+  end
+
   private
 
   def endpoint(cohort)

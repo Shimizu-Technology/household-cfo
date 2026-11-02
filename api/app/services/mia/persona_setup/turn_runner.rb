@@ -247,7 +247,7 @@ module Mia
         text = value.to_s.unicode_normalize(:nfkc).gsub("\r\n", "\n").gsub("\r", "\n")
           .gsub(/[[:cntrl:]]/) { |character| character.in?([ "\n", "\t" ]) ? character : " " }
           .strip
-        raise Error.new("Enter a setup message between 1 and 4,000 characters.", code: "persona_setup_invalid", status: :unprocessable_entity) unless text.length.between?(1, 4_000)
+        raise Error.new("Enter a setup message between 1 and 24,000 characters.", code: "persona_setup_invalid", status: :unprocessable_entity) unless text.length.between?(1, 24_000)
 
         text
       end

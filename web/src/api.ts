@@ -140,7 +140,7 @@ export type AssetPortfolio = {
   unknown_balance_account_ids: number[]
 }
 
-export type ExperienceModuleId = 'home' | 'review' | 'ask_mia' | 'budget' | 'profile' | 'wealth' | 'cfo_filter' | 'optionality'
+export type ExperienceModuleId = 'home' | 'review' | 'ask_mia' | 'budget' | 'profile' | 'wealth' | 'cfo_filter' | 'optionality' | 'statements'
 
 export type ExperienceCapability = {
   id: ExperienceModuleId
@@ -151,8 +151,11 @@ export type ExperienceCapability = {
 }
 
 export type ExperienceCapabilities = {
-  schema_version: 1
-  source: 'published_cohort' | 'standalone_default' | 'safe_default' | 'demo'
+  schema_version: 1 | 2 | 3 | 4
+  experience_mode?: ExperienceMode
+  module_order?: ExperienceModuleId[]
+  cohort_release?: null | { id: number; number: number }
+  source: 'published_cohort' | 'standalone_default' | 'safe_default' | 'demo' | 'cohort_release' | 'safe_default_release'
   cohort_id: number | null
   experience_version: null | { id: number; number: number }
   modules: ExperienceCapability[]
@@ -1551,6 +1554,7 @@ export type AdminPersonaSetupProposal = {
   grouped_changes: Array<{ group: string; changes: AdminPersonaSetupChange[] }>
   created_at: string
   resolved_at: string | null
+  accepted_operation_indexes?: number[] | null
 }
 
 export type AdminPersonaSetupTurn = {
@@ -1575,6 +1579,7 @@ export type AdminPersonaSetupSession = {
   turns_truncated?: boolean
   turns: AdminPersonaSetupTurn[]
   proposal: AdminPersonaSetupProposal | null
+  resolved_proposal?: AdminPersonaSetupProposal | null
 }
 
 export type AdminPersonaBehavioralPreviewStatus = 'not_requested' | 'ready' | 'safety_only' | 'unavailable'
@@ -1846,14 +1851,22 @@ export type AdminCohort = {
 
 export type ExperienceMode = 'household_cfo' | 'savings_challenge'
 
-/** Schema 1 is the ordinary Household CFO experience; 3 carries the chosen experience_mode. */
-export type CohortExperienceDraft = {
+export type ConfigurableExperienceModuleId = Exclude<ExperienceModuleId, 'home' | 'ask_mia'>
+
+export type ConfigurableCohortExperienceDraft = {
+  schema_version: 4
+  experience_mode: ExperienceMode
+  /** Empty or absent retains the existing navigation order. Unlisted modules follow in default order. */
+  module_order?: ExperienceModuleId[]
+  optional_modules: Record<ConfigurableExperienceModuleId, boolean>
+}
+
+/** Historical schemas retain their sealed meaning; schema 4 adds module visibility and order. */
+export type CohortExperienceDraft = ConfigurableCohortExperienceDraft | {
   schema_version: 1 | 2 | 3
   experience_mode?: ExperienceMode
-  optional_modules: {
-    cfo_filter: boolean
-    optionality: boolean
-  }
+  module_order?: never
+  optional_modules: { cfo_filter: boolean; optionality: boolean }
 }
 
 export type CohortExperienceVersion = {
@@ -1867,6 +1880,7 @@ export type CohortExperienceVersion = {
 }
 
 export type CohortExperienceConfiguration = {
+  has_unpublished_changes?: boolean
   cohort: {
     id: number
     name: string
@@ -1883,6 +1897,7 @@ export type CohortExperienceConfiguration = {
 }
 
 export type CohortExperiencePreview = {
+  module_order?: ExperienceModuleId[]
   digest: string
   draft_revision: number
   generated_at: string
@@ -2378,6 +2393,17 @@ function validHttpsUrl(value: unknown) {
   }
 }
 
+// Only generated logo routes may use HTTP during local API/web QA.
+function validLocalLogoUrl(value: unknown) {
+  if (typeof value !== 'string' || value.length > 2_048) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+      && !url.username && !url.password && !url.hash && !url.search
+      && /^\/api\/public\/brand_logos\/[A-Za-z0-9_=-]+$/.test(url.pathname)
+  } catch { return false }
+}
+
 function isBrandConfig(value: unknown): value is BrandConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const config = value as Record<string, unknown>
@@ -2396,7 +2422,7 @@ function isBrandConfig(value: unknown): value is BrandConfig {
     && optionalString(config.tagline)
     && optionalString(config.welcome_heading)
     && optionalString(config.welcome_description)
-    && validHttpsUrl(config.logo_url)
+    && (validHttpsUrl(config.logo_url) || validLocalLogoUrl(config.logo_url))
     && validHttpsUrl(config.favicon_url)
     && Boolean(support)
     && optionalString(support?.label)
@@ -2890,7 +2916,7 @@ export async function sealCohortRelease(
   cohortId: number,
   values: CohortReleaseMutationInput,
   requestId: string,
-): Promise<unknown> {
+): Promise<{ release: CohortReleaseRecord }> {
   return fetchJson(`/api/v1/admin/cohorts/${cohortId}/releases`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
@@ -3383,11 +3409,12 @@ export async function resolveAdminPersonaSetupProposal(
   proposalId: number,
   action: 'apply' | 'reject',
   idempotencyKey: string,
+  acceptedOperationIndexes?: number[],
 ): Promise<{ session: AdminPersonaSetupSession; persona?: AdminPersonaDetail }> {
   return fetchJson(`/api/v1/admin/personas/${personaId}/setup_sessions/${sessionId}/proposals/${proposalId}/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({}),
+    body: JSON.stringify(acceptedOperationIndexes === undefined ? {} : { accepted_operation_indexes: acceptedOperationIndexes }),
   })
 }
 
@@ -4865,6 +4892,7 @@ export type WorkspaceBrandVersion = {
   config?: BrandConfig
 }
 export type WorkspaceBrandConfiguration = {
+  has_unpublished_changes?: boolean
   workspace: { id: number; name: string; slug: string }
   draft: BrandConfig
   draft_revision: number
@@ -4907,6 +4935,13 @@ export async function saveWorkspaceBrand(draft: BrandConfig, revision: number): 
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ brand_configuration: { draft_config: draft, draft_revision: revision } }),
   })
+  return result.brand_configuration
+}
+export async function uploadWorkspaceBrandLogo(file: File, revision: number): Promise<WorkspaceBrandConfiguration> {
+  const body = new FormData()
+  body.append('file', file)
+  body.append('draft_revision', String(revision))
+  const result = await fetchJson<{ brand_configuration: WorkspaceBrandConfiguration }>('/api/v1/admin/brand/logo', { method: 'POST', body })
   return result.brand_configuration
 }
 export function previewWorkspaceBrand(revision: number): Promise<{ brand_configuration: WorkspaceBrandConfiguration; preview: WorkspaceBrandPreview }> {
@@ -4969,6 +5004,7 @@ export async function sendWorkspaceCollaboratorEmail(workspaceId: number, member
 }
 
 export type CohortInitialLaunch = {
+  roster_digest: string
   cohort: { id: number; name: string; participant_count: number }
   active_release_id: number | null
   release: { id: number; release_number: number } | null
@@ -4986,7 +5022,7 @@ export async function fetchCohortInitialLaunch(cohortId: number, signal?: AbortS
 
 export async function launchCohortRelease(
   cohortId: number,
-  values: { release_id: number; preview_digest: string },
+  values: { release_id: number; preview_digest: string; expected_roster_digest?: string },
   requestId: string,
 ): Promise<{ launch: CohortInitialLaunch; replayed: boolean }> {
   return fetchJson(`/api/v1/admin/cohorts/${cohortId}/launch`, {

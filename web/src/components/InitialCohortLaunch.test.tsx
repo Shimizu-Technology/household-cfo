@@ -14,6 +14,7 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock('../api', async (importOriginal) => ({ ...await importOriginal<typeof import('../api')>(), ...apiMocks }))
 
 const ready: CohortInitialLaunch = {
+  roster_digest: 'a'.repeat(64),
   cohort: { id: 12, name: 'Mrs. Mel cohort', participant_count: 6 },
   active_release_id: null, release: { id: 41, release_number: 1 }, can_launch: true,
   blockers: [], preview_digest: 'a'.repeat(64),

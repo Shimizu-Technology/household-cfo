@@ -6,7 +6,10 @@ require "json"
 module CohortExperience
   module Schema
     OPTIONAL_MODULES = %w[cfo_filter optionality].freeze
-    SUPPORTED_SCHEMA_VERSIONS = [ 1, 2, 3 ].freeze
+    CONFIGURABLE_MODULES = %w[review budget profile statements wealth cfo_filter optionality].freeze
+    MODULE_IDS = %w[home review ask_mia budget profile wealth cfo_filter optionality statements].freeze
+    MODULE_DEFAULTS = CONFIGURABLE_MODULES.index_with { |key| !OPTIONAL_MODULES.include?(key) }.freeze
+    SUPPORTED_SCHEMA_VERSIONS = [ 1, 2, 3, 4 ].freeze
     EXPERIENCE_MODES = %w[household_cfo savings_challenge].freeze
     DEFAULT_CONFIG = {
       "schema_version" => 1,
@@ -46,9 +49,10 @@ module CohortExperience
       modules = input.fetch("optional_modules", {}).to_h.deep_stringify_keys
       normalized = {
         "schema_version" => Integer(input.fetch("schema_version", 1), exception: false),
-        "optional_modules" => OPTIONAL_MODULES.index_with { |key| modules.fetch(key, false) }
+        "optional_modules" => module_keys(input).index_with { |key| modules.fetch(key, false) }
       }
-      normalized["experience_mode"] = input["experience_mode"] if [ 2, 3 ].include?(normalized["schema_version"])
+      normalized["experience_mode"] = input["experience_mode"] if [ 2, 3, 4 ].include?(normalized["schema_version"])
+      normalized["module_order"] = input.fetch("module_order", []).dup if normalized["schema_version"] == 4
       normalized
     end
 
@@ -58,10 +62,11 @@ module CohortExperience
       input = value.to_h.deep_stringify_keys
       result = []
       allowed_keys = %w[schema_version optional_modules]
-      allowed_keys += %w[experience_mode] if [ 2, 3 ].include?(input["schema_version"])
+      allowed_keys += %w[experience_mode] if [ 2, 3, 4 ].include?(input["schema_version"])
+      allowed_keys += %w[module_order] if input["schema_version"] == 4
       result << "contains unsupported configuration fields" if (input.keys - allowed_keys).any?
-      result << "schema_version must be 1, 2 or 3" unless SUPPORTED_SCHEMA_VERSIONS.include?(input["schema_version"])
-      if [ 2, 3 ].include?(input["schema_version"]) && !EXPERIENCE_MODES.include?(input["experience_mode"])
+      result << "schema_version must be 1, 2, 3 or 4" unless SUPPORTED_SCHEMA_VERSIONS.include?(input["schema_version"])
+      if [ 2, 3, 4 ].include?(input["schema_version"]) && !EXPERIENCE_MODES.include?(input["experience_mode"])
         result << "experience_mode must be household_cfo or savings_challenge"
       end
       modules = input["optional_modules"]
@@ -70,11 +75,34 @@ module CohortExperience
         return result
       end
       modules = modules.deep_stringify_keys
-      result << "optional_modules contains an unsupported module" if (modules.keys - OPTIONAL_MODULES).any?
-      OPTIONAL_MODULES.each do |key|
+      result << "optional_modules contains an unsupported module" if (modules.keys - module_keys(input)).any?
+      module_keys(input).each do |key|
         result << "optional_modules.#{key} must be true or false" unless [ true, false ].include?(modules[key])
       end
+      if input["schema_version"] == 4
+        order = input.fetch("module_order", [])
+        unless order.is_a?(Array) && order.all? { |id| MODULE_IDS.include?(id) } && order.uniq == order
+          result << "module_order must contain unique supported module IDs"
+        end
+      end
       result
+    end
+
+    def module_keys(input)
+      input["schema_version"] == 4 ? CONFIGURABLE_MODULES : OPTIONAL_MODULES
+    end
+
+    # Upgrading a draft is explicit; historical config bytes and digests stay unchanged.
+    def upgrade(value)
+      input = normalize(value)
+      return input if input["schema_version"] == 4
+
+      {
+        "schema_version" => 4,
+        "experience_mode" => mode_for(input),
+        "optional_modules" => MODULE_DEFAULTS.merge(input.fetch("optional_modules")),
+        "module_order" => []
+      }
     end
 
     def digest(value)

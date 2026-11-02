@@ -618,12 +618,33 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     philosophy_schema = operation_schema.fetch(:oneOf).find { |schema| schema.dig(:properties, "path", :enum) == [ "coaching.philosophy" ] }
     assert_equal %w[coach_quote mia_drafted], philosophy_schema.dig(:properties, "source_basis", :enum)
     operation_schema.fetch(:oneOf).excluding(philosophy_schema).each do |schema|
-      assert_equal [ "coach_quote" ], schema.dig(:properties, "source_basis", :enum)
+      paths = schema.dig(:properties, "path", :enum)
+      if paths.intersect?(%w[culture.local_realities culture.references])
+        assert_empty paths & Mia::PersonaSetup::OperationContract::TRANSCRIPT_DRAFTABLE_PATHS
+        assert_equal [ "coach_quote" ], schema.dig(:properties, "source_basis", :enum)
+      end
+      derived = schema.dig(:properties, "op", :const) == "set" && (paths & Mia::PersonaSetup::OperationContract::TRANSCRIPT_DRAFTABLE_PATHS).any?
+      assert_equal derived ? %w[coach_quote mia_drafted] : [ "coach_quote" ], schema.dig(:properties, "source_basis", :enum)
     end
     prompt = payload.fetch(:messages).pluck(:content).join(" ")
     assert_includes prompt, "proposal or review wording"
+    assert_includes prompt, "2–3 short, plain sentences"
     assert_includes prompt, "nothing has been saved"
     assert_includes prompt, "changed, set, added, saved, applied, created, or completed"
+  end
+
+  test "setup replies replace long technical explanations with a short invitation to review" do
+    [ "The allowed options are approximations of your wording.", "A long recap. " * 60 ].each do |message|
+      response = provider_response(model: "exact/model", content: JSON.generate("assistant_message" => message, "operations" => [ { "op" => "set" } ]))
+      resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
+      reply = resolver.call(context: {}, user_message: "Propose my voice.").assistant_message
+      assert_includes reply, "suggestions for your assistant."
+      refute_includes reply, "assistant’s voice"
+      assert_includes reply, "Nothing has been saved."
+      assert_includes reply, "Change anything"
+      assert_operator reply.length, :<, 200
+      refute_match(/allowed options|approximations|applied/i, reply)
+    end
   end
 
   test "provider transport refuses plaintext endpoints before creating an authorization request" do
@@ -665,6 +686,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       "I've published the persona.",
       "I assigned the assistant to the cohort.",
       "The changes have been applied.",
+      "No changes have been applied.",
       "The draft is now saved.",
       "The setup is completed.",
       "I updated the assistant name.",
@@ -753,7 +775,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       "Lina is proposed as the assistant name for review.",
       "Nothing has been added.",
       "Nothing’s been saved.",
-      "No changes have been applied.",
+      "No changes have been saved.",
       "The proposal has been updated for review. Nothing has been saved.",
       "The draft is complete and ready for review.",
       "This explanation is complete.",

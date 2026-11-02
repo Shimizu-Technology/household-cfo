@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   createCoachWorkspace, fetchCoachWorkspaceSettings, fetchWorkspaceBrand,
   previewWorkspaceBrand, publishWorkspaceBrand, restoreWorkspaceBrandVersion,
-  saveWorkspaceBrand, updateCoachWorkspaceSettings,
+  saveWorkspaceBrand, updateCoachWorkspaceSettings, uploadWorkspaceBrandLogo,
   type BrandConfig, type CoachWorkspaceSettings, type CoachWorkspaceSettingsInput,
   type CurrentUser, type WorkspaceBrandConfiguration, type WorkspaceBrandPreview,
 } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
 import { Button } from './Button'
+import { BrandLogo } from './BrandChrome'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 import './CoachProgramSettings.css'
 import './ProgramSettingsFlow.css'
@@ -20,16 +21,20 @@ function identityValues(workspace: CoachWorkspaceSettings): CoachWorkspaceSettin
 }
 function message(error: unknown) { return error instanceof Error ? error.message : 'Program settings could not be saved. Try again.' }
 
-export function CreateCoachProgram({ firstProgram = false, disabled = false, onDirtyChange, onPendingChange, onCreated }: {
+export function CreateCoachProgram({ firstProgram = false, embedded = false, disabled = false, onDirtyChange, onPendingChange, onCreated, autoOpen = false, defaultCoachName = '' }: {
+  autoOpen?: boolean
+  defaultCoachName?: string
   firstProgram?: boolean
+  embedded?: boolean
   disabled?: boolean
   onDirtyChange?: (dirty: boolean) => void
   onPendingChange?: (pending: boolean) => void
   onCreated?: (workspace: CoachWorkspaceSettings) => void
 }) {
   const { refreshCurrentUser } = useAuthContext()
-  const [open, setOpen] = useState(false)
-  const [values, setValues] = useState<CoachWorkspaceSettingsInput>(blankIdentity)
+  const initialIdentity = { ...blankIdentity, coach_profile: { ...blankIdentity.coach_profile, display_name: defaultCoachName } }
+  const [open, setOpen] = useState(autoOpen)
+  const [values, setValues] = useState<CoachWorkspaceSettingsInput>(initialIdentity)
   const [ownerEmail, setOwnerEmail] = useState('')
   const [sendEmail, setSendEmail] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -38,7 +43,7 @@ export function CreateCoachProgram({ firstProgram = false, disabled = false, onD
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const creationKeys = useRef(new Map<string, string>())
-  const dirty = open && (JSON.stringify(values) !== JSON.stringify(blankIdentity) || ownerEmail !== '' || !sendEmail)
+  const dirty = open && (JSON.stringify(values) !== JSON.stringify(initialIdentity) || ownerEmail !== '' || !sendEmail)
   useEffect(() => { onDirtyChange?.(dirty || busy) }, [busy, dirty, onDirtyChange])
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
   useEffect(() => { onPendingChange?.(busy) }, [busy, onPendingChange])
@@ -56,7 +61,7 @@ export function CreateCoachProgram({ firstProgram = false, disabled = false, onD
       const created = await createCoachWorkspace(payload, requestKey)
       if (!mounted.current) return
       creationKeys.current.clear()
-      setValues(blankIdentity); setOwnerEmail(''); setSendEmail(true); setOpen(false)
+      setValues(initialIdentity); setOwnerEmail(''); setSendEmail(true); setOpen(false)
       const ownerNote = created.owner_invitation
         ? ` ${created.owner_invitation.email} was invited as its owner${created.owner_invitation.delivery?.sent ? ' and emailed' : created.owner_invitation.delivery?.status === 'skipped' ? '. No email was sent; share their sign-in link yourself' : ', but the invitation email did not send, so share their sign-in link yourself'}.`
         : ''
@@ -69,30 +74,31 @@ export function CreateCoachProgram({ firstProgram = false, disabled = false, onD
     finally { if (mounted.current) setBusy(false) }
   }
 
-  return <article className="panel program-create">
-    <header><div><p className="eyebrow">Coach programs</p><h3>{firstProgram ? 'Create your first program' : 'Create a program'}</h3><p>Give each coach a separate workspace for their assistant, branding, and groups.</p></div>
+  return <article className={embedded ? 'program-create' : 'panel program-create'}>
+    <header>{!embedded && <div><h3>{firstProgram ? 'Create your first program' : 'Create a program'}</h3><p>Give each coach a separate workspace for their assistant, branding, and groups.</p></div>}
       {!open && <Button variant="secondary" disabled={disabled || busy} onClick={() => setOpen(true)}>Create program</Button>}
     </header>
     {error && <p role="alert" className="coach-studio-alert is-error">{error}</p>}
     {notice && <p role="status" className="coach-studio-alert is-success">{notice}</p>}
     {open && <form onSubmit={(event) => void submit(event)}>
-      <fieldset disabled={busy || disabled}><IdentityFields values={values} onChange={setValues} />
-        <div className="program-fields"><label className="program-wide">Program owner email (the coach who runs this program)<input type="email" autoComplete="off" maxLength={254} value={ownerEmail} onChange={(event) => setOwnerEmail(event.target.value)} aria-describedby="program-owner-help" placeholder="coach@example.com" /><small id="program-owner-help">This coach becomes the owner and can publish their assistant, assign it, publish participant tools, and see the roster. If they have no account yet they are invited as a coach. Double-check this email: the owner will see this program's participant roster once they sign in. Leave blank to own the program yourself. You keep full platform admin access either way.</small></label></div>
-        <label className="program-invite-check"><input type="checkbox" checked={sendEmail} onChange={event => setSendEmail(event.target.checked)} />Send invite email now</label>
-        <div className="program-actions"><Button type="submit">{busy ? 'Creating…' : 'Create program'}</Button><Button variant="ghost" onClick={() => { setOpen(false); setValues(blankIdentity); setOwnerEmail(''); setSendEmail(true) }}>Cancel</Button></div>
+      <fieldset disabled={busy || disabled}><IdentityFields compact={embedded} values={values} onChange={setValues} />
+        <details open={embedded ? undefined : true}><summary>Invite another coach (optional)</summary><div className="program-fields"><label className="program-wide">Program owner email (the coach who runs this program)<input type="email" autoComplete="off" maxLength={254} value={ownerEmail} onChange={(event) => setOwnerEmail(event.target.value)} aria-describedby="program-owner-help" placeholder="coach@example.com" /><small id="program-owner-help">This coach becomes the owner and can publish their assistant, assign it, publish participant tools, and see the roster. If they have no account yet they are invited as a coach. Double-check this email: the owner will see this program's participant roster once they sign in. Leave blank to own the program yourself. You keep full platform admin access either way.</small></label></div>
+        <label className="program-invite-check"><input type="checkbox" checked={sendEmail} onChange={event => setSendEmail(event.target.checked)} />Send invite email now</label></details>
+        <div className="program-actions"><Button type="submit">{busy ? 'Creating…' : 'Create program'}</Button><Button variant="ghost" onClick={() => { setOpen(false); setValues(initialIdentity); setOwnerEmail(''); setSendEmail(true) }}>Cancel</Button></div>
       </fieldset>
       <p className="program-help">{ownerEmail.trim() ? 'The coach you named will own this workspace.' : 'You will own this workspace.'} Creating it does not launch a participant program.</p>
     </form>}
   </article>
 }
 
-export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecycle, onDirtyChange }: {
+export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecycle, onDirtyChange, simple = false }: {
+  simple?: boolean
   workspaceId: number | null
   currentUser: CurrentUser
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
 }) {
-  const { refreshCurrentUser } = useAuthContext()
+  const { refreshCurrentUser, selectCoachWorkspace } = useAuthContext()
   const [workspace, setWorkspace] = useState<CoachWorkspaceSettings | null>(null)
   const [identity, setIdentity] = useState<CoachWorkspaceSettingsInput>(blankIdentity)
   const [brand, setBrand] = useState<WorkspaceBrandConfiguration | null>(null)
@@ -167,6 +173,19 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
       acceptBrand(next); setPreview(null); setNotice('Brand draft saved. Preview it before publishing.')
     })
   }
+  function uploadLogo(file: File) {
+    if (!brand?.permissions.edit || brandDirty) return
+    setPreview(null)
+    if (file.type !== 'image/png' || file.size === 0 || file.size > 2 * 1024 * 1024) {
+      setError('Choose a PNG logo up to 2 MB and 2048 × 2048 pixels.')
+      return
+    }
+    void mutate('logo', async (isCurrent) => {
+      const next = await uploadWorkspaceBrandLogo(file, brand.draft_revision)
+      if (!isCurrent()) return
+      acceptBrand(next); setPreview(null); setNotice('Logo saved to your appearance draft. Preview it before publishing.')
+    })
+  }
   function runPreview() {
     if (!brand?.permissions.preview || brandDirty) return
     void mutate('preview', async (isCurrent) => {
@@ -195,9 +214,9 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
   }
 
   return <section className="program-settings" aria-busy={loading || busy}>
-    <header><h3>What will people see?</h3><p>Set your program name, coach profile, and welcome screen.</p></header>
-    {currentUser.is_admin && <CreateCoachProgram disabled={busy || loading || identityDirty || brandDirty} onDirtyChange={setCreateDirty} />}
-    {workspaceId === null ? <p className="coach-read-only">Choose a program above to edit its settings. You can create the first program here.</p> : <>
+    {!(simple && workspaceId === null) && <header><h3>What will people see?</h3><p>Set your program name, coach profile, and welcome screen.</p></header>}
+    {currentUser.is_admin && <CreateCoachProgram autoOpen={simple && workspaceId === null} defaultCoachName={simple ? currentUser.full_name : ''} onCreated={simple ? (created) => selectCoachWorkspace(created.id) : undefined} embedded={simple && workspaceId === null} disabled={busy || loading || identityDirty || brandDirty} onDirtyChange={setCreateDirty} />}
+    {workspaceId === null ? !simple && <p className="coach-read-only">Choose a program above to edit its settings. You can create the first program here.</p> : <>
       {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><Button variant="ghost" disabled={busy} onClick={() => { if (!dirty || window.confirm('Discard unsaved program settings and reload?')) void load() }}>Reload settings</Button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
       {loading ? <p role="status">Loading program settings…</p> : workspace && brand && draft && <>
@@ -208,20 +227,20 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
           <p id="program-identity-save-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !workspace.permissions.manage ? 'Ask a program owner to change the name or coach profile.' : brandDirty ? 'Save the appearance draft below before saving program identity.' : !identityDirty ? 'Your program identity is saved. Change a field to save again.' : 'Save the name and coach profile together.'}</p>
         </form>
         <form className="panel" onSubmit={saveBrand}>
-          <header><h3>Welcome screen and appearance</h3><p>{releaseImpact} Change the assistant’s name in Assistant voice.</p></header>
-          <fieldset disabled={busy || !brand.permissions.edit}><BrandFields draft={draft} onChange={updateBrand} /></fieldset>
+          <header><h3>Welcome screen and appearance</h3><p>{simple ? 'Save your appearance, then review it with your assistant and tools in Go live.' : releaseImpact} Change the assistant’s name in Voice.</p></header>
+          <fieldset disabled={busy || !brand.permissions.edit}><BrandFields draft={draft} onChange={updateBrand} onLogoUpload={uploadLogo} logoUploadDisabled={brandDirty} uploadingLogo={pending === 'logo'} /></fieldset>
           {!brand.permissions.edit && <p className="program-help">Your program role can view this appearance but cannot edit it.</p>}
           <div className="program-actions">
             <Button variant="secondary" type="submit" aria-describedby="program-brand-save-help" disabled={busy || !brandDirty || !brand.permissions.edit}>{pending === 'brand' ? 'Saving…' : 'Save brand draft'}</Button>
             <Button variant="secondary" aria-describedby="program-brand-preview-help" disabled={busy || brandDirty || !brand.permissions.preview} onClick={runPreview}>{pending === 'preview' ? 'Previewing…' : 'Preview welcome screen'}</Button>
-            <Button aria-describedby="program-brand-publish-help" disabled={busy || brandDirty || !brand.permissions.publish || !preview || preview.digest !== brand.preview?.digest} onClick={publish}>{pending === 'publish' ? 'Publishing…' : 'Publish branding'}</Button>
+            <Button hidden={simple} aria-describedby="program-brand-publish-help" disabled={busy || brandDirty || !brand.permissions.publish || !preview || preview.digest !== brand.preview?.digest} onClick={publish}>{pending === 'publish' ? 'Publishing…' : 'Publish branding'}</Button>
           </div>
           <p id="program-brand-save-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.edit ? 'Your role cannot save appearance changes.' : !brandDirty ? 'Appearance draft saved. Change a field to save again.' : 'Save your appearance changes first.'}</p>
           <p id="program-brand-preview-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.preview ? 'A program editor, reviewer, or owner can preview the welcome screen.' : brandDirty ? 'Save your changes before previewing.' : 'Preview the saved welcome screen before publishing.'}</p>
-          <p id="program-brand-publish-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.publish ? 'A program owner or reviewer must publish this appearance.' : brandDirty ? 'Save and preview your changes before publishing.' : !preview || preview.digest !== brand.preview?.digest ? 'Preview the saved draft to enable publishing.' : 'Review the preview below, then publish. To update an existing group, continue to Release & rollout.'}</p>
+          <p hidden={simple} id="program-brand-publish-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.publish ? 'A program owner or reviewer must publish this appearance.' : brandDirty ? 'Save and preview your changes before publishing.' : !preview || preview.digest !== brand.preview?.digest ? 'Preview the saved draft to enable publishing.' : 'Review the preview below, then publish. To update an existing group, continue to Release & rollout.'}</p>
         </form>
         {preview && <BrandWelcomePreview config={preview.brand} />}
-        <details className="panel program-history"><summary>Brand version history ({brand.versions.length})</summary><div>
+        <details hidden={simple} className="panel program-history"><summary>Brand version history ({brand.versions.length})</summary><div>
           {brand.versions.map((version) => <article key={version.id}><div><strong>Version {version.number}</strong><small>{new Date(version.published_at).toLocaleString()} · {version.published_by.full_name}</small>{version.restored_from_version && <small>Restored from version {version.restored_from_version.number}</small>}</div>
             {version.id === brand.published_version?.id ? <span className="coach-status is-current">Published</span> : <Button variant="ghost" size="compact" disabled={busy || brandDirty || !brand.permissions.rollback} onClick={() => restore(version.id, version.number)}>Restore as new version</Button>}
           </article>)}
@@ -231,13 +250,13 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
   </section>
 }
 
-function IdentityFields({ values, onChange }: { values: CoachWorkspaceSettingsInput; onChange: (next: CoachWorkspaceSettingsInput) => void }) {
+function IdentityFields({ values, onChange, compact = false }: { compact?: boolean; values: CoachWorkspaceSettingsInput; onChange: (next: CoachWorkspaceSettingsInput) => void }) {
   function profile(key: keyof CoachWorkspaceSettingsInput['coach_profile'], value: string) { onChange({ ...values, coach_profile: { ...values.coach_profile, [key]: value } }) }
   return <div className="program-fields">
     <label>Program name<input required maxLength={160} value={values.name} onChange={(event) => onChange({ ...values, name: event.target.value })} placeholder="Mrs. Mel’s program" /></label>
     <label>Coach display name<input required maxLength={120} value={values.coach_profile.display_name} onChange={(event) => profile('display_name', event.target.value)} placeholder="Mrs. Mel" /></label>
-    <label>Coach title<input required maxLength={160} value={values.coach_profile.title} onChange={(event) => profile('title', event.target.value)} /></label>
-    <label className="program-wide">About the coach<textarea aria-label="About the coach" maxLength={2000} rows={3} value={values.coach_profile.bio} onChange={(event) => profile('bio', event.target.value)} /></label>
+    <details className="program-wide" open={compact ? undefined : true}><summary>Coach details (optional)</summary><label>Coach title<input required maxLength={160} value={values.coach_profile.title} onChange={(event) => profile('title', event.target.value)} /></label>
+    <label className="program-wide">About the coach<textarea aria-label="About the coach" maxLength={2000} rows={3} value={values.coach_profile.bio} onChange={(event) => profile('bio', event.target.value)} /></label></details>
   </div>
 }
 
@@ -250,7 +269,13 @@ const fontLabels: Record<string, string> = {
   inter: 'Inter', montserrat: 'Montserrat', nunito_sans: 'Nunito Sans', source_sans_3: 'Source Sans 3', system_sans: 'System sans serif',
   cormorant_garamond: 'Cormorant Garamond', lora: 'Lora', merriweather: 'Merriweather', playfair_display: 'Playfair Display', source_serif_4: 'Source Serif 4', system_serif: 'System serif',
 }
-function BrandFields({ draft, onChange }: { draft: BrandConfig; onChange: (next: BrandConfig) => void }) {
+function BrandFields({ draft, onChange, onLogoUpload, logoUploadDisabled, uploadingLogo }: {
+  draft: BrandConfig
+  onChange: (next: BrandConfig) => void
+  onLogoUpload: (file: File) => void
+  logoUploadDisabled: boolean
+  uploadingLogo: boolean
+}) {
   function field(key: keyof BrandConfig, value: string) { onChange({ ...draft, [key]: value }) }
   const theme = Object.entries(themes).find(([, value]) => value.colors.primary === draft.colors.primary)?.[0] ?? 'custom'
   return <div className="program-fields">
@@ -271,12 +296,22 @@ function BrandFields({ draft, onChange }: { draft: BrandConfig; onChange: (next:
     <label>Support email<input type="email" maxLength={254} value={draft.support.email ?? ''} onChange={(event) => onChange({ ...draft, support: { ...draft.support, email: event.target.value || null } })} /></label>
     <label className="program-wide">Support website<input type="url" maxLength={2048} pattern="https://.*" value={draft.support.url ?? ''} onChange={(event) => onChange({ ...draft, support: { ...draft.support, url: event.target.value || null } })} placeholder="https://…" /></label>
     </div></details></div>
-    <div className="program-wide"><details><summary>Logo, footer, and additional colors</summary><div className="program-fields program-advanced">
-      <label className="program-wide">Logo image URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.logo_url ?? ''} onChange={(event) => onChange({ ...draft, logo_url: event.target.value || null })} placeholder="https://…" /><small>Use an existing approved HTTPS image.</small></label>
+    <div className="program-wide">
+      <label>Program logo<input type="file" accept="image/png,.png" aria-describedby="program-logo-help" disabled={logoUploadDisabled} onChange={(event) => {
+        const file = event.target.files?.[0]
+        event.target.value = ''
+        if (file) onLogoUpload(file)
+      }} /></label>
+      <p id="program-logo-help" className="program-help">{uploadingLogo ? 'Uploading your logo…' : logoUploadDisabled ? 'Save your appearance changes before uploading a logo.' : 'Choose a PNG up to 2 MB and 2048 × 2048 pixels. Uploading saves it to your draft; preview and publish when ready.'}</p>
+      {draft.logo_url && <><BrandLogo brand={draft} /><Button variant="ghost" onClick={() => onChange({ ...draft, logo_url: null })}>Remove logo</Button></>}
+    </div>
+    <div className="program-wide"><details><summary>Footer and browser icon</summary><div className="program-fields program-advanced">
       <label className="program-wide">Browser icon URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.favicon_url ?? ''} onChange={(event) => onChange({ ...draft, favicon_url: event.target.value || null })} placeholder="https://…" /></label>
       <label className="program-wide">Footer message<textarea aria-label="Footer message" rows={3} maxLength={500} value={draft.footer.text ?? ''} onChange={(event) => onChange({ ...draft, footer: { ...draft.footer, text: event.target.value || null } })} /></label>
       <label>Privacy policy URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.footer.privacy_url ?? ''} onChange={(event) => onChange({ ...draft, footer: { ...draft.footer, privacy_url: event.target.value || null } })} /></label>
       <label>Terms URL<input type="url" maxLength={2048} pattern="https://.*" value={draft.footer.terms_url ?? ''} onChange={(event) => onChange({ ...draft, footer: { ...draft.footer, terms_url: event.target.value || null } })} /></label>
+    </div></details></div>
+    <div className="program-wide"><details><summary>More colours</summary><div className="program-fields program-advanced">
       {Object.keys(draft.colors).map((key) => <label key={key}>{key.replaceAll('_', ' ')}<input type="color" value={draft.colors[key]} onChange={(event) => onChange({ ...draft, colors: { ...draft.colors, [key]: event.target.value } })} /></label>)}
       <p className="program-help program-wide">Colors must remain readable. Saving checks text, button, and focus contrast.</p>
     </div></details></div>
@@ -288,9 +323,9 @@ function previewFont(name: string, display = false) {
   if (name === 'system_sans') return 'ui-sans-serif, system-ui, sans-serif'
   return `"${name.replaceAll('_', ' ')}", ${display ? 'Georgia, serif' : 'ui-sans-serif, system-ui, sans-serif'}`
 }
-function BrandWelcomePreview({ config }: { config: BrandConfig }) {
+export function BrandWelcomePreview({ config }: { config: BrandConfig }) {
   return <article className="panel"><h3>Welcome screen preview</h3><p className="program-help">Preview only · the saved brand draft · desktop and phone widths</p><div className="program-preview" style={{ background: config.colors.background, color: config.colors.text, borderColor: config.colors.border, fontFamily: previewFont(config.typography.body) }}>
-    <header style={{ borderColor: config.colors.border }}>{config.logo_url && <img src={config.logo_url} alt="" referrerPolicy="no-referrer" />}<strong>{config.short_name}</strong></header>
+    <header style={{ borderColor: config.colors.border }}><BrandLogo brand={config} /><strong>{config.short_name}</strong></header>
     <div><p>{config.organization_name}</p><h4 style={{ fontFamily: previewFont(config.typography.display, true) }}>{config.welcome_heading || config.product_name}</h4><p>{config.welcome_description}</p><span className="program-preview-action" style={{ background: config.colors.primary, color: config.colors.on_primary }}>Get started</span><small>{config.tagline}</small></div>
     <footer style={{ color: config.colors.text_muted, borderColor: config.colors.border }}>{config.support.label && <p>{config.support.label}{config.support.email ? ` · ${config.support.email}` : ''}</p>}<p>{config.footer.text}</p></footer>
   </div></article>

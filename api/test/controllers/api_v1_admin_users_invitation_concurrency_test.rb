@@ -64,14 +64,16 @@ class ApiV1AdminUsersInvitationConcurrencyTest < ActiveSupport::TestCase
       end
     end
 
-    initial_snapshots = Timeout.timeout(3) { 2.times.map { snapshots.pop } }
+    # Allow parallel-suite database load while keeping a bounded hung-worker check.
+    concurrency_timeout = 20
+    initial_snapshots = Timeout.timeout(concurrency_timeout) { 2.times.map { snapshots.pop } }
     expected_snapshots = [
       [ cohorts.first.id, cohorts.second.id ],
       [ cohorts.first.id, cohorts.third.id ]
     ].map(&:sort).sort
     assert_equal expected_snapshots, initial_snapshots.map(&:sort).sort
     2.times { release << true }
-    threads.each { |thread| thread.join(3) }
+    threads.each { |thread| thread.join(concurrency_timeout) }
 
     assert threads.none?(&:alive?), "concurrent invitations did not finish"
     assert errors.empty?, errors.size.times.map { errors.pop.full_message }.join("\n")

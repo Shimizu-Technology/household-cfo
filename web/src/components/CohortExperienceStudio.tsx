@@ -11,9 +11,11 @@ import {
 import type {
   AdminPersonaAssignableCohort,
   CohortExperienceConfiguration,
+  ConfigurableCohortExperienceDraft,
   CohortExperienceDraft,
   CohortExperiencePreview,
   ExperienceMode,
+  ExperienceModuleId,
 } from '../api'
 import { Button } from './Button'
 import './ProgramSettingsFlow.css'
@@ -21,17 +23,36 @@ import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLi
 
 const coreModules = [
   ['Home', 'See the household status and next action.'],
-  ['Review', 'Approve activity before it changes actuals.'],
   ['Ask Mia', 'Use the supervised coaching assistant.'],
-  ['Budget', 'Review and edit the approved plan.'],
-  ['My Profile', 'Manage household context, files, connections, and memory.'],
-  ['Wealth', 'See debt, assets, runway, and long-range capacity.'],
 ] as const
 
 const optionalModules = [
+  ['review', 'Review', 'Approve activity before it changes actuals.'],
+  ['budget', 'Budget', 'Review and edit the approved plan.'],
+  ['profile', 'My Profile', 'Manage household details and preferences.'],
+  ['statements', 'Statements', 'Upload and review private statements and files.'],
+  ['wealth', 'Wealth', 'See debt, assets, runway, and long-range capacity.'],
   ['cfo_filter', 'CFO Filter', 'Pressure-test a purchase before money moves.'],
   ['optionality', 'Optionality', 'Compare choices against stability and runway.'],
 ] as const
+const defaultModuleOrder: ExperienceModuleId[] = ['home', 'review', 'ask_mia', 'budget', 'profile', 'wealth', 'cfo_filter', 'optionality', 'statements']
+const moduleLabels = { home: 'Home', ask_mia: 'Ask Mia', ...Object.fromEntries(optionalModules.map(([id, label]) => [id, label])) } as Record<ExperienceModuleId, string>
+
+function configurableDraft(draft: CohortExperienceDraft): ConfigurableCohortExperienceDraft {
+  if (draft.schema_version === 4) return draft
+  return { schema_version: 4, experience_mode: experienceModeOf(draft), module_order: [], optional_modules: {
+    review: true, budget: true, profile: true, statements: true, wealth: true, ...draft.optional_modules,
+  } }
+}
+
+function moduleOrder(draft: CohortExperienceDraft) {
+  return [...new Set([...(draft.module_order ?? []), ...defaultModuleOrder])]
+}
+
+function enabledModules(draft: CohortExperienceDraft) {
+  const current = configurableDraft(draft)
+  return moduleOrder(current).filter(id => id === 'home' || id === 'ask_mia' || current.optional_modules[id])
+}
 
 const experienceModes: Array<{ mode: ExperienceMode; title: string; description: string; detail: string }> = [
   {
@@ -59,12 +80,12 @@ function navigationLabel(section: string, savingsChallenge: boolean) {
   return section
 }
 
-const coreModuleIds = ['home', 'review', 'ask_mia', 'budget', 'profile', 'wealth']
 
 type PendingAction = 'load' | 'save' | 'preview' | 'publish' | 'rollback' | null
 
 export function CohortExperienceStudio({
   cohorts,
+  simple = false,
   cohortsLoading,
   mutationLifecycle,
   onDirtyChange,
@@ -72,6 +93,7 @@ export function CohortExperienceStudio({
   onSelectedCohortIdChange,
 }: {
   cohorts: AdminPersonaAssignableCohort[]
+  simple?: boolean
   cohortsLoading: boolean
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
@@ -161,7 +183,7 @@ export function CohortExperienceStudio({
   function chooseMode(mode: ExperienceMode) {
     setDraft((current) => {
       if (!current || experienceModeOf(current) === mode) return current
-      // The challenge ships a focused toolset; the ordinary experience keeps schema 1 with no mode.
+      if (current.schema_version === 4) return { ...current, experience_mode: mode }
       return mode === 'savings_challenge'
         ? { schema_version: 3, experience_mode: 'savings_challenge', optional_modules: { cfo_filter: false, optionality: false } }
         : { schema_version: 1, optional_modules: current.optional_modules }
@@ -170,11 +192,31 @@ export function CohortExperienceStudio({
     setNotice(null)
   }
 
-  function toggleModule(key: 'cfo_filter' | 'optionality') {
+  function toggleModule(key: typeof optionalModules[number][0]) {
     setDraft((current) => current ? {
-      ...current,
-      optional_modules: { ...current.optional_modules, [key]: !current.optional_modules[key] },
+      ...configurableDraft(current),
+      optional_modules: { ...configurableDraft(current).optional_modules, [key]: !configurableDraft(current).optional_modules[key] },
     } : current)
+    setPreview(null)
+    setNotice(null)
+  }
+
+  function moveModule(id: ExperienceModuleId, direction: -1 | 1) {
+    setDraft(current => {
+      if (!current) return current
+      const order = moduleOrder(current)
+      const index = order.indexOf(id)
+      const next = index + direction
+      if (next < 0 || next >= order.length) return current
+      ;[order[index], order[next]] = [order[next], order[index]]
+      return { ...configurableDraft(current), module_order: order }
+    })
+    setPreview(null)
+    setNotice(null)
+  }
+
+  function resetModuleOrder() {
+    setDraft(current => current ? { ...configurableDraft(current), module_order: [] } : current)
     setPreview(null)
     setNotice(null)
   }
@@ -288,7 +330,7 @@ export function CohortExperienceStudio({
       <article className="panel experience-cohort-picker">
         <div>
           <h3>Choose what participants can open.</h3>
-          <p>Prepare the tools for this group. After publishing, use Release & rollout to launch or update the group. People already using a release keep their current tools until that update.</p>
+          <p>{simple ? 'Save your choices, then review them in Go live. Your people keep their current tools until you approve the group update.' : 'Prepare the tools for this group. After publishing, use Release & rollout to launch or update the group. People already using a release keep their current tools until that update.'}</p>
         </div>
         <label>
           <span>Group</span>
@@ -318,26 +360,31 @@ export function CohortExperienceStudio({
             <NavigationSummary draft={draft} />
           </article>
           <div className="experience-module-grid">
-            {experienceModeOf(draft) === 'household_cfo' ? <article className="panel experience-module-group">
-              <header><div><h3>Optional teaching tools</h3></div><span>{Object.values(draft.optional_modules).filter(Boolean).length} enabled</span></header>
+            <article className="panel experience-module-group">
+              <header><div><h3>Participant tools</h3></div></header>
+              <p>Home and Ask Mia stay available. Choose the other tools for this group.</p>
               {optionalModules.map(([key, label, description]) => (
                 <label className="experience-module-row" key={key}>
                   <span><strong>{label}</strong><small>{description}</small></span>
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    checked={draft.optional_modules[key]}
+                  <input type="checkbox" role="switch" checked={Boolean(configurableDraft(draft).optional_modules[key])}
                     disabled={!configuration.permissions.edit || pendingAction !== null}
-                    onChange={() => toggleModule(key)}
-                    aria-label={`Include ${label}`}
-                  />
+                    onChange={() => toggleModule(key)} aria-label={`Include ${label}`} />
                 </label>
               ))}
-              {!configuration.permissions.edit && <p className="coach-read-only" role="note">{['completed', 'archived'].includes(configuration.cohort.status) ? 'Completed and archived cohorts are read-only.' : configuration.permissions.review ? 'Your workspace role can review the saved draft but cannot change these tools.' : 'Your workspace role can view these tools but cannot change or publish them.'}</p>}
-            </article> : <article className="panel experience-module-group">
-              <header><div><h3>Optional teaching tools are off</h3></div><span>Challenge</span></header>
-              <p>The Savings Challenge keeps participants on the challenge. CFO Filter and Optionality are not included.</p>
-            </article>}
+              {!configuration.permissions.edit && <p className="coach-read-only" role="note">{closedGroup ? 'Completed and archived cohorts are read-only.' : 'Your workspace role can view these tools but cannot change them.'}</p>}
+            </article>
+            <article className="panel experience-module-group">
+              <h3>Tool order</h3>
+              <p>Move tools up or down. Hidden tools keep their place until you turn them on.</p>
+              <ol aria-label="Participant tool order">
+                {moduleOrder(draft).map((id, index, order) => <li key={id}>
+                  <span>{moduleLabels[id]}</span>{' '}
+                  <Button variant="ghost" disabled={!configuration.permissions.edit || pendingAction !== null || index === 0} onClick={() => moveModule(id, -1)} aria-label={`Move ${moduleLabels[id]} up`}>Up</Button>{' '}
+                  <Button variant="ghost" disabled={!configuration.permissions.edit || pendingAction !== null || index === order.length - 1} onClick={() => moveModule(id, 1)} aria-label={`Move ${moduleLabels[id]} down`}>Down</Button>
+                </li>)}
+              </ol>
+              <Button variant="ghost" disabled={!configuration.permissions.edit || pendingAction !== null || !draft.module_order?.length} onClick={resetModuleOrder}>Use default order</Button>
+            </article>
           </div>
 
             <details className="panel experience-module-group">
@@ -352,7 +399,7 @@ export function CohortExperienceStudio({
             </details>
 
 
-          <article className="panel experience-lifecycle">
+          <>{simple && <article className="panel"><Button disabled={!dirty || pendingAction !== null || !configuration.permissions.edit} onClick={() => void saveDraft()}>{pendingAction === 'save' ? 'Saving…' : 'Save draft'}</Button><p>Review these saved choices in Go live before your people receive them.</p></article>}<article hidden={simple} className="panel experience-lifecycle">
             <header>
               <div><h3>Review the tools for this group.</h3></div>
               <span>{closedGroup ? 'Read-only group' : dirty ? 'Unsaved changes' : !previewMatches ? 'Preview required' : !configuration.permissions.publish ? 'Owner or reviewer needed' : 'Ready to publish'}</span>
@@ -384,24 +431,23 @@ export function CohortExperienceStudio({
                 ))}
               </div>
             </details>
-          </article>
+          </article></>
         </>
       )}
     </div>
   )
 }
 
-function navigationFor(enabledIds: string[], savingsChallenge: boolean) {
+function navigationFor(enabledIds: string[], savingsChallenge: boolean, order: string[] = [], independentStatements = false) {
   // Mirror ParticipantTabs exactly: the same primary destinations, and More only when needed.
-  const { primary, secondary } = partitionParticipantSections(participantSectionsForModules(enabledIds), savingsChallenge)
+  const { primary, secondary } = partitionParticipantSections(participantSectionsForModules(enabledIds, { moduleOrder: order, independentStatements }), savingsChallenge, order.length > 0)
   return { primary: primary.map((label) => navigationLabel(label, savingsChallenge)), secondary: secondary.map((label) => navigationLabel(label, savingsChallenge)) }
 }
 
 /** Live view of the tabs the current choice gives participants, before any preview round trip. */
 function NavigationSummary({ draft }: { draft: CohortExperienceDraft }) {
   const savingsChallenge = experienceModeOf(draft) === 'savings_challenge'
-  const enabledIds = [...coreModuleIds, ...Object.entries(draft.optional_modules).filter(([, on]) => on).map(([id]) => id)]
-  const { primary, secondary } = navigationFor(enabledIds, savingsChallenge)
+  const { primary, secondary } = navigationFor(enabledModules(draft), savingsChallenge, draft.module_order, draft.schema_version === 4)
   return (
     <p className="experience-nav-summary" aria-label="Navigation participants will see">
       <span>Participants will see:</span> {primary.map((label) => <b key={label}>{label}</b>)}{secondary.length > 0 && <b>More · {secondary.join(', ')}</b>}
@@ -412,7 +458,7 @@ function NavigationSummary({ draft }: { draft: CohortExperienceDraft }) {
 function ExperiencePreview({ preview, savingsChallenge }: { preview: CohortExperiencePreview; savingsChallenge: boolean }) {
   const enabled = preview.modules.filter((item) => item.enabled)
   const disabled = preview.modules.filter((item) => !item.enabled)
-  const { primary, secondary } = navigationFor(enabled.map((item) => item.id), savingsChallenge)
+  const { primary, secondary } = navigationFor(enabled.map((item) => item.id), savingsChallenge, preview.module_order, preview.modules.some(item => item.id === 'statements'))
   return (
     <section className="experience-preview" aria-label="Exact participant navigation preview">
       <p className="experience-preview-mode"><strong>Experience:</strong> {savingsChallenge ? '90-day Savings Challenge' : 'Household CFO'}</p>

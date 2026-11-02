@@ -129,14 +129,15 @@ module Api
 
         def preview_payload(digest)
           config = editable_configuration.reload.draft_config
-          enabled = config.fetch("optional_modules")
+          capabilities = CohortExperience::EffectiveCapabilitiesResolver.payload_for(
+            config: config, source: "preview", cohort_membership: nil, version: nil
+          )
           {
             digest: digest,
             draft_revision: editable_configuration.draft_revision,
             generated_at: editable_configuration.previewed_at,
-            modules: CohortExperience::ModuleRegistry::MODULES.map do |item|
-              item.merge(enabled: item.fetch(:core) || enabled.fetch(item.fetch(:id), false))
-            end
+            module_order: capabilities.fetch(:module_order, []),
+            modules: capabilities.fetch(:modules)
           }
         end
 

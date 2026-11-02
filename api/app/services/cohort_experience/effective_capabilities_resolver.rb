@@ -38,7 +38,8 @@ module CohortExperience
 
       def payload_for(config:, source:, cohort_membership:, version:, release: nil)
         enabled = config.fetch("optional_modules")
-        definitions = release ? release.tool_registry_snapshot.fetch("modules").map(&:deep_symbolize_keys) : ModuleRegistry::MODULES
+        definitions = release ? release.tool_registry_snapshot.fetch("modules").map(&:deep_symbolize_keys) : ModuleRegistry.for_schema(config.fetch("schema_version"))
+        definitions = ModuleRegistry.ordered(definitions, config.fetch("module_order", []))
         payload = {
           schema_version: config.fetch("schema_version"),
           source: source,
@@ -52,7 +53,8 @@ module CohortExperience
             end
           end
         }
-        payload[:experience_mode] = config.fetch("experience_mode") if [ 2, 3 ].include?(config.fetch("schema_version"))
+        payload[:experience_mode] = config.fetch("experience_mode") if [ 2, 3, 4 ].include?(config.fetch("schema_version"))
+        payload[:module_order] = config.fetch("module_order", []) if config.fetch("schema_version") == 4
         payload
       end
     end

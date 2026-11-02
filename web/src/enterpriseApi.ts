@@ -47,3 +47,9 @@ export function createEnterpriseGroupMapping(id: number, workosGroupId: string, 
 export function updateEnterpriseGroupMapping(id: number, mappingId: number, active: boolean) {
   return fetchPrivateJson<{ group_mapping: EnterpriseGroupMapping }>(`${path}/${id}/group_mappings/${mappingId}`, json('PATCH', { group_mapping: { active } }))
 }
+
+export async function readCoachVoiceTranscript(personaId: number, sessionId: number, file: File) {
+  const body = new FormData()
+  body.append('file', file)
+  return fetchPrivateJson<{ text: string }>(`/api/v1/admin/personas/${personaId}/setup_sessions/${sessionId}/transcript`, { method: 'POST', body })
+}

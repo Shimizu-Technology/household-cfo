@@ -15,6 +15,7 @@ Rails.application.routes.draw do
     end
     namespace :public do
       resource :brand, only: :show
+      resources :brand_logos, only: :show
     end
     namespace :v1 do
       resources :enterprise_organizations, only: %i[index show create update] do
@@ -223,6 +224,7 @@ Rails.application.routes.draw do
         resource :brand, controller: "workspace_brand_configurations", only: %i[show update] do
           post :preview
           post :publish
+          post :logo, to: "workspace_brand_logos#create"
           resources :versions, controller: "workspace_brand_versions", only: :show do
             post :rollback, on: :member
           end
@@ -234,6 +236,7 @@ Rails.application.routes.draw do
           end
           resources :setup_sessions, controller: "persona_setup_sessions", only: %i[create show destroy] do
             post :rebase, on: :member
+            post :transcript, to: "persona_setup_turns#transcript", on: :member
             resources :turns, controller: "persona_setup_turns", only: :create
             resources :proposals, controller: "persona_setup_proposals", only: [] do
               post :apply, on: :member

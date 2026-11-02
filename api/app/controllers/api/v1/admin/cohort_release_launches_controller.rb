@@ -18,9 +18,9 @@ module Api
         end
 
         def create
-          input = params.require(:launch).permit(:release_id, :preview_digest)
+          input = params.require(:launch).permit(:release_id, :preview_digest, :expected_roster_digest)
           result = launcher.call!(release_id: input[:release_id], preview_digest: input[:preview_digest],
-            request_key: request.headers["Idempotency-Key"])
+            request_key: request.headers["Idempotency-Key"], expected_roster_digest: input[:expected_roster_digest])
           render json: {
             launch: launcher.preview, replayed: result.replayed,
             activation: {
