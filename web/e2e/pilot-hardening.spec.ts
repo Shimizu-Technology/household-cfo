@@ -13050,4 +13050,6 @@ test('mobile Ask Mia empty history offers a compact review link and gives the th
   }
   await page.locator('.chat-pending-line').click()
   await expect(page).toHaveURL(/#Review$/)
+  await expect(page.getByRole('region', { name: 'Household changes to review' })).toBeVisible()
+  await expect(page.locator('.mia-action-draft-card').first().getByText('See details', { exact: true })).toBeVisible()
 })

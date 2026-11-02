@@ -739,7 +739,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [spendingReportError, setSpendingReportError] = useState<string | null>(null)
   const [newBudgetCategory, setNewBudgetCategory] = useState<NewBudgetCategoryDraft>(blankBudgetCategoryDraft)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
-  const [assistPanel, setAssistPanel] = useState<'context' | 'prompts' | 'memory' | null>(null)
+  const [assistPanel, setAssistPanel] = useState<'context' | 'prompts' | 'memory' | 'about' | null>(null)
   const showMiaSuggestions = assistPanel === 'prompts'
   const chatContextTriggerRef = useRef<HTMLButtonElement | null>(null)
   const chatMoreTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -3868,7 +3868,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     items={[
                       ...(showMiaMemoryAction ? [{ key: 'memory', label: 'Memory', onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('memory') } }] : []),
                       { key: 'prompts', label: 'Prompts', onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('prompts') } },
-                      { key: 'about', label: `About ${assistantName}`, onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('context') } },
+                      { key: 'about', label: `About ${assistantName}`, onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('about') } },
                       { key: 'context', label: 'Context & help', onSelect: (trigger: HTMLButtonElement) => { assistTriggerRef.current = trigger; setAssistPanel('context') } },
                       ...(currentMessages.length > 0 ? [{ key: 'clear', label: miaClearing ? 'Clearing' : 'Clear chat', disabled: miaClearing || miaLoading, onSelect: (trigger: HTMLButtonElement) => handleClearMessagesRequest({ currentTarget: trigger }) }] : []),
                       ...(isChatExpanded ? [] : [{ key: 'expand', label: 'Full screen', onSelect: () => { setAssistPanel(null); setIsChatExpanded(true) } }]),
@@ -4113,6 +4113,20 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
                   />
                 )}
+                {pendingMiaActionDrafts.length > 0 && <section aria-label="Household changes to review">
+                  <h3>Changes to review</h3>
+                  <MiaActionDraftReviewStack
+                    drafts={pendingMiaActionDrafts}
+                    isRealWorkspace
+                    compact
+                    action={chatDraftAction}
+                    draftActionsDisabled={budgetYearLoading}
+                    onApply={handleApplyMiaActionDraft}
+                    onCancel={handleCancelMiaActionDraft}
+                    onEditManually={openManualControls}
+                    onAskFresh={(draft) => prepareMiaUpdate(`Please draft a fresh version of this change: ${draft.title}`)}
+                  />
+                </section>}
                 {!budgetYearLoading && budgetError && <p className="setup-error" role="alert">{budgetError}</p>}
                 <ReviewedTransactionsPanel report={spendingReport} action={chatDraftAction} disabled={budgetYearLoading} onReopen={handleReopenTransactionDraft} />
               </article>

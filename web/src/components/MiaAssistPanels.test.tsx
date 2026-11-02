@@ -2,14 +2,16 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { MiaAssistPanels } from './MiaAssistPanels'
+import { fetchHouseholdMemories } from '../api'
 vi.mock('../api', async (original) => ({ ...(await original<typeof import('../api')>()), fetchHouseholdMemories: vi.fn(() => new Promise(() => undefined)) }))
 let compact = true
 beforeEach(() => {
+  vi.mocked(fetchHouseholdMemories).mockImplementation(() => new Promise(() => undefined))
   vi.stubGlobal('matchMedia', () => ({ matches: compact, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0))
   vi.stubGlobal('cancelAnimationFrame', clearTimeout)
 })
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); compact = true })
+afterEach(() => { cleanup(); vi.resetAllMocks(); vi.unstubAllGlobals(); compact = true })
 function props() {
   return { panel: 'context' as const, onClose: vi.fn(), assistantName: 'Mia', contextSummary: 'Income saved. Account balance not entered.', pendingCount: 4, processingCount: 0, latestSource: 'Latest approved file: Budget, July 8.', realWorkspace: true, uploading: false, hasMessages: true, busy: false, onAttach: vi.fn(), onReviewImports: vi.fn(), onGuide: vi.fn(), onFeedback: vi.fn(), onClearChat: vi.fn(), onStartOver: vi.fn(), updatePrompts: [{ label: 'Update income', message: 'Help me update my income sources.' }], questionPrompts: [{ label: 'What income is saved?', message: 'What income is saved?' }], onChoosePrompt: vi.fn() }
 }
@@ -69,4 +71,13 @@ test('memory opens in place as a named panel instead of leaving the chat', () =>
   const dialog = screen.getByRole('dialog', { name: 'What Mia remembers' })
   expect(dialog.querySelector('#mia-memory')?.getAttribute('aria-busy')).toBe('true')
   expect(screen.queryByRole('heading', { name: 'Your saved picture' })).toBeNull()
+})
+
+test('About opens the complete disclosure directly on phones', () => {
+  const disclaimer = 'Full coach disclosure, including the limits of this assistant.'
+  render(<MiaAssistPanels {...props()} panel="about" disclaimer={disclaimer} />)
+  expect(screen.getByRole('dialog', { name: 'About Mia' })).toBeTruthy()
+  expect(screen.getByText('Mia is an AI coach, not a financial advisor.')).toBeTruthy()
+  expect(screen.getByText(disclaimer)).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Files to review' })).toBeNull()
 })
