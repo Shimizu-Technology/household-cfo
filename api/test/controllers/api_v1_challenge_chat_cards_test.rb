@@ -240,6 +240,14 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     ask "Let's do $20 at Kings for lunch", "purchase-with-pending-goal"
     refute_equal "goal", response.parsed_body.dig("challenge_chat_card", "kind")
     assert_equal "pending", SavingsChatCard.find(pending["id"]).status
+
+    # In a household-plan thread, "Make it $30" corrects the plan, not the goal.
+    session = ChatSession.find_by!(household: @savings_household, user: @savings_user)
+    session.update_columns(active_topic: { "type" => "household_inventory", "record_scope" => "household_plan" })
+    ask "Make it $30", "household-plan-correction"
+    refute_equal "goal", response.parsed_body.dig("challenge_chat_card", "kind")
+    assert_equal "pending", SavingsChatCard.find(pending["id"]).status
+    assert_equal 1, SavingsChatCard.where(kind: "goal", status: "pending").count
   end
 
   test "mentioning an existing goal amount preserves a pending proposal" do

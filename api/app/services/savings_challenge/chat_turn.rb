@@ -22,6 +22,9 @@ module SavingsChallenge
     # An ongoing goal or patterns conversation, or a goal card still waiting
     # for the participant's answer in this chat.
     def self.goal_conversation?(session)
+      # A household-plan thread owns its own corrections ("make it $30").
+      return false if session.active_topic.to_h["record_scope"] == "household_plan"
+
       session.active_topic["type"].in?(GOAL_TOPICS) ||
         SavingsChatCard.joins(:chat_message).where(chat_messages: { chat_session_id: session.id }, kind: "goal", status: "pending").exists?
     end
