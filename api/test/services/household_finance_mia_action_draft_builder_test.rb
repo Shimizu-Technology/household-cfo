@@ -369,7 +369,7 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
 
     item = result.proposal.items.first
     assert_equal [ 8 ], item.payload.fetch(:month_numbers)
-    assert_includes item.label, "Aug 2026"
+    assert_includes item.label, "August"
     refute_includes item.description, "every month"
   end
 

@@ -59,6 +59,32 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
     assert SpendingPatterns::Answerer.matches?("What spending patterns do you see in my last 3 months?")
   end
 
+  test "patterns require spending context rather than debt or income records" do
+    [ "What patterns in my debts?", "Show patterns in my income", "What patterns do you see?" ].each do |message|
+      refute SpendingPatterns::Answerer.matches?(message), message
+    end
+    [ "What spending habits do you notice?", "Show patterns in my purchases", "What shopping patterns do you see?" ].each do |message|
+      assert SpendingPatterns::Answerer.matches?(message), message
+    end
+  end
+
+  test "uploaded statement patterns follow-ups keep the prior document context but general patterns use household records" do
+    document = @household.financial_document_imports.create!(uploaded_by_user: @user, document_kind: "statement", status: "needs_review",
+      filename: "synthetic-statement.pdf", content_type: "application/pdf", byte_size: 100, s3_key: "household-cfo/test/synthetic-statement.pdf")
+    @household.transaction_drafts.create!(financial_document_import: document, merchant: "Island Market", occurred_on: Date.current,
+      total_amount_cents: 12_345, budget_category: @category, source_type: "statement")
+    post "/api/v1/mia/messages", params: { message: "What is the total in this upload?", document_import_ids: [ document.id ] }, headers: @headers, as: :json
+    assert_response :created
+    assert @household.chat_sessions.find_by!(user: @user).active_topic["document_evidence"]
+    post "/api/v1/mia/messages", params: { message: "What spending patterns in that statement's largest purchase?" }, headers: @headers, as: :json
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "Using your prior upload"
+    assert @household.chat_sessions.find_by!(user: @user).active_topic["document_evidence"]
+    post "/api/v1/mia/messages", params: { message: "What spending patterns do you see?" }, headers: @headers, as: :json
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "don’t have enough reviewed purchases"
+  end
+
   test "household review cards omit challenge-specific scope" do
     draft = @household.mia_action_drafts.create!(requested_by_user: @user, draft_type: "budget_edit", status: "pending", year: 2026, title: "Change plan", summary: "Change plan")
     assert_nil HouseholdFinance::MiaActionDraftPresenter.new(draft).call[:scope_note]

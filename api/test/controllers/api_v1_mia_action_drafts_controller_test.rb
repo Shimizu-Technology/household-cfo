@@ -1331,7 +1331,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     item = body.fetch("mia_action_draft").fetch("items").first
     assert_equal [ 8 ], item.fetch("payload").fetch("month_numbers")
-    assert_includes item.fetch("description"), "Aug 2026"
+    assert_includes item.fetch("description"), "August"
 
     post "/api/v1/mia_action_drafts/#{body.fetch('mia_action_draft').fetch('id')}/apply",
       headers: auth_headers(user),

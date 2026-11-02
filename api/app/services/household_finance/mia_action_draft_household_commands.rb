@@ -541,7 +541,7 @@ module HouseholdFinance
     end
 
     def income_schedule_description(source, entry_type, current_cents, amount_cents, effective_on, cadence = "monthly")
-      month = effective_on.strftime("%B %Y")
+      month = review_month(effective_on)
       return "Add #{money(amount_cents)} to #{month}; the recurring #{source.label} amount remains #{money(current_cents)} per month." if entry_type == "one_time"
 
       return "Beginning #{month}: #{money(current_cents)} → #{money(amount_cents)} per month." if cadence == "monthly"
@@ -551,7 +551,7 @@ module HouseholdFinance
     end
 
     def income_schedule_summary(source, entry_type, amount_cents, effective_on, cadence = "monthly")
-      month = effective_on.strftime("%B %Y")
+      month = review_month(effective_on)
       return "I prepared adding #{money(amount_cents)} of one-time #{source.label} in #{month}." if entry_type == "one_time"
 
       "I prepared setting #{source.label} to #{money(amount_cents)} #{income_cadence_label(cadence)} beginning #{month}."
