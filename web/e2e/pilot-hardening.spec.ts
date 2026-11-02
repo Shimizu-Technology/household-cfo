@@ -9981,7 +9981,13 @@ test('BOG UI closed challenge keeps the unsaved reply across polling and offers 
   const base = realWorkspaceData(true)
   const workspace = { ...base, workspace: { ...base.workspace, experience_mode: 'savings_challenge', challenge_open: false } }
   let sends = 0, uploads = 0
-  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: workspace }))
+  let workspaceLoads = 0
+  let releaseRefresh!: () => void
+  const refreshHeld = new Promise<void>(resolve => { releaseRefresh = resolve })
+  await page.route('http://api.test/api/v1/workspace', async route => {
+    if (++workspaceLoads > 1) await refreshHeld
+    return route.fulfill({ json: workspace })
+  })
   await page.route('http://api.test/api/v1/document_imports', (route) => {
     if (route.request().method() !== 'POST') return route.fallback()
     uploads += 1
@@ -10003,6 +10009,8 @@ test('BOG UI closed challenge keeps the unsaved reply across polling and offers 
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('I set aside $50 today')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   await expect(page.getByText("Your savings challenge isn't open yet", { exact: false }).first()).toBeVisible()
+  // A document/workspace refresh arriving after Send must retain this local reply too.
+  releaseRefresh()
   await page.waitForTimeout(6500)
   await expect(page.getByText("Your savings challenge isn't open yet", { exact: false }).first()).toBeVisible()
   expect(sends).toBe(1)

@@ -1174,14 +1174,15 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [firstSessionUploadOpen, isRealWorkspace])
 
   const replaceMiaHistory = useCallback((mia: MiaMessagesData) => {
+    const retainLocalReplies = challengeNotOpen && messagesStorageKey === chatStorageKey
     setMessagesStorageKey(chatStorageKey)
-    setMessages(mia.messages)
+    setMessages(current => keepLocalOnly(current, mia.messages, retainLocalReplies))
     setHistoricalMessageCount(mia.historical_message_count ?? 0)
     setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
     setOldestServerMessageId(mia.oldest_message_id)
     setOlderServerMessageCount(mia.older_message_count)
     historyExpandedRef.current = false
-  }, [chatStorageKey])
+  }, [challengeNotOpen, chatStorageKey, messagesStorageKey])
 
   const refreshMiaMessages = useCallback(async ({ quiet = true }: { quiet?: boolean } = {}) => {
     if (!isRealWorkspace || miaLoading) return
