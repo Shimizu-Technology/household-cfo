@@ -12865,15 +12865,16 @@ for (const role of ['coach', 'admin']) {
 
 async function expectPhoneTargets(page: Page) {
   await page.evaluate(() => document.fonts.ready)
-  const small = await page.locator('button:visible, a[href]:visible, input:visible, select:visible, textarea:visible, summary:visible, [role="button"]:visible').evaluateAll(elements => elements.flatMap(element => {
+  // React can replace a control between the visible lookup and measurement.
+  // Retry the whole lookup so this checks settled controls, including their size.
+  await expect.poll(() => page.locator('button:visible, a[href]:visible, input:visible, select:visible, textarea:visible, summary:visible, [role="button"]:visible').evaluateAll(elements => elements.flatMap(element => {
     if (element.matches('.sr-only, [type="hidden"], [type="file"]')) return []
     // A native checkbox/radio is reached through its complete associated label.
     const labels = element instanceof HTMLInputElement ? Array.from(element.labels ?? []) : []
     const target = labels.find(label => { const box = label.getBoundingClientRect(); return box.width >= 44 && box.height >= 44 }) ?? element
     const box = target.getBoundingClientRect()
     return box.width < 43.99 || box.height < 43.99 ? [{ name: element.getAttribute('aria-label') ?? element.textContent?.trim().slice(0, 80), tag: element.tagName, className: element.className, width: box.width, height: box.height }] : []
-  }))
-  expect(small, JSON.stringify(small)).toEqual([])
+  })), { message: 'Every visible control must have a 44px touch target', timeout: 20000 }).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320)
   expect(await page.locator('body').innerText()).not.toMatch(/\b\d{4}-\d{2}-\d{2}\b/)
 }
