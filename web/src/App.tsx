@@ -686,7 +686,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
   const [freshMiaReplyId, setFreshMiaReplyId] = useState<number | null>(null)
-  const [chatComposerEntered, setChatComposerEntered] = useState(false)
   const [miaWaitLong, setMiaWaitLong] = useState(false)
   useEffect(() => {
     if (!miaLoading) return
@@ -1783,7 +1782,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       section: targetSection,
     }
     setActive(targetSection)
-    setChatComposerEntered(false)
     if (targetSection !== 'Ask Mia') {
       setIsChatExpanded(false)
       setAssistPanel(null)
@@ -3714,7 +3712,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   </> : null
 
   const workspace = (
-    <main className={`app${activeSection === 'Ask Mia' ? ` is-chat-page${chatComposerEntered ? ' has-entered-composer' : ''}` : ''}`}>
+    <main className={`app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}`}>
       <SeoManager section={activeSection} />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{routeAnnouncement}</p>
       <header className="shell-header">
@@ -4027,7 +4025,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       setVoiceNotice(null)
                       setQuestion(event.target.value)
                     }}
-                    onFocus={() => setChatComposerEntered(true)}
                     onKeyDown={handleAskMiaKeyDown}
                     onPaste={handleMiaPaste}
                     aria-label={`Ask ${assistantName}`}

@@ -354,7 +354,6 @@
   .is-chat-page .mia-chat-shell .ask-row .send-button { grid-column: 4; grid-row: 2; }
   .is-chat-page .mia-chat-shell .ask-row textarea { min-height: 44px; padding: 10px 4px; scroll-margin-bottom: 0; }
   .is-chat-page .mia-screen > .mia-disclaimer { display: none; }
-  .is-chat-page.has-entered-composer > .shell-header { display: none; }
 }
 
 /* A review is a sentence and a decision; the audit trail stays one tap away. */

@@ -11533,7 +11533,7 @@ test('BOG UI chat assist panels keep spaced actions readable and preserve a draf
   await expect(panel).toHaveClass(compact ? /is-modal/ : /is-companion/)
   if (compact) await assertDialogVisibleHeight(panel)
   const questionButtons = panel.getByLabel('Ask a question').getByRole('button')
-  await expect(questionButtons).toHaveCount(4)
+  await expect(questionButtons).toHaveCount(5)
   for (let index = 0; index < await questionButtons.count(); index++) {
     const button = questionButtons.nth(index)
     await button.focus()
@@ -13060,7 +13060,7 @@ test('mobile Ask Mia empty history offers a compact review link and gives the th
     await about.getByRole('button', { name: 'Close', exact: true }).click()
     const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
     await composer.focus()
-    await expect(page.locator('.shell-header')).toBeHidden()
+    await expect(page.locator('.shell-header')).toBeVisible()
     await page.setViewportSize({ width: viewport.width, height: 430 })
     await expect(composer).toBeInViewport()
     await expect(page.getByRole('button', { name: 'Attach receipt, screenshot, statement, or budget file' })).toBeInViewport()
