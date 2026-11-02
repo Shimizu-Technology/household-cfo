@@ -21,14 +21,14 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.resetAllMocks() })
 
-function setup() {
+function setup(reviewShortcut = false) {
   const chatRef = createRef<HTMLDivElement>()
   const awayRef = { current: false }
   const anchor = vi.fn()
   const setShowScrollButton = vi.fn()
   function History() {
     useMiaEntryAnchor({ active: true, messageKey: 'latest', loading: false, chatRef, awayRef, anchor, setShowScrollButton })
-    return <div ref={chatRef}><button>Load earlier messages</button><img alt="Receipt" /></div>
+    return <section><div ref={chatRef}><button>Load earlier messages</button><img alt="Receipt" /></div>{reviewShortcut && <button>Jump to reviews</button>}</section>
   }
   return { ...render(<History />), awayRef, anchor, setShowScrollButton }
 }
@@ -65,6 +65,14 @@ it('anchors an untouched reply through late media layout, then stops observing o
 it('keeps a focused review control in place when a late layout update arrives', () => {
   const { anchor, awayRef } = setup()
   fireEvent.focusIn(screen.getByRole('button'))
+  act(() => { frames.forEach(frame => frame(0)); resize([], {} as ResizeObserver); frames.at(-1)?.(0) })
+  expect(awayRef.current).toBe(true)
+  expect(anchor).not.toHaveBeenCalled()
+})
+
+it('yields to the review shortcut outside the scrolling history', () => {
+  const { anchor, awayRef } = setup(true)
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'Jump to reviews' }))
   act(() => { frames.forEach(frame => frame(0)); resize([], {} as ResizeObserver); frames.at(-1)?.(0) })
   expect(awayRef.current).toBe(true)
   expect(anchor).not.toHaveBeenCalled()
