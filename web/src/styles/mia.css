@@ -393,3 +393,24 @@
   .mia-change-details > summary:active,
   .mia-action-draft-actions button:active { transform: none; }
 }
+
+/* Review actions form one group on desktop, one decision above two alternatives on phones. */
+.mia-action-draft-card .mia-action-draft-actions { display: flex; justify-content: flex-start; align-items: center; gap: 8px; }
+.mia-action-draft-card .mia-action-draft-actions > button { width: auto; }
+.mia-change-headline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; color: var(--ink); }
+.mia-change-headline > span { font-size: var(--text-sm); }
+.mia-change-lines { margin: 0; }
+.mia-change-lines > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.mia-change-lines dt { color: var(--ink); }
+.mia-change-lines dd { margin: 0; font-variant-numeric: tabular-nums; }
+.mia-action-draft-main .mia-change-note { color: var(--ink); font-size: var(--text-sm); }
+.message-row.assistant .message :is(p, li) { color: var(--ink); }
+.chat-card-wrap { flex-direction: column; }
+.chat-history-navigation { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; flex: 0 0 auto; padding: 0 12px; }
+.chat-history-navigation .chat-pending-line { border: 0; gap: 8px; }
+.chat-history-navigation .chat-scroll-bottom-button { margin: 0; }
+@media (max-width: 620px) {
+  .mia-action-draft-card .mia-action-draft-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mia-action-draft-card .mia-action-draft-actions > button:first-child { grid-column: 1 / -1; }
+  .mia-action-draft-card .mia-action-draft-actions > button { min-width: 0; width: 100%; min-height: 44px; }
+}

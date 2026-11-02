@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { shortAssistantName } from '../lib/assistantName'
 import type { FinancialDocumentImport, MiaMessage, MiaMessageAttachment } from '../api'
 import { parseMiaAnswerPresentation } from '../lib/miaPresentation'
@@ -66,35 +66,10 @@ export function ChatHistory({
   const { assistantName } = useBrand()
   const remainingMessageCount = Math.max(0, hiddenMessageCount + olderMessageCount)
   const assistantInitial = Array.from(assistantName.trim())[0]?.toUpperCase() ?? 'A'
-  const reviewQueueRef = useRef<HTMLDivElement | null>(null)
-  const [queueBelowFold, setQueueBelowFold] = useState(false)
-  // The "to review" shortcut only shows while the review cards have not started
-  // to appear yet, so it never sits on top of a card's buttons.
-  const measureQueue = useCallback(() => {
-    const queue = reviewQueueRef.current
-    const card = chatCardRef.current
-    if (!queue || !card) { setQueueBelowFold(false); return }
-    const below = queue.getBoundingClientRect().top > card.getBoundingClientRect().bottom - 40
-    setQueueBelowFold(below)
-  }, [chatCardRef])
-  useEffect(() => {
-    const frame = requestAnimationFrame(measureQueue)
-    return () => cancelAnimationFrame(frame)
-  }, [measureQueue, messages.length, reviewCount, miaLoading, totalMessageCount])
-  // A viewport or keyboard resize can move the queue below the fold without a scroll.
-  useEffect(() => {
-    const card = chatCardRef.current
-    if (!card || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => measureQueue())
-    observer.observe(card)
-    return () => observer.disconnect()
-  }, [chatCardRef, measureQueue])
-
   const shownReviewContent = totalMessageCount === 0 && onOpenReview ? emptyReviewContent : reviewContent
-  const showReviewShortcut = showScrollButton && totalMessageCount > 0 && reviewCount > 0 && queueBelowFold
   return (
-    <div className={`chat-card-wrap${showReviewShortcut ? ' has-review-shortcut' : ''}`}>
-      <article className="chat-card" ref={chatCardRef} aria-label={`${assistantName} conversation history`} aria-live="polite" aria-busy={miaLoading || historyLoading} onScroll={() => { onScroll(); measureQueue() }}>
+    <div className="chat-card-wrap">
+      <article className="chat-card" ref={chatCardRef} aria-label={`${assistantName} conversation history`} aria-live="polite" aria-busy={miaLoading || historyLoading} onScroll={onScroll}>
         {totalMessageCount === 0 && reviewCount > 0 && onOpenReview && (
           <button type="button" className="chat-pending-line" onClick={onOpenReview}>
             {pendingPurchaseCount === reviewCount ? `${reviewCount} ${reviewCount === 1 ? 'purchase' : 'purchases'} to review` : `${reviewCount} ${reviewCount === 1 ? 'change' : 'changes'} to review`} <span aria-hidden="true">→</span>
@@ -169,22 +144,17 @@ export function ChatHistory({
           </div>
         )}
         {totalMessageCount > 0 && <div className="chat-turn-spacer" aria-hidden="true" />}
-        {shownReviewContent && <div className="chat-review-queue" ref={reviewQueueRef}>{shownReviewContent}</div>}
+        {shownReviewContent && <div className="chat-review-queue">{shownReviewContent}</div>}
       </article>
-      {showScrollButton && totalMessageCount > 0 && (
-        reviewCount > 0
-          ? !queueBelowFold ? null : (
-            <button type="button" className="chat-scroll-bottom-button has-review" aria-label={`Jump to ${reviewCount} ${reviewCount === 1 ? 'item' : 'items'} waiting for your review`} onClick={() => reviewQueueRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' })}>
-              <ScrollDownIcon />
-              <span>{reviewCount} to review</span>
-            </button>
-          )
-          : (
-            <button type="button" className="chat-scroll-bottom-button" aria-label={`Scroll to latest ${assistantName} message`} onClick={onScrollLatest}>
-              <ScrollDownIcon />
-              <span>Latest</span>
-            </button>
-          )
+      {totalMessageCount > 0 && ((reviewCount > 0 && onOpenReview) || showScrollButton) && (
+        <div className="chat-history-navigation">
+          {reviewCount > 0 && onOpenReview && <button type="button" className="chat-pending-line" onClick={onOpenReview}>
+            {pendingPurchaseCount === reviewCount ? `${reviewCount} ${reviewCount === 1 ? 'purchase' : 'purchases'} to review` : `${reviewCount} ${reviewCount === 1 ? 'change' : 'changes'} to review`} <span aria-hidden="true">→</span>
+          </button>}
+          {showScrollButton && <button type="button" className="chat-scroll-bottom-button" aria-label={`Scroll to latest ${assistantName} message`} onClick={onScrollLatest}>
+            <ScrollDownIcon /><span>Latest</span>
+          </button>}
+        </div>
       )}
     </div>
   )

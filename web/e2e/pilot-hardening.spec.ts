@@ -2417,22 +2417,19 @@ test('chat-first Mia preserves legacy reviews without structured before and afte
   await expect(composer).toBeFocused()
 
   await openMiaReviewDetails(page)
-  const householdCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Update an approved household number' })
+  const householdCard = page.getByRole('article', { name: 'Update an approved household number', exact: true })
   await openMiaReviewDetails(page)
-  const incomeCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Schedule an income change' })
+  const incomeCard = page.getByRole('article', { name: 'Schedule an income change', exact: true })
   await openMiaReviewDetails(page)
-  const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
+  const budgetCard = page.getByRole('article', { name: 'Move more into the unexpected sinking fund', exact: true })
   await expect(page.getByRole('heading', { name: 'This screen hit an unexpected problem.' })).toHaveCount(0)
-  await expect(householdCard).toContainText('Household numbers')
   await expect(householdCard).toContainText('$5,000.00 → $8,500.00')
-  await expect(incomeCard).toContainText('Income timeline')
   await expect(incomeCard).toContainText(`October ${currentYear}`)
-  await expect(budgetCard).toContainText('Budget plan')
   await expect(budgetCard).toContainText(/actual spending.*unchanged/i)
 
   for (const card of [householdCard, incomeCard, budgetCard]) {
     await expect(card.locator('.mia-action-before-after')).toHaveCount(0)
-    await expect(card.getByRole('button', { name: 'Apply reviewed change' })).toBeEnabled()
+    await expect(card.getByRole('button', { name: 'Apply change' })).toBeEnabled()
     await expect(card.getByRole('button', { name: 'Not now' })).toBeEnabled()
     await expect(card.getByRole('button', { name: 'Change', exact: true })).toBeEnabled()
   }
@@ -2470,8 +2467,7 @@ test('account manager routes Mia account reviews to the exact mobile-safe manual
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openMiaReviewDetails(page)
-  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Update the emergency reserve' })
-  await expect(card).toContainText('Accounts & assets')
+  const card = page.getByRole('article', { name: 'Update the emergency reserve', exact: true })
   await expect(card).toContainText('Emergency Fund')
   await card.getByRole('button', { name: 'Change', exact: true }).click()
 
@@ -2602,8 +2598,7 @@ test('tracked goal Mia reviews route to the exact manual editor', async ({ page 
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openMiaReviewDetails(page)
-  const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
-  await expect(card).toContainText('Tracked goals')
+  const card = page.getByRole('article', { name: draft.title, exact: true })
   await card.getByRole('button', { name: 'Change', exact: true }).click()
   const manager = page.locator('.goal-manager')
   await expect(manager.getByLabel('Goal name')).toHaveValue('Family trip')
@@ -2629,7 +2624,7 @@ test('account manager routes keep-saved reviews to Keep saved and never Accept',
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openMiaReviewDetails(page)
-  const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
+  const card = page.getByRole('article', { name: draft.title, exact: true })
   await card.getByRole('button', { name: 'Change', exact: true }).click()
 
   const manager = page.locator('.account-manager')
@@ -2710,7 +2705,7 @@ test('account manager opens archived accounts before routing a restore review', 
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openMiaReviewDetails(page)
-  const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
+  const card = page.getByRole('article', { name: draft.title, exact: true })
   await card.getByRole('button', { name: 'Change', exact: true }).click()
 
   const archive = page.locator('.account-manager details.debt-archive')
@@ -2782,7 +2777,7 @@ test('account manager keeps a link review pending until Plaid observations load'
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openMiaReviewDetails(page)
-  const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
+  const card = page.getByRole('article', { name: draft.title, exact: true })
   await card.getByRole('button', { name: 'Change', exact: true }).click()
   const manager = page.locator('.account-manager')
   await expect(manager).toBeVisible()
@@ -2816,8 +2811,8 @@ test('applying an unrelated Mia draft preserves unsaved profile edits', async ({
 
   await openSection(page, 'Ask Mia')
   await openMiaReviewDetails(page)
-  const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
-  await budgetCard.getByRole('button', { name: 'Apply reviewed change' }).click()
+  const budgetCard = page.getByRole('article', { name: 'Move more into the unexpected sinking fund', exact: true })
+  await budgetCard.getByRole('button', { name: 'Apply change' }).click()
   await expect(budgetCard).toBeHidden()
 
   await openSection(page, 'My Profile')
@@ -2852,8 +2847,8 @@ test('only one money change can run at a time from Ask Mia', async ({ page }) =>
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('One more question')
   await openMiaReviewDetails(page)
-  const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
-  await budgetCard.getByRole('button', { name: 'Apply reviewed change' }).click()
+  const budgetCard = page.getByRole('article', { name: 'Move more into the unexpected sinking fund', exact: true })
+  await budgetCard.getByRole('button', { name: 'Apply change' }).click()
   await expect(budgetCard.getByRole('button', { name: 'Applying' })).toBeDisabled()
 
   // Every other review control and Send wait until the change finishes.
@@ -2887,10 +2882,10 @@ test('a stale card for another year still shows out of date when that year budge
   })
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openMiaReviewDetails(page)
-  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
-  await card.getByRole('button', { name: 'Apply reviewed change' }).click()
+  const card = page.getByRole('article', { name: 'Move more into the unexpected sinking fund', exact: true })
+  await card.getByRole('button', { name: 'Apply change' }).click()
   await expect(card.getByText('Out of date')).toBeVisible({ timeout: 15_000 })
-  await expect(card.getByRole('button', { name: 'Apply reviewed change' })).toHaveCount(0)
+  await expect(card.getByRole('button', { name: 'Apply change' })).toHaveCount(0)
   await expect(page.getByText(/couldn’t refresh \d{4}’s budget/)).toHaveCount(1, { timeout: 15_000 })
 })
 
@@ -2912,13 +2907,10 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 
       return Boolean(latest?.textContent?.includes('October dining out') && box && box.top >= area.top - 2 && box.top < area.top + 40 && area.bottom - box.top >= 60)
     }), { timeout: 15_000 }).toBe(true)
     if (process.env.HCFO_SHOTS) await page.screenshot({ path: `${process.env.HCFO_SHOTS}/f13-${viewport.width}x${viewport.height}.png` })
-    // The jump shortcut never sits on the reply or on any control.
-    // The shortcut must show exactly while the review queue is below the fold.
-    const queueBelowFold = await page.evaluate(() => document.querySelector('.chat-review-queue')!.getBoundingClientRect().top > document.querySelector('.chat-card')!.getBoundingClientRect().bottom - 40)
-    if (queueBelowFold) await expect(page.locator('.chat-scroll-bottom-button')).toBeVisible()
-    else await expect(page.locator('.chat-scroll-bottom-button')).toHaveCount(0)
+    // Review has one destination and a separate band, whether its cards are in view or below.
+    await expect(page.locator('.chat-history-navigation .chat-pending-line')).toBeVisible()
     const overlap = await page.evaluate(() => {
-      const shortcut = document.querySelector('.chat-scroll-bottom-button')
+      const shortcut = document.querySelector('.chat-history-navigation .chat-pending-line')
       if (!shortcut) return { overlaps: false }
       const box = shortcut.getBoundingClientRect()
       const replies = [...document.querySelectorAll('.chat-card .message-row.assistant:not(.typing-row)')]
@@ -2932,7 +2924,7 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 
     expect(overlap.overlaps).toBe(false)
     // Review cards are still reachable below the reply.
     await page.locator('.chat-review-queue').scrollIntoViewIfNeeded()
-    await expect(page.locator('.chat-review-queue').getByRole('button', { name: 'Apply reviewed change' }).first()).toBeVisible()
+    await expect(page.locator('.chat-review-queue').getByRole('button', { name: 'Apply change' }).first()).toBeVisible()
   })
 }
 
@@ -3045,11 +3037,11 @@ test('a rejected stale Mia card shows once that it is out of date and offers a f
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openMiaReviewDetails(page)
-  const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
-  await budgetCard.getByRole('button', { name: 'Apply reviewed change' }).click()
+  const budgetCard = page.getByRole('article', { name: 'Move more into the unexpected sinking fund', exact: true })
+  await budgetCard.getByRole('button', { name: 'Apply change' }).click()
 
   await expect(budgetCard.getByText('Out of date')).toBeVisible()
-  await expect(budgetCard.getByRole('button', { name: 'Apply reviewed change' })).toHaveCount(0)
+  await expect(budgetCard.getByRole('button', { name: 'Apply change' })).toHaveCount(0)
   await expect(budgetCard.getByText('Pending', { exact: true })).toHaveCount(0)
   await expect(page.getByText('Budget changed since Mia drafted this. Ask Mia to draft a fresh edit.')).toHaveCount(1)
   await budgetCard.getByRole('button', { name: /for a fresh draft/ }).click()
@@ -3066,7 +3058,7 @@ test('Mia review cards show missing before and after amounts as unknown, not $0'
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openMiaReviewDetails(page)
-  const impact = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' }).locator('.mia-action-impact')
+  const impact = page.getByRole('article', { name: 'Move more into the unexpected sinking fund', exact: true }).locator('.mia-action-impact')
   const income = impact.locator('.mia-action-impact-grid > div').filter({ hasText: 'Monthly income' })
   await expect(income).toContainText('Not known yet')
   await expect(income).toContainText('$14,200.00')
@@ -3128,7 +3120,7 @@ test('first-session review states what it completes and what Mia still needs', a
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openMiaReviewDetails(page)
-  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Add monthly income to your starting picture' })
+  const card = page.getByRole('article', { name: 'Add monthly income to your starting picture', exact: true })
   await expect(card).toContainText('1 of 5 essentials after approval')
   await expect(card).toContainText('Still needed: Household name, Primary goal, Fixed essentials, Flexible spending.')
   await expect(card.getByRole('button', { name: 'Apply 1 value' })).toBeEnabled()
@@ -3245,7 +3237,7 @@ test('a confirmed zero remains available when the rest of setup is completed man
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openMiaReviewDetails(page)
-  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Confirm zero flexible spending' })
+  const card = page.getByRole('article', { name: 'Confirm zero flexible spending', exact: true })
   const applyButton = card.getByRole('button', { name: 'Apply 1 value' })
   await applyButton.focus()
   await applyButton.press('Enter')
@@ -7657,8 +7649,8 @@ test('BOG UI household real review controls keep transaction and Mia changes beh
 
   await openSection(page, 'Ask Mia')
   await openMiaReviewDetails(page)
-  const miaCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
-  await expect(miaCard.getByRole('button', { name: 'Apply reviewed change' })).toBeEnabled()
+  const miaCard = page.getByRole('article', { name: 'Move more into the unexpected sinking fund', exact: true })
+  await expect(miaCard.getByRole('button', { name: 'Apply change' })).toBeEnabled()
   await expect(miaCard.getByRole('button', { name: 'Not now' })).toBeEnabled()
   await expect(miaCard).toContainText('Keep actual spending unchanged.')
   const cancelRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia_action_drafts/71/cancel') && request.method() === 'POST')
@@ -7709,7 +7701,7 @@ test('mobile Ask Mia action plans keep apply-all simple and partial selection de
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openMiaReviewDetails(page)
-  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
+  const card = page.getByRole('article', { name: 'Review 2 household changes', exact: true })
   await expect(card).toBeVisible()
   await expect(card.getByText('Set checking to $250', { exact: false })).toBeVisible()
   await expect(card.getByText('and set trip progress to $900', { exact: false })).toBeVisible()
@@ -7757,7 +7749,7 @@ test('partial action plans keep dependencies satisfied by already-applied steps'
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
   await openMiaReviewDetails(page)
-  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
+  const card = page.getByRole('article', { name: 'Review 2 household changes', exact: true })
   await card.getByRole('button', { name: 'Choose changes' }).click()
   const dependent = card.getByRole('checkbox', { name: 'Include Update Family trip' })
   const independent = card.getByRole('checkbox', { name: 'Include Update Car replacement goal' })
@@ -7778,7 +7770,7 @@ test('Ask Mia opens an authoritative named-step selection in explicit review mod
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
   await openMiaReviewDetails(page)
-  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
+  const card = page.getByRole('article', { name: 'Review 2 household changes', exact: true })
   await expect(card.getByRole('checkbox', { name: 'Include Update Everyday checking' })).not.toBeChecked()
   await expect(card.getByRole('checkbox', { name: 'Include Update Family trip' })).toBeChecked()
   await expect(card.getByRole('button', { name: 'Apply 1 selected' })).toBeEnabled()
@@ -11248,7 +11240,7 @@ for (const variant of ['activity', 'connections'] as const) {
     await page.getByRole('button', { name: variant === 'connections' ? 'Sync now' : 'Sync Synthetic Bank', exact: true }).click()
     await started
     await openSection(page, 'Ask Mia')
-    await page.getByRole('button', { name: 'Apply reviewed change', exact: true }).click()
+    await page.getByRole('button', { name: 'Apply change', exact: true }).click()
     await expect(page.locator('.mia-action-draft-card')).toHaveCount(0)
     const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
     releasePlaidReload()
@@ -11350,7 +11342,7 @@ for (const variant of ['activity', 'connections'] as const) {
     await started
     if (mode === 'superseded') {
       await openSection(page, 'Ask Mia')
-      await page.getByRole('button', { name: 'Apply reviewed change', exact: true }).click()
+      await page.getByRole('button', { name: 'Apply change', exact: true }).click()
       await expect(page.locator('.mia-action-draft-card')).toHaveCount(0)
     }
     const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 503)
@@ -12997,7 +12989,7 @@ test('mobile Ask Mia anchors the sent message above typing and never returns to 
     await waiting
     return route.fulfill({ status: 201, json: {
       user_message: { id: 9001, role: 'user', author: 'You', content: 'What spending patterns do you see?', attachments: [] },
-      assistant_message: { id: 9002, role: 'assistant', author: 'Mia', content: 'Ross ($600) led your flexible purchases. Would you feel comfortable cutting back there?', attachments: [] },
+      assistant_message: { id: 9002, role: 'assistant', author: 'Mia', content: 'Ross ($600) led your flexible purchases. ' + 'Here is a longer explanation of the recorded purchases and your choices. '.repeat(100) + 'This is the newest end of Mia’s reply.', attachments: [] },
       transaction_draft: null, mia_action_draft: null, budget: null, spending_report: null,
     } })
   })
@@ -13025,6 +13017,11 @@ test('mobile Ask Mia anchors the sent message above typing and never returns to 
   await expect(page.locator('.message-row.user').last()).toHaveCSS('animation-name', 'none')
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(page.locator('.is-new-reply')).toHaveCSS('animation-name', 'none')
+  await page.locator('.chat-card').dispatchEvent('wheel', { deltaY: -400 })
+  await page.locator('.chat-card').evaluate(card => { card.scrollTop = 0; card.dispatchEvent(new Event('scroll')) })
+  await page.getByRole('button', { name: 'Scroll to latest Mia message' }).click()
+  await expect.poll(() => page.locator('.chat-card').evaluate(card => card.scrollHeight - card.clientHeight - card.scrollTop)).toBeLessThan(3)
+  await expect(page.locator('.message-row.assistant').last()).toContainText('This is the newest end')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.getByRole('link', { name: 'Home', exact: true }).click()
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
@@ -13066,4 +13063,78 @@ test('mobile Ask Mia empty history offers a compact review link and gives the th
   await expect(page).toHaveURL(/#Review$/)
   await expect(page.getByRole('region', { name: 'Household changes to review' })).toBeVisible()
   await expect(page.locator('.mia-action-draft-card').first().getByText('See details', { exact: true })).toBeVisible()
+})
+
+
+test('mobile Ask Mia structured review figures match Review and short threads open without a spacer gap', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.mia.messages = [
+    { id: 9101, role: 'user', author: 'You', content: 'Move $60 to repairs for November.', attachments: [] },
+    { id: 9102, role: 'assistant', author: 'Mia', content: 'Here is your change to review.', attachments: [] },
+  ]
+  workspace.mia.older_message_count = 0
+  workspace.budget.annual_plan.pending_transaction_drafts = []
+  workspace.budget.annual_plan.pending_transaction_drafts_meta = { total_count: 0, returned_count: 0, limit: 500, truncated: false }
+  const draft = {
+    ...miaBudgetDraft, title: 'Move planned money', summary: 'Move $60 from Dining out to Repairs & surprises for November.',
+    headline: { amount_cents: 6000, label: 'moved to Repairs & surprises' },
+    detail_rows: [{ label: 'Dining out', before: '$250', after: '$190' }, { label: 'Repairs & surprises', before: '$40', after: '$100' }],
+    detail_note: 'November only. Your actual spending doesn’t change.',
+  }
+  workspace.budget.annual_plan.pending_mia_action_drafts = [draft]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.getByRole('article', { name: draft.title, exact: true })
+  await expect(card.locator('.mia-change-figure')).toHaveText('$60')
+  await expect.poll(() => page.locator('.chat-turn-spacer').evaluate(spacer => spacer.getBoundingClientRect().height)).toBe(0)
+  expect(await page.locator('.chat-card').evaluate(history => {
+    const bounds = history.getBoundingClientRect()
+    const first = [...history.querySelectorAll('.message-row, .mia-action-draft-card')].find(item => item.getBoundingClientRect().bottom > bounds.top)
+    return Math.abs(first!.getBoundingClientRect().top - bounds.top)
+  })).toBeLessThanOrEqual(24)
+  await card.getByText('See details', { exact: true }).click()
+  await expect(card.locator('.mia-change-lines')).toContainText('Dining out$250 → $190')
+  await expect(card.locator('.mia-action-item')).toHaveCount(0)
+  for (const label of ['Apply change', 'Not now', 'Change']) {
+    const button = card.getByRole('button', { name: label, exact: true })
+    expect(await button.getAttribute('aria-describedby')).toBe(await card.locator('.mia-change-sentence').getAttribute('id'))
+    expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  }
+  const apply = (await card.getByRole('button', { name: 'Apply change', exact: true }).boundingBox())!
+  const later = (await card.getByRole('button', { name: 'Not now', exact: true }).boundingBox())!
+  const change = (await card.getByRole('button', { name: 'Change', exact: true }).boundingBox())!
+  if (page.viewportSize()!.width > 620) {
+    expect(Math.abs(apply.y - later.y)).toBeLessThan(2)
+    expect(change.x - later.x - later.width).toBeLessThanOrEqual(16)
+  } else {
+    expect(later.y).toBeGreaterThan(apply.y)
+    expect(Math.abs(later.y - change.y)).toBeLessThan(2)
+  }
+  const reviewLink = page.getByRole('button', { name: /changes? to review|purchases? to review/ }).last()
+  expect(await reviewLink.evaluate(link => link.closest('.chat-card'))).toBeNull()
+  await reviewLink.click()
+  await expect(page).toHaveURL(/#Review$/)
+  await expect(page.getByRole('article', { name: draft.title, exact: true }).locator('.mia-change-figure')).toHaveText('$60')
+  await expect(page.getByRole('status').filter({ hasText: /^No purchases to review$/ })).toBeVisible()
+})
+
+test('mobile Ask Mia fresh-draft action opens Ask Mia from Review', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [{ ...miaBudgetDraft, stale: true }]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  await page.getByRole('button', { name: /for a fresh draft/ }).click()
+  await expect(page).toHaveURL(/#Ask%20Mia$/)
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue(`Please draft a fresh version of this change: ${miaBudgetDraft.title}`)
+})
+
+test('mobile Ask Mia fresh-draft action leaves Review unchanged when Ask Mia is hidden', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.capabilities.modules = workspace.workspace.capabilities.modules.map((module: { id: string; enabled: boolean }) => module.id === 'ask_mia' ? { ...module, enabled: false } : module)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [{ ...miaBudgetDraft, stale: true }]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  await page.getByRole('button', { name: /for a fresh draft/ }).click()
+  await expect(page).toHaveURL(/#Review$/)
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveCount(0)
 })
