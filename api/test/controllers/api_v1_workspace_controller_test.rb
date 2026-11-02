@@ -880,13 +880,13 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     confirm_setup_for_test(user)
 
     post "/api/v1/mia/messages",
-         params: { message: "Can I buy the purse?" },
+         params: { message: "Can I buy the $500 purse?" },
          headers: auth_headers(user),
          as: :json
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "pause on the purse for now"
+    assert_includes content, "pause on the $500 purse for now"
     assert_includes content, "funded flexible category"
     refute_match(/guam|chamorro|chelu|lanya|island/i, content)
 
