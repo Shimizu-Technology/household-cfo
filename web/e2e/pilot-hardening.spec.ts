@@ -12590,7 +12590,7 @@ for (const resolution of ['confirm', 'ignore'] as const) {
     const last = page.getByRole('button', { name: new RegExp(`^${resolution === 'confirm' ? 'Confirm' : 'Ignore'} Focus Market 9102`) })
     await last.focus()
     await last.press('Enter')
-    const caughtUp = page.getByRole('status').filter({ hasText: /^All caught up$/ })
+    const caughtUp = page.getByRole('status').filter({ hasText: /^No purchases to review$/ })
     await expect(caughtUp).toBeFocused()
     await expect(caughtUp).toHaveCSS('outline-style', 'solid')
     expect(parseFloat(await caughtUp.evaluate(node => getComputedStyle(node).outlineWidth))).toBeGreaterThanOrEqual(2)
