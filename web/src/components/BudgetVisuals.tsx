@@ -1,6 +1,7 @@
 import { useId, useState, useRef, useEffect, type CSSProperties } from 'react'
 import type { AnnualBudgetPlan, BudgetStackKey } from '../api'
 import { budgetPositionTotals, type BudgetPosition } from '../lib/budgetPosition'
+import { formatReviewMoney } from '../lib/reviewMoney'
 import { addMoney, subtractMoney } from '../lib/moneyMath'
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
@@ -67,37 +68,33 @@ export function MonthPlanSummary({
   )
 }
 
-export function ExpenseStackOverview({ positions }: { positions: BudgetPosition[] }) {
+export function ExpenseStackOverview({ positions, debtMinimums }: { positions: BudgetPosition[]; debtMinimums?: number | null }) {
   const titleId = useId()
   const groups = stackOrder.map((stackKey) => {
     const stackPositions = positions.filter((position) => position.stackKey === stackKey && position.active)
     return {
       stackKey,
       label: stackLabels[stackKey],
+      positions: stackPositions,
       totals: budgetPositionTotals(stackPositions),
     }
   })
 
   return (
     <section className="expense-stack-overview" aria-labelledby={titleId}>
-      <div className="financial-visual-heading">
-        <div>
-          <h4 id={titleId}>Where the money goes</h4>
-        </div>
-        <p>Confirmed spending is solid. Pending review stays striped until you approve it.</p>
-      </div>
+      <div className="financial-visual-heading"><h4 id={titleId}>Your spending groups</h4><p>Must-pay bills stay steady. Flexible spending is where you can adjust.</p></div>
       <div className="expense-stack-list">
-        {groups.map(({ stackKey, label, totals }) => (
+        {groups.map(({ stackKey, label, totals, positions: categories }) => (
           <article className={`expense-stack-row stack-${stackKey}`} key={stackKey}>
             <div className="expense-stack-row-heading">
               <div>
                 <strong>{label}</strong>
-                <span>{currency.format(totals.actual)} actual · {currency.format(totals.planned)} planned</span>
+                <span>{stackKey === 'non_discretionary' ? 'Fixed commitments' : stackKey === 'discretionary' ? 'Room to make choices' : stackKey === 'sinking_expected' ? 'Set aside for costs you can see coming' : 'Set aside for the unexpected'}</span>
               </div>
-              <b className={totals.remaining < 0 ? 'negative' : ''}>{totals.remaining < 0 ? `${currency.format(Math.abs(totals.remaining))} over` : `${currency.format(totals.remaining)} left`}</b>
+              <b>{categories.length < 2 ? null : categories.some(category => category.allocationMissing) ? 'Not entered' : `${formatReviewMoney(Math.round(totals.planned * 100))} planned`}</b>
             </div>
-            <BudgetProgressTrack planned={totals.planned} actual={totals.actual} pending={totals.pending} label={`${label}: ${currency.format(totals.actual)} confirmed and ${currency.format(totals.pending)} pending against ${currency.format(totals.planned)} planned`} />
-            {totals.pending > 0 && <small>{currency.format(totals.pending)} pending review—not included in actuals.</small>}
+            {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.allocationMissing ? 'Not entered' : formatReviewMoney(Math.round(category.planned * 100))}</strong></li>)}</ul>}
+            {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">Debt minimums: {debtMinimums === null ? 'Not entered' : formatReviewMoney(Math.round(debtMinimums * 100))} · in addition to these categories</p>}
           </article>
         ))}
       </div>

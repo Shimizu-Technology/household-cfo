@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import { AnnualBudgetPlanner, HomeWelcomePanel } from './App'
+import { YearOutlook } from './components/YearOutlook'
 import { HomeScreen } from './components/HomeScreen'
 import { ExpenseStackOverview, MonthPlanSummary } from './components/BudgetVisuals'
 import type { AnnualBudgetPlan, DashboardData } from './api'
@@ -17,7 +18,7 @@ const plan: AnnualBudgetPlan = {
   rows: [{ id: 1, name: 'Everyday costs', active: true, stack_key: 'discretionary', stack_label: 'Discretionary', planned_total: 48300, actual_total: 229.92, months: labels.map((_, i) => ({ period_id: i + 1, allocation_id: i + 1, planned: i === 11 ? 5400 : 3900, actual: i === 9 ? 229.92 : 0, remaining: 0 })) }],
   annual_outlook: { typical_monthly_outflow: 4020, months: labels.map((label, i) => ({ period_id: i + 1, label, starts_on: `2026-${String(i + 1).padStart(2, '0')}-01`, income: 6200, category_plan: i === 11 ? 5400 : 3900, debt_minimums: 120, planned_outflow: i === 11 ? 5520 : 4020, baseline_surplus: i === 11 ? 680 : 2180, expected_irregular: 0, expected_contributors: [] })), upcoming_spikes: [], next_irregular_month: null },
 }
-const dashboard = { action_center: { current_year: 2026, current_month_index: 9, current_month_label: 'October', transaction_review_count: 2, mia_action_review_count: 0 }, summary: { monthly_income: 6200, readiness_label: 'Red' }, readiness_path: { available: false, unavailable_reason: 'Add liquid balances.' } } as DashboardData
+const dashboard = { action_center: { current_year: 2026, current_month_index: 9, current_month_label: 'October', transaction_review_count: 2, mia_action_review_count: 0 }, summary: { monthly_income: 6200, readiness_label: 'Red' }, month_answer: { money_in_cents: 620000, planned_out_cents: 402000, plan_left_cents: 218000, spent_so_far_cents: 22992, runway_months: 2, readiness_guidance: 'Build your cushion.', pending_count: 2 }, readiness_path: { available: false, unavailable_reason: 'Add liquid balances.' } } as DashboardData
 const summary = { label: 'October 2026', income: 6200, planned: 3900, actual: 229.92, pending: 135.90 }
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 
@@ -48,7 +49,10 @@ it('says plainly when the plan spends more than comes in, counting debt minimums
 it('makes Home money and the visible year lead, with one recommended review action', () => {
   const review = vi.fn()
   const { container } = render(<HomeScreen dashboard={dashboard} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={review} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenBudget={vi.fn()} />)
-  expect(container.querySelectorAll('.cash-flow-month')).toHaveLength(12)
+  expect(container.querySelectorAll('.year-outlook-months > li')).toHaveLength(2)
+  expect(screen.getByText('2 months of breathing room')).toBeTruthy()
+  expect(screen.getByText('$2,180')).toBeTruthy()
+  expect(container.querySelector('.home-money-values')?.textContent).toContain('$4,020')
   expect(container.querySelector('details .annual-cash-flow-chart')).toBeNull()
   expect(container.querySelectorAll('button:not(.text-button):not(.cash-flow-month-trigger)')).toHaveLength(1)
   fireEvent.click(screen.getByRole('button', { name: 'Review 2 purchases' }))
@@ -79,7 +83,7 @@ it('puts the whole year before monthly detail and replaces the full queue with a
   const pendingPlan = { ...plan, pending_transaction_drafts: [{ id: 1, occurred_on: '2026-10-15', amount: 135.90, category_id: 1, status: 'pending' }] } as AnnualBudgetPlan
   const { container } = render(<AnnualBudgetPlanner {...props} plan={pendingPlan} />)
   const chart = container.querySelector('.annual-outlook')!
-  const month = container.querySelector('.month-plan-summary')!
+  const month = container.querySelector('.expense-stack-overview')!
   expect(chart.compareDocumentPosition(month) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(container.querySelector('.transaction-draft-card')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Review' }))
@@ -99,7 +103,7 @@ it('shows a quiet unknown year and one setup path before values are entered', ()
   const { container } = render(<AnnualBudgetPlanner {...plannerProps()} incomeKnown={false} planKnown={false} needsSetup />)
   expect(container.querySelectorAll('.cash-flow-bars i')).toHaveLength(0)
   expect(container.querySelector('.cash-flow-detail-panel')).toBeNull()
-  expect(screen.getAllByText('Not entered')).toHaveLength(2)
+  expect(screen.getByText('Enter your income, planned costs and debt minimums to see the year ahead.')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Ask Mia to update my plan' })).toBeNull()
 })
 it('labels four everyday expense groups with independent visual group marks', () => {
@@ -108,4 +112,31 @@ it('labels four everyday expense groups with independent visual group marks', ()
   const rows = container.querySelectorAll('.expense-stack-row')
   expect(new Set([...rows].map(row => row.className)).size).toBe(4)
   expect(within(rows[0] as HTMLElement).getByText('Must-pay bills')).toBeTruthy()
+})
+
+it('never recalculates Home from a different budget cache and preserves unknown and confirmed zero', () => {
+ const props = { dashboard, budget: { annual_plan: { ...plan, monthly_income: {1: 999999} } }, onAskMia: vi.fn(), onReviewTransactions: vi.fn(), onReviewMiaActions: vi.fn(), onReviewImports: vi.fn(), pendingImportCount: 0 } as unknown as ComponentProps<typeof HomeScreen>
+ const view = render(<HomeScreen {...props} />)
+ expect(screen.getByText('$6,200')).toBeTruthy()
+ view.rerender(<HomeScreen {...props} dashboard={{ ...dashboard, month_answer: { ...dashboard.month_answer!, money_in_cents: null, planned_out_cents: null, plan_left_cents: null, spent_so_far_cents: null } }} />)
+ expect(screen.getAllByText('Not entered')).toHaveLength(3)
+ expect(view.container.querySelector('.home-month-answer')?.textContent).not.toContain('$0')
+ expect(screen.getByText('Enter your income, planned costs and debt minimums to see the year ahead.')).toBeTruthy()
+ view.rerender(<HomeScreen {...props} dashboard={{ ...dashboard, month_answer: { ...dashboard.month_answer!, money_in_cents: 0, planned_out_cents: 0, plan_left_cents: 0, spent_so_far_cents: 0 } }} />)
+ expect(screen.getAllByText('$0')).toHaveLength(4)
+})
+
+it('makes an irregular shortfall visible and withholds the year when an allocation is unknown', () => {
+ const spikePlan = { ...plan, annual_outlook: { ...plan.annual_outlook, months: plan.annual_outlook.months.map((month, index) => index === 11 ? { ...month, baseline_surplus: -1320, planned_outflow: 7520, expected_contributors: [{ name: 'Holiday travel', amount: 3800 }] } : month) } }
+ const view = render(<YearOutlook plan={spikePlan} />)
+ expect(screen.getByText('$1,320 short')).toBeTruthy()
+ expect(screen.getByText('Holiday travel: $3,800')).toBeTruthy()
+ view.rerender(<YearOutlook plan={{ ...spikePlan, rows: [{ ...plan.rows[0], months: plan.rows[0].months.map((month, index) => index === 11 ? { ...month, allocation_missing: true } : month) }] }} />)
+ expect(screen.queryByText('$1,320 short')).toBeNull()
+ expect(screen.getByText('Enter your income, planned costs and debt minimums to see the year ahead.')).toBeTruthy()
+})
+
+it('keeps Home actions inside the enabled participant modules', () => {
+ render(<HomeScreen dashboard={dashboard} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} canAskMia={false} canReviewTransactions={false} />)
+ expect(screen.queryByRole('button', { name: /Review .* purchase|Tell .* what changed|Plan details/ })).toBeNull()
 })

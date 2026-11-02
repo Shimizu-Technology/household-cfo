@@ -29,3 +29,44 @@
   .home-welcome-panel { padding: 12px 0; }
 }
 .home-welcome-actions .button { box-shadow: none; }
+
+.home-money-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin: 0; }
+.home-money-values > div { min-width: 0; }
+.home-money-values dt { font-size: var(--text-sm); }
+.home-money-values dd { margin: 8px 0 0; font: var(--weight-semibold) clamp(24px, 3vw, 36px)/1.15 var(--font-body); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.home-month-answer > p { font-size: var(--text-sm); color: var(--muted); }
+.home-cushion { border-top: 1px solid var(--line); padding-top: 16px; }
+.home-cushion h3, .year-outlook h3 { margin: 0; font: var(--weight-semibold) var(--text-lg)/1.4 var(--font-body); }
+.home-cushion p, .year-outlook p { margin: 8px 0; line-height: 1.5; }
+.year-outlook { min-width: 0; }
+.year-outlook-months { list-style: none; padding: 0; margin: 12px 0 0; }
+.year-outlook-months li { border-top: 1px solid var(--line); padding-block: 12px; overflow-wrap: anywhere; }
+.year-outlook-months li > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 20px; font-variant-numeric: tabular-nums; }
+.year-outlook-months li > div span { font-weight: var(--weight-semibold); color: var(--mauve); }
+.year-outlook-months li.is-short > div span { color: var(--color-danger); }
+.year-outlook-months li p { margin: 6px 0 0; font-size: var(--text-sm); }
+.expense-group-categories { list-style: none; margin: 12px 0 0; padding: 0; }
+.expense-group-categories li { display: flex; justify-content: space-between; gap: 16px; padding-block: 8px; border-top: 1px solid var(--line); font-size: var(--text-sm); }
+.expense-group-categories li span { min-width: 0; overflow-wrap: anywhere; }
+.expense-group-categories li strong { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.expense-debt-note { font-size: var(--text-sm); }
+.expense-stack-row.stack-non_discretionary { background: var(--paper); }
+.expense-stack-row.stack-discretionary { background: var(--emerald-soft); }
+.money-topic-picker { display: none; }
+.wealth-screen { align-content: start; }
+.wealth-screen > .metric-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.statements-screen .document-review-panel { border: 0; border-radius: 0; background: none; padding-inline: 0; }
+@media (max-width: 620px) {
+  .home-money-values { grid-template-columns: 1fr; gap: 12px; }
+  .home-money-values > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; align-items: baseline; }
+  .home-money-values dd { margin: 0; font-size: 28px; }
+  .money-topics { display: none; }
+  .money-topic-picker { display: grid; gap: 8px; }
+  .money-topic-picker select { width: 100%; min-height: 44px; min-width: 0; padding: 10px; font: inherit; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); }
+  .wealth-screen > .metric-row { grid-template-columns: 1fr; }
+}
+
+.year-outlook { display: block; margin: 0; padding: 16px 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; }
+@media (max-width: 620px) {
+  .home-money-values dd { margin-inline-start: auto; text-align: right; }
+}

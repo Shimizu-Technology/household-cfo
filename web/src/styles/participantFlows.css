@@ -17,7 +17,7 @@
 .participant-review .transaction-draft-bulk-actions { border: 0; background: transparent; padding-inline: 0; }
 .participant-review [tabindex='-1']:focus-visible { outline: 2px solid var(--focus-color, #7b4a58); outline-offset: 4px; }
 .statements-screen .document-import-workspace { box-shadow: none; }
-.statements-screen .document-upload-card { background: transparent; box-shadow: none; border: 1px solid var(--line); }
+.statements-screen .document-upload-card { background: transparent; box-shadow: none; border: 0; }
 .statements-screen .document-upload-primary .document-upload-card label { padding: 16px; }
 .statements-screen .document-review-layout { grid-template-columns: minmax(0, 1fr); }
 .statements-screen .document-history-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }

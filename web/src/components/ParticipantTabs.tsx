@@ -17,7 +17,7 @@ export type ParticipantTabsProps = {
 
 const sectionDescriptions: Record<string, string> = {
   'My Profile': 'Your household details and preferences.',
-  'My Money': 'Find and update income, spending, debt, accounts, goals, and statements.',
+  'My Money': 'Update income, spending, debt, accounts, and goals.',
   Statements: 'Upload privately and review accounts, periods, and statement rows.',
   Review: 'Review and confirm transactions.',
   Budget: 'Plan your money across the year.',
@@ -31,7 +31,6 @@ const sectionDescriptions: Record<string, string> = {
 const compactLabels: Record<string, string> = {
   'My Profile': 'Profile',
   'My Money': 'Money',
-  Statements: 'Files',
 }
 
 const sectionIconPaths: Record<string, string> = {

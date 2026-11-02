@@ -77,8 +77,16 @@ async function openSetAside(page: Page) {
 }
 
 async function openMoneyTopic(page: Page, name: string) {
-  await openSection(page, 'My Money')
-  await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name, exact: true }).click()
+  if (decodeURIComponent(new URL(page.url()).hash) !== '#My Money') await openSection(page, 'My Money')
+  const picker = page.getByRole('combobox', { name: 'Money details', exact: true })
+  if (await picker.isVisible()) await picker.selectOption({ label: name })
+  else await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name, exact: true }).click()
+}
+
+async function expectMoneyTopic(page: Page, name: string) {
+  const picker = page.getByRole('combobox', { name: 'Money details', exact: true })
+  if (await picker.isVisible()) await expect(picker).toHaveValue(name.toLowerCase())
+  else await expect(page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'true')
 }
 
 async function openDetails(page: Page, label: string | RegExp) {
@@ -202,6 +210,7 @@ const profile = {
 }
 
 const dashboard = {
+  month_answer: { year: currentYear, month: new Date().getMonth() + 1, period_label: `${currentMonth} ${currentYear}`, money_in_cents: 1500000, planned_out_cents: 550000, spent_so_far_cents: 347500, plan_left_cents: 950000, pending_count: 2, pending_cents: 11500, pending_list_truncated: false, readiness_tone: 'red', readiness_guidance: 'Your emergency cushion needs building, so give that breathing room a job first.', runway_months: 0.5 },
   summary: {
     monthly_income: 14_200, fixed_expenses: 6_000, flexible_spend: 1_500, debt_payments: 200,
     monthly_surplus_rate_percent: 38, runway_months: 0.5, next_safe_to_spend_amount: 0,
@@ -1878,7 +1887,7 @@ test('participant workflow remains usable when Plaid is not configured', async (
   await expect(page.getByText('Connect an account from My Profile.', { exact: false })).toHaveCount(0)
   // My Money stays reachable from More when Budget takes its place in the primary bar.
   await openSection(page, 'My Money')
-  await expect(page.getByRole('navigation', { name: 'My Money topics' })).toBeVisible()
+  await expect(page.locator('#money-topic-content')).toBeVisible()
 })
 
 test('configured Plaid clearly supports a participant with no connections', async ({ page }) => {
@@ -2077,108 +2086,51 @@ test('initial Plaid sync refreshes the workspace when transaction history is rea
 })
 
 test('BOG UI household Home keeps known debt and unknown liquid guidance distinct', async ({ page }) => {
-  await page.route('**/api/v1/workspace', (route) => route.fulfill({ json: {
-    ...realWorkspaceData(true),
-    dashboard: { ...dashboard, summary: { ...dashboard.summary, readiness_available: false, next_safe_to_spend_amount: null, readiness_label: 'Liquid balances needed — add them before using cash guidance' } },
-  } }))
+  const current = realWorkspaceData(true)
+  current.dashboard.month_answer = { ...current.dashboard.month_answer, runway_months: null, readiness_guidance: 'Add the missing starting numbers before judging your cushion.' } as typeof current.dashboard.month_answer
+  await page.route('**/api/v1/workspace', route => route.fulfill({ json: current }))
   await page.goto('/?pilot_e2e_role=participant')
-  await expect(page.locator('.home-readiness-line')).toContainText('Liquid balances needed')
+  await expect(page.locator('.home-cushion')).toContainText('Add the missing starting numbers')
   await expect(page.locator('.home-screen')).not.toContainText('Safe to spend')
-  await expect(page.locator('.home-screen')).toContainText('$15,000.00')
+  await expect(page.locator('.home-money-values')).toContainText('$15,000')
   await page.getByRole('button', { name: 'Plan details →' }).click()
-  await expect(page.getByRole('group', { name: 'Monthly money out breakdown' })).toContainText('Debt minimums $200.00')
+  await expect(page.locator('.expense-debt-note')).toContainText('Debt minimums: $200')
 })
 
-test('BOG UI household Home leads with money, a visible year and one purchase review', async ({ page, browserName }) => {
+test('BOG UI household Home leads with the shared money answer, visible runway and year differences', async ({ page }) => {
   await page.goto('/')
   const home = page.locator('.home-screen')
-  await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
-  const monthSummary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
-  await expect(monthSummary.getByText('Spent so far', { exact: true }).locator('..')).toContainText('$3,475.00')
-  await expect(monthSummary).toContainText('$115.00 pending review · not counted as spent')
-  await expect(monthSummary.getByText('Planned out', { exact: true }).locator('..')).toContainText('$5,500.00')
-  // The sentence states money in minus planned out, choosing the right branch.
-  const cents = async (name: string) => Math.round(Number((await monthSummary.getByText(name, { exact: true }).locator('..').locator('strong').innerText()).replace(/[$,]/g, '')) * 100)
-  const balanceCents = (await cents('Money in')) - (await cents('Planned out'))
-  const money = (value: number) => `$${(Math.abs(value) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  await expect(monthSummary.locator('.month-plan-balance').first()).toHaveText(balanceCents < 0 ? `This month’s plan is ${money(balanceCents)} more than money in.` : balanceCents === 0 ? 'Your plan uses all of your money in.' : `Your plan leaves ${money(balanceCents)} after planned spending.`)
-  await expect(home.locator('.cash-flow-month')).toHaveCount(12)
-  await expect(home.locator('details .annual-cash-flow-chart')).toHaveCount(0)
+  await expect(home.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
+  const answer = home.getByRole('region', { name: 'Your month in money' })
+  await expect(answer).toContainText('Money in$15,000')
+  await expect(answer).toContainText('Money out · planned$5,500')
+  await expect(answer).toContainText('What’s left · planned$9,500')
+  await expect(answer).toContainText('Spent so far: $3,475')
+  await expect(home.getByRole('heading', { name: '0.5 months of breathing room' })).toBeVisible()
+  await expect(home.locator('.year-outlook-months')).toContainText('Holiday travel')
+  await expect(home.locator('.cash-flow-month')).toHaveCount(0)
   await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(0)
-  const picker = home.getByRole('combobox', { name: 'View month' })
-  if (await picker.isVisible()) {
-    await picker.selectOption({ label: `Jan ${currentYear}` })
-    await expect(home.locator('.cash-flow-detail-panel')).toContainText(`Jan ${currentYear}`)
-    await picker.selectOption({ label: `Dec ${currentYear}` })
-  } else {
-    const january = home.getByRole('button', { name: new RegExp(`Jan ${currentYear}:`) })
-    const nextControlKey = browserName === 'webkit' ? 'Alt+Tab' : 'Tab'
-    await page.getByRole('region', { name: `${currentYear} monthly income and planned outflow chart` }).focus()
-    await page.keyboard.press(nextControlKey)
-    await expect(january).toBeFocused()
-    await expect(home.locator('.cash-flow-detail-panel')).toContainText(`Jan ${currentYear}`)
-    for (let index = 0; index < 11; index += 1) await page.keyboard.press(nextControlKey)
-  }
-  await expect(home.locator('.cash-flow-detail-panel')).toContainText('Holiday travel')
-  await page.getByText('Readiness details', { exact: true }).click()
-  await expect(home).toContainText('Yellow: build your cash cushion.')
-  await page.getByRole('button', { name: 'Review 2 purchases' }).click()
+  await home.getByRole('button', { name: 'Review 2 purchases' }).click()
   await expect(page).toHaveURL(/#Review$/)
 })
 
-test('BOG UI household cash-flow chart resumes pointer previews after pinning and unpinning a month', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name.includes('mobile'), 'pointer hover interaction')
+test('BOG UI household year outlook groups steady months without interactive bars', async ({ page }) => {
   await page.goto('/')
-  await page.evaluate(() => document.fonts.ready)
-
-  const january = page.getByRole('button', { name: new RegExp(`Jan ${currentYear}:`) }).first()
-  const february = page.getByRole('button', { name: new RegExp(`Feb ${currentYear}:`) }).first()
-  const detail = page.locator('.home-financial-visuals .cash-flow-detail-panel')
-  await january.click()
-  await expect(january).toHaveAttribute('aria-pressed', 'true')
-  await february.hover()
-  await expect(detail).toContainText(`Jan ${currentYear}`)
-  await january.click()
-  await expect(january).toHaveAttribute('aria-pressed', 'false')
-  await expect(january).toBeFocused()
-  await february.hover()
-  await expect(january).toBeFocused()
-  await expect(detail).toContainText(`Feb ${currentYear}`)
+  const outlook = page.locator('.home-screen .year-outlook')
+  await expect(outlook).toContainText('Jan–Jul')
+  await expect(outlook).toContainText('Aug–Nov')
+  await expect(outlook).toContainText('Dec')
+  await expect(outlook.locator('li')).toHaveCount(3)
+  await expect(outlook.getByRole('button')).toHaveCount(0)
 })
 
-test('BOG UI household penny-level plans never show a false over-budget warning', async ({ page }) => {
-  const pennyRow = {
-    ...budget.annual_plan.rows[0],
-    name: 'Penny-perfect category',
-    months: categoryMonths(1, 0.3, 0.1),
-    planned_total: 3.6,
-    actual_total: 0.1,
-  }
-  const pennyBudget = {
-    ...budget,
-    annual_plan: {
-      ...budget.annual_plan,
-      rows: [pennyRow],
-      monthly_debt_minimums: 0,
-      pending_transaction_drafts: [{
-        ...budget.annual_plan.pending_transaction_drafts[0],
-        amount: 0.2,
-        amount_cents: 20,
-        category_id: pennyRow.id,
-        category_name: pennyRow.name,
-      }],
-      pending_mia_action_drafts: [],
-    },
-  }
-  await page.route('http://api.test/api/demo/budget', (route) => route.fulfill({ status: 200, json: pennyBudget }))
-
+test('BOG UI household Home respects the shared penny-level answer instead of recalculating from budget', async ({ page }) => {
+  await page.route('http://api.test/api/demo/dashboard', route => route.fulfill({ json: { ...dashboard, month_answer: { ...dashboard.month_answer, money_in_cents: 100, planned_out_cents: 30, plan_left_cents: 70, spent_so_far_cents: 10, pending_cents: 20 } } }))
   await page.goto('/')
-
-  const monthSummary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
-  await expect(monthSummary.getByText('Planned out', { exact: true }).locator('..')).toContainText('$0.30')
-  await expect(monthSummary).not.toContainText('over the plan')
-  await expect(monthSummary).toContainText('$0.20 pending review · not counted as spent')
-  await expect(monthSummary).not.toContainText('over plan if all pending items are approved')
+  const answer = page.getByRole('region', { name: 'Your month in money' })
+  await expect(answer).toContainText('Money out · planned$0.30')
+  await expect(answer).toContainText('What’s left · planned$0.70')
+  await expect(answer).not.toContainText('over the plan')
 })
 
 test('large financial values stay on one line and participant screens stay inside the viewport', async ({ page }) => {
@@ -2187,7 +2139,7 @@ test('large financial values stay on one line and participant screens stay insid
     if (section !== 'Home') await openSection(page, section)
 
     const audit = await page.evaluate(() => {
-      const selectors = '.metric-card strong, .stack-card strong, .decision-card > strong, .readiness-milestone-card > strong, .outlook-month span, .outlook-month b, .plan-value strong, .month-plan-income strong, .month-plan-decision-row strong, .cash-flow-detail-panel dd, .transaction-draft-impact-row dd, .transaction-draft-impact-title b'
+      const selectors = '.home-money-values dd, .metric-card strong, .stack-card strong, .decision-card > strong, .readiness-milestone-card > strong, .outlook-month span, .outlook-month b, .plan-value strong, .month-plan-income strong, .month-plan-decision-row strong, .cash-flow-detail-panel dd, .transaction-draft-impact-row dd, .transaction-draft-impact-title b'
       const values = Array.from(document.querySelectorAll<HTMLElement>(selectors)).filter((element) => element.offsetParent !== null && element.textContent?.includes('$'))
       return {
         documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -3072,7 +3024,8 @@ test('Profile keeps personal details and sends financial work to My Money', asyn
   await expect(page.getByRole('heading', { name: 'Household details' })).toBeVisible()
   await expect(page.locator('.profile-screen input[type="number"]')).toHaveCount(0)
   await expect(page.locator('.profile-screen .income-source-manager, .profile-screen .account-manager, .profile-screen .goal-manager, .profile-screen .debt-manager, .profile-screen .plaid-connections')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Open My Money', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Open My Money', exact: true })).toHaveCount(0)
+  await openSection(page, 'My Money')
   await expect(page.locator('.income-source-manager')).toBeVisible()
 })
 
@@ -3706,17 +3659,11 @@ test('BOG UI household Budget explains scheduled income changes and upcoming ann
   await page.goto('/?pilot_e2e_role=participant')
   await openSection(page, 'Budget')
   await expect(page.getByRole('heading', { name: 'Your annual plan' })).toBeVisible()
-  const outflowBreakdown = page.getByRole('group', { name: 'Monthly money out breakdown' })
-  await expect(outflowBreakdown).toContainText('Category plan')
-  await expect(outflowBreakdown).toContainText('$5,300.00')
-  await expect(outflowBreakdown).toContainText('Debt minimums')
-  await expect(outflowBreakdown).toContainText('$200.00')
-  await expect(outflowBreakdown).toContainText('Planned out')
-  await expect(outflowBreakdown).toContainText('$5,500.00')
-  const annualMoneyOut = page.getByLabel('Annual money out breakdown')
-  await expect(annualMoneyOut).toContainText('Annual category plan$66,600.00')
-  await expect(annualMoneyOut).toContainText('Annual debt minimums$2,400.00')
-  await expect(annualMoneyOut).toContainText('Total annual money out$69,000.00')
+  await expect(page.locator('.expense-debt-note')).toContainText('Debt minimums: $200')
+  await expect(page.locator('.expense-group-categories')).toHaveCount(4)
+  await expect(page.locator('.year-outlook')).toContainText('Holiday travel')
+  await expect(page.getByLabel('Annual money out breakdown')).toHaveCount(0)
+  await expect(page.locator('.month-plan-summary')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Ask Mia to update my plan' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Annual budget table' })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Pay changes' })).toHaveCount(0)
@@ -3732,18 +3679,14 @@ test('BOG UI household Budget explains scheduled income changes and upcoming ann
   await expect(page.getByText('$15,000.00 Monthly')).toBeVisible()
   await page.getByRole('button', { name: 'Close manual tools' }).click()
 
-  await expect(page.getByRole('heading', { name: `What’s left each month in ${currentYear}` })).toBeVisible()
-  await expect(page.getByText(/Dec spending spike:/)).toBeVisible()
-  const decemberPicker = page.getByRole('combobox', { name: 'View month' })
-  if (await decemberPicker.isVisible()) await decemberPicker.selectOption({ label: `Dec ${currentYear}` })
-  else await page.getByRole('button', { name: new RegExp(`Dec ${currentYear}:`) }).click()
-  await expect(page.getByText('Holiday travel')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Where the money goes' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `Your ${currentYear} outlook` })).toBeVisible()
+  await expect(page.locator('.year-outlook')).toContainText('Dec')
+  await expect(page.locator('.year-outlook')).toContainText('Holiday travel: $3,000')
+  await expect(page.getByRole('heading', { name: 'Your spending groups' })).toBeVisible()
   await expect(page.locator('.expense-stack-row')).toHaveCount(4)
-  await expect(page.getByText('$75.00 pending review—not included in actuals.')).toBeVisible()
   await page.getByText('Monthly activity and transactions').click()
   await expect(page.getByRole('heading', { name: 'Every category, ordered by pressure' })).toBeVisible()
-  await expect(page.locator('.annual-outlook .cash-flow-month')).toHaveCount(12)
+  await expect(page.locator('.annual-outlook .year-outlook-months > li')).toHaveCount(3)
   await openSection(page, 'Review')
   const diningDraft = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await diningDraft.getByText('Splits & budget impact', { exact: true }).click()
@@ -4076,36 +4019,19 @@ test('continuing job income is never assumed and requires explicit participant a
   expect(submittedChanges[1].retained_after_transition).toBe(false)
 })
 
-test('BOG UI household Budget keeps headline, cockpit, and chart on the selected report month', async ({ page }) => {
+test('BOG UI household Budget keeps category groups on the selected month without repeating Home totals', async ({ page }) => {
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
   await page.goto('/?pilot_e2e_role=participant')
   await openSection(page, 'Budget')
-
-  const reportMonth = page.getByLabel('Report month')
-  const headline = page.locator('.month-plan-summary')
-  const cockpit = page.locator('.month-plan-summary')
-  const chartDetail = page.locator('.annual-outlook .cash-flow-detail-panel')
-
-  await reportMonth.selectOption('11')
-  await expect(headline.getByRole('heading', { name: `Dec ${currentYear}` })).toBeVisible()
-  await expect(headline).toContainText('Money in$15,000.00')
-  await expect(headline).toContainText('Planned out $8,500.00')
-  await expect(chartDetail).toContainText('Left over each month$6,500.00')
-  await expect(cockpit).toContainText(`Dec ${currentYear}`)
-  await expect(cockpit.getByRole('group', { name: 'Monthly money out breakdown' })).toContainText('Planned out $8,500.00')
-  await expect(chartDetail).toContainText(`Report monthDec ${currentYear}`)
-  await expect(chartDetail).toContainText('Planned outflow$8,500.00')
-
-  const chartPicker = page.locator('.annual-outlook').getByRole('combobox', { name: 'View month' })
-  if (await chartPicker.isVisible()) await chartPicker.selectOption({ label: `Jan ${currentYear}` })
-  else await page.locator('.annual-outlook .cash-flow-month-trigger').first().click()
-  await expect(chartDetail).toContainText(`Chart previewJan ${currentYear}`)
-  await expect(reportMonth).toHaveValue('11')
-
-  await page.getByRole('button', { name: 'This month', exact: true }).click()
-  await expect(reportMonth).toHaveValue(String(new Date().getMonth()))
-  await expect(headline.getByRole('heading', { name: `${currentShortMonth} ${currentYear}` })).toBeVisible()
-  await expect(chartDetail).toContainText(`Report month${currentShortMonth} ${currentYear}`)
+  const month = page.getByLabel('Report month')
+  await month.selectOption('11')
+  const yearly = page.locator('.expense-stack-row.stack-sinking_expected')
+  await expect(yearly).toContainText('$3,600')
+  await expect(page.locator('.year-outlook')).toContainText('Dec')
+  await expect(page.locator('.month-plan-summary')).toHaveCount(0)
+  await month.selectOption('0')
+  await expect(yearly).toContainText('$600')
+  await expect(month).toHaveValue('0')
 })
 
 test('BOG UI household focused manual budget tools expose exact controls without a page hunt and protect dirty edits', async ({ page }) => {
@@ -4418,8 +4344,8 @@ test('Wealth and Optionality explain decisions without fake payoff progress or c
   await expect(debtCard.getByText('$5,400.00 remaining')).toBeVisible()
   await expect(debtCard.locator('.progress-track')).toHaveCount(0)
   await expect(debtCard).not.toContainText('0 / 5,400')
-  const outlook = page.locator('.metric-card').filter({ hasText: '10-year surplus capacity' })
-  await expect(outlook).toContainText('planning capacity—not confirmed savings, an investment contribution, or a forecast')
+  await expect(page.locator('.metric-card').filter({ hasText: '10-year surplus capacity' })).toHaveCount(0)
+  await expect(page.locator('.metric-card').filter({ hasText: 'Left to give a job each month' })).toContainText('$9,500')
   await expect(page.getByText('Retirement projection', { exact: true })).toHaveCount(0)
 
   await openSection(page, 'Optionality')
@@ -4446,8 +4372,8 @@ test('Wealth stays accurate while the frontend and API metric contracts roll out
   await page.goto('/')
   await openSection(page, 'Wealth')
 
-  await expect(page.locator('.metric-card').filter({ hasText: '10-year surplus capacity' })).toContainText('$78,600.00')
-  await expect(page.locator('.metric-card').filter({ hasText: 'Monthly surplus available' })).toContainText('$655.00')
+  await expect(page.locator('.metric-card').filter({ hasText: '10-year surplus capacity' })).toHaveCount(0)
+  await expect(page.locator('.metric-card').filter({ hasText: 'Left to give a job each month' })).toContainText('$9,500')
   await expect(page.getByText('$190,000.00', { exact: true })).toHaveCount(0)
 })
 
@@ -4510,7 +4436,7 @@ test('BOG UI household compact phone layouts keep a stable shell and overlay sec
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeFocused()
   await page.getByRole('link', { name: 'Home', exact: true }).click()
-  await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
+  await expect(page.locator('.home-screen .year-outlook-months > li')).toHaveCount(3)
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
   const askMiaHeaderBox = await header.boundingBox()
@@ -7585,8 +7511,7 @@ test('participant can add edit archive and restore individual debt records', asy
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await expect(page.locator('.participant-program-switch > summary')).toHaveText('Program · BOG')
-  await expect(page.locator('.participant-program-switch > summary')).toBeVisible()
+  await expect(page.locator('.participant-program-switch')).toHaveCount(0)
   await openSection(page, 'My Profile')
   await openMoneyTopic(page, 'Debt')
   const debtPanel = page.locator('.debt-manager')
@@ -8501,10 +8426,11 @@ test('BOG UI household a late spending report cannot overwrite the refresh trigg
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
   await openSection(page, 'Budget')
 
-  const monthSummary = page.getByRole('region', { name: `${currentShortMonth} ${currentYear} plan position` })
-  await expect(monthSummary.getByText('Spent so far', { exact: true }).locator('..')).toContainText('$4,000.00')
+  await page.getByText('Monthly activity and transactions').click()
+  const activity = page.locator('.budget-detail-disclosure')
+  await expect(activity).toContainText('$4,000.00')
   await page.waitForTimeout(600)
-  await expect(monthSummary.getByText('Spent so far', { exact: true }).locator('..')).toContainText('$4,000.00')
+  await expect(activity).toContainText('$4,000.00')
   expect(requestCount).toBeGreaterThanOrEqual(2)
 })
 
@@ -8624,9 +8550,9 @@ test('BOG UI household a same-month Mia response cannot undo a newer transaction
   await expect(transactionCard.getByRole('button', { name: 'Confirm' })).toBeEnabled()
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
   await openSection(page, 'Budget')
-  const monthSummary = page.getByRole('region', { name: `${currentShortMonth} ${currentYear} plan position` })
-  await expect(monthSummary.getByText('Spent so far', { exact: true }).locator('..')).toContainText('$4,000.00')
-  await expect(monthSummary.locator('.month-plan-pending')).toHaveCount(0)
+  await page.getByText('Monthly activity and transactions').click()
+  await expect(page.locator('.current-month-activity-panel, .budget-detail-disclosure')).toContainText('$4,000.00')
+  await expect(page.locator('.budget-detail-disclosure')).not.toContainText('STALE MIA')
 })
 
 test('Auth recovery failed receipt upload retains the selected file for retry', async ({ page }) => {
@@ -9213,9 +9139,9 @@ test('BOG UI Home and current review survive a future Budget year', async ({ pag
   await openSection(page, 'Ask Mia')
   await expect(page.locator('.chat-period-context')).toHaveText(`Using your ${longMonths[new Date().getMonth()]} ${currentYear + 1} plan`)
   await openSection(page, 'Home')
-  const summary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
-  await expect(summary.getByText('Spent so far', { exact: true }).locator('..')).toContainText('$3,475.00')
-  await expect(summary.getByText('Planned out', { exact: true }).locator('..')).toContainText('$5,500.00')
+  const summary = page.getByRole('region', { name: 'Your month in money' })
+  await expect(summary).toContainText('Spent so far: $3,475')
+  await expect(summary).toContainText('Money out · planned$5,500')
   await page.getByRole('button', { name: 'Review 2 purchases', exact: true }).click()
   await expect(page.getByText('Dinner with friends', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Storm supplies', { exact: true }).first()).toBeVisible()
@@ -9285,7 +9211,7 @@ test('BOG UI Home links a file waiting for review without loading statements fir
   expect(importReads).toBe(0)
   await others.getByRole('button', { name: '1 file waiting for review', exact: true }).click()
   await expect(page).toHaveURL(/#Statements$/)
-  await expect(page.getByRole('heading', { name: 'QA-source-only.pdf', exact: true })).toBeVisible()
+  await expect(page.getByRole('article', { name: 'Review QA-source-only.pdf', exact: true }).getByRole('heading', { name: 'Review details', exact: true })).toBeVisible()
   await expect(page.locator('.document-workspace-heading')).toContainText('1')
 })
 
@@ -9318,7 +9244,7 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await openSection(page, 'Ask Mia')
   await openChatContext(page)
   await page.getByRole('button', { name: 'Review files', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'QA-partial.pdf', exact: true })).toBeVisible()
+  await expect(page.getByRole('article', { name: 'Review QA-partial.pdf', exact: true }).getByRole('heading', { name: 'Review details', exact: true })).toBeVisible()
 })
 
 async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview) {
@@ -9895,45 +9821,23 @@ test('BOG UI compact normal chat shows history and composer on first screen with
   await expect(page.locator('main.app')).not.toHaveClass(/is-chat-page/)
 })
 
-test('BOG UI program chooser shares the compact chat masthead without overlapping privacy or resizing conversation', async ({ page }, testInfo) => {
+test('BOG UI program choices live inside Account and help and preserve the chat draft', async ({ page }) => {
   const current = realWorkspaceData(true)
   const name = 'Fictional Bank of Guam Community Savings Challenge with a long program name'
   current.workspace.cohort.name = name
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: current }))
   await page.route('http://api.test/api/v1/participant_programs**', route => route.fulfill({ json: { actor_id: 901, current_cohort_id: 41, current_program: { id: 41, name, status: 'active' }, selection_unavailable: false, programs: [{ id: 41, name, status: 'active' }, { id: 42, name: 'Another fictional program', status: 'active' }], next_cursor: null } }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
-  await page.evaluate(() => document.fonts.ready)
-  const disclosure = page.locator('.participant-program-switch'), summary = disclosure.locator('summary')
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await composer.fill('Keep this draft while checking my program.')
-  await expect(summary).toHaveAccessibleName(`Program · ${name}`)
-  await settleChatLayout(page)
-  await expect(summary).toBeVisible()
-  const geometry = await summary.evaluate(node => {
-    const trigger = node.getBoundingClientRect(), privacy = document.querySelector('.shell-account-menu > summary')!.getBoundingClientRect()
-    const history = document.querySelector('.chat-card-wrap')!.getBoundingClientRect()
-    return { trigger: { left: trigger.left, right: trigger.right, top: trigger.top, bottom: trigger.bottom, height: trigger.height }, privacy: { left: privacy.left, right: privacy.right, top: privacy.top, bottom: privacy.bottom }, headerHeight: document.querySelector('.shell-header')!.getBoundingClientRect().height, navHeight: document.querySelector('.tabs-shell')!.getBoundingClientRect().height, titleHeight: document.querySelector('.mia-page-heading')!.getBoundingClientRect().height, rows: getComputedStyle(document.querySelector('main.app')!).gridTemplateRows, historyHeight: history.height, historyTop: history.top, sendBottom: document.querySelector('[aria-label="Send message to Mia"]')!.getBoundingClientRect().bottom, viewport: innerHeight }
-  })
-  expect(geometry.trigger.height).toBeGreaterThanOrEqual(44)
-  expect(geometry.trigger.left >= geometry.privacy.right || geometry.trigger.right <= geometry.privacy.left || geometry.trigger.top >= geometry.privacy.bottom || geometry.trigger.bottom <= geometry.privacy.top).toBe(true)
-  await page.screenshot({ path: `.codex-qa/program-chat-${testInfo.project.name}.png` })
-  expect(geometry.historyTop, JSON.stringify(geometry)).toBeLessThan(250)
-  expect(geometry.sendBottom).toBeLessThanOrEqual(geometry.viewport)
-  await summary.focus(); await summary.press('Enter')
+  await expect(page.locator('.participant-program-switch')).toHaveCount(0)
+  await page.getByLabel('Account and help', { exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Switch participant program' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Your participant programs' })).toContainText(name)
-  expect(Math.abs(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height) - geometry.historyHeight)).toBeLessThanOrEqual(1)
-  await page.locator('.shell-account-menu > summary').click()
-  await expect(disclosure).not.toHaveAttribute('open', '')
-  await expect(page.locator('.shell-account-panel')).toBeVisible()
-  await summary.click()
-  await expect(page.locator('.shell-account-menu')).not.toHaveAttribute('open', '')
-  await summary.focus(); await summary.press('Space')
+  await page.getByLabel('Account and help', { exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Switch participant program' })).toBeHidden()
   await expect(composer).toHaveValue('Keep this draft while checking my program.')
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
-  await testInfo.attach('compact-program-geometry', { body: JSON.stringify(geometry), contentType: 'application/json' })
-  await page.screenshot({ path: `.codex-qa/program-chat-${testInfo.project.name}.png` })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
 test('BOG UI compact chat context names savings workspace without claiming savings totals', async ({ page }) => {
@@ -10538,9 +10442,11 @@ for (const interruptedAt of ['storage', 'processing'] as const) {
     await composer.fill('Review these fictional receipts in the original program only.')
     await page.getByRole('button',{name:'Send message to Mia'}).click()
     await expect.poll(()=>calls.some(row=>row.kind===interruptedAt || interruptedAt==='processing'&&row.kind==='complete')).toBe(true)
-    await page.locator('.participant-program-switch > summary').click()
+    await openAccountHelp(page)
     await page.getByRole('combobox',{name:'Switch participant program'}).selectOption('42')
-    await expect(page.locator('.participant-program-switch > summary')).toContainText(programNames[42])
+    await openAccountHelp(page)
+    await expect(page.getByRole('combobox',{name:'Switch participant program'})).toHaveValue('42')
+    await page.getByLabel('Account and help').click()
     await expect(composer).toHaveValue('')
     await expect(page.locator('.composer-attachment-card')).toHaveCount(0)
     releaseStorage()
@@ -10587,19 +10493,14 @@ for (const role of ['participant', 'coach', 'admin']) {
   })
 }
 
-test('BOG UI pilot support stays vertically aligned on narrow phones and account fits short screens', async ({ page }) => {
+test('BOG UI participant shell drops the privacy banner and account fits short screens', async ({ page }) => {
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
   await page.goto('/?pilot_e2e_role=participant#Home')
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 568 })
-    const alignment = await page.locator('.pilot-support-bar').evaluate(node => {
-      const status = node.querySelector(':scope > span')!.getBoundingClientRect()
-      const actions = node.querySelector(':scope > div')!.getBoundingClientRect()
-      return { centers: Math.abs((status.top + status.bottom) / 2 - (actions.top + actions.bottom) / 2), height: node.getBoundingClientRect().height, overflow: document.documentElement.scrollWidth - innerWidth }
-    })
-    expect(alignment.centers).toBeLessThanOrEqual(1)
-    expect(alignment.height).toBeLessThanOrEqual(64)
-    expect(alignment.overflow).toBeLessThanOrEqual(1)
+    await expect(page.locator('.pilot-support-bar')).toHaveCount(0)
+    await expect(page.getByText('Private workspace', { exact: true })).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
   }
   await page.evaluate(() => document.fonts.ready)
   await page.locator('.brand-footer').scrollIntoViewIfNeeded()
@@ -10877,29 +10778,24 @@ test('BOG UI source preview keeps a long filename and final help reachable with 
 
 
 test('BOG UI My Money groups saved records and opens category editing without mobile overflow', async ({ page }) => {
-  const workspace = realWorkspaceData(true)
-  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
-  const topics = page.getByRole('navigation', { name: 'My Money topics' })
-  await expect(topics).toBeVisible({ timeout: 15000 })
-  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.income-source-manager-card').first()).toBeVisible()
   await expect(page.locator('.income-schedule-form')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Plan an income change' })).toBeVisible()
-  await topics.getByRole('button', { name: 'Spending', exact: true }).click()
+  await openMoneyTopic(page, 'Spending')
   await expect(page.locator('.money-record-list')).toContainText('Fixed essentials')
   await page.getByRole('button', { name: 'Add category', exact: true }).click()
   await expect(page).toHaveURL(/#Budget$/)
   await expect(page.getByRole('textbox', { name: 'New category' })).toBeFocused()
-  await openSection(page, 'My Money')
-  await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+  await openMoneyTopic(page, 'Accounts')
   await expect(page.locator('.account-manager')).toBeVisible()
-  await topics.getByRole('button', { name: 'Goals', exact: true }).click()
+  await openMoneyTopic(page, 'Goals')
   await expect(page.locator('.goal-manager')).toBeVisible()
-  await topics.getByRole('button', { name: 'Statements', exact: true }).click()
-  await page.getByRole('button', { name: 'Open Statements', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Statements', exact: true })).toHaveCount(0)
+  await openSection(page, 'Statements')
   await expect(page).toHaveURL(/#Statements$/)
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
 test('BOG UI financial review cards stay available in Mia with their explicit household scope', async ({ page }) => {
@@ -10932,13 +10828,12 @@ test('BOG UI My Money blocks transitions until income source and schedule drafts
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
   await page.route('http://api.test/api/v1/budget?**', route => { yearRequests += 1; return route.fulfill({ json: budgetFixtureForYear(currentYear + 1) }) })
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
-  const topics = page.getByRole('navigation', { name: 'My Money topics' })
   await page.getByRole('button', { name: 'Add income source', exact: true }).click()
   const source = page.locator('.income-source-form')
   await source.getByLabel('Name', { exact: true }).fill('Unsaved side work')
   await source.getByLabel('Starting amount').fill('500')
-  await topics.getByRole('button', { name: 'Spending', exact: true }).click()
-  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await openMoneyTopic(page, 'Spending')
+  await expectMoneyTopic(page, 'Income')
   await expect(page.getByRole('alert').filter({ hasText: 'You have unsaved income changes. Save or cancel them before switching money topics.' })).toBeVisible()
   await page.getByRole('link', { name: 'Home', exact: true }).click()
   await expect(page).toHaveURL(/#My%20Money$/)
@@ -10951,12 +10846,12 @@ test('BOG UI My Money blocks transitions until income source and schedule drafts
   await schedule.getByRole('button', { name: 'Continue', exact: true }).click()
   await schedule.getByRole('button', { name: 'Continue', exact: true }).click()
   await schedule.getByLabel('Amount', { exact: true }).fill('650')
-  await topics.getByRole('button', { name: 'Goals', exact: true }).click()
+  await openMoneyTopic(page, 'Goals')
   await expect(schedule.getByLabel('Amount', { exact: true })).toHaveValue('650')
-  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expectMoneyTopic(page, 'Income')
   await schedule.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await topics.getByRole('button', { name: 'Spending', exact: true }).click()
-  await expect(topics.getByRole('button', { name: 'Spending', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await openMoneyTopic(page, 'Spending')
+  await expectMoneyTopic(page, 'Spending')
 })
 
 test('BOG UI one income form protects unsaved scheduling before a source save and invalidate a previously cached future year', async ({ page }) => {
@@ -11012,32 +10907,31 @@ test('BOG UI My Money preserves account goal and debt drafts until save or cance
   const workspace = realWorkspaceData(true)
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
-  const topics = page.getByRole('navigation', { name: 'My Money topics' })
   for (const scenario of [
     { topic: 'Accounts', add: 'Add an account', form: '.account-form', field: 'Account name', value: 'Unsaved checking' },
     { topic: 'Goals', add: 'Add a goal', form: '.goal-form', field: 'Goal name', value: 'Unsaved travel' },
     { topic: 'Debt', add: 'Add a debt', form: '.debt-form', field: 'Debt name', value: 'Unsaved credit card' },
   ]) {
-    await topics.getByRole('button', { name: scenario.topic, exact: true }).click()
+    await openMoneyTopic(page, scenario.topic)
     await page.getByRole('button', { name: scenario.add, exact: true }).click()
     const form = page.locator(scenario.form)
     await form.getByLabel(scenario.field).fill(scenario.value)
-    await topics.getByRole('button', { name: 'Income', exact: true }).click()
-    await expect(topics.getByRole('button', { name: scenario.topic, exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await openMoneyTopic(page, 'Income')
+    await expectMoneyTopic(page, scenario.topic)
     await expect(form.getByLabel(scenario.field)).toHaveValue(scenario.value)
     await page.getByRole('link', { name: 'Home', exact: true }).click()
     await expect(page).toHaveURL(/#My%20Money$/)
     await form.getByRole('button', { name: 'Cancel', exact: true }).click()
-    await topics.getByRole('button', { name: 'Income', exact: true }).click()
-    await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await openMoneyTopic(page, 'Income')
+    await expectMoneyTopic(page, 'Income')
   }
-  await topics.getByRole('button', { name: 'Debt', exact: true }).click()
+  await openMoneyTopic(page, 'Debt')
   await page.getByRole('radio', { name: /One household summary/ }).check()
-  await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
-  await expect(topics.getByRole('button', { name: 'Debt', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await openMoneyTopic(page, 'Accounts')
+  await expectMoneyTopic(page, 'Debt')
   await page.getByRole('button', { name: 'Cancel tracking changes', exact: true }).click()
-  await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
-  await expect(topics.getByRole('button', { name: 'Accounts', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await openMoneyTopic(page, 'Accounts')
+  await expectMoneyTopic(page, 'Accounts')
 })
 
 
@@ -11054,16 +10948,15 @@ test('BOG UI debt summary decimal formats stay clean and decimal saves release n
     return route.fulfill({ json: { debt_portfolio: workspace.workspace.debt_portfolio } })
   })
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
-  const topics = page.getByRole('navigation', { name: 'My Money topics' })
-  await topics.getByRole('button', { name: 'Debt', exact: true }).click()
+  await openMoneyTopic(page, 'Debt')
   const balance = page.getByLabel('Total debt balance')
   const minimum = page.getByLabel('Total monthly minimums')
   await balance.fill('150.00')
   await minimum.fill('25.50')
   await expect(page.getByRole('button', { name: 'Save tracking choice' })).toBeDisabled()
-  await topics.getByRole('button', { name: 'Income', exact: true }).click()
-  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
-  await topics.getByRole('button', { name: 'Debt', exact: true }).click()
+  await openMoneyTopic(page, 'Income')
+  await expectMoneyTopic(page, 'Income')
+  await openMoneyTopic(page, 'Debt')
   await balance.fill('175.25')
   await minimum.fill('26.50')
   await page.getByRole('button', { name: 'Save tracking choice' }).click()
@@ -11072,8 +10965,8 @@ test('BOG UI debt summary decimal formats stay clean and decimal saves release n
   finishSave()
   await expect(page.getByRole('button', { name: 'Save tracking choice' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Cancel tracking changes' })).toHaveCount(0)
-  await topics.getByRole('button', { name: 'Income', exact: true }).click()
-  await expect(topics.getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await openMoneyTopic(page, 'Income')
+  await expectMoneyTopic(page, 'Income')
 })
 
 for (const currentRefreshWorks of [false, true]) {
@@ -11095,8 +10988,7 @@ for (const currentRefreshWorks of [false, true]) {
     await page.goto('/?pilot_e2e_role=participant#My%20Money')
     await page.getByRole('button', { name: 'Next income year' }).click()
     await expect(page.locator('.money-period-controls')).toContainText(String(currentYear + 1))
-    const topics = page.getByRole('navigation', { name: 'My Money topics' })
-    await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+      await openMoneyTopic(page, 'Accounts')
     await page.locator('.account-row').getByRole('button', { name: /^Edit / }).click()
     await page.locator('.account-form').getByLabel('Approved balance').fill('200')
     await page.getByRole('button', { name: 'Save account' }).click()
@@ -11107,7 +10999,7 @@ for (const currentRefreshWorks of [false, true]) {
     await page.getByRole('link', { name: 'Home', exact: true }).click()
     await expect(warning).toBeVisible()
     await openSection(page, 'My Money')
-    await topics.getByRole('button', { name: 'Income', exact: true }).click()
+    await openMoneyTopic(page, 'Income')
     await expect(page.getByRole('button', { name: 'Reload selected year' })).toBeVisible()
     await page.getByRole('button', { name: 'Reload selected year' }).click()
     await expect.poll(() => yearRequests).toBe(3)
@@ -11175,8 +11067,7 @@ for (const refreshFails of [false, true]) {
     await openSection(page, 'My Money')
     await page.getByRole('button', { name: 'Next income year' }).click()
     await expect(page.locator('.money-period-controls')).toContainText(String(currentYear + 1))
-    const topics = page.getByRole('navigation', { name: 'My Money topics' })
-    await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+      await openMoneyTopic(page, 'Accounts')
     await page.locator('.account-row').getByRole('button', { name: /^Edit / }).click()
     await page.locator('.account-form').getByLabel('Approved balance').fill('200')
     await page.getByRole('button', { name: 'Save account' }).click()
@@ -11186,13 +11077,13 @@ for (const refreshFails of [false, true]) {
     releaseBackground()
     await finishedBackground
     if (refreshFails) {
-      await topics.getByRole('button', { name: 'Income', exact: true }).click()
+      await openMoneyTopic(page, 'Income')
       await page.getByRole('button', { name: 'Use current year', exact: true }).click()
       await expect.poll(() => budgetRequests.filter(year => year === currentYear).length).toBe(1)
       await expect(page.getByRole('alert').filter({ hasText: 'the totals didn’t refresh' })).toBeVisible()
     } else {
-      await topics.getByRole('button', { name: 'Debt', exact: true }).click()
-      await topics.getByRole('button', { name: 'Accounts', exact: true }).click()
+      await openMoneyTopic(page, 'Debt')
+      await openMoneyTopic(page, 'Accounts')
       await expect(page.locator('.account-row')).toContainText('$200.00')
       await expect(page.locator('.account-row')).not.toContainText('$100.00')
     }
@@ -11456,7 +11347,7 @@ test('BOG UI participant navigation remains available with one Home load and no 
   await page.route('http://api.test/api/v1/spending_report**', route => { spending++; return route.fallback() })
   await page.route('http://api.test/api/v1/savings_challenge', route => { savings++; return route.fallback() })
   await page.goto('/?pilot_e2e_role=participant#Home')
-  await expect(page.getByRole('region', { name: /plan position/ })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Your month in money' })).toBeVisible()
   expect({ workspaceReads, imports, spending, savings }).toEqual({ workspaceReads: 1, imports: 0, spending: 0, savings: 0 })
   await openSection(page, 'Statements')
   await expect(page.locator('.document-history')).toBeVisible()
@@ -11648,7 +11539,7 @@ async function assertRestartUnknownMoney(page: Page) {
   await openSection(page, 'My Money')
   await expect(page.locator('.income-source-manager-heading')).toContainText('Income not entered')
   await expect(page.locator('.income-source-empty')).toContainText('No income sources yet.')
-  await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: 'Debt', exact: true }).click()
+  await openMoneyTopic(page, 'Debt')
   await expect(page.locator('.debt-empty')).toContainText('No active debts entered yet.')
   await expect(page.getByLabel('Canonical debt totals')).toContainText('Not entered')
   await expect(page.locator('.debt-manager')).not.toContainText('Practice Visa')
@@ -12068,12 +11959,12 @@ test('BOG UI setup help guides participants from Context and My Money to their i
   await expect(dialog).toContainText('Your setup contains saved financial facts.')
   await dialog.locator('.setup-help-topics').getByRole('button', { name: 'Income', exact: true }).click()
   await expect(dialog).toHaveCount(0)
-  await expect(page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: 'Income', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expectMoneyTopic(page, 'Income')
   await expect(page.locator('.income-source-manager-heading')).toBeVisible()
   await page.getByRole('button', { name: 'Fix my setup', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
   await dialog.locator('.setup-help-topics').getByRole('button', { name: 'Debt', exact: true }).click()
-  await expect(page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: 'Debt', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expectMoneyTopic(page, 'Debt')
   await expect(page.getByLabel('Canonical debt totals')).toBeVisible()
   expect(flow.creates).toEqual([])
   expect(flow.previewCalls()).toBe(0)
@@ -12480,13 +12371,15 @@ test('BOG UI participant navigation groups tools and keeps household privacy rel
   await expect(milestones.first()).toBeVisible()
   for (const card of await milestones.all()) await expect(card.locator('.milestone-status')).toHaveText(/^(Reached|In progress|Needs attention)$/)
   await openSection(page, 'My Money')
-  const topics = await page.locator('.money-topics button').evaluateAll(elements => elements.map(element => ({
-    client: element.clientWidth, scroll: element.scrollWidth, width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height,
-  })))
-  expect(topics).toHaveLength(6)
-  // Labels fit at every width; at 320px the two columns must not collapse.
-  const narrow = page.viewportSize()!.width <= 360
-  for (const topic of topics) { expect(topic.scroll).toBeLessThanOrEqual(topic.client); if (narrow) expect(topic.width).toBeGreaterThanOrEqual(140); expect(topic.height).toBeGreaterThanOrEqual(44) }
+  const picker = page.getByRole('combobox', { name: 'Money details', exact: true })
+  if (await picker.isVisible()) {
+    await expect(picker.locator('option')).toHaveCount(5)
+    expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  } else {
+    const topics = await page.locator('.money-topics button').evaluateAll(elements => elements.map(element => ({client: element.clientWidth, scroll: element.scrollWidth, height: element.getBoundingClientRect().height})))
+    expect(topics).toHaveLength(5)
+    for (const topic of topics) { expect(topic.scroll).toBeLessThanOrEqual(topic.client); expect(topic.height).toBeGreaterThanOrEqual(44) }
+  }
   await page.getByLabel('Account and help').click()
   await page.getByRole('button', { name: 'Privacy', exact: true }).click()
   const privacy = page.getByRole('dialog', { name: 'Your household privacy' })
@@ -12545,26 +12438,21 @@ test('BOG UI household unknown money stays unentered with one setup action and a
   await openSection(page, 'Budget')
   const screen = page.locator('.budget-screen')
   await expect(screen.getByRole('button', { name: 'Set up with Mia' })).toHaveCount(1)
-  await expect(screen.getByText('Not entered', { exact: true })).toHaveCount(2)
-  await expect(screen.getByText('No confirmed transactions yet')).toBeVisible()
+  await expect(screen).toContainText('Enter your income, planned costs and debt minimums to see the year ahead.')
   await expect(screen.locator('.cash-flow-bars i')).toHaveCount(0)
   await expect(screen.locator('.cash-flow-detail-panel')).toHaveCount(0)
   await expect(screen).not.toContainText('$0.00')
   expect(await screen.locator('.plan-value strong').evaluateAll(values => values.every(value => value.scrollWidth <= value.clientWidth + 1))).toBe(true)
 })
 
-test('BOG UI household year shares one axis and comes before month detail without a review queue', async ({ page }) => {
+test('BOG UI household year differences come before category detail without a review queue', async ({ page }) => {
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
   await page.goto('/?pilot_e2e_role=participant#Budget')
-  const chart = page.locator('.annual-outlook .annual-cash-flow-chart')
-  const months = await chart.locator('.cash-flow-month').first().boundingBox()
-  expect(months).not.toBeNull()
-  const topEdges = await chart.locator('.cash-flow-month').evaluateAll(rows => rows.map(row => Math.round(row.getBoundingClientRect().top)))
-  expect(topEdges).toHaveLength(12)
-  expect(new Set(topEdges).size).toBe(1)
-  const chartBox = await chart.boundingBox()
-  const detailBox = await page.locator('.month-plan-summary').boundingBox()
-  expect(chartBox!.y).toBeLessThan(detailBox!.y)
+  const outlook = page.locator('.year-outlook')
+  await expect(outlook.locator('li')).toHaveCount(3)
+  const outlookBox = await outlook.boundingBox()
+  const detailBox = await page.locator('.expense-stack-overview').boundingBox()
+  expect(outlookBox!.y).toBeLessThan(detailBox!.y)
   await expect(page.locator('.budget-screen .transaction-draft-card')).toHaveCount(0)
   await expect(page.locator('.budget-review-link')).toContainText('2 purchases waiting for review')
   for (const label of ['Must-pay bills', 'Flexible spending', 'Planned yearly costs', 'Surprise fund']) await expect(page.locator('.expense-stack-row').getByText(label, { exact: true })).toBeVisible()
@@ -12779,7 +12667,7 @@ test('BOG UI final acceptance phone targets cover Review Statements and My Money
   await openDetails(page, 'Find an upload'); await assertTargets()
   await openSection(page, 'My Money'); await assertTargets()
   for (const topic of ['Spending', 'Debt', 'Accounts', 'Goals', 'Income']) {
-    await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: topic, exact: true }).click()
+    await openMoneyTopic(page, topic)
     await assertTargets()
   }
   await page.getByRole('button', { name: 'Plan an income change', exact: true }).click()
@@ -12936,18 +12824,12 @@ for (const section of ['Home', 'Budget', 'Review', 'Statements', 'My Money', 'As
     if (section !== 'Home') await openSection(page, section)
     await expectPhoneTargets(page)
     if (section === 'Home' || section === 'Budget') {
-      const picker = page.getByRole('combobox', { name: 'View month' })
-      await expect(picker).toBeVisible()
-      await expect(picker.locator('option')).toHaveCount(12)
-      for (const label of months) {
-        await picker.selectOption({ label: `${label} ${currentYear}` })
-        await expect(page.locator('.cash-flow-detail-panel')).toContainText(`${label} ${currentYear}`)
-      }
+      await expect(page.locator('.year-outlook li')).toHaveCount(3)
       await expectPhoneTargets(page)
     }
     if (section === 'My Money') {
       for (const topic of ['Income', 'Spending', 'Debt', 'Accounts', 'Goals']) {
-        await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name: topic, exact: true }).click()
+        await openMoneyTopic(page, topic)
         await expectPhoneTargets(page)
       }
     }
