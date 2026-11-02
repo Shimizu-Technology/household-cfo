@@ -386,6 +386,29 @@ describe('PersonaSetupChat', () => {
     expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81,51,71,'apply',expect.any(String),[1])
     expect(changed).toHaveBeenCalledWith(persona());expect(review).not.toHaveBeenCalled()
   })
+  it('merges teaching guidance into Coaching and preserves each operation choice', async () => {
+    const proposed = proposalSession()
+    const fields = [
+      { group: 'Coaching', path: 'coaching.method', label: 'Method', value: 'Ask one next question.' },
+      { group: 'Teaching', path: 'curriculum.guidance', label: 'Guidance', value: [{ title: 'Start small', content: 'Choose one practical step.' }] },
+      { group: 'Teaching', path: 'curriculum.examples', label: 'Examples', value: [{ participant: 'Where do I begin?', assistant: 'What is one bill you want to understand?' }] },
+    ]
+    for (const field of fields) {
+      proposed.proposal!.operations.push({ op: 'set', path: field.path, value: field.value, source_basis: 'mia_drafted', evidence_quote: 'Help me draft my coaching.' })
+      proposed.proposal!.grouped_changes.push({ group: field.group, changes: [{ group: field.group, path: field.path, label: field.label, before: null, after: field.value, source_basis: 'mia_drafted', evidence_quote: 'Help me draft my coaching.' }] })
+    }
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposed)
+    apiMocks.resolveAdminPersonaSetupProposal.mockResolvedValue({ session: session(), persona: persona() })
+    const { container } = render(<Harness saveAndPreview />)
+    const useAll = await screen.findByRole('button', { name: 'Use all suggestions' })
+    await waitFor(() => expect(useAll).toHaveProperty('disabled', false))
+    expect(Array.from(container.querySelectorAll('.persona-proposal-summary dt'), element => element.textContent)).toEqual(['Identity', 'Coaching', 'Examples'])
+    await userEvent.click(screen.getByText('Review each suggestion', { selector: 'summary' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Use this guidance suggestion' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Use selected suggestions' }))
+    await waitFor(() => expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81, 51, 71, 'apply', expect.any(String), [0, 1, 3]))
+  })
+
   it('uses all suggestions by default when saving directly to preview',async()=>{
     apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
     apiMocks.resolveAdminPersonaSetupProposal.mockResolvedValue({session:session(),persona:persona()})

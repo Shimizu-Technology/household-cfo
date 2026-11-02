@@ -130,11 +130,11 @@ export function PersonaSetupChat({
     const groups = new Map<string, AdminPersonaSetupChange[]>()
     for (const group of session?.proposal?.grouped_changes ?? []) {
       for (const change of group.changes) {
-        const title = group.group === 'Community' ? 'Identity' : group.group === 'Response' ? 'Voice' : change.path === 'curriculum.examples' ? 'Examples' : group.group
+        const title = change.path === 'curriculum.examples' ? 'Examples' : group.group === 'Community' ? 'Identity' : group.group === 'Response' ? 'Voice' : group.group === 'Teaching' ? 'Coaching' : group.group
         groups.set(title, [...(groups.get(title) ?? []), change])
       }
     }
-    const order = ['Identity', 'Voice', 'Coaching', 'Phrases', 'Examples', 'Teaching']
+    const order = ['Identity', 'Voice', 'Coaching', 'Phrases', 'Examples']
     return [...groups].map(([group, changes]) => ({ group, changes })).sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group))
   }, [session])
 
