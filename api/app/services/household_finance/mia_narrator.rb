@@ -366,7 +366,7 @@ module HouseholdFinance
 
     def known_pending_draft_count_zero?
       summaries = [ answer_packet[:spending_report_summary], answer_packet[:annual_plan_summary] ].compact
-      summaries.any? { |summary| summary.key?(:pending_draft_count) && summary[:pending_draft_count].to_i.zero? }
+      summaries.any? { |summary| !summary[:pending_draft_count].nil? && summary[:pending_draft_count].to_i.zero? }
     end
 
     def contradicts_readiness_status?(content)

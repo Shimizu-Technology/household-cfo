@@ -1,6 +1,13 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "unknown review count is never treated as a known zero" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Check your reviews.",
+      annual_plan_summary: { pending_draft_count: nil } }
+    reply = "There may be purchases waiting for your review. Check the review list first. Then choose your next move."
+    assert_equal reply, narrate(reply, packet, "How am I doing this month?")
+  end
+
   test "narration cannot praise a budget win before protecting skipped meals" do
     fallback = "Please do not skip food to save money. Food comes first. Choose a flexible expense instead."
     packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback }

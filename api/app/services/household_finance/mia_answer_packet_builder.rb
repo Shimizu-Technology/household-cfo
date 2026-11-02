@@ -84,10 +84,11 @@ module HouseholdFinance
       rows = Array(annual_plan[:rows] || annual_plan["rows"])
       active_rows = rows.select { |row| active_row?(row) }
       pending = Array(annual_plan[:pending_transaction_drafts] || annual_plan["pending_transaction_drafts"])
+      pending_meta = (annual_plan[:pending_transaction_drafts_meta] || annual_plan["pending_transaction_drafts_meta"] || {}).symbolize_keys
       {
         year: annual_plan_year,
         active_category_count: active_rows.length,
-        pending_draft_count: pending.length,
+        pending_draft_count: pending_meta[:truncated] ? nil : pending.length,
         month_answer: month_answer,
         top_categories: summarized_categories(active_rows)
       }
