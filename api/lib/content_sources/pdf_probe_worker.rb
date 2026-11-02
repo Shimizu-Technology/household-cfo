@@ -45,17 +45,23 @@ begin
       nil
     end
     STDOUT.write(JSON.generate(ok: true, page_count: page_count))
-  when "text"
+  when "text", "pages"
     reader = PDF::Reader.new(path)
     page_count = reader.page_count
     raise WorkerLimitError, "pdf_too_many_pages" unless page_count.between?(1, max_pages)
 
     run_count = 0
-    reader.pages.each do |page|
-      run_count += page.runs.length
+    pages = []
+    reader.pages.each_with_index do |page, index|
+      runs = page.runs
+      run_count += runs.length
       raise WorkerLimitError, "pdf_too_much_text" if run_count > max_runs
+      if mode == "pages"
+        pages << { number: index + 1, box: page.attributes[:MediaBox], rotation: page.attributes.fetch(:Rotate, 0),
+          crop: page.attributes[:CropBox], runs: runs.map { |run| { text: run.text, x: run.x, y: run.y, finish: run.x + run.width } } }
+      end
     end
-    STDOUT.write(JSON.generate(ok: true, page_count: page_count, run_count: run_count))
+    STDOUT.write(JSON.generate(ok: true, page_count: page_count, run_count: run_count, pages: (pages if mode == "pages")))
   else
     raise WorkerLimitError, "pdf_probe_mode_invalid"
   end

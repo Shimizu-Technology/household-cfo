@@ -20,8 +20,9 @@ module FinancialDocuments
     end
     InvalidTemplate = Class.new(StandardError)
 
-    def initialize(file_path:)
+    def initialize(file_path:, pages: nil)
       @file_path = file_path
+      @supplied_pages = pages
       @accounts, @events = [], []
       @financial_count = 0
       @consumed_money = []
@@ -29,6 +30,10 @@ module FinancialDocuments
     end
 
     def call
+      if @supplied_pages
+        reject!("page_geometry") unless @supplied_pages.all? { |page| page[:box] == [ 0, 0, 612, 792 ] }
+        return parse_pages(@supplied_pages)
+      end
       reader = PDF::Reader.new(@file_path)
       reject!("page_limit") unless reader.page_count.between?(1, MAX_PAGES)
       pages = reader.pages.map.with_index do |page, index|

@@ -94,6 +94,21 @@ module FinancialDocuments
       false
     end
 
+    # Return bounded native text once; both parsers reuse the sandbox result.
+    # It stays inside this extraction attempt and is never written to logs.
+    def pdf_text_pages(path, max_pages:, max_runs:)
+      return if File.size(path) > UploadLimits::INLINE_SOURCE_MAX_BYTES
+
+      payload = pdf_sandbox.run(path, "pages", max_pages, max_runs)
+      pages = payload.fetch("pages").map(&:deep_symbolize_keys)
+      return unless pages.length == payload.fetch("page_count")
+      return unless pages.all? { |page| page[:rotation] == 0 && (page[:crop].nil? || page[:crop] == page[:box]) }
+
+      pages
+    rescue ContentSources::Error, KeyError, TypeError
+      nil
+    end
+
     def ooxml_guard
       FileSafety::OoxmlGuard.new(
         max_file_bytes: UploadLimits::STRUCTURED_SOURCE_MAX_BYTES,

@@ -314,7 +314,7 @@ module FinancialDocuments
         amount = input[:signed_amount_cents].nil? ? nil : cents!(input[:signed_amount_cents])
         posted = input[:posted_on].nil? ? nil : date!(input[:posted_on])
         authorized = input[:authorized_on].nil? ? nil : date!(input[:authorized_on])
-        merchant = text(input[:merchant], 120)
+        merchant = MerchantNormalizer.call(text(input[:merchant], 120))
         category = input[:budget_category_id] && household.budget_categories.find(input[:budget_category_id])
         purchase = input[:purchase_amount_cents].nil? ? nil : cents!(input[:purchase_amount_cents], positive: true)
         if disposition.in?(%w[include match])
