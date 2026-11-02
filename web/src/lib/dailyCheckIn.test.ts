@@ -9,13 +9,14 @@ afterEach(() => { sessionStorage.clear(); vi.resetModules() })
 
 describe('daily check-in helpers', () => {
   it('turns a save conflict from another window into a reopen-Ask-Mia message', async () => {
-    const { registerServerDailyCard, syncDailyCard, DailyCardSyncUnavailable } = await import('./dailyCheckIn')
+    const { registerServerDailyCard, syncDailyCard } = await import('./dailyCheckIn')
     const api = await import('../api')
     const update = vi.spyOn(api, 'updateChallengeChatCard')
-    const server = { id: 71, kind: 'daily_report' as const, status: 'pending' as const, lock_version: 0, enrollment_id: 10, message_id: 21, input: report, state: {} }
+    const server = { id: 71, kind: 'daily_report' as const, status: 'pending' as const, lock_version: 0, enrollment_id: 10, message_id: 21, input: report, state: init() }
     const entry = registerServerDailyCard(server, 'conflict-test')!
     update.mockRejectedValueOnce(new api.ApiRequestError('Conflict', { status: 409 }))
-    await expect(syncDailyCard(entry.nonce)).rejects.toBeInstanceOf(DailyCardSyncUnavailable)
+    await expect(syncDailyCard(entry.nonce)).rejects.toThrow('This check-in changed in another window. Reopen Ask Mia.')
+    expect(update).toHaveBeenCalledWith(71, expect.objectContaining({ action: 'save_state', expected_lock_version: 0 }))
   })
 
   it('holds money prompts under a server-flagged safety reply until an ordinary reply follows', async () => {

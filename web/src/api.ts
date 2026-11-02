@@ -5187,6 +5187,6 @@ export async function changeSavingsChallengeAccess(
 export function fetchChallengeChatCards(signal?: AbortSignal): Promise<import('./lib/challengeChatCards').ChallengeChatCards> {
   return fetchJson('/api/v1/savings_challenge/chat_cards', { signal, cache: 'no-store' })
 }
-export function updateChallengeChatCard(id: number, input: { action: 'save_state'; state: import('./lib/dailyCheckIn').DailyCardState; expected_lock_version: number } | { action: 'dismiss' | 'approve_goal'; expected_lock_version: number; accepted?: true }): Promise<{ record: import('./lib/challengeChatCards').ChallengeChatCard; challenge?: SavingsChallenge | null }> {
+export function updateChallengeChatCard(id: number, input: { action: 'save_state'; state: import('./lib/dailyCheckIn').DailyCardState; expected_lock_version: number } | { action: 'dismiss'; expected_lock_version: number } | { action: 'approve_goal'; expected_lock_version: number; accepted: true }): Promise<{ record: import('./lib/challengeChatCards').ChallengeChatCard; challenge?: SavingsChallenge | null }> {
   return fetchJson(`/api/v1/savings_challenge/chat_cards/${savingsRecordId(id)}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
 }

@@ -16,7 +16,9 @@ export function MiaChallengeGoal({ card, onDone, onChangeAmount }: { card: Chall
     if (busy) return
     setBusy(true); setError('')
     try {
-      const result = await updateChallengeChatCard(card.id, { action, expected_lock_version: card.lock_version, ...(action === 'approve_goal' ? { accepted: true } : {}) })
+      const result = await updateChallengeChatCard(card.id, action === 'approve_goal'
+        ? { action, expected_lock_version: card.lock_version, accepted: true }
+        : { action, expected_lock_version: card.lock_version })
       if (action === 'approve_goal') {
         if (!result.record.state.approved_plan_version_id) throw new Error('This goal was replaced or closed. Reopen Ask Mia to review the current goal.')
         setSaved(true)

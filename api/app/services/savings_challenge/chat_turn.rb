@@ -4,14 +4,26 @@ module SavingsChallenge
   class ChatTurn
     PATTERNS = /\b(?:patterns?|waterfall|subscriptions?)\b/i.freeze
     GOAL = /\b(?:goal|target)\b/i.freeze
-    GOAL_CHANGE = /\b(?:change|set|make|update|lower|raise|switch|drop|bump|aim)\b.{0,50}\b(?:goal|target)\b|\bmake it\s+\$\s*\d|\blet['’]?s do\s+\$\s*\d/i.freeze
+    GOAL_CHANGE = /\b(?:change|set|make|update|lower|raise|switch|drop|bump|aim|let['’]?s do|go with)\b.{0,50}\b(?:goal|target)\b/i.freeze
+    # "Make it $400" names no goal, so it only counts inside an ongoing goal or
+    # patterns conversation; elsewhere it is a correction to something else.
+    STANDALONE_AMOUNT = /\A\s*(?:ok(?:ay)?,?\s+)?(?:make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*\d[\d,]*(?:\.\d{1,2})?(?:\s+instead(?:\s+of\s+\$?\s*\d[\d,]*(?:\.\d{1,2})?)?)?\s*(?:for (?:my|the) (?:goal|target))?\s*[.!]?\s*\z/i.freeze
+    GOAL_TOPICS = %w[challenge_goal challenge_patterns].freeze
     PROGRESS = /\b(?:how am i doing|where am i|day\s*(?:30|60|90)|30\s*[\/,]\s*60|checkpoints?)\b/i.freeze
 
     def self.special?(message, session:)
       return false if protected_message?(message) || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i) || money_report?(message)
       message.match?(PATTERNS) || message.match?(GOAL_CHANGE) || message.match?(PROGRESS) ||
+        (message.match?(STANDALONE_AMOUNT) && goal_conversation?(session)) ||
         (message.match?(GOAL) && message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)) ||
         (session.active_topic["type"] == "challenge_patterns" && pattern_continuation?(message, choices: session.active_topic["choices"]))
+    end
+
+    # An ongoing goal or patterns conversation, or a goal card still waiting
+    # for the participant's answer in this chat.
+    def self.goal_conversation?(session)
+      session.active_topic["type"].in?(GOAL_TOPICS) ||
+        SavingsChatCard.joins(:chat_message).where(chat_messages: { chat_session_id: session.id }, kind: "goal", status: "pending").exists?
     end
 
     def self.money_report?(message)
@@ -28,7 +40,10 @@ module SavingsChallenge
     def self.pattern_continuation?(message, choices: [])
       return false if protected_message?(message)
       normalized = message.downcase.squish.sub(/[.!]\z/, "")
-      return true if Array(choices).any? { |choice| choice["merchant"].to_s.downcase == normalized }
+      return true if Array(choices).any? do |choice|
+        merchant = Regexp.escape(choice["merchant"].to_s.downcase)
+        merchant.present? && normalized.match?(/\A(?:(?:the one at|the|go with|let['’]?s do|cut back on|less at|i(?:['’]ll| will) (?:do|take|pick|choose|cut back on))\s+)?#{merchant}(?:\s+(?:one|please|then))?\z/)
+      end
       return false if message.match?(/\b(?:spent|bought|paid|saved|withdrew|set aside|budget|category|income|salary|paycheck|account|asset|balance)\b/i)
       message.match?(/\b(?:first|second|choose|cut back|try|comfortable|say(?:ing)? no|reduce|rather|what (?:do|should)|options?)\b/i)
     end
@@ -104,8 +119,14 @@ module SavingsChallenge
       previous = @session.active_topic
       if !@message.match?(PATTERNS) && previous["type"] == "challenge_patterns" && self.class.pattern_continuation?(@message, choices: previous["choices"])
         choices = Array(previous["choices"])
-        selected = choices.find.with_index do |choice, index|
-          @message.downcase.include?(choice["merchant"].to_s.downcase) || (!@message.match?(/\?|\A\s*(?:what|which|how|why)\b/i) && @message.match?(/\b(?:#{index == 0 ? 'first|one|1' : 'second|two|2'})\b/i))
+        # A named merchant wins ("the one at Kmart"); then ordinals, testing
+        # "second" before "first|one" so "the second one" picks the second.
+        text = @message.downcase
+        selected = choices.find { |choice| choice["merchant"].present? && text.include?(choice["merchant"].to_s.downcase) }
+        unless selected || @message.match?(/\?|\A\s*(?:what|which|how|why)\b/i)
+          selected = if @message.match?(/\b(?:second|two|2nd|latter)\b/i) then choices[1]
+          elsif @message.match?(/\b(?:first|one|1st|former)\b/i) then choices[0]
+          end
         end
         if selected && !@message.match?(/\b(?:neither|not|don.t|no)\b/i)
           @goal_cents = 50_000
@@ -160,7 +181,8 @@ module SavingsChallenge
       suggestion = @message.match?(GOAL) && @message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)
       return false if @message.match?(/\b(?:household|paid|spent|saved|set aside|withdrew|card balance)\b/i)
       return false if @message.match?(/\bdebt\b/i) && !@message.match?(/\b(?:challenge|savings|90.day)\s+(?:goal|target)\b/i)
-      return false unless @message.match?(GOAL_CHANGE) || suggestion
+      standalone = @message.match?(STANDALONE_AMOUNT) && self.class.goal_conversation?(@session)
+      return false unless @message.match?(GOAL_CHANGE) || standalone || suggestion
       amounts = @message.scan(/\$\s*(\d[\d,]*(?:\.\d{1,2})?)(?![\d.])/).flatten
       amounts = @message.scan(/\b(?:to|at|of)\s+(\d[\d,]*(?:\.\d{1,2})?)(?![\d.])/).flatten if amounts.empty?
       # A polite request with an explicit amount is still a proposal. A question

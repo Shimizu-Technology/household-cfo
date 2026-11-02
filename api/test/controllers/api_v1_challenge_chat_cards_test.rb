@@ -219,6 +219,29 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_equal 0, SavingsPlanVersion.count
   end
 
+  test "ordinal and merchant replies choose the option they name" do
+    choices = [ { merchant: "Ross", monthly_impact_cents: 10_000 }, { merchant: "Kmart", monthly_impact_cents: 6_000 } ]
+    session = ChatSession.create!(household: @savings_household, user: @savings_user, cohort: @savings_cohort)
+    { "the second one" => "Kmart", "the one at Kmart" => "Kmart", "the first one" => "Ross" }.each_with_index do |(message, merchant), index|
+      session.reload.update!(active_topic: { type: "challenge_patterns", choices: choices })
+      ask message, "ordinal-#{index}"
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Spending half as much at #{merchant}", message
+    end
+  end
+
+  test "a bare amount outside a goal conversation never becomes a goal card" do
+    [ "Make it $30", "Let's do $20 at Kings for lunch" ].each_with_index do |message, index|
+      ask message, "bare-amount-#{index}"
+      refute_equal "goal", response.parsed_body.dig("challenge_chat_card", "kind"), message
+    end
+    assert_equal 0, SavingsChatCard.where(kind: "goal").count
+    ask "Set my goal to $300", "pending-before-purchase"
+    pending = response.parsed_body.fetch("challenge_chat_card")
+    ask "Let's do $20 at Kings for lunch", "purchase-with-pending-goal"
+    refute_equal "goal", response.parsed_body.dig("challenge_chat_card", "kind")
+    assert_equal "pending", SavingsChatCard.find(pending["id"]).status
+  end
+
   test "mentioning an existing goal amount preserves a pending proposal" do
     ask "Set my goal to $300", "pending-goal"
     pending = response.parsed_body.fetch("challenge_chat_card")
