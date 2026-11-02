@@ -4,12 +4,17 @@ module HouseholdFinance
   class AttachedDocumentFollowupResolver
     Result = Data.define(:prompt, :query_scope)
 
-    FOLLOW_UP_REFERENCE = /\b(?:that|those|it|them|this|these|upload|uploads|attachment|attachments|receipt|receipts|statement|statements|file|files|document|documents)\b/i
+    # "this week" or "that month" is a calendar period, not a reference back to
+    # the upload.
+    FOLLOW_UP_REFERENCE = /\b(?:(?:that|this)(?!\s+(?:months?|weeks?|years?|quarters?|days?|morning|afternoon|evening))|those|it|them|these|upload|uploads|attachment|attachments|receipt|receipts|statement|statements|file|files|document|documents)\b/i
     ELLIPTICAL_PREFIX = /\A\s*(?:and\s+)?(?:what|how)\s+about\b/i
     DATE_SHORTHAND = /\A\s*(?:and\s+)?(?:only\s+)?(?:today|yesterday|this month|last month|next month|(?:in|for|during|only)\s+#{AttachedDocumentQuestionAnswerer::MONTH_PATTERN}|#{AttachedDocumentQuestionAnswerer::MONTH_PATTERN}(?:\s+(?:19|20)\d{2})?\s+only)\b/i
-    EVIDENCE_QUESTION = /\b(?:total|sum|largest|biggest|highest|merchant|transaction|purchase|charge|category|categorized|when|date|period|month|duplicate|fit|fits|within|covered|room|over\s+\$|under\s+\$)\b/i
+    EVIDENCE_QUESTION = /\b(?:total|sum|largest|biggest|highest|merchant|transaction|purchase|charge|category|categorized|patterns?|habits?|when|date|period|month|duplicate|fit|fits|within|covered|room|over\s+\$|under\s+\$)\b/i
     CLEARLY_UNRELATED_TOPIC = /\b(?:runway|safe to spend|readiness|red status|yellow status|green status|emergency fund|leave (?:my )?job|quit (?:my )?job|debt (?:strategy|payoff)|credit score|retirement)\b/i
     NEW_ADVICE_OR_ACTION = /\b(?:should|could i|can i|would it be better|set|change|update|increase|decrease|raise|lower|create|rename|archive|budget\s+(?:be|for))\b/i
+    # "in that" or "from those" points back at the upload; "this month" or
+    # "this week" is a calendar period, not a document.
+    DIRECTED_PRONOUN_REFERENCE = /\b(?:that|this)\s+one\b|\b(?:in|from|on|about|across|of|with)\s+(?:that|those|these|it|them)\b(?!\s+(?:months?|weeks?|years?|quarters?|periods?|days?|times?))|\b(?:in|from|on|about|across|of|with)\s+this\b(?!\s+(?:month|week|year|quarter|period|time|morning|afternoon|evening))/i
     EXPLICIT_EVIDENCE_REFERENCE = /\b(?:upload|uploads|attachment|attachments|receipt|receipts|statement|statements|file|files|document|documents)\b/i
 
     def initialize(household, message:, document_imports:, prior_query_scope: nil)
@@ -25,6 +30,12 @@ module HouseholdFinance
       return false if normalized.match?(NEW_ADVICE_OR_ACTION) && !normalized.match?(/\b(?:fit|fits|within|covered by|room in)\b.{0,60}\b(?:plan|budget)\b|\b(?:plan|budget)\b.{0,60}\b(?:fit|fits|within|cover|room)\b/i)
 
       (normalized.match?(FOLLOW_UP_REFERENCE) && normalized.match?(EVIDENCE_QUESTION)) || normalized.match?(DATE_SHORTHAND)
+    end
+
+    # A general household question can contain "this month" without pointing at
+    # a document. Use the stricter reference when choosing between both paths.
+    def self.document_directed_reference?(message)
+      message.to_s.match?(EXPLICIT_EVIDENCE_REFERENCE) || message.to_s.match?(DIRECTED_PRONOUN_REFERENCE)
     end
 
     def self.elliptical_scope_reference?(message, query_scope)

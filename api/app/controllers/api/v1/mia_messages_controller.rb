@@ -128,6 +128,11 @@ module Api
           return render_savings_response(session, content, attached_imports, message_request: message_request)
         end
 
+        if !savings_program_selected? && attached_imports.empty? && SpendingPatterns::Answerer.matches?(content) &&
+           !(document_evidence_topic_present?(session) && HouseholdFinance::AttachedDocumentFollowupResolver.document_directed_reference?(content))
+          return render_household_patterns_response(session, content, message_request: message_request)
+        end
+
         if attached_imports.empty? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
           saved_reader = HouseholdFinance::SavedFinancialRecordsAnswerer.new(current_household,
             message: content, year: budget_year_param, month: budget_month_param)
@@ -467,6 +472,20 @@ module Api
         answer = "Open Fix my setup to correct your income, spending categories, debts, accounts or goals, restart unfinished setup when it is safe, or request a reviewed restart from support. Your BOG enrollment, approved savings, evidence and history stay in place. You review each change before applying it. Nothing changed."
         render_household_read_response(session, content, answer, message_request: message_request,
           topic: { "type" => "setup_help" }, financial_restart: { available: false, state: "unavailable" }, setup_help: { available: true })
+      end
+
+      def render_household_patterns_response(session, content, message_request:)
+        transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session, persona_version_id: current_persona.version_id,
+          cohort_id: current_participant_runtime.cohort_id, cohort_release_id: current_participant_runtime.release_id).call
+        history = intent_transcript_without_memory_commands(transcript_for_current_persona(transcript)).map { |message| message.slice(:role, :content) }
+        approved_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
+        answerer = SpendingPatterns::Answerer.new(household: current_household, message: content,
+          persona: module_guidance.persona(current_persona), history: history, approved_content: approved_content,
+          available_product_modules: module_guidance.context)
+        answer = answerer.call
+        @used_coach_content = answerer.supplied_content_context
+        render_household_read_response(session, content, answer, message_request: message_request,
+          topic: { "type" => "household_patterns", "record_scope" => "household_plan" })
       end
 
       def render_saved_records_response(session, content, result, message_request:)

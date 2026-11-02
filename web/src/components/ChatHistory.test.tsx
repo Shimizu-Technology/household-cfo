@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createRef } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ChatHistory } from './ChatHistory'
 
 vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: 'Mia' }) }))
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.resetAllMocks() })
 
 const baseProps = {
   messages: [],
@@ -52,13 +52,16 @@ it('keeps pending review cards after the conversation in one group', () => {
   expect(rows[rows.length - 1]).toBe(queue)
 })
 
-it('offers a jump to waiting reviews instead of hiding them behind the reply', async () => {
-  const scrollIntoView = vi.fn()
-  Element.prototype.scrollIntoView = scrollIntoView
-  render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} showScrollButton reviewCount={3} reviewContent={<p>Transactions to review</p>} />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Jump to 3 items waiting for your review' }))
-  expect(scrollIntoView).toHaveBeenCalled()
-  expect(screen.queryByRole('button', { name: 'Scroll to latest Mia message' })).toBeNull()
+it('uses the same review wording and destination in a thread and keeps Latest independent', () => {
+  const onOpenReview = vi.fn()
+  const onScrollLatest = vi.fn()
+  render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} showScrollButton reviewCount={3} onOpenReview={onOpenReview} onScrollLatest={onScrollLatest} reviewContent={<p>Transactions to review</p>} />)
+  const link = screen.getByRole('button', { name: '3 changes to review' })
+  fireEvent.click(link)
+  expect(onOpenReview).toHaveBeenCalledOnce()
+  expect(link.closest('.chat-card')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Scroll to latest Mia message' }))
+  expect(onScrollLatest).toHaveBeenCalledOnce()
 })
 
 it('keeps the plain latest-message shortcut when nothing waits for review', () => {
@@ -67,52 +70,28 @@ it('keeps the plain latest-message shortcut when nothing waits for review', () =
   expect(document.querySelector('.chat-review-queue')).toBeNull()
 })
 
-it('shows the review shortcut only while the review queue is below the fold', async () => {
-  let queueTop = 900
-  const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-    const top = this.classList.contains('chat-review-queue') ? queueTop : 0
-    const bottom = this.classList.contains('chat-card') ? 500 : top + 100
-    return { top, bottom, left: 0, right: 300, width: 300, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }
-  })
-  try {
-    render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} showScrollButton reviewCount={2} reviewContent={<p>Transactions to review</p>} />)
-    expect(await screen.findByRole('button', { name: 'Jump to 2 items waiting for your review' })).toBeTruthy()
-    expect(document.querySelector('.chat-card-wrap')?.classList.contains('has-review-shortcut')).toBe(true)
-
-    queueTop = 300
-    fireEvent.scroll(document.querySelector('.chat-card')!)
-    await waitFor(() => expect(screen.queryByRole('button', { name: /waiting for your review/ })).toBeNull())
-    expect(document.querySelector('.chat-card-wrap')?.classList.contains('has-review-shortcut')).toBe(false)
-  } finally {
-    spy.mockRestore()
-  }
+it('shows one review line before the first message instead of the review cards', () => {
+  const onOpenReview = vi.fn()
+  render(<ChatHistory {...baseProps} reviewCount={2} pendingPurchaseCount={2} onOpenReview={onOpenReview} reviewContent={<p>Large old review card</p>} />)
+  const link = screen.getByRole('button', { name: '2 purchases to review' })
+  expect(document.querySelector('.chat-card')?.firstElementChild).toBe(link)
+  expect(screen.queryByText('Large old review card')).toBeNull()
+  fireEvent.click(link)
+  expect(onOpenReview).toHaveBeenCalledOnce()
 })
 
-it('re-measures the review shortcut when the chat card is resized, without any scroll', async () => {
-  const resize: { run: (() => void) | null } = { run: null }
-  const originalObserver = globalThis.ResizeObserver
-  globalThis.ResizeObserver = class { constructor(callback: () => void) { resize.run = callback } observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver
-  let queueTop = 900
-  const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-    const top = this.classList.contains('chat-review-queue') ? queueTop : 0
-    const bottom = this.classList.contains('chat-card') ? 500 : top + 100
-    return { top, bottom, left: 0, right: 300, width: 300, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }
-  })
-  try {
-    render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} showScrollButton reviewCount={2} reviewContent={<p>Transactions to review</p>} />)
-    expect(await screen.findByRole('button', { name: /waiting for your review/ })).toBeTruthy()
+it('fades only a newly received assistant reply, leaving history and the sent message still', () => {
+  const { rerender } = render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} />)
+  const sent = { id: 3, role: 'user' as const, author: 'You', content: 'What changed?' }
+  rerender(<ChatHistory {...baseProps} messages={[...twoMessages, sent]} totalMessageCount={3} miaLoading />)
+  expect(document.querySelectorAll('.is-new-reply')).toHaveLength(0)
+  rerender(<ChatHistory {...baseProps} messages={[...twoMessages, sent, { id: 4, role: 'assistant', author: 'Mia', content: 'Your reply.' }]} totalMessageCount={4} freshReplyId={4} />)
+  expect(document.querySelectorAll('.is-new-reply')).toHaveLength(1)
+  expect(document.querySelector('.is-new-reply')?.textContent).toContain('Your reply.')
+})
 
-    queueTop = 300 // a viewport resize moved the queue into view; no scroll event fires
-    resize.run?.()
-    await waitFor(() => expect(screen.queryByRole('button', { name: /waiting for your review/ })).toBeNull())
-    expect(document.querySelector('.chat-card-wrap')?.classList.contains('has-review-shortcut')).toBe(false)
-
-    queueTop = 900
-    resize.run?.()
-    expect(await screen.findByRole('button', { name: /waiting for your review/ })).toBeTruthy()
-    expect(document.querySelector('.chat-card-wrap')?.classList.contains('has-review-shortcut')).toBe(true)
-  } finally {
-    spy.mockRestore()
-    globalThis.ResizeObserver = originalObserver
-  }
+it('keeps challenge check-ins and recovery visible when the household review cards collapse', () => {
+  render(<ChatHistory {...baseProps} reviewCount={2} onOpenReview={vi.fn()} emptyReviewContent={<p role="alert">Retry loading your saved check-in</p>} reviewContent={<p>Household review card</p>} />)
+  expect(screen.getByRole('alert').textContent).toBe('Retry loading your saved check-in')
+  expect(screen.queryByText('Household review card')).toBeNull()
 })

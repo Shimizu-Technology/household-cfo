@@ -33,6 +33,13 @@ class SavingsChallengePatternsNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "shared pattern narration retains the challenge no-write boundary" do
+    subject = narrator
+    content = REFERENCE.sub("Would you feel", "I saved money for you. Would you feel")
+    subject.define_singleton_method(:openrouter_response) { content }
+    assert_equal REFERENCE, subject.call
+  end
+
   test "provider failures keep the concise deterministic answer" do
     subject = narrator
     subject.define_singleton_method(:openrouter_response) { raise IOError, "offline" }

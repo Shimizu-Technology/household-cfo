@@ -296,12 +296,6 @@
   }
 }
 
-@media (max-width: 420px) {
-  /* Send and attach sit under the field on narrow phones; when the keyboard
-     scrolls the field into view, keep that row visible too. */
-  .mia-chat-shell .ask-row textarea { scroll-margin-bottom: 64px; }
-}
-
 /* Memory opens beside the chat like Prompts and Context & help. The panel header
    already names it, so the profile card's own title and frame step back. */
 .mia-assist-body > .mia-memory-panel { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
@@ -309,3 +303,114 @@
 .mia-assist-body > .mia-memory-panel .mia-memory-heading h2 { display: none; }
 .mia-assist-body > .mia-memory-panel .mia-memory-heading { display: grid; gap: var(--space-3); }
 .mia-assist-body > .mia-memory-panel .mia-memory-form-grid { grid-template-columns: minmax(0, 1fr); }
+
+/* Leave enough room beneath a short turn to put the sent message at the top. */
+.chat-turn-spacer { flex: 0 0 auto; pointer-events: none; }
+.chat-pending-line {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 4px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--emerald);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+}
+.message-row.is-new-reply { animation: mia-reply-appear 150ms ease-out both; }
+@keyframes mia-reply-appear { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .message-row.is-new-reply { animation: none; }
+}
+/* Navigation lives outside the history, so a shortcut cannot cover its text. */
+.chat-card-wrap:has(.chat-scroll-bottom-button) { flex-direction: column; }
+.chat-card-wrap .chat-scroll-bottom-button {
+  position: static;
+  align-self: center;
+  flex: 0 0 auto;
+  min-height: 44px;
+  margin: 0 8px 4px;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+}
+.chat-card-wrap.has-review-shortcut .chat-card { padding-bottom: 12px; }
+@media (max-width: 620px) {
+  .is-chat-page .mia-chat-shell .ask-row {
+    grid-template-columns: 44px 44px minmax(0, 1fr) 44px;
+    align-items: end;
+  }
+  .is-chat-page .mia-chat-shell .ask-row .composer-message-field { grid-column: 3; grid-row: 2; }
+  .is-chat-page .mia-chat-shell .ask-row .composer-attach { grid-column: 1; grid-row: 2; }
+  .is-chat-page .mia-chat-shell .ask-row .composer-voice { grid-column: 2; grid-row: 2; }
+  .is-chat-page .mia-chat-shell .ask-row .send-button { grid-column: 4; grid-row: 2; }
+  .is-chat-page .mia-chat-shell .ask-row textarea { min-height: 44px; padding: 10px 4px; scroll-margin-bottom: 0; }
+  .is-chat-page .mia-screen > .mia-disclaimer { display: none; }
+  .mia-action-draft-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .mia-action-draft-actions button { width: 100%; min-height: 44px; }
+  .empty-chat-starters { flex-direction: column; align-items: stretch; }
+  .empty-chat-starters button { width: 100%; border-radius: var(--radius-md); }
+  .is-chat-page .mia-chat-shell .ask-row textarea { font-size: 16px; }
+  /* A short viewport still keeps the composer inside the available height. */
+  .app.is-chat-page { min-height: 0; }
+  .is-chat-page .mia-chat-shell:not(.is-expanded) { height: 100%; }
+  .app.is-chat-page { height: 100dvh; }
+}
+
+/* A review is a sentence and a decision; the audit trail stays one tap away. */
+.mia-action-draft-stack { gap: 12px; padding: 0; border: 0; background: none; }
+.mia-action-draft-card { display: block; padding: 16px; background: var(--paper); box-shadow: none; }
+.mia-action-draft-main { gap: 8px; }
+.mia-action-draft-main .mia-change-sentence { margin: 0; color: var(--ink); font-size: var(--text-md); }
+.mia-change-figure { font-family: var(--font-body); font-size: var(--text-2xl); font-variant-numeric: tabular-nums; }
+.mia-change-details > summary { min-height: 44px; display: flex; align-items: center; color: var(--emerald); cursor: pointer; }
+.mia-change-details > summary::after { content: ' +'; margin-left: 8px; }
+.mia-change-details[open] > summary::after { content: ' −'; }
+.mia-change-details > h4 { margin: 0 0 8px; font-family: var(--font-body); }
+.mia-change-details .mia-action-item { padding: 12px 0; border: 0; border-radius: 0; border-top: 1px solid var(--line); background: none; }
+.mia-action-draft-actions { margin-top: 12px; justify-content: flex-start; gap: 8px; flex-wrap: wrap; }
+.mia-action-draft-actions button { min-height: 44px; }
+.mia-change-sentence, .mia-change-figure { overflow-wrap: anywhere; }
+.chat-card-wrap.has-review-shortcut { padding-bottom: 0; }
+.chat-card > .message-row,
+.chat-card > .chat-review-queue { flex-shrink: 0; }
+.chat-pending-line,
+.mia-change-details > summary,
+.mia-action-draft-actions button { transition: transform 140ms var(--ease-out); }
+.chat-pending-line:active,
+.mia-change-details > summary:active,
+.mia-action-draft-actions button:active { transform: scale(0.97); }
+.mia-change-details > summary:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .chat-pending-line,
+  .mia-change-details > summary,
+  .mia-action-draft-actions button { transition: none; }
+  .chat-pending-line:active,
+  .mia-change-details > summary:active,
+  .mia-action-draft-actions button:active { transform: none; }
+}
+
+/* Review actions form one group on desktop, one decision above two alternatives on phones. */
+.mia-action-draft-card .mia-action-draft-actions { display: flex; justify-content: flex-start; align-items: center; gap: 8px; }
+.mia-action-draft-card .mia-action-draft-actions > button { width: auto; }
+.mia-change-headline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; color: var(--ink); }
+.mia-change-headline > span { font-size: var(--text-sm); }
+.mia-change-lines { margin: 0; }
+.mia-change-lines > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.mia-change-lines dt { color: var(--ink); }
+.mia-change-lines dd { margin: 0; font-variant-numeric: tabular-nums; }
+.mia-action-draft-main .mia-change-note { color: var(--ink); font-size: var(--text-sm); }
+.message-row.assistant .message :is(p, li) { color: var(--ink); }
+.chat-card-wrap { flex-direction: column; }
+.chat-history-navigation { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; flex: 0 0 auto; padding: 0 12px; }
+.chat-history-navigation .chat-pending-line { border: 0; gap: 8px; }
+.chat-history-navigation .chat-scroll-bottom-button { margin: 0; }
+@media (max-width: 620px) {
+  .mia-action-draft-card .mia-action-draft-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mia-action-draft-card .mia-action-draft-actions > button:first-child { grid-column: 1 / -1; }
+  .mia-action-draft-card .mia-action-draft-actions > button { min-width: 0; width: 100%; min-height: 44px; }
+}

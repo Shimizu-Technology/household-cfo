@@ -685,7 +685,7 @@ cases:
   - id: mel_current_salary
     route: controller
     prompt: My salary is $6,400 now
-    expected_phrases: [July 2026, review]
+    expected_phrases: [July, review]
     forbidden_phrases: [January 2026, budget stack]
     live_expected: [July 2026, [review, approve, check], "$6,400"]
 

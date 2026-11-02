@@ -10259,11 +10259,6 @@ h3 {
   .is-chat-page .screen-heading h2 { font-size: var(--text-md); }
   .mia-context-disclosure > summary { padding: 5px 7px; font-size: var(--text-xs); }
 }
-@media (max-height: 450px) {
-  /* Small landscape/keyboard-resized viewports retain scrollable access. */
-  .app.is-chat-page { height: auto; min-height: 100dvh; }
-  .is-chat-page .mia-chat-shell:not(.is-expanded) { height: max(280px, 65dvh); }
-}
 .is-chat-page > .tabs-shell { flex: 0 0 auto; position: relative; padding: 0; box-shadow: none; }
 .is-chat-page .tabs { margin: 6px 0; padding: 3px; }
 .is-chat-page .tabs-more-toggle { min-height: 44px; }
@@ -10293,9 +10288,6 @@ body:has(.app.is-chat-page) { overflow: hidden; }
   .is-chat-page .chat-shell-copy h3 { white-space: nowrap; font-size: var(--text-md); }
   .is-chat-page .chat-shell-header .chat-actions { gap: 5px; }
   .is-chat-page .chat-memory-button, .is-chat-page .chat-suggestions-button { padding: 7px 6px; font-size: var(--text-xs); }
-}
-@media (max-height: 450px) {
-  body:has(.app.is-chat-page) { overflow: auto; }
 }
 @media (max-width: 350px) {
   /* With files on the smallest phone, scroll the message rather than sacrifice history. */

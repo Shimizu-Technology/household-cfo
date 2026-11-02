@@ -18,9 +18,9 @@ module Mia
     end
 
     def self.reviews(household:, user:, membership:, year:, limit:, runtime: nil)
-      records(household.mia_action_drafts.reviewable.for_budget_year(year), user: user, membership: membership, runtime: runtime)
-        .includes(:mia_action_items).recent_first.limit(limit)
-        .map { |draft| HouseholdFinance::MiaActionDraftPresenter.new(draft).call }
+      drafts = records(household.mia_action_drafts.reviewable.for_budget_year(year), user: user, membership: membership, runtime: runtime)
+        .recent_first.limit(limit)
+      HouseholdFinance::MiaActionDraftPresenter.collection(drafts)
     end
     def self.visible?(draft, user:, membership:, runtime: nil)
       origin = draft.source_chat_message&.chat_session

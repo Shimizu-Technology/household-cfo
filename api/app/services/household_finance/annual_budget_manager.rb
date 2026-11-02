@@ -616,10 +616,8 @@ module HouseholdFinance
     end
 
     def pending_mia_action_drafts_payload(budget_year)
-      household.mia_action_drafts.reviewable.for_budget_year(budget_year.year).includes(:mia_action_items)
-        .recent_first
-        .limit(10)
-        .map { |draft| MiaActionDraftPresenter.new(draft).call }
+      drafts = household.mia_action_drafts.reviewable.for_budget_year(budget_year.year).recent_first.limit(10)
+      MiaActionDraftPresenter.collection(drafts)
     end
 
     def recent_transactions_payload(periods)

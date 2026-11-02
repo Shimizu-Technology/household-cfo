@@ -1,7 +1,20 @@
 module HouseholdFinance
   class MiaActionDraftPresenter
-    def initialize(draft)
+    # Load both legacy chat provenance and durable program scope in batches.
+    def self.collection(drafts)
+      records = drafts.to_a
+      ActiveRecord::Associations::Preloader.new(records: records, associations: [
+        :mia_action_items, { source_chat_message: { chat_session: :cohort } },
+        { assistant_chat_message: { chat_session: :cohort } }
+      ]).call
+      ids = records.filter_map { |draft| draft.metadata.to_h.dig("review_program_scope", "cohort_id") }.uniq
+      cohorts = Cohort.where(id: ids).index_by(&:id)
+      records.map { |draft| new(draft, scope_cohorts: cohorts).call }
+    end
+
+    def initialize(draft, scope_cohorts: nil)
       @draft = draft
+      @scope_cohorts = scope_cohorts
     end
 
     def call
@@ -10,10 +23,13 @@ module HouseholdFinance
         status: draft.status,
         draft_type: draft.draft_type,
         record_scope: "household_plan",
-        scope_note: "Household plan — changes here do not approve challenge savings, change the challenge target, or update optional card terms.",
+        scope_note: scope_note,
         year: draft.year,
         title: draft.title,
         summary: draft.summary,
+        headline: MiaActionDraftHeadline.new(draft).call,
+        detail_rows: budget_detail_rows,
+        detail_note: budget_detail_note,
         rationale: draft.rationale,
         source_prompt: draft.source_prompt,
         created_at: draft.created_at&.iso8601,
@@ -33,6 +49,50 @@ module HouseholdFinance
     private
 
     attr_reader :draft
+
+    def scope_note
+      session = draft.source_chat_message&.chat_session || draft.assistant_chat_message&.chat_session
+      cohort = session&.cohort
+      cohort_id = draft.metadata.to_h.dig("review_program_scope", "cohort_id")
+      cohort ||= @scope_cohorts ? @scope_cohorts[cohort_id.to_i] : Cohort.find_by(id: cohort_id) if cohort_id.present?
+      return unless cohort&.savings_challenge_enabled?
+
+      "Household plan — changes here do not approve challenge savings, change the challenge target, or update optional card terms."
+    end
+
+    def budget_detail_rows
+      return unless draft.draft_type == "budget_edit" && draft.mia_action_items.all? { |item| item.action_type == "update_allocation" }
+
+      draft.mia_action_items.flat_map do |item|
+        changes = Array(item.payload["changes"])
+        uniform = changes.map { |row| row.values_at("before_cents", "after_cents") }.uniq.one?
+        (uniform ? changes.first(1) : changes).map do |row|
+          name = item.payload["category_name"] || item.before_snapshot["category_name"]
+          { label: uniform ? name : "#{name} · #{review_month(row["month"])}",
+            before_cents: row["before_cents"], after_cents: row["after_cents"],
+            before: row["before_cents"].nil? ? "Not entered" : compact_money(row["before_cents"]),
+            after: row["after_cents"].nil? ? "Not entered" : compact_money(row["after_cents"]) }
+        end
+      end
+    end
+
+    def compact_money(cents)
+      ActiveSupport::NumberHelper.number_to_currency(Money.dollars(cents), precision: cents % 100 == 0 ? 0 : 2)
+    end
+
+    def budget_detail_note
+      return if budget_detail_rows.nil?
+
+      months = draft.mia_action_items.flat_map { |item| Array(item.payload["changes"]).pluck("month") }.compact.uniq.sort
+      return if months.empty?
+
+      scope = months.length == 12 ? "Every month in #{draft.year}" : months.map { |month| review_month(month) }.to_sentence
+      "#{scope}#{months.length == 12 ? '' : ' only'}. Your actual spending doesn’t change."
+    end
+
+    def review_month(month)
+      Date.new(draft.year, month.to_i).strftime(draft.year == Date.current.year ? "%B" : "%B %Y")
+    end
 
     # Set when an apply was rejected because the saved numbers moved on. Only
     # a reviewable card can be out of date; applied or canceled ones are closed.

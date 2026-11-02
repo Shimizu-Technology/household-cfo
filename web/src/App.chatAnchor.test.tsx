@@ -21,14 +21,14 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.resetAllMocks() })
 
-function setup() {
+function setup(reviewShortcut = false) {
   const chatRef = createRef<HTMLDivElement>()
   const awayRef = { current: false }
   const anchor = vi.fn()
   const setShowScrollButton = vi.fn()
   function History() {
     useMiaEntryAnchor({ active: true, messageKey: 'latest', loading: false, chatRef, awayRef, anchor, setShowScrollButton })
-    return <div ref={chatRef}><button>Load earlier messages</button><img alt="Receipt" /></div>
+    return <section><div ref={chatRef}><button>Load earlier messages</button><img alt="Receipt" /></div>{reviewShortcut && <button>Jump to reviews</button>}</section>
   }
   return { ...render(<History />), awayRef, anchor, setShowScrollButton }
 }
@@ -45,19 +45,35 @@ it('yields to a pointer press before a late entry frame, image load or resize ca
   expect(anchor).not.toHaveBeenCalled()
 })
 
-it('anchors an untouched reply while it settles, then stops observing on departure', () => {
+it('anchors an untouched reply through late media layout, then stops observing on departure', () => {
   const { anchor, setShowScrollButton, awayRef, unmount } = setup()
   const button = screen.getByRole('button')
-  act(() => { frames.forEach(frame => frame(0)); resize([], {} as ResizeObserver) })
+  act(() => { frames.forEach(frame => frame(0)); resize([], {} as ResizeObserver); frames.at(-1)?.(0) })
   expect(anchor).toHaveBeenCalledTimes(2)
   expect(setShowScrollButton).toHaveBeenCalledWith(false)
   act(() => vi.advanceTimersByTime(2500))
-  act(() => resize([], {} as ResizeObserver))
-  expect(anchor).toHaveBeenCalledTimes(2)
+  act(() => { resize([], {} as ResizeObserver); frames.at(-1)?.(0) })
+  expect(anchor).toHaveBeenCalledTimes(3)
   unmount()
   act(() => resize([], {} as ResizeObserver))
   fireEvent.pointerDown(button)
   expect(disconnect).toHaveBeenCalledTimes(1)
   expect(awayRef.current).toBe(false)
-  expect(anchor).toHaveBeenCalledTimes(2)
+  expect(anchor).toHaveBeenCalledTimes(3)
+})
+
+it('keeps a focused review control in place when a late layout update arrives', () => {
+  const { anchor, awayRef } = setup()
+  fireEvent.focusIn(screen.getByRole('button'))
+  act(() => { frames.forEach(frame => frame(0)); resize([], {} as ResizeObserver); frames.at(-1)?.(0) })
+  expect(awayRef.current).toBe(true)
+  expect(anchor).not.toHaveBeenCalled()
+})
+
+it('yields to the review shortcut outside the scrolling history', () => {
+  const { anchor, awayRef } = setup(true)
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'Jump to reviews' }))
+  act(() => { frames.forEach(frame => frame(0)); resize([], {} as ResizeObserver); frames.at(-1)?.(0) })
+  expect(awayRef.current).toBe(true)
+  expect(anchor).not.toHaveBeenCalled()
 })

@@ -254,7 +254,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     item = draft.mia_action_items.sole
     assert_equal "upsert_income_schedule_entry", item.action_type
     assert_equal "2026-07-01", item.payload.fetch("effective_on")
-    assert_includes item.description, "July 2026"
+    assert_includes item.description, "Beginning July:"
     result = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
     assert result.success?, result.inspect
     source.reload

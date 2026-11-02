@@ -50,7 +50,7 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   const salary = await ask(`My salary is $${salaryAmount.toLocaleString('en-US')} now`, 'salary', /review|month|income/i)
   expect(JSON.stringify(salary.mia_action_draft)).toContain(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`)
   const salaryCard = page.locator('.mia-action-draft-card').filter({ hasText: salary.mia_action_draft.title }).last()
-  await salaryCard.getByRole('button', { name: 'Apply reviewed change', exact: true }).click()
+  await salaryCard.getByRole('button', { name: 'Apply change', exact: true }).click()
   await expect(salaryCard).toHaveCount(0, { timeout: 90_000 })
   await page.screenshot({ path: `${evidence}/${label}-salary-applied.png`, fullPage: true })
   const afterSalary = await (await request.get(`${api}/workspace`, { headers })).json()

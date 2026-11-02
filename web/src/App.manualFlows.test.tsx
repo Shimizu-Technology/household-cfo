@@ -184,9 +184,32 @@ describe('out-of-date Mia review cards', () => {
 
   it('keeps a current card applicable with its before and after values', () => {
     render(<MiaActionDraftReviewStack {...props([miaDraft()])} />)
-    expect(screen.getByRole('button', { name: 'Apply reviewed change' })).toBeTruthy()
-    expect(screen.getByText('Pending')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Apply change' })).toBeTruthy()
+    expect(screen.queryByText(/Budget plan · Pending/)).toBeNull()
+    fireEvent.click(screen.getByText('See details'))
     expect(screen.getByText('$1,100')).toBeTruthy()
+  })
+
+  it('keeps details collapsed and exposes Change and Not now without applying', () => {
+    const onEditManually = vi.fn()
+    const onCancel = vi.fn()
+    const onApply = vi.fn()
+    render(<MiaActionDraftReviewStack {...props([miaDraft()], { onEditManually, onCancel, onApply })} />)
+    expect(document.querySelector('details')?.open).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+    expect(onEditManually).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(onCancel).toHaveBeenCalledOnce()
+    expect(onApply).not.toHaveBeenCalled()
+  })
+
+  it('opens the exact manual edit from Change on a single-step plan', () => {
+    const onEditManually = vi.fn()
+    const draft = miaDraft({ draft_type: 'action_plan' })
+    render(<MiaActionDraftReviewStack {...props([draft], { onEditManually })} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+    expect(onEditManually).toHaveBeenCalledWith(draft, draft.items[0])
+    expect(screen.queryByRole('checkbox')).toBeNull()
   })
 
   it('closes a stale card: out of date, no Apply, no old before values, and a fresh-draft path', () => {
@@ -194,9 +217,9 @@ describe('out-of-date Mia review cards', () => {
     const onCancel = vi.fn()
     render(<MiaActionDraftReviewStack {...props([miaDraft({ stale: true, stale_message: 'Budget changed since Mia drafted this.' })], { onAskFresh, onCancel })} />)
 
-    expect(screen.getByText('Out of date')).toBeTruthy()
+    expect(screen.getAllByText('Out of date').length).toBeGreaterThan(0)
     expect(screen.queryByText('Pending')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Apply reviewed change' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Apply change' })).toBeNull()
     expect(screen.queryByText('$1,100')).toBeNull()
     expect(screen.getByText(/can’t be applied\. Nothing was changed\./)).toBeTruthy()
 
@@ -224,4 +247,58 @@ describe('out-of-date Mia review cards', () => {
     render(<MiaActionDraftReviewStack {...props([miaDraft({ status: 'applied', stale: true })])} />)
     expect(screen.queryByText('Out of date')).toBeNull()
   })
+})
+
+it('uses only the structured headline, shares it across placements, and describes every repeated action', () => {
+  const draft = {
+    id: 91, status: 'pending', draft_type: 'budget_edit', year: 2026,
+    title: 'Move planned money', summary: 'A misleading $190 in prose.', rationale: null, source_prompt: null,
+    created_at: null, applied_at: null, canceled_at: null,
+    headline: { amount_cents: 6000, label: 'moved to Repairs & surprises' },
+    detail_rows: [{ label: 'Dining out', before: '$250', after: '$190' }, { label: 'Repairs & surprises', before: '$40', after: '$100' }],
+    detail_note: 'November only. Your actual spending doesn’t change.', items: [],
+  } as MiaActionDraft
+  render(<><MiaActionDraftReviewStack drafts={[draft]} isRealWorkspace action={null} onApply={vi.fn()} onCancel={vi.fn()} onEditManually={vi.fn()} /><MiaActionDraftReviewStack compact drafts={[{ ...draft, id: 92, summary: 'A different $30 sentence.' }]} isRealWorkspace action={null} onApply={vi.fn()} onCancel={vi.fn()} onEditManually={vi.fn()} /></>)
+  expect([...document.querySelectorAll('.mia-change-figure')].map(figure => figure.textContent)).toEqual(['$60', '$60'])
+  const ids = [...document.querySelectorAll('.mia-change-sentence')].map(sentence => sentence.id)
+  expect(new Set(ids).size).toBe(2)
+  document.querySelectorAll('.mia-action-draft-card').forEach((card, index) => {
+    card.querySelectorAll('.mia-action-draft-actions button').forEach(button => expect(button.getAttribute('aria-describedby')).toBe(ids[index]))
+    expect(card.querySelector('.mia-change-details > summary')?.getAttribute('aria-describedby')).toBe(ids[index])
+  })
+  expect(screen.queryByText(/Budget plan · Pending/)).toBeNull()
+  fireEvent.click(screen.getAllByText('See details')[0])
+  expect(screen.getAllByText('Dining out')).toHaveLength(2)
+  expect(screen.getAllByText('$250 → $190')).toHaveLength(2)
+})
+
+it.each([[1200, '$12'], [1250, '$12.50'], [1201, '$12.01'], [0, '$0'], [-1250, '-$12.50'], [123450, '$1,234.50']])('keeps review money at zero or two decimals for %s cents', (cents, expected) => {
+  const draft = { id: 95, status: 'pending', draft_type: 'budget_edit', year: 2026, title: 'Set planned amount', summary: 'Review this change',
+    headline: { amount_cents: cents, label: 'new planned amount' }, detail_rows: [{ label: 'Dining out', before: 'Not entered', after: 'Legacy money', before_cents: null, after_cents: cents }], items: [], rationale: null, source_prompt: null, created_at: null, applied_at: null, canceled_at: null } as MiaActionDraft
+  render(<MiaActionDraftReviewStack drafts={[draft]} isRealWorkspace action={null} onApply={vi.fn()} onCancel={vi.fn()} />)
+  expect(document.querySelector('.mia-change-figure')?.textContent).toBe(expected)
+  expect(document.querySelector('.mia-change-lines')?.textContent).toContain(`Not entered → ${expected}`)
+})
+
+it('does not derive a figure from prose when the server supplies no headline', () => {
+  const draft = { id: 93, status: 'pending', draft_type: 'budget_edit', year: 2026, title: 'Rename', summary: 'Rename the $500 fund', items: [], rationale: null } as unknown as MiaActionDraft
+  render(<MiaActionDraftReviewStack drafts={[draft]} isRealWorkspace action={null} onApply={vi.fn()} onCancel={vi.fn()} />)
+  expect(document.querySelector('.mia-change-figure')).toBeNull()
+})
+
+it('lets a suggested selection disclosure close and reopen while preserving selected changes', async () => {
+  const draft = {
+    id: 94, status: 'pending', draft_type: 'action_plan', year: 2026, title: 'Two changes', summary: 'Two household changes', rationale: null,
+    suggested_selected_item_ids: [1], items: [1, 2].map(id => ({ id, position: id - 1, action_type: 'update_account', label: `Change ${id}`, payload: {}, before_snapshot: {}, after_snapshot: {}, dependencies: [] })),
+  } as unknown as MiaActionDraft
+  render(<MiaActionDraftReviewStack drafts={[draft]} isRealWorkspace action={null} onApply={vi.fn()} onCancel={vi.fn()} />)
+  const details = document.querySelector('details')!
+  expect(details.open).toBe(true)
+  details.open = false
+  fireEvent(details, new Event('toggle'))
+  expect(details.open).toBe(false)
+  details.open = true
+  fireEvent(details, new Event('toggle'))
+  expect((screen.getByRole('checkbox', { name: 'Include Change 1' }) as HTMLInputElement).checked).toBe(true)
+  expect((screen.getByRole('checkbox', { name: 'Include Change 2' }) as HTMLInputElement).checked).toBe(false)
 })

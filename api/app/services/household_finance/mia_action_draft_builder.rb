@@ -208,7 +208,7 @@ module HouseholdFinance
       from_item = allocation_item(from_category, from_changes, "Reduce #{from_category.name} by #{money(amount_cents)}")
       to_item = allocation_item(to_category, to_changes, "Increase #{to_category.name} by #{money(amount_cents)}")
       scope = scope_label(month_numbers)
-      summary = "I drafted a budget move of #{money(amount_cents)} per month from #{from_category.name} to #{to_category.name} for #{scope}."
+      summary = "I drafted a budget move of #{money(amount_cents)} from #{from_category.name} to #{to_category.name} for #{scope}."
       proposal_result(
         title: "Move planned dollars between categories",
         summary: summary,
@@ -763,7 +763,11 @@ module HouseholdFinance
     def scope_label(month_numbers)
       return "every month in #{annual_budget_manager.year}" if month_numbers.length == 12
 
-      month_numbers.map { |month| "#{month_label(month)} #{annual_budget_manager.year}" }.to_sentence
+      month_numbers.map { |month| review_month(Date.new(annual_budget_manager.year, month)) }.to_sentence
+    end
+
+    def review_month(date)
+      date.strftime(date.year == Date.current.year ? "%B" : "%B %Y")
     end
 
     def month_label(month_number)
